@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.2](https://github.com/agntcy/slim/compare/slim-datapath-v0.13.1...slim-datapath-v0.13.2) - 2026-05-13
+
+### Other
+
+- updated the following local packages: agntcy-slim-config, agntcy-slim-tracing
+
+## [0.13.1](https://github.com/agntcy/slim/compare/slim-datapath-v0.13.0...slim-datapath-v0.13.1) - 2026-05-12
+
+### Other
+
+- updated the following local packages: agntcy-slim-config, agntcy-slim-tracing
+
+## [0.13.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.12.3...slim-datapath-v0.13.0) - 2026-05-11
+
+### Added
+
+- recover subscriptions sent from slim server ([#1566](https://github.com/agntcy/slim/pull/1566))
+
+### Fixed
+
+- *(datapath)* break recursive span nesting on reconnection ([#1585](https://github.com/agntcy/slim/pull/1585))
+- implement correct matching behavior ([#1438](https://github.com/agntcy/slim/pull/1438))
+
+### Other
+
+- *(datapath)* gate message OTEL propagation on OTLP config ([#1503](https://github.com/agntcy/slim/pull/1503))
+- *(datapath)* replace Pool bitmap/vec with three-vec design ([#1496](https://github.com/agntcy/slim/pull/1496))
+- *(datapath)* add pool remove and remove+insert cycle benchmarks ([#1529](https://github.com/agntcy/slim/pull/1529))
+
 ## [0.12.3](https://github.com/agntcy/slim/compare/slim-datapath-v0.12.2...slim-datapath-v0.12.3) - 2026-04-21
 
 ### Added

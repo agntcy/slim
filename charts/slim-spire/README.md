@@ -42,3 +42,13 @@ helm upgrade -i <release-name> . \
 ```
 
 The token can also be stored in a pre-existing Secret and referenced via `upstream-spire-agent.joinToken.existingSecret.name`.
+
+## Listing registration entries
+
+On the SPIRE server pod, list all entries the server knows about:
+
+```bash
+kubectl exec -n <namespace> <spire-server-pod> -c spire-server -- spire-server entry list
+```
+
+Use `spire-server entry show -entryID <id>` to print one entry. Paths and container names depend on your chart release; after `helm install`, the release notes often include a `kubectl exec` example tailored to this chart.

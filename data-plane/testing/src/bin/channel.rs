@@ -8,7 +8,7 @@ use slim::config;
 use tracing::{error, info};
 
 use slim_auth::shared_secret::SharedSecret;
-use slim_datapath::messages::{Name, utils::SlimHeaderFlags};
+use slim_datapath::{api::ProtoName as Name, messages::utils::SlimHeaderFlags};
 use slim_session::{Notification, SessionConfig};
 
 #[derive(Parser, Debug)]

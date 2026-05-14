@@ -31,8 +31,8 @@ use tokio::sync::mpsc::{self, unbounded_channel};
 use tokio::task::JoinHandle;
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+use slim_datapath::api::ProtoName as Name;
 use slim_datapath::api::ProtoSessionType;
-use slim_datapath::messages::Name;
 use slim_service::app::App as SlimApp;
 use slim_session::errors::SessionError;
 
@@ -202,12 +202,8 @@ async fn send_invite(session_tx: &SessionTx, member: &Name) -> Result<(), RpcErr
 /// Uses the first two components of `client_name` and a UUID as the third,
 /// so the group address lives in the same namespace as the client app.
 fn generate_group_name(client_name: &Name) -> Name {
-    let parts = client_name.components_strings();
-    Name::from_strings([
-        parts[0].as_str(),
-        parts[1].as_str(),
-        &uuid::Uuid::new_v4().to_string(),
-    ])
+    let (c0, c1, _) = client_name.str_components();
+    Name::from_strings([c0, c1, &uuid::Uuid::new_v4().to_string()])
 }
 
 /// Metadata for the first message of an RPC call.

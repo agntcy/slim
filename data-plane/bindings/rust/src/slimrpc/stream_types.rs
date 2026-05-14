@@ -754,7 +754,7 @@ mod tests {
     async fn test_request_stream() {
         use crate::slimrpc::{ReceivedMessage, StreamSource};
         use futures::StreamExt;
-        use slim_datapath::messages::Name;
+        use slim_datapath::api::ProtoName as Name;
 
         let dummy_name = Name::from_strings(["", "", ""]);
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ReceivedMessage>();

@@ -7,13 +7,10 @@ use std::{pin::Pin, sync::Arc};
 
 use crate::api::DataPlaneServiceServer;
 use display_error_chain::ErrorChainExt;
-use opentelemetry::propagation::{Extractor, Injector};
-use opentelemetry::trace::TraceContextExt;
 use parking_lot::RwLock;
 use slim_config::component::configuration::Configuration;
 use slim_config::grpc::client::ClientConfig;
 use slim_config::grpc::server::ServerConfig;
-use slim_tracing::utils::INSTANCE_ID;
 use tokio::sync::mpsc::{self, Sender};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
@@ -21,8 +18,10 @@ use tokio_stream::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
 
 use tonic::{Request, Response, Status};
-use tracing::{Instrument, Span, debug, error, info};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
+use tracing::{Instrument, debug, error, info};
+
+#[cfg(feature = "otel_tracing")]
+use crate::otel_tracing;
 
 use crate::api::ProtoMessage;
 use crate::api::ProtoPublishType as PublishType;
@@ -30,97 +29,20 @@ use crate::api::ProtoSubscribeType as SubscribeType;
 use crate::api::ProtoSubscriptionAckType as SubscriptionAckType;
 use crate::api::ProtoUnsubscribeType as UnsubscribeType;
 use crate::api::proto::dataplane::v1::Message;
-use crate::api::{
-    LinkNegotiationPayload, ProtoLink, ProtoLinkMessageType as LinkType, ProtoLinkType,
-};
-use semver;
-
 use crate::api::proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
 use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneService;
+use crate::api::{
+    LinkNegotiationPayload, ProtoLink, ProtoLinkMessageType as LinkType, ProtoLinkType, ProtoName,
+};
 use crate::connection::{Channel, Connection, Type as ConnectionType};
 use crate::errors::{DataPathError, MessageContext};
 use crate::forwarder::Forwarder;
-use crate::messages::Name;
 use crate::messages::utils::SlimHeaderFlags;
 use crate::recovery::RecoveryTable;
 use crate::tables::connection_table::ConnectionTable;
 use crate::tables::remote_subscription_table::SubscriptionInfo;
 use crate::tables::subscription_table::SubscriptionTableImpl;
-
-// Implementation based on: https://docs.rs/opentelemetry-tonic/latest/src/opentelemetry_tonic/lib.rs.html#1-134
-struct MetadataExtractor<'a>(&'a std::collections::HashMap<String, String>);
-
-impl Extractor for MetadataExtractor<'_> {
-    fn get(&self, key: &str) -> Option<&str> {
-        self.0.get(key).map(|s| s.as_str())
-    }
-
-    fn keys(&self) -> Vec<&str> {
-        self.0.keys().map(|s| s.as_str()).collect()
-    }
-}
-
-struct MetadataInjector<'a>(&'a mut std::collections::HashMap<String, String>);
-
-impl Injector for MetadataInjector<'_> {
-    fn set(&mut self, key: &str, value: String) {
-        self.0.insert(key.to_string(), value);
-    }
-}
-
-// Helper function to extract the parent OpenTelemetry context from metadata
-fn extract_parent_context(msg: &Message) -> Option<opentelemetry::Context> {
-    let extractor = MetadataExtractor(&msg.metadata);
-    let parent_context =
-        opentelemetry::global::get_text_map_propagator(|propagator| propagator.extract(&extractor));
-
-    if parent_context.span().span_context().is_valid() {
-        Some(parent_context)
-    } else {
-        None
-    }
-}
-
-// Helper function to inject the current OpenTelemetry context into metadata
-fn inject_current_context(msg: &mut Message) {
-    let cx = tracing::Span::current().context();
-    let mut injector = MetadataInjector(&mut msg.metadata);
-    opentelemetry::global::get_text_map_propagator(|propagator| {
-        propagator.inject_context(&cx, &mut injector)
-    });
-}
-
-impl MessageProcessor {
-    // Helper to create the trace span, attached to the processor so it carries service_id
-    fn create_span(&self, function: &str, out_conn: u64, msg: &Message) -> Span {
-        let span = tracing::span!(
-            tracing::Level::INFO,
-            "slim_process_message",
-            function = function,
-            service_id = %self.internal.service_id,
-            source = format!("{}", msg.get_source()),
-            destination = format!("{}", msg.get_dst()),
-            instance_id = %INSTANCE_ID.as_str(),
-            connection_id = out_conn,
-            message_type = msg.get_type().to_string(),
-            telemetry = true
-        );
-
-        if let PublishType(_) = msg.get_type() {
-            span.set_attribute("session_type", msg.get_session_message_type().as_str_name());
-            span.set_attribute(
-                "session_id",
-                msg.get_session_header().get_session_id().to_string(),
-            );
-            span.set_attribute(
-                "message_id",
-                msg.get_session_header().get_message_id().to_string(),
-            );
-        }
-
-        span
-    }
-}
+use semver;
 
 fn local_version() -> &'static str {
     slim_version::version()
@@ -481,31 +403,27 @@ impl MessageProcessor {
         Ok((conn_id, tx1, rx2))
     }
 
-    pub async fn send_msg(&self, mut msg: Message, out_conn: u64) -> Result<(), DataPathError> {
+    pub async fn send_msg(
+        &self,
+        #[cfg(feature = "otel_tracing")] mut msg: Message,
+        #[cfg(not(feature = "otel_tracing"))] msg: Message,
+        out_conn: u64,
+    ) -> Result<(), DataPathError> {
+        #[cfg(feature = "otel_tracing")]
+        otel_tracing::prepare_outbound_msg(
+            &mut msg,
+            "send_message",
+            &self.internal.service_id,
+            otel_tracing::SpanTarget::Connection(out_conn),
+        );
+        self.send_msg_raw(msg, out_conn).await
+    }
+
+    async fn send_msg_raw(&self, mut msg: Message, out_conn: u64) -> Result<(), DataPathError> {
         let connection = self.forwarder().get_connection(out_conn);
         match connection {
             Some(conn) => {
-                // Link and SubscriptionAck messages have no SLIM header: skip header
-                // manipulation and telemetry span creation.
-                if !msg.is_link() && !msg.is_subscription_ack() {
-                    // reset header fields
-                    msg.clear_slim_header();
-
-                    // telemetry ////////////////////////////////////////////////////////
-                    let parent_context = extract_parent_context(&msg);
-                    let span = self.create_span("send_message", out_conn, &msg);
-
-                    if let Some(ctx) = parent_context
-                        && let Err(e) = span.set_parent(ctx)
-                    {
-                        // log the error but don't fail the message sending
-                        error!(error = %e.chain(), "error setting parent context");
-                    }
-                    let _guard = span.enter();
-                    inject_current_context(&mut msg);
-                    ///////////////////////////////////////////////////////////////////
-                }
-
+                msg.clear_slim_header();
                 match conn.channel() {
                     Channel::Server(s) => {
                         s.send(Ok(msg))
@@ -531,16 +449,13 @@ impl MessageProcessor {
 
     async fn match_and_forward_msg(
         &self,
-        msg: Message,
-        name: Name,
+        #[cfg(feature = "otel_tracing")] mut msg: Message,
+        #[cfg(not(feature = "otel_tracing"))] msg: Message,
         in_connection: u64,
         fanout: u32,
     ) -> Result<(), DataPathError> {
-        debug!(
-            %name,
-            %fanout,
-            "match and forward message"
-        );
+        let header = msg.get_slim_header();
+        debug!(name = %header.get_dst(), %fanout, "match and forward message");
 
         // if the message already contains an output connection, use that one
         // without performing any match in the subscription table
@@ -549,25 +464,42 @@ impl MessageProcessor {
             return self.send_msg(msg, val).await;
         }
 
+        let encoded = header.get_encoded_dst();
+
         match self
             .forwarder()
-            .on_publish_msg_match(name, in_connection, fanout)
+            .on_publish_msg_match(encoded, in_connection, fanout)
         {
             Ok(out_vec) => {
-                // in case out_vec.len = 1, do not clone the message.
-                // in the other cases clone only len - 1 times.
-                let mut i = 0;
-                while i < out_vec.len() - 1 {
-                    self.send_msg(msg.clone(), out_vec[i]).await?;
+                let len = out_vec.len();
+                // Single destination: preserve per-connection span attributes.
+                if len == 1 {
+                    return self.send_msg(msg, out_vec[0]).await;
+                }
+
+                #[cfg(feature = "otel_tracing")]
+                otel_tracing::prepare_fanout_msg(
+                    &mut msg,
+                    "send_message",
+                    &self.internal.service_id,
+                    len as u32,
+                );
+
+                let mut i = 0usize;
+                while i < len - 1 {
+                    self.send_msg_raw(msg.clone(), out_vec[i]).await?;
                     i += 1;
                 }
-                self.send_msg(msg, out_vec[i]).await?;
+                self.send_msg_raw(msg, out_vec[i]).await?;
                 Ok(())
             }
-            Err(e) => Err(DataPathError::MessageProcessingError {
-                source: Box::new(e),
-                msg: Box::new(msg),
-            }),
+            Err(e) => {
+                debug!(name = %header.get_dst(), %fanout, error = %e, "no match for publish destination");
+                Err(DataPathError::MessageProcessingError {
+                    source: Box::new(e),
+                    msg: Box::new(msg),
+                })
+            }
         }
     }
 
@@ -724,17 +656,11 @@ impl MessageProcessor {
         );
         //////////////////////////////////////////////////////
 
-        // get header
-        let header = msg.get_slim_header();
-
-        let dst = header.get_dst();
-
         // this function may panic, but at this point we are sure we are processing
         // a publish message
         let fanout = msg.get_fanout();
 
-        self.match_and_forward_msg(msg, dst, in_connection, fanout)
-            .await
+        self.match_and_forward_msg(msg, in_connection, fanout).await
     }
 
     pub(crate) async fn send_subscription_ack(
@@ -1008,23 +934,14 @@ impl MessageProcessor {
             // add incoming connection to the SLIM header
             msg.set_incoming_conn(Some(conn_index));
 
-            // telemetry /////////////////////////////////////////
-            if is_local {
-                let span = self.create_span("process_local", conn_index, &msg);
-                let _guard = span.enter();
-                inject_current_context(&mut msg);
-            } else {
-                let parent_context = extract_parent_context(&msg);
-                let span = self.create_span("process_local", conn_index, &msg);
-                if let Some(ctx) = parent_context
-                    && let Err(e) = span.set_parent(ctx)
-                {
-                    error!(error = %e.chain(), "error setting parent context");
-                }
-                let _guard = span.enter();
-                inject_current_context(&mut msg);
-            }
-            //////////////////////////////////////////////////////
+            #[cfg(feature = "otel_tracing")]
+            otel_tracing::prepare_inbound_msg(
+                &mut msg,
+                "process_local",
+                &self.internal.service_id,
+                conn_index,
+                is_local,
+            );
         }
 
         match self.process_message(msg, conn_index, is_local).await {
@@ -1134,7 +1051,7 @@ impl MessageProcessor {
     /// TTL-expiry path.
     async fn notify_control_plane_subscriptions_lost(
         tx_cp: Option<Sender<Result<Message, Status>>>,
-        local_subs: HashMap<Name, HashSet<u64>>,
+        local_subs: HashMap<ProtoName, HashSet<u64>>,
         conn_index: u64,
     ) {
         let Some(tx) = tx_cp else { return };
@@ -1323,7 +1240,7 @@ impl MessageProcessor {
                                     .into_iter()
                                     .filter(|(name, _)| {
                                         mp.forwarder()
-                                            .on_publish_msg_match(name.clone(), u64::MAX, u32::MAX)
+                                            .on_publish_msg_match(name.name.unwrap(), u64::MAX, u32::MAX)
                                             .is_err()
                                     })
                                     .collect();
@@ -1461,7 +1378,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::api::ProtoSubscriptionAck;
+    use crate::api::{ProtoName, ProtoSubscriptionAck};
     use crate::tables::remote_subscription_table::SubscriptionInfo;
     use tonic::Status;
 
@@ -1471,8 +1388,8 @@ mod tests {
             .register_local_connection(false)
             .expect("failed to create local connection");
 
-        let source = Name::from_strings(["org", "ns", "source"]).with_id(1);
-        let destination = Name::from_strings(["org", "ns", "destination"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "source"]).with_id(1);
+        let destination = ProtoName::from_strings(["org", "ns", "destination"]).with_id(2);
         let ack_id: u64 = if add { 1 } else { 2 };
         let invalid_connection = u64::MAX - 1;
 
@@ -1852,8 +1769,8 @@ mod tests {
         let (remote_conn, mut rx_remote) = make_server_conn(&processor);
         negotiate_conn(&processor, remote_conn, "1.2.0");
 
-        let source = Name::from_strings(["org", "ns", "src"]).with_id(1);
-        let destination = Name::from_strings(["org", "ns", "dst"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "src"]).with_id(1);
+        let destination = ProtoName::from_strings(["org", "ns", "dst"]).with_id(2);
         let upstream_ack_id: u64 = 100;
 
         // Build subscribe: forward_to = remote_conn, with upstream ack ID.
@@ -1929,8 +1846,8 @@ mod tests {
         let (remote_conn, mut rx_remote) = make_server_conn(&processor);
         negotiate_conn(&processor, remote_conn, "1.1.0");
 
-        let source = Name::from_strings(["org", "ns", "src"]).with_id(1);
-        let destination = Name::from_strings(["org", "ns", "dst"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "src"]).with_id(1);
+        let destination = ProtoName::from_strings(["org", "ns", "dst"]).with_id(2);
         let upstream_ack_id: u64 = 101;
 
         let sub_msg = Message::builder()
@@ -1988,8 +1905,8 @@ mod tests {
         let (remote_conn, mut rx_remote) = make_server_conn(&processor);
         negotiate_conn(&processor, remote_conn, "1.2.0");
 
-        let source = Name::from_strings(["org", "ns", "src"]).with_id(1);
-        let destination = Name::from_strings(["org", "ns", "dst"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "src"]).with_id(1);
+        let destination = ProtoName::from_strings(["org", "ns", "dst"]).with_id(2);
         let upstream_ack_id: u64 = 102;
 
         let sub_msg = Message::builder()
@@ -2051,8 +1968,8 @@ mod tests {
     // ── retry_loop tests ──────────────────────────────────────────────────────
 
     fn make_test_subscribe(sub_id: u64) -> Message {
-        let source = Name::from_strings(["org", "ns", "src"]).with_id(1);
-        let destination = Name::from_strings(["org", "ns", "dst"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "src"]).with_id(1);
+        let destination = ProtoName::from_strings(["org", "ns", "dst"]).with_id(2);
         Message::builder()
             .source(source)
             .destination(destination)
@@ -2356,7 +2273,7 @@ mod tests {
     async fn test_notify_cp_subs_lost_sends_unsubscribes() {
         let (tx, mut rx) = mpsc::channel::<Result<Message, Status>>(16);
         let mut subs = HashMap::new();
-        let name = Name::from_strings(["org", "default", "svc"]);
+        let name = ProtoName::from_strings(["org", "default", "svc"]);
         subs.insert(name.clone(), HashSet::from([1u64, 2u64]));
 
         MessageProcessor::notify_control_plane_subscriptions_lost(Some(tx), subs, 42).await;
@@ -2369,7 +2286,7 @@ mod tests {
     #[tokio::test]
     async fn test_notify_cp_subs_lost_no_tx_is_noop() {
         let subs = HashMap::from([(
-            Name::from_strings(["org", "default", "svc"]),
+            ProtoName::from_strings(["org", "default", "svc"]),
             HashSet::from([1u64]),
         )]);
         // Should not panic or hang.
@@ -2393,7 +2310,7 @@ mod tests {
         let (conn_id, _rx) = make_server_conn(&processor);
 
         let link_id = uuid::Uuid::new_v4().to_string();
-        let sub_name = Name::from_strings(["org", "default", "recovered"]);
+        let sub_name = ProtoName::from_strings(["org", "default", "recovered"]);
 
         // Pre-populate the recovery table as if a prior connection dropped.
         let mut local_subs = HashMap::new();
@@ -2415,9 +2332,10 @@ mod tests {
             .unwrap();
 
         // The subscription should have been restored in the routing table.
-        let result = processor
-            .forwarder()
-            .on_publish_msg_match(sub_name, u64::MAX, 1);
+        let result =
+            processor
+                .forwarder()
+                .on_publish_msg_match(sub_name.name.unwrap(), u64::MAX, 1);
         assert!(result.is_ok(), "recovered subscription should be routable");
         assert_eq!(result.unwrap(), vec![conn_id]);
     }
@@ -2428,8 +2346,8 @@ mod tests {
         let (conn_id, mut rx) = make_server_conn(&processor);
 
         let link_id = uuid::Uuid::new_v4().to_string();
-        let source = Name::from_strings(["org", "default", "src"]);
-        let dest = Name::from_strings(["org", "default", "dst"]);
+        let source = ProtoName::from_strings(["org", "default", "src"]);
+        let dest = ProtoName::from_strings(["org", "default", "dst"]);
 
         let remote_sub =
             SubscriptionInfo::new(source.clone(), dest.clone(), "identity".into(), conn_id, 42);
@@ -2488,8 +2406,8 @@ mod tests {
         let processor = MessageProcessor::new();
         let (conn_id, mut rx) = make_server_conn(&processor);
 
-        let source = Name::from_strings(["org", "default", "src"]);
-        let dest = Name::from_strings(["org", "default", "dst"]);
+        let source = ProtoName::from_strings(["org", "default", "src"]);
+        let dest = ProtoName::from_strings(["org", "default", "dst"]);
         let sub = SubscriptionInfo::new(source.clone(), dest.clone(), "id1".into(), conn_id, 7);
         let subs = HashSet::from([sub]);
 
@@ -2513,8 +2431,8 @@ mod tests {
         let processor = MessageProcessor::new();
         let (conn_id, mut rx) = make_server_conn(&processor);
 
-        let source = Name::from_strings(["org", "default", "src"]);
-        let dest = Name::from_strings(["org", "default", "dst"]);
+        let source = ProtoName::from_strings(["org", "default", "src"]);
+        let dest = ProtoName::from_strings(["org", "default", "dst"]);
         let sub = SubscriptionInfo::new(source.clone(), dest.clone(), "id1".into(), conn_id, 7);
         let subs = HashSet::from([sub]);
 

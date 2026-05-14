@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.4.0-rc.0](https://github.com/agntcy/slim/compare/slim-bindings-v1.3.0...slim-bindings-v1.4.0-rc.0) - 2026-04-21
+## [1.4.0](https://github.com/agntcy/slim/compare/slim-bindings-v1.3.0...slim-bindings-v1.4.0) - 2026-04-21
 
 ### Added
 
@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Other
 
-- prepare 1.4.0-rc.0 ([#1530](https://github.com/agntcy/slim/pull/1530))
+- prepare 1.4.0 ([#1530](https://github.com/agntcy/slim/pull/1530))
 
 ## [1.3.0](https://github.com/agntcy/slim/compare/slim-bindings-v1.2.0...slim-bindings-v1.3.0) - 2026-03-31
 

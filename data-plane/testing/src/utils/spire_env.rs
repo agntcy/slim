@@ -25,7 +25,7 @@ use tokio::fs;
 
 const SPIRE_SERVER_IMAGE: &str = "ghcr.io/spiffe/spire-server";
 const SPIRE_AGENT_IMAGE: &str = "ghcr.io/spiffe/spire-agent";
-const SPIRE_VERSION: &str = "1.13.2";
+const SPIRE_VERSION: &str = "1.14.5";
 const TRUST_DOMAIN: &str = "example.org";
 
 /// Test environment for SPIRE server and agent

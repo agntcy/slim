@@ -4,6 +4,148 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## v1.4.0 (13 May 2026)
+
+### Key Highlights
+
+#### 🚀 Features
+
+##### Core
+
+- **Subscription recovery**: Re-establish subscriptions advertised by the SLIM server after a reconnect, restoring routing state without manual intervention ([#1566](https://github.com/agntcy/slim/pull/1566))
+- **Controller connection updates**: Refresh and stabilize the data-plane ↔ control-plane connection management ([#1485](https://github.com/agntcy/slim/pull/1485))
+- **Tower auth middleware using SPIRE**: New tower-based authentication middleware integrated with SPIRE for workload identity ([#1452](https://github.com/agntcy/slim/pull/1452))
+
+##### Bindings
+
+- **JavaScript / TypeScript bindings**: New JS/TS language bindings, including a React Native distribution ([#1146](https://github.com/agntcy/slim/pull/1146), [#1610](https://github.com/agntcy/slim/pull/1610), [#1613](https://github.com/agntcy/slim/pull/1613))
+- UniFFI version updates across language bindings ([#1590](https://github.com/agntcy/slim/pull/1590))
+
+##### SLIMRPC
+
+- **Kotlin SLIMRPC compiler plugin**: New `protoc-gen-slimrpc-kotlin` plugin generating client and server stubs for Kotlin ([#1497](https://github.com/agntcy/slim/pull/1497))
+
+##### Helm Charts
+
+- **slim-spire chart**: New Helm chart for deploying SLIM with SPIRE integration, including a dedicated release pipeline ([#1564](https://github.com/agntcy/slim/pull/1564), [#1569](https://github.com/agntcy/slim/pull/1569))
+- Add southbound ingress and named data-plane ports to the slim chart ([#1536](https://github.com/agntcy/slim/pull/1536))
+- Allow exposing multiple ports via the service ([#1498](https://github.com/agntcy/slim/pull/1498))
+- Add `extraEnv` parameter to the slim chart ([#1491](https://github.com/agntcy/slim/pull/1491))
+- Upgrade SLIM helm chart to latest image version ([#1432](https://github.com/agntcy/slim/pull/1432))
+
+#### ⚡ Performance & Refactoring
+
+- Gate message OTEL propagation on OTLP configuration to avoid overhead when tracing is disabled ([#1503](https://github.com/agntcy/slim/pull/1503))
+- Replace datapath `Pool` bitmap/vec with a three-vec design for better cache behavior ([#1496](https://github.com/agntcy/slim/pull/1496))
+- Add pool `remove` and `remove+insert` cycle benchmarks ([#1529](https://github.com/agntcy/slim/pull/1529))
+- Use `Arc` instead of `Box` for `Name` string storage in the datapath ([#1435](https://github.com/agntcy/slim/pull/1435))
+- Remove the `ring` cryptography dependency ([#1592](https://github.com/agntcy/slim/pull/1592))
+
+#### 🐛 Bug Fixes
+
+##### Core
+
+- Fix matching behavior to align with the documented semantics ([#1438](https://github.com/agntcy/slim/pull/1438))
+- Break recursive span nesting on datapath reconnection ([#1585](https://github.com/agntcy/slim/pull/1585))
+- Fix typo in SPIRE error message ([#1521](https://github.com/agntcy/slim/pull/1521))
+
+##### Bindings
+
+- Use `ChannelInterface` and `ServerInterface` in generated Go stubs ([#1426](https://github.com/agntcy/slim/pull/1426))
+- Remove stray `.classpath` and `.project` files from Java bindings ([#1520](https://github.com/agntcy/slim/pull/1520))
+- Add linters to Go, Java, and Kotlin bindings and generalize tooling ([#1502](https://github.com/agntcy/slim/pull/1502))
+- Fix React Native npm package layout ([#1610](https://github.com/agntcy/slim/pull/1610), [#1613](https://github.com/agntcy/slim/pull/1613))
+
+##### Helm Charts
+
+- Add configmap checksum annotation for automatic pod reload on config change ([#1493](https://github.com/agntcy/slim/pull/1493))
+- Fix slim chart version metadata ([#1538](https://github.com/agntcy/slim/pull/1538))
+
+#### 📦 Packaging & Dependencies
+
+- Upgrade to Tokio 1.52.2 ([#1604](https://github.com/agntcy/slim/pull/1604))
+- Upgrade to SPIRE 0.12 ([#1557](https://github.com/agntcy/slim/pull/1557))
+- Update go-grpc dependency versions ([#1591](https://github.com/agntcy/slim/pull/1591))
+- Bump `rand` to 0.9.3 in the data-plane workspace ([#1499](https://github.com/agntcy/slim/pull/1499))
+
+#### 🔧 Infrastructure & Tooling
+
+- Replace deprecated `go-acc` with the integrated coverage tool ([#1526](https://github.com/agntcy/slim/pull/1526))
+- Fix Helm release workflow ([#1571](https://github.com/agntcy/slim/pull/1571))
+- Download zig from mirrors and use `cp -Rf` in the install task to fix cross-platform builds ([#1606](https://github.com/agntcy/slim/pull/1606), [#1607](https://github.com/agntcy/slim/pull/1607))
+- Use `latest` tag for SLIM images in the scan job ([#1439](https://github.com/agntcy/slim/pull/1439))
+- Remove unused Dockerfile and example task referencing a non-existent binary ([#1559](https://github.com/agntcy/slim/pull/1559), [#1575](https://github.com/agntcy/slim/pull/1575))
+- Update slimctl Homebrew cask to latest ([#1368](https://github.com/agntcy/slim/pull/1368))
+
+### Component Versions Summary
+
+| Component                   | Latest Version | Release Date |
+| --------------------------- | -------------- | ------------ |
+| slim                        | v1.4.0         | 2026-05-13   |
+| slim-bindings               | v1.4.0         | 2026-05-13   |
+| protoc-slimrpc-plugin       | v1.4.0         | 2026-05-13   |
+| slimctl                     | v1.4.0         | 2026-05-13   |
+| control-plane               | v1.4.0         | 2026-05-13   |
+| helm-slim                   | v1.4.1         | 2026-05-13   |
+| helm-slim-control-plane     | v1.4.0         | 2026-05-13   |
+| helm-slim-spire             | v1.4.0         | 2026-05-13   |
+
+### Release Artifacts
+
+- **Container Images**: Available on GitHub Container Registry
+  - `ghcr.io/agntcy/slim:v1.4.0`
+  - `ghcr.io/agntcy/slim-control-plane:v1.4.0`
+- **Python Packages**: Published to PyPI
+  - `slim-bindings==1.4.0`
+- **JavaScript / TypeScript Packages**: Published to npm
+  - `@agntcy/slim-bindings@1.4.0`
+  - `@agntcy/slim-bindings-react-native@1.4.0`
+- **Java Packages**: Published to GitHub Packages (Maven/Gradle)
+  - `io.agntcy:slim-bindings:1.4.0`
+- **Kotlin Packages**: Published to GitHub Packages (Maven/Gradle)
+  - `io.agntcy:slim-bindings-kotlin:1.4.0`
+- **.NET Packages**: Published to NuGet
+  - `Agntcy.Slim==1.4.0`
+- **Rust Crates**: Published to crates.io
+  - `agntcy-slim==1.4.0`
+  - `agntcy-protoc-slimrpc-plugin==1.4.0`
+  - `agntcy-slimctl==1.4.0`
+- **Go Bindings**: Available at [github.com/agntcy/slim-bindings-go](https://github.com/agntcy/slim-bindings-go)
+
+### Compatibility Matrix
+
+All core components with the same major version (v1.x.x) are compatible with each other, with the exception of
+control plane v1.4.0, which requires slim data plane v1.4.0, and viceversa.
+
+| Component                    | Version | Description                                                                           |
+| ---------------------------- | ------- | ------------------------------------------------------------------------------------- |
+| **slim**                     | v1.4.0  | Data plane runtime                                                                    |
+| **slim-bindings**            | v1.4.0  | Python 3.10+, Go 1.21+ (with CGO), Java 21+, Kotlin (JVM 17+), .NET 8.0+, Node.js 20+ |
+| **protoc-slimrpc-plugin**    | v1.4.0  | protoc 3.x+, supports Python, Go, Java, Kotlin, and .NET code generation              |
+| **slimctl**                  | v1.4.0  | CLI tool (Linux x64/arm64, macOS x64/arm64, Windows x64)                              |
+| **control-plane**            | v1.4.0  | Control plane services                                                                |
+| **helm charts**              | v1.4.x  | Kubernetes deployment                                                                 |
+
+#### Compatibility Notes
+
+- **slim-bindings v1.4.0** adds JavaScript / TypeScript bindings (including React Native) alongside the existing Python, Go, Java, Kotlin, and .NET support.
+- **protoc-slimrpc-plugin v1.4.0** adds Kotlin code generation.
+- All SLIM data-plane components remain backward compatible with v1.3.x; the SLIMRPC protocol is unchanged from v1.3.0.
+
+### Migration Notes
+
+#### JavaScript / TypeScript Bindings
+
+JS/TS bindings for SLIM are now available via npm (`@agntcy/slim-bindings`), including a React Native distribution. Refer to the examples under `data-plane/bindings/js/` for usage patterns equivalent to the Python bindings.
+
+#### Kotlin SLIMRPC Plugin
+
+A new `protoc-gen-slimrpc-kotlin` plugin is available for generating SLIMRPC client and server stubs for Kotlin. See the SLIMRPC Kotlin example under the bindings examples for usage.
+
+#### slim-spire Helm Chart
+
+A new `helm-slim-spire` chart is available for deploying SLIM with SPIRE-based workload identity in private environments, where spire federation does not work.
+
 ## v1.3.0 (31 March 2026)
 
 ### Key Highlights

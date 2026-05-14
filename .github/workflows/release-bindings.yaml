@@ -16,8 +16,10 @@ env:
   LIBRARY_NAME: slim_bindings
   GO_BINDINGS_REPO: agntcy/slim-bindings-go
   NUGET_PACKAGE_NAME: Agntcy.Slim
-  UNIFFI_BINDGEN_GO_VERSION: v0.4.0+v0.28.3
-  UNIFFI_BINDGEN_CS_VERSION: v0.9.0+v0.28.3
+  # NordSecurity tag: bindgen targets UniFFI v0.31.x (metadata matches workspace 0.31.1)
+  UNIFFI_BINDGEN_GO_VERSION: v0.7.1+v0.31.0
+  # janosSarusiKis/uniffi-bindgen-cs fork @ main (UniFFI 0.31 workspace)
+  UNIFFI_BINDGEN_CS_VERSION: d788b3ab74f079608515bf24b0bc7fe735f2ea6b
   DOTNET_VERSION: "8.0.x"
 
 jobs:
@@ -57,20 +59,14 @@ jobs:
           echo "📦 Downloaded artifacts:"
           find ./artifacts -type f -ls
 
-      - name: Install LLVM
-        run: |
-          curl -L https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
-          chmod +x /tmp/llvm.sh
-          sudo /tmp/llvm.sh 19
+      - name: Strip native libraries
+        uses: ./.github/actions/strip-libraries
+        with:
+          path: ./artifacts
 
       - name: Prepare release artifacts
         run: |
           mkdir -p ./release-artifacts
-
-          # Strip symbols from dynamic/shared libraries to reduce size
-          echo "Stripping dynamic libraries..."
-          find ./artifacts -type f \( -name "*.so" -o -name "*.dylib" -o -name "*.dll" -o -name "*.lib" \) -exec llvm-strip-19 --strip-unneeded {} \;
-          echo "Stripped .so, .dylib, .dll, .lib files"
 
           # The download-artifact action already organizes files by artifact name
           # Each platform's libraries are in ./artifacts/bindings-<target>/
@@ -105,7 +101,7 @@ jobs:
               done
 
               cd "$platform_dir"
-              zip -r "../../release-artifacts/slim-bindings-${platform_name}.zip" *
+              zip -r "../../release-artifacts/slim-bindings-${platform_name}.zip" .
               cd - > /dev/null
 
               echo "✅ Created slim-bindings-${platform_name}.zip"
@@ -184,7 +180,366 @@ jobs:
       nuget-api-token: ${{ secrets.NUGET_API_TOKEN }}
 
   # ==========================================================================
-  # Job 6: Release Kotlin bindings to GitHub Packages
+  # Job 6: Generate Node bindings once (x86_64 Linux) for use by all pack jobs.
+  # uniffi-bindgen-node must load the .so on the host; we only have native lib for
+  # the runner, so we generate once then pack per target with each target's lib.
+  # ==========================================================================
+  generate-node-bindings-once:
+    name: Generate Node bindings (once)
+    runs-on: ubuntu-latest
+    needs:
+      - build-and-test-bindings
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ./data-plane
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '20'
+          # Release workflow: disable GHA npm cache (zizmor cache-poisoning / trusted tag builds only).
+          package-manager-cache: false
+
+      - name: Setup Task
+        uses: ./.github/actions/setup-task
+
+      - name: Download library artifact (x86_64 Linux)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bindings-x86_64-unknown-linux-gnu
+          path: .
+
+      - name: Place library for Node generate
+        run: |
+          RELEASE_DIR="data-plane/target/x86_64-unknown-linux-gnu/release"
+          mkdir -p "$RELEASE_DIR"
+          if [ -n "$(find "$RELEASE_DIR" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+            echo "Library files (from artifact path):"
+            find "$RELEASE_DIR" -maxdepth 1 ! -path "$RELEASE_DIR" -ls
+            exit 0
+          fi
+          find . -type f \( -name 'libslim_bindings*.so' -o -name 'slim_bindings*.so' \) -exec cp -v {} "$RELEASE_DIR/" \; 2>/dev/null
+          [ -n "$(find "$RELEASE_DIR" -mindepth 1 -print -quit 2>/dev/null)" ] || { echo "No library files found."; find . -maxdepth 4 -ls 2>/dev/null | head -80; exit 1; }
+          echo "Library files (copied):"
+          find "$RELEASE_DIR" -maxdepth 1 ! -path "$RELEASE_DIR" -ls
+
+      - name: Generate Node bindings
+        working-directory: ./data-plane/bindings/node
+        run: |
+          npm install
+          task generate TARGET=x86_64-unknown-linux-gnu
+
+      - name: Upload generated bindings
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: node-generated-bindings
+          path: ./data-plane/bindings/node/generated/
+
+  # ==========================================================================
+  # Job 7: Build Node platform packages (matrix: one per target with .so/.dylib/.dll).
+  # Uses pre-generated bindings + each target's library (no uniffi-bindgen-node on non-native libs).
+  # musl excluded: Rust build produces only static .a for musl, no .so.
+  # ==========================================================================
+  build-node-packages:
+    name: Node ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    needs:
+      - build-and-test-bindings
+      - generate-node-bindings-once
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-apple-darwin
+          - x86_64-apple-darwin
+          - x86_64-pc-windows-msvc
+          - aarch64-unknown-linux-gnu
+          - aarch64-pc-windows-msvc
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Get bindings version
+        id: version
+        run: echo "version=$(bash .github/scripts/get-binding-version.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '20'
+          package-manager-cache: false
+
+      - name: Setup Task
+        uses: ./.github/actions/setup-task
+
+      - name: Download generated bindings
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: node-generated-bindings
+          path: ./data-plane/bindings/node/generated/
+
+      - name: Download library artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bindings-${{ matrix.target }}
+          path: .
+
+      - name: Place library for Node pack
+        run: |
+          RELEASE_DIR="data-plane/target/${{ matrix.target }}/release"
+          mkdir -p "$RELEASE_DIR"
+          if [ -n "$(find "$RELEASE_DIR" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+            echo "Library files (from artifact path):"
+            find "$RELEASE_DIR" -maxdepth 1 ! -path "$RELEASE_DIR" -ls
+            exit 0
+          fi
+          TARGET="${{ matrix.target }}"
+          case "$TARGET" in
+            *-apple-darwin)
+              find . -type f \( -name 'libslim_bindings*.dylib' -o -name 'slim_bindings*.dylib' \) -exec cp -v {} "$RELEASE_DIR/" \;
+              ;;
+            *-linux-gnu|*-linux-musl)
+              find . -type f \( -name 'libslim_bindings*.so' -o -name 'slim_bindings*.so' \) -exec cp -v {} "$RELEASE_DIR/" \;
+              ;;
+            *-windows-msvc|*-windows-gnu)
+              find . -type f \( -name 'slim_bindings*.dll' -o -name '*slim_bindings*.dll' \) -exec cp -v {} "$RELEASE_DIR/" \;
+              ;;
+            *)
+              find . -name '*slim_bindings*' -type f -exec cp -v {} "$RELEASE_DIR/" \; 2>/dev/null
+              ;;
+          esac
+          if [ -n "$(find "$RELEASE_DIR" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+            echo "Library files (copied):"
+            find "$RELEASE_DIR" -maxdepth 1 ! -path "$RELEASE_DIR" -ls
+            exit 0
+          fi
+          echo "No library files found after download."
+          find . -maxdepth 4 -ls 2>/dev/null | head -80
+          exit 1
+
+      - name: Strip native libraries
+        uses: ./.github/actions/strip-libraries
+        with:
+          path: data-plane/target/${{ matrix.target }}/release
+          max-depth: '1'
+
+      - name: Pack Node platform package
+        working-directory: ./data-plane/bindings/node
+        run: |
+          npm install
+          task pack:platform:from-artifacts TARGET=${{ matrix.target }} VERSION=${{ steps.version.outputs.version }}
+
+      - name: Upload Node platform package
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: node-platform-${{ matrix.target }}
+          path: ./data-plane/bindings/node/dist/node-*.tgz
+
+  # ==========================================================================
+  # Job 8: Publish Node platform packages to npm
+  # ==========================================================================
+  publish-node-platform-packages:
+    name: Publish Node platform packages
+    runs-on: ubuntu-latest
+    needs: build-node-packages
+    permissions:
+      contents: read
+    steps:
+      - name: Download all Node platform artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: ./node-packages
+          pattern: node-platform-*
+
+      - name: Configure npm auth
+        run: echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish to npm
+        run: |
+          for tgz in ./node-packages/node-platform-*/*.tgz; do
+            [ -f "$tgz" ] || continue
+            echo "Publishing $tgz..."
+            npm publish "$tgz" --access public
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ==========================================================================
+  # Job 9: Publish Node main package to npm
+  # Uses pre-generated bindings from generate-node-bindings-once; only emits types and publishes.
+  # ==========================================================================
+  publish-node-main:
+    name: Publish Node main package
+    runs-on: ubuntu-latest
+    needs:
+      - publish-node-platform-packages
+      - generate-node-bindings-once
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Get bindings version
+        id: version
+        run: echo "version=$(bash .github/scripts/get-binding-version.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '20'
+          package-manager-cache: false
+
+      - name: Setup Task
+        uses: ./.github/actions/setup-task
+
+      - name: Download generated bindings
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: node-generated-bindings
+          path: ./data-plane/bindings/node/generated/
+
+      - name: Emit types and prepare package
+        working-directory: ./data-plane/bindings/node
+        run: |
+          npm install
+          task emit-types
+
+      - name: Set version in package.json
+        working-directory: ./data-plane/bindings/node
+        env:
+          BINDINGS_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          npm pkg set version="${BINDINGS_VERSION}"
+          node -e "
+            const pkg = require('./package.json');
+            const v = process.env.BINDINGS_VERSION;
+            const opt = pkg.optionalDependencies || {};
+            for (const k of Object.keys(opt)) opt[k] = v;
+            pkg.optionalDependencies = opt;
+            require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+          "
+
+      - name: Configure npm auth
+        working-directory: ./data-plane/bindings/node
+        run: echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish main package to npm
+        working-directory: ./data-plane/bindings/node
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ==========================================================================
+  # Job 10: Build and publish React Native bindings to npm
+  # Runs on mac to build iOS static lib; requires NPM_TOKEN.
+  # ==========================================================================
+  publish-react-native:
+    name: Publish React Native to npm
+    runs-on: macos-15
+    needs:
+      - build-and-test-bindings
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Get bindings version
+        id: version
+        run: echo "version=$(bash .github/scripts/get-binding-version.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ./data-plane
+
+      - name: Setup Task
+        uses: ./.github/actions/setup-task
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Build iOS static libs (device + simulator)
+        id: build-ios
+        working-directory: ./data-plane/bindings/react-native
+        env:
+          # Required for ___chkstk_darwin: aws-lc-sys and linker need iOS 13.4+
+          IPHONEOS_DEPLOYMENT_TARGET: "13.4"
+          # Force linker wrapper via absolute path (Task's TASKFILE_DIR can differ on CI)
+          CARGO_TARGET_AARCH64_APPLE_IOS_LINKER: "${{ github.workspace }}/data-plane/.cargo/clang-ios-linker-wrapper.sh"
+          CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER: "${{ github.workspace }}/data-plane/.cargo/clang-ios-linker-wrapper.sh"
+        run: |
+          chmod +x "${{ github.workspace }}/data-plane/.cargo/clang-ios-linker-wrapper.sh"
+          rm -f /tmp/linker-args.log
+          _sim_sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          BINDGEN_EXTRA_CLANG_ARGS="-isysroot ${_sim_sdk} -target arm64-apple-ios15.0-simulator"
+          export BINDGEN_EXTRA_CLANG_ARGS
+          task adapter:bindings:build:all TARGET=aarch64-apple-ios-sim PROFILE=release
+          _ios_sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
+          BINDGEN_EXTRA_CLANG_ARGS="-isysroot ${_ios_sdk} -target arm64-apple-ios15.0"
+          export BINDGEN_EXTRA_CLANG_ARGS
+          task adapter:bindings:build:all TARGET=aarch64-apple-ios PROFILE=release
+
+      - name: Vendor iOS libs and create XCFramework
+        working-directory: ./data-plane/bindings/react-native
+        run: |
+          task vendor:ios
+          task xcframework:ios
+
+      - name: Generate bindings
+        working-directory: ./data-plane/bindings/react-native
+        env:
+          CARGO_TARGET_AARCH64_APPLE_IOS_SIM_LINKER: "${{ github.workspace }}/data-plane/.cargo/clang-ios-linker-wrapper.sh"
+          IPHONEOS_DEPLOYMENT_TARGET: "13.4"
+        run: |
+          _sim_sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          BINDGEN_EXTRA_CLANG_ARGS="-isysroot ${_sim_sdk} -target arm64-apple-ios15.0-simulator"
+          export BINDGEN_EXTRA_CLANG_ARGS
+          task generate TARGET=aarch64-apple-ios-sim
+
+      - name: Set version in package.json
+        working-directory: ./data-plane/bindings/react-native
+        env:
+          BINDINGS_VERSION: ${{ steps.version.outputs.version }}
+        run: npm pkg set version="${BINDINGS_VERSION}"
+
+      - name: Configure npm auth
+        working-directory: ./data-plane/bindings/react-native
+        run: echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish to npm
+        working-directory: ./data-plane/bindings/react-native
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ==========================================================================
+  # Job 6b: Release Kotlin bindings to GitHub Packages
   # ==========================================================================
   release-kotlin-bindings:
     name: "Release Kotlin Bindings"

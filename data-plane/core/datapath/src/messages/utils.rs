@@ -4,7 +4,6 @@
 use std::fmt::Display;
 use std::{collections::HashMap, time::Duration};
 
-use super::encoder::Name;
 use crate::api::proto::dataplane::v1::{GroupClosePayload, GroupNackPayload, PingPayload};
 use crate::api::{
     Content, LinkNegotiationPayload, MessageType, ProtoLink, ProtoLinkMessageType, ProtoLinkType,
@@ -15,7 +14,7 @@ use crate::api::{
         ApplicationPayload, CommandPayload, DiscoveryReplyPayload, DiscoveryRequestPayload,
         EncodedName, GroupAckPayload, GroupAddPayload, GroupProposalPayload, GroupRemovePayload,
         GroupWelcomePayload, JoinReplyPayload, JoinRequestPayload, LeaveReplyPayload,
-        LeaveRequestPayload, MlsPayload, SessionMessageType, StringName, TimerSettings,
+        LeaveRequestPayload, MlsPayload, SessionMessageType, TimerSettings,
         command_payload::CommandPayloadType, content::ContentType,
     },
 };
@@ -65,8 +64,12 @@ pub enum MessageError {
     SlimHeaderNotFound,
     #[error("source not found")]
     SourceNotFound,
+    #[error("source encoded name not found")]
+    SourceEncodedNameNotFound,
     #[error("destination not found")]
     DestinationNotFound,
+    #[error("destination encoded name not found")]
+    DestinationEncodedNameNotFound,
     #[error("session header not found")]
     SessionHeaderNotFound,
     #[error("message type not found")]
@@ -92,25 +95,6 @@ pub enum MessageError {
     BuilderErrorSourceRequired,
     #[error("builder error: destination is required")]
     BuilderErrorDestinationRequired,
-}
-
-/// ProtoName from Name
-impl From<&Name> for ProtoName {
-    fn from(name: &Name) -> Self {
-        Self {
-            name: Some(EncodedName {
-                component_0: name.components()[0],
-                component_1: name.components()[1],
-                component_2: name.components()[2],
-                component_3: name.components()[3],
-            }),
-            str_name: Some(StringName {
-                str_component_0: name.components_strings()[0].clone(),
-                str_component_1: name.components_strings()[1].clone(),
-                str_component_2: name.components_strings()[2].clone(),
-            }),
-        }
-    }
 }
 
 /// Print message type
@@ -213,8 +197,8 @@ impl SlimHeaderFlags {
 /// and to manage the connections used to send and receive the message
 impl SlimHeader {
     pub fn new(
-        source: &Name,
-        destination: &Name,
+        source: ProtoName,
+        destination: ProtoName,
         identity: &str,
         flags: Option<SlimHeaderFlags>,
     ) -> Self {
@@ -270,30 +254,32 @@ impl SlimHeader {
         self.error
     }
 
-    pub fn get_source(&self) -> Name {
-        match &self.source {
-            Some(source) => Name::from(source),
-            None => panic!("source not found"),
-        }
+    pub fn get_source(&self) -> ProtoName {
+        self.source.clone().expect("source not found")
     }
 
-    pub fn get_dst(&self) -> Name {
-        match &self.destination {
-            Some(destination) => Name::from(destination),
-            None => panic!("destination not found"),
-        }
+    pub fn get_encoded_source(&self) -> EncodedName {
+        self.source.as_ref().unwrap().name.unwrap()
+    }
+
+    pub fn get_dst(&self) -> ProtoName {
+        self.destination.clone().expect("destination not found")
+    }
+
+    pub fn get_encoded_dst(&self) -> EncodedName {
+        self.destination.as_ref().unwrap().name.unwrap()
     }
 
     pub fn get_identity(&self) -> String {
         self.identity.clone()
     }
 
-    pub fn set_source(&mut self, source: &Name) {
-        self.source = Some(ProtoName::from(source));
+    pub fn set_source(&mut self, source: ProtoName) {
+        self.source = Some(source);
     }
 
-    pub fn set_destination(&mut self, dst: &Name) {
-        self.destination = Some(ProtoName::from(dst));
+    pub fn set_destination(&mut self, dst: ProtoName) {
+        self.destination = Some(dst);
     }
 
     pub fn set_identity(&mut self, identity: String) {
@@ -404,8 +390,8 @@ impl SessionMessageType {
 /// This message is used to subscribe to a topic
 impl ProtoSubscribe {
     fn new(
-        source: &Name,
-        dst: &Name,
+        source: ProtoName,
+        dst: ProtoName,
         identity: Option<&str>,
         flags: Option<SlimHeaderFlags>,
     ) -> Self {
@@ -433,8 +419,8 @@ impl From<ProtoMessage> for ProtoSubscribe {
 /// This message is used to unsubscribe from a topic
 impl ProtoUnsubscribe {
     fn new(
-        source: &Name,
-        dst: &Name,
+        source: ProtoName,
+        dst: ProtoName,
         identity: Option<&str>,
         flags: Option<SlimHeaderFlags>,
     ) -> Self {
@@ -559,11 +545,17 @@ impl ProtoMessage {
     }
 
     fn validate_routed_header(slim_header: &SlimHeader) -> Result<(), MessageError> {
-        if slim_header.source.is_none() {
-            return Err(MessageError::SourceNotFound);
+        match &slim_header.source {
+            None => return Err(MessageError::SourceNotFound),
+            Some(src) if src.name.is_none() => return Err(MessageError::SourceEncodedNameNotFound),
+            _ => {}
         }
-        if slim_header.destination.is_none() {
-            return Err(MessageError::DestinationNotFound);
+        match &slim_header.destination {
+            None => return Err(MessageError::DestinationNotFound),
+            Some(dst) if dst.name.is_none() => {
+                return Err(MessageError::DestinationEncodedNameNotFound);
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -707,12 +699,20 @@ impl ProtoMessage {
         self.get_session_header().get_message_id()
     }
 
-    pub fn get_source(&self) -> Name {
+    pub fn get_source(&self) -> ProtoName {
         self.get_slim_header().get_source()
     }
 
-    pub fn get_dst(&self) -> Name {
+    pub fn get_encoded_source(&self) -> EncodedName {
+        self.get_slim_header().get_encoded_source()
+    }
+
+    pub fn get_dst(&self) -> ProtoName {
         self.get_slim_header().get_dst()
+    }
+
+    pub fn get_encoded_dst(&self) -> EncodedName {
+        self.get_slim_header().get_encoded_dst()
     }
 
     pub fn get_identity(&self) -> String {
@@ -845,6 +845,10 @@ impl ProtoMessage {
 
     pub fn is_subscription_ack(&self) -> bool {
         matches!(self.get_type(), MessageType::SubscriptionAck(_))
+    }
+
+    pub fn is_traceable(&self) -> bool {
+        !self.is_link() && !self.is_subscription_ack()
     }
 
     pub fn get_subscription_ack(&self) -> &ProtoSubscriptionAck {
@@ -1042,19 +1046,19 @@ impl AsRef<ProtoPublish> for ProtoMessage {
 /// ## Discovery Request
 /// ```
 /// use slim_datapath::api::CommandPayload;
-/// use slim_datapath::messages::Name;
+/// use slim_datapath::api::ProtoName;
 ///
-/// let dest = Name::from_strings(["org", "namespace", "service"]);
+/// let dest = ProtoName::from_strings(["org", "namespace", "service"]);
 /// let payload = CommandPayload::builder().discovery_request(Some(dest));
 /// ```
 ///
 /// ## Join Request with Timer Settings
 /// ```
 /// use slim_datapath::api::CommandPayload;
-/// use slim_datapath::messages::Name;
+/// use slim_datapath::api::ProtoName;
 /// use std::time::Duration;
 ///
-/// let channel = Name::from_strings(["org", "namespace", "channel"]);
+/// let channel = ProtoName::from_strings(["org", "namespace", "channel"]);
 /// let payload = CommandPayload::builder().join_request(
 ///     true,  // enable_mls
 ///     Some(5),  // max_retries
@@ -1066,12 +1070,12 @@ impl AsRef<ProtoPublish> for ProtoMessage {
 /// ## Group Operations
 /// ```
 /// use slim_datapath::api::CommandPayload;
-/// use slim_datapath::messages::Name;
+/// use slim_datapath::api::ProtoName;
 ///
-/// let participant = Name::from_strings(["org", "ns", "user1"]);
+/// let participant = ProtoName::from_strings(["org", "ns", "user1"]);
 /// let participants = vec![
-///     Name::from_strings(["org", "ns", "user2"]),
-///     Name::from_strings(["org", "ns", "user3"]),
+///     ProtoName::from_strings(["org", "ns", "user2"]),
+///     ProtoName::from_strings(["org", "ns", "user3"]),
 /// ];
 ///
 /// // Add participant
@@ -1090,11 +1094,8 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a discovery request payload
-    pub fn discovery_request(self, destination: Option<Name>) -> CommandPayload {
-        let proto_destination = destination.as_ref().map(ProtoName::from);
-        let payload = DiscoveryRequestPayload {
-            destination: proto_destination,
-        };
+    pub fn discovery_request(self, destination: Option<ProtoName>) -> CommandPayload {
+        let payload = DiscoveryRequestPayload { destination };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::DiscoveryRequest(payload)),
         }
@@ -1114,9 +1115,9 @@ impl CommandPayloadBuilder {
         enable_mls: bool,
         max_retries: Option<u32>,
         timer_duration: Option<Duration>,
-        channel: Option<Name>,
+        channel: Option<ProtoName>,
     ) -> CommandPayload {
-        let proto_channel = channel.as_ref().map(ProtoName::from);
+        let proto_channel = channel;
 
         let timer_settings = if let Some(t) = timer_duration
             && let Some(m) = max_retries
@@ -1148,11 +1149,8 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a leave request payload
-    pub fn leave_request(self, destination: Option<Name>) -> CommandPayload {
-        let proto_destination = destination.as_ref().map(ProtoName::from);
-        let payload = LeaveRequestPayload {
-            destination: proto_destination,
-        };
+    pub fn leave_request(self, destination: Option<ProtoName>) -> CommandPayload {
+        let payload = LeaveRequestPayload { destination };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::LeaveRequest(payload)),
         }
@@ -1169,16 +1167,13 @@ impl CommandPayloadBuilder {
     /// Creates a group add payload
     pub fn group_add(
         self,
-        new_participant: Name,
-        participants: Vec<Name>,
+        new_participant: ProtoName,
+        participants: Vec<ProtoName>,
         mls: Option<MlsPayload>,
     ) -> CommandPayload {
-        let proto_new_participant = Some(ProtoName::from(&new_participant));
-        let proto_participants = participants.iter().map(ProtoName::from).collect();
-
         let payload = GroupAddPayload {
-            new_participant: proto_new_participant,
-            participants: proto_participants,
+            new_participant: Some(new_participant),
+            participants,
             mls,
         };
         CommandPayload {
@@ -1189,16 +1184,13 @@ impl CommandPayloadBuilder {
     /// Creates a group remove payload
     pub fn group_remove(
         self,
-        removed_participant: Name,
-        participants: Vec<Name>,
+        removed_participant: ProtoName,
+        participants: Vec<ProtoName>,
         mls: Option<MlsPayload>,
     ) -> CommandPayload {
-        let proto_removed_participant = Some(ProtoName::from(&removed_participant));
-        let proto_participants = participants.iter().map(ProtoName::from).collect();
-
         let payload = GroupRemovePayload {
-            removed_participant: proto_removed_participant,
-            participants: proto_participants,
+            removed_participant: Some(removed_participant),
+            participants,
             mls,
         };
         CommandPayload {
@@ -1207,35 +1199,33 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a group welcome payload
-    pub fn group_welcome(self, participants: Vec<Name>, mls: Option<MlsPayload>) -> CommandPayload {
-        let proto_participants = participants.iter().map(ProtoName::from).collect();
-
-        let payload = GroupWelcomePayload {
-            participants: proto_participants,
-            mls,
-        };
+    pub fn group_welcome(
+        self,
+        participants: Vec<ProtoName>,
+        mls: Option<MlsPayload>,
+    ) -> CommandPayload {
+        let payload = GroupWelcomePayload { participants, mls };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::GroupWelcome(payload)),
         }
     }
 
     /// Creates a group close payload
-    pub fn group_close(self, participants: Vec<Name>) -> CommandPayload {
-        let proto_participants = participants.iter().map(ProtoName::from).collect();
-
-        let payload = GroupClosePayload {
-            participants: proto_participants,
-        };
+    pub fn group_close(self, participants: Vec<ProtoName>) -> CommandPayload {
+        let payload = GroupClosePayload { participants };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::GroupClose(payload)),
         }
     }
 
     /// Creates a group proposal payload
-    pub fn group_proposal(self, source: Option<Name>, mls_proposal: Vec<u8>) -> CommandPayload {
-        let proto_source = source.as_ref().map(ProtoName::from);
+    pub fn group_proposal(
+        self,
+        source: Option<ProtoName>,
+        mls_proposal: Vec<u8>,
+    ) -> CommandPayload {
         let payload = GroupProposalPayload {
-            source: proto_source,
+            source,
             mls_proposal,
         };
         CommandPayload {
@@ -1288,10 +1278,10 @@ impl CommandPayload {
 /// ## Basic Publish Message
 /// ```
 /// use slim_datapath::api::{ProtoMessage, ProtoSessionType};
-/// use slim_datapath::messages::Name;
+/// use slim_datapath::api::ProtoName;
 ///
-/// let source = Name::from_strings(["org", "ns", "app"]).with_id(1);
-/// let dest = Name::from_strings(["org", "ns", "service"]).with_id(2);
+/// let source = ProtoName::from_strings(["org", "ns", "app"]).with_id(1);
+/// let dest = ProtoName::from_strings(["org", "ns", "service"]).with_id(2);
 ///
 /// let msg = ProtoMessage::builder()
 ///     .source(source)
@@ -1306,10 +1296,10 @@ impl CommandPayload {
 /// ## Session Control Message
 /// ```
 /// use slim_datapath::api::{CommandPayload, ProtoMessage, ProtoSessionType, ProtoSessionMessageType};
-/// use slim_datapath::messages::Name;
+/// use slim_datapath::api::ProtoName;
 ///
-/// let source = Name::from_strings(["org", "ns", "app"]);
-/// let dest = Name::from_strings(["org", "ns", "service"]);
+/// let source = ProtoName::from_strings(["org", "ns", "app"]);
+/// let dest = ProtoName::from_strings(["org", "ns", "service"]);
 ///
 /// let cmd = CommandPayload::builder().discovery_request(Some(dest.clone()));
 ///
@@ -1327,10 +1317,10 @@ impl CommandPayload {
 /// ## Multicast with Broadcast
 /// ```
 /// use slim_datapath::api::{ProtoMessage, ProtoSessionType};
-/// use slim_datapath::messages::Name;
+/// use slim_datapath::api::ProtoName;
 ///
-/// let source = Name::from_strings(["org", "ns", "app"]);
-/// let dest = Name::from_strings(["org", "ns", "channel"]);
+/// let source = ProtoName::from_strings(["org", "ns", "app"]);
+/// let dest = ProtoName::from_strings(["org", "ns", "channel"]);
 ///
 /// let msg = ProtoMessage::builder()
 ///     .source(source)
@@ -1346,10 +1336,10 @@ impl CommandPayload {
 /// ## Subscribe/Unsubscribe Messages
 /// ```
 /// use slim_datapath::api::ProtoMessage;
-/// use slim_datapath::messages::Name;
+/// use slim_datapath::api::ProtoName;
 ///
-/// let source = Name::from_strings(["org", "ns", "app"]);
-/// let dest = Name::from_strings(["org", "ns", "topic"]);
+/// let source = ProtoName::from_strings(["org", "ns", "app"]);
+/// let dest = ProtoName::from_strings(["org", "ns", "topic"]);
 ///
 /// // Subscribe
 /// let sub_msg = ProtoMessage::builder()
@@ -1367,8 +1357,8 @@ impl CommandPayload {
 ///     .unwrap();
 /// ```
 pub struct ProtoMessageBuilder {
-    source: Option<Name>,
-    destination: Option<Name>,
+    source: Option<ProtoName>,
+    destination: Option<ProtoName>,
     identity: Option<String>,
     flags: Option<SlimHeaderFlags>,
     session_type: Option<ProtoSessionType>,
@@ -1399,13 +1389,13 @@ impl ProtoMessageBuilder {
     }
 
     /// Sets the source name
-    pub fn source(mut self, source: Name) -> Self {
+    pub fn source(mut self, source: ProtoName) -> Self {
         self.source = Some(source);
         self
     }
 
     /// Sets the destination name
-    pub fn destination(mut self, destination: Name) -> Self {
+    pub fn destination(mut self, destination: ProtoName) -> Self {
         self.destination = Some(destination);
         self
     }
@@ -1506,11 +1496,11 @@ impl ProtoMessageBuilder {
     /// For most cases, prefer using the individual builder methods like `source()`, `destination()`, etc.
     pub fn with_slim_header(mut self, header: SlimHeader) -> Self {
         // Extract fields from the header
-        if let Some(src) = &header.source {
-            self.source = Some(Name::from(src));
+        if let Some(src) = header.source.clone() {
+            self.source = Some(src);
         }
-        if let Some(dst) = &header.destination {
-            self.destination = Some(Name::from(dst));
+        if let Some(dst) = header.destination.clone() {
+            self.destination = Some(dst);
         }
         if !header.identity.is_empty() {
             self.identity = Some(header.identity.clone());
@@ -1574,8 +1564,8 @@ impl ProtoMessageBuilder {
             .ok_or(MessageError::BuilderErrorDestinationRequired)?;
 
         let slim_header = Some(SlimHeader::new(
-            &source,
-            &destination,
+            source,
+            destination,
             self.identity.as_deref().unwrap_or(""),
             self.flags,
         ));
@@ -1610,7 +1600,7 @@ impl ProtoMessageBuilder {
             .ok_or(MessageError::BuilderErrorDestinationRequired)?;
 
         let mut subscribe =
-            ProtoSubscribe::new(&source, &destination, self.identity.as_deref(), self.flags);
+            ProtoSubscribe::new(source, destination, self.identity.as_deref(), self.flags);
         subscribe.subscription_id = self.subscription_id.unwrap_or_default();
 
         Ok(ProtoMessage::new(
@@ -1629,7 +1619,7 @@ impl ProtoMessageBuilder {
             .ok_or(MessageError::BuilderErrorDestinationRequired)?;
 
         let mut unsubscribe =
-            ProtoUnsubscribe::new(&source, &destination, self.identity.as_deref(), self.flags);
+            ProtoUnsubscribe::new(source, destination, self.identity.as_deref(), self.flags);
         unsubscribe.subscription_id = self.subscription_id.unwrap_or_default();
 
         Ok(ProtoMessage::new(
@@ -1697,8 +1687,8 @@ mod tests {
 
     fn test_subscription_template(
         subscription: bool,
-        source: Name,
-        dst: Name,
+        source: ProtoName,
+        dst: ProtoName,
         identity: Option<&str>,
         flags: Option<SlimHeaderFlags>,
     ) {
@@ -1740,8 +1730,8 @@ mod tests {
     }
 
     fn test_publish_template(
-        source: Name,
-        dst: Name,
+        source: ProtoName,
+        dst: ProtoName,
         identity: Option<&str>,
         flags: Option<SlimHeaderFlags>,
     ) {
@@ -1780,8 +1770,8 @@ mod tests {
 
     #[test]
     fn test_subscription() {
-        let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
-        let dst = Name::from_strings(["org", "ns", "type"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "type"]).with_id(1);
+        let dst = ProtoName::from_strings(["org", "ns", "type"]).with_id(2);
 
         // simple
         test_subscription_template(true, source.clone(), dst.clone(), None, None);
@@ -1810,8 +1800,8 @@ mod tests {
 
     #[test]
     fn test_unsubscription() {
-        let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
-        let dst = Name::from_strings(["org", "ns", "type"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "type"]).with_id(1);
+        let dst = ProtoName::from_strings(["org", "ns", "type"]).with_id(2);
 
         // simple
         test_subscription_template(false, source.clone(), dst.clone(), None, None);
@@ -1966,8 +1956,8 @@ mod tests {
 
     #[test]
     fn test_publish() {
-        let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
-        let mut dst = Name::from_strings(["org", "ns", "type"]);
+        let source = ProtoName::from_strings(["org", "ns", "type"]).with_id(1);
+        let mut dst = ProtoName::from_strings(["org", "ns", "type"]);
 
         // simple
         test_publish_template(
@@ -2014,48 +2004,9 @@ mod tests {
 
     #[test]
     fn test_conversions() {
-        // Name to ProtoName
-        let name = Name::from_strings(["org", "ns", "type"]).with_id(1);
-        let proto_name = ProtoName::from(&name);
-
-        assert_eq!(
-            proto_name.name.as_ref().unwrap().component_0,
-            name.components()[0]
-        );
-        assert_eq!(
-            proto_name.name.as_ref().unwrap().component_1,
-            name.components()[1]
-        );
-        assert_eq!(
-            proto_name.name.as_ref().unwrap().component_2,
-            name.components()[2]
-        );
-        assert_eq!(
-            proto_name.name.as_ref().unwrap().component_3,
-            name.components()[3]
-        );
-
-        // ProtoName to Name
-        let name_from_proto = Name::from(&proto_name);
-        assert_eq!(
-            name_from_proto.components()[0],
-            proto_name.name.as_ref().unwrap().component_0
-        );
-        assert_eq!(
-            name_from_proto.components()[1],
-            proto_name.name.as_ref().unwrap().component_1
-        );
-        assert_eq!(
-            name_from_proto.components()[2],
-            proto_name.name.as_ref().unwrap().component_2
-        );
-        assert_eq!(
-            name_from_proto.components()[3],
-            proto_name.name.as_ref().unwrap().component_3
-        );
-
         // ProtoMessage to ProtoSubscribe
-        let dst = Name::from_strings(["org", "ns", "type"]).with_id(1);
+        let name = ProtoName::from_strings(["org", "ns", "type"]).with_id(1);
+        let dst = ProtoName::from_strings(["org", "ns", "type"]).with_id(1);
         let proto_subscribe = ProtoMessage::builder()
             .source(name.clone())
             .destination(dst.clone())
@@ -2107,8 +2058,8 @@ mod tests {
 
     #[test]
     fn test_panic() {
-        let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
-        let dst = Name::from_strings(["org", "ns", "type"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "type"]).with_id(1);
+        let dst = ProtoName::from_strings(["org", "ns", "type"]).with_id(2);
 
         // panic if SLIM header is not found
         let msg = ProtoMessage::builder()
@@ -2238,8 +2189,8 @@ mod tests {
 
     #[test]
     fn test_proto_message_builder() {
-        let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
-        let dest = Name::from_strings(["org", "ns", "app"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "type"]).with_id(1);
+        let dest = ProtoName::from_strings(["org", "ns", "app"]).with_id(2);
 
         // Test basic publish message
         let msg = ProtoMessage::builder()
@@ -2308,7 +2259,7 @@ mod tests {
 
     #[test]
     fn test_command_payload_builder() {
-        let dest = Name::from_strings(["org", "ns", "app"]);
+        let dest = ProtoName::from_strings(["org", "ns", "app"]);
 
         // Test discovery request
         let payload = CommandPayload::builder().discovery_request(Some(dest.clone()));
@@ -2380,8 +2331,8 @@ mod tests {
 
     #[test]
     fn test_builder_with_command_payload() {
-        let source = Name::from_strings(["org", "ns", "type"]).with_id(1);
-        let dest = Name::from_strings(["org", "ns", "app"]).with_id(2);
+        let source = ProtoName::from_strings(["org", "ns", "type"]).with_id(1);
+        let dest = ProtoName::from_strings(["org", "ns", "app"]).with_id(2);
 
         let cmd_payload = CommandPayload::builder().discovery_request(Some(dest.clone()));
 
@@ -2440,5 +2391,53 @@ mod tests {
         let msg = ProtoMessage::builder().build_link_negotiation("my-id", "1.2.3", true);
         assert!(msg.is_link());
         assert!(msg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_subscribe_missing_source_encoded_name() {
+        let valid = ProtoName::from_strings(["org", "ns", "agent"]);
+        let hdr = SlimHeader {
+            source: Some(ProtoName {
+                name: None,
+                str_name: None,
+            }),
+            destination: Some(valid),
+            ..Default::default()
+        };
+        let msg = ProtoMessage::new(
+            HashMap::new(),
+            ProtoSubscribeType(ProtoSubscribe {
+                header: Some(hdr),
+                ..Default::default()
+            }),
+        );
+        assert!(matches!(
+            msg.validate(),
+            Err(MessageError::SourceEncodedNameNotFound)
+        ));
+    }
+
+    #[test]
+    fn test_validate_subscribe_missing_destination_encoded_name() {
+        let valid = ProtoName::from_strings(["org", "ns", "agent"]);
+        let hdr = SlimHeader {
+            source: Some(valid),
+            destination: Some(ProtoName {
+                name: None,
+                str_name: None,
+            }),
+            ..Default::default()
+        };
+        let msg = ProtoMessage::new(
+            HashMap::new(),
+            ProtoSubscribeType(ProtoSubscribe {
+                header: Some(hdr),
+                ..Default::default()
+            }),
+        );
+        assert!(matches!(
+            msg.validate(),
+            Err(MessageError::DestinationEncodedNameNotFound)
+        ));
     }
 }

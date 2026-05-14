@@ -6,7 +6,8 @@ version: '3'
 includes:
   rust:
     taskfile: ../rust/Taskfile.yaml
-    internal: true
+    # Must be callable so generate can invoke rust:bindings:build:all for local builds
+    internal: false
   tools:
     taskfile: ../../../tasks/tools.yaml
     internal: true
@@ -96,10 +97,12 @@ tasks:
 
   install-uniffi-bindgen-cs:
     desc: "Install uniffi-bindgen-cs for C# bindings generation"
+    # Do not skip when an unrelated uniffi-bindgen-cs is on PATH (e.g. old NordSecurity 0.29 build).
     status:
-      - which uniffi-bindgen-cs
+      - 'command -v uniffi-bindgen-cs >/dev/null && uniffi-bindgen-cs --version 2>/dev/null | grep -Fq "0.31"'
     cmds:
-      - cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs.git --tag v0.10.0+v0.29.4 --config net.git-fetch-with-cli=true
+      # UniFFI 0.31: fork aligned with uniffi_bindgen 0.31.x (pin full SHA for reproducibility).
+      - cargo install uniffi-bindgen-cs --git https://github.com/janosSarusiKis/uniffi-bindgen-cs.git --rev d788b3ab74f079608515bf24b0bc7fe735f2ea6b --config net.git-fetch-with-cli=true --force
     silent: true
 
 
@@ -171,13 +174,16 @@ tasks:
             -e 's/^internal interface /public interface /' \
             -e 's/^internal record /public record /' \
             -e 's/^internal enum /public enum /' \
+            -e 's/^static partial class _UniFFILib/public static partial class _UniFFILib/' \
             -e 's/^static class /public static class /' \
             -e 's/^struct /public struct /' \
             -e 's/^interface /public interface /' \
             -e 's/^delegate /public delegate /' \
             -e 's/^class /public class /' \
             "{{.GENERATED_DIR}}/slim_bindings.cs"
-        rm -f "{{.GENERATED_DIR}}/slim_bindings.cs.bak"
+        # uniffi-bindgen-cs 0.31: Dispose() for sealed union variant named "Error" wrongly uses .Error (type) instead of .ErrorValue (positional field).
+        sed -i.bak2 -e 's/variant_value\.Error);/variant_value.ErrorValue);/' "{{.GENERATED_DIR}}/slim_bindings.cs"
+        rm -f "{{.GENERATED_DIR}}/slim_bindings.cs.bak" "{{.GENERATED_DIR}}/slim_bindings.cs.bak2"
 
         echo "C# bindings generated successfully"
       - task: copy:runtimes
@@ -265,11 +271,11 @@ tasks:
     silent: true
 
   test:
-    desc: "Run smoke tests (no server required)"
+    desc: "Run unit tests only (no external server; excludes IntegrationTests)"
     cmds:
       - |
-        echo "Running smoke tests..."
-        dotnet test Slim.Tests/Slim.Tests.csproj --configuration Release --filter "FullyQualifiedName~SmokeTests" --verbosity normal
+        echo "Running unit tests..."
+        dotnet test Slim.Tests/Slim.Tests.csproj --configuration Release --filter "FullyQualifiedName~UnitTests" --verbosity normal
         echo "Tests completed successfully"
     silent: true
 

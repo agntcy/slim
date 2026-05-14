@@ -143,3 +143,6 @@ libslim_bindings.a
 
 # TaskFile temporary files
 .task
+
+# Backup files
+*.bak

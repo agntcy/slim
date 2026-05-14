@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2](https://github.com/agntcy/slim/compare/slim-controller-v0.6.1...slim-controller-v0.6.2) - 2026-05-13
+
+### Other
+
+- updated the following local packages: agntcy-slim-config, agntcy-slim-tracing, agntcy-slim-datapath, agntcy-slim-session
+
+## [0.6.1](https://github.com/agntcy/slim/compare/slim-controller-v0.6.0...slim-controller-v0.6.1) - 2026-05-12
+
+### Other
+
+- updated the following local packages: agntcy-slim-config, agntcy-slim-tracing, agntcy-slim-datapath, agntcy-slim-session
+
+## [0.6.0](https://github.com/agntcy/slim/compare/slim-controller-v0.5.0...slim-controller-v0.6.0) - 2026-05-11
+
+### Added
+
+- recover subscriptions sent from slim server ([#1566](https://github.com/agntcy/slim/pull/1566))
+
+### Other
+
+- *(datapath)* replace Pool bitmap/vec with three-vec design ([#1496](https://github.com/agntcy/slim/pull/1496))
+
 ## [0.5.0](https://github.com/agntcy/slim/compare/slim-controller-v0.4.12...slim-controller-v0.5.0) - 2026-04-21
 
 ### Added

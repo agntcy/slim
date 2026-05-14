@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.4.0-rc.0](https://github.com/agntcy/slim/compare/helm-slim-v1.3.0...helm-slim-v1.4.0-rc.0) (2026-04-21)
+## [1.4.0](https://github.com/agntcy/slim/compare/helm-slim-v1.3.0...helm-slim-v1.4.0) (2026-04-21)
 
 
 ### Features
@@ -8,10 +8,13 @@
 * **helm:** allow to expose multiple ports via the service ([#1498](https://github.com/agntcy/slim/issues/1498)) ([1139f5f](https://github.com/agntcy/slim/commit/1139f5f8e6aa35429914fc487f2483818b09d2bc))
 * **slim-chart:** add extraEnv param ([#1491](https://github.com/agntcy/slim/issues/1491)) ([9fe7da3](https://github.com/agntcy/slim/commit/9fe7da38001c636f115de3eb5584d1e07bae9750))
 * **helm:** add southbound ingress and named data-plane ports ([#1536](https://github.com/agntcy/slim/issues/1536)) ([194e546](https://github.com/agntcy/slim/commit/194e546341caa86d0363197038342fe7b51055df))
+* publish slim-spire chart ([#1564](https://github.com/agntcy/slim/issues/1564)) ([715082c](https://github.com/agntcy/slim/commit/715082c8535164994cf381b62a3f7e0551e5a531))
+* **slim-chart:** upgrade chart to latest image version ([#1631](https://github.com/agntcy/slim/issues/1631)) ([9f03d9e](https://github.com/agntcy/slim/commit/9f03d9e4d0fb40d4e61aff511a84ad2189865481))
 
 ### Bug Fixes
 
 * **helm-charts:** add configmap checksum annotation for auto reload ([#1493](https://github.com/agntcy/slim/issues/1493)) ([691e86a](https://github.com/agntcy/slim/commit/691e86afec21457db64ee039092d4d88fffdc54f))
+* **helm-slim:** chart version ([#1538](https://github.com/agntcy/slim/issues/1538)) ([676f954](https://github.com/agntcy/slim/commit/676f954fc28a18208ea7f5b727a9f686f260c3a6))
 
 
 ## [1.3.0](https://github.com/agntcy/slim/compare/helm-slim-v1.0.0...helm-slim-v1.3.0) (2026-04-01)

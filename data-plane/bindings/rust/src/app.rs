@@ -27,7 +27,7 @@ use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
 
 use futures_timer::Delay;
-use slim_datapath::messages::Name as SlimName;
+use slim_datapath::api::ProtoName as SlimName;
 use slim_service::Service as SlimService;
 use slim_service::app::App as SlimApp;
 use slim_session::Direction as CoreDirection;
@@ -678,7 +678,7 @@ mod tests {
     use super::*;
 
     use slim_config::component::ComponentBuilder;
-    use slim_datapath::messages::Name as SlimName;
+    use slim_datapath::api::ProtoName as SlimName;
     use slim_testing::utils::TEST_VALID_SECRET;
 
     // Helper to create test identity configs

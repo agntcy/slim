@@ -16,7 +16,7 @@ This package provides Kotlin bindings for SLIM, enabling secure messaging with:
 - **JDK 17 or higher**
 - **Gradle 8.5+** (wrapper included)
 - **Rust toolchain** (for building native library)
-- **uniffi-bindgen** CLI tool (installed automatically via Taskfile)
+- **uniffi-bindgen-cli** CLI tool (installed automatically via Taskfile)
 - **Task** (for running build tasks) - Install from [taskfile.dev](https://taskfile.dev/)
 
 ## Project Structure
@@ -57,7 +57,7 @@ task generate
 This will:
 
 1. Build the Rust `slim_bindings` library
-2. Run `uniffi-bindgen` with `uniffi.toml` config to generate Kotlin code in the `io.agntcy.slim.bindings` package
+2. Run `uniffi-bindgen-cli` with `uniffi.toml` config to generate Kotlin code in the `io.agntcy.slim.bindings` package
 3. Apply compatibility patches (exception message parameters, wait() method conflicts)
 4. Copy the native library to `generated/jniLibs/`
 
@@ -363,7 +363,7 @@ The project uses [Task](https://taskfile.dev/) for build automation:
 The Kotlin bindings are generated from the Rust `slim_bindings` crate using UniFFI:
 
 1. Rust code uses `#[uniffi::export]` macros to mark public APIs
-2. `uniffi-bindgen` reads the compiled library and generates Kotlin code
+2. `uniffi-bindgen-cli` reads the compiled library and generates Kotlin code
 3. Generated code uses JNA to call native functions
 4. Native library is packaged in `generated/jniLibs/` for runtime loading
 
