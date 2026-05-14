@@ -475,10 +475,13 @@ impl MessageProcessor {
                 self.send_msg_raw(msg, out_vec[i]).await?;
                 Ok(())
             }
-            Err(e) => Err(DataPathError::MessageProcessingError {
-                source: Box::new(e),
-                msg: Box::new(msg),
-            }),
+            Err(e) => {
+                debug!(name = %header.get_dst(), %fanout, error = %e, "no match for publish destination");
+                Err(DataPathError::MessageProcessingError {
+                    source: Box::new(e),
+                    msg: Box::new(msg),
+                })
+            }
         }
     }
 

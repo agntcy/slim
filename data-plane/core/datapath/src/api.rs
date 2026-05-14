@@ -78,18 +78,18 @@ impl ProtoName {
     /// Construct from three string components (org, namespace, app).
     /// Encoded components are computed via XxHash64, matching the legacy `Name::from_strings` behaviour.
     pub fn from_strings(components: [impl Into<String>; 3]) -> Self {
-        let strings = components.map(Into::into);
+        let [s0, s1, s2] = components.map(Into::into);
         Self {
             name: Some(EncodedName {
-                component_0: calculate_hash(&strings[0]),
-                component_1: calculate_hash(&strings[1]),
-                component_2: calculate_hash(&strings[2]),
+                component_0: calculate_hash(&s0),
+                component_1: calculate_hash(&s1),
+                component_2: calculate_hash(&s2),
                 component_3: Self::NULL_COMPONENT,
             }),
             str_name: Some(StringName {
-                str_component_0: strings[0].clone(),
-                str_component_1: strings[1].clone(),
-                str_component_2: strings[2].clone(),
+                str_component_0: s0,
+                str_component_1: s1,
+                str_component_2: s2,
             }),
         }
     }
