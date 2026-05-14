@@ -65,8 +65,12 @@ pub enum MessageError {
     SlimHeaderNotFound,
     #[error("source not found")]
     SourceNotFound,
+    #[error("source encoded name not found")]
+    SourceEncodedNameNotFound,
     #[error("destination not found")]
     DestinationNotFound,
+    #[error("destination encoded name not found")]
+    DestinationEncodedNameNotFound,
     #[error("session header not found")]
     SessionHeaderNotFound,
     #[error("message type not found")]
@@ -264,11 +268,19 @@ impl SlimHeader {
         }
     }
 
+    pub fn get_encoded_source(&self) -> EncodedName {
+        self.source.as_ref().unwrap().name.unwrap()
+    }
+
     pub fn get_dst(&self) -> Name {
         match &self.destination {
             Some(destination) => Name::from(destination),
             None => panic!("destination not found"),
         }
+    }
+
+    pub fn get_encoded_dst(&self) -> EncodedName {
+        self.destination.as_ref().unwrap().name.unwrap()
     }
 
     pub fn get_identity(&self) -> String {
@@ -546,11 +558,17 @@ impl ProtoMessage {
     }
 
     fn validate_routed_header(slim_header: &SlimHeader) -> Result<(), MessageError> {
-        if slim_header.source.is_none() {
-            return Err(MessageError::SourceNotFound);
+        match &slim_header.source {
+            None => return Err(MessageError::SourceNotFound),
+            Some(src) if src.name.is_none() => return Err(MessageError::SourceEncodedNameNotFound),
+            _ => {}
         }
-        if slim_header.destination.is_none() {
-            return Err(MessageError::DestinationNotFound);
+        match &slim_header.destination {
+            None => return Err(MessageError::DestinationNotFound),
+            Some(dst) if dst.name.is_none() => {
+                return Err(MessageError::DestinationEncodedNameNotFound);
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -2276,5 +2294,53 @@ mod tests {
         let msg = ProtoMessage::builder().build_link_negotiation("my-id", "1.2.3", true);
         assert!(msg.is_link());
         assert!(msg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_subscribe_missing_source_encoded_name() {
+        let valid = ProtoName::from(&Name::from_strings(["org", "ns", "agent"]));
+        let hdr = SlimHeader {
+            source: Some(ProtoName {
+                name: None,
+                str_name: None,
+            }),
+            destination: Some(valid),
+            ..Default::default()
+        };
+        let msg = ProtoMessage::new(
+            HashMap::new(),
+            ProtoSubscribeType(ProtoSubscribe {
+                header: Some(hdr),
+                ..Default::default()
+            }),
+        );
+        assert!(matches!(
+            msg.validate(),
+            Err(MessageError::SourceEncodedNameNotFound)
+        ));
+    }
+
+    #[test]
+    fn test_validate_subscribe_missing_destination_encoded_name() {
+        let valid = ProtoName::from(&Name::from_strings(["org", "ns", "agent"]));
+        let hdr = SlimHeader {
+            source: Some(valid),
+            destination: Some(ProtoName {
+                name: None,
+                str_name: None,
+            }),
+            ..Default::default()
+        };
+        let msg = ProtoMessage::new(
+            HashMap::new(),
+            ProtoSubscribeType(ProtoSubscribe {
+                header: Some(hdr),
+                ..Default::default()
+            }),
+        );
+        assert!(matches!(
+            msg.validate(),
+            Err(MessageError::DestinationEncodedNameNotFound)
+        ));
     }
 }

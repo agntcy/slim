@@ -5,7 +5,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use twox_hash::XxHash64;
 
-use crate::api::ProtoName;
+use crate::api::{EncodedName, ProtoName};
 
 #[derive(Clone)]
 pub struct Name {
@@ -78,6 +78,18 @@ impl From<&ProtoName> for Name {
                 strings.str_component_1.clone(),
                 strings.str_component_2.clone(),
             ]),
+        }
+    }
+}
+
+impl From<&Name> for EncodedName {
+    fn from(name: &Name) -> Self {
+        let c = name.components();
+        EncodedName {
+            component_0: c[0],
+            component_1: c[1],
+            component_2: c[2],
+            component_3: c[3],
         }
     }
 }
