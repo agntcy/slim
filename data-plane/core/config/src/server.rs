@@ -1,40 +1,35 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use display_error_chain::ErrorChainExt;
+//! Transport-agnostic server configuration.
+//!
+//! [`ServerConfig`] carries connection-agnostic settings (endpoint, TLS,
+//! keepalive, auth, metadata, frame/header limits). Transport-specific server
+//! plumbing lives in:
+//!
+//! * `crate::grpc::server` — tonic / gRPC server (`to_server_future`,
+//!   `run_server`)
+//! * `crate::websocket::server` — WebSocket server (`run_websocket_server`)
+//!
+//! The two server-side public entry points stay asymmetric on purpose: gRPC
+//! takes typed `NamedService` impls; WebSocket takes a connection-accepted
+//! callback. The polymorphic dispatch happens in the datapath
+//! (`message_processing`) based on `config.transport`.
+
 use duration_string::DurationString;
-use futures::FutureExt;
-use futures::Stream;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::convert::Infallible;
-use std::future::Future;
-#[cfg(target_family = "unix")]
-use std::path::PathBuf;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::{net::SocketAddr, str::FromStr, time::Duration};
-use tokio::io::{AsyncRead, AsyncWrite};
-#[cfg(target_family = "unix")]
-use tokio::net::UnixListener;
-#[cfg(target_family = "unix")]
-use tokio_stream::wrappers::UnixListenerStream;
-use tokio_util::sync::CancellationToken;
-use tonic::transport::server::TcpIncoming;
-use tower_http::BoxError;
-use tracing::debug;
+use std::time::Duration;
 
-use crate::auth::ServerAuthenticator;
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
 #[cfg(not(target_family = "windows"))]
 use crate::auth::spire::SpireConfig as SpireAuthConfig;
 use crate::component::configuration::Configuration;
 use crate::errors::ConfigError;
+use crate::tls::server::TlsServerConfig as TLSSetting;
 use crate::transport::TransportProtocol;
 use slim_auth::metadata::MetadataMap;
-
-use crate::tls::{common::RustlsConfigLoader, server::TlsServerConfig as TLSSetting};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct KeepaliveServerParameters {
@@ -64,7 +59,7 @@ pub struct KeepaliveServerParameters {
     pub timeout: DurationString,
 }
 
-/// Enum holding one configuration for the client.
+/// Enum holding one configuration for the server.
 #[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum AuthenticationConfig {
@@ -184,7 +179,6 @@ fn default_http2_only() -> bool {
 }
 
 /// Display implementation for ServerConfig
-/// This is used to print the ServerConfig in a human-readable format.
 impl std::fmt::Display for ServerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -206,49 +200,15 @@ impl std::fmt::Display for ServerConfig {
     }
 }
 
-#[cfg(test)]
-mod metadata_tests {
-    use super::*;
-
-    #[test]
-    fn server_config_with_metadata_roundtrip_yaml() {
-        let mut md = MetadataMap::default();
-        md.insert("role", "ingress");
-        md.insert("replicas", 3u64);
-        let mut nested = MetadataMap::default();
-        nested.insert("inner", "v");
-        md.insert("nested", nested);
-
-        let cfg = ServerConfig {
-            endpoint: "127.0.0.1:50051".to_string(),
-            metadata: Some(md.clone()),
-            ..Default::default()
-        };
-
-        let s = serde_yaml::to_string(&cfg).expect("serialize");
-        let deser: ServerConfig = serde_yaml::from_str(&s).expect("deserialize");
-        assert_eq!(deser.metadata, Some(md));
-    }
-}
-
 impl Configuration for ServerConfig {
     type Error = ConfigError;
 
     fn validate(&self) -> Result<(), Self::Error> {
-        // Validate the client configuration
         self.tls_setting.validate()?;
-
         Ok(())
     }
 }
 
-/// ServerFuture is a type alias for a boxed future that returns a Result<(), tonic::transport::Error>.
-type ServerFuture = Pin<Box<dyn Future<Output = Result<(), tonic::transport::Error>> + Send>>;
-
-/// Convert ServerConfig to IncomingServerConfig
-/// This function takes a ServerConfig and a service and returns a ServerFuture.
-/// The ServerFuture is a boxed future that returns a Result<(), tonic::transport::Error>.
-/// The ServerFuture is created by creating a new TcpIncoming and then creating a new Server.
 impl ServerConfig {
     pub fn with_endpoint(endpoint: &str) -> Self {
         Self {
@@ -314,261 +274,36 @@ impl ServerConfig {
     pub fn with_auth(self, auth: AuthenticationConfig) -> Self {
         Self { auth, ..self }
     }
+}
 
-    #[cfg(target_family = "unix")]
-    fn parse_unix_socket_path(endpoint: &str) -> Result<PathBuf, ConfigError> {
-        let path = endpoint.strip_prefix("unix://").unwrap_or(endpoint);
+#[cfg(test)]
+mod metadata_tests {
+    use super::*;
 
-        let without_query = path.split_once('?').map(|(p, _)| p).unwrap_or(path);
-        let path_part = without_query
-            .split_once('#')
-            .map(|(p, _)| p)
-            .unwrap_or(without_query);
+    #[test]
+    fn server_config_with_metadata_roundtrip_yaml() {
+        let mut md = MetadataMap::default();
+        md.insert("role", "ingress");
+        md.insert("replicas", 3u64);
+        let mut nested = MetadataMap::default();
+        nested.insert("inner", "v");
+        md.insert("nested", nested);
 
-        if path_part.is_empty() {
-            return Err(ConfigError::UnixSocketMissingPath);
-        }
-
-        Ok(PathBuf::from(path_part))
-    }
-
-    fn create_server_builder(&self) -> tonic::transport::Server {
-        let builder: tonic::transport::Server =
-            tonic::transport::Server::builder().accept_http1(false);
-
-        let builder = match self.max_concurrent_streams {
-            Some(max_concurrent_streams) => {
-                builder.concurrency_limit_per_connection(max_concurrent_streams as usize)
-            }
-            None => builder,
+        let cfg = ServerConfig {
+            endpoint: "127.0.0.1:50051".to_string(),
+            metadata: Some(md.clone()),
+            ..Default::default()
         };
 
-        let builder = match self.max_frame_size {
-            Some(max_frame_size) => builder.max_frame_size(max_frame_size * 1024 * 1024),
-            None => builder,
-        };
-
-        let builder = match self.max_header_list_size {
-            Some(max_header_list_size) => builder.http2_max_header_list_size(max_header_list_size),
-            None => builder,
-        };
-
-        let builder = builder.http2_keepalive_interval(Some(self.keepalive.time.into()));
-        let builder = builder.http2_keepalive_timeout(Some(self.keepalive.timeout.into()));
-
-        builder.max_connection_age(self.keepalive.max_connection_age.into())
-    }
-
-    async fn serve_with_incoming<S, I, IO, IE>(
-        &self,
-        svc: &[S],
-        incoming: I,
-    ) -> Result<ServerFuture, ConfigError>
-    where
-        S: tower_service::Service<
-                http::Request<tonic::body::Body>,
-                Response = http::Response<tonic::body::Body>,
-                Error = Infallible,
-            >
-            + tonic::server::NamedService
-            + Clone
-            + Send
-            + 'static
-            + Sync,
-        S::Future: Send + 'static,
-        I: Stream<Item = Result<IO, IE>> + Send + 'static,
-        IO: AsyncRead + AsyncWrite + tonic::transport::server::Connected + Unpin + Send + 'static,
-        IE: Into<BoxError> + Send + 'static,
-    {
-        let mut builder = self.create_server_builder();
-
-        match &self.auth {
-            AuthenticationConfig::Basic(basic) => {
-                let auth_layer = basic.get_server_layer()?;
-
-                let mut builder = builder.layer(auth_layer);
-
-                let mut router = builder.add_service(svc[0].clone());
-                for s in svc.iter().skip(1) {
-                    router = builder.add_service(s.clone());
-                }
-
-                Ok(router.serve_with_incoming(incoming).boxed())
-            }
-            AuthenticationConfig::Jwt(jwt) => {
-                // Build the authentication layer and perform its async initialization
-                let mut auth_layer = <JwtAuthenticationConfig as ServerAuthenticator<
-                    http::Response<tonic::body::Body>,
-                >>::get_server_layer(jwt)?;
-
-                auth_layer.initialize().await?;
-
-                let mut builder = builder.layer(auth_layer);
-
-                let mut router = builder.add_service(svc[0].clone());
-                for s in svc.iter().skip(1) {
-                    router = builder.add_service(s.clone());
-                }
-
-                Ok(router.serve_with_incoming(incoming).boxed())
-            }
-            #[cfg(not(target_family = "windows"))]
-            AuthenticationConfig::Spire(spire) => {
-                let mut auth_layer = <SpireAuthConfig as ServerAuthenticator<
-                    http::Response<tonic::body::Body>,
-                >>::get_server_layer(spire)?;
-
-                auth_layer.initialize().await?;
-
-                let mut builder = builder.layer(auth_layer);
-
-                let mut router = builder.add_service(svc[0].clone());
-                for s in svc.iter().skip(1) {
-                    router = builder.add_service(s.clone());
-                }
-
-                Ok(router.serve_with_incoming(incoming).boxed())
-            }
-            AuthenticationConfig::None => {
-                let mut router = builder.add_service(svc[0].clone());
-                for s in svc.iter().skip(1) {
-                    router = builder.add_service(s.clone());
-                }
-
-                Ok(router.serve_with_incoming(incoming).boxed())
-            }
-        }
-    }
-
-    pub(crate) async fn to_grpc_server_future<S>(
-        &self,
-        svc: &[S],
-    ) -> Result<ServerFuture, ConfigError>
-    where
-        S: tower_service::Service<
-                http::Request<tonic::body::Body>,
-                Response = http::Response<tonic::body::Body>,
-                Error = Infallible,
-            >
-            + tonic::server::NamedService
-            + Clone
-            + Send
-            + 'static
-            + Sync,
-        S::Future: Send + 'static,
-    {
-        if svc.is_empty() {
-            return Err(ConfigError::MissingServices);
-        }
-
-        if self.transport == TransportProtocol::Websocket {
-            return Err(ConfigError::GrpcServerUnsupportedTransport);
-        }
-
-        if self.endpoint.is_empty() {
-            return Err(ConfigError::MissingEndpoint);
-        }
-
-        #[cfg(target_family = "unix")]
-        if self.endpoint.starts_with("unix://") {
-            if !self.tls_setting.insecure {
-                // For local Unix domain sockets we currently require insecure=true
-                return Err(ConfigError::UnixSocketTlsUnsupported);
-            }
-
-            let socket_path = Self::parse_unix_socket_path(self.endpoint.as_str())?;
-
-            // Best-effort cleanup of any stale socket file
-            let _ = std::fs::remove_file(&socket_path);
-
-            let listener = UnixListener::bind(&socket_path)?;
-            let incoming = UnixListenerStream::new(listener);
-
-            return self.serve_with_incoming(svc, incoming).await;
-        }
-
-        #[cfg(not(target_family = "unix"))]
-        if self.endpoint.starts_with("unix://") {
-            return Err(ConfigError::UnixSocketUnsupported);
-        }
-
-        let addr = SocketAddr::from_str(self.endpoint.as_str())?;
-
-        // Async TLS configuration load (may involve SPIFFE operations)
-        let tls_config = self.tls_setting.load_rustls_config().await?;
-        let incoming = TcpIncoming::bind(addr)?;
-
-        match tls_config {
-            Some(tls_config) => {
-                let incoming = tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config));
-                self.serve_with_incoming(svc, incoming).await
-            }
-            None => self.serve_with_incoming(svc, incoming).await,
-        }
-    }
-
-    pub(crate) async fn run_grpc_server<S>(
-        &self,
-        svc: &[S],
-        drain_rx: drain::Watch,
-    ) -> Result<tokio_util::sync::CancellationToken, ConfigError>
-    where
-        S: tower_service::Service<
-                http::Request<tonic::body::Body>,
-                Response = http::Response<tonic::body::Body>,
-                Error = Infallible,
-            >
-            + tonic::server::NamedService
-            + Clone
-            + Send
-            + 'static
-            + Sync,
-        S::Future: Send + 'static,
-    {
-        debug!(%self, "server configured: setting it up");
-        let server_future = self.to_grpc_server_future(svc).await?;
-
-        // create a new cancellation token
-        let token = CancellationToken::new();
-        let token_clone = token.clone();
-
-        // spawn server acceptor in a new task
-        tokio::spawn(async move {
-            debug!("starting server main loop");
-            let shutdown = drain_rx.signaled();
-
-            tokio::select! {
-                res = server_future => {
-                    match res {
-                        Ok(_) => {
-                            debug!("server shutdown");
-                        }
-                        Err(e) => {
-                            tracing::error!(error = %e.chain(), "server error");
-                        }
-                    }
-                }
-                _ = shutdown => {
-                    debug!("shutting down server");
-                }
-                _ = token.cancelled() => {
-                    debug!("cancellation token triggered: shutting down server");
-                }
-            }
-        });
-
-        Ok(token_clone)
+        let s = serde_yaml::to_string(&cfg).expect("serialize");
+        let deser: ServerConfig = serde_yaml::from_str(&s).expect("deserialize");
+        assert_eq!(deser.metadata, Some(md));
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutils::{Empty, helloworld::greeter_server::GreeterServer};
-    use crate::tls::common::TlsSource;
-    use serde_json;
-
-    static TEST_DATA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/grpc");
 
     #[test]
     fn test_default_keepalive_server_parameters() {
@@ -600,69 +335,6 @@ mod tests {
             KeepaliveServerParameters::default()
         );
         assert_eq!(server_config.auth, AuthenticationConfig::None);
-    }
-
-    #[tokio::test]
-    async fn test_to_incoming_server_config() {
-        let mut server_config = ServerConfig::default();
-        let empty_service = Arc::new(Empty::new());
-
-        // no endpoint - should return an error
-        let ret = server_config
-            .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
-            .await;
-        // Make sure the error is a ConfigError::MissingEndpoint
-        assert!(ret.is_err_and(|e| { e.to_string().contains("missing grpc endpoint") }));
-
-        // set the endpoint in the config. Now it shouhld fail because of the invalid endpoint
-        server_config.endpoint = "0.0.0.0:123456".to_string();
-        let ret = server_config
-            .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
-            .await;
-        // Make sure we got an EndpointParse error
-        assert!(ret.is_err_and(|e| { matches!(e, ConfigError::EndpointParse(_)) }));
-
-        // set a valid endpoint in the config. Now it should fail because of the missing cert/key files for tls
-        server_config.endpoint = "0.0.0.0:12345".to_string();
-        let ret = server_config
-            .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
-            .await;
-        assert!(ret.is_err_and(|e| { matches!(e, ConfigError::TlsConfig(_)) }));
-
-        // set the tls setting to insecure. Now it should return a server future
-        server_config.tls_setting.insecure = true;
-        let ret = server_config
-            .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
-            .await;
-        assert!(ret.is_ok());
-
-        // drop it, as we have a server listening on the port now
-        drop(ret.unwrap());
-
-        // Set insecure to false and configure certificate/key via TlsSource::File (updated API)
-        server_config.tls_setting.insecure = false;
-        server_config.tls_setting.config.source = TlsSource::File {
-            cert: format!("{}/server.crt", TEST_DATA_PATH),
-            key: format!("{}/server.key", TEST_DATA_PATH),
-        };
-        let ret = server_config
-            .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
-            .await;
-        assert!(ret.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_to_server_future_rejects_websocket_transport() {
-        let empty_service = Arc::new(Empty::new());
-        let server_config = ServerConfig::with_endpoint("0.0.0.0:12345")
-            .with_transport(TransportProtocol::Websocket);
-        let ret = server_config
-            .to_server_future(&[GreeterServer::from_arc(empty_service)])
-            .await;
-        assert!(matches!(
-            ret,
-            Err(ConfigError::GrpcServerUnsupportedTransport)
-        ));
     }
 
     #[test]

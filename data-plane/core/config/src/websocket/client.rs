@@ -31,7 +31,9 @@ pub struct WebSocketClientChannel {
 }
 
 impl ClientConfig {
-    pub async fn to_websocket_channel(&self) -> Result<WebSocketClientChannel, ConfigError> {
+    /// Build a WebSocket channel. Crate-private; external callers should use
+    /// [`ClientConfig::to_channel`].
+    pub(crate) async fn to_websocket_channel(&self) -> Result<WebSocketClientChannel, ConfigError> {
         if self.transport != TransportProtocol::Websocket {
             return Err(ConfigError::WebSocketClientUnsupportedTransport);
         }

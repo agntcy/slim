@@ -146,8 +146,9 @@ mod tests {
         });
 
         // create a client using the channel
-        let channel = match client_config.to_grpc_channel().await {
-            Ok(ch) => ch,
+        let channel = match client_config.to_channel().await {
+            Ok(slim_config::client::TransportChannel::Grpc(ch)) => ch,
+            Ok(_) => panic!("expected grpc channel"),
             Err(e) => return Err(Box::new(e)),
         };
         let mut client = GreeterClient::new(channel);
@@ -199,7 +200,10 @@ mod tests {
         yield_now().await;
 
         // Use the config-driven client to connect over the Unix socket
-        let channel = client_config.to_grpc_channel().await?;
+        let channel = match client_config.to_channel().await? {
+            slim_config::client::TransportChannel::Grpc(ch) => ch,
+            _ => panic!("expected grpc channel"),
+        };
         let mut client = GreeterClient::new(channel);
 
         let request = tonic::Request::new(HelloRequest {
@@ -312,10 +316,14 @@ mod tests {
         setup_client_and_server(client_config.clone(), server_config).await?;
 
         // create a new client with wrong credentials
-        let channel = client_config
+        let channel = match client_config
             .with_auth(auth_wrong_client_config)
-            .to_grpc_channel()
-            .await?;
+            .to_channel()
+            .await?
+        {
+            slim_config::client::TransportChannel::Grpc(ch) => ch,
+            _ => panic!("expected grpc channel"),
+        };
 
         let mut client = GreeterClient::new(channel);
 

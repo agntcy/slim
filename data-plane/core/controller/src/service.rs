@@ -35,7 +35,7 @@ use crate::errors::ControllerError;
 use prost_types::Struct;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::TokenProvider;
-use slim_config::client::ClientConfig;
+use slim_config::client::{ClientConfig, TransportChannel};
 use slim_datapath::api::ProtoName;
 use slim_datapath::api::{
     CommandPayload, Content, MessageType::Link as LinkType, MessageType::Publish,
@@ -1892,7 +1892,14 @@ impl ControllerService {
     ) -> Result<mpsc::Sender<Result<ControlMessage, Status>>, ControllerError> {
         info!(%config.endpoint, "connecting to control plane");
 
-        let channel = config.to_grpc_channel().await?;
+        let channel = match config.to_channel().await? {
+            TransportChannel::Grpc(c) => c,
+            TransportChannel::Websocket(_) => {
+                return Err(ControllerError::ConfigError(
+                    slim_config::errors::ConfigError::GrpcChannelUnsupportedTransport,
+                ));
+            }
+        };
 
         let mut client = ControllerServiceClient::new(channel.clone());
         let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);

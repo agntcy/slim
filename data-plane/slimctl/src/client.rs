@@ -5,7 +5,8 @@ use anyhow::{Context, Result, bail};
 use tonic::codegen::{Body, Bytes, StdError};
 
 use slim_config::auth::basic::Config as BasicAuthConfig;
-use slim_config::grpc::client::{AuthenticationConfig, BackoffConfig, ClientConfig};
+use slim_config::client::{AuthenticationConfig, BackoffConfig, ClientConfig, TransportChannel};
+use slim_config::errors::ConfigError;
 use slim_config::tls::client::TlsClientConfig;
 
 use crate::config::ResolvedOpts;
@@ -88,10 +89,17 @@ pub async fn get_control_plane_client(
         + 'static,
     >,
 > {
-    let channel = build_client_config(opts)?
-        .to_grpc_channel()
+    let channel = match build_client_config(opts)?
+        .to_channel()
         .await
-        .context("failed to connect to server")?;
+        .context("failed to connect to server")?
+    {
+        TransportChannel::Grpc(c) => c,
+        TransportChannel::Websocket(_) => bail!(
+            "{}",
+            ConfigError::GrpcChannelUnsupportedTransport
+        ),
+    };
     Ok(ControlPlaneServiceClient::new(channel))
 }
 
@@ -110,10 +118,17 @@ pub async fn get_controller_client(
         + 'static,
     >,
 > {
-    let channel = build_client_config(opts)?
-        .to_grpc_channel()
+    let channel = match build_client_config(opts)?
+        .to_channel()
         .await
-        .context("failed to connect to server")?;
+        .context("failed to connect to server")?
+    {
+        TransportChannel::Grpc(c) => c,
+        TransportChannel::Websocket(_) => bail!(
+            "{}",
+            ConfigError::GrpcChannelUnsupportedTransport
+        ),
+    };
     Ok(ControllerServiceClient::new(channel))
 }
 
