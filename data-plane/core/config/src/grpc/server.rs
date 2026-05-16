@@ -9,7 +9,7 @@ use std::pin::Pin;
 
 use tokio_util::sync::CancellationToken;
 
-use super::errors::ConfigError;
+use crate::errors::ConfigError;
 
 /// ServerFuture is a type alias for a boxed future that returns a tonic server result.
 type ServerFuture = Pin<Box<dyn Future<Output = Result<(), tonic::transport::Error>> + Send>>;

@@ -14,7 +14,7 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use tracing::warn;
 
 use crate::client::{AuthenticationConfig as ClientAuthConfig, ClientConfig};
-use crate::grpc::errors::ConfigError;
+use crate::errors::ConfigError;
 use crate::server::{AuthenticationConfig as ServerAuthConfig, ServerConfig};
 
 pub type UpgradedWebSocket = WebSocket<TokioIo<Upgraded>>;

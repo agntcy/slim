@@ -30,7 +30,7 @@ use crate::auth::jwt::Config as JwtAuthenticationConfig;
 #[cfg(not(target_family = "windows"))]
 use crate::auth::spire::SpireConfig as SpireAuthConfig;
 use crate::component::configuration::Configuration;
-use crate::grpc::errors::ConfigError;
+use crate::errors::ConfigError;
 use crate::transport::TransportProtocol;
 use slim_auth::metadata::MetadataMap;
 

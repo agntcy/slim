@@ -41,7 +41,7 @@ use crate::backoff::exponential::Config as ExponentialBackoff;
 use crate::backoff::fixedinterval::Config as FixedIntervalBackoff;
 use crate::component::configuration::Configuration;
 use crate::grpc::compression::CompressionType;
-use crate::grpc::errors::ConfigError;
+use crate::errors::ConfigError;
 use crate::grpc::headers_middleware::SetRequestHeaderLayer;
 use crate::grpc::proxy::ProxyConfig;
 use crate::tls::{client::TlsClientConfig as TLSSetting, common::RustlsConfigLoader};

@@ -23,7 +23,7 @@ use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
-use crate::grpc::errors::ConfigError;
+use crate::errors::ConfigError;
 use crate::server::ServerConfig;
 use crate::tls::common::RustlsConfigLoader;
 use crate::transport::TransportProtocol;

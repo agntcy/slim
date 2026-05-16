@@ -16,7 +16,7 @@ use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 
 use crate::client::ClientConfig;
-use crate::grpc::errors::ConfigError;
+use crate::errors::ConfigError;
 use crate::tls::common::RustlsConfigLoader;
 use crate::transport::TransportProtocol;
 

@@ -17,29 +17,63 @@ pub(crate) struct WebSocketStreams {
     pub(crate) outbound: mpsc::Sender<Message>,
 }
 
+/// Control frame to forward from the read task to the write task so that
+/// `set_auto_close(true)` / `set_auto_pong(true)` can actually be honoured.
+enum ControlFrame {
+    /// Reply to a peer Ping with a Pong carrying the same payload.
+    Pong(Vec<u8>),
+    /// Echo back a peer Close frame to complete the closing handshake.
+    Close { code: u16, reason: Vec<u8> },
+}
+
 pub(crate) fn spawn_transport_tasks(
     websocket: UpgradedWebSocket,
     cancellation_token: CancellationToken,
 ) -> WebSocketStreams {
     let (mut read_half, mut write_half) = websocket.split(tokio::io::split);
-    read_half.set_auto_close(false);
-    read_half.set_auto_pong(false);
+    read_half.set_auto_close(true);
+    read_half.set_auto_pong(true);
 
     let mut reader = FragmentCollectorRead::new(read_half);
 
     let (tx_inbound, rx_inbound) = mpsc::channel::<Result<Message, Status>>(128);
     let (tx_outbound, mut rx_outbound) = mpsc::channel::<Message>(128);
+    let (tx_control, mut rx_control) = mpsc::channel::<ControlFrame>(8);
 
     let read_cancel = cancellation_token.clone();
+    let control_tx = tx_control.clone();
     tokio::spawn(async move {
-        let mut noop_send = |_frame: Frame<'_>| async move { Result::<(), WebSocketError>::Ok(()) };
+        // fastwebsockets invokes this callback for auto-generated Pong/Close
+        let mut send_control = |frame: Frame<'_>| {
+            let owned = match frame.opcode {
+                OpCode::Pong => Some(ControlFrame::Pong(frame.payload.to_vec())),
+                OpCode::Close => {
+                    let payload = frame.payload.as_ref();
+                    let (code, reason) = if payload.len() >= 2 {
+                        let code = u16::from_be_bytes([payload[0], payload[1]]);
+                        (code, payload[2..].to_vec())
+                    } else {
+                        (1000, Vec::new())
+                    };
+                    Some(ControlFrame::Close { code, reason })
+                }
+                _ => None,
+            };
+            let tx = control_tx.clone();
+            async move {
+                if let Some(ctrl) = owned {
+                    let _ = tx.send(ctrl).await;
+                }
+                Result::<(), WebSocketError>::Ok(())
+            }
+        };
 
         loop {
             tokio::select! {
                 _ = read_cancel.cancelled() => {
                     break;
                 }
-                frame = reader.read_frame::<_, WebSocketError>(&mut noop_send) => {
+                frame = reader.read_frame::<_, WebSocketError>(&mut send_control) => {
                     let frame = match frame {
                         Ok(frame) => frame,
                         Err(WebSocketError::ConnectionClosed | WebSocketError::UnexpectedEOF) => {
@@ -76,14 +110,17 @@ pub(crate) fn spawn_transport_tasks(
                             warn!("ignoring text websocket frame, expected binary protobuf frame");
                         }
                         OpCode::Ping | OpCode::Pong | OpCode::Continuation => {
-                            // Control and continuation frames are handled by fastwebsockets;
-                            // only complete binary payloads are forwarded to datapath processing.
+                            // Pong/Close auto-responses are emitted via send_control above;
+                            // continuation frames are reassembled by FragmentCollectorRead.
                         }
                     }
                 }
             }
         }
 
+        // Dropping tx_control here lets the write task observe end-of-stream
+        // on the control channel if the read task exits first.
+        drop(control_tx);
         read_cancel.cancel();
     });
 
@@ -95,6 +132,31 @@ pub(crate) fn spawn_transport_tasks(
                     let _ = write_half.write_frame(Frame::close(1000, &[])).await;
                     let _ = write_half.flush().await;
                     break;
+                }
+                // Prioritise control frames so Pongs / Close echoes are not
+                // starved by a heavy outbound binary stream.
+                maybe_ctrl = rx_control.recv() => {
+                    let Some(ctrl) = maybe_ctrl else {
+                        continue;
+                    };
+                    let (frame, is_close) = match ctrl {
+                        ControlFrame::Pong(payload) => (Frame::pong(payload.into()), false),
+                        ControlFrame::Close { code, reason } => {
+                            (Frame::close(code, &reason), true)
+                        }
+                    };
+                    if let Err(err) = write_half.write_frame(frame).await {
+                        warn!(error = %err, "websocket control write error");
+                        break;
+                    }
+                    if let Err(err) = write_half.flush().await {
+                        warn!(error = %err, "websocket flush error");
+                        break;
+                    }
+                    if is_close {
+                        // We've completed the closing handshake; stop writing.
+                        break;
+                    }
                 }
                 maybe_msg = rx_outbound.recv() => {
                     let msg = match maybe_msg {

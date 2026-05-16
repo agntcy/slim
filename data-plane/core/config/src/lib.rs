@@ -5,6 +5,7 @@ pub mod auth;
 pub mod backoff;
 pub mod client;
 pub mod component;
+pub mod errors;
 pub mod grpc;
 pub mod provider;
 pub mod server;

@@ -5,7 +5,7 @@ pub use crate::client::*;
 
 use tonic::codegen::{Body, Bytes, StdError};
 
-use super::errors::ConfigError;
+use crate::errors::ConfigError;
 
 impl ClientConfig {
     /// Converts the client configuration to a gRPC-only channel.

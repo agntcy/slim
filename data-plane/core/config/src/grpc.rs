@@ -3,7 +3,6 @@
 
 pub mod client;
 pub mod compression;
-pub mod errors;
 pub mod headers_middleware;
 pub mod proxy;
 pub mod server;
