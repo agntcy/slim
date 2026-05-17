@@ -1,16 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-//! gRPC channel construction for [`ClientConfig`].
-//!
-//! All tonic / hyper-rustls / proxy / Unix-socket plumbing lives here.
-//! `ClientConfig` itself is transport-agnostic; the polymorphic `to_channel()`
-//! dispatcher on `ClientConfig` calls the crate-private `to_grpc_channel()`
-//! defined below when `transport == Grpc`.
-
-// Re-export the transport-agnostic types under the legacy `grpc::client`
-// path so existing call sites (`slim_config::grpc::client::ClientConfig`)
-// keep compiling. The canonical home is `crate::client`.
 pub use crate::client::{
     AuthenticationConfig, BackoffConfig, ClientConfig, KeepaliveConfig, TransportChannel,
     is_valid_uuid_v4,
@@ -34,9 +24,9 @@ use hyper_util::client::proxy::matcher::Intercept;
 #[cfg(target_family = "unix")]
 use hyper_util::rt::TokioIo;
 use rustls_pki_types::ServerName;
-use tokio_retry::RetryIf;
 #[cfg(target_family = "unix")]
 use tokio::net::UnixStream;
+use tokio_retry::RetryIf;
 use tonic::codegen::{Body, Bytes, StdError};
 use tonic::transport::{Channel, Uri};
 use tower::ServiceExt;

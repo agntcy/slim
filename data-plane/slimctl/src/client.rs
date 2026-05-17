@@ -95,10 +95,7 @@ pub async fn get_control_plane_client(
         .context("failed to connect to server")?
     {
         TransportChannel::Grpc(c) => c,
-        TransportChannel::Websocket(_) => bail!(
-            "{}",
-            ConfigError::GrpcChannelUnsupportedTransport
-        ),
+        TransportChannel::Websocket(_) => bail!("{}", ConfigError::GrpcChannelUnsupportedTransport),
     };
     Ok(ControlPlaneServiceClient::new(channel))
 }
@@ -124,10 +121,7 @@ pub async fn get_controller_client(
         .context("failed to connect to server")?
     {
         TransportChannel::Grpc(c) => c,
-        TransportChannel::Websocket(_) => bail!(
-            "{}",
-            ConfigError::GrpcChannelUnsupportedTransport
-        ),
+        TransportChannel::Websocket(_) => bail!("{}", ConfigError::GrpcChannelUnsupportedTransport),
     };
     Ok(ControllerServiceClient::new(channel))
 }

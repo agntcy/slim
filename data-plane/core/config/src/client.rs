@@ -39,6 +39,7 @@ use crate::websocket::client::WebSocketClientChannel;
 
 /// Result of [`ClientConfig::to_channel`]: either a gRPC channel (the generic
 /// `G` parameter) or a WebSocket channel.
+#[allow(clippy::large_enum_variant)]
 pub enum TransportChannel<G> {
     Grpc(G),
     Websocket(WebSocketClientChannel),

@@ -1,22 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-//! gRPC server-side methods for [`ServerConfig`].
-//!
-//! `ServerConfig` itself is transport-agnostic. The tonic server builder,
-//! Unix-socket plumbing, TLS termination and graceful shutdown all live here.
-//!
-//! Note that the server side keeps two public entry points (`to_server_future`
-//! / `run_server` for gRPC, `run_websocket_server` for WebSocket) because their
-//! signatures differ in a way that can't be unified without erasing useful
-//! type information: gRPC takes a slice of `NamedService` implementations
-//! while WebSocket takes a connection-accepted callback.
-
-// Re-export the transport-agnostic types under the legacy `grpc::server`
-// path so existing call sites (`slim_config::grpc::server::ServerConfig`)
-// keep compiling. The canonical home is `crate::server`.
 pub use crate::server::{AuthenticationConfig, KeepaliveServerParameters, ServerConfig};
-
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -48,18 +33,14 @@ use crate::tls::common::RustlsConfigLoader;
 use crate::transport::TransportProtocol;
 
 /// Boxed future returned by [`ServerConfig::to_server_future`].
-pub type ServerFuture =
-    Pin<Box<dyn Future<Output = Result<(), tonic::transport::Error>> + Send>>;
+pub type ServerFuture = Pin<Box<dyn Future<Output = Result<(), tonic::transport::Error>> + Send>>;
 
 impl ServerConfig {
     /// Build the gRPC server future that drives the underlying tonic server.
     ///
     /// Returns [`ConfigError::GrpcServerUnsupportedTransport`] when invoked on
     /// a config whose `transport != Grpc`.
-    pub async fn to_server_future<S>(
-        &self,
-        svc: &[S],
-    ) -> Result<ServerFuture, ConfigError>
+    pub async fn to_server_future<S>(&self, svc: &[S]) -> Result<ServerFuture, ConfigError>
     where
         S: tower_service::Service<
                 http::Request<tonic::body::Body>,

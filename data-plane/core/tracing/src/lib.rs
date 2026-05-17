@@ -20,8 +20,7 @@ use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer};
 use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 use slim_config::{
-    client::ClientConfig, errors::ConfigError as SlimConfigError,
-    tls::client::TlsClientConfig,
+    client::ClientConfig, errors::ConfigError as SlimConfigError, tls::client::TlsClientConfig,
 };
 
 const OTEL_EXPORTER_OTLP_ENDPOINT: &str = "http://localhost:4317";
