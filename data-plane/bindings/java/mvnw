@@ -7,7 +7,7 @@
 # Pin with MAVEN_VERSION if needed.
 
 set -e
-MAVEN_VERSION="${MAVEN_VERSION:-3.9.15}"
+MAVEN_VERSION="${MAVEN_VERSION:-3.9.16}"
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 INSTALL_BASE="${ROOT}/.tools"
