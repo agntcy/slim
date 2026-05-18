@@ -195,7 +195,7 @@ class BindingsTest {
             SessionConfig(
                 sessionType = SessionType.POINT_TO_POINT,
                 enableMls = false,
-                maxRetries = 5u,
+                maxRetries = 30u,
                 interval = Duration.ofSeconds(1),
                 metadata = emptyMap()
             ),

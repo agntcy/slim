@@ -34,6 +34,8 @@ use crate::api::proto::api::v1::{
 use crate::errors::ControllerError;
 use prost_types::Struct;
 use slim_config::grpc::client::ClientConfig;
+use slim_datapath::api::ProtoName;
+use slim_datapath::api::ProtoName as Name;
 use slim_datapath::api::ProtoSessionMessageType;
 use slim_datapath::api::{
     MessageType::Link as LinkType, MessageType::Publish, MessageType::Subscribe,
@@ -41,7 +43,6 @@ use slim_datapath::api::{
     ProtoMessage as DataPlaneMessage,
 };
 use slim_datapath::message_processing::MessageProcessor;
-use slim_datapath::messages::Name;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_datapath::tables::SubscriptionTable;
 
@@ -86,7 +87,7 @@ struct ControllerServiceInternal {
     id: ID,
 
     /// controller name
-    controller_name: slim_datapath::messages::Name,
+    controller_name: ProtoName,
 
     /// optional group name
     group_name: Option<String>,
@@ -265,7 +266,7 @@ impl ControlPlane {
             .unwrap();
 
         let (signal, watch) = drain::channel();
-        let controller_name = Name::from_strings([
+        let controller_name = ProtoName::from_strings([
             CONTROLLER_COMPONENT,
             CONTROLLER_COMPONENT,
             CONTROLLER_COMPONENT,
@@ -885,12 +886,12 @@ impl ControllerService {
                     .remove(&(name.clone(), conn_id));
             }
 
-            let components = name.components_strings();
+            let (c0, c1, c2) = name.str_components();
             routes_status.push(v1::RouteAck {
                 route: Some(v1::Route {
-                    component_0: components[0].to_string(),
-                    component_1: components[1].to_string(),
-                    component_2: components[2].to_string(),
+                    component_0: c0.to_string(),
+                    component_1: c1.to_string(),
+                    component_2: c2.to_string(),
                     id: Some(name.id()),
                     link_id: None,
                     direction: None,
@@ -1315,10 +1316,11 @@ impl ControllerService {
 
                         self.inner.message_processor.subscription_table().for_each(
                             |name, id, local, remote| {
+                                let (c0, c1, c2) = name.str_components();
                                 let mut entry = RouteEntry {
-                                    component_0: name.components_strings()[0].to_string(),
-                                    component_1: name.components_strings()[1].to_string(),
-                                    component_2: name.components_strings()[2].to_string(),
+                                    component_0: c0.to_string(),
+                                    component_1: c1.to_string(),
+                                    component_2: c2.to_string(),
                                     id: Some(id),
                                     ..Default::default()
                                 };
@@ -1493,14 +1495,14 @@ impl ControllerService {
         Ok(())
     }
 
-    async fn handle_subscribe_message(&self, dst: Name, clients: &[ClientConfig]) {
+    async fn handle_subscribe_message(&self, dst: ProtoName, clients: &[ClientConfig]) {
         let mut sub_vec = vec![];
 
-        let components = dst.components_strings();
+        let (c0, c1, c2) = dst.str_components();
         let cmd = v1::Route {
-            component_0: components[0].to_string(),
-            component_1: components[1].to_string(),
-            component_2: components[2].to_string(),
+            component_0: c0.to_string(),
+            component_1: c1.to_string(),
+            component_2: c2.to_string(),
             id: Some(dst.id()),
             link_id: None,
             direction: None,
@@ -1522,14 +1524,14 @@ impl ControllerService {
         return self.send_or_queue_notification(ctrl, clients).await;
     }
 
-    async fn handle_unsubscribe_message(&self, dst: Name, clients: &[ClientConfig]) {
+    async fn handle_unsubscribe_message(&self, dst: ProtoName, clients: &[ClientConfig]) {
         let mut unsub_vec = vec![];
 
-        let components = dst.components_strings();
+        let (c0, c1, c2) = dst.str_components();
         let cmd = v1::Route {
-            component_0: components[0].to_string(),
-            component_1: components[1].to_string(),
-            component_2: components[2].to_string(),
+            component_0: c0.to_string(),
+            component_1: c1.to_string(),
+            component_2: c2.to_string(),
             id: Some(dst.id()),
             link_id: None,
             direction: None,
@@ -1801,12 +1803,12 @@ impl ControllerService {
                     .lock()
                     .iter()
                     .map(|((name, conn_id), _sub_id)| {
-                        let strings = name.components_strings();
+                        let (c0, c1, c2) = name.str_components();
                         let id = name.id();
                         v1::Route {
-                            component_0: strings[0].clone(),
-                            component_1: strings[1].clone(),
-                            component_2: strings[2].clone(),
+                            component_0: c0.to_string(),
+                            component_1: c1.to_string(),
+                            component_2: c2.to_string(),
                             id: if id != Name::NULL_COMPONENT {
                                 Some(id)
                             } else {

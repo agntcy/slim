@@ -1,0 +1,6 @@
+crates:
+  - name: agntcy-slim-bindings
+    path: ../adapter
+
+web:
+  ts: wasm/generated

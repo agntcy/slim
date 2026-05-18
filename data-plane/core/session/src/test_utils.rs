@@ -10,8 +10,7 @@ use parking_lot::Mutex;
 use slim_auth::errors::AuthError;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
-use slim_datapath::api::ProtoMessage as Message;
-use slim_datapath::messages::Name;
+use slim_datapath::api::{ProtoMessage as Message, ProtoName};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -111,8 +110,8 @@ impl Transmitter for MockTransmitter {
 /// Mock inner message handler for testing.
 pub struct MockInnerHandler {
     pub messages_received: Arc<tokio::sync::Mutex<Vec<SessionMessage>>>,
-    pub endpoints_added: Arc<tokio::sync::Mutex<Vec<Name>>>,
-    pub endpoints_removed: Arc<tokio::sync::Mutex<Vec<Name>>>,
+    pub endpoints_added: Arc<tokio::sync::Mutex<Vec<ProtoName>>>,
+    pub endpoints_removed: Arc<tokio::sync::Mutex<Vec<ProtoName>>>,
 }
 
 impl MockInnerHandler {
@@ -154,12 +153,12 @@ impl MessageHandler for MockInnerHandler {
         Ok(())
     }
 
-    async fn add_endpoint(&mut self, endpoint: &Name) -> Result<(), SessionError> {
+    async fn add_endpoint(&mut self, endpoint: &ProtoName) -> Result<(), SessionError> {
         self.endpoints_added.lock().await.push(endpoint.clone());
         Ok(())
     }
 
-    fn remove_endpoint(&mut self, endpoint: &Name) {
+    fn remove_endpoint(&mut self, endpoint: &ProtoName) {
         let endpoints = self.endpoints_removed.clone();
         let endpoint = endpoint.clone();
         tokio::spawn(async move {

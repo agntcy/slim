@@ -6,9 +6,21 @@ includes:
   rust:
     taskfile: ../../../tasks/rust.yaml
     internal: true
+  tools:
+    taskfile: ../../../tasks/tools.yaml
+    internal: true
+    flatten: true
+
+env:
+  PATH: "{{.TOOLS_INSTALL_DIR}}/zig:{{.PATH}}"
 
 vars:
-  PROFILE: '{{.PROFILE | default "debug"}}'
+  GNU_CLIB_VERSION: 2.28
+  # Default to release for bindings; overrides rust.yaml's default "debug" so vars propagate correctly
+  # when called from node/react-native/etc. (nested includes can drop PROFILE propagation)
+  PROFILE: '{{.PROFILE | default "release"}}'
+  RELEASE:
+    sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
   BINDINGS_PACKAGE: agntcy-slim-bindings
   CURRENT_TARGET:
     sh: 'rustc -vV | sed -n "s|host: ||p"'
@@ -20,13 +32,25 @@ tasks:
     cmds:
       - task -l
 
+  bindings:install-cargo-components:
+    desc: Install required cargo components
+    status:
+      - which cargo-zigbuild
+    cmds:
+      - echo "🦀 Installing required cargo components..."
+      - cargo install cargo-zigbuild
+
   bindings:build:all:
-    desc: Build the Rust library with cross-compilation support
+    desc: Build the Rust library with UniFFI
     dir: "{{.TASKFILE_DIR}}"
-    silent: false
     aliases:
       - build
       - generate
+    deps:
+      - task: zig
+      - task: dlltool-wrapper
+      - bindings:install-cargo-components
+    silent: true
     cmds:
       - echo "🦀 Building Rust bindings library... {{.TARGET}}"
       - task: rust:crossbuild

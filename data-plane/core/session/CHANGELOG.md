@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.15](https://github.com/agntcy/slim/compare/slim-session-v0.1.14...slim-session-v0.1.15) - 2026-05-13
+
+### Other
+
+- updated the following local packages: agntcy-slim-datapath, agntcy-slim-mls
+
+## [0.1.14](https://github.com/agntcy/slim/compare/slim-session-v0.1.13...slim-session-v0.1.14) - 2026-05-12
+
+### Other
+
+- updated the following local packages: agntcy-slim-datapath, agntcy-slim-mls
+
+## [0.1.13](https://github.com/agntcy/slim/compare/slim-session-v0.1.12...slim-session-v0.1.13) - 2026-05-11
+
+### Added
+
+- Bindings uniffi version updates ([#1590](https://github.com/agntcy/slim/pull/1590))
+
 ## [0.1.12](https://github.com/agntcy/slim/compare/slim-session-v0.1.11...slim-session-v0.1.12) - 2026-04-21
 
 ### Other

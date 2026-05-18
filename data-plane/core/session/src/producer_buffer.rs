@@ -5,14 +5,14 @@
 use std::collections::HashMap;
 
 // Third-party crates
-use slim_datapath::{api::ProtoMessage as Message, messages::Name};
+use slim_datapath::{api::ProtoMessage as Message, api::ProtoName};
 
 pub struct ProducerBuffer {
     capacity: usize,
     next: usize,
     buffer: Vec<Option<Message>>,
     map: HashMap<usize, usize>,
-    destination_name: Name,
+    destination_name: ProtoName,
     destination_id: Option<u64>,
 }
 
@@ -24,7 +24,7 @@ impl ProducerBuffer {
             next: 0,
             buffer: vec![None; capacity],
             map: HashMap::new(),
-            destination_name: Name::from_strings(["unknown", "unknown", "unknown"]),
+            destination_name: ProtoName::from_strings(["unknown", "unknown", "unknown"]),
             destination_id: None,
         }
     }
@@ -33,7 +33,7 @@ impl ProducerBuffer {
         self.capacity
     }
 
-    pub fn get_destination_name(&self) -> &Name {
+    pub fn get_destination_name(&self) -> &ProtoName {
         &self.destination_name
     }
 
@@ -101,10 +101,10 @@ impl ProducerBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slim_datapath::api::ProtoName as Name;
     use slim_datapath::api::{
         ProtoSessionMessageType, ProtoSessionType, SessionHeader, SlimHeader,
     };
-    use slim_datapath::messages::encoder::Name;
 
     #[test]
     fn test_producer_buffer() {
@@ -116,7 +116,7 @@ mod tests {
         let src_id = src.to_string();
         let name_type = Name::from_strings(["org", "ns", "type"]).with_id(1);
 
-        let slim_header = SlimHeader::new(&src, &name_type, &src_id, None);
+        let slim_header = SlimHeader::new(src, name_type, &src_id, None);
 
         let h0 = SessionHeader::new(
             ProtoSessionType::PointToPoint.into(),
@@ -239,7 +239,7 @@ mod tests {
         let src_id = src.to_string();
         let name_type = Name::from_strings(["org", "ns", "type"]).with_id(1);
 
-        let slim_header = SlimHeader::new(&src, &name_type, &src_id, None);
+        let slim_header = SlimHeader::new(src, name_type, &src_id, None);
         let h = SessionHeader::new(
             ProtoSessionType::PointToPoint.into(),
             ProtoSessionMessageType::Msg.into(),

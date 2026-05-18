@@ -21,7 +21,7 @@ use slim_control_plane::api::proto::controlplane::proto::v1::{
 };
 use slim_control_plane::config::{Config, DatabaseConfig, ReconcilerConfig};
 use slim_control_plane::server::ControlPlane;
-use slim_datapath::messages::Name;
+use slim_datapath::api::ProtoName as Name;
 use slim_service::{Service, ServiceConfiguration};
 use slim_testing::utils::TEST_VALID_SECRET;
 use tokio_stream::StreamExt;

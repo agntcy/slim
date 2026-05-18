@@ -40,26 +40,26 @@ resolver = "2"
 
 [workspace.dependencies]
 # Local dependencies
-agntcy-slim = { path = "core/slim", version = "1.4.0-rc.0" }
-agntcy-slim-auth = { path = "core/auth", version = "0.7.0" }
-agntcy-slim-bindings = { path = "bindings/rust", version = "1.4.0-rc.0" }
-agntcy-slim-config = { path = "core/config", version = "0.9.0" }
-agntcy-slim-controller = { path = "core/controller", version = "0.5.0" }
-agntcy-slim-datapath = { path = "core/datapath", version = "0.12.3" }
-agntcy-slim-mls = { path = "core/mls", version = "0.1.15" }
-agntcy-slim-service = { path = "core/service", version = "0.8.12", default-features = false }
-agntcy-slim-session = { path = "core/session", version = "0.1.12" }
+agntcy-slim = { path = "core/slim", version = "1.4.0" }
+agntcy-slim-auth = { path = "core/auth", version = "0.8.0" }
+agntcy-slim-bindings = { path = "bindings/rust", version = "1.4.0" }
+agntcy-slim-config = { path = "core/config", version = "0.9.3" }
+agntcy-slim-controller = { path = "core/controller", version = "0.6.2" }
+agntcy-slim-datapath = { path = "core/datapath", version = "0.13.2" }
+agntcy-slim-mls = { path = "core/mls", version = "0.1.18" }
+agntcy-slim-service = { path = "core/service", version = "0.8.15", default-features = false }
+agntcy-slim-session = { path = "core/session", version = "0.1.15" }
 agntcy-slim-signal = { path = "core/signal", version = "0.1.9" }
 agntcy-slim-testing = { path = "testing" }
-agntcy-slim-tracing = { path = "core/tracing", version = "0.3.9" }
-agntcy-slim-version = { path = "core/version", version = "1.4.0-rc.0" }
-agntcy-slimctl = { path = "slimctl", version = "1.4.0-rc.0" }
+agntcy-slim-tracing = { path = "core/tracing", version = "0.3.12" }
+agntcy-slim-version = { path = "core/version", version = "1.4.0" }
+agntcy-slimctl = { path = "slimctl", version = "1.4.0" }
 
 anyhow = "1.0.98"
 
 async-stream = "0.3"
 async-trait = "0.1.88"
-aws-lc-rs = "1.16"
+aws-lc-rs = { version = "1.16", features = ["bindgen"] }
 base64 = "0.22"
 bincode = "2.0.1"
 bytes = "1.9.0"
@@ -68,7 +68,7 @@ clap = { version = "4.5.23", features = ["derive", "env"] }
 
 criterion = { version = "0.5", features = ["html_reports"] }
 diesel = { version = "2", features = ["sqlite"] }
-diesel-async = { version = "0.8", features = ["sqlite", "deadpool", "migrations"] }
+diesel-async = { version = "0.9", features = ["sqlite", "deadpool", "migrations"] }
 diesel_migrations = { version = "2" }
 display-error-chain = { version = "0.2" }
 drain = { version = "0.2", features = ["retain"] }
@@ -152,7 +152,7 @@ uuid = { version = "1.15.1", features = ["v4"] }
 wiremock = "0.6"
 
 [workspace.package]
-version = "1.4.0-rc.0"
+version = "1.4.0"
 license = "Apache-2.0"
 edition = "2024"
 repository = "https://github.com/agntcy/slim"

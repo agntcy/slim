@@ -1,6 +1,5 @@
 # Copyright AGNTCiY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
-
 ---
 name: ci-container-security-scan
 
@@ -34,10 +33,10 @@ jobs:
             version: latest
           - image: spire-server
             repo: ghcr.io/spiffe/spire-server
-            version: 1.14.1
+            version: 1.14.5
           - image: spire-agent
             repo: ghcr.io/spiffe/spire-agent
-            version: 1.14.1
+            version: 1.14.5
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

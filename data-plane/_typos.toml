@@ -15,6 +15,8 @@ extend-exclude = [
     "**/*.pem",
     "**/*.yaml",
     "bindings/go/generated/**",
+    "**/*.pbxproj",
+    "**/*.pbxproj.bak",
     "bindings/java/examples/**/types/**",
     "bindings/kotlin/examples/**/types/**",
 ]
