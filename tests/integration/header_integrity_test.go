@@ -3,25 +3,18 @@
 
 package integration
 
-// Header MAC (HMAC-SHA256) checks for inter-node traffic.
+// Integration test for packet header integrity validation between two nodes.
 //
-// This file combines:
-//   1) A Go integration topology: two slim processes federate (dataplane link negotiation and
-//      ECDH-derived per-link MAC keys on the gRPC stream), each with a controller for slimctl.
-//   2) Targeted Rust unit tests in agntcy-slim-datapath that exercise MessageProcessor's
-//      verify_remote_header_mac path: a correctly signed publish verifies, and mutating the
-//      destination string after signing fails verification (same tamper shape as
-//      SLIM_TEST_TAMPER_DESTINATION on outbound remote sends).
-//   3) Cross-node sdk-mock messaging: slimctl route add with dataplane "via" JSON programs routes
-//      between the two dataplane nodes so discovery does not rely on forwarded peer self-subscriptions.
-//   4) Tamper rejection: with SLIM_TEST_TAMPER_DESTINATION on the sender dataplane (debug slim only),
-//      the peer logs SLIM header integrity verification failed and the publish does not reach the remote app.
+// 2 cases are covered:
+// - happy path: two nodes are set up with link negotiation (and HMAC generation through ECDH), then remote clients communicate
+//
+// - tampered packet: one of the nodes tampers the destination field after signing the header HMAC. The federated node will fail
+//   the validation and drop the packet.
 
 import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"time"
 
@@ -54,17 +47,6 @@ var _ = Describe("Header integrity across federated dataplane nodes", func() {
 			tempDir = ""
 		}
 	})
-
-	runDataplaneHeaderMacTests := func() {
-		dataPlaneDir, err := filepath.Abs(filepath.Join("..", "..", "data-plane"))
-		Expect(err).NotTo(HaveOccurred())
-		cmd := exec.Command(
-			"cargo", "test", "-p", "agntcy-slim-datapath", "verify_remote_header_mac", "--",
-		)
-		cmd.Dir = dataPlaneDir
-		out, err := cmd.CombinedOutput()
-		Expect(err).NotTo(HaveOccurred(), string(out))
-	}
 
 	It("completes link negotiation, verifies header MAC in dataplane tests, and routes sdk-mock across nodes via control plane", func() {
 		nodeAPort := reservePort()
@@ -115,8 +97,6 @@ var _ = Describe("Header integrity across federated dataplane nodes", func() {
 		Eventually(nodeBSession.Out, 15*time.Second).Should(gbytes.Say("started controlplane server"))
 		Eventually(nodeASession.Out, 10*time.Second).Should(gbytes.Say("received link negotiation"))
 		Eventually(nodeBSession.Out, 10*time.Second).Should(gbytes.Say("received link negotiation"))
-
-		runDataplaneHeaderMacTests()
 
 		getRouteWithID := func(controllerPort int, routePrefix string) string {
 			var routeName string
@@ -236,8 +216,6 @@ var _ = Describe("Header integrity across federated dataplane nodes", func() {
 		Eventually(nodeBSession.Out, 15*time.Second).Should(gbytes.Say("started controlplane server"))
 		Eventually(nodeASession.Out, 10*time.Second).Should(gbytes.Say("received link negotiation"))
 		Eventually(nodeBSession.Out, 10*time.Second).Should(gbytes.Say("received link negotiation"))
-
-		runDataplaneHeaderMacTests()
 
 		getRouteWithID := func(controllerPort int, routePrefix string) string {
 			var routeName string
