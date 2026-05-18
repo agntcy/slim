@@ -11,6 +11,7 @@ use slim::config;
 use slim_auth::shared_secret::SharedSecret;
 use slim_datapath::api::{ProtoName as Name, ProtoSessionType};
 use slim_session::SessionConfig;
+use slim_session::session_config::MlsSettings;
 use slim_testing::utils::TEST_VALID_SECRET;
 
 mod args;
@@ -168,6 +169,7 @@ async fn main() {
             max_retries: None,
             interval: None,
             mls_enabled: mls_group_id.is_some(),
+            mls_settings: MlsSettings::default(),
             initiator: true,
             metadata: HashMap::new(),
         };

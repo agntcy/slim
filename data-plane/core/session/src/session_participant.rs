@@ -631,7 +631,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session_config::SessionConfig;
+    use crate::session_config::{MlsSettings, SessionConfig};
     use crate::session_settings::SessionSettings;
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
     use slim_datapath::Status;
@@ -698,6 +698,7 @@ mod tests {
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
             mls_enabled: false,
+            mls_settings: MlsSettings::default(),
             initiator: false,
             metadata: Default::default(),
         };
@@ -768,6 +769,7 @@ mod tests {
                         false,
                         Some(3),
                         Some(std::time::Duration::from_secs(1)),
+                        None,
                         None,
                     )
                     .as_content(),
@@ -1045,6 +1047,7 @@ mod tests {
                         false,
                         Some(3),
                         Some(std::time::Duration::from_secs(1)),
+                        None,
                         None,
                     )
                     .as_content(),

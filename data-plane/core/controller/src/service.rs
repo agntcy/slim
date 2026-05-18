@@ -42,7 +42,7 @@ use slim_datapath::api::{
     MessageType::Subscribe, MessageType::SubscriptionAck as SubscriptionAckType,
     MessageType::Unsubscribe, ProtoMessage as DataPlaneMessage,
 };
-use slim_datapath::api::{ProtoSessionMessageType, ProtoSessionType};
+use slim_datapath::api::{ProtoMlsSettings, ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::encoder::calculate_hash;
 use slim_datapath::messages::utils::{DELETE_GROUP, IS_MODERATOR, SlimHeaderFlags, TRUE_VAL};
@@ -599,6 +599,10 @@ fn new_channel_message(
                 Some(10),
                 Some(Duration::from_secs(1)),
                 Some(channel.clone()),
+                // Temporarily hardcoded 100% validation
+                Some(ProtoMlsSettings {
+                    header_integrity_validation_percent: 100,
+                }),
             )
             .as_content(),
     );

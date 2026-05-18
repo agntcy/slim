@@ -33,7 +33,8 @@ class GroupTest {
                 mlsEnabled,
                 5,
                 Duration.ofSeconds(1),
-                Map.of());
+                Map.of(),
+                TestHelpers.defaultMlsSettings());
         return participant.createSessionAndWait(sessionConfig, chatName);
     }
 

@@ -790,6 +790,7 @@ mod tests {
     // session is transitioning, indicating that graceful draining has begun.
     // Removed broken test_internal_draining_via_leave_request (incompatible mock trait implementation)
 
+    use crate::session_config::MlsSettings;
     use crate::subscription_manager::{SpySubscriptionManager, SubscriptionCall};
     use crate::transmitter::SessionTransmitter;
     use slim_auth::shared_secret::SharedSecret;
@@ -887,6 +888,7 @@ mod tests {
                 max_retries: self.max_retries,
                 interval: self.interval,
                 mls_enabled: self.mls_enabled,
+                mls_settings: MlsSettings::default(),
                 initiator: self.initiator,
                 metadata: self.metadata,
             };
@@ -1286,6 +1288,7 @@ mod tests {
             max_retries: Some(5),
             interval: Some(Duration::from_millis(1000)),
             mls_enabled: true,
+            mls_settings: MlsSettings::default(),
             initiator: true,
             metadata: std::collections::HashMap::new(),
         };
@@ -1320,6 +1323,7 @@ mod tests {
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
             mls_enabled: true,
+            mls_settings: MlsSettings::default(),
             initiator: false,
             metadata: std::collections::HashMap::new(),
         };
@@ -1794,6 +1798,7 @@ mod tests {
                 max_retries: Some(3),
                 interval: Some(Duration::from_millis(150)),
                 mls_enabled: false,
+                mls_settings: MlsSettings::default(),
                 initiator: true,
                 metadata: HashMap::new(),
             },
@@ -1965,6 +1970,7 @@ mod tests {
                 max_retries: Some(5),
                 interval: Some(Duration::from_millis(200)),
                 mls_enabled: false,
+                mls_settings: MlsSettings::default(),
                 initiator: true,
                 metadata: HashMap::new(),
             },

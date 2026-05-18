@@ -843,6 +843,7 @@ mod tests {
             None,                  // max_retries
             None,                  // timer_duration
             Some(channel.clone()), // channel
+            None,                  // mls_settings
         );
 
         let request = Message::builder()
@@ -2388,6 +2389,7 @@ mod tests {
             None,  // max_retries
             None,  // timer_duration
             None,  // channel (None for P2P)
+            None,  // mls_settings
         );
 
         let join_request = Message::builder()
@@ -2524,6 +2526,7 @@ mod tests {
             None,                       // max_retries
             None,                       // timer_duration
             Some(channel_name.clone()), // channel name
+            None,                       // mls_settings
         );
 
         let join_request = Message::builder()

@@ -415,6 +415,7 @@ mod tests {
     use super::*;
     use crate::{
         SessionError,
+        session_config::MlsSettings,
         test_utils::{MockTokenProvider, MockVerifier},
         transmitter::SessionTransmitter,
     };
@@ -428,6 +429,7 @@ mod tests {
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
             mls_enabled: false,
+            mls_settings: MlsSettings::default(),
             initiator,
             metadata: HashMap::new(),
         }
@@ -1027,6 +1029,7 @@ mod tests {
             max_retries: None,
             interval: None,
             mls_enabled: false,
+            mls_settings: MlsSettings::default(),
             initiator: true,
             metadata: HashMap::new(),
         };
@@ -1045,6 +1048,7 @@ mod tests {
             max_retries: None,
             interval: None,
             mls_enabled: false,
+            mls_settings: MlsSettings::default(),
             initiator: true,
             metadata: HashMap::new(),
         };
@@ -1067,6 +1071,7 @@ mod tests {
             max_retries: None,
             interval: None,
             mls_enabled: false,
+            mls_settings: MlsSettings::default(),
             initiator: false,
             metadata: HashMap::new(),
         };

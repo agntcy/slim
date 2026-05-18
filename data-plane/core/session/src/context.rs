@@ -79,7 +79,7 @@ impl SessionContext {
 mod tests {
     use super::*;
     use crate::common::AppChannelSender;
-    use crate::session_config::SessionConfig;
+    use crate::session_config::{MlsSettings, SessionConfig};
     use crate::session_controller::SessionController;
     use crate::transmitter::SessionTransmitter;
     use crate::{SessionError, SessionMessage};
@@ -156,6 +156,7 @@ mod tests {
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
             mls_enabled: false,
+            mls_settings: MlsSettings::default(),
             initiator: false,
             metadata: Default::default(),
         };

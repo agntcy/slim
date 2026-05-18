@@ -44,6 +44,36 @@ impl From<ProtoSessionType> for SessionType {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct MlsSettings {
+    /// 0 = disable header-integrity checks; 1–100 = percent of messages to verify after decrypt.
+    pub header_integrity_validation_percent: u32,
+}
+
+impl Default for MlsSettings {
+    fn default() -> Self {
+        Self {
+            header_integrity_validation_percent: 100,
+        }
+    }
+}
+
+impl From<MlsSettings> for slim_session::session_config::MlsSettings {
+    fn from(s: MlsSettings) -> Self {
+        Self {
+            header_integrity_validation_percent: s.header_integrity_validation_percent.min(100),
+        }
+    }
+}
+
+impl From<slim_session::session_config::MlsSettings> for MlsSettings {
+    fn from(s: slim_session::session_config::MlsSettings) -> Self {
+        Self {
+            header_integrity_validation_percent: s.header_integrity_validation_percent,
+        }
+    }
+}
+
 /// Session configuration
 #[derive(uniffi::Record)]
 pub struct SessionConfig {
@@ -61,6 +91,9 @@ pub struct SessionConfig {
 
     /// Custom metadata key-value pairs for the session
     pub metadata: std::collections::HashMap<String, String>,
+
+    /// MLS options (meaningful when `enable_mls` is true).
+    pub mls_settings: MlsSettings,
 }
 
 impl From<SessionConfig> for SlimSessionConfig {
@@ -72,6 +105,7 @@ impl From<SessionConfig> for SlimSessionConfig {
             mls_enabled: config.enable_mls,
             initiator: true,
             metadata: config.metadata,
+            mls_settings: config.mls_settings.into(),
         }
     }
 }
@@ -84,6 +118,7 @@ impl From<SlimSessionConfig> for SessionConfig {
             max_retries: config.max_retries,
             interval: config.interval,
             metadata: config.metadata,
+            mls_settings: config.mls_settings.into(),
         }
     }
 }
@@ -1618,6 +1653,7 @@ mod tests {
                 ("key1".to_string(), "value1".to_string()),
                 ("key2".to_string(), "value2".to_string()),
             ]),
+            mls_settings: MlsSettings::default(),
         };
 
         let slim_config: SlimSessionConfig = config.into();
@@ -1644,6 +1680,7 @@ mod tests {
             max_retries: None,
             interval: None,
             metadata: std::collections::HashMap::new(),
+            mls_settings: MlsSettings::default(),
         };
 
         let slim_config: SlimSessionConfig = config.into();

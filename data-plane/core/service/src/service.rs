@@ -568,6 +568,7 @@ mod tests {
     use slim_datapath::api::MessageType;
     use slim_datapath::api::ProtoName;
     use slim_session::SessionConfig;
+    use slim_session::session_config::MlsSettings;
     use slim_testing::utils::TEST_VALID_SECRET;
     use std::time::Duration;
     use tokio::time;
@@ -909,6 +910,7 @@ mod tests {
             mls_enabled: false,
             initiator: true,
             metadata: HashMap::new(),
+            mls_settings: MlsSettings::default(),
         };
         let dst = ProtoName::from_strings(["org", "ns", "dst"]);
         let (session_info, _completion_handle) = app
@@ -932,6 +934,7 @@ mod tests {
             mls_enabled: true,
             initiator: true,
             metadata: HashMap::new(),
+            mls_settings: MlsSettings::default(),
         };
         let (session_info, _completion_handle) = app
             .create_session(session_config.clone(), stream.clone(), None)

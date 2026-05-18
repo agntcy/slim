@@ -98,7 +98,8 @@ public class Group {
                     config.enableMls,
                     5, // maxRetries (Integer, not Long)
                     Duration.ofSeconds(5), // interval
-                    Map.of() // metadata - use empty map instead of null
+                    Map.of(), // metadata - use empty map instead of null
+                    new MlsSettings(100)
             );
 
             // Create session and wait for establishment

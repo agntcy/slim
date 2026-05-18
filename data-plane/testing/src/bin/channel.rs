@@ -5,11 +5,13 @@ use std::{collections::HashMap, time::Duration};
 
 use clap::Parser;
 use slim::config;
+use slim_datapath::api::ProtoName as Name;
 use tracing::{error, info};
 
 use slim_auth::shared_secret::SharedSecret;
-use slim_datapath::{api::ProtoName as Name, messages::utils::SlimHeaderFlags};
-use slim_session::{Notification, SessionConfig};
+use slim_datapath::messages::utils::SlimHeaderFlags;
+use slim_session::Notification;
+use slim_session::session_config::{MlsSettings, SessionConfig};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -221,6 +223,7 @@ async fn main() {
             mls_enabled,
             initiator: true,
             metadata: HashMap::new(),
+            mls_settings: MlsSettings::default(),
         };
         let (session_ctx, completion_handle) = app
             .create_session(config, channel_name.clone(), Some(12345))

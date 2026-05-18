@@ -7,9 +7,9 @@ use std::{collections::HashMap, time::Duration};
 use crate::api::proto::dataplane::v1::{GroupClosePayload, GroupNackPayload, PingPayload};
 use crate::api::{
     Content, LinkNegotiationPayload, MessageType, ProtoLink, ProtoLinkMessageType, ProtoLinkType,
-    ProtoMessage, ProtoName, ProtoPublish, ProtoPublishType, ProtoSessionType, ProtoSubscribe,
-    ProtoSubscribeType, ProtoSubscriptionAck, ProtoSubscriptionAckType, ProtoUnsubscribe,
-    ProtoUnsubscribeType, SessionHeader, SlimHeader,
+    ProtoMessage, ProtoMlsSettings as MlsSettings, ProtoName, ProtoPublish, ProtoPublishType,
+    ProtoSessionType, ProtoSubscribe, ProtoSubscribeType, ProtoSubscriptionAck,
+    ProtoSubscriptionAckType, ProtoUnsubscribe, ProtoUnsubscribeType, SessionHeader, SlimHeader,
     proto::dataplane::v1::{
         ApplicationPayload, CommandPayload, DiscoveryReplyPayload, DiscoveryRequestPayload,
         EncodedName, GroupAckPayload, GroupAddPayload, GroupProposalPayload, GroupRemovePayload,
@@ -1075,6 +1075,7 @@ impl CommandPayloadBuilder {
         max_retries: Option<u32>,
         timer_duration: Option<Duration>,
         channel: Option<ProtoName>,
+        mls_settings: Option<MlsSettings>,
     ) -> CommandPayload {
         let proto_channel = channel;
 
@@ -1093,6 +1094,7 @@ impl CommandPayloadBuilder {
             enable_mls,
             timer_settings,
             channel: proto_channel,
+            mls_settings,
         };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::JoinRequest(payload)),
@@ -2107,6 +2109,7 @@ mod tests {
             Some(5),
             Some(Duration::from_secs(10)),
             Some(dest.clone()),
+            Some(MlsSettings::default()),
         );
         let extracted = payload.as_join_request_payload().unwrap();
         assert!(extracted.enable_mls);

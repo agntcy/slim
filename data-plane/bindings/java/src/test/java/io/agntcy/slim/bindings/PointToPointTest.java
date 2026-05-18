@@ -171,7 +171,8 @@ class PointToPointTest {
                     mlsEnabled,
                     5,
                     Duration.ofMillis(100),
-                    Map.of());
+                    Map.of(),
+                    TestHelpers.defaultMlsSettings());
 
             Session senderSession = sender.createSessionAndWait(sessionConfig, receiverName);
             System.out.println("[PointToPointTest] sender session created");

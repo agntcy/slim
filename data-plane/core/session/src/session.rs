@@ -245,6 +245,7 @@ impl MessageHandler for Session {
 
 #[cfg(test)]
 mod tests {
+    use crate::session_config::MlsSettings;
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
@@ -271,6 +272,7 @@ mod tests {
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
             mls_enabled: false,
+            mls_settings: MlsSettings::default(),
             initiator: false,
             metadata: HashMap::new(),
         };
@@ -410,6 +412,7 @@ mod tests {
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
             mls_enabled: false,
+            mls_settings: MlsSettings::default(),
             initiator: false,
             metadata: HashMap::new(),
         };
@@ -622,6 +625,7 @@ mod tests {
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
             mls_enabled: false,
+            mls_settings: MlsSettings::default(),
             initiator: true,
             metadata: HashMap::new(),
         };
@@ -654,6 +658,7 @@ mod tests {
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
             mls_enabled: false,
+            mls_settings: MlsSettings::default(),
             initiator: false,
             metadata: HashMap::new(),
         };

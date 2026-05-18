@@ -89,7 +89,8 @@ public class PointToPoint {
                 config.enableMls,
                 null, // maxRetries
                 null, // interval
-                Map.of() // metadata - use empty map instead of null
+                Map.of(), // metadata - use empty map instead of null
+                new MlsSettings(100)
         );
 
         System.out.println(Colors.instancePrefix(instanceId) +

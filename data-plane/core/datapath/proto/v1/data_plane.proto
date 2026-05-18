@@ -171,6 +171,8 @@ message JoinRequestPayload {
   // name where to send the messages
   // it can be a channel or none
   optional Name channel = 3;
+  // MLS related settings (field 5 preserves wire compatibility with v1.1.x: timer_settings=2, channel=3)
+  optional MlsSettings mls_settings = 5;
 }
 
 message TimerSettings {
@@ -204,6 +206,27 @@ message MlsPayload {
   // commit or welcome mls message
   bytes mls_content = 2;
 }
+
+// MLS specific settings
+message MlsSettings {
+  // 0 = disable header-integrity checks (still may send AAD for forward compat)
+  // 1-100 = percent of messages to verify after decrypt
+  uint32 header_integrity_validation_percent = 1;
+}
+
+// Fields to include in E2E header integrity check
+message HeaderIntegrityAad {
+  uint32 version = 1;
+  Name source = 2;
+  Name destination = 3;
+  string identity = 4;
+  SessionType session_type = 5;
+  SessionMessageType session_message_type = 6;
+  uint32 session_id = 7;
+  uint32 message_id = 8;
+  string payload_type = 9;
+}
+
 
 // Group Add Payload
 // sent when a new participant is added

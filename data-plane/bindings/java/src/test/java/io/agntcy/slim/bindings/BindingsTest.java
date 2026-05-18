@@ -89,7 +89,8 @@ class BindingsTest {
           false,
           5,
           Duration.ofSeconds(1),
-          Map.of());
+          Map.of(),
+          TestHelpers.defaultMlsSettings());
 
       Session sessionAlice = appAlice.createSessionAndWait(sessionConfig, bobNameFinal);
       System.out.println("[BindingsTest] testEndToEnd: session create");
@@ -172,7 +173,8 @@ class BindingsTest {
         false,
         5,
         Duration.ofSeconds(1),
-        Map.of());
+        Map.of(),
+        TestHelpers.defaultMlsSettings());
 
     Session sessionAlice = appAlice.createSessionAndWait(sessionConfig, bobNameWithId);
     System.out.println("[BindingsTest] testAutoReconnectAfterServerRestart: session create");
@@ -247,7 +249,8 @@ class BindingsTest {
           false,
           null,
           null,
-          Map.of());
+          Map.of(),
+          TestHelpers.defaultMlsSettings());
 
       assertThrows(Exception.class, () -> appAlice.createSessionAndWait(sessionConfig, bobName));
 

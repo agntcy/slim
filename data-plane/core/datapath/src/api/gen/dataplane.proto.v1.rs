@@ -220,6 +220,9 @@ pub struct JoinRequestPayload {
     /// it can be a channel or none
     #[prost(message, optional, tag = "3")]
     pub channel: ::core::option::Option<Name>,
+    /// MLS related settings (field 5 preserves wire compatibility with v1.1.x: timer_settings=2, channel=3)
+    #[prost(message, optional, tag = "5")]
+    pub mls_settings: ::core::option::Option<MlsSettings>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct TimerSettings {
@@ -258,6 +261,36 @@ pub struct MlsPayload {
     /// commit or welcome mls message
     #[prost(bytes = "vec", tag = "2")]
     pub mls_content: ::prost::alloc::vec::Vec<u8>,
+}
+/// MLS specific settings
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct MlsSettings {
+    /// 0 = disable header-integrity checks (still may send AAD for forward compat)
+    /// 1-100 = percent of messages to verify after decrypt
+    #[prost(uint32, tag = "1")]
+    pub header_integrity_validation_percent: u32,
+}
+/// Fields to include in E2E header integrity check
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct HeaderIntegrityAad {
+    #[prost(uint32, tag = "1")]
+    pub version: u32,
+    #[prost(message, optional, tag = "2")]
+    pub source: ::core::option::Option<Name>,
+    #[prost(message, optional, tag = "3")]
+    pub destination: ::core::option::Option<Name>,
+    #[prost(string, tag = "4")]
+    pub identity: ::prost::alloc::string::String,
+    #[prost(enumeration = "SessionType", tag = "5")]
+    pub session_type: i32,
+    #[prost(enumeration = "SessionMessageType", tag = "6")]
+    pub session_message_type: i32,
+    #[prost(uint32, tag = "7")]
+    pub session_id: u32,
+    #[prost(uint32, tag = "8")]
+    pub message_id: u32,
+    #[prost(string, tag = "9")]
+    pub payload_type: ::prost::alloc::string::String,
 }
 /// Group Add Payload
 /// sent when a new participant is added

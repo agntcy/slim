@@ -673,7 +673,7 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use crate::SessionType;
+    use crate::{MlsSettings, SessionType};
 
     use super::*;
 
@@ -751,6 +751,7 @@ mod tests {
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_millis(100)),
             metadata: std::collections::HashMap::new(),
+            mls_settings: MlsSettings::default(),
         };
 
         let destination = Arc::new(Name::new(
@@ -798,6 +799,7 @@ mod tests {
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_millis(100)),
             metadata: std::collections::HashMap::new(),
+            mls_settings: MlsSettings::default(),
         };
 
         let destination = Arc::new(Name::new(
@@ -1154,6 +1156,7 @@ mod tests {
             max_retries: Some(1),
             interval: Some(std::time::Duration::from_millis(50)),
             metadata: std::collections::HashMap::new(),
+            mls_settings: MlsSettings::default(),
         };
 
         let destination = Arc::new(Name::new(
@@ -1451,6 +1454,7 @@ mod tests {
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_millis(100)),
             metadata: std::collections::HashMap::new(),
+            mls_settings: MlsSettings::default(),
         };
 
         let destination = Arc::new(Name::new(

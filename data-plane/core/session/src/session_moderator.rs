@@ -11,8 +11,8 @@ use display_error_chain::ErrorChainExt;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, MlsPayload, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
-        ProtoSessionType,
+        CommandPayload, MlsPayload, ProtoMessage as Message, ProtoMlsSettings, ProtoName,
+        ProtoSessionMessageType, ProtoSessionType,
     },
     messages::utils::{DELETE_GROUP, DISCONNECTION_DETECTED, LEAVING_SESSION, TRUE_VAL},
 };
@@ -697,12 +697,26 @@ where
             None
         };
 
+        let mls_settings = if self.mls_state.is_some() {
+            Some(ProtoMlsSettings {
+                header_integrity_validation_percent: self
+                    .common
+                    .settings
+                    .config
+                    .mls_settings
+                    .header_integrity_validation_percent,
+            })
+        } else {
+            None
+        };
+
         let payload = CommandPayload::builder()
             .join_request(
                 self.mls_state.is_some(),
                 self.common.settings.config.max_retries,
                 self.common.settings.config.interval,
                 channel,
+                mls_settings,
             )
             .as_content();
 
@@ -1329,7 +1343,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session_config::SessionConfig;
+    use crate::session_config::{MlsSettings, SessionConfig};
     use crate::session_settings::SessionSettings;
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
     use slim_datapath::Status;
@@ -1391,6 +1405,7 @@ mod tests {
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
             mls_enabled: false,
+            mls_settings: MlsSettings::default(),
             initiator: true,
             metadata: Default::default(),
         };
@@ -1543,6 +1558,7 @@ mod tests {
                         false,
                         Some(3),
                         Some(std::time::Duration::from_secs(1)),
+                        None,
                         None,
                     )
                     .as_content(),
@@ -1775,6 +1791,7 @@ mod tests {
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
             mls_enabled: false,
+            mls_settings: MlsSettings::default(),
             initiator: true,
             metadata: Default::default(),
         };
@@ -1852,6 +1869,7 @@ mod tests {
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
             mls_enabled: false,
+            mls_settings: MlsSettings::default(),
             initiator: true,
             metadata: Default::default(),
         };
@@ -1986,6 +2004,7 @@ mod tests {
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
             mls_enabled: false,
+            mls_settings: MlsSettings::default(),
             initiator: true,
             metadata: Default::default(),
         };

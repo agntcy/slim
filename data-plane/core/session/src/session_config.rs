@@ -8,6 +8,11 @@ use slim_datapath::api::{CommandPayload, ProtoSessionType};
 use crate::{SessionError, timer_factory::TimerSettings};
 
 #[derive(Default, Clone, Debug, PartialEq)]
+pub struct MlsSettings {
+    pub header_integrity_validation_percent: u32,
+}
+
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct SessionConfig {
     /// session type
     pub session_type: ProtoSessionType,
@@ -21,6 +26,9 @@ pub struct SessionConfig {
     /// true is mls is enabled
     pub mls_enabled: bool,
 
+    /// MLS related settings
+    pub mls_settings: MlsSettings,
+
     /// true is the local endpoint is initiator of the session
     pub initiator: bool,
 
@@ -29,6 +37,21 @@ pub struct SessionConfig {
 }
 
 impl SessionConfig {
+    fn mls_settings_from_join(join: &slim_datapath::api::JoinRequestPayload) -> MlsSettings {
+        if join.enable_mls {
+            let header_integrity_validation_percent = join
+                .mls_settings
+                .as_ref()
+                .map(|wire| wire.header_integrity_validation_percent.min(100))
+                .unwrap_or(100);
+            MlsSettings {
+                header_integrity_validation_percent,
+            }
+        } else {
+            MlsSettings::default()
+        }
+    }
+
     pub fn with_session_type(self, session_type: ProtoSessionType) -> Self {
         Self {
             session_type,
@@ -37,6 +60,7 @@ impl SessionConfig {
             mls_enabled: self.mls_enabled,
             initiator: self.initiator,
             metadata: self.metadata,
+            mls_settings: self.mls_settings,
         }
     }
 
@@ -66,6 +90,7 @@ impl SessionConfig {
             max_retries,
             interval: duration,
             mls_enabled: join.enable_mls,
+            mls_settings: Self::mls_settings_from_join(join),
             initiator,
             metadata,
         })
@@ -103,6 +128,7 @@ mod tests {
             mls_enabled: true,
             initiator: true,
             metadata: metadata.clone(),
+            mls_settings: MlsSettings::default(),
         };
 
         let new_config = config.with_session_type(ProtoSessionType::Multicast);
@@ -131,6 +157,7 @@ mod tests {
             Some(3),
             Some(Duration::from_millis(500)),
             Some(dest),
+            None,
         );
 
         let mut metadata = HashMap::new();
@@ -159,7 +186,7 @@ mod tests {
     #[test]
     fn test_from_join_request_without_timer_settings() {
         let dest = Name::from_strings(["dest", "", ""]);
-        let payload = CommandPayload::builder().join_request(false, None, None, Some(dest));
+        let payload = CommandPayload::builder().join_request(false, None, None, Some(dest), None);
 
         let metadata = HashMap::new();
 
@@ -187,6 +214,7 @@ mod tests {
             Some(10),
             Some(Duration::from_secs(5)),
             Some(dest),
+            None,
         );
 
         let config = SessionConfig::from_join_request(
@@ -234,6 +262,7 @@ mod tests {
             mls_enabled: true,
             initiator: false,
             metadata: metadata.clone(),
+            mls_settings: MlsSettings::default(),
         };
 
         let cloned = config.clone();
@@ -254,6 +283,7 @@ mod tests {
             Some(100),
             Some(Duration::from_secs(3600)), // 1 hour
             Some(dest),
+            None,
         );
 
         let config = SessionConfig::from_join_request(
@@ -282,6 +312,7 @@ mod tests {
             mls_enabled: false,
             initiator: false,
             metadata: metadata.clone(),
+            mls_settings: MlsSettings::default(),
         };
 
         let new_config = config.with_session_type(ProtoSessionType::Multicast);

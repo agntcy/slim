@@ -71,6 +71,11 @@
         }
       ]
     },
+    "link_id": {
+      "description": "Link identifier for this connection, used during link negotiation.\nMust be a valid UUID v4. Defaults to a randomly generated UUID v4.",
+      "type": "string",
+      "default": "b2ee9307-0199-4d1c-8670-a73eee887631"
+    },
     "metadata": {
       "description": "Arbitrary user-provided metadata.",
       "anyOf": [
@@ -224,6 +229,20 @@
             }
           },
           "$ref": "#/$defs/Config3",
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "SPIRE/SPIFFE authentication configuration.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "spire"
+            }
+          },
+          "$ref": "#/$defs/SpireConfig",
           "required": [
             "type"
           ]
@@ -687,10 +706,13 @@
       }
     },
     "MetadataValue": {
-      "description": "A generic metadata value.\n\nSupported variants:\n- String\n- Number (serde_json::Number – can represent integer & floating point)\n- List (Vec<MetadataValue>)\n- Map (nested MetadataMap)",
+      "description": "A generic metadata value.\n\nSupported variants:\n- String\n- Bool\n- Number (serde_json::Number – can represent integer & floating point)\n- List (Vec<MetadataValue>)\n- Map (nested MetadataMap)",
       "anyOf": [
         {
           "type": "string"
+        },
+        {
+          "type": "boolean"
         },
         {
           "type": "number"
@@ -757,6 +779,44 @@
             "string",
             "null"
           ]
+        }
+      }
+    },
+    "SpireConfig": {
+      "description": "SPIRE authentication configuration",
+      "type": "object",
+      "properties": {
+        "jwt_audiences": {
+          "description": "Audiences to request / verify for JWT SVIDs",
+          "type": "array",
+          "default": [
+            "slim"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "socket_path": {
+          "description": "Path to the SPIFFE Workload API socket (None => use SPIFFE_ENDPOINT_SOCKET env var)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target_spiffe_id": {
+          "description": "Optional target SPIFFE ID when requesting JWT SVIDs",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trust_domains": {
+          "description": "Optional trust domains override for X.509 bundle retrieval. If set,\n`get_x509_bundle()` uses this instead of deriving from the current SVID.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

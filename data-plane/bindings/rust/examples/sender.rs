@@ -32,7 +32,7 @@ use std::time::Duration;
 
 use clap::Parser;
 use slim_bindings::{
-    Name, SessionConfig, SessionType, get_global_service, initialize_with_defaults,
+    MlsSettings, Name, SessionConfig, SessionType, get_global_service, initialize_with_defaults,
     new_insecure_client_config, shutdown,
 };
 
@@ -147,6 +147,7 @@ async fn run_sender(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         max_retries: Some(5),
         interval: Some(Duration::from_secs(1)),
         metadata: HashMap::new(),
+        mls_settings: MlsSettings::default(),
     };
 
     // For p2p, destination is the single participant

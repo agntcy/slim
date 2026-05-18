@@ -471,6 +471,7 @@ mod tests {
         CommandPayload, ProtoMessage, ProtoSessionMessageType, ProtoSessionType,
     };
     use slim_datapath::messages::utils::SlimHeaderFlags;
+    use slim_session::session_config::MlsSettings;
     use slim_testing::utils::TEST_VALID_SECRET;
 
     // ============================================================================
@@ -817,7 +818,7 @@ mod tests {
 
         // send join_request message to create the session
         let payload = CommandPayload::builder()
-            .join_request(false, None, None, None)
+            .join_request(false, None, None, None, None)
             .as_content();
 
         let mut join_request = Message::builder()
@@ -931,6 +932,7 @@ mod tests {
             interval: Some(std::time::Duration::from_millis(1000)),
             mls_enabled: false,
             metadata: HashMap::new(),
+            mls_settings: MlsSettings::default(),
         };
 
         let sender_session =
@@ -1174,6 +1176,7 @@ mod tests {
             mls_enabled: true,
             initiator: true,
             metadata: HashMap::new(),
+            mls_settings: MlsSettings::default(),
         };
 
         let session_ctx =
@@ -1278,6 +1281,7 @@ mod tests {
                 mls_enabled: true,
                 initiator: true,
                 metadata: HashMap::new(),
+                mls_settings: MlsSettings::default(),
             },
             receiver_name.clone(),
         )
@@ -1398,6 +1402,7 @@ mod tests {
                 mls_enabled: false,
                 initiator: true,
                 metadata: HashMap::new(),
+                mls_settings: MlsSettings::default(),
             },
             channel_name.clone(),
         )
@@ -1617,6 +1622,7 @@ mod tests {
                 mls_enabled,
                 initiator: true,
                 metadata: HashMap::new(),
+                mls_settings: MlsSettings::default(),
             },
             channel_name.clone(),
         )
