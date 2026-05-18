@@ -29,7 +29,7 @@ use crate::api::ProtoPublishType as PublishType;
 use crate::api::ProtoSubscribeType as SubscribeType;
 use crate::api::ProtoSubscriptionAckType as SubscriptionAckType;
 use crate::api::ProtoUnsubscribeType as UnsubscribeType;
-use crate::api::proto::dataplane::v1::{Message, StringName};
+use crate::api::proto::dataplane::v1::Message;
 
 use crate::api::proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
 use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneService;
@@ -49,6 +49,10 @@ use crate::tables::subscription_table::SubscriptionTableImpl;
 fn local_version() -> &'static str {
     slim_version::version()
 }
+
+// Sync tests using environment variables
+#[cfg(test)]
+static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[derive(Debug)]
 struct MessageProcessorInternal {
@@ -486,16 +490,9 @@ impl MessageProcessor {
                         #[cfg(debug_assertions)]
                         if std::env::var("SLIM_TEST_TAMPER_DESTINATION").is_ok()
                             && let Some(dest) = header.destination.as_mut()
+                            && let Some(sn) = dest.str_name.as_mut()
                         {
-                            if let Some(sn) = dest.str_name.as_mut() {
-                                sn.str_component_2.push_str("-integrity-test-tamper");
-                            } else {
-                                dest.str_name = Some(StringName {
-                                    str_component_0: String::new(),
-                                    str_component_1: String::new(),
-                                    str_component_2: "-integrity-test-tamper".into(),
-                                });
-                            }
+                            sn.str_component_2.push_str("-integrity-test-tamper");
                         }
                     } else {
                         return Err(DataPathError::HeaderMacAwaitingLinkNegotiation(out_conn));
@@ -1952,22 +1949,61 @@ mod tests {
             .expect("sign header");
 
         let header = msg.get_slim_header_mut();
-        if let Some(dest) = header.destination.as_mut() {
-            if let Some(sn) = dest.str_name.as_mut() {
-                sn.str_component_2.push_str("-integrity-test-tamper");
-            } else {
-                dest.str_name = Some(StringName {
-                    str_component_0: String::new(),
-                    str_component_1: String::new(),
-                    str_component_2: "-integrity-test-tamper".into(),
-                });
-            }
+        if let Some(dest) = header.destination.as_mut()
+            && let Some(sn) = dest.str_name.as_mut()
+        {
+            sn.str_component_2.push_str("-integrity-test-tamper");
         }
 
         let err = processor
             .verify_remote_header_mac(remote_conn, &msg)
             .expect_err("tampered header must fail MAC verify");
         assert!(matches!(err, DataPathError::HeaderIntegrity(_)));
+    }
+
+    #[tokio::test]
+    #[allow(clippy::disallowed_methods)]
+    async fn test_send_msg_raw_tamper_destination_env_var() {
+        let _guard = ENV_LOCK.lock().await;
+        unsafe {
+            std::env::set_var("SLIM_TEST_TAMPER_DESTINATION", "1");
+        }
+
+        let processor = MessageProcessor::new();
+        let (conn_id, mut rx) = make_server_conn(&processor);
+        negotiate_conn(&processor, conn_id, "1.2.0");
+
+        let source = ProtoName::from_strings(["org", "default", "a"]).with_id(1);
+        let dest = ProtoName::from_strings(["org", "default", "b"]).with_id(2);
+        let msg = ProtoMessage::builder()
+            .source(source)
+            .destination(dest)
+            .application_payload("text/plain", b"hey".to_vec())
+            .build_publish()
+            .expect("publish");
+
+        processor
+            .send_msg_raw(msg, conn_id)
+            .await
+            .expect("send_msg_raw failed");
+
+        let sent_msg = rx.recv().await.unwrap().unwrap();
+        let header = sent_msg.get_slim_header();
+        let dest_name = header.destination.as_ref().expect("destination");
+        let str_name = dest_name.str_name.as_ref().expect("str_name");
+
+        // The tampering happens in send_msg_raw if the env var is set.
+        assert!(str_name.str_component_2.ends_with("-integrity-test-tamper"));
+
+        // Also verify that verify_remote_header_mac rejects it.
+        let err = processor
+            .verify_remote_header_mac(conn_id, &sent_msg)
+            .expect_err("tampered header must fail MAC verify");
+        assert!(matches!(err, DataPathError::HeaderIntegrity(_)));
+
+        unsafe {
+            std::env::remove_var("SLIM_TEST_TAMPER_DESTINATION");
+        }
     }
 
     #[tokio::test]
