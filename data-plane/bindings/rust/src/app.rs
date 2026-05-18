@@ -672,7 +672,7 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use crate::SessionType;
+    use crate::{MlsSettings, SessionType};
 
     use super::*;
 

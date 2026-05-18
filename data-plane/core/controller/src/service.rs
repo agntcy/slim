@@ -583,7 +583,6 @@ impl ControlPlane {
     }
 }
 
-<<<<<<< HEAD
 fn generate_session_id(moderator: &ProtoName, channel: &ProtoName) -> u32 {
     // get all the components of the two names
     // and hash them together to get the session id
@@ -769,8 +768,6 @@ fn remove_participant_message(
     Ok(msg)
 }
 
-=======
->>>>>>> 44496513 (feat(dataplane): remove group creation (#1594))
 impl ControllerService {
     fn resolve_connection_by_link_id(&self, link_id: &str) -> Result<Option<u64>, String> {
         let cached = self.inner.link_id_to_conn_id.read().get(link_id).copied();

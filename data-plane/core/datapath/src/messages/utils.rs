@@ -2182,7 +2182,8 @@ mod tests {
             Some(Duration::from_secs(10)),
             Some(dest.clone()),
             Some(MlsSettings::default()),
-        );        let extracted = payload.as_join_request_payload().unwrap();
+        );
+        let extracted = payload.as_join_request_payload().unwrap();
         assert!(extracted.mls_settings.is_some());
         assert!(extracted.timer_settings.is_some());
 

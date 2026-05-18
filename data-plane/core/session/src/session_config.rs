@@ -26,6 +26,9 @@ pub struct SessionConfig {
     /// MLS related settings
     pub mls_settings: Option<MlsSettings>,
 
+    /// MLS related settings
+    pub mls_settings: MlsSettings,
+
     /// true is the local endpoint is initiator of the session
     pub initiator: bool,
 
@@ -34,7 +37,9 @@ pub struct SessionConfig {
 }
 
 impl SessionConfig {
-    fn mls_settings_from_join(join: &slim_datapath::api::JoinRequestPayload) -> Option<MlsSettings> {
+    fn mls_settings_from_join(
+        join: &slim_datapath::api::JoinRequestPayload,
+    ) -> Option<MlsSettings> {
         if join.mls_settings.is_some() {
             let header_integrity_validation_percent = join
                 .mls_settings
