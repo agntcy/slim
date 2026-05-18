@@ -265,6 +265,8 @@ impl Connection {
 
 #[cfg(test)]
 mod tests {
+    use std::net::{Ipv4Addr, SocketAddrV4, ToSocketAddrs};
+
     use super::*;
     use tokio::sync::mpsc;
 
@@ -291,6 +293,34 @@ mod tests {
     #[test]
     fn test_link_id_initially_none() {
         assert!(server_conn().link_id().is_none());
+    }
+
+    #[test]
+    fn test_connection_format_print() {
+        let remote = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8080)
+            .to_socket_addrs()
+            .unwrap()
+            .next()
+            .unwrap();
+
+        let local = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8081)
+            .to_socket_addrs()
+            .unwrap()
+            .next()
+            .unwrap();
+
+        let conn = client_conn()
+            .with_remote_addr(Some(remote))
+            .with_local_addr(Some(local));
+        let debug = format!("{conn:?}");
+
+        assert!(debug.starts_with("Connection"));
+        assert!(debug.contains("connection_type: Remote"));
+        assert!(debug.contains("remote_addr: Some"));
+        assert!(debug.contains("local_addr: Some"));
+        // Sensitive fields are reducted
+        assert!(debug.contains(r#"negotiation: "NegotiationState""#));
+        assert!(debug.contains(r#"link_crypto: "LinkCryptoState""#));
     }
 
     #[test]
