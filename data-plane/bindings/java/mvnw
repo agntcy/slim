@@ -7,7 +7,7 @@
 # Pin with MAVEN_VERSION if needed.
 
 set -e
-MAVEN_VERSION="${MAVEN_VERSION:-3.9.15}"
+MAVEN_VERSION="${MAVEN_VERSION:-3.9.16}"
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 INSTALL_BASE="${ROOT}/.tools"
@@ -22,7 +22,13 @@ echo "Installing Apache Maven ${MAVEN_VERSION} under ${INSTALL_DIR} (first run o
 mkdir -p "${INSTALL_BASE}"
 TGZ="${INSTALL_BASE}/apache-maven-${MAVEN_VERSION}-bin.tar.gz.$$"
 rm -rf "${INSTALL_DIR}"
-curl -fsSL "https://dlcdn.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" -o "${TGZ}"
+MAVEN_TGZ="apache-maven-${MAVEN_VERSION}-bin.tar.gz"
+PRIMARY_URL="https://dlcdn.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/${MAVEN_TGZ}"
+ARCHIVE_URL="https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/${MAVEN_TGZ}"
+if ! curl -fsSL "${PRIMARY_URL}" -o "${TGZ}"; then
+  echo "Primary Maven mirror unavailable, trying archive.apache.org..."
+  curl -fsSL "${ARCHIVE_URL}" -o "${TGZ}"
+fi
 tar -xzf "${TGZ}" -C "${INSTALL_BASE}"
 rm -f "${TGZ}"
 if [ ! -x "${MVN_BIN}" ]; then
