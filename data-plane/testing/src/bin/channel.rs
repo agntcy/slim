@@ -227,6 +227,7 @@ async fn main() {
             },
             initiator: true,
             metadata: HashMap::new(),
+            mls_settings: MlsSettings::default(),
         };
         let (session_ctx, completion_handle) = app
             .create_session(config, channel_name.clone(), Some(12345))

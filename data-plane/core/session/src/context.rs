@@ -79,7 +79,7 @@ impl SessionContext {
 mod tests {
     use super::*;
     use crate::common::AppChannelSender;
-    use crate::session_config::SessionConfig;
+    use crate::session_config::{MlsSettings, SessionConfig};
     use crate::session_controller::SessionController;
     use crate::transmitter::SessionTransmitter;
     use crate::{SessionError, SessionMessage};

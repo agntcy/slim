@@ -42,6 +42,7 @@ use slim_datapath::api::{
     MessageType::SubscriptionAck as SubscriptionAckType, MessageType::Unsubscribe,
     ProtoMessage as DataPlaneMessage,
 };
+use slim_datapath::api::{ProtoMlsSettings, ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_datapath::tables::SubscriptionTable;
@@ -580,6 +581,157 @@ impl ControlPlane {
 
         Ok(())
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn create_channel_message(
+    source: &ProtoName,
+    destination: &ProtoName,
+    request_type: ProtoSessionMessageType,
+    session_id: u32,
+    message_id: u32,
+    payload: Option<Content>,
+    auth_provider: &Option<AuthProvider>,
+) -> Result<DataPlaneMessage, ControllerError> {
+    // if the auth_provider is set try to get an identity
+    let identity_token = match auth_provider {
+        Some(auth) => auth.get_token()?,
+        None => String::new(),
+    };
+
+    let message = DataPlaneMessage::builder()
+        .source(source.clone())
+        .destination(destination.clone())
+        .identity(&identity_token)
+        .session_type(ProtoSessionType::Multicast)
+        .session_message_type(request_type)
+        .session_id(session_id)
+        .message_id(message_id)
+        .payload(payload.ok_or(ControllerError::PayloadMissing)?)
+        .build_publish()?;
+
+    Ok(message)
+}
+
+fn new_channel_message(
+    controller: &ProtoName,
+    moderator: &ProtoName,
+    channel: &ProtoName,
+    message_id: u32,
+    auth_provider: &Option<AuthProvider>,
+) -> Result<DataPlaneMessage, ControllerError> {
+    let session_id = generate_session_id(moderator, channel);
+
+    let invite_payload = Some(
+        CommandPayload::builder()
+            .join_request(
+                true,
+                Some(10),
+                Some(Duration::from_secs(1)),
+                Some(channel.clone()),
+                // Temporarily hardcoded 100% validation
+                Some(ProtoMlsSettings {
+                    header_integrity_validation_percent: 100,
+                }),
+            )
+            .as_content(),
+    );
+
+    let mut msg = create_channel_message(
+        controller,
+        moderator,
+        ProtoSessionMessageType::JoinRequest,
+        session_id,
+        message_id,
+        invite_payload,
+        auth_provider,
+    )?;
+
+    msg.insert_metadata(IS_MODERATOR.to_string(), TRUE_VAL.to_string());
+    Ok(msg)
+}
+
+fn delete_channel_message(
+    controller: &ProtoName,
+    moderator: &ProtoName,
+    channel_name: &ProtoName,
+    msg_id: u32,
+    auth_provider: &Option<AuthProvider>,
+) -> Result<DataPlaneMessage, ControllerError> {
+    let session_id = generate_session_id(moderator, channel_name);
+
+    let payload = Some(CommandPayload::builder().leave_request(None).as_content());
+
+    let mut msg = create_channel_message(
+        controller,
+        moderator,
+        ProtoSessionMessageType::LeaveRequest,
+        session_id,
+        msg_id,
+        payload,
+        auth_provider,
+    )?;
+
+    msg.insert_metadata(DELETE_GROUP.to_string(), TRUE_VAL.to_string());
+    Ok(msg)
+}
+
+fn invite_participant_message(
+    controller: &ProtoName,
+    moderator: &ProtoName,
+    participant: &ProtoName,
+    channel_name: &ProtoName,
+    msg_id: u32,
+    auth_provider: &Option<AuthProvider>,
+) -> Result<DataPlaneMessage, ControllerError> {
+    let session_id = generate_session_id(moderator, channel_name);
+
+    let payload = Some(
+        CommandPayload::builder()
+            .discovery_request(Some(participant.clone()))
+            .as_content(),
+    );
+
+    let msg = create_channel_message(
+        controller,
+        moderator,
+        ProtoSessionMessageType::DiscoveryRequest,
+        session_id,
+        msg_id,
+        payload,
+        auth_provider,
+    )?;
+
+    Ok(msg)
+}
+
+fn remove_participant_message(
+    controller: &ProtoName,
+    moderator: &ProtoName,
+    participant: &ProtoName,
+    channel_name: &ProtoName,
+    msg_id: u32,
+    auth_provider: &Option<AuthProvider>,
+) -> Result<DataPlaneMessage, ControllerError> {
+    let session_id = generate_session_id(moderator, channel_name);
+
+    let payload = Some(
+        CommandPayload::builder()
+            .leave_request(Some(participant.clone()))
+            .as_content(),
+    );
+
+    let msg = create_channel_message(
+        controller,
+        moderator,
+        ProtoSessionMessageType::LeaveRequest,
+        session_id,
+        msg_id,
+        payload,
+        auth_provider,
+    )?;
+
+    Ok(msg)
 }
 
 impl ControllerService {

@@ -18,10 +18,8 @@ use slim_mls::mls::Mls;
 use tracing::debug;
 
 use crate::{
-    SessionInterceptorProvider,
     common::{MessageDirection, SessionMessage},
     errors::SessionError,
-    interceptor::MlsEncryptInterceptor,
     mls_state::MlsState,
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
@@ -99,12 +97,7 @@ where
                 mls_settings.header_integrity_validation_percent,
             )
             .expect("failed to create MLS state");
-            let shared = Arc::new(Mutex::new(mls_state));
-            self.common
-                .settings
-                .tx
-                .add_interceptor(Arc::new(MlsEncryptInterceptor::new(shared.clone())));
-            Some(shared)
+            Some(Arc::new(Mutex::new(mls_state)))
         } else {
             None
         };
@@ -671,7 +664,7 @@ where
 mod tests {
     use super::*;
     use crate::Direction;
-    use crate::session_config::SessionConfig;
+    use crate::session_config::{MlsSettings, SessionConfig};
     use crate::session_settings::SessionSettings;
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
     use slim_datapath::Status;

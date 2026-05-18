@@ -344,6 +344,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::session_config::MlsSettings;
     use crate::test_utils::MockTokenProvider;
     use crate::transmitter::SessionTransmitter;
 

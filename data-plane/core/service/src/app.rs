@@ -933,6 +933,7 @@ mod tests {
             interval: Some(std::time::Duration::from_millis(1000)),
             mls_settings: None,
             metadata: HashMap::new(),
+            mls_settings: MlsSettings::default(),
         };
 
         let sender_session =
@@ -1179,6 +1180,7 @@ mod tests {
             mls_settings: Some(MlsSettings::default()),
             initiator: true,
             metadata: HashMap::new(),
+            mls_settings: MlsSettings::default(),
         };
 
         let session_ctx =
@@ -1284,6 +1286,7 @@ mod tests {
                 mls_settings: Some(MlsSettings::default()),
                 initiator: true,
                 metadata: HashMap::new(),
+                mls_settings: MlsSettings::default(),
             },
             receiver_name.clone(),
         )
@@ -1404,6 +1407,7 @@ mod tests {
                 mls_settings: None,
                 initiator: true,
                 metadata: HashMap::new(),
+                mls_settings: MlsSettings::default(),
             },
             channel_name.clone(),
         )
@@ -1627,6 +1631,7 @@ mod tests {
                 },
                 initiator: true,
                 metadata: HashMap::new(),
+                mls_settings: MlsSettings::default(),
             },
             channel_name.clone(),
         )

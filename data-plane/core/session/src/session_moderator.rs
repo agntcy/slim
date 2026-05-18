@@ -26,10 +26,8 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 use crate::{
-    SessionInterceptorProvider,
     common::{MessageDirection, SessionMessage},
     errors::SessionError,
-    interceptor::MlsEncryptInterceptor,
     mls_state::{MlsModeratorState, MlsState},
     moderator_task::{
         AddParticipant, ModeratorTask, NotifyParticipants, RemoveParticipant, TaskUpdate,
@@ -123,10 +121,6 @@ where
             )
             .expect("failed to create MLS state");
             let shared = Arc::new(Mutex::new(mls_state));
-            self.common
-                .settings
-                .tx
-                .add_interceptor(Arc::new(MlsEncryptInterceptor::new(shared.clone())));
             Some(MlsModeratorState::new(shared))
         } else {
             None
@@ -162,8 +156,7 @@ where
                             .set_destination(self.common.settings.destination.clone());
                     }
 
-                    // Decrypt inbound application messages; encryption runs in
-                    // MlsEncryptInterceptor after message_id is assigned on send.
+                    // Decrypt inbound application messages.
                     if direction == MessageDirection::North
                         && let Some(mls_state) = &self.mls_state
                     {
@@ -1247,7 +1240,7 @@ where
 mod tests {
     use super::*;
     use crate::Direction;
-    use crate::session_config::SessionConfig;
+    use crate::session_config::{MlsSettings, SessionConfig};
     use crate::session_settings::SessionSettings;
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
     use slim_datapath::Status;
