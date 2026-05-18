@@ -155,3 +155,76 @@ where
         tokio::task::spawn(fut);
     }
 }
+
+// =====================================================================
+// Tests
+// =====================================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::tls::client::TlsClientConfig;
+    use crate::transport::TransportProtocol;
+    use std::net::TcpListener;
+    use std::time::Duration;
+
+    fn available_port() -> u16 {
+        TcpListener::bind("127.0.0.1:0")
+            .expect("bind")
+            .local_addr()
+            .expect("local_addr")
+            .port()
+    }
+
+    #[tokio::test]
+    async fn test_websocket_client_wrong_transport() {
+        // Default transport is gRPC, not websocket -> must error.
+        let cfg = ClientConfig::with_endpoint("ws://127.0.0.1:1");
+        let result = cfg.to_websocket_channel().await;
+        assert!(matches!(
+            result,
+            Err(ConfigError::WebSocketClientUnsupportedTransport)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_websocket_client_invalid_endpoint_scheme() {
+        let cfg = ClientConfig::with_endpoint("http://127.0.0.1:80")
+            .with_transport(TransportProtocol::Websocket)
+            .with_tls_setting(TlsClientConfig::insecure());
+        let result = cfg.to_websocket_channel().await;
+        assert!(result.is_err(), "non-ws scheme must be rejected");
+    }
+
+    #[tokio::test]
+    async fn test_websocket_client_connect_refused() {
+        // Bind to grab a port, then drop the listener to guarantee it's closed.
+        let port = available_port();
+        let cfg = ClientConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
+            .with_transport(TransportProtocol::Websocket)
+            .with_tls_setting(TlsClientConfig::insecure());
+
+        let result = cfg.to_websocket_channel().await;
+        assert!(result.is_err(), "connection to closed port should fail");
+    }
+
+    #[tokio::test]
+    async fn test_websocket_client_connect_timeout() {
+        // RFC 5737 TEST-NET-1: guaranteed unroutable.
+        let cfg = ClientConfig::with_endpoint("ws://192.0.2.1:9")
+            .with_transport(TransportProtocol::Websocket)
+            .with_tls_setting(TlsClientConfig::insecure())
+            .with_connect_timeout(Duration::from_millis(200));
+
+        let start = std::time::Instant::now();
+        let outer = tokio::time::timeout(Duration::from_secs(2), cfg.to_websocket_channel()).await;
+        let elapsed = start.elapsed();
+
+        assert!(outer.is_ok(), "configured connect_timeout was not honored");
+        assert!(outer.unwrap().is_err(), "unroutable connect must fail");
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "connect_timeout was not honored (took {elapsed:?})"
+        );
+    }
+}
