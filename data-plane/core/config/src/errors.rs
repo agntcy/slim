@@ -106,3 +106,31 @@ pub enum ConfigError {
     #[error("unknown error")]
     Unknown,
 }
+
+impl ConfigError {
+    /// True if this error came from a transient transport-level failure that
+    /// a connect attempt could plausibly recover from on retry (TCP refused,
+    /// TLS handshake hiccup, websocket upgrade race, etc.). Used by the
+    /// shared connect-retry helper to decide whether to keep retrying.
+    ///
+    /// Add new variants here when introducing a transport — that's the single
+    /// switch that opts a new transport into the shared retry policy.
+    pub fn is_retryable_connect_error(&self) -> bool {
+        match self {
+            // gRPC / tonic
+            ConfigError::TransportError(_) => true,
+
+            // Unix domain socket
+            #[cfg(target_family = "unix")]
+            ConfigError::UnixSocketConnect(_) => true,
+
+            // WebSocket
+            ConfigError::WebSocketConnection(_)
+            | ConfigError::WebSocketTlsHandshake(_)
+            | ConfigError::WebSocketTlsHandshakeTimeout
+            | ConfigError::WebSocketHandshake(_) => true,
+
+            _ => false,
+        }
+    }
+}

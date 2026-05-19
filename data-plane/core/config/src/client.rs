@@ -442,6 +442,34 @@ impl ClientConfig {
         Self { backoff, ..self }
     }
 
+    /// Run a single connect attempt under this config's backoff/retry policy.
+    ///
+    /// This is the single place where the retry loop lives: all transports
+    /// (gRPC, WebSocket, future ones) share the same backoff strategy and the
+    /// same retryable-error classification ([`ConfigError::is_retryable_connect_error`]).
+    /// Each transport-specific builder only needs to expose a one-shot attempt
+    /// and call this helper.
+    pub(crate) async fn retry_connect<T, F, Fut>(&self, attempt: F) -> Result<T, ConfigError>
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = Result<T, ConfigError>>,
+    {
+        use crate::backoff::Strategy;
+        use tokio_retry::RetryIf;
+
+        let strategy = self.backoff.get_strategy();
+        RetryIf::spawn(strategy, attempt, |e: &ConfigError| {
+            let retry = e.is_retryable_connect_error();
+            if retry {
+                tracing::warn!(error = %e, "transient connect error, retrying");
+            } else {
+                tracing::error!(error = %e, "non-retryable connect error");
+            }
+            retry
+        })
+        .await
+    }
+
     pub fn with_metadata(self, metadata: MetadataMap) -> Self {
         Self {
             metadata: Some(metadata),

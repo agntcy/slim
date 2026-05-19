@@ -40,7 +40,15 @@ pub(crate) fn spawn_transport_tasks(
     let (tx_outbound, mut rx_outbound) = mpsc::channel::<Message>(128);
     let (tx_control, mut rx_control) = mpsc::channel::<ControlFrame>(8);
 
-    let read_cancel = cancellation_token.clone();
+    // Internal token coordinates between the read and write halves: if one
+    // exits, the other should tear down too. It must NOT be the external
+    // `cancellation_token` — cancelling that one tells the higher-level
+    // `process_stream`/`reconnect` to give up, which would defeat reconnect
+    // on a natural peer close.
+    let internal_cancel = CancellationToken::new();
+
+    let read_external = cancellation_token.clone();
+    let read_internal = internal_cancel.clone();
     let control_tx = tx_control.clone();
     tokio::spawn(async move {
         // fastwebsockets invokes this callback for auto-generated Pong/Close
@@ -72,7 +80,10 @@ pub(crate) fn spawn_transport_tasks(
 
         loop {
             tokio::select! {
-                _ = read_cancel.cancelled() => {
+                _ = read_external.cancelled() => {
+                    break;
+                }
+                _ = read_internal.cancelled() => {
                     break;
                 }
                 frame = reader.read_frame::<_, WebSocketError>(&mut send_control) => {
@@ -137,15 +148,21 @@ pub(crate) fn spawn_transport_tasks(
         // Dropping tx_control here lets the write task observe end-of-stream
         // on the control channel if the read task exits first.
         drop(control_tx);
-        read_cancel.cancel();
+        read_internal.cancel();
     });
 
-    let write_cancel = cancellation_token.clone();
+    let write_internal = internal_cancel.clone();
+    let write_external = cancellation_token.clone();
     tokio::spawn(async move {
         loop {
             tokio::select! {
                 biased;
-                _ = write_cancel.cancelled() => {
+                _ = write_external.cancelled() => {
+                    let _ = write_half.write_frame(Frame::close(1000, &[])).await;
+                    let _ = write_half.flush().await;
+                    break;
+                }
+                _ = write_internal.cancelled() => {
                     let _ = write_half.write_frame(Frame::close(1000, &[])).await;
                     let _ = write_half.flush().await;
                     break;
@@ -195,7 +212,7 @@ pub(crate) fn spawn_transport_tasks(
             }
         }
 
-        write_cancel.cancel();
+        write_internal.cancel();
     });
 
     WebSocketStreams {

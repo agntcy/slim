@@ -42,15 +42,26 @@ impl ClientConfig {
         let endpoint = WebSocketEndpoint::parse(self.endpoint.as_str())?;
         let auth = build_client_handshake_auth(self).await?;
 
+        // Single connect attempt; retry policy lives in `ClientConfig::retry_connect`.
+        self.retry_connect(|| self.connect_websocket_once(&endpoint, &auth))
+            .await
+    }
+
+    async fn connect_websocket_once(
+        &self,
+        endpoint: &WebSocketEndpoint,
+        auth: &ClientHandshakeAuth,
+    ) -> Result<WebSocketClientChannel, ConfigError> {
         let query_param = self
             .websocket_auth_query_param
             .as_deref()
             .zip(auth.bearer_token.as_deref());
 
         let request_uri = endpoint.request_uri(query_param)?;
-        let request = build_handshake_request(self, &endpoint, request_uri, &auth)?;
+        // Rebuilt per attempt so Sec-WebSocket-Key is generated fresh.
+        let request = build_handshake_request(self, endpoint, request_uri, auth)?;
 
-        let stream = connect_tcp(self, &endpoint).await?;
+        let stream = connect_tcp(self, endpoint).await?;
         let local_addr = stream.local_addr().ok();
         let remote_addr = stream.peer_addr().ok();
 
@@ -243,7 +254,11 @@ mod tests {
         let port = available_port();
         let cfg = ClientConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
             .with_transport(TransportProtocol::Websocket)
-            .with_tls_setting(TlsClientConfig::insecure());
+            .with_tls_setting(TlsClientConfig::insecure())
+            .with_backoff(crate::client::BackoffConfig::new_fixed_interval(
+                Duration::from_millis(0),
+                1,
+            ));
 
         let result = cfg.to_websocket_channel().await;
         assert!(result.is_err(), "connection to closed port should fail");
@@ -255,7 +270,11 @@ mod tests {
         let cfg = ClientConfig::with_endpoint("ws://192.0.2.1:9")
             .with_transport(TransportProtocol::Websocket)
             .with_tls_setting(TlsClientConfig::insecure())
-            .with_connect_timeout(Duration::from_millis(200));
+            .with_connect_timeout(Duration::from_millis(200))
+            .with_backoff(crate::client::BackoffConfig::new_fixed_interval(
+                Duration::from_millis(0),
+                1,
+            ));
 
         let start = std::time::Instant::now();
         let outer = tokio::time::timeout(Duration::from_secs(2), cfg.to_websocket_channel()).await;

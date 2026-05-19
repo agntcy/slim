@@ -16,7 +16,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use base64::prelude::*;
-use display_error_chain::ErrorChainExt;
 use http::header::{HeaderMap, HeaderName, HeaderValue};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::connect::proxy::Tunnel;
@@ -26,7 +25,6 @@ use hyper_util::rt::TokioIo;
 use rustls_pki_types::ServerName;
 #[cfg(target_family = "unix")]
 use tokio::net::UnixStream;
-use tokio_retry::RetryIf;
 use tonic::codegen::{Body, Bytes, StdError};
 use tonic::transport::{Channel, Uri};
 use tower::ServiceExt;
@@ -35,7 +33,6 @@ use tower::service_fn;
 use tracing::warn;
 
 use crate::auth::ClientAuthenticator;
-use crate::backoff::Strategy;
 use crate::errors::ConfigError;
 use crate::grpc::headers_middleware::SetRequestHeaderLayer;
 use crate::grpc::proxy::ProxyConfig;
@@ -408,39 +405,21 @@ impl ClientConfig {
         if lazy {
             Ok(builder.connect_with_connector_lazy(make_connector()))
         } else {
-            let backoff_strategy = self.backoff.get_strategy();
-            RetryIf::spawn(
-                backoff_strategy,
-                || {
-                    let builder = builder.clone();
-                    let connector = make_connector();
-                    let path = socket_path.clone();
-                    async move {
-                        tracing::debug!(
-                            socket_path = %path.display(),
-                            "Attempting to create gRPC channel over Unix domain socket"
-                        );
-                        builder
-                            .connect_with_connector(connector)
-                            .await
-                            .map_err(Self::map_transport_error)
-                    }
-                },
-                |e: &ConfigError| match e {
-                    ConfigError::TransportError(err) => {
-                        tracing::warn!(error = %err.chain(), "Transport error encountered. Retrying...");
-                        true
-                    }
-                    ConfigError::UnixSocketConnect(err) => {
-                        tracing::warn!(error = %err, "Unix socket connect error encountered. Retrying...");
-                        true
-                    }
-                    _ => {
-                        tracing::error!(error = %e.chain(), "non-retryable error encountered");
-                        false
-                    }
-                },
-            )
+            self.retry_connect(|| {
+                let builder = builder.clone();
+                let connector = make_connector();
+                let path = socket_path.clone();
+                async move {
+                    tracing::debug!(
+                        socket_path = %path.display(),
+                        "Attempting to create gRPC channel over Unix domain socket"
+                    );
+                    builder
+                        .connect_with_connector(connector)
+                        .await
+                        .map_err(Self::map_transport_error)
+                }
+            })
             .await
         }
     }
@@ -468,33 +447,17 @@ impl ClientConfig {
             self.create_channel_from_connection(builder, connection, tls_config, true)
                 .await
         } else {
-            let backoff_strategy = self.backoff.get_strategy();
-            RetryIf::spawn(
-                backoff_strategy,
-                || {
-                    let uri = uri.clone();
-                    let builder = builder.clone();
-                    let http_connector = http_connector.clone();
-                    let tls_config = tls_config.clone();
-                    async move {
-                        tracing::debug!(%uri, "Attempting to create gRPC channel");
-                        self.create_channel_with_connector(uri, builder, http_connector, tls_config)
-                            .await
-                    }
-                },
-                |e: &ConfigError| {
-                    match e {
-                        ConfigError::TransportError(err) => {
-                            tracing::warn!(error = %err.chain(), "Transport error encountered. Retrying...");
-                            true
-                        }
-                        _ => {
-                            tracing::error!(error = %e.chain(), "non-retryable error encountered");
-                            false
-                        }
-                    }
-                },
-            )
+            self.retry_connect(|| {
+                let uri = uri.clone();
+                let builder = builder.clone();
+                let http_connector = http_connector.clone();
+                let tls_config = tls_config.clone();
+                async move {
+                    tracing::debug!(%uri, "Attempting to create gRPC channel");
+                    self.create_channel_with_connector(uri, builder, http_connector, tls_config)
+                        .await
+                }
+            })
             .await
         }
     }
