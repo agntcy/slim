@@ -495,11 +495,14 @@ mod tests {
     #[tokio::test]
     async fn test_websocket_server_401_on_failed_basic_auth() {
         let port = available_port();
-        // pragma: allowlist secret
+        let test_user = format!("user-{}", std::process::id());
+        let test_pass = format!("pw-{}-{}", std::process::id(), port);
         let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
             .with_transport(TransportProtocol::Websocket)
             .with_tls_settings(TlsServerConfig::insecure())
-            .with_auth(ServerAuthConfig::Basic(BasicConfig::new("user", "pass")));
+            .with_auth(ServerAuthConfig::Basic(BasicConfig::new(
+                &test_user, &test_pass,
+            )));
         let token = start_ws_server(cfg).await;
 
         // Correct path & upgrade headers but no Authorization.

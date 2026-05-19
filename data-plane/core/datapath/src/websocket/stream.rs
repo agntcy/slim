@@ -363,7 +363,7 @@ mod tests {
         for i in 0..3 {
             let _ = tokio::time::timeout(Duration::from_secs(5), connect_ws_client(port))
                 .await
-                .unwrap_or_else(|_| panic!("connection #{i} timed out"));
+                .unwrap_or_else(|_| panic!("connection #{} timed out", i));
         }
 
         server_token.cancel();
