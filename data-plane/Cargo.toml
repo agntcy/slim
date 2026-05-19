@@ -2,6 +2,7 @@
 
 members = [
     "bindings/rust",
+    "channel-manager",
     "control-plane",
     "core/auth",
     "core/config",
@@ -23,6 +24,7 @@ members = [
 default-members = [
     "bindings/rust",
     "control-plane",
+    "channel-manager",
     "core/config",
     "core/datapath",
     "core/service",

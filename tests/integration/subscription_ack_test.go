@@ -111,7 +111,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 	//
 	// The old relay never replies to link negotiation, so the app's embedded
 	// relay falls back to the default path.  Message delivery must still work.
-	Describe("old relay server with new app", func() {
+	BackwardCompatDescribe("old relay server with new app", func() {
 		It("subscribes via the default path and delivers messages", func() {
 			relayPort := reservePort()
 
@@ -175,7 +175,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 	// the subscription to the remote ack path after link negotiation completes.
 	// An unrelated old relay is also connected to the new relay to verify
 	// mixed-version topologies don't break anything.
-	Describe("old relay as client of new relay, new app on new relay", func() {
+	BackwardCompatDescribe("old relay as client of new relay, new app on new relay", func() {
 		It("upgrades subscription to remote ack path and delivers messages", func() {
 			newRelayPort := reservePort()
 
@@ -308,7 +308,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 	// Same two-app scenario but the central relay is the legacy binary.  The
 	// new apps' embedded relays detect the old relay and fall back to the
 	// default path.  Routing must still work end-to-end.
-	Describe("message delivery through old relay (default path)", func() {
+	BackwardCompatDescribe("message delivery through old relay (default path)", func() {
 		It("routes messages between two new apps via the old relay", func() {
 			relayPort := reservePort()
 
@@ -377,7 +377,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 	// new relay sees no version for that connection.  When the new relay
 	// receives the forwarded Subscribe (with no ack_id), it takes the default
 	// path.  A new app then sends a message to verify end-to-end routing.
-	Describe("old app subscribes via new relay", func() {
+	BackwardCompatDescribe("old app subscribes via new relay", func() {
 		It("new relay takes the default path and delivers messages to the old app", func() {
 			relayPort := reservePort()
 
@@ -432,7 +432,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 	//
 	// Baseline: both sides are pre-1.2.0.  No link negotiation, no remote ACK.
 	// A second legacy app sends a message to verify routing still works.
-	Describe("old app subscribes via old relay", func() {
+	BackwardCompatDescribe("old app subscribes via old relay", func() {
 		It("delivers messages between two old apps via the old relay", func() {
 			relayPort := reservePort()
 
@@ -494,7 +494,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 	// App A is the legacy sdk-mock (subscriber), app B is the new sdk-mock
 	// (sender).  The old app's embedded relay sends no ack_id; the new relay
 	// takes the default path for that subscription.  Routing must work.
-	Describe("message delivery: old app receives from new app via new relay", func() {
+	BackwardCompatDescribe("message delivery: old app receives from new app via new relay", func() {
 		It("routes a message from new app to old app through the new relay", func() {
 			relayPort := reservePort()
 
@@ -549,7 +549,7 @@ var _ = Describe("Subscription ACK Compatibility", func() {
 	//
 	// Same cross-version scenario but with the legacy relay as the hub.  Neither
 	// app uses the remote-ack path.  Routing must still work end-to-end.
-	Describe("message delivery: old app receives from new app via old relay", func() {
+	BackwardCompatDescribe("message delivery: old app receives from new app via old relay", func() {
 		It("routes a message from new app to old app through the old relay", func() {
 			relayPort := reservePort()
 

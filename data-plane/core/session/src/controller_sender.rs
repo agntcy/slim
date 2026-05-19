@@ -206,7 +206,8 @@ impl ControllerSender {
                 if self.group_name.is_none() {
                     if self.session_type == ProtoSessionType::PointToPoint {
                         // in p2p session the group name is equal to the remote name
-                        // in the join request message
+                        // in the join request message. Data and control messages
+                        // are distributed using the same name.
                         debug!(
                             destination = %message.get_dst(),
                             "update group name on join request message for p2p session",
@@ -215,12 +216,13 @@ impl ControllerSender {
                     } else {
                         // in multicast session the group name is specified in the
                         // payload of the message
-                        let group_name = message
+                        let mut group_name = message
                             .extract_join_request()?
                             .channel
                             .as_ref()
                             .ok_or(SessionError::MissingGroupNameInJoinRequest)?
                             .clone();
+                        group_name.set_id(ProtoName::CONTROL_CHANNEL_ID);
                         debug!(
                             destination = %group_name,
                             "update group name on join request message for multicast session",
@@ -685,7 +687,9 @@ mod tests {
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
-    use slim_datapath::api::{CommandPayload, ProtoSessionMessageType, ProtoSessionType};
+    use slim_datapath::api::{
+        CommandPayload, Participant, ParticipantSettings, ProtoSessionMessageType, ProtoSessionType,
+    };
     use std::time::Duration;
     use tokio::time::timeout;
     use tracing_test::traced_test;
@@ -718,7 +722,7 @@ mod tests {
         );
 
         // Create a discovery request message
-        let payload = CommandPayload::builder().discovery_request(None);
+        let payload = CommandPayload::builder().discovery_request();
 
         let request = Message::builder()
             .source(source.clone())
@@ -909,11 +913,14 @@ mod tests {
         assert_eq!(received, request);
 
         // Create the join reply
-        let payload = CommandPayload::builder().join_reply(None);
+        let payload = CommandPayload::builder().join_reply(
+            None,
+            Participant::new(remote.clone(), ParticipantSettings::bidirectional()),
+        );
 
         let reply = Message::builder()
-            .source(source.clone())
-            .destination(remote.clone())
+            .source(remote.clone())
+            .destination(source.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
             .session_message_type(ProtoSessionMessageType::JoinReply)
@@ -962,7 +969,7 @@ mod tests {
         );
 
         // Create a leave request message
-        let payload = CommandPayload::builder().leave_request(None);
+        let payload = CommandPayload::builder().leave_request();
 
         let request = Message::builder()
             .source(source.clone())
@@ -1031,8 +1038,8 @@ mod tests {
         let payload = CommandPayload::builder().leave_reply();
 
         let reply = Message::builder()
-            .source(source.clone())
-            .destination(remote.clone())
+            .source(remote.clone())
+            .destination(source.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
             .session_message_type(ProtoSessionMessageType::LeaveReply)
@@ -1064,13 +1071,16 @@ mod tests {
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
         let tx = SessionTransmitter::new(tx_slim, tx_app);
-        let source = ProtoName::from_strings(["org", "ns", "source"]);
-        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
+        let source_name = ProtoName::from_strings(["org", "ns", "source"]);
+        let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
+        let source = Participant::new(source_name.clone(), ParticipantSettings::bidirectional());
+        let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
+
         let session_id = 1;
 
         let mut sender = ControllerSender::new(
             settings,
-            source.clone(),
+            source_name.clone(),
             ProtoSessionType::Multicast,
             session_id,
             None,
@@ -1079,14 +1089,12 @@ mod tests {
             tx_signal,
         );
 
-        // Create a group welcome message
-        let participant = ProtoName::from_strings(["org", "ns", "participant"]);
-        let payload = CommandPayload::builder()
-            .group_welcome(vec![participant.clone(), source.clone()], None);
+        let payload =
+            CommandPayload::builder().group_welcome(vec![remote.clone(), source.clone()], None);
 
         let welcome = Message::builder()
-            .source(source.clone())
-            .destination(remote.clone())
+            .source(source_name.clone())
+            .destination(remote_name.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
             .session_message_type(ProtoSessionMessageType::GroupWelcome)
@@ -1151,8 +1159,8 @@ mod tests {
         let payload = CommandPayload::builder().group_ack();
 
         let ack = Message::builder()
-            .source(source.clone())
-            .destination(remote.clone())
+            .source(remote_name.clone())
+            .destination(source_name.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
             .session_message_type(ProtoSessionMessageType::GroupAck)
@@ -1183,7 +1191,7 @@ mod tests {
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
-        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
+        let group = ProtoName::from_strings(["org", "ns", "group"]);
         let session_id = 1;
 
         let mut sender = ControllerSender::new(
@@ -1205,14 +1213,18 @@ mod tests {
         // This should wait for acks from both participant2 (already in group) and participant1 (being added)
         let participant1 = ProtoName::from_strings(["org", "ns", "participant1"]);
         let payload = CommandPayload::builder().group_add(
-            participant1.clone(),
-            vec![participant1.clone(), participant2.clone(), source.clone()],
+            Participant::new(participant1.clone(), ParticipantSettings::bidirectional()),
+            vec![
+                Participant::new(participant1.clone(), ParticipantSettings::bidirectional()),
+                Participant::new(participant2.clone(), ParticipantSettings::bidirectional()),
+                Participant::new(source.clone(), ParticipantSettings::bidirectional()),
+            ],
             None, // mls_commit
         );
 
         let update = Message::builder()
             .source(source.clone())
-            .destination(remote.clone())
+            .destination(group.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
             .session_message_type(ProtoSessionMessageType::GroupAdd)
@@ -1356,8 +1368,12 @@ mod tests {
         // This should wait for acks from both participant2 (already in group) and participant1 (being added)
         let participant1 = ProtoName::from_strings(["org", "ns", "participant1"]);
         let payload = CommandPayload::builder().group_add(
-            participant1.clone(),
-            vec![participant1.clone(), participant2.clone(), source.clone()],
+            Participant::new(participant1.clone(), ParticipantSettings::bidirectional()),
+            vec![
+                Participant::new(participant1.clone(), ParticipantSettings::bidirectional()),
+                Participant::new(participant2.clone(), ParticipantSettings::bidirectional()),
+                Participant::new(source.clone(), ParticipantSettings::bidirectional()),
+            ],
             None, // mls
         );
 
@@ -2422,7 +2438,10 @@ mod tests {
         );
 
         // Send join reply to clear pending state
-        let reply_payload = CommandPayload::builder().join_reply(None);
+        let reply_payload = CommandPayload::builder().join_reply(
+            None,
+            Participant::new(remote.clone(), ParticipantSettings::bidirectional()),
+        );
         let join_reply = Message::builder()
             .source(remote.clone())
             .destination(source.clone())
@@ -2502,7 +2521,10 @@ mod tests {
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
-        let channel_name = ProtoName::from_strings(["org", "ns", "channel"]);
+        let data_channel_name =
+            ProtoName::from_strings(["org", "ns", "channel"]).with_id(ProtoName::DATA_CHANNEL_ID);
+        let control_channel_name = ProtoName::from_strings(["org", "ns", "channel"])
+            .with_id(ProtoName::CONTROL_CHANNEL_ID);
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
         let session_id = 1;
 
@@ -2520,10 +2542,10 @@ mod tests {
 
         // Simulate sending a join request with channel name in payload
         let payload = CommandPayload::builder().join_request(
-            false,                      // enable_mls
-            None,                       // max_retries
-            None,                       // timer_duration
-            Some(channel_name.clone()), // channel name
+            false,                           // enable_mls
+            None,                            // max_retries
+            None,                            // timer_duration
+            Some(data_channel_name.clone()), // channel name
         );
 
         let join_request = Message::builder()
@@ -2554,12 +2576,15 @@ mod tests {
         // Verify group_name was set to the channel name from payload
         assert_eq!(
             sender.group_name,
-            Some(channel_name.clone()),
+            Some(control_channel_name.clone()),
             "Group name should be set to channel name from JoinRequest payload in multicast session"
         );
 
         // Send join reply to clear pending state
-        let reply_payload = CommandPayload::builder().join_reply(None);
+        let reply_payload = CommandPayload::builder().join_reply(
+            None,
+            Participant::new(participant.clone(), ParticipantSettings::bidirectional()),
+        );
         let join_reply = Message::builder()
             .source(participant.clone())
             .destination(source.clone())
@@ -2619,7 +2644,7 @@ mod tests {
         );
         assert_eq!(
             ping.get_dst(),
-            channel_name,
+            control_channel_name,
             "Ping destination should be the channel/group name in multicast session"
         );
     }

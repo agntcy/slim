@@ -6,7 +6,6 @@ use clap::{Args, Subcommand};
 use tokio_stream::StreamExt;
 
 use crate::client::get_control_plane_client;
-use crate::config::ResolvedOpts;
 use crate::proto::controller::proto::v1::{Connection, Route};
 use crate::proto::controlplane::proto::v1::{
     AddRouteRequest, DeleteRouteRequest, LinkEntry, LinkListRequest, LinkStatus, Node,
@@ -14,6 +13,7 @@ use crate::proto::controlplane::proto::v1::{
 };
 use crate::rpc;
 use crate::utils::{VIA_KEYWORD, parse_config_file, parse_route};
+use slim_config::grpc::client::ClientConfig;
 
 #[derive(Args)]
 pub struct ControllerArgs {
@@ -24,10 +24,10 @@ pub struct ControllerArgs {
 #[derive(Subcommand)]
 pub enum ControllerCommand {
     /// Access node information through the control plane
-    #[command(aliases = ["n", "nodes", "instance"])]
+    #[command(visible_aliases = ["n", "nodes", "instance"])]
     Node(ControllerNodeArgs),
     /// Manage SLIM connections via the control plane
-    #[command(alias = "conn")]
+    #[command(visible_alias = "conn")]
     Connection(ControllerConnectionArgs),
     /// Manage SLIM routes via the control plane
     Route(ControllerRouteArgs),
@@ -46,7 +46,7 @@ pub struct ControllerNodeArgs {
 #[derive(Subcommand)]
 pub enum ControllerNodeCommand {
     /// List nodes connected to the control plane
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List,
 }
 
@@ -61,7 +61,7 @@ pub struct ControllerConnectionArgs {
 #[derive(Subcommand)]
 pub enum ControllerConnectionCommand {
     /// List active connections on a node
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List {
         /// ID of the node
         #[arg(short = 'n', long, required = true)]
@@ -80,7 +80,7 @@ pub struct ControllerRouteArgs {
 #[derive(Subcommand)]
 pub enum ControllerRouteCommand {
     /// List routes on a node
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List {
         /// ID of the node to manage routes for
         #[arg(short = 'n', long, required = true)]
@@ -144,7 +144,7 @@ pub enum ControllerLinkCommand {
 
 // ── Dispatch ──────────────────────────────────────────────────────────────────
 
-pub async fn run(args: &ControllerArgs, opts: &ResolvedOpts) -> Result<()> {
+pub async fn run(args: &ControllerArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
         ControllerCommand::Node(a) => run_node(a, opts).await,
         ControllerCommand::Connection(a) => run_connection(a, opts).await,
@@ -153,19 +153,19 @@ pub async fn run(args: &ControllerArgs, opts: &ResolvedOpts) -> Result<()> {
     }
 }
 
-async fn run_node(args: &ControllerNodeArgs, opts: &ResolvedOpts) -> Result<()> {
+async fn run_node(args: &ControllerNodeArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
         ControllerNodeCommand::List => node_list(opts).await,
     }
 }
 
-async fn run_connection(args: &ControllerConnectionArgs, opts: &ResolvedOpts) -> Result<()> {
+async fn run_connection(args: &ControllerConnectionArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
         ControllerConnectionCommand::List { node_id } => connection_list(node_id, opts).await,
     }
 }
 
-async fn run_route(args: &ControllerRouteArgs, opts: &ResolvedOpts) -> Result<()> {
+async fn run_route(args: &ControllerRouteArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
         ControllerRouteCommand::List { node_id } => route_list(node_id, opts).await,
         ControllerRouteCommand::Add {
@@ -187,7 +187,7 @@ async fn run_route(args: &ControllerRouteArgs, opts: &ResolvedOpts) -> Result<()
     }
 }
 
-async fn run_link(args: &ControllerLinkArgs, opts: &ResolvedOpts) -> Result<()> {
+async fn run_link(args: &ControllerLinkArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
         ControllerLinkCommand::Outline {
             origin_node_id,
@@ -198,9 +198,9 @@ async fn run_link(args: &ControllerLinkArgs, opts: &ResolvedOpts) -> Result<()> 
 
 // ── Node commands ──────────────────────────────────────────────────────────────
 
-async fn node_list(opts: &ResolvedOpts) -> Result<()> {
+async fn node_list(opts: &ClientConfig) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
-    let mut stream = rpc!(client, list_nodes, NodeListRequest {}, opts);
+    let mut stream = rpc!(client, list_nodes, NodeListRequest {});
     let mut entries = Vec::new();
     while let Some(entry) = stream.next().await {
         entries.push(entry?);
@@ -231,7 +231,7 @@ async fn node_list(opts: &ResolvedOpts) -> Result<()> {
 
 // ── Connection commands ────────────────────────────────────────────────────────
 
-async fn connection_list(node_id: &str, opts: &ResolvedOpts) -> Result<()> {
+async fn connection_list(node_id: &str, opts: &ClientConfig) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
     println!("Listing connections for node ID: {}", node_id);
     let resp = rpc!(
@@ -239,8 +239,7 @@ async fn connection_list(node_id: &str, opts: &ResolvedOpts) -> Result<()> {
         list_connections,
         Node {
             id: node_id.to_string()
-        },
-        opts
+        }
     );
     println!("Received connection list response: {}", resp.entries.len());
     for entry in &resp.entries {
@@ -258,7 +257,7 @@ async fn connection_list(node_id: &str, opts: &ResolvedOpts) -> Result<()> {
 
 // ── Route commands ─────────────────────────────────────────────────────────────
 
-async fn route_list(node_id: &str, opts: &ResolvedOpts) -> Result<()> {
+async fn route_list(node_id: &str, opts: &ClientConfig) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
     println!("Listing routes for node ID: {}", node_id);
     let resp = rpc!(
@@ -266,8 +265,7 @@ async fn route_list(node_id: &str, opts: &ResolvedOpts) -> Result<()> {
         list_node_routes,
         Node {
             id: node_id.to_string()
-        },
-        opts
+        }
     );
     println!("Received route list response: {}", resp.entries.len());
     for e in &resp.entries {
@@ -297,7 +295,7 @@ async fn route_add(
     route: &str,
     via: &str,
     destination: &str,
-    opts: &ResolvedOpts,
+    opts: &ClientConfig,
 ) -> Result<()> {
     if via.to_lowercase() != VIA_KEYWORD {
         bail!("invalid syntax: expected 'via' keyword, got '{}'", via);
@@ -334,8 +332,7 @@ async fn route_add(
             route: Some(route),
             connection: cp_connection,
             dest_node_id: final_dest_node,
-        },
-        opts
+        }
     );
     if !resp.success {
         bail!("failed to create route");
@@ -349,7 +346,7 @@ async fn route_del(
     route: &str,
     via: &str,
     destination: &str,
-    opts: &ResolvedOpts,
+    opts: &ClientConfig,
 ) -> Result<()> {
     if via.to_lowercase() != VIA_KEYWORD {
         bail!("invalid syntax: expected 'via' keyword, got '{}'", via);
@@ -373,7 +370,7 @@ async fn route_del(
     };
 
     let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(client, delete_route, req, opts);
+    let resp = rpc!(client, delete_route, req);
     if resp.success {
         println!("route removed successfully");
     } else {
@@ -385,7 +382,7 @@ async fn route_del(
 async fn route_outline(
     origin_node_id: &str,
     target_node_id: &str,
-    opts: &ResolvedOpts,
+    opts: &ClientConfig,
 ) -> Result<()> {
     println!(
         "Outline routes (origin:[{}] target:[{}])",
@@ -398,8 +395,7 @@ async fn route_outline(
         RouteListRequest {
             src_node_id: origin_node_id.to_string(),
             dest_node_id: target_node_id.to_string(),
-        },
-        opts
+        }
     );
     let mut routes = Vec::new();
     while let Some(entry) = stream.next().await {
@@ -419,7 +415,7 @@ async fn route_outline(
 async fn link_outline(
     origin_node_id: &str,
     target_node_id: &str,
-    opts: &ResolvedOpts,
+    opts: &ClientConfig,
 ) -> Result<()> {
     println!(
         "Outline links (origin:[{}] target:[{}])",
@@ -432,8 +428,7 @@ async fn link_outline(
         LinkListRequest {
             src_node_id: origin_node_id.to_string(),
             dest_node_id: target_node_id.to_string(),
-        },
-        opts
+        }
     );
     let mut links = Vec::new();
     while let Some(entry) = stream.next().await {
@@ -601,6 +596,12 @@ fn format_unix_timestamp(ts: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn make_opts(addr: &str) -> ClientConfig {
+        slim_config::grpc::client::ClientConfig::with_endpoint(&format!("http://{}", addr))
+            .with_tls_setting(slim_config::tls::client::TlsClientConfig::insecure())
+            .with_request_timeout(std::time::Duration::from_secs(5))
+    }
 
     #[allow(clippy::too_many_arguments)]
     fn make_route(
@@ -802,16 +803,7 @@ mod tests {
 
     #[tokio::test]
     async fn route_add_invalid_via_fails() {
-        let opts = crate::config::ResolvedOpts {
-            server: "127.0.0.1:1".to_string(),
-            timeout: std::time::Duration::from_secs(1),
-            tls_insecure: true,
-            tls_insecure_skip_verify: false,
-            tls_ca_file: String::new(),
-            tls_cert_file: String::new(),
-            tls_key_file: String::new(),
-            basic_auth_creds: String::new(),
-        };
+        let opts = make_opts("127.0.0.1:1");
         let err = route_add("node1", "a/b/c/0", "not_via", "dest", &opts)
             .await
             .unwrap_err();
@@ -820,16 +812,7 @@ mod tests {
 
     #[tokio::test]
     async fn route_del_invalid_via_fails() {
-        let opts = crate::config::ResolvedOpts {
-            server: "127.0.0.1:1".to_string(),
-            timeout: std::time::Duration::from_secs(1),
-            tls_insecure: true,
-            tls_insecure_skip_verify: false,
-            tls_ca_file: String::new(),
-            tls_cert_file: String::new(),
-            tls_key_file: String::new(),
-            basic_auth_creds: String::new(),
-        };
+        let opts = make_opts("127.0.0.1:1");
         let err = route_del("node1", "a/b/c/0", "bad", "dest", &opts)
             .await
             .unwrap_err();
@@ -843,7 +826,6 @@ mod tests {
 
         use tokio_stream::wrappers::TcpListenerStream;
 
-        use crate::config::ResolvedOpts;
         use crate::proto::controller::proto::v1::{ConnectionListResponse, RouteListResponse};
         use crate::proto::controlplane::proto::v1::{
             AddRouteRequest, AddRouteResponse, DeleteRouteRequest, DeleteRouteResponse, LinkEntry,
@@ -851,6 +833,7 @@ mod tests {
             RouteListRequest,
             control_plane_service_server::{ControlPlaneService, ControlPlaneServiceServer},
         };
+        use slim_config::grpc::client::ClientConfig;
 
         use super::super::*;
 
@@ -950,17 +933,10 @@ mod tests {
             format!("{}:{}", addr.ip(), addr.port())
         }
 
-        fn make_opts(addr: &str) -> ResolvedOpts {
-            ResolvedOpts {
-                server: addr.to_string(),
-                timeout: Duration::from_secs(5),
-                tls_insecure: true,
-                tls_insecure_skip_verify: false,
-                tls_ca_file: String::new(),
-                tls_cert_file: String::new(),
-                tls_key_file: String::new(),
-                basic_auth_creds: String::new(),
-            }
+        fn make_opts(addr: &str) -> ClientConfig {
+            slim_config::grpc::client::ClientConfig::with_endpoint(&format!("http://{}", addr))
+                .with_tls_setting(slim_config::tls::client::TlsClientConfig::insecure())
+                .with_request_timeout(Duration::from_secs(5))
         }
 
         #[tokio::test]

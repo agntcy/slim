@@ -10,7 +10,7 @@ use parking_lot::Mutex;
 use slim_auth::errors::AuthError;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
-use slim_datapath::api::{ProtoMessage as Message, ProtoName};
+use slim_datapath::api::{Participant, ProtoMessage as Message, ProtoName};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -153,8 +153,8 @@ impl MessageHandler for MockInnerHandler {
         Ok(())
     }
 
-    async fn add_endpoint(&mut self, endpoint: &ProtoName) -> Result<(), SessionError> {
-        self.endpoints_added.lock().await.push(endpoint.clone());
+    async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
+        self.endpoints_added.lock().await.push(endpoint.get_name()?);
         Ok(())
     }
 

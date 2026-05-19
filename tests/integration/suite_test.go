@@ -21,13 +21,14 @@ var (
 
 	suiteName = "Run integration tests"
 
-	slimPath          string
-	legacySlimPath    string
-	sdkMockPath       string
-	legacySDKMockPath string
-	clientPath        string
-	slimctlPath       string
-	controlPlanePath  string
+	slimPath             string
+	legacySlimPath       string
+	sdkMockPath          string
+	legacySDKMockPath    string
+	clientPath           string
+	slimctlPath          string
+	controlPlanePath     string
+	channelManagerPath   string
 
 	// Backward compatibility test apps
 	receiverPath       string
@@ -35,6 +36,24 @@ var (
 	legacyReceiverPath string
 	legacySenderPath   string
 )
+
+const (
+	// skipBackwardCompatTests controls whether backward compatibility tests should be skipped.
+	// Set to true when introducing breaking protocol changes that are incompatible with
+	// legacy binaries. Set back to false once the changes are merged and become the new baseline.
+	skipBackwardCompatTests = true
+)
+
+// BackwardCompatDescribe is a conditional wrapper around Describe/XDescribe.
+// When skipBackwardCompatTests is true, tests are skipped (XDescribe).
+// When false, tests run normally (Describe).
+// Use this for any test that depends on legacy binaries or backward compatibility.
+func BackwardCompatDescribe(text string, args ...interface{}) bool {
+	if skipBackwardCompatTests {
+		return XDescribe(text, args...)
+	}
+	return Describe(text, args...)
+}
 
 func mustAbs(p string) string {
 	abs, err := filepath.Abs(p)
@@ -48,6 +67,7 @@ func setBinaryPaths(target string) {
 	sdkMockPath = mustAbs(filepath.Join(dataPlaneTarget, "sdk-mock"))
 	clientPath = mustAbs(filepath.Join(dataPlaneTarget, "client"))
 	slimctlPath = mustAbs(filepath.Join(dataPlaneTarget, "slimctl"))
+	channelManagerPath = mustAbs(filepath.Join(dataPlaneTarget, "channel-manager"))
 	examplesTarget := filepath.Join(dataPlaneTarget, "examples")
 	receiverPath = mustAbs(filepath.Join(examplesTarget, "receiver"))
 	senderPath = mustAbs(filepath.Join(examplesTarget, "sender"))

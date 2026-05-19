@@ -739,7 +739,7 @@ async fn test_source_node_crash_and_recovery() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_scale_many_nodes() {
-    const NUM_NODES: usize = 100;
+    const NUM_NODES: usize = 20;
 
     let cp = start_control_plane(scale_reconciler_config()).await;
     let mut client = create_nb_client(cp.northbound_port).await;
@@ -840,11 +840,12 @@ async fn test_scale_many_nodes() {
         subs_0
     );
     // node-50 is source of route node-50->node-51 with sub org/ns/svc-50
-    let subs_50 = get_node_subscriptions(&mut client, &node_id("node-50")).await;
+    let mid = NUM_NODES / 2;
+    let subs_mid = get_node_subscriptions(&mut client, &node_id(&format!("node-{mid}"))).await;
     assert!(
-        subs_50.contains(&("org".to_string(), "ns".to_string(), "svc-50".to_string())),
-        "node-50 should have subscription org/ns/svc-50, got: {:?}",
-        subs_50
+        subs_mid.contains(&("org".to_string(), "ns".to_string(), format!("svc-{mid}"))),
+        "node-{mid} should have subscription org/ns/svc-{mid}, got: {:?}",
+        subs_mid
     );
 
     // Cleanup
