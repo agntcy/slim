@@ -188,10 +188,13 @@ fn host_from_authority(authority: &str) -> Option<String> {
     let parsed = Authority::from_str(authority).ok()?;
     let host = parsed.host();
     if host.is_empty() {
-        None
-    } else {
-        Some(host.to_string())
+        return None;
     }
+    let unbracketed = host
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or(host);
+    Some(unbracketed.to_string())
 }
 
 // =====================================================================
