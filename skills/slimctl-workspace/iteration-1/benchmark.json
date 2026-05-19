@@ -1,0 +1,275 @@
+{
+  "metadata": {
+    "skill_name": "slimctl",
+    "skill_path": "skills/slimctl",
+    "executor_model": "claude-sonnet-4-6",
+    "analyzer_model": "claude-sonnet-4-6",
+    "timestamp": "2026-05-18T12:49:17Z",
+    "evals_run": [1, 2, 3, 4, 5],
+    "runs_per_configuration": 1
+  },
+  "runs": [
+    {
+      "eval_id": 1,
+      "eval_name": "node-route-add",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 5,
+        "failed": 0,
+        "total": 5,
+        "time_seconds": 19.5,
+        "tokens": 14698,
+        "tool_calls": 3,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Uses 'node route add' subcommand (not controller)", "passed": true, "evidence": "slimctl node route add acme/production/assistant/1 via /tmp/conn.json"},
+        {"text": "Route is in org/ns/agent/id format: acme/production/assistant/1", "passed": true, "evidence": "Route breakdown shown in notes"},
+        {"text": "Includes the 'via' keyword", "passed": true, "evidence": "node route add ... via /tmp/conn.json"},
+        {"text": "References a JSON connection config file (not inline URL)", "passed": true, "evidence": "via /tmp/conn.json"},
+        {"text": "Shows or mentions the JSON file should contain the endpoint http://10.0.0.5:8080", "passed": true, "evidence": "{ \"endpoint\": \"http://10.0.0.5:8080\" }"}
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 1,
+      "eval_name": "node-route-add",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 5,
+        "failed": 0,
+        "total": 5,
+        "time_seconds": 58.7,
+        "tokens": 42095,
+        "tool_calls": 13,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Uses 'node route add' subcommand (not controller)", "passed": true, "evidence": "Found correct command by reading source code"},
+        {"text": "Route is in org/ns/agent/id format: acme/production/assistant/1", "passed": true, "evidence": "four slash-separated components"},
+        {"text": "Includes the 'via' keyword", "passed": true, "evidence": "node route add ... via /tmp/conn.json"},
+        {"text": "References a JSON connection config file (not inline URL)", "passed": true, "evidence": "via /tmp/conn.json"},
+        {"text": "Shows or mentions the JSON file should contain the endpoint http://10.0.0.5:8080", "passed": true, "evidence": "{ \"endpoint\": \"http://10.0.0.5:8080\" }"}
+      ],
+      "notes": ["Agent read source code from data-plane/slimctl/src/ to derive the answer — 13 tool calls vs 3 for with_skill"]
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "controller-route-list-and-del",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 6,
+        "failed": 0,
+        "total": 6,
+        "time_seconds": 21.4,
+        "tokens": 14689,
+        "tool_calls": 3,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Uses 'controller route list' (not 'node route list')", "passed": true, "evidence": "slimctl controller route list -n edge-node-1"},
+        {"text": "Passes -n edge-node-1 to the list command", "passed": true, "evidence": "slimctl controller route list -n edge-node-1"},
+        {"text": "Uses 'controller route del' for deletion", "passed": true, "evidence": "slimctl controller route del -n edge-node-1 acme/prod/chatbot/3 via http://gateway:9090"},
+        {"text": "Deletion command includes -n edge-node-1", "passed": true, "evidence": "slimctl controller route del -n edge-node-1 ..."},
+        {"text": "Deletion command includes route acme/prod/chatbot/3", "passed": true, "evidence": "... acme/prod/chatbot/3 via http://gateway:9090"},
+        {"text": "Deletion command includes 'via http://gateway:9090'", "passed": true, "evidence": "... via http://gateway:9090"}
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "controller-route-list-and-del",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 6,
+        "failed": 0,
+        "total": 6,
+        "time_seconds": 38.5,
+        "tokens": 17524,
+        "tool_calls": 11,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Uses 'controller route list' (not 'node route list')", "passed": true, "evidence": "slimctl controller route list -n edge-node-1"},
+        {"text": "Passes -n edge-node-1 to the list command", "passed": true, "evidence": "slimctl controller route list -n edge-node-1"},
+        {"text": "Uses 'controller route del' for deletion", "passed": true, "evidence": "slimctl controller route del -n edge-node-1 acme/prod/chatbot/3 via http://gateway:9090"},
+        {"text": "Deletion command includes -n edge-node-1", "passed": true, "evidence": "slimctl controller route del -n edge-node-1 ..."},
+        {"text": "Deletion command includes route acme/prod/chatbot/3", "passed": true, "evidence": "... acme/prod/chatbot/3 via http://gateway:9090"},
+        {"text": "Deletion command includes 'via http://gateway:9090'", "passed": true, "evidence": "... via http://gateway:9090"}
+      ],
+      "notes": ["Used 11 tool calls vs 3 — searched the codebase"]
+    },
+    {
+      "eval_id": 3,
+      "eval_name": "configure-tls",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.8,
+        "passed": 4,
+        "failed": 1,
+        "total": 5,
+        "time_seconds": 24.5,
+        "tokens": 14930,
+        "tool_calls": 3,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Sets server to myhost.internal:9090 via 'config set server'", "passed": true, "evidence": "slimctl config set server myhost.internal:9090"},
+        {"text": "Sets tls-ca-file to /etc/pki/ca.pem", "passed": true, "evidence": "slimctl config set tls-ca-file /etc/pki/ca.pem"},
+        {"text": "Sets tls-cert-file to /etc/pki/client.pem", "passed": true, "evidence": "slimctl config set tls-cert-file /etc/pki/client.pem"},
+        {"text": "Sets tls-key-file to /etc/pki/client.key", "passed": true, "evidence": "slimctl config set tls-key-file /etc/pki/client.key"},
+        {"text": "Disables tls-insecure (sets to false) since real TLS is being configured", "passed": false, "evidence": "Response incorrectly states 'no need to set tls-insecure to false' — but tls-insecure defaults to true, so TLS will NOT be used without this command"}
+      ],
+      "notes": ["CRITICAL: Skill does not document that tls-insecure defaults to true. With-skill response gave actively wrong advice saying TLS is implicitly enabled when cert files are provided."]
+    },
+    {
+      "eval_id": 3,
+      "eval_name": "configure-tls",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 5,
+        "failed": 0,
+        "total": 5,
+        "time_seconds": 41.3,
+        "tokens": 24353,
+        "tool_calls": 12,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Sets server to myhost.internal:9090 via 'config set server'", "passed": true, "evidence": "slimctl config set server myhost.internal:9090"},
+        {"text": "Sets tls-ca-file to /etc/pki/ca.pem", "passed": true, "evidence": "slimctl config set tls-ca-file /etc/pki/ca.pem"},
+        {"text": "Sets tls-cert-file to /etc/pki/client.pem", "passed": true, "evidence": "slimctl config set tls-cert-file /etc/pki/client.pem"},
+        {"text": "Sets tls-key-file to /etc/pki/client.key", "passed": true, "evidence": "slimctl config set tls-key-file /etc/pki/client.key"},
+        {"text": "Disables tls-insecure (sets to false) since real TLS is being configured", "passed": true, "evidence": "slimctl config set tls-insecure false — explicitly included. Agent read config.rs and found DEFAULT_TLS_INSECURE = true"}
+      ],
+      "notes": ["Agent read source code and found tls-insecure defaults to true in defaults.rs — correctly included tls-insecure false step"]
+    },
+    {
+      "eval_id": 4,
+      "eval_name": "channel-and-participants",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 5,
+        "failed": 0,
+        "total": 5,
+        "time_seconds": 24.5,
+        "tokens": 14782,
+        "tool_calls": 3,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Uses 'controller channel create' with moderators=alice", "passed": true, "evidence": "slimctl controller channel create moderators=alice"},
+        {"text": "Uses 'controller participant add bob -c <channel-id>'", "passed": true, "evidence": "slimctl controller participant add bob -c <channel-id>"},
+        {"text": "Uses 'controller participant add carol -c <channel-id>'", "passed": true, "evidence": "slimctl controller participant add carol -c <channel-id>"},
+        {"text": "Uses 'controller participant list -c <channel-id>'", "passed": true, "evidence": "slimctl controller participant list -c <channel-id>"},
+        {"text": "Explains that the channel ID comes from the output of the channel create step", "passed": true, "evidence": "The <channel-id> placeholder should be replaced with the actual ID returned by the 'channel create' command"}
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 4,
+      "eval_name": "channel-and-participants",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 5,
+        "failed": 0,
+        "total": 5,
+        "time_seconds": 60.8,
+        "tokens": 41229,
+        "tool_calls": 14,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Uses 'controller channel create' with moderators=alice", "passed": true, "evidence": "slimctl controller channel create moderators=alice"},
+        {"text": "Uses 'controller participant add bob -c <channel-id>'", "passed": true, "evidence": "slimctl controller participant add bob -c <channel-id>"},
+        {"text": "Uses 'controller participant add carol -c <channel-id>'", "passed": true, "evidence": "slimctl controller participant add carol -c <channel-id>"},
+        {"text": "Uses 'controller participant list -c <channel-id>'", "passed": true, "evidence": "slimctl controller participant list -c <channel-id>"},
+        {"text": "Explains that the channel ID comes from the output of the channel create step", "passed": true, "evidence": "Agent read controller.rs source code and derived correct workflow"}
+      ],
+      "notes": ["14 tool calls — agent read controller.rs source code"]
+    },
+    {
+      "eval_id": 5,
+      "eval_name": "list-routes-and-connections",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 3,
+        "failed": 0,
+        "total": 3,
+        "time_seconds": 24.2,
+        "tokens": 14990,
+        "tool_calls": 4,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Uses 'node route list' (direct node command, not controller)", "passed": true, "evidence": "slimctl node route list"},
+        {"text": "Uses 'node connection list' (or alias 'node conn list')", "passed": true, "evidence": "slimctl node connection list"},
+        {"text": "Mentions default server 127.0.0.1:46357 or explains the local node assumption", "passed": true, "evidence": "Both commands default to connecting to 127.0.0.1:46357"}
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 5,
+      "eval_name": "list-routes-and-connections",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 3,
+        "failed": 0,
+        "total": 3,
+        "time_seconds": 41.2,
+        "tokens": 38167,
+        "tool_calls": 8,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Uses 'node route list' (direct node command, not controller)", "passed": true, "evidence": "slimctl node route list"},
+        {"text": "Uses 'node connection list' (or alias 'node conn list')", "passed": true, "evidence": "slimctl node connection list"},
+        {"text": "Mentions default server 127.0.0.1:46357 or explains the local node assumption", "passed": true, "evidence": "Agent read node.rs source code and identified gRPC control API"}
+      ],
+      "notes": ["8 tool calls — agent read node.rs and related source code"]
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {"mean": 0.96, "stddev": 0.089, "min": 0.80, "max": 1.0},
+      "time_seconds": {"mean": 22.8, "stddev": 2.3, "min": 19.5, "max": 24.5},
+      "tokens": {"mean": 14818, "stddev": 127, "min": 14689, "max": 14990}
+    },
+    "without_skill": {
+      "pass_rate": {"mean": 1.0, "stddev": 0.0, "min": 1.0, "max": 1.0},
+      "time_seconds": {"mean": 48.1, "stddev": 10.8, "min": 38.5, "max": 60.8},
+      "tokens": {"mean": 32674, "stddev": 10838, "min": 17524, "max": 42095}
+    },
+    "delta": {
+      "pass_rate": "-0.04",
+      "time_seconds": "-25.3",
+      "tokens": "-13856"
+    }
+  },
+  "notes": [
+    "CRITICAL GAP: Skill missing tls-insecure default. With-skill response for eval 3 gave actively wrong advice — said TLS is 'implicitly enabled' when cert files are provided, but tls-insecure defaults to true (plain HTTP/2). Must add explicit warning to skill.",
+    "Without-skill baseline in this repo is not a clean baseline — agents have access to the source code and SKILL.md file, so they can find answers by reading the code. All 5 without-skill runs searched the codebase.",
+    "Speed benefit is very clear: with-skill avg 22.8s and 14.8k tokens vs without-skill 48.1s and 32.7k tokens — 2.1x faster, 2.2x fewer tokens.",
+    "Assertions 1-4 in eval 3 pass in both configurations (non-discriminating for TLS files). Only assertion 5 (tls-insecure false) differentiates them.",
+    "After fixing the TLS default in the skill, with-skill should achieve 100% pass rate with the speed advantage maintained."
+  ]
+}
