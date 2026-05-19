@@ -64,7 +64,7 @@ pub(crate) fn spawn_transport_tasks(
                 if let Some(ctrl) = owned
                     && let Err(err) = tx.try_send(ctrl)
                 {
-                    debug!("dropping auto control frame: {err}");
+                    debug!(error = %err, "dropping auto control frame");
                 }
                 Result::<(), WebSocketError>::Ok(())
             }
