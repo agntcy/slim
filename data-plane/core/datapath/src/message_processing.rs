@@ -13,7 +13,6 @@ use slim_config::client::TransportChannel;
 use slim_config::component::configuration::Configuration;
 use slim_config::server::ServerConfig;
 use slim_config::server_handler::ServerHandler;
-use slim_config::transport::TransportProtocol;
 use slim_config::websocket::server as websocket_server;
 use slim_config::websocket::server::AcceptedWebSocketConnection;
 use tokio::sync::mpsc::{self, Sender};
@@ -265,27 +264,7 @@ impl MessageProcessor {
     ) -> Result<(JoinHandle<()>, u64), DataPathError> {
         client_config.validate()?;
 
-        match client_config.transport {
-            TransportProtocol::Grpc => {
-                self.try_to_connect_grpc(client_config, local, remote, existing_conn_index)
-                    .await
-            }
-            TransportProtocol::Websocket => {
-                self.try_to_connect_websocket(client_config, local, remote, existing_conn_index)
-                    .await
-            }
-        }
-    }
-
-    async fn try_to_connect_grpc(
-        &self,
-        client_config: ClientConfig,
-        local: Option<SocketAddr>,
-        remote: Option<SocketAddr>,
-        existing_conn_index: Option<u64>,
-    ) -> Result<(JoinHandle<()>, u64), DataPathError> {
         let mut watch = std::pin::pin!(self.get_drain_watch()?.signaled());
-
         let channel = tokio::select! {
             _ = &mut watch => {
                 return Err(DataPathError::ShuttingDownError);
@@ -295,30 +274,92 @@ impl MessageProcessor {
             }
         };
 
-        let channel = match channel {
-            TransportChannel::Grpc(channel) => channel,
-            TransportChannel::Websocket(_) => return Err(DataPathError::ConnectionError),
-        };
-
-        let mut client = DataPlaneServiceClient::new(channel);
-        let (tx, rx) = mpsc::channel(128);
-
-        let stream = client
-            .open_channel(Request::new(ReceiverStream::new(rx)))
-            .await?;
-
-        // The link_id is embedded in the Connection before it enters the table so that
-        // it is never None during the connection's lifetime — including reconnects where
-        // the old Connection object is replaced by a fresh one.
+        let cancellation_token = CancellationToken::new();
         let link_id = client_config.link_id.clone();
 
-        let cancellation_token = CancellationToken::new();
-        let connection = Connection::new(ConnectionType::Remote, Channel::Client(tx))
+        match channel {
+            TransportChannel::Grpc(grpc_channel) => {
+                let mut client = DataPlaneServiceClient::new(grpc_channel);
+                let (tx, rx) = mpsc::channel(128);
+                let stream = client
+                    .open_channel(Request::new(ReceiverStream::new(rx)))
+                    .await?;
+
+                let (handle, conn_index) = self.register_remote_connection(
+                    stream.into_inner(),
+                    Channel::Client(tx),
+                    &client_config,
+                    local,
+                    remote,
+                    existing_conn_index,
+                    cancellation_token,
+                    Some(link_id.clone()),
+                )?;
+
+                // Send the link negotiation message to the remote peer.
+                // Old SLIM instances that do not understand this message will silently drop it.
+                let negotiation_msg = ProtoMessage::builder().build_link_negotiation(
+                    &link_id,
+                    local_version(),
+                    false,
+                );
+                if let Err(e) = self.send_msg(negotiation_msg, conn_index).await {
+                    debug!(
+                        %conn_index,
+                        error = %e.chain(),
+                        "failed to send link negotiation (remote may be an older SLIM instance)",
+                    );
+                }
+
+                Ok((handle, conn_index))
+            }
+            TransportChannel::Websocket(ws_channel) => {
+                let streams = websocket::spawn_transport_tasks(
+                    ws_channel.websocket,
+                    cancellation_token.clone(),
+                );
+                self.register_remote_connection(
+                    streams.inbound,
+                    Channel::Client(streams.outbound),
+                    &client_config,
+                    local.or(ws_channel.local_addr),
+                    remote.or(ws_channel.remote_addr),
+                    existing_conn_index,
+                    cancellation_token,
+                    None,
+                )
+            }
+        }
+    }
+
+    /// Common post-connect plumbing shared by every transport: register the
+    /// new [`Connection`] in the forwarder and spawn the per-stream processor.
+    /// Transport-specific code only has to produce the inbound stream + outbound
+    /// channel and call this — see [`Self::try_to_connect`] for client-side
+    /// usage and [`Self::handle_websocket_accepted`] for the server side.
+    #[allow(clippy::too_many_arguments)]
+    fn register_remote_connection<S>(
+        &self,
+        inbound: S,
+        outbound: Channel,
+        client_config: &ClientConfig,
+        local: Option<SocketAddr>,
+        remote: Option<SocketAddr>,
+        existing_conn_index: Option<u64>,
+        cancellation_token: CancellationToken,
+        link_id: Option<String>,
+    ) -> Result<(JoinHandle<()>, u64), DataPathError>
+    where
+        S: Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
+    {
+        let mut connection = Connection::new(ConnectionType::Remote, outbound)
             .with_local_addr(local)
             .with_remote_addr(remote)
             .with_config_data(Some(client_config.clone()))
-            .with_cancellation_token(Some(cancellation_token.clone()))
-            .with_link_id(link_id.clone());
+            .with_cancellation_token(Some(cancellation_token.clone()));
+        if let Some(link_id) = link_id {
+            connection = connection.with_link_id(link_id);
+        }
 
         debug!(
             remote = ?connection.remote_addr(),
@@ -326,96 +367,17 @@ impl MessageProcessor {
             "new connection initiated locally",
         );
 
-        // insert connection into connection table
         let conn_index = self
             .forwarder()
             .on_connection_established(connection, existing_conn_index)
             .ok_or(DataPathError::ConnectionTableAddError)?;
 
-        debug!(
-            %conn_index,
-            is_local = false,
-            "new connection index",
-        );
+        debug!(%conn_index, is_local = false, "new connection index");
 
-        // Start loop to process messages
         let handle = self.process_stream(
-            stream.into_inner(),
+            inbound,
             conn_index,
             Some(client_config.clone()),
-            cancellation_token,
-            false,
-            false,
-        )?;
-
-        // Send the link negotiation message to the remote peer.
-        // Old SLIM instances that do not understand this message will silently drop it.
-        let negotiation_msg =
-            ProtoMessage::builder().build_link_negotiation(&link_id, local_version(), false);
-        if let Err(e) = self.send_msg(negotiation_msg, conn_index).await {
-            debug!(
-                %conn_index,
-                error = %e.chain(),
-                "failed to send link negotiation (remote may be an older SLIM instance)",
-            );
-        }
-
-        Ok((handle, conn_index))
-    }
-
-    async fn try_to_connect_websocket(
-        &self,
-        client_config: ClientConfig,
-        local: Option<SocketAddr>,
-        remote: Option<SocketAddr>,
-        existing_conn_index: Option<u64>,
-    ) -> Result<(JoinHandle<()>, u64), DataPathError> {
-        let mut watch = std::pin::pin!(self.get_drain_watch()?.signaled());
-
-        let channel = tokio::select! {
-            _ = &mut watch => {
-                return Err(DataPathError::ShuttingDownError);
-            }
-            res = client_config.to_channel() => {
-                res?
-            }
-        };
-
-        let connection = match channel {
-            TransportChannel::Websocket(channel) => channel,
-            TransportChannel::Grpc(_) => return Err(DataPathError::ConnectionError),
-        };
-
-        let cancellation_token = CancellationToken::new();
-        let streams =
-            websocket::spawn_transport_tasks(connection.websocket, cancellation_token.clone());
-        let connection = Connection::new(ConnectionType::Remote, Channel::Client(streams.outbound))
-            .with_local_addr(local.or(connection.local_addr))
-            .with_remote_addr(remote.or(connection.remote_addr))
-            .with_config_data(Some(client_config.clone()))
-            .with_cancellation_token(Some(cancellation_token.clone()));
-
-        debug!(
-            remote = ?connection.remote_addr(),
-            local = ?connection.local_addr(),
-            "new websocket connection initiated locally",
-        );
-
-        let conn_index = self
-            .forwarder()
-            .on_connection_established(connection, existing_conn_index)
-            .ok_or(DataPathError::ConnectionTableAddError)?;
-
-        debug!(
-            %conn_index,
-            is_local = false,
-            "new websocket connection index",
-        );
-
-        let handle = self.process_stream(
-            streams.inbound,
-            conn_index,
-            Some(client_config),
             cancellation_token,
             false,
             false,
