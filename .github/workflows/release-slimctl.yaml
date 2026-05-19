@@ -132,8 +132,9 @@ jobs:
       - name: Upload skill to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
         run: |
-          gh release upload "${{ github.ref_name }}" slimctl.skill --clobber
+          gh release upload "$TAG" slimctl.skill --clobber
 
   homebrew:
     runs-on: ubuntu-latest
