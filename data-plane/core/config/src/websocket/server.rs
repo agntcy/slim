@@ -269,7 +269,7 @@ async fn serve_connection<S>(
     // upgrade so that the semaphore slot is held for the entire websocket
     // lifetime. If the upgrade never happens (404/400/401/timeout), the
     // permit is dropped here when `serve_connection` returns.
-    let permit_slot = Arc::new(std::sync::Mutex::new(Some(permit)));
+    let permit_slot = Arc::new(parking_lot::Mutex::new(Some(permit)));
     let permit_slot_service = permit_slot.clone();
 
     let service = service_fn(move |mut request: Request<Incoming>| {
@@ -307,7 +307,7 @@ async fn serve_connection<S>(
                     // task and into the websocket task: the connection
                     // cap must bound *active websockets*, not just the
                     // brief upgrade phase.
-                    let permit = permit_slot.lock().expect("permit slot poisoned").take();
+                    let permit = permit_slot.lock().take();
                     tokio::spawn(async move {
                         let _permit = permit;
                         match future.await {

@@ -61,10 +61,10 @@ pub(crate) fn spawn_transport_tasks(
             };
             let tx = control_tx.clone();
             async move {
-                if let Some(ctrl) = owned {
-                    if let Err(err) = tx.try_send(ctrl) {
-                        debug!("dropping auto control frame: {err}");
-                    }
+                if let Some(ctrl) = owned
+                    && let Err(err) = tx.try_send(ctrl)
+                {
+                    debug!("dropping auto control frame: {err}");
                 }
                 Result::<(), WebSocketError>::Ok(())
             }
