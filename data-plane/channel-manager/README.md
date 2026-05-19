@@ -21,26 +21,35 @@ Create a YAML configuration file (see [example-channel-manager-config.yaml](exam
 
 ```yaml
 channel-manager:
-  # Connection configuration for SLIM node
-  connection-config:
-    address: "http://127.0.0.1:46357"
+  # Connection configuration for the SLIM data-plane node.
+  # transport can be "grpc" (http/https endpoint) or "websocket" (ws/wss endpoint).
+  slim-connection:
+    endpoint: "http://127.0.0.1:46357"
+    transport: "grpc"
+    tls:
+      insecure: true
 
-  # gRPC service address for accepting commands
-  service-address: "127.0.0.1:10356"
+  # gRPC service address for accepting channel-manager commands.
+  api-server:
+    endpoint: "127.0.0.1:10356"
+    tls:
+      insecure: true
 
   # Name of the channel manager in SLIM
   local-name: "agntcy/otel/channel-manager"
 
-  # Shared secret for MLS and identity provider
-  shared-secret: "your-shared-secret-here"
+  # Shared secret for the SLIM app identity.
+  auth:
+    type: shared_secret
+    secret: "your-shared-secret-here"
 
-# Channels to create on startup
-channels:
-  - name: "agntcy/otel/channel"
-    participants:
-      - "agntcy/otel/exporter-traces"
-      - "agntcy/otel/receiver"
-    mls-enabled: true
+  # Channels to create on startup.
+  channels:
+    - name: "agntcy/otel/channel"
+      participants:
+        - "agntcy/otel/exporter-traces"
+        - "agntcy/otel/receiver"
+      mls-enabled: true
 ```
 
 ## Running
@@ -64,7 +73,7 @@ cmctl [OPTIONS] <COMMAND>
 ### Options
 
 - `--server <ADDRESS>`: Simple gRPC server address (default: `http://localhost:10356`)
-- `--client-config <FILE>`: Path to a YAML file with full gRPC client configuration (TLS, auth, keepalive, proxy, etc.). Uses the same `ClientConfig` format as the SLIM data-plane. When provided, `--server` is ignored.
+- `--client-config <FILE>`: Path to a YAML file with full gRPC client configuration (TLS, auth, keepalive, proxy, etc.). The Channel Manager API is gRPC, so websocket transport is not supported for `cmctl`. When provided, `--server` is ignored.
 - `--disable-mls`: Disable MLS for channel creation (MLS is enabled by default)
 
 ### Available Commands

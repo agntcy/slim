@@ -9,7 +9,7 @@
 //! The gRPC connection can be configured either with:
 //!   - `--server <address>` for simple insecure connections
 //!   - `--client-config <file>` for full configuration (TLS, auth, keepalive, proxy, etc.)
-//!     using the same YAML format as the SLIM data-plane ClientConfig
+//!     using the same YAML format as ClientConfig. The Channel Manager API itself is gRPC.
 //!
 //! Available commands:
 //!   list-channels          List all channels
@@ -29,7 +29,8 @@ use agntcy_slim_channel_manager::proto::{
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
-use slim_config::grpc::client::ClientConfig;
+use slim_config::client::{ClientConfig, TransportChannel};
+use slim_config::errors::ConfigError;
 
 /// Channel Manager Control Tool
 #[derive(Parser)]
@@ -42,6 +43,7 @@ struct Args {
     server: String,
 
     /// Path to a YAML file with full gRPC client configuration (TLS, auth, keepalive, proxy, etc.).
+    /// Websocket transport is not supported for the Channel Manager API.
     /// When provided, --server is ignored.
     #[arg(long = "client-config")]
     client_config: Option<PathBuf>,
@@ -137,10 +139,14 @@ async fn create_client(
         ClientConfig::with_endpoint(&args.server)
     };
 
-    let channel = client_config
+    let channel = match client_config
         .to_channel()
         .await
-        .context("failed to create gRPC channel")?;
+        .context("failed to create gRPC channel")?
+    {
+        TransportChannel::Grpc(channel) => channel,
+        TransportChannel::Websocket(_) => bail!("{}", ConfigError::GrpcChannelUnsupportedTransport),
+    };
     Ok(ChannelManagerServiceClient::new(channel))
 }
 
