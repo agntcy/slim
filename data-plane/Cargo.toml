@@ -100,13 +100,13 @@ opentelemetry-semantic-conventions = { version = "0.31.0", features = ["semconv_
 opentelemetry-stdout = "0.31.0"
 opentelemetry_sdk = { version = "0.31.0", default-features = false, features = ["trace", "rt-tokio"] }
 parking_lot = "0.12.3"
+percent-encoding = "2.3"
 pin-project = "1.1.10"
 prost = "0.14"
 
 prost-types = "0.14"
 
 protoc-bin-vendored = "3.1.0"
-percent-encoding = "2.3"
 pyo3 = { version = "0.26" }
 pyo3-async-runtimes = { version = "0.26", features = ["tokio-runtime"] }
 pyo3-stub-gen = "0.14"
