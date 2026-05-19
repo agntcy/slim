@@ -22,7 +22,7 @@ use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
@@ -192,9 +192,6 @@ impl ServerConfig {
                         let tls_acceptor = tls_acceptor.clone();
 
                         tokio::spawn(async move {
-                            // Permit is dropped at the end of this task,
-                            // releasing the slot back to the semaphore.
-                            let _permit = permit;
                             let stream = match tls_acceptor {
                                 Some(acceptor) => {
                                     // Bound TLS handshake duration so a
@@ -209,6 +206,7 @@ impl ServerConfig {
                                         Ok(Ok(stream)) => MaybeTlsStream::Tls(Box::new(stream)),
                                         Ok(Err(err)) => {
                                             warn!(error = %err, "websocket TLS accept error");
+                                            // permit dropped here, slot released
                                             return;
                                         }
                                         Err(_) => {
@@ -223,6 +221,11 @@ impl ServerConfig {
                                 None => MaybeTlsStream::Plain(stream),
                             };
 
+                            // Ownership of `permit` is moved into
+                            // `serve_connection`, which in turn hands it
+                            // to the spawned websocket task so the slot
+                            // stays reserved for the lifetime of the
+                            // active websocket (not just the upgrade).
                             serve_connection(
                                 stream,
                                 auth,
@@ -230,6 +233,7 @@ impl ServerConfig {
                                 on_accepted,
                                 remote_addr,
                                 local_addr,
+                                permit,
                             )
                             .await;
                         });
@@ -249,6 +253,7 @@ async fn serve_connection<S>(
     on_accepted: OnAcceptedWebSocket,
     remote_addr: SocketAddr,
     local_addr: Option<SocketAddr>,
+    permit: OwnedSemaphorePermit,
 ) where
     S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {
@@ -260,11 +265,19 @@ async fn serve_connection<S>(
     let upgrade_done = Arc::new(AtomicBool::new(false));
     let upgrade_done_service = upgrade_done.clone();
 
+    // The connection permit is moved into the upgrade task on a successful
+    // upgrade so that the semaphore slot is held for the entire websocket
+    // lifetime. If the upgrade never happens (404/400/401/timeout), the
+    // permit is dropped here when `serve_connection` returns.
+    let permit_slot = Arc::new(std::sync::Mutex::new(Some(permit)));
+    let permit_slot_service = permit_slot.clone();
+
     let service = service_fn(move |mut request: Request<Incoming>| {
         let auth = auth.clone();
         let expected_path = expected_path.clone();
         let on_accepted = on_accepted.clone();
         let upgrade_done = upgrade_done_service.clone();
+        let permit_slot = permit_slot_service.clone();
 
         async move {
             if request.uri().path() != expected_path {
@@ -290,7 +303,13 @@ async fn serve_connection<S>(
                     // Mark the upgrade as successful so the connection
                     // future is no longer bound by `HTTP_UPGRADE_TIMEOUT`.
                     upgrade_done.store(true, Ordering::SeqCst);
+                    // Transfer the semaphore permit out of the accept
+                    // task and into the websocket task: the connection
+                    // cap must bound *active websockets*, not just the
+                    // brief upgrade phase.
+                    let permit = permit_slot.lock().expect("permit slot poisoned").take();
                     tokio::spawn(async move {
+                        let _permit = permit;
                         match future.await {
                             Ok(websocket) => {
                                 on_accepted(AcceptedWebSocketConnection {
@@ -324,28 +343,26 @@ async fn serve_connection<S>(
 
     // Bound the HTTP/WS upgrade phase so a client that opens a TCP/TLS
     // connection but never sends a valid upgrade request cannot pin this
-    // task. After the upgrade succeeds the underlying IO is hijacked by the
-    // spawned task above, so `serve_connection` should resolve quickly and
-    // before the timeout in the happy path.
-    match tokio::time::timeout(HTTP_UPGRADE_TIMEOUT, connection).await {
-        Ok(Ok(())) => {}
-        Ok(Err(err)) => {
-            debug!(error = %err, "websocket HTTP connection closed with error");
-        }
-        Err(_) => {
-            if upgrade_done.load(Ordering::SeqCst) {
-                // Upgrade succeeded but the HTTP connection future is still
-                // pending — nothing actionable; just log at debug.
-                debug!(
-                    timeout = ?HTTP_UPGRADE_TIMEOUT,
-                    "websocket HTTP connection future outlived upgrade timeout"
-                );
-            } else {
-                warn!(
-                    timeout = ?HTTP_UPGRADE_TIMEOUT,
-                    "websocket HTTP upgrade timed out"
-                );
+    // task. The timeout only applies until `upgrade_done` flips: once the
+    // upgrade succeeds the websocket IO is hijacked into its own task and
+    // the remaining `serve_connection` future may resolve at any time
+    // without being killed by the upgrade timeout.
+    tokio::pin!(connection);
+    let upgrade_deadline = tokio::time::sleep(HTTP_UPGRADE_TIMEOUT);
+    tokio::pin!(upgrade_deadline);
+
+    tokio::select! {
+        biased;
+        result = &mut connection => {
+            if let Err(err) = result {
+                debug!(error = %err, "websocket HTTP connection closed with error");
             }
+        }
+        _ = &mut upgrade_deadline, if !upgrade_done.load(Ordering::SeqCst) => {
+            warn!(
+                timeout = ?HTTP_UPGRADE_TIMEOUT,
+                "websocket HTTP upgrade timed out"
+            );
         }
     }
 }
@@ -603,5 +620,55 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         panic!("listener did not stop after cancellation");
+    }
+
+    #[tokio::test]
+    async fn test_websocket_server_enforces_max_connections() {
+        let port = available_port();
+        let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
+            .with_transport(TransportProtocol::Websocket)
+            .with_tls_settings(TlsServerConfig::insecure())
+            .with_max_concurrent_streams(Some(1));
+
+        let on_accepted: OnAcceptedWebSocket = Arc::new(|_| {
+            Box::pin(async {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            })
+        });
+
+        let (signal, watch) = drain::channel();
+        std::mem::forget(signal);
+        let token = cfg
+            .run_websocket_server(watch, on_accepted)
+            .await
+            .expect("server start");
+
+        assert!(
+            wait_for_server_ready(&format!("127.0.0.1:{port}"), 40).await,
+            "server did not become ready",
+        );
+
+        // First client: occupies the only permit.
+        let client_cfg = ClientConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
+            .with_transport(TransportProtocol::Websocket)
+            .with_tls_setting(TlsClientConfig::insecure());
+
+        let first = tokio::time::timeout(Duration::from_secs(5), client_cfg.to_websocket_channel())
+            .await
+            .expect("first handshake timed out")
+            .expect("first handshake failed");
+        let _hold_first = first;
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let second =
+            tokio::time::timeout(Duration::from_secs(3), client_cfg.to_websocket_channel()).await;
+        let inner = second.expect("second handshake outer timeout");
+        assert!(
+            inner.is_err(),
+            "second handshake must fail when max_concurrent_streams cap is reached"
+        );
+
+        token.cancel();
     }
 }

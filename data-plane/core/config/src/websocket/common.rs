@@ -403,6 +403,19 @@ mod tests {
     }
 
     #[test]
+    fn test_websocket_endpoint_socket_address_ipv6_bracketed() {
+        // Authority `[::1]:9000` — host must be re-bracketed for connect().
+        let ep = WebSocketEndpoint::parse("ws://[::1]:9000/").expect("parse");
+        assert_eq!(ep.socket_address(), "[::1]:9000");
+    }
+
+    #[test]
+    fn test_websocket_endpoint_socket_address_ipv4() {
+        let ep = WebSocketEndpoint::parse("ws://127.0.0.1:8080/").expect("parse");
+        assert_eq!(ep.socket_address(), "127.0.0.1:8080");
+    }
+
+    #[test]
     fn test_websocket_endpoint_parse_invalid_scheme() {
         assert!(WebSocketEndpoint::parse("http://example.com").is_err());
         assert!(WebSocketEndpoint::parse("://nohost").is_err());
@@ -427,6 +440,54 @@ mod tests {
         let ep = WebSocketEndpoint::parse("ws://example.com/p").expect("parse");
         let uri = ep.request_uri(None).expect("uri");
         assert_eq!(uri.to_string(), "ws://example.com/p");
+    }
+
+    #[test]
+    fn test_request_uri_percent_encodes_special_chars_in_value() {
+        // Tokens may contain `=`, `+`, `&`, `?`, `#`, `/` etc. They must
+        // not be smuggled into the URI as separators or fragments.
+        let ep = WebSocketEndpoint::parse("ws://example.com/p").expect("parse");
+        let uri = ep
+            .request_uri(Some(("token", "a+b=c&d?e#f/g")))
+            .expect("uri");
+        let s = uri.to_string();
+        assert!(
+            s.starts_with("ws://example.com/p?token="),
+            "unexpected uri prefix: {s}"
+        );
+        // None of these characters may appear unencoded in the query.
+        for forbidden in ['+', '=', '&', '?', '#', '/'].iter() {
+            let suffix = s.strip_prefix("ws://example.com/p?token=").unwrap();
+            assert!(
+                !suffix.contains(*forbidden),
+                "value must be percent-encoded, got: {s}"
+            );
+        }
+        // Spot-check a couple of expected encodings.
+        assert!(s.contains("%2B"), "+ must be encoded as %2B: {s}");
+        assert!(s.contains("%3D"), "= must be encoded as %3D: {s}");
+        assert!(s.contains("%26"), "& must be encoded as %26: {s}");
+    }
+
+    #[test]
+    fn test_request_uri_percent_encodes_special_chars_in_key() {
+        let ep = WebSocketEndpoint::parse("ws://example.com/p").expect("parse");
+        let uri = ep.request_uri(Some(("a=b", "v"))).expect("uri");
+        let s = uri.to_string();
+        assert_eq!(s, "ws://example.com/p?a%3Db=v");
+    }
+
+    #[test]
+    fn test_request_uri_round_trip_through_extract_query_param() {
+        // What we encode on the way out must decode cleanly on the way in.
+        let ep = WebSocketEndpoint::parse("ws://example.com/p").expect("parse");
+        let original = "ab+cd==/&?";
+        let uri = ep.request_uri(Some(("token", original))).expect("uri");
+        let query = uri.query().expect("query");
+        assert_eq!(
+            extract_query_param(Some(query), "token"),
+            Some(original.to_string())
+        );
     }
 
     #[test]
@@ -711,5 +772,35 @@ mod tests {
             auth.authorization_header.as_deref(),
             Some(format!("Bearer {token}").as_str())
         );
+    }
+
+    /// SPIRE-based handshake auth is not implemented for WebSocket. The
+    /// server builder must fail-closed rather than silently accept any
+    /// client.
+    #[cfg(not(target_family = "windows"))]
+    #[tokio::test]
+    async fn test_build_server_handshake_auth_spire_rejected() {
+        use crate::auth::spire::SpireConfig;
+        let cfg = ServerConfig::with_endpoint("ws://127.0.0.1:0")
+            .with_auth(ServerAuthConfig::Spire(SpireConfig::default()));
+        assert!(matches!(
+            build_server_handshake_auth(&cfg),
+            Err(ConfigError::WebSocketSpireUnsupported)
+        ));
+    }
+
+    /// Mirror of the server-side guard: clients configured with SPIRE auth
+    /// over WebSocket must fail-closed at handshake build time.
+    #[cfg(not(target_family = "windows"))]
+    #[tokio::test]
+    async fn test_build_client_handshake_auth_spire_rejected() {
+        use crate::auth::spire::SpireConfig;
+        let cfg = ClientConfig::with_endpoint("ws://127.0.0.1:0")
+            .with_auth(ClientAuthConfig::Spire(SpireConfig::default()));
+        let result = build_client_handshake_auth(&cfg).await;
+        assert!(matches!(
+            result,
+            Err(ConfigError::WebSocketSpireUnsupported)
+        ));
     }
 }
