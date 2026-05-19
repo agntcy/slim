@@ -643,23 +643,26 @@ mod tests {
             .await
             .expect("server start");
 
-        assert!(
-            wait_for_server_ready(&format!("127.0.0.1:{port}"), 40).await,
-            "server did not become ready",
-        );
-
-        // First client: occupies the only permit.
         let client_cfg = ClientConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
             .with_transport(TransportProtocol::Websocket)
-            .with_tls_setting(TlsClientConfig::insecure());
+            .with_tls_setting(TlsClientConfig::insecure())
+            .with_connect_timeout(Duration::from_secs(5));
 
-        let first = tokio::time::timeout(Duration::from_secs(5), client_cfg.to_websocket_channel())
-            .await
-            .expect("first handshake timed out")
-            .expect("first handshake failed");
-        let _hold_first = first;
+        let mut first = None;
+        for _ in 0..40 {
+            match tokio::time::timeout(Duration::from_secs(5), client_cfg.to_websocket_channel())
+                .await
+            {
+                Ok(Ok(ch)) => {
+                    first = Some(ch);
+                    break;
+                }
+                _ => tokio::time::sleep(Duration::from_millis(50)).await,
+            }
+        }
+        let _hold_first = first.expect("first handshake never succeeded");
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let second =
             tokio::time::timeout(Duration::from_secs(3), client_cfg.to_websocket_channel()).await;
