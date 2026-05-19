@@ -829,6 +829,7 @@ mod tests {
             args.command,
             ChannelManagerCommand::ListParticipants { .. }
         ));
+    }
 
     // ── bench ─────────────────────────────────────────────────────────────────
 

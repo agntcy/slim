@@ -40,10 +40,20 @@ use slim_bindings::{
     Name, SessionConfig, SessionType, get_global_service, initialize_with_configs,
     new_insecure_client_config, new_runtime_config, new_service_config, new_tracing_config_with,
 };
+use tokio::task::JoinSet;
 
 const DEFAULT_SERVER: &str = "http://localhost:46357";
 const DEFAULT_SECRET: &str = "my_shared_secret_for_testing_purposes_only";
 const DEFAULT_PREFIX: &str = "bench/test";
+
+/// Timeout waiting to receive a message inside a benchmarked session.
+const RECV_TIMEOUT: Duration = Duration::from_secs(30);
+/// Wall-clock budget for a publisher/inviter to establish a session.
+const SESSION_ESTABLISH_TIMEOUT: Duration = Duration::from_secs(35);
+/// Maximum session-layer retries while waiting for the peer.
+const SESSION_MAX_RETRIES: u32 = 60;
+/// Interval between session-layer retries.
+const SESSION_RETRY_INTERVAL: Duration = Duration::from_millis(500);
 
 // ── Top-level args ─────────────────────────────────────────────────────────────
 
@@ -104,10 +114,6 @@ pub struct BenchSubArgs {
     /// Append results to CSV file
     #[arg(long)]
     pub csv: Option<String>,
-
-    /// Suppress per-second progress output
-    #[arg(long)]
-    pub no_progress: bool,
 }
 
 // ── Pub args ───────────────────────────────────────────────────────────────────
@@ -145,10 +151,6 @@ pub struct BenchPubArgs {
     /// Append results to CSV file
     #[arg(long)]
     pub csv: Option<String>,
-
-    /// Suppress per-second progress output
-    #[arg(long)]
-    pub no_progress: bool,
 }
 
 // ── Channel args ───────────────────────────────────────────────────────────────
@@ -204,10 +206,6 @@ pub struct BenchChannelSubArgs {
     ///          process B: --count 2 --start-index 2  (registers channel-sub-2, channel-sub-3)
     #[arg(long, default_value_t = 0)]
     pub start_index: usize,
-
-    /// Suppress per-second progress output
-    #[arg(long)]
-    pub no_progress: bool,
 }
 
 #[derive(Args)]
@@ -239,10 +237,6 @@ pub struct BenchChannelPubArgs {
     /// Append results to CSV file
     #[arg(long)]
     pub csv: Option<String>,
-
-    /// Suppress per-second progress output
-    #[arg(long)]
-    pub no_progress: bool,
 }
 
 // ── Dispatch ───────────────────────────────────────────────────────────────────
@@ -305,6 +299,36 @@ impl std::fmt::Display for Sample {
             comma_format(self.rate() as i64),
             human_bytes(self.throughput()),
         )
+    }
+}
+
+/// Build a [`Sample`] from the raw counters collected inside a receive loop.
+///
+/// `start` is `None` when no messages arrived (the first message sets it).
+/// Falls back to `size` as a byte-count hint when `msg_bytes` is zero
+/// (e.g. the receive path doesn't capture payload length).
+fn build_sample(
+    start: Option<Instant>,
+    msg_cnt: u64,
+    mut msg_bytes: u64,
+    job_msg_cnt: u64,
+    size: usize,
+) -> Sample {
+    let end = Instant::now();
+    let start = start.unwrap_or(end);
+    if msg_bytes == 0 && msg_cnt > 0 {
+        msg_bytes = msg_cnt * size as u64;
+    }
+    Sample {
+        job_msg_cnt: if job_msg_cnt == 0 {
+            msg_cnt
+        } else {
+            job_msg_cnt
+        },
+        msg_cnt,
+        msg_bytes,
+        start,
+        end,
     }
 }
 
@@ -600,40 +624,32 @@ async fn run_sub(args: &BenchSubArgs) -> Result<()> {
         .await
         .context("connect to server failed")?;
 
-    let (result_tx, mut result_rx) = tokio::sync::mpsc::channel::<Sample>(args.count);
-
-    let mut handles = Vec::with_capacity(args.count);
+    let mut join_set: JoinSet<(usize, Result<Sample>)> = JoinSet::new();
     for i in 0..args.count {
         let org = org.clone();
         let ns = ns.clone();
         let secret = args.secret.clone();
         let reply = args.reply;
         let size = args.size;
-        let tx = result_tx.clone();
         // Give one extra message to the first `extra` workers.
         let job_cnt = msgs_per_worker + if (i as u64) < extra { 1 } else { 0 };
 
-        let handle = tokio::spawn(async move {
-            match run_sub_worker(i, &org, &ns, &secret, conn_id, job_cnt, size, reply).await {
-                Ok(sample) => {
-                    let _ = tx.send(sample).await;
-                }
-                Err(e) => eprintln!("[sub-{i}] error: {e:#}"),
-            }
+        join_set.spawn(async move {
+            (
+                i,
+                run_sub_worker(i, &org, &ns, &secret, conn_id, job_cnt, size, reply).await,
+            )
         });
-        handles.push(handle);
-    }
-    drop(result_tx);
-
-    // Wait for all workers to finish.
-    for h in handles {
-        let _ = h.await;
     }
 
-    // Aggregate and report.
+    // Aggregate and report — processed in completion order.
     let mut group = SampleGroup::new();
-    while let Some(sample) = result_rx.recv().await {
-        group.add(sample);
+    while let Some(res) = join_set.join_next().await {
+        match res {
+            Ok((_i, Ok(sample))) => group.add(sample),
+            Ok((i, Err(e))) => eprintln!("[sub-{i}] error: {e:#}"),
+            Err(e) => eprintln!("sub worker panicked: {e}"),
+        }
     }
 
     if group.has_samples() {
@@ -703,7 +719,7 @@ async fn run_sub_worker(
 
     println!("[sub-{i}] session established");
 
-    let recv_timeout = Duration::from_secs(30);
+    let recv_timeout = RECV_TIMEOUT;
     let mut start: Option<Instant> = None;
     let mut msg_cnt = 0u64;
     let mut msg_bytes = 0u64;
@@ -728,26 +744,7 @@ async fn run_sub_worker(
         }
     }
 
-    let end = Instant::now();
-    let start = start.unwrap_or(end);
-
-    // Fall back to the configured size hint if payload bytes were not captured
-    // (e.g. empty payloads).
-    if msg_bytes == 0 && msg_cnt > 0 {
-        msg_bytes = msg_cnt * size as u64;
-    }
-
-    Ok(Sample {
-        job_msg_cnt: if job_msg_cnt == 0 {
-            msg_cnt
-        } else {
-            job_msg_cnt
-        },
-        msg_cnt,
-        msg_bytes,
-        start,
-        end,
-    })
+    Ok(build_sample(start, msg_cnt, msg_bytes, job_msg_cnt, size))
 }
 
 // ── Pub command ────────────────────────────────────────────────────────────────
@@ -783,42 +780,35 @@ async fn run_pub(args: &BenchPubArgs) -> Result<()> {
         .await
         .context("connect to server failed")?;
 
-    let (result_tx, mut result_rx) =
-        tokio::sync::mpsc::channel::<(Sample, Vec<Duration>)>(args.count);
-
-    let mut handles = Vec::with_capacity(args.count);
+    let mut join_set: JoinSet<(usize, Result<(Sample, Vec<Duration>)>)> = JoinSet::new();
     for i in 0..args.count {
         let org = org.clone();
         let ns = ns.clone();
         let secret = args.secret.clone();
         let request = args.request;
-        let tx = result_tx.clone();
         let p = payload.clone();
         let msgs = base + if (i as u64) < extra { 1 } else { 0 };
 
-        let handle = tokio::spawn(async move {
-            match run_pub_worker(i, &org, &ns, &secret, conn_id, msgs, p, request).await {
-                Ok((sample, latencies)) => {
-                    let _ = tx.send((sample, latencies)).await;
-                }
-                Err(e) => eprintln!("[pub-{i}] error: {e:#}"),
-            }
+        join_set.spawn(async move {
+            (
+                i,
+                run_pub_worker(i, &org, &ns, &secret, conn_id, msgs, p, request).await,
+            )
         });
-        handles.push(handle);
-    }
-    drop(result_tx);
-
-    // Wait for all workers.
-    for h in handles {
-        let _ = h.await;
     }
 
-    // Aggregate and report.
+    // Aggregate and report — processed in completion order.
     let mut group = SampleGroup::new();
     let mut all_latencies = Vec::new();
-    while let Some((sample, latencies)) = result_rx.recv().await {
-        group.add(sample);
-        all_latencies.extend(latencies);
+    while let Some(res) = join_set.join_next().await {
+        match res {
+            Ok((_i, Ok((sample, latencies)))) => {
+                group.add(sample);
+                all_latencies.extend(latencies);
+            }
+            Ok((i, Err(e))) => eprintln!("[pub-{i}] error: {e:#}"),
+            Err(e) => eprintln!("pub worker panicked: {e}"),
+        }
     }
 
     if group.has_samples() {
@@ -875,26 +865,26 @@ async fn run_pub_worker(
     println!("[pub-{i}] subscribed {own_name} — creating session to {target_name}...");
 
     // Create a session to the subscriber.  Use generous retries so the
-    // publisher can wait up to 30 seconds for the subscriber to come up.
+    // publisher can wait up to SESSION_ESTABLISH_TIMEOUT for the subscriber to come up.
     let session_config = SessionConfig {
         session_type: SessionType::PointToPoint,
         enable_mls: false,
-        max_retries: Some(60),
-        interval: Some(Duration::from_millis(500)),
+        max_retries: Some(SESSION_MAX_RETRIES),
+        interval: Some(SESSION_RETRY_INTERVAL),
         metadata: HashMap::new(),
     };
 
     // Use create_session_async + wait_for_async so the wall-clock timeout is
     // enforced independently of the session-layer retry count.  If the
-    // session is not established within 35 s we return a clear error rather
-    // than hanging forever.
+    // session is not established within SESSION_ESTABLISH_TIMEOUT we return a
+    // clear error rather than hanging forever.
     let swc = app
         .create_session_async(session_config, target_name.clone())
         .await
         .context("failed to initiate session")?;
 
     swc.completion
-        .wait_for_async(Duration::from_secs(35))
+        .wait_for_async(SESSION_ESTABLISH_TIMEOUT)
         .await
         .with_context(|| {
             format!(
@@ -990,38 +980,31 @@ async fn run_channel_sub(args: &BenchChannelSubArgs) -> Result<()> {
         .await
         .context("connect to server failed")?;
 
-    let (result_tx, mut result_rx) = tokio::sync::mpsc::channel::<Sample>(args.count);
-
-    let mut handles = Vec::with_capacity(args.count);
+    let start_index = args.start_index;
+    let mut join_set: JoinSet<(usize, Result<Sample>)> = JoinSet::new();
     for i in 0..args.count {
-        let actual_index = args.start_index + i;
+        let actual_index = start_index + i;
         let org = org.clone();
         let ns = ns.clone();
         let secret = args.secret.clone();
         let size = args.size;
         let msgs = args.msgs;
-        let tx = result_tx.clone();
-        let handle = tokio::spawn(async move {
-            match run_channel_sub_worker(actual_index, &org, &ns, &secret, conn_id, msgs, size)
-                .await
-            {
-                Ok(sample) => {
-                    let _ = tx.send(sample).await;
-                }
-                Err(e) => eprintln!("[ch-sub-{actual_index}] error: {e:#}"),
-            }
+        join_set.spawn(async move {
+            (
+                actual_index,
+                run_channel_sub_worker(actual_index, &org, &ns, &secret, conn_id, msgs, size).await,
+            )
         });
-        handles.push(handle);
-    }
-    drop(result_tx);
-
-    for h in handles {
-        let _ = h.await;
     }
 
+    // Aggregate and report — processed in completion order.
     let mut group = SampleGroup::new();
-    while let Some(sample) = result_rx.recv().await {
-        group.add(sample);
+    while let Some(res) = join_set.join_next().await {
+        match res {
+            Ok((_idx, Ok(sample))) => group.add(sample),
+            Ok((idx, Err(e))) => eprintln!("[ch-sub-{idx}] error: {e:#}"),
+            Err(e) => eprintln!("channel sub worker panicked: {e}"),
+        }
     }
 
     if group.has_samples() {
@@ -1082,7 +1065,7 @@ async fn run_channel_sub_worker(
 
     println!("[ch-sub-{i}] joined channel session");
 
-    let recv_timeout = Duration::from_secs(30);
+    let recv_timeout = RECV_TIMEOUT;
     let mut start: Option<Instant> = None;
     let mut msg_cnt = 0u64;
     let mut msg_bytes = 0u64;
@@ -1098,24 +1081,7 @@ async fn run_channel_sub_worker(
         }
     }
 
-    let end = Instant::now();
-    let start = start.unwrap_or(end);
-
-    if msg_bytes == 0 && msg_cnt > 0 {
-        msg_bytes = msg_cnt * size as u64;
-    }
-
-    Ok(Sample {
-        job_msg_cnt: if job_msg_cnt == 0 {
-            msg_cnt
-        } else {
-            job_msg_cnt
-        },
-        msg_cnt,
-        msg_bytes,
-        start,
-        end,
-    })
+    Ok(build_sample(start, msg_cnt, msg_bytes, job_msg_cnt, size))
 }
 
 async fn run_channel_pub(args: &BenchChannelPubArgs) -> Result<()> {
@@ -1207,8 +1173,8 @@ async fn run_channel_pub_worker(
     let session_config = SessionConfig {
         session_type: SessionType::Group,
         enable_mls: false,
-        max_retries: Some(60),
-        interval: Some(Duration::from_millis(500)),
+        max_retries: Some(SESSION_MAX_RETRIES),
+        interval: Some(SESSION_RETRY_INTERVAL),
         metadata: HashMap::new(),
     };
 
@@ -1233,13 +1199,13 @@ async fn run_channel_pub_worker(
         let sub_name = make_channel_sub_name(org, ns, i);
         println!("[ch-pub] inviting {sub_name}...");
         tokio::time::timeout(
-            Duration::from_secs(35),
+            SESSION_ESTABLISH_TIMEOUT,
             session.invite_and_wait_async(sub_name.clone()),
         )
         .await
         .with_context(|| {
             format!(
-                "[ch-pub] invite of {sub_name} timed out after 35 s — \
+                "[ch-pub] invite of {sub_name} timed out — \
                  is `slimctl bench channel sub` running with matching --prefix and --count?"
             )
         })?
@@ -1327,7 +1293,7 @@ fn parse_byte_size(s: &str) -> Result<usize, String> {
 
 fn human_bytes(bytes: f64) -> String {
     const BASE: f64 = 1024.0;
-    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+    const UNITS: &[&str] = &["B", "KiB", "MiB", "GiB", "TiB"];
     if bytes < BASE {
         return format!("{bytes:.2} B");
     }
@@ -1426,8 +1392,8 @@ mod tests {
     #[test]
     fn human_bytes_units() {
         assert!(human_bytes(500.0).contains("B"));
-        assert!(human_bytes(1500.0).contains("KB"));
-        assert!(human_bytes(2.0 * 1024.0 * 1024.0).contains("MB"));
+        assert!(human_bytes(1500.0).contains("KiB"));
+        assert!(human_bytes(2.0 * 1024.0 * 1024.0).contains("MiB"));
     }
 
     #[test]

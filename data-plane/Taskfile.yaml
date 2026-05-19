@@ -92,9 +92,9 @@ tasks:
     cmds:
       - cargo build --package agntcy-slimctl --profile {{.PROFILE}} --target {{.TARGET}}
       - mkdir -p ../.dist/bin
-      - cp target/debug/slimctl ../.dist/bin/slimctl
+      - cp target/{{.PROFILE}}/slimctl ../.dist/bin/slimctl
     vars:
-      PROFILE: '{{.PROFILE | default "dev"}}'
+      PROFILE: '{{.PROFILE | default "debug"}}'
       TARGET: '{{.TARGET | default ""}}'
 
   data-plane:telemetry:start:
