@@ -235,17 +235,29 @@ fn extract_query_param(query: Option<&str>, name: &str) -> Option<String> {
         let key = parts.next().unwrap_or_default();
         let value = parts.next().unwrap_or_default();
 
-        if key == name && !value.is_empty() {
-            return Some(value.to_string());
+        // Percent-decode both key and value. Clients that send tokens
+        // containing `=` (base64 padding) or `+` MUST percent-encode them
+        // (`%3D`, `%2B`); otherwise the raw bytes would corrupt the
+        // parameter or, worse, be interpreted as separators.
+        let decoded_key = percent_encoding::percent_decode_str(key)
+            .decode_utf8()
+            .ok()?;
+
+        if decoded_key == name && !value.is_empty() {
+            let decoded_value = percent_encoding::percent_decode_str(value)
+                .decode_utf8()
+                .ok()?
+                .into_owned();
+            if decoded_value.is_empty() {
+                return None;
+            }
+            return Some(decoded_value);
         }
     }
 
     None
 }
 
-// =====================================================================
-// Tests
-// =====================================================================
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,7 +274,6 @@ mod tests {
 
     use crate::auth::jwt::{Claims as JwtClaims, Config as JwtConfig, JwtKey};
 
-    // ----- Test constants. Not real credentials. ------------------------
     // pragma: allowlist secret
     const TEST_USER: &str = "user";
     // pragma: allowlist secret
@@ -328,8 +339,6 @@ mod tests {
         provider.get_token().expect("token")
     }
 
-    // ---------------- WebSocketEndpoint::parse ----------------
-
     #[test]
     fn test_websocket_endpoint_parse_ws() {
         let ep = WebSocketEndpoint::parse("ws://example.com:8080/path").expect("parse");
@@ -386,8 +395,6 @@ mod tests {
         assert_eq!(uri.to_string(), "ws://example.com/p");
     }
 
-    // ---------------- extract_query_param ----------------
-
     #[test]
     fn test_extract_query_param_single() {
         assert_eq!(
@@ -440,7 +447,22 @@ mod tests {
         );
     }
 
-    // ---------------- ServerHandshakeAuth::authorize: None / Basic ----------------
+    #[test]
+    fn test_extract_query_param_percent_decodes_value() {
+        // `+` and `=` encoded as `%2B` and `%3D` (e.g. base64-padded token).
+        assert_eq!(
+            extract_query_param(Some("token=ab%2Bcd%3D%3D"), "token"),
+            Some("ab+cd==".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_query_param_percent_decodes_key() {
+        assert_eq!(
+            extract_query_param(Some("to%6Ben=value"), "token"),
+            Some("value".to_string())
+        );
+    }
 
     #[tokio::test]
     async fn test_server_handshake_auth_none() {
@@ -510,8 +532,6 @@ mod tests {
         let req = request_with_header("/", "Authorization", format!("Basic {encoded}"));
         assert!(!auth.authorize(&req).await);
     }
-
-    // ---------------- ServerHandshakeAuth::authorize: JWT ----------------
 
     #[tokio::test]
     async fn test_server_handshake_auth_jwt_bearer_success() {
@@ -602,8 +622,6 @@ mod tests {
         let req = empty_request("/?token=not.a.jwt"); // pragma: allowlist secret
         assert!(!auth.authorize(&req).await);
     }
-
-    // ---------------- build_*_handshake_auth ----------------
 
     #[tokio::test]
     async fn test_build_server_handshake_auth_none() {

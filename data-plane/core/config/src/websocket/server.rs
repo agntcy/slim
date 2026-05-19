@@ -6,6 +6,9 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::task::{Context, Poll};
+use std::time::Duration;
 
 use bytes::Bytes;
 use fastwebsockets::upgrade;
@@ -17,8 +20,8 @@ use hyper::body::Incoming;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpListener;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
@@ -31,6 +34,72 @@ use crate::transport::TransportProtocol;
 use super::common::{
     ServerHandshakeAuth, UpgradedWebSocket, WebSocketEndpoint, build_server_handshake_auth,
 };
+
+/// Maximum time allowed for the TLS handshake to complete after accepting a
+/// TCP connection. Prevents a silent or malicious client from pinning an
+/// accept task indefinitely.
+const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Maximum time allowed for a client to complete the HTTP request and
+/// WebSocket upgrade. Once the upgrade succeeds the connection is no longer
+/// bound by this timeout.
+const HTTP_UPGRADE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Unified server-side stream: either a plain TCP stream or a TLS-wrapped
+/// TCP stream. Lets [`serve_connection`] be invoked with a single concrete
+/// type regardless of whether TLS is enabled.
+enum MaybeTlsStream {
+    Plain(TcpStream),
+    Tls(Box<tokio_rustls::server::TlsStream<TcpStream>>),
+}
+
+impl AsyncRead for MaybeTlsStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        // Both inner types are `Unpin`, so projecting through `&mut *self`
+        // is safe without `pin-project`.
+        match self.get_mut() {
+            MaybeTlsStream::Plain(s) => Pin::new(s).poll_read(cx, buf),
+            MaybeTlsStream::Tls(s) => Pin::new(s.as_mut()).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for MaybeTlsStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        match self.get_mut() {
+            MaybeTlsStream::Plain(s) => Pin::new(s).poll_write(cx, buf),
+            MaybeTlsStream::Tls(s) => Pin::new(s.as_mut()).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            MaybeTlsStream::Plain(s) => Pin::new(s).poll_flush(cx),
+            MaybeTlsStream::Tls(s) => Pin::new(s.as_mut()).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            MaybeTlsStream::Plain(s) => Pin::new(s).poll_shutdown(cx),
+            MaybeTlsStream::Tls(s) => Pin::new(s.as_mut()).poll_shutdown(cx),
+        }
+    }
+}
 
 pub struct AcceptedWebSocketConnection {
     pub websocket: UpgradedWebSocket,
@@ -95,40 +164,47 @@ impl ServerConfig {
                         let auth = auth.clone();
                         let expected_path = expected_path.clone();
                         let on_accepted = on_accepted.clone();
+                        let tls_acceptor = tls_acceptor.clone();
 
-                        if let Some(acceptor) = tls_acceptor.clone() {
-                            tokio::spawn(async move {
-                                let stream = match acceptor.accept(stream).await {
-                                    Ok(stream) => stream,
-                                    Err(err) => {
-                                        warn!(error = %err, "websocket TLS accept error");
-                                        return;
+                        tokio::spawn(async move {
+                            let stream = match tls_acceptor {
+                                Some(acceptor) => {
+                                    // Bound TLS handshake duration so a
+                                    // silent/malicious client cannot hold a
+                                    // task forever.
+                                    match tokio::time::timeout(
+                                        TLS_HANDSHAKE_TIMEOUT,
+                                        acceptor.accept(stream),
+                                    )
+                                    .await
+                                    {
+                                        Ok(Ok(stream)) => MaybeTlsStream::Tls(Box::new(stream)),
+                                        Ok(Err(err)) => {
+                                            warn!(error = %err, "websocket TLS accept error");
+                                            return;
+                                        }
+                                        Err(_) => {
+                                            warn!(
+                                                timeout = ?TLS_HANDSHAKE_TIMEOUT,
+                                                "websocket TLS handshake timed out"
+                                            );
+                                            return;
+                                        }
                                     }
-                                };
+                                }
+                                None => MaybeTlsStream::Plain(stream),
+                            };
 
-                                serve_connection(
-                                    stream,
-                                    auth,
-                                    expected_path,
-                                    on_accepted,
-                                    remote_addr,
-                                    local_addr,
-                                )
-                                .await;
-                            });
-                        } else {
-                            tokio::spawn(async move {
-                                serve_connection(
-                                    stream,
-                                    auth,
-                                    expected_path,
-                                    on_accepted,
-                                    remote_addr,
-                                    local_addr,
-                                )
-                                .await;
-                            });
-                        }
+                            serve_connection(
+                                stream,
+                                auth,
+                                expected_path,
+                                on_accepted,
+                                remote_addr,
+                                local_addr,
+                            )
+                            .await;
+                        });
                     }
                 }
             }
@@ -149,10 +225,18 @@ async fn serve_connection<S>(
     S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {
     let io = TokioIo::new(stream);
+
+    // Tracks whether the WebSocket upgrade succeeded. Used to enforce a
+    // timeout on the *upgrade* portion of the connection only; once the
+    // upgrade is complete the websocket itself may stay open indefinitely.
+    let upgrade_done = Arc::new(AtomicBool::new(false));
+    let upgrade_done_service = upgrade_done.clone();
+
     let service = service_fn(move |mut request: Request<Incoming>| {
         let auth = auth.clone();
         let expected_path = expected_path.clone();
         let on_accepted = on_accepted.clone();
+        let upgrade_done = upgrade_done_service.clone();
 
         async move {
             if request.uri().path() != expected_path {
@@ -175,6 +259,9 @@ async fn serve_connection<S>(
 
             match upgrade::upgrade(&mut request) {
                 Ok((response, future)) => {
+                    // Mark the upgrade as successful so the connection
+                    // future is no longer bound by `HTTP_UPGRADE_TIMEOUT`.
+                    upgrade_done.store(true, Ordering::SeqCst);
                     tokio::spawn(async move {
                         match future.await {
                             Ok(websocket) => {
@@ -207,8 +294,31 @@ async fn serve_connection<S>(
         .serve_connection(io, service)
         .with_upgrades();
 
-    if let Err(err) = connection.await {
-        debug!(error = %err, "websocket HTTP connection closed with error");
+    // Bound the HTTP/WS upgrade phase so a client that opens a TCP/TLS
+    // connection but never sends a valid upgrade request cannot pin this
+    // task. After the upgrade succeeds the underlying IO is hijacked by the
+    // spawned task above, so `serve_connection` should resolve quickly and
+    // before the timeout in the happy path.
+    match tokio::time::timeout(HTTP_UPGRADE_TIMEOUT, connection).await {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => {
+            debug!(error = %err, "websocket HTTP connection closed with error");
+        }
+        Err(_) => {
+            if upgrade_done.load(Ordering::SeqCst) {
+                // Upgrade succeeded but the HTTP connection future is still
+                // pending — nothing actionable; just log at debug.
+                debug!(
+                    timeout = ?HTTP_UPGRADE_TIMEOUT,
+                    "websocket HTTP connection future outlived upgrade timeout"
+                );
+            } else {
+                warn!(
+                    timeout = ?HTTP_UPGRADE_TIMEOUT,
+                    "websocket HTTP upgrade timed out"
+                );
+            }
+        }
     }
 }
 

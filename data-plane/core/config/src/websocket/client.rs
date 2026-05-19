@@ -58,9 +58,19 @@ impl ClientConfig {
             let tls_config = tls_config.ok_or(ConfigError::WebSocketTlsConfiguration)?;
             let connector = TlsConnector::from(Arc::new(tls_config));
 
+            // Pick the SNI / certificate verification name in this order:
+            //   1. `server_name` — explicit SNI override, highest precedence.
+            //   2. `origin` host part — if the caller spoofed the Host
+            //      header, they almost certainly want certificate
+            //      validation against the same name, otherwise the cert
+            //      check fails on a name they didn't pick. We strip any
+            //      `:port` because SNI takes only the hostname.
+            //   3. `endpoint.host` — the actual connect target; last
+            //      resort default.
             let server_name = self
                 .server_name
                 .as_deref()
+                .or_else(|| self.origin.as_deref().and_then(host_from_authority))
                 .unwrap_or(endpoint.host.as_str());
             let server_name =
                 tokio_rustls::rustls::pki_types::ServerName::try_from(server_name.to_string())
@@ -156,6 +166,19 @@ where
     }
 }
 
+/// Strip any `:port` suffix from an HTTP authority, returning just the host.
+///
+/// Used to derive an SNI name from the `Origin` header value (e.g.
+/// `example.com:8443` -> `example.com`). Returns `None` for empty input so
+/// callers can fall back to the next name in the chain.
+fn host_from_authority(authority: &str) -> Option<&str> {
+    let host = authority
+        .rsplit_once(':')
+        .map(|(h, _)| h)
+        .unwrap_or(authority);
+    if host.is_empty() { None } else { Some(host) }
+}
+
 // =====================================================================
 // Tests
 // =====================================================================
@@ -226,5 +249,20 @@ mod tests {
             elapsed < Duration::from_secs(1),
             "connect_timeout was not honored (took {elapsed:?})"
         );
+    }
+
+    #[test]
+    fn test_host_from_authority_strips_port() {
+        assert_eq!(host_from_authority("example.com:8443"), Some("example.com"));
+    }
+
+    #[test]
+    fn test_host_from_authority_no_port() {
+        assert_eq!(host_from_authority("example.com"), Some("example.com"));
+    }
+
+    #[test]
+    fn test_host_from_authority_empty() {
+        assert_eq!(host_from_authority(""), None);
     }
 }

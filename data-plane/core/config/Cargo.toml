@@ -30,6 +30,7 @@ hyper-rustls = { workspace = true }
 hyper-util = { workspace = true, features = ["client-proxy-system"] }
 lazy_static = { workspace = true }
 parking_lot = { workspace = true }
+percent-encoding = { workspace = true }
 prost = { workspace = true }
 regex = { workspace = true }
 rustls = { workspace = true }

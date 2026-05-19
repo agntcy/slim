@@ -107,7 +107,21 @@ pub(crate) fn spawn_transport_tasks(
                         },
                         OpCode::Close => break,
                         OpCode::Text => {
-                            warn!("ignoring text websocket frame, expected binary protobuf frame");
+                            warn!(
+                                "received text websocket frame on binary subprotocol; closing connection with status 1003"
+                            );
+                            let _ = tx_inbound
+                                .send(Err(Status::invalid_argument(
+                                    "unexpected text websocket frame on binary subprotocol",
+                                )))
+                                .await;
+                            let _ = control_tx
+                                .send(ControlFrame::Close {
+                                    code: 1003,
+                                    reason: b"unsupported data: text frame".to_vec(),
+                                })
+                                .await;
+                            break;
                         }
                         OpCode::Ping | OpCode::Pong | OpCode::Continuation => {
                             // Pong/Close auto-responses are emitted via send_control above;
@@ -137,7 +151,7 @@ pub(crate) fn spawn_transport_tasks(
                 // starved by a heavy outbound binary stream.
                 maybe_ctrl = rx_control.recv() => {
                     let Some(ctrl) = maybe_ctrl else {
-                        continue;
+                        break;
                     };
                     let (frame, is_close) = match ctrl {
                         ControlFrame::Pong(payload) => (Frame::pong(payload.into()), false),
@@ -266,7 +280,7 @@ mod tests {
             .with_transport(TransportProtocol::Websocket)
             .with_tls_setting(TlsClientConfig::insecure());
         match cfg.to_channel().await.expect("connect") {
-            TransportChannel::Websocket(ws) => ws,
+            TransportChannel::Websocket(ws) => *ws,
             TransportChannel::Grpc(_) => panic!("expected websocket"),
         }
     }

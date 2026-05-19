@@ -162,6 +162,7 @@ dependencies = [
  "hyper-util",
  "lazy_static",
  "parking_lot",
+ "percent-encoding",
  "prost",
  "protoc-bin-vendored",
  "rand 0.9.4",

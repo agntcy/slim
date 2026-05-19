@@ -106,6 +106,7 @@ prost = "0.14"
 prost-types = "0.14"
 
 protoc-bin-vendored = "3.1.0"
+percent-encoding = "2.3"
 pyo3 = { version = "0.26" }
 pyo3-async-runtimes = { version = "0.26", features = ["tokio-runtime"] }
 pyo3-stub-gen = "0.14"
