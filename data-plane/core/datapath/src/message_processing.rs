@@ -12,8 +12,10 @@ use slim_config::client::ClientConfig;
 use slim_config::client::TransportChannel;
 use slim_config::component::configuration::Configuration;
 use slim_config::server::ServerConfig;
+use slim_config::server_handler::ServerHandler;
 use slim_config::transport::TransportProtocol;
 use slim_config::websocket::server as websocket_server;
+use slim_config::websocket::server::AcceptedWebSocketConnection;
 use tokio::sync::mpsc::{self, Sender};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
@@ -116,91 +118,58 @@ impl MessageProcessor {
         Self::default()
     }
 
-    /// Run a data plane gRPC server using this message processor's drain watch.
-    /// Returns a cancellation token that can be used to stop the server task.
+    /// Run a data plane server using this message processor's drain watch.
+    /// Dispatch on the configured transport happens inside slim-config via the
+    /// [`ServerHandler`] trait below. Returns a cancellation token that can be
+    /// used to stop the server task.
     pub async fn run_server(
         &self,
         config: &ServerConfig,
     ) -> Result<CancellationToken, DataPathError> {
         debug!(%config, "starting dataplane server");
-        match config.transport {
-            TransportProtocol::Grpc => self.run_grpc_server(config).await,
-            TransportProtocol::Websocket => self.run_websocket_server(config).await,
-        }
-    }
-
-    async fn run_grpc_server(
-        &self,
-        config: &ServerConfig,
-    ) -> Result<CancellationToken, DataPathError> {
         let watch = self.get_drain_watch()?;
-        // Wrap self in an Arc since the server builder expects an Arc<MessageProcessor>
-        let svc = Arc::new(self.clone());
-        let res = config
-            .run_server(&[DataPlaneServiceServer::from_arc(svc)], watch)
-            .await?;
-
-        Ok(res)
-    }
-
-    async fn run_websocket_server(
-        &self,
-        config: &ServerConfig,
-    ) -> Result<CancellationToken, DataPathError> {
-        let watch = self.get_drain_watch()?;
-        let processor = self.clone();
-
-        let on_accepted: websocket_server::OnAcceptedWebSocket = Arc::new(move |accepted| {
-            let processor = processor.clone();
-            Box::pin(async move {
-                let cancellation_token = CancellationToken::new();
-                let streams = websocket::spawn_transport_tasks(
-                    accepted.websocket,
-                    cancellation_token.clone(),
-                );
-
-                let connection =
-                    Connection::new(ConnectionType::Remote, Channel::Client(streams.outbound))
-                        .with_remote_addr(accepted.remote_addr)
-                        .with_local_addr(accepted.local_addr)
-                        .with_cancellation_token(Some(cancellation_token.clone()));
-
-                debug!(
-                    remote = ?connection.remote_addr(),
-                    local = ?connection.local_addr(),
-                    "new websocket connection received from remote",
-                );
-                info!(telemetry = true, counter.num_active_connections = 1);
-
-                let conn_index = match processor
-                    .forwarder()
-                    .on_connection_established(connection, None)
-                {
-                    Some(index) => index,
-                    None => {
-                        error!("failed to add websocket connection to table");
-                        cancellation_token.cancel();
-                        return;
-                    }
-                };
-
-                if let Err(err) = processor.process_stream(
-                    streams.inbound,
-                    conn_index,
-                    None,
-                    cancellation_token,
-                    false,
-                    false,
-                ) {
-                    error!(error = %err.chain(), "error starting websocket processing stream");
-                }
-            })
-        });
-
         config
-            .run_websocket_server(watch, on_accepted)
+            .run_server(watch, Arc::new(self.clone()))
             .await
             .map_err(Into::into)
+    }
+
+    async fn handle_websocket_accepted(&self, accepted: AcceptedWebSocketConnection) {
+        let cancellation_token = CancellationToken::new();
+        let streams =
+            websocket::spawn_transport_tasks(accepted.websocket, cancellation_token.clone());
+
+        let connection = Connection::new(ConnectionType::Remote, Channel::Client(streams.outbound))
+            .with_remote_addr(accepted.remote_addr)
+            .with_local_addr(accepted.local_addr)
+            .with_cancellation_token(Some(cancellation_token.clone()));
+
+        debug!(
+            remote = ?connection.remote_addr(),
+            local = ?connection.local_addr(),
+            "new websocket connection received from remote",
+        );
+        info!(telemetry = true, counter.num_active_connections = 1);
+
+        let conn_index = match self.forwarder().on_connection_established(connection, None) {
+            Some(index) => index,
+            None => {
+                error!("failed to add websocket connection to table");
+                cancellation_token.cancel();
+                return;
+            }
+        };
+
+        if let Err(err) = self.process_stream(
+            streams.inbound,
+            conn_index,
+            None,
+            cancellation_token,
+            false,
+            false,
+        ) {
+            error!(error = %err.chain(), "error starting websocket processing stream");
+        }
     }
 
     pub async fn shutdown(&self) -> Result<(), DataPathError> {
@@ -1437,6 +1406,21 @@ impl MessageProcessor {
 
     pub fn connection_table(&self) -> &ConnectionTable<Connection> {
         &self.internal.forwarder.connection_table
+    }
+}
+
+impl ServerHandler for MessageProcessor {
+    fn grpc_routes(&self) -> Option<tonic::service::Routes> {
+        let svc = DataPlaneServiceServer::from_arc(Arc::new(self.clone()));
+        Some(tonic::service::Routes::new(svc))
+    }
+
+    fn on_websocket_accepted(&self) -> Option<websocket_server::OnAcceptedWebSocket> {
+        let processor = self.clone();
+        Some(Arc::new(move |accepted| {
+            let processor = processor.clone();
+            Box::pin(async move { processor.handle_websocket_accepted(accepted).await })
+        }))
     }
 }
 

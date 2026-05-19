@@ -20,6 +20,7 @@ use tokio::net::UnixListener;
 #[cfg(target_family = "unix")]
 use tokio_stream::wrappers::UnixListenerStream;
 use tokio_util::sync::CancellationToken;
+use tonic::service::Routes;
 use tonic::transport::server::TcpIncoming;
 use tower_http::BoxError;
 use tracing::debug;
@@ -34,6 +35,26 @@ use crate::transport::TransportProtocol;
 
 /// Boxed future returned by [`ServerConfig::to_server_future`].
 pub type ServerFuture = Pin<Box<dyn Future<Output = Result<(), tonic::transport::Error>> + Send>>;
+
+fn routes_from_slice<S>(svc: &[S]) -> Routes
+where
+    S: tower_service::Service<
+            http::Request<tonic::body::Body>,
+            Response = http::Response<tonic::body::Body>,
+            Error = Infallible,
+        > + tonic::server::NamedService
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+    S::Future: Send + 'static,
+{
+    let mut routes = Routes::new(svc[0].clone());
+    for s in svc.iter().skip(1) {
+        routes = routes.add_service(s.clone());
+    }
+    routes
+}
 
 impl ServerConfig {
     /// Build the gRPC server future that drives the underlying tonic server.
@@ -57,7 +78,17 @@ impl ServerConfig {
         if svc.is_empty() {
             return Err(ConfigError::MissingServices);
         }
+        self.to_server_future_with_routes(routes_from_slice(svc))
+            .await
+    }
 
+    /// `Routes`-based variant of [`Self::to_server_future`]. This is the
+    /// canonical entry point — the slice-based overload is kept as a thin
+    /// compat wrapper used by the gRPC-only `run_grpc_server` API.
+    pub async fn to_server_future_with_routes(
+        &self,
+        routes: Routes,
+    ) -> Result<ServerFuture, ConfigError> {
         if self.transport == TransportProtocol::Websocket {
             return Err(ConfigError::GrpcServerUnsupportedTransport);
         }
@@ -81,7 +112,7 @@ impl ServerConfig {
             let listener = UnixListener::bind(&socket_path)?;
             let incoming = UnixListenerStream::new(listener);
 
-            return self.serve_with_incoming(svc, incoming).await;
+            return self.serve_with_incoming(routes, incoming).await;
         }
 
         #[cfg(not(target_family = "unix"))]
@@ -98,16 +129,20 @@ impl ServerConfig {
         match tls_config {
             Some(tls_config) => {
                 let incoming = tonic_tls::rustls::TlsIncoming::new(incoming, Arc::new(tls_config));
-                self.serve_with_incoming(svc, incoming).await
+                self.serve_with_incoming(routes, incoming).await
             }
-            None => self.serve_with_incoming(svc, incoming).await,
+            None => self.serve_with_incoming(routes, incoming).await,
         }
     }
 
     /// Spawn the gRPC server and return a [`CancellationToken`] that can be
     /// used to stop it. The server is also driven by the supplied `drain`
     /// watch for cooperative shutdown.
-    pub async fn run_server<S>(
+    ///
+    /// Generic over a slice of tonic services for backwards compatibility;
+    /// the unified entry point is [`Self::run_server`] (uses [`Routes`] via
+    /// the [`crate::ServerHandler`] trait).
+    pub async fn run_grpc_server<S>(
         &self,
         svc: &[S],
         drain_rx: drain::Watch,
@@ -125,8 +160,22 @@ impl ServerConfig {
             + Sync,
         S::Future: Send + 'static,
     {
+        if svc.is_empty() {
+            return Err(ConfigError::MissingServices);
+        }
+        self.run_grpc_server_with_routes(routes_from_slice(svc), drain_rx)
+            .await
+    }
+
+    /// `Routes`-based variant of [`Self::run_grpc_server`]. Used internally
+    /// by [`Self::run_server`].
+    pub async fn run_grpc_server_with_routes(
+        &self,
+        routes: Routes,
+        drain_rx: drain::Watch,
+    ) -> Result<CancellationToken, ConfigError> {
         debug!(%self, "server configured: setting it up");
-        let server_future = self.to_server_future(svc).await?;
+        let server_future = self.to_server_future_with_routes(routes).await?;
 
         // create a new cancellation token
         let token = CancellationToken::new();
@@ -187,23 +236,12 @@ impl ServerConfig {
         builder.max_connection_age(self.keepalive.max_connection_age.into())
     }
 
-    async fn serve_with_incoming<S, I, IO, IE>(
+    async fn serve_with_incoming<I, IO, IE>(
         &self,
-        svc: &[S],
+        routes: Routes,
         incoming: I,
     ) -> Result<ServerFuture, ConfigError>
     where
-        S: tower_service::Service<
-                http::Request<tonic::body::Body>,
-                Response = http::Response<tonic::body::Body>,
-                Error = Infallible,
-            >
-            + tonic::server::NamedService
-            + Clone
-            + Send
-            + 'static
-            + Sync,
-        S::Future: Send + 'static,
         I: Stream<Item = Result<IO, IE>> + Send + 'static,
         IO: AsyncRead + AsyncWrite + tonic::transport::server::Connected + Unpin + Send + 'static,
         IE: Into<BoxError> + Send + 'static,
@@ -213,14 +251,7 @@ impl ServerConfig {
         match &self.auth {
             AuthenticationConfig::Basic(basic) => {
                 let auth_layer = basic.get_server_layer()?;
-
-                let mut builder = builder.layer(auth_layer);
-
-                let mut router = builder.add_service(svc[0].clone());
-                for s in svc.iter().skip(1) {
-                    router = builder.add_service(s.clone());
-                }
-
+                let router = builder.layer(auth_layer).add_routes(routes);
                 Ok(router.serve_with_incoming(incoming).boxed())
             }
             AuthenticationConfig::Jwt(jwt) => {
@@ -231,13 +262,7 @@ impl ServerConfig {
 
                 auth_layer.initialize().await?;
 
-                let mut builder = builder.layer(auth_layer);
-
-                let mut router = builder.add_service(svc[0].clone());
-                for s in svc.iter().skip(1) {
-                    router = builder.add_service(s.clone());
-                }
-
+                let router = builder.layer(auth_layer).add_routes(routes);
                 Ok(router.serve_with_incoming(incoming).boxed())
             }
             #[cfg(not(target_family = "windows"))]
@@ -248,21 +273,11 @@ impl ServerConfig {
 
                 auth_layer.initialize().await?;
 
-                let mut builder = builder.layer(auth_layer);
-
-                let mut router = builder.add_service(svc[0].clone());
-                for s in svc.iter().skip(1) {
-                    router = builder.add_service(s.clone());
-                }
-
+                let router = builder.layer(auth_layer).add_routes(routes);
                 Ok(router.serve_with_incoming(incoming).boxed())
             }
             AuthenticationConfig::None => {
-                let mut router = builder.add_service(svc[0].clone());
-                for s in svc.iter().skip(1) {
-                    router = builder.add_service(s.clone());
-                }
-
+                let router = builder.add_routes(routes);
                 Ok(router.serve_with_incoming(incoming).boxed())
             }
         }

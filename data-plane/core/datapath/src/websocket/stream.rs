@@ -413,7 +413,11 @@ mod tests {
         let endpoint = format!("ws://127.0.0.1:{port}");
         let cfg = ClientConfig::with_endpoint(&endpoint)
             .with_transport(TransportProtocol::Websocket)
-            .with_tls_setting(TlsClientConfig::insecure());
+            .with_tls_setting(TlsClientConfig::insecure())
+            .with_backoff(slim_config::client::BackoffConfig::new_fixed_interval(
+                Duration::from_millis(0),
+                1,
+            ));
         assert!(
             cfg.to_channel().await.is_err(),
             "should not connect after server cancellation"

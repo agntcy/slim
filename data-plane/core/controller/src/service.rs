@@ -438,7 +438,7 @@ impl ControlPlane {
         }
 
         let token = config
-            .run_server(
+            .run_grpc_server(
                 &[ControllerServiceServer::new(self.controller.clone())],
                 self.controller.drain_watch()?,
             )

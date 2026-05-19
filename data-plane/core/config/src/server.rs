@@ -19,7 +19,11 @@
 use duration_string::DurationString;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
+
+use crate::server_handler::ServerHandler;
 
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
@@ -273,6 +277,33 @@ impl ServerConfig {
 
     pub fn with_auth(self, auth: AuthenticationConfig) -> Self {
         Self { auth, ..self }
+    }
+
+    /// Transport-agnostic server entry point. Dispatches on `self.transport`
+    /// and calls into the matching transport-specific run helper, requesting
+    /// the appropriate adapter from `handler`. Returns
+    /// [`ConfigError::HandlerMissingGrpcSupport`] /
+    /// [`ConfigError::HandlerMissingWebSocketSupport`] when the handler does
+    /// not implement the method for the configured transport.
+    pub async fn run_server<H: ServerHandler>(
+        &self,
+        watch: drain::Watch,
+        handler: Arc<H>,
+    ) -> Result<CancellationToken, ConfigError> {
+        match self.transport {
+            TransportProtocol::Grpc => {
+                let routes = handler
+                    .grpc_routes()
+                    .ok_or(ConfigError::HandlerMissingGrpcSupport)?;
+                self.run_grpc_server_with_routes(routes, watch).await
+            }
+            TransportProtocol::Websocket => {
+                let on_accepted = handler
+                    .on_websocket_accepted()
+                    .ok_or(ConfigError::HandlerMissingWebSocketSupport)?;
+                self.run_websocket_server(watch, on_accepted).await
+            }
+        }
     }
 }
 

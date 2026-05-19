@@ -102,6 +102,12 @@ pub enum ConfigError {
     #[error("link_id must be a valid UUID v4")]
     InvalidLinkId,
 
+    // ServerHandler routing
+    #[error("server handler does not provide gRPC routes, but transport is gRPC")]
+    HandlerMissingGrpcSupport,
+    #[error("server handler does not provide a websocket callback, but transport is websocket")]
+    HandlerMissingWebSocketSupport,
+
     // Unknown / catch-all
     #[error("unknown error")]
     Unknown,

@@ -646,7 +646,11 @@ mod tests {
         let client_cfg = ClientConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
             .with_transport(TransportProtocol::Websocket)
             .with_tls_setting(TlsClientConfig::insecure())
-            .with_connect_timeout(Duration::from_secs(5));
+            .with_connect_timeout(Duration::from_secs(5))
+            .with_backoff(crate::client::BackoffConfig::new_fixed_interval(
+                Duration::from_millis(0),
+                1,
+            ));
 
         let mut first = None;
         for _ in 0..40 {
