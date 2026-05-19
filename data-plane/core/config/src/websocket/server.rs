@@ -22,6 +22,7 @@ use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Semaphore;
 use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
@@ -44,6 +45,12 @@ const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 /// WebSocket upgrade. Once the upgrade succeeds the connection is no longer
 /// bound by this timeout.
 const HTTP_UPGRADE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Hard ceiling on the number of in-flight accept tasks when the
+/// configured `max_concurrent_streams` is `None`. Prevents an unbounded
+/// connection storm from exhausting memory / file descriptors on
+/// misconfigured servers.
+const DEFAULT_MAX_WEBSOCKET_CONNECTIONS: usize = 1024;
 
 /// Unified server-side stream: either a plain TCP stream or a TLS-wrapped
 /// TCP stream. Lets [`serve_connection`] be invoked with a single concrete
@@ -121,13 +128,21 @@ impl ServerConfig {
         let tls_config = self.tls_setting.load_rustls_config().await?;
         let tls_acceptor = match (endpoint.secure, tls_config) {
             (true, Some(config)) => Some(TlsAcceptor::from(Arc::new(config))),
-            (true, None) => return Err(ConfigError::WebSocketTlsConfiguration),
-            (false, Some(_)) => return Err(ConfigError::WebSocketTlsConfiguration),
+            (true, None) => return Err(ConfigError::WebSocketServerTlsMissing),
+            (false, Some(_)) => return Err(ConfigError::WebSocketServerTlsUnexpected),
             (false, None) => None,
         };
 
-        let auth = build_server_handshake_auth(self);
+        let auth = build_server_handshake_auth(self)?;
         let expected_path = endpoint.path.clone();
+
+        // Cap the number of concurrent accept tasks
+        let max_connections = self
+            .max_concurrent_streams
+            .map(|n| n as usize)
+            .unwrap_or(DEFAULT_MAX_WEBSOCKET_CONNECTIONS)
+            .max(1);
+        let connection_semaphore = Arc::new(Semaphore::new(max_connections));
 
         let cancellation_token = CancellationToken::new();
         let cancel_clone = cancellation_token.clone();
@@ -154,6 +169,22 @@ impl ServerConfig {
                             }
                         };
 
+                        // Acquire a slot before spawning. If the cap is
+                        // exhausted, drop the connection rather than
+                        // queueing it up
+                        let permit = match connection_semaphore.clone().try_acquire_owned() {
+                            Ok(permit) => permit,
+                            Err(_) => {
+                                warn!(
+                                    max_connections,
+                                    %remote_addr,
+                                    "websocket connection cap reached; rejecting client"
+                                );
+                                drop(stream);
+                                continue;
+                            }
+                        };
+
                         let local_addr = stream.local_addr().ok();
                         let auth = auth.clone();
                         let expected_path = expected_path.clone();
@@ -161,6 +192,9 @@ impl ServerConfig {
                         let tls_acceptor = tls_acceptor.clone();
 
                         tokio::spawn(async move {
+                            // Permit is dropped at the end of this task,
+                            // releasing the slot back to the semaphore.
+                            let _permit = permit;
                             let stream = match tls_acceptor {
                                 Some(acceptor) => {
                                     // Bound TLS handshake duration so a

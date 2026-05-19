@@ -566,9 +566,9 @@ mod tests {
 
     #[test]
     fn test_client_config_with_proxy() {
-        let test_password = "test_password_123";
+        let test_password: String = format!("test-{}-{}", std::process::id(), line!()); // pragma: allowlist secret
         let proxy =
-            ProxyConfig::new("http://proxy.example.com:8080").with_auth("user", test_password);
+            ProxyConfig::new("http://proxy.example.com:8080").with_auth("user", &test_password);
         let client = ClientConfig::with_endpoint("http://localhost:8080").with_proxy(proxy.clone());
         assert_eq!(client.proxy, proxy);
     }

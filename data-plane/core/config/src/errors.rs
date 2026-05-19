@@ -31,6 +31,18 @@ pub enum ConfigError {
     WebSocketServerUnsupportedTransport,
     #[error("websocket transport TLS configuration is invalid")]
     WebSocketTlsConfiguration,
+    #[error("websocket server TLS is required but no TLS configuration was provided")]
+    WebSocketServerTlsMissing,
+    #[error("websocket server TLS configuration is set but endpoint scheme is not wss://")]
+    WebSocketServerTlsUnexpected,
+    #[error("websocket server SNI / certificate name is invalid")]
+    WebSocketInvalidServerName,
+    #[error("websocket TLS handshake error")]
+    WebSocketTlsHandshake(#[source] std::io::Error),
+    #[error("websocket TLS handshake timed out")]
+    WebSocketTlsHandshakeTimeout,
+    #[error("websocket SPIRE authentication is not yet supported")]
+    WebSocketSpireUnsupported,
 
     // Network / transport
     #[error("transport error")]

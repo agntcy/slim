@@ -9,6 +9,7 @@ use fastwebsockets::WebSocket;
 use hyper::Request;
 use hyper::upgrade::Upgraded;
 use hyper_util::rt::TokioIo;
+use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use slim_auth::traits::{TokenProvider, Verifier};
 use tracing::warn;
 
@@ -17,6 +18,22 @@ use crate::errors::ConfigError;
 use crate::server::{AuthenticationConfig as ServerAuthConfig, ServerConfig};
 
 pub type UpgradedWebSocket = WebSocket<TokioIo<Upgraded>>;
+
+const QUERY_ENCODE_SET: &AsciiSet = &CONTROLS
+    .add(b' ')
+    .add(b'"')
+    .add(b'#')
+    .add(b'%')
+    .add(b'&')
+    .add(b'+')
+    .add(b'/')
+    .add(b'<')
+    .add(b'=')
+    .add(b'>')
+    .add(b'?')
+    .add(b'`')
+    .add(b'{')
+    .add(b'}');
 
 #[derive(Debug, Clone)]
 pub struct WebSocketEndpoint {
@@ -78,7 +95,11 @@ impl WebSocketEndpoint {
     }
 
     pub fn socket_address(&self) -> String {
-        format!("{}:{}", self.host, self.port)
+        if self.host.contains(':') && !self.host.starts_with('[') {
+            format!("[{}]:{}", self.host, self.port)
+        } else {
+            format!("{}:{}", self.host, self.port)
+        }
     }
 
     pub fn request_uri(&self, query_param: Option<(&str, &str)>) -> Result<http::Uri, ConfigError> {
@@ -103,9 +124,17 @@ impl WebSocketEndpoint {
             } else {
                 uri.push('?');
             }
-            uri.push_str(key);
+            // Percent-encode the user-supplied key/value before splicing
+            // them into the URI. Without this, a value containing `&`,
+            // `=`, `?`, `#`, or `+` would either break the URI parser or
+            // smuggle an extra query parameter.
+            for chunk in utf8_percent_encode(key, QUERY_ENCODE_SET) {
+                uri.push_str(chunk);
+            }
             uri.push('=');
-            uri.push_str(value);
+            for chunk in utf8_percent_encode(value, QUERY_ENCODE_SET) {
+                uri.push_str(chunk);
+            }
         }
 
         http::Uri::from_str(&uri).map_err(ConfigError::from)
@@ -147,22 +176,27 @@ pub async fn build_client_handshake_auth(
             })
         }
         #[cfg(not(target_family = "windows"))]
-        ClientAuthConfig::Spire(_) => Err(ConfigError::WebSocketTlsConfiguration),
+        ClientAuthConfig::Spire(_) => Err(ConfigError::WebSocketSpireUnsupported),
     }
 }
 
-pub fn build_server_handshake_auth(config: &ServerConfig) -> ServerHandshakeAuth {
+pub fn build_server_handshake_auth(
+    config: &ServerConfig,
+) -> Result<ServerHandshakeAuth, ConfigError> {
     match &config.auth {
-        ServerAuthConfig::None => ServerHandshakeAuth::None,
-        ServerAuthConfig::Basic(basic) => ServerHandshakeAuth::Basic {
+        ServerAuthConfig::None => Ok(ServerHandshakeAuth::None),
+        ServerAuthConfig::Basic(basic) => Ok(ServerHandshakeAuth::Basic {
             username: basic.username().to_string(),
             password: basic.password().as_str().to_string(),
-        },
-        ServerAuthConfig::Jwt(jwt) => ServerHandshakeAuth::Jwt {
+        }),
+        ServerAuthConfig::Jwt(jwt) => Ok(ServerHandshakeAuth::Jwt {
             config: jwt.clone(),
-        },
+        }),
+        // SPIRE-based client verification over the websocket handshake is
+        // not yet implemented. Fail-closed at server start rather than
+        // silently fall back to `None` and accept *any* client.
         #[cfg(not(target_family = "windows"))]
-        ServerAuthConfig::Spire(_) => ServerHandshakeAuth::None,
+        ServerAuthConfig::Spire(_) => Err(ConfigError::WebSocketSpireUnsupported),
     }
 }
 
@@ -627,7 +661,7 @@ mod tests {
     async fn test_build_server_handshake_auth_none() {
         let cfg = ServerConfig::with_endpoint("ws://127.0.0.1:0");
         assert!(matches!(
-            build_server_handshake_auth(&cfg),
+            build_server_handshake_auth(&cfg).expect("ok"),
             ServerHandshakeAuth::None
         ));
     }
@@ -637,7 +671,7 @@ mod tests {
         let cfg = ServerConfig::with_endpoint("ws://127.0.0.1:0").with_auth(
             ServerAuthConfig::Basic(crate::auth::basic::Config::new(TEST_USER, TEST_PASS)),
         );
-        match build_server_handshake_auth(&cfg) {
+        match build_server_handshake_auth(&cfg).expect("ok") {
             ServerHandshakeAuth::Basic { username, password } => {
                 assert_eq!(username, TEST_USER);
                 assert_eq!(password, TEST_PASS);

@@ -142,6 +142,7 @@ pub(crate) fn spawn_transport_tasks(
     tokio::spawn(async move {
         loop {
             tokio::select! {
+                biased;
                 _ = write_cancel.cancelled() => {
                     let _ = write_half.write_frame(Frame::close(1000, &[])).await;
                     let _ = write_half.flush().await;

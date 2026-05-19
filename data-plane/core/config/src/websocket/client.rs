@@ -9,6 +9,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use fastwebsockets::handshake;
 use http::header::{AUTHORIZATION, CONNECTION, HOST, ORIGIN, UPGRADE};
+use http::uri::Authority;
 use http_body_util::Empty;
 use hyper::Request;
 use hyper::header::{HeaderName, HeaderValue};
@@ -55,31 +56,33 @@ impl ClientConfig {
 
         let websocket = if endpoint.secure {
             let tls_config = self.tls_setting.load_rustls_config().await?;
-            let tls_config = tls_config.ok_or(ConfigError::WebSocketTlsConfiguration)?;
+            let tls_config = tls_config.ok_or(ConfigError::WebSocketServerTlsMissing)?;
             let connector = TlsConnector::from(Arc::new(tls_config));
 
-            // Pick the SNI / certificate verification name in this order:
-            //   1. `server_name` — explicit SNI override, highest precedence.
-            //   2. `origin` host part — if the caller spoofed the Host
-            //      header, they almost certainly want certificate
-            //      validation against the same name, otherwise the cert
-            //      check fails on a name they didn't pick. We strip any
-            //      `:port` because SNI takes only the hostname.
-            //   3. `endpoint.host` — the actual connect target; last
-            //      resort default.
-            let server_name = self
+            let server_name: String = self
                 .server_name
-                .as_deref()
+                .clone()
                 .or_else(|| self.origin.as_deref().and_then(host_from_authority))
-                .unwrap_or(endpoint.host.as_str());
-            let server_name =
-                tokio_rustls::rustls::pki_types::ServerName::try_from(server_name.to_string())
-                    .map_err(|_| ConfigError::WebSocketTlsConfiguration)?;
+                .unwrap_or_else(|| endpoint.host.clone());
+            let server_name = tokio_rustls::rustls::pki_types::ServerName::try_from(server_name)
+                .map_err(|_| ConfigError::WebSocketInvalidServerName)?;
 
-            let tls_stream = connector
-                .connect(server_name, stream)
-                .await
-                .map_err(ConfigError::WebSocketConnection)?;
+            // Bound the TLS handshake just like the TCP connect, so an
+            // unresponsive (or maliciously stalled) server cannot pin the
+            // client forever. Falls back to a sensible default when the
+            // user opts out of connect timeouts.
+            let timeout: std::time::Duration = self.connect_timeout.into();
+            let tls_connect = connector.connect(server_name, stream);
+            let tls_stream = if timeout.is_zero() {
+                tls_connect
+                    .await
+                    .map_err(ConfigError::WebSocketTlsHandshake)?
+            } else {
+                match tokio::time::timeout(timeout, tls_connect).await {
+                    Ok(result) => result.map_err(ConfigError::WebSocketTlsHandshake)?,
+                    Err(_) => return Err(ConfigError::WebSocketTlsHandshakeTimeout),
+                }
+            };
 
             handshake::client(&SpawnExecutor, request, tls_stream)
                 .await
@@ -169,14 +172,26 @@ where
 /// Strip any `:port` suffix from an HTTP authority, returning just the host.
 ///
 /// Used to derive an SNI name from the `Origin` header value (e.g.
-/// `example.com:8443` -> `example.com`). Returns `None` for empty input so
-/// callers can fall back to the next name in the chain.
-fn host_from_authority(authority: &str) -> Option<&str> {
-    let host = authority
-        .rsplit_once(':')
-        .map(|(h, _)| h)
-        .unwrap_or(authority);
-    if host.is_empty() { None } else { Some(host) }
+/// `example.com:8443` -> `example.com`). Returns `None` for empty input or
+/// invalid authorities so callers can fall back to the next name in the
+/// chain.
+///
+/// IPv6 hosts in URI authorities are bracketed (`[::1]:8080`). A naive
+/// `rsplit_once(':')` would split inside the address, so we delegate
+/// parsing to [`http::uri::Authority`], which understands bracketed hosts
+/// and exposes a bare `host()` without brackets — exactly what we want
+/// for SNI.
+fn host_from_authority(authority: &str) -> Option<String> {
+    if authority.is_empty() {
+        return None;
+    }
+    let parsed = Authority::from_str(authority).ok()?;
+    let host = parsed.host();
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_string())
+    }
 }
 
 // =====================================================================
@@ -253,16 +268,40 @@ mod tests {
 
     #[test]
     fn test_host_from_authority_strips_port() {
-        assert_eq!(host_from_authority("example.com:8443"), Some("example.com"));
+        assert_eq!(
+            host_from_authority("example.com:8443"),
+            Some("example.com".to_string())
+        );
     }
 
     #[test]
     fn test_host_from_authority_no_port() {
-        assert_eq!(host_from_authority("example.com"), Some("example.com"));
+        assert_eq!(
+            host_from_authority("example.com"),
+            Some("example.com".to_string())
+        );
     }
 
     #[test]
     fn test_host_from_authority_empty() {
         assert_eq!(host_from_authority(""), None);
+    }
+
+    #[test]
+    fn test_host_from_authority_ipv6_with_port() {
+        // IPv6 literal: brackets must not be split as a port separator.
+        assert_eq!(
+            host_from_authority("[::1]:8080"),
+            Some("::1".to_string()),
+            "IPv6 host must be extracted intact"
+        );
+    }
+
+    #[test]
+    fn test_host_from_authority_ipv6_without_port() {
+        assert_eq!(
+            host_from_authority("[2001:db8::1]"),
+            Some("2001:db8::1".to_string()),
+        );
     }
 }
