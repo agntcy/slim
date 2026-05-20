@@ -92,7 +92,7 @@ pub struct SlimHeader {
     pub incoming_conn: ::core::option::Option<u64>,
     #[prost(bool, optional, tag = "9")]
     pub error: ::core::option::Option<bool>,
-    #[prost(bytes = "vec", optional, tag = "9")]
+    #[prost(bytes = "vec", optional, tag = "10")]
     pub header_mac: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]

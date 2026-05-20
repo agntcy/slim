@@ -104,6 +104,9 @@ pub struct ServerConfig {
 
     /// Arbitrary user-provided metadata as JSON string
     pub metadata: Option<String>,
+
+    /// When true, reject inter-node messages without a valid header MAC (strict mode).
+    pub require_header_mac: Option<bool>,
 }
 
 impl Default for ServerConfig {
@@ -122,6 +125,7 @@ impl Default for ServerConfig {
             keepalive: None,
             auth: None,
             metadata: None,
+            require_header_mac: None,
         }
     }
 }
@@ -160,6 +164,9 @@ impl From<ServerConfig> for CoreServerConfig {
             metadata: config
                 .metadata
                 .and_then(|json| serde_json::from_str::<MetadataMap>(&json).ok()),
+            require_header_mac: config
+                .require_header_mac
+                .unwrap_or(core_defaults.require_header_mac),
         }
     }
 }
@@ -179,6 +186,7 @@ impl From<CoreServerConfig> for ServerConfig {
             keepalive: Some(config.keepalive.into()),
             auth: Some(config.auth.into()),
             metadata: config.metadata.and_then(|m| serde_json::to_string(&m).ok()),
+            require_header_mac: Some(config.require_header_mac),
         }
     }
 }
@@ -342,6 +350,7 @@ mod tests {
             keepalive: Some(KeepaliveServerParameters::default()),
             auth: Some(ServerAuthenticationConfig::None),
             metadata: Some(r#"{"key":"value"}"#.to_string()),
+            require_header_mac: None,
         };
 
         let core_config: CoreServerConfig = ffi_config.into();
@@ -394,6 +403,7 @@ mod tests {
             keepalive: Some(KeepaliveServerParameters::default()),
             auth: Some(ServerAuthenticationConfig::None),
             metadata: None,
+            require_header_mac: None,
         };
 
         // FFI -> Core -> FFI using the new From implementation

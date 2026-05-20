@@ -19,7 +19,7 @@ use tokio_stream::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
 
 use tonic::{Request, Response, Status};
-use tracing::{Instrument, debug, error, info};
+use tracing::{Instrument, debug, error, info, warn};
 
 #[cfg(feature = "otel_tracing")]
 use crate::otel_tracing;
@@ -76,6 +76,9 @@ struct MessageProcessorInternal {
 
     /// Service ID for tracing
     service_id: String,
+
+    /// Default strict header MAC policy for server-accepted inter-node connections (see [`ServerConfig::require_header_mac`]).
+    server_require_header_mac: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -95,6 +98,23 @@ impl MessageProcessor {
     }
 
     pub fn new_with_options(service_id: String, recovery_ttl: Option<std::time::Duration>) -> Self {
+        Self::new_internal(service_id, recovery_ttl, false)
+    }
+
+    /// Create a processor with the server strict header MAC policy from `server_config`.
+    pub fn new_with_server_config(
+        service_id: String,
+        server_config: &ServerConfig,
+        recovery_ttl: Option<std::time::Duration>,
+    ) -> Self {
+        Self::new_internal(service_id, recovery_ttl, server_config.require_header_mac)
+    }
+
+    fn new_internal(
+        service_id: String,
+        recovery_ttl: Option<std::time::Duration>,
+        server_require_header_mac: bool,
+    ) -> Self {
         let (signal, watch) = drain::channel();
         let recovery_table = match recovery_ttl {
             Some(ttl) => RecoveryTable::new(ttl),
@@ -108,6 +128,7 @@ impl MessageProcessor {
             recovery_table,
             sub_ack_manager: crate::subscription_ack::RemoteSubAckManager::new(),
             service_id,
+            server_require_header_mac,
         };
         Self {
             internal: Arc::new(internal),
@@ -125,6 +146,14 @@ impl MessageProcessor {
         config: &ServerConfig,
     ) -> Result<CancellationToken, DataPathError> {
         debug!(%config, "starting dataplane server");
+
+        if config.require_header_mac != self.internal.server_require_header_mac {
+            warn!(
+                configured = config.require_header_mac,
+                processor = self.internal.server_require_header_mac,
+                "server require_header_mac differs from MessageProcessor; inbound connections use the processor value set at construction (prefer MessageProcessor::new_with_server_config)",
+            );
+        }
 
         let watch = self.get_drain_watch()?;
         // Wrap self in an Arc since the server builder expects an Arc<MessageProcessor>
@@ -173,6 +202,7 @@ impl MessageProcessor {
         &self,
         conn_index: u64,
         message: &Message,
+        enforce_strict_verification: bool,
     ) -> Result<(), DataPathError> {
         let conn = self
             .forwarder()
@@ -184,6 +214,7 @@ impl MessageProcessor {
         let header = message
             .try_get_slim_header()
             .ok_or(DataPathError::UnknownMsgType)?;
+
         let has_wire_mac = header.header_mac.as_ref().is_some_and(|m| !m.is_empty());
 
         // Publishes must carry a MAC once the inter-node session has derived a key.  Control
@@ -191,10 +222,20 @@ impl MessageProcessor {
         // tag on some federation paths; skipping verification only when the tag is absent keeps
         // tamper detection for application traffic.
         if (message.is_subscribe() || message.is_unsubscribe()) && !has_wire_mac {
+            if enforce_strict_verification {
+                return Err(DataPathError::NegotiationError(
+                    "empty HMAC is not allowed in strict verification mode".to_string(),
+                ));
+            }
             return Ok(());
         }
 
         let Some(mac) = conn.header_hmac() else {
+            if enforce_strict_verification {
+                return Err(DataPathError::NegotiationError(
+                    "strict header MAC required but link HMAC session is not installed".to_string(),
+                ));
+            }
             // Do not accept inter-node publishes that already carry an integrity tag until this
             // side has derived the link MAC; otherwise verification is silently skipped and peers
             // never see `HeaderIntegrity` failures (including tampered test traffic).
@@ -303,6 +344,7 @@ impl MessageProcessor {
             .with_local_addr(local)
             .with_remote_addr(remote)
             .with_config_data(Some(client_config.clone()))
+            .with_require_header_mac(client_config.require_header_mac)
             .with_cancellation_token(Some(cancellation_token.clone()))
             .with_link_id(link_id.clone());
 
@@ -468,6 +510,18 @@ impl MessageProcessor {
                 // manipulation and telemetry span creation.
                 if !msg.is_link() && !msg.is_subscription_ack() {
                     msg.clear_slim_header();
+                }
+
+                if !msg.is_link()
+                    && !msg.is_subscription_ack()
+                    && matches!(*conn.connection_type(), ConnectionType::Remote)
+                    && conn.require_header_mac()
+                    && conn.header_hmac().is_none()
+                {
+                    return Err(DataPathError::NegotiationError(
+                        "strict header MAC required but link HMAC session is not installed"
+                            .to_string(),
+                    ));
                 }
 
                 if !msg.is_link()
@@ -641,6 +695,8 @@ impl MessageProcessor {
             return Ok(());
         };
 
+        let strict = conn.require_header_mac();
+
         // Role check: clients must only receive replies; servers must only receive requests.
         match (conn.is_outgoing(), payload.is_reply) {
             (true, false) => {
@@ -664,6 +720,12 @@ impl MessageProcessor {
         };
 
         if payload.is_reply {
+            if strict && payload.link_ecdh_public_key.len() != X25519_PUBLIC_KEY_LEN {
+                return Err(DataPathError::NegotiationError(
+                    "public key length is invalid".to_string(),
+                ));
+            }
+
             if !conn.complete_negotiation_as_client(link_id, version) {
                 debug!(%in_connection, %link_id, "ignoring link negotiation reply");
                 return Ok(());
@@ -684,10 +746,25 @@ impl MessageProcessor {
                             error = %e,
                             "link ECDH key derivation failed (client path)",
                         );
+                        return Err(DataPathError::NegotiationError(
+                            "failed to generate client exchange key".to_string(),
+                        ));
                     }
                 }
             }
+
+            if strict && conn.header_hmac().is_none() {
+                return Err(DataPathError::NegotiationError(
+                    "strict header MAC required but link HMAC session is not installed".to_string(),
+                ));
+            }
         } else {
+            if strict && payload.link_ecdh_public_key.len() != X25519_PUBLIC_KEY_LEN {
+                return Err(DataPathError::NegotiationError(
+                    "public key length is invalid".to_string(),
+                ));
+            }
+
             if !conn.complete_negotiation_as_server(link_id, version) {
                 debug!(%in_connection, %link_id, "ignoring link negotiation request");
                 return Ok(());
@@ -710,13 +787,28 @@ impl MessageProcessor {
                                     error = %e,
                                     "link ECDH key derivation failed (server path)",
                                 );
+                                if strict {
+                                    return Err(DataPathError::NegotiationError(
+                                        "failed to derive header MAC from link ECDH (server path)"
+                                            .to_string(),
+                                    ));
+                                }
                             }
                         }
                     }
                     Err(_) => {
                         error!(%in_connection, "failed to generate server link ECDH key");
+                        return Err(DataPathError::NegotiationError(
+                            "failed to generate server exchange key".to_string(),
+                        ));
                     }
                 }
+            }
+
+            if strict && conn.header_hmac().is_none() {
+                return Err(DataPathError::NegotiationError(
+                    "strict header MAC required but link HMAC session is not installed".to_string(),
+                ));
             }
 
             // Route recovery: if the peer reconnected with a known link_id, restore all
@@ -1226,6 +1318,12 @@ impl MessageProcessor {
             %conn_index,
             is_local,
         );
+        let require_header_mac = self
+            .forwarder()
+            .get_connection(conn_index)
+            .map(|c| c.require_header_mac())
+            .unwrap_or(false);
+
         let handle = tokio::spawn(async move {
             let mut try_to_reconnect = true;
 
@@ -1241,14 +1339,14 @@ impl MessageProcessor {
                                             && !msg.is_link()
                                             && !msg.is_subscription_ack()
                                             && let Err(e) = self_clone
-                                                .verify_remote_header_mac(conn_index, &msg)
+                                                .verify_remote_header_mac(conn_index, &msg, require_header_mac)
                                         {
                                             error!(
                                                 %conn_index,
                                                 error = %e.chain(),
                                                 "SLIM header integrity verification failed",
                                             );
-                                            break;
+                                            continue;
                                         }
                                         // check if we need to send the message to the control plane
                                         // we send the message if
@@ -1267,6 +1365,11 @@ impl MessageProcessor {
                                         }
 
                                         if let Err(e) = self_clone.handle_new_message(conn_index, is_local, msg).await {
+                                            // Checking if NegotioationError occured
+                                            if matches!(e, DataPathError::NegotiationError(_)) {
+                                                error!(%conn_index, "fatal link negotiation error, closing connection");
+                                                break;
+                                            }
                                             debug!(%conn_index, error = %e.chain(), "error processing incoming message");
                                             // If the message is coming from a local app, notify it
                                             if is_local {
@@ -1456,7 +1559,8 @@ impl DataPlaneService for MessageProcessor {
 
         let connection = Connection::new(ConnectionType::Remote, Channel::Server(tx))
             .with_remote_addr(remote_addr)
-            .with_local_addr(local_addr);
+            .with_local_addr(local_addr)
+            .with_require_header_mac(self.internal.server_require_header_mac);
 
         debug!(
             remote = ?connection.remote_addr(),
@@ -1600,7 +1704,8 @@ mod tests {
         processor: &MessageProcessor,
     ) -> (u64, tokio::sync::mpsc::Receiver<Result<Message, Status>>) {
         let (tx, rx) = mpsc::channel(16);
-        let conn = Connection::new(ConnectionType::Remote, Channel::Server(tx));
+        let conn = Connection::new(ConnectionType::Remote, Channel::Server(tx))
+            .with_require_header_mac(processor.internal.server_require_header_mac);
         let conn_id = processor
             .forwarder()
             .on_connection_established(conn, None)
@@ -1739,6 +1844,28 @@ mod tests {
                 .remote_slim_version()
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn test_handle_link_negotiation_server_strict_rejects_missing_ecdh() {
+        let mut server_config = ServerConfig::with_endpoint("127.0.0.1:0");
+        server_config.require_header_mac = true;
+        let processor =
+            MessageProcessor::new_with_server_config("test".into(), &server_config, None);
+        let (conn_id, _rx) = make_server_conn(&processor);
+        let payload = LinkNegotiationPayload {
+            link_id: uuid::Uuid::new_v4().to_string(),
+            slim_version: "1.2.3".into(),
+            is_reply: false,
+            link_ecdh_public_key: vec![],
+        };
+        let err = processor
+            .handle_link_negotiation(&payload, conn_id)
+            .await
+            .expect_err("strict mode must reject negotiation without peer ECDH");
+        assert!(matches!(err, DataPathError::NegotiationError(_)));
+        let conn = processor.forwarder().get_connection(conn_id).unwrap();
+        assert!(conn.remote_slim_version().is_none());
     }
 
     #[tokio::test]
@@ -1892,6 +2019,32 @@ mod tests {
     }
 
     #[test]
+    fn verify_remote_header_mac_strict_rejects_publish_without_mac_session() {
+        let processor = MessageProcessor::new();
+        let (remote_conn, _rx) = make_server_conn(&processor);
+        let conn = processor.forwarder().get_connection(remote_conn).unwrap();
+        conn.complete_negotiation_as_server(
+            &uuid::Uuid::new_v4().to_string(),
+            semver::Version::parse("1.2.0").unwrap(),
+        );
+        assert!(conn.header_hmac().is_none());
+
+        let source = ProtoName::from_strings(["org", "default", "a"]).with_id(1);
+        let dest = ProtoName::from_strings(["org", "default", "b"]).with_id(2);
+        let msg = ProtoMessage::builder()
+            .source(source)
+            .destination(dest)
+            .application_payload("text/plain", b"hey".to_vec())
+            .build_publish()
+            .expect("publish");
+
+        let err = processor
+            .verify_remote_header_mac(remote_conn, &msg, true)
+            .expect_err("unsigned publish must fail in strict mode without MAC session");
+        assert!(matches!(err, DataPathError::NegotiationError(_)));
+    }
+
+    #[test]
     fn verify_remote_header_mac_accepts_signed_inter_node_publish() {
         let processor = MessageProcessor::new();
         let (remote_conn, _rx) = make_server_conn(&processor);
@@ -1905,6 +2058,7 @@ mod tests {
 
         let source = ProtoName::from_strings(["org", "default", "a"]).with_id(1);
         let dest = ProtoName::from_strings(["org", "default", "b"]).with_id(2);
+        let require_header_mac = true;
         let mut msg = ProtoMessage::builder()
             .source(source)
             .destination(dest)
@@ -1918,7 +2072,7 @@ mod tests {
 
         assert!(
             processor
-                .verify_remote_header_mac(remote_conn, &msg)
+                .verify_remote_header_mac(remote_conn, &msg, require_header_mac)
                 .is_ok()
         );
     }
@@ -1945,6 +2099,7 @@ mod tests {
             .expect("publish");
 
         let mac = HeaderMacSession::new(b"01234567890123456789012345678901").unwrap();
+        let require_header_mac = true;
         mac.sign_slim_header(msg.get_slim_header_mut(), &link_id)
             .expect("sign header");
 
@@ -1956,7 +2111,7 @@ mod tests {
         }
 
         let err = processor
-            .verify_remote_header_mac(remote_conn, &msg)
+            .verify_remote_header_mac(remote_conn, &msg, require_header_mac)
             .expect_err("tampered header must fail MAC verify");
         assert!(matches!(err, DataPathError::HeaderIntegrity(_)));
     }
@@ -1991,13 +2146,14 @@ mod tests {
         let header = sent_msg.get_slim_header();
         let dest_name = header.destination.as_ref().expect("destination");
         let str_name = dest_name.str_name.as_ref().expect("str_name");
+        let require_header_mac = true;
 
         // The tampering happens in send_msg_raw if the env var is set.
         assert!(str_name.str_component_2.ends_with("-integrity-test-tamper"));
 
         // Also verify that verify_remote_header_mac rejects it.
         let err = processor
-            .verify_remote_header_mac(conn_id, &sent_msg)
+            .verify_remote_header_mac(conn_id, &sent_msg, require_header_mac)
             .expect_err("tampered header must fail MAC verify");
         assert!(matches!(err, DataPathError::HeaderIntegrity(_)));
 

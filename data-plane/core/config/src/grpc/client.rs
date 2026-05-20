@@ -339,6 +339,10 @@ pub struct ClientConfig {
     /// Must be a valid UUID v4. Defaults to a randomly generated UUID v4.
     #[serde(default = "default_link_id")]
     pub link_id: String,
+
+    /// Flag to turn on strict header verification enforcement.
+    #[serde(default)]
+    pub require_header_mac: bool,
 }
 
 /// Defaults for ClientConfig
@@ -363,6 +367,7 @@ impl Default for ClientConfig {
             backoff: BackoffConfig::default(),
             metadata: None,
             link_id: default_link_id(),
+            require_header_mac: false,
         }
     }
 }
@@ -402,7 +407,7 @@ impl std::fmt::Display for ClientConfig {
             self.auth,
             self.backoff,
             self.metadata,
-            self.link_id,
+            self.link_id
         )
     }
 }

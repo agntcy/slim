@@ -18,6 +18,8 @@ pub enum DataPathError {
     DisconnectionError(u64),
     #[error("grpc error")]
     GrpcError(#[from] tonic::Status),
+    #[error("link negotiation error")]
+    NegotiationError(String),
 
     // Message classification / validation
     #[error("unknown message type")]

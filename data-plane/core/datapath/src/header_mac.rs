@@ -41,6 +41,8 @@ pub enum HeaderMacError {
     VerificationFailed,
     #[error("inter-node link key agreement failed")]
     KeyAgreement,
+    #[error("key generation failed")]
+    KeyGenerationFailed(String),
 }
 
 /// Per-link HMAC state: only the key material. Preimage buffers are thread-local (see module docs).
@@ -302,6 +304,7 @@ mod tests {
             }),
             identity: "id1".into(),
             fanout: 2,
+            version: String::new(),
             recv_from: Some(9),
             forward_to: Some(10),
             incoming_conn: Some(999),
@@ -331,12 +334,43 @@ mod tests {
     }
 
     #[test]
-    fn tamper_fails() {
+    fn tampered_fanout_fail() {
         let lid = Uuid::new_v4().to_string();
         let mac = HeaderMacSession::new(&test_key()).unwrap();
         let mut hdr = sample_header();
         mac.sign_slim_header(&mut hdr, &lid).unwrap();
         hdr.fanout = 3;
         assert!(mac.verify_slim_header(&hdr, &lid).is_err());
+    }
+
+    #[test]
+    fn tampered_mac_fail() {
+        let lid = Uuid::new_v4().to_string();
+        let mac = HeaderMacSession::new(&test_key()).unwrap();
+        let mut hdr = sample_header();
+        mac.sign_slim_header(&mut hdr, &lid).unwrap();
+        let mac_val = hdr.header_mac.as_mut().unwrap();
+        // HMAC key is tampered
+        mac_val[0] ^= 1;
+        let err = mac.verify_slim_header(&hdr, &lid).unwrap_err();
+        assert!(matches!(err, HeaderMacError::VerificationFailed));
+    }
+
+    #[test]
+    fn cross_link_replay_fail() {
+        let lid1 = Uuid::new_v4().to_string();
+        let lid2 = Uuid::new_v4().to_string();
+        assert_ne!(lid1, lid2);
+
+        let mac = HeaderMacSession::new(&test_key()).unwrap();
+        let mut hdr = sample_header();
+
+        // Sign for link 1
+        mac.sign_slim_header(&mut hdr, &lid1).unwrap();
+
+        // Verification for link 2 must fail even if the key is the same,
+        // because the link_id is part of the MAC preimage.
+        let err = mac.verify_slim_header(&hdr, &lid2).unwrap_err();
+        assert!(matches!(err, HeaderMacError::VerificationFailed));
     }
 }

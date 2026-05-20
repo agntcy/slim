@@ -124,6 +124,10 @@ pub struct ServerConfig {
 
     /// Arbitrary user-provided metadata.
     pub metadata: Option<MetadataMap>,
+
+    /// Flag to turn on strict header verification enforcement.
+    #[serde(default)]
+    pub require_header_mac: bool,
 }
 
 /// Default values for KeepaliveServerParameters
@@ -175,6 +179,7 @@ impl Default for ServerConfig {
             keepalive: KeepaliveServerParameters::default(),
             auth: AuthenticationConfig::default(),
             metadata: None,
+            require_header_mac: false,
         }
     }
 }

@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use aws_lc_rs::agreement::{self, EphemeralPrivateKey, UnparsedPublicKey, agree_ephemeral};
-use aws_lc_rs::error::Unspecified;
 use aws_lc_rs::hkdf;
 use aws_lc_rs::rand::SystemRandom;
 
@@ -18,11 +17,19 @@ pub const X25519_PUBLIC_KEY_LEN: usize = 32;
 const HKDF_INFO: &[u8] = b"SLIM-DP-inter-node-hmac-v1";
 
 /// Generate an ephemeral X25519 keypair for link negotiation.
-pub fn generate_x25519_ephemeral() -> Result<(EphemeralPrivateKey, Vec<u8>), Unspecified> {
+pub fn generate_x25519_ephemeral() -> Result<(EphemeralPrivateKey, Vec<u8>), HeaderMacError> {
     let rng = SystemRandom::new();
-    let sk = EphemeralPrivateKey::generate(&agreement::X25519, &rng)?;
-    let pk = sk.compute_public_key()?;
-    Ok((sk, pk.as_ref().to_vec()))
+    EphemeralPrivateKey::generate(&agreement::X25519, &rng)
+        .map_err(|_| {
+            HeaderMacError::KeyGenerationFailed("private key generation failed".to_string())
+        })
+        .and_then(|sk| {
+            sk.compute_public_key()
+                .map_err(|_| {
+                    HeaderMacError::KeyGenerationFailed("public key generation failed".to_string())
+                })
+                .map(|pk| (sk, pk.as_ref().to_vec()))
+        })
 }
 
 /// Derive a [`HeaderMacSession`] from our ephemeral secret and the peer's public key.
@@ -66,6 +73,7 @@ mod tests {
             destination: None,
             identity: "i".into(),
             fanout: 0,
+            version: String::new(),
             recv_from: None,
             forward_to: None,
             incoming_conn: None,
