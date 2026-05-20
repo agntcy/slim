@@ -10,15 +10,60 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use base64::prelude::*;
+use http::Uri;
 use http::header::{HeaderMap, HeaderName, HeaderValue};
+use hyper_rustls::HttpsConnector;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::connect::proxy::Tunnel;
+use hyper_util::client::proxy::matcher::Intercept;
+use rustls_pki_types::ServerName;
 use tracing::warn;
 
 use crate::client::ClientConfig;
 use crate::errors::ConfigError;
 use crate::grpc::proxy::ProxyConfig;
 use crate::tls::common::RustlsConfigLoader;
+
+/// ALPN selection for `build_https_connector`. gRPC needs HTTP/2; WebSocket's
+/// HTTP/1.1 upgrade needs HTTP/1.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Alpn {
+    Http1,
+    Http2,
+}
+
+/// Build an HTTPS connector wrapping `inner`, with optional SNI override.
+/// Shared between gRPC (HTTP/2) and WebSocket (HTTP/1) — only the ALPN
+/// negotiation differs.
+pub(crate) fn build_https_connector<S>(
+    inner: S,
+    tls: rustls::ClientConfig,
+    server_name: Option<String>,
+    alpn: Alpn,
+) -> HttpsConnector<S>
+where
+    S: tower::Service<Uri>,
+{
+    let mut builder = hyper_rustls::HttpsConnectorBuilder::new()
+        .with_tls_config(tls)
+        .https_or_http();
+    if let Some(name) = server_name {
+        builder =
+            builder.with_server_name_resolver(move |_: &_| ServerName::try_from(name.clone()));
+    }
+    match alpn {
+        Alpn::Http1 => builder.enable_http1().wrap_connector(inner),
+        Alpn::Http2 => builder.enable_http2().wrap_connector(inner),
+    }
+}
+
+/// Output of [`ClientConfig::build_proxy_tunnel`]. The two variants exist
+/// because an HTTPS proxy needs its own TLS to be established *to* the proxy
+/// before the CONNECT tunnel is opened.
+pub(crate) enum ProxyTunnel {
+    Http(Tunnel<HttpConnector>),
+    Https(Tunnel<HttpsConnector<HttpConnector>>),
+}
 
 impl ClientConfig {
     /// Build a `HttpConnector` honoring the client's connect timeout and
@@ -105,6 +150,41 @@ impl ClientConfig {
     pub(crate) fn warn_insecure_auth(&self) {
         if self.tls_setting.insecure {
             warn!("Auth is enabled without TLS. This is not recommended.");
+        }
+    }
+
+    /// Build a CONNECT tunnel to a proxy, with auth/headers applied via
+    /// [`Self::apply_tunnel_config`]. Returns `ProxyTunnel::Https` if the
+    /// proxy URL is `https://` (needing TLS to the proxy itself with the
+    /// given `proxy_alpn`), `ProxyTunnel::Http` otherwise.
+    ///
+    /// `proxy_alpn` only affects the TLS-to-proxy leg; the inner tunneled
+    /// connection is plain bytes and the caller layers its own TLS + ALPN on
+    /// top via [`build_https_connector`].
+    pub(crate) async fn build_proxy_tunnel(
+        &self,
+        intercept: Intercept,
+        http_connector: HttpConnector,
+        proxy_alpn: Alpn,
+    ) -> Result<ProxyTunnel, ConfigError> {
+        let proxy_uri = intercept.uri().clone();
+        tracing::info!(%proxy_uri, "Creating proxy tunnel");
+
+        if proxy_uri.scheme_str() == Some("https") {
+            let proxy_tls = self
+                .proxy
+                .tls_setting
+                .load_rustls_config()
+                .await?
+                .ok_or(ConfigError::ProxyTlsMissing)?;
+            let https_to_proxy = build_https_connector(http_connector, proxy_tls, None, proxy_alpn);
+            let tunnel = Tunnel::new(proxy_uri, https_to_proxy);
+            let configured = self.apply_tunnel_config(tunnel, &self.proxy, false)?;
+            Ok(ProxyTunnel::Https(configured))
+        } else {
+            let tunnel = Tunnel::new(proxy_uri, http_connector);
+            let configured = self.apply_tunnel_config(tunnel, &self.proxy, true)?;
+            Ok(ProxyTunnel::Http(configured))
         }
     }
 }

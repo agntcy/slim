@@ -16,13 +16,9 @@ use http::uri::Authority;
 use http::{Request, Response, StatusCode};
 use http_body_util::Empty;
 use hyper::body::Incoming;
-use hyper_rustls::HttpsConnectorBuilder;
 use hyper_util::client::legacy::Client;
-use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::connect::HttpInfo;
-use hyper_util::client::legacy::connect::proxy::Tunnel;
 use hyper_util::rt::{TokioExecutor, TokioIo};
-use rustls_pki_types::ServerName;
 use sha1::{Digest, Sha1};
 use tower::{ServiceBuilder, ServiceExt};
 use tracing::warn;
@@ -30,8 +26,8 @@ use tracing::warn;
 use crate::auth::ClientAuthenticator;
 use crate::client::{AuthenticationConfig as ClientAuthConfig, ClientConfig};
 use crate::errors::ConfigError;
-use crate::tls::common::RustlsConfigLoader;
 use crate::transport::TransportProtocol;
+use crate::transport_common::{Alpn, ProxyTunnel, build_https_connector};
 use crate::websocket::bearer_to_query_layer::BearerToQueryLayer;
 
 use super::common::{UpgradedWebSocket, WebSocketEndpoint};
@@ -116,8 +112,9 @@ impl ClientConfig {
         // Single budget covering connector setup + TLS + proxy CONNECT + HTTP
         // request. The retry layer above counts the *attempt*, not each leg.
         let total_timeout: Duration = self.connect_timeout.into();
-        let mut response: Response<Incoming> =
-            self.build_and_send(endpoint, request, total_timeout).await?;
+        let mut response: Response<Incoming> = self
+            .build_and_send(endpoint, request, total_timeout)
+            .await?;
 
         if response.status() != StatusCode::SWITCHING_PROTOCOLS {
             return Err(ConfigError::WebSocketHandshakeStatus(response.status()));
@@ -184,49 +181,29 @@ impl ClientConfig {
         match (proxy_hit, tls) {
             (None, None) => self.send_via(build_client(base), request, timeout).await,
             (None, Some(tls)) => {
-                let https = wrap_https(base, tls, server_name);
+                let https = build_https_connector(base, tls, Some(server_name), Alpn::Http1);
                 self.send_via(build_client(https), request, timeout).await
             }
-            (Some(intercept), None) => match self.make_tunnel(intercept, base).await? {
-                TunnelKind::Http(t) => self.send_via(build_client(t), request, timeout).await,
-                TunnelKind::Https(t) => self.send_via(build_client(t), request, timeout).await,
+            (Some(intercept), None) => match self
+                .build_proxy_tunnel(intercept, base, Alpn::Http1)
+                .await?
+            {
+                ProxyTunnel::Http(t) => self.send_via(build_client(t), request, timeout).await,
+                ProxyTunnel::Https(t) => self.send_via(build_client(t), request, timeout).await,
             },
-            (Some(intercept), Some(tls)) => match self.make_tunnel(intercept, base).await? {
-                TunnelKind::Http(t) => {
-                    let https = wrap_https(t, tls, server_name);
+            (Some(intercept), Some(tls)) => match self
+                .build_proxy_tunnel(intercept, base, Alpn::Http1)
+                .await?
+            {
+                ProxyTunnel::Http(t) => {
+                    let https = build_https_connector(t, tls, Some(server_name), Alpn::Http1);
                     self.send_via(build_client(https), request, timeout).await
                 }
-                TunnelKind::Https(t) => {
-                    let https = wrap_https(t, tls, server_name);
+                ProxyTunnel::Https(t) => {
+                    let https = build_https_connector(t, tls, Some(server_name), Alpn::Http1);
                     self.send_via(build_client(https), request, timeout).await
                 }
             },
-        }
-    }
-
-    async fn make_tunnel(
-        &self,
-        intercept: hyper_util::client::proxy::matcher::Intercept,
-        http_connector: HttpConnector,
-    ) -> Result<TunnelKind, ConfigError> {
-        let proxy_uri = intercept.uri().clone();
-        tracing::info!(%proxy_uri, "Creating websocket proxy tunnel");
-
-        if proxy_uri.scheme_str() == Some("https") {
-            let proxy_tls = self.proxy.tls_setting.load_rustls_config().await?;
-            let proxy_tls = proxy_tls.ok_or(ConfigError::WebSocketServerTlsMissing)?;
-            let https_to_proxy = HttpsConnectorBuilder::new()
-                .with_tls_config(proxy_tls)
-                .https_or_http()
-                .enable_http1()
-                .wrap_connector(http_connector);
-            let tunnel = Tunnel::new(proxy_uri, https_to_proxy);
-            let configured = self.apply_tunnel_config(tunnel, &self.proxy, false)?;
-            Ok(TunnelKind::Https(configured))
-        } else {
-            let tunnel = Tunnel::new(proxy_uri, http_connector);
-            let configured = self.apply_tunnel_config(tunnel, &self.proxy, true)?;
-            Ok(TunnelKind::Http(configured))
         }
     }
 
@@ -311,11 +288,6 @@ where
     }
 }
 
-enum TunnelKind {
-    Http(Tunnel<HttpConnector>),
-    Https(Tunnel<hyper_rustls::HttpsConnector<HttpConnector>>),
-}
-
 fn build_client<C>(connector: C) -> Client<C, Empty<Bytes>>
 where
     C: hyper_util::client::legacy::connect::Connect + Clone + Send + Sync + 'static,
@@ -324,24 +296,6 @@ where
         .pool_idle_timeout(Duration::from_secs(0))
         .pool_max_idle_per_host(0)
         .build(connector)
-}
-
-fn wrap_https<S>(
-    inner: S,
-    tls: rustls::ClientConfig,
-    server_name: String,
-) -> hyper_rustls::HttpsConnector<S>
-where
-    S: tower::Service<http::Uri> + Send,
-{
-    let mut builder = HttpsConnectorBuilder::new()
-        .with_tls_config(tls)
-        .https_or_http();
-    if !server_name.is_empty() {
-        builder = builder
-            .with_server_name_resolver(move |_: &_| ServerName::try_from(server_name.clone()));
-    }
-    builder.enable_http1().wrap_connector(inner)
 }
 
 fn box_send_err<E>(err: E) -> ConfigError

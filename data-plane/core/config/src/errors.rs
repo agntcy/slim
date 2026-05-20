@@ -33,6 +33,8 @@ pub enum ConfigError {
     WebSocketTlsConfiguration,
     #[error("websocket server TLS is required but no TLS configuration was provided")]
     WebSocketServerTlsMissing,
+    #[error("HTTPS proxy URL requires a TLS configuration but none was provided")]
+    ProxyTlsMissing,
     #[error("websocket server TLS configuration is set but endpoint scheme is not wss://")]
     WebSocketServerTlsUnexpected,
     #[error("websocket server SNI / certificate name is invalid")]

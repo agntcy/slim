@@ -12,7 +12,6 @@ use http::header::HeaderMap;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::connect::proxy::Tunnel;
 use hyper_util::client::proxy::matcher::Intercept;
-use rustls_pki_types::ServerName;
 use tonic::codegen::{Body, Bytes, StdError};
 use tonic::transport::{Channel, Uri};
 use tower::ServiceExt;
@@ -26,10 +25,10 @@ use {
 use crate::auth::ClientAuthenticator;
 use crate::errors::ConfigError;
 use crate::grpc::headers_middleware::SetRequestHeaderLayer;
-use crate::tls::common::RustlsConfigLoader;
 use crate::transport::TransportProtocol;
+use crate::transport_common::{Alpn, ProxyTunnel, build_https_connector};
 
-/// Creates an HTTPS connector with optional SNI based on the origin
+/// HTTPS connector for gRPC — always HTTP/2.
 fn https_connector<S>(
     s: S,
     tls: &rustls::ClientConfig,
@@ -38,17 +37,7 @@ fn https_connector<S>(
 where
     S: tower::Service<Uri>,
 {
-    let tls = tls.clone();
-    let mut builder = hyper_rustls::HttpsConnectorBuilder::new()
-        .with_tls_config(tls)
-        .https_or_http();
-
-    if let Some(origin_str) = server_name {
-        builder =
-            builder.with_server_name_resolver(move |_: &_| ServerName::try_from(origin_str.clone()))
-    }
-
-    builder.enable_http2().wrap_connector(s)
+    build_https_connector(s, tls.clone(), server_name, Alpn::Http2)
 }
 
 /// Macro to create TLS-enabled or plain connectors based on TLS configuration,
@@ -410,31 +399,12 @@ impl ClientConfig {
         intercept: Intercept,
         http_connector: HttpConnector,
     ) -> Result<ConnectionType, ConfigError> {
-        let proxy_uri = intercept.uri();
-
-        tracing::info!(%proxy_uri, "Creating proxy tunnel");
-
-        // Check if the proxy URL uses HTTPS
-        if proxy_uri.scheme_str() == Some("https") {
-            let proxy_tls_config = self.proxy.tls_setting.load_rustls_config().await?.unwrap();
-
-            // Create HTTPS connector for the proxy itself
-            let https_connector = hyper_rustls::HttpsConnectorBuilder::new()
-                .with_tls_config(proxy_tls_config)
-                .https_or_http()
-                .enable_http2()
-                .wrap_connector(http_connector);
-
-            let tunnel = Tunnel::new(proxy_uri.clone(), https_connector);
-            let configured_tunnel = self.apply_tunnel_config(tunnel, &self.proxy, false)?;
-
-            Ok(ConnectionType::ProxyHttps(configured_tunnel))
-        } else {
-            // Use HTTP connector for the proxy
-            let tunnel = Tunnel::new(proxy_uri.clone(), http_connector);
-            let configured_tunnel = self.apply_tunnel_config(tunnel, &self.proxy, true)?;
-
-            Ok(ConnectionType::ProxyHttp(configured_tunnel))
+        match self
+            .build_proxy_tunnel(intercept, http_connector, Alpn::Http2)
+            .await?
+        {
+            ProxyTunnel::Https(t) => Ok(ConnectionType::ProxyHttps(t)),
+            ProxyTunnel::Http(t) => Ok(ConnectionType::ProxyHttp(t)),
         }
     }
 
