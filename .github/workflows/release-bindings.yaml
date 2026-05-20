@@ -11,6 +11,9 @@ on:
 
 permissions:
   contents: read
+  # Required for npm trusted publishing (OIDC); jobs that set their own `permissions`
+  # must also include `id-token: write` if they publish to npm.
+  id-token: write
 
 env:
   LIBRARY_NAME: slim_bindings
@@ -354,6 +357,7 @@ jobs:
     needs: build-node-packages
     permissions:
       contents: read
+      id-token: write
     steps:
       - name: Download all Node platform artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -361,10 +365,13 @@ jobs:
           path: ./node-packages
           pattern: node-platform-*
 
-      - name: Configure npm auth
-        run: echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # Trusted publishing: Node >= 22.14 + npm >= 11.5.1; registry-url enables OIDC for npm publish.
+      - name: Setup Node (npm OIDC)
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22.14'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
 
       - name: Publish to npm
         run: |
@@ -373,8 +380,6 @@ jobs:
             echo "Publishing $tgz..."
             npm publish "$tgz" --access public
           done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ==========================================================================
   # Job 9: Publish Node main package to npm
@@ -388,6 +393,7 @@ jobs:
       - generate-node-bindings-once
     permissions:
       contents: read
+      id-token: write
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -398,10 +404,11 @@ jobs:
         id: version
         run: echo "version=$(bash .github/scripts/get-binding-version.sh)" >> "$GITHUB_OUTPUT"
 
-      - name: Setup Node
+      - name: Setup Node (npm OIDC)
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: '20'
+          node-version: '22.14'
+          registry-url: 'https://registry.npmjs.org'
           package-manager-cache: false
 
       - name: Setup Task
@@ -434,21 +441,13 @@ jobs:
             require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2));
           "
 
-      - name: Configure npm auth
-        working-directory: ./data-plane/bindings/node
-        run: echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
       - name: Publish main package to npm
         working-directory: ./data-plane/bindings/node
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ==========================================================================
   # Job 10: Build and publish React Native bindings to npm
-  # Runs on mac to build iOS static lib; requires NPM_TOKEN.
+  # Runs on mac to build iOS static lib; publishes via npm trusted publishing (OIDC).
   # ==========================================================================
   publish-react-native:
     name: Publish React Native to npm
@@ -457,6 +456,7 @@ jobs:
       - build-and-test-bindings
     permissions:
       contents: read
+      id-token: write
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -475,10 +475,10 @@ jobs:
       - name: Setup Task
         uses: ./.github/actions/setup-task
 
-      - name: Setup Node
+      - name: Setup Node (npm OIDC)
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: '20'
+          node-version: '22.14'
           registry-url: 'https://registry.npmjs.org'
           package-manager-cache: false
 
@@ -526,17 +526,9 @@ jobs:
           BINDINGS_VERSION: ${{ steps.version.outputs.version }}
         run: npm pkg set version="${BINDINGS_VERSION}"
 
-      - name: Configure npm auth
-        working-directory: ./data-plane/bindings/react-native
-        run: echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
       - name: Publish to npm
         working-directory: ./data-plane/bindings/react-native
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ==========================================================================
   # Job 6b: Release Kotlin bindings to GitHub Packages
