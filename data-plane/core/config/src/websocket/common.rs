@@ -6,27 +6,10 @@ use std::str::FromStr;
 use fastwebsockets::WebSocket;
 use hyper::upgrade::Upgraded;
 use hyper_util::rt::TokioIo;
-use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 
 use crate::errors::ConfigError;
 
 pub type UpgradedWebSocket = WebSocket<TokioIo<Upgraded>>;
-
-const QUERY_ENCODE_SET: &AsciiSet = &CONTROLS
-    .add(b' ')
-    .add(b'"')
-    .add(b'#')
-    .add(b'%')
-    .add(b'&')
-    .add(b'+')
-    .add(b'/')
-    .add(b'<')
-    .add(b'=')
-    .add(b'>')
-    .add(b'?')
-    .add(b'`')
-    .add(b'{')
-    .add(b'}');
 
 #[derive(Debug, Clone)]
 pub struct WebSocketEndpoint {
@@ -82,25 +65,18 @@ impl WebSocketEndpoint {
         }
     }
 
-    pub fn request_uri(&self, query_param: Option<(&str, &str)>) -> Result<http::Uri, ConfigError> {
-        self.build_uri(if self.secure { "wss" } else { "ws" }, query_param)
+    pub fn request_uri(&self) -> Result<http::Uri, ConfigError> {
+        self.build_uri(if self.secure { "wss" } else { "ws" })
     }
 
     /// Like [`Self::request_uri`] but uses `http://` / `https://` schemes
     /// instead of `ws://` / `wss://`. Required when driving the upgrade via
     /// `hyper_util::client::legacy::Client`, which rejects WebSocket schemes.
-    pub fn http_request_uri(
-        &self,
-        query_param: Option<(&str, &str)>,
-    ) -> Result<http::Uri, ConfigError> {
-        self.build_uri(if self.secure { "https" } else { "http" }, query_param)
+    pub fn http_request_uri(&self) -> Result<http::Uri, ConfigError> {
+        self.build_uri(if self.secure { "https" } else { "http" })
     }
 
-    fn build_uri(
-        &self,
-        scheme: &str,
-        query_param: Option<(&str, &str)>,
-    ) -> Result<http::Uri, ConfigError> {
+    fn build_uri(&self, scheme: &str) -> Result<http::Uri, ConfigError> {
         let mut uri = format!("{}://{}{}", scheme, self.authority, self.path);
 
         if let Some(existing_query) = self.uri.query() {
@@ -108,32 +84,14 @@ impl WebSocketEndpoint {
             uri.push_str(existing_query);
         }
 
-        if let Some((key, value)) = query_param
-            && !key.is_empty()
-            && !value.is_empty()
-        {
-            if self.uri.query().is_some() {
-                uri.push('&');
-            } else {
-                uri.push('?');
-            }
-            // Percent-encode the user-supplied key/value before splicing
-            // them into the URI. Without this, a value containing `&`,
-            // `=`, `?`, `#`, or `+` would either break the URI parser or
-            // smuggle an extra query parameter.
-            for chunk in utf8_percent_encode(key, QUERY_ENCODE_SET) {
-                uri.push_str(chunk);
-            }
-            uri.push('=');
-            for chunk in utf8_percent_encode(value, QUERY_ENCODE_SET) {
-                uri.push_str(chunk);
-            }
-        }
-
         http::Uri::from_str(&uri).map_err(ConfigError::from)
     }
 }
 
+/// Extract a query parameter by name from a raw URI query string,
+/// percent-decoding both key and value. Used by the server-side
+/// `QueryTokenToAuthHeaderLayer` to accept tokens from clients that cannot
+/// set HTTP headers on the WebSocket upgrade (browsers).
 pub(crate) fn extract_query_param(query: Option<&str>, name: &str) -> Option<String> {
     let query = query?;
 
@@ -218,72 +176,24 @@ mod tests {
     }
 
     #[test]
-    fn test_request_uri_appends_query_param() {
-        let ep = WebSocketEndpoint::parse("ws://example.com/path").expect("parse");
-        let uri = ep.request_uri(Some(("token", "abc"))).expect("uri");
-        assert_eq!(uri.to_string(), "ws://example.com/path?token=abc");
-    }
-
-    #[test]
-    fn test_request_uri_merges_with_existing_query() {
+    fn test_request_uri_preserves_existing_query() {
         let ep = WebSocketEndpoint::parse("ws://example.com/path?k=v").expect("parse");
-        let uri = ep.request_uri(Some(("token", "abc"))).expect("uri");
-        assert_eq!(uri.to_string(), "ws://example.com/path?k=v&token=abc");
+        let uri = ep.request_uri().expect("uri");
+        assert_eq!(uri.to_string(), "ws://example.com/path?k=v");
     }
 
     #[test]
     fn test_request_uri_no_query() {
         let ep = WebSocketEndpoint::parse("ws://example.com/p").expect("parse");
-        let uri = ep.request_uri(None).expect("uri");
+        let uri = ep.request_uri().expect("uri");
         assert_eq!(uri.to_string(), "ws://example.com/p");
     }
 
     #[test]
-    fn test_request_uri_percent_encodes_special_chars_in_value() {
-        // Tokens may contain `=`, `+`, `&`, `?`, `#`, `/` etc. They must
-        // not be smuggled into the URI as separators or fragments.
-        let ep = WebSocketEndpoint::parse("ws://example.com/p").expect("parse");
-        let uri = ep
-            .request_uri(Some(("token", "a+b=c&d?e#f/g")))
-            .expect("uri");
-        let s = uri.to_string();
-        assert!(
-            s.starts_with("ws://example.com/p?token="),
-            "unexpected uri prefix: {s}"
-        );
-        // None of these characters may appear unencoded in the query.
-        for forbidden in ['+', '=', '&', '?', '#', '/'].iter() {
-            let suffix = s.strip_prefix("ws://example.com/p?token=").unwrap();
-            assert!(
-                !suffix.contains(*forbidden),
-                "value must be percent-encoded, got: {s}"
-            );
-        }
-        // Spot-check a couple of expected encodings.
-        assert!(s.contains("%2B"), "+ must be encoded as %2B: {s}");
-        assert!(s.contains("%3D"), "= must be encoded as %3D: {s}");
-        assert!(s.contains("%26"), "& must be encoded as %26: {s}");
-    }
-
-    #[test]
-    fn test_request_uri_percent_encodes_special_chars_in_key() {
-        let ep = WebSocketEndpoint::parse("ws://example.com/p").expect("parse");
-        let uri = ep.request_uri(Some(("a=b", "v"))).expect("uri");
-        let s = uri.to_string();
-        assert_eq!(s, "ws://example.com/p?a%3Db=v");
-    }
-
-    #[test]
-    fn test_request_uri_round_trip_through_extract_query_param() {
-        // What we encode on the way out must decode cleanly on the way in.
-        let ep = WebSocketEndpoint::parse("ws://example.com/p").expect("parse");
-        let original = "ab+cd==/&?";
-        let uri = ep.request_uri(Some(("token", original))).expect("uri");
-        let query = uri.query().expect("query");
-        assert_eq!(
-            extract_query_param(Some(query), "token"),
-            Some(original.to_string())
-        );
+    fn test_http_request_uri_translates_scheme() {
+        let ep = WebSocketEndpoint::parse("wss://example.com/p").expect("parse");
+        let uri = ep.http_request_uri().expect("uri");
+        assert_eq!(uri.to_string(), "https://example.com/p");
     }
 
     #[test]

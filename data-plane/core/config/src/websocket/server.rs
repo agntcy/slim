@@ -658,6 +658,169 @@ mod tests {
         token.cancel();
     }
 
+    /// Server must accept a WebSocket upgrade whose JWT is supplied via
+    /// `?token=<jwt>` query string instead of an `Authorization` header.
+    /// This is the browser-compatible path — `new WebSocket(url)` cannot
+    /// set custom headers, so the server's `QueryTokenToAuthHeaderLayer`
+    /// promotes the query param into a Bearer header before the JWT
+    /// validation layer runs.
+    #[tokio::test]
+    async fn test_websocket_server_accepts_jwt_via_query_token() {
+        use crate::auth::jwt::{Claims, Config as JwtConfig, JwtKey};
+        use slim_auth::jwt::{Algorithm, Key, KeyData, KeyFormat};
+        use slim_auth::traits::Signer;
+
+        let port = available_port();
+        let claims = Claims::new(
+            Some(vec!["audience".to_string()]),
+            Some("issuer".to_string()),
+            Some("subject".to_string()),
+            None,
+        );
+        let secret = format!("ws-jwt-secret-{}-{port}", std::process::id());
+        let encoding_key = JwtKey::Encoding(Key {
+            algorithm: Algorithm::HS256,
+            format: KeyFormat::Pem,
+            key: KeyData::Data(secret.clone()),
+        });
+        let decoding_key = JwtKey::Decoding(Key {
+            algorithm: Algorithm::HS256,
+            format: KeyFormat::Pem,
+            key: KeyData::Data(secret),
+        });
+        let client_jwt = JwtConfig::new(claims.clone(), Duration::from_secs(3600), encoding_key);
+        let server_jwt = JwtConfig::new(claims, Duration::from_secs(3600), decoding_key);
+
+        let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
+            .with_transport(TransportProtocol::Websocket)
+            .with_tls_settings(TlsServerConfig::insecure())
+            .with_auth(ServerAuthConfig::Jwt(server_jwt));
+        let token = start_ws_server(cfg).await;
+
+        // Mint a JWT directly (simulates a browser that obtained one OOB).
+        let signer = client_jwt.get_provider().expect("signer");
+        let jwt = signer.sign_standard_claims().expect("sign");
+
+        // Send WS upgrade with `?token=<jwt>` and NO Authorization header.
+        let req = format!(
+            "GET /?token={jwt} HTTP/1.1\r\n\
+             Host: 127.0.0.1:{port}\r\n\
+             Upgrade: websocket\r\n\
+             Connection: Upgrade\r\n\
+             Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+             Sec-WebSocket-Version: 13\r\n\
+             \r\n",
+        );
+        let resp = raw_http_request(&format!("127.0.0.1:{port}"), &req).await;
+        assert!(
+            resp.starts_with("HTTP/1.1 101"),
+            "expected 101 Switching Protocols, got: {resp:?}"
+        );
+
+        // Negative control: same upgrade without the query token must be
+        // rejected, confirming the 101 above is owed to the query param
+        // (not to the auth layer being absent).
+        let req_no_token = format!(
+            "GET / HTTP/1.1\r\n\
+             Host: 127.0.0.1:{port}\r\n\
+             Upgrade: websocket\r\n\
+             Connection: Upgrade\r\n\
+             Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+             Sec-WebSocket-Version: 13\r\n\
+             \r\n",
+        );
+        let resp_no_token = raw_http_request(&format!("127.0.0.1:{port}"), &req_no_token).await;
+        assert!(
+            resp_no_token.starts_with("HTTP/1.1 401"),
+            "expected 401 without query token, got: {resp_no_token:?}"
+        );
+
+        token.cancel();
+    }
+
+    /// When both a Bearer Authorization header and a `?token=<jwt>` query
+    /// parameter are present, the header MUST win and the query MUST be
+    /// ignored. This pins the precedence so a client that already sets the
+    /// Authorization header cannot be silently overridden by a stale or
+    /// malicious URL query.
+    #[tokio::test]
+    async fn test_websocket_server_authorization_header_wins_over_query_token() {
+        use crate::auth::jwt::{Claims, Config as JwtConfig, JwtKey};
+        use slim_auth::jwt::{Algorithm, Key, KeyData, KeyFormat};
+        use slim_auth::traits::Signer;
+
+        let port = available_port();
+        let claims = Claims::new(
+            Some(vec!["audience".to_string()]),
+            Some("issuer".to_string()),
+            Some("subject".to_string()),
+            None,
+        );
+        let secret = format!("ws-jwt-secret-{}-{port}", std::process::id());
+        let encoding_key = JwtKey::Encoding(Key {
+            algorithm: Algorithm::HS256,
+            format: KeyFormat::Pem,
+            key: KeyData::Data(secret.clone()),
+        });
+        let decoding_key = JwtKey::Decoding(Key {
+            algorithm: Algorithm::HS256,
+            format: KeyFormat::Pem,
+            key: KeyData::Data(secret),
+        });
+        let client_jwt = JwtConfig::new(claims.clone(), Duration::from_secs(3600), encoding_key);
+        let server_jwt = JwtConfig::new(claims, Duration::from_secs(3600), decoding_key);
+
+        let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
+            .with_transport(TransportProtocol::Websocket)
+            .with_tls_settings(TlsServerConfig::insecure())
+            .with_auth(ServerAuthConfig::Jwt(server_jwt));
+        let token = start_ws_server(cfg).await;
+
+        let signer = client_jwt.get_provider().expect("signer");
+        let valid_jwt = signer.sign_standard_claims().expect("sign");
+
+        // Bogus Authorization header + valid `?token=<jwt>`. If the query
+        // were used the upgrade would succeed (101). Because the header
+        // wins, JWT validation rejects the garbage Bearer and returns 401.
+        let req = format!(
+            "GET /?token={valid_jwt} HTTP/1.1\r\n\
+             Host: 127.0.0.1:{port}\r\n\
+             Authorization: Bearer not-a-valid-jwt\r\n\
+             Upgrade: websocket\r\n\
+             Connection: Upgrade\r\n\
+             Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+             Sec-WebSocket-Version: 13\r\n\
+             \r\n",
+        );
+        let resp = raw_http_request(&format!("127.0.0.1:{port}"), &req).await;
+        assert!(
+            resp.starts_with("HTTP/1.1 401"),
+            "header must win over query token (expected 401), got: {resp:?}"
+        );
+
+        // Symmetric positive control: valid Bearer + bogus query → 101.
+        // Confirms the rejection above is due to the bad header, not the
+        // presence of the query param itself.
+        let req_valid_header = format!(
+            "GET /?token=not-a-valid-jwt HTTP/1.1\r\n\
+             Host: 127.0.0.1:{port}\r\n\
+             Authorization: Bearer {valid_jwt}\r\n\
+             Upgrade: websocket\r\n\
+             Connection: Upgrade\r\n\
+             Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+             Sec-WebSocket-Version: 13\r\n\
+             \r\n",
+        );
+        let resp_valid_header =
+            raw_http_request(&format!("127.0.0.1:{port}"), &req_valid_header).await;
+        assert!(
+            resp_valid_header.starts_with("HTTP/1.1 101"),
+            "valid header must succeed regardless of query (expected 101), got: {resp_valid_header:?}"
+        );
+
+        token.cancel();
+    }
+
     #[tokio::test]
     async fn test_websocket_server_full_handshake_via_client() {
         let port = available_port();

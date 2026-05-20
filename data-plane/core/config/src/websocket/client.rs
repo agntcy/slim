@@ -28,7 +28,6 @@ use crate::client::{AuthenticationConfig as ClientAuthConfig, ClientConfig};
 use crate::errors::ConfigError;
 use crate::transport::TransportProtocol;
 use crate::transport_common::{Alpn, ProxyTunnel, build_https_connector};
-use crate::websocket::bearer_to_query_layer::BearerToQueryLayer;
 
 use super::common::{UpgradedWebSocket, WebSocketEndpoint};
 
@@ -101,7 +100,7 @@ impl ClientConfig {
     ) -> Result<WebSocketClientChannel, ConfigError> {
         // Build the upgrade request. We use http:// / https:// scheme since
         // hyper rejects ws:// / wss://.
-        let request_uri = endpoint.http_request_uri(None)?;
+        let request_uri = endpoint.http_request_uri()?;
         let request = build_handshake_request(self, endpoint, request_uri)?;
         let sent_key = request
             .headers()
@@ -207,9 +206,9 @@ impl ClientConfig {
         }
     }
 
-    /// Initialize the auth layer (if any), wrap `client` with auth +
-    /// bearer→query, and dispatch the request. Generic over the connector
-    /// type so no type erasure is needed.
+    /// Initialize the auth layer (if any), wrap `client` with it, and dispatch
+    /// the request. Generic over the connector type so no type erasure is
+    /// needed.
     async fn send_via<C>(
         &self,
         client: Client<C, Empty<Bytes>>,
@@ -219,43 +218,26 @@ impl ClientConfig {
     where
         C: hyper_util::client::legacy::connect::Connect + Clone + Send + Sync + 'static,
     {
-        let bearer_layer = match self.websocket_auth_query_param.as_deref() {
-            Some(name) if !name.is_empty() => BearerToQueryLayer::new(name),
-            _ => BearerToQueryLayer::passthrough(),
-        };
-
         match &self.auth {
-            ClientAuthConfig::None => {
-                let svc = ServiceBuilder::new().layer(bearer_layer).service(client);
-                run_send(svc.oneshot(request), timeout).await
-            }
+            ClientAuthConfig::None => run_send(client.oneshot(request), timeout).await,
             ClientAuthConfig::Basic(basic) => {
                 let layer = basic.get_client_layer()?;
                 self.warn_insecure_auth();
-                let svc = ServiceBuilder::new()
-                    .layer(layer)
-                    .layer(bearer_layer)
-                    .service(client);
+                let svc = ServiceBuilder::new().layer(layer).service(client);
                 run_send(svc.oneshot(request), timeout).await
             }
             ClientAuthConfig::StaticJwt(jwt) => {
                 let mut layer = jwt.get_client_layer()?;
                 layer.initialize().await?;
                 self.warn_insecure_auth();
-                let svc = ServiceBuilder::new()
-                    .layer(layer)
-                    .layer(bearer_layer)
-                    .service(client);
+                let svc = ServiceBuilder::new().layer(layer).service(client);
                 run_send(svc.oneshot(request), timeout).await
             }
             ClientAuthConfig::Jwt(jwt) => {
                 let mut layer = jwt.get_client_layer()?;
                 layer.initialize().await?;
                 self.warn_insecure_auth();
-                let svc = ServiceBuilder::new()
-                    .layer(layer)
-                    .layer(bearer_layer)
-                    .service(client);
+                let svc = ServiceBuilder::new().layer(layer).service(client);
                 run_send(svc.oneshot(request), timeout).await
             }
             #[cfg(not(target_family = "windows"))]
@@ -263,10 +245,7 @@ impl ClientConfig {
                 let mut layer = spire.get_client_layer()?;
                 layer.initialize().await?;
                 self.warn_insecure_auth();
-                let svc = ServiceBuilder::new()
-                    .layer(layer)
-                    .layer(bearer_layer)
-                    .service(client);
+                let svc = ServiceBuilder::new().layer(layer).service(client);
                 run_send(svc.oneshot(request), timeout).await
             }
         }
@@ -585,7 +564,7 @@ mod tests {
 
     fn handshake_request_for(cfg: &ClientConfig) -> Request<Empty<Bytes>> {
         let endpoint = WebSocketEndpoint::parse(cfg.endpoint.as_str()).expect("endpoint");
-        let request_uri = endpoint.http_request_uri(None).expect("uri");
+        let request_uri = endpoint.http_request_uri().expect("uri");
         build_handshake_request(cfg, &endpoint, request_uri).expect("build")
     }
 

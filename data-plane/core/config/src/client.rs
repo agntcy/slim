@@ -184,10 +184,6 @@ pub struct ClientConfig {
     #[serde(default)]
     pub transport: TransportProtocol,
 
-    /// Optional websocket authentication query parameter key.
-    /// This is only used when `transport=websocket`.
-    pub websocket_auth_query_param: Option<String>,
-
     /// Origin (HTTP Host authority override) for the client.
     pub origin: Option<String>,
 
@@ -252,7 +248,6 @@ impl Default for ClientConfig {
         ClientConfig {
             endpoint: String::new(),
             transport: TransportProtocol::default(),
-            websocket_auth_query_param: None,
             origin: None,
             server_name: None,
             compression: None,
@@ -289,10 +284,9 @@ impl std::fmt::Display for ClientConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ClientConfig {{ endpoint: {}, transport: {:?}, websocket_auth_query_param: {:?}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, backoff: {:?}, metadata: {:?}, link_id: {:?} }}",
+            "ClientConfig {{ endpoint: {}, transport: {:?}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, backoff: {:?}, metadata: {:?}, link_id: {:?} }}",
             self.endpoint,
             self.transport,
-            self.websocket_auth_query_param,
             self.origin,
             self.server_name,
             self.compression,
@@ -360,13 +354,6 @@ impl ClientConfig {
 
     pub fn with_transport(self, transport: TransportProtocol) -> Self {
         Self { transport, ..self }
-    }
-
-    pub fn with_websocket_auth_query_param(self, query_param: &str) -> Self {
-        Self {
-            websocket_auth_query_param: Some(query_param.to_string()),
-            ..self
-        }
     }
 
     pub fn with_server_name(self, server_name: &str) -> Self {
@@ -560,7 +547,6 @@ mod tests {
         let client = ClientConfig::default();
         assert_eq!(client.endpoint, String::new());
         assert_eq!(client.transport, TransportProtocol::Grpc);
-        assert_eq!(client.websocket_auth_query_param, None);
         assert_eq!(client.origin, None);
         assert_eq!(client.compression, None);
         assert_eq!(client.rate_limit, None);
