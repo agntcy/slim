@@ -1,6 +1,6 @@
-# Run this example
+# Run Examples
 
-# Docker Compose Quick Start
+## Docker Compose Quick Start
 
 To run all services (slim server, mock app server, and mock app client) using Docker Compose:
 
@@ -22,13 +22,15 @@ To stop and remove all containers:
 docker compose down
 ```
 
-# Manual (Local) Run
+## Manual (Local) Run
+
+### gRPC transport
 
 You can also run each service locally using Taskfile:
 
 1. In the first terminal, run the slim service:
    ```sh
-   task run:server
+   task run:slim
    ```
 2. In the second terminal, run the mock-app server:
    ```sh
@@ -37,4 +39,34 @@ You can also run each service locally using Taskfile:
 3. In the third terminal, run the mock-app client:
    ```sh
    task run:mock-app:client
+   ```
+
+### WebSocket transport (`ws://`)
+
+1. In the first terminal, run the slim service:
+   ```sh
+   task run:slim:websocket
+   ```
+2. In the second terminal, run the mock-app server:
+   ```sh
+   task run:mock-app:server-websocket
+   ```
+3. In the third terminal, run the mock-app client:
+   ```sh
+   task run:mock-app:client-websocket
+   ```
+
+### Secure WebSocket transport (`wss://`)
+
+1. In the first terminal, run the slim service:
+   ```sh
+   task run:slim:websocket:wss
+   ```
+2. In the second terminal, run the mock-app server:
+   ```sh
+   task run:mock-app:server-websocket-wss
+   ```
+3. In the third terminal, run the mock-app client:
+   ```sh
+   task run:mock-app:client-websocket-wss
    ```

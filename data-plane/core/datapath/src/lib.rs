@@ -13,5 +13,6 @@ mod forwarder;
 mod otel_tracing;
 mod recovery;
 pub(crate) mod subscription_ack;
+mod websocket;
 
 pub use tonic::Status;

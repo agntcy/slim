@@ -9,6 +9,7 @@
 //! channel-manager:
 //!   slim-connection:
 //!     endpoint: "http://127.0.0.1:46357"
+//!     transport: "grpc"
 //!     tls:
 //!       insecure: true
 //!   api-server:
@@ -35,8 +36,8 @@ use serde::Deserialize;
 use slim_config::auth::identity::{IdentityProviderConfig, IdentityVerifierConfig};
 #[cfg(not(target_family = "windows"))]
 use slim_config::auth::spire::SpireConfig;
-use slim_config::grpc::client::ClientConfig;
-use slim_config::grpc::server::ServerConfig;
+use slim_config::client::ClientConfig;
+use slim_config::server::ServerConfig;
 
 /// Authentication configuration for the SLIM app identity.
 ///
@@ -117,8 +118,8 @@ pub struct Config {
 /// Channel manager service configuration
 #[derive(Debug, Deserialize)]
 pub struct ManagerConfig {
-    /// gRPC client configuration for connecting to the SLIM data-plane node.
-    /// Supports TLS, auth, keepalive, proxy, etc. — same format as the SLIM data-plane ClientConfig.
+    /// Client configuration for connecting to the SLIM data-plane node.
+    /// Supports gRPC and websocket transports, plus TLS, auth, keepalive, proxy, etc.
     #[serde(rename = "slim-connection")]
     pub slim_connection: ClientConfig,
 
@@ -227,6 +228,7 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slim_config::transport::TransportProtocol;
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
@@ -275,6 +277,32 @@ channel-manager:
         let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
         assert!(cfg.validate().is_ok());
         assert!(cfg.manager.channels.is_empty());
+    }
+
+    #[test]
+    fn test_websocket_slim_connection_is_valid() {
+        let yaml = r#"
+channel-manager:
+  slim-connection:
+    endpoint: "ws://127.0.0.1:46357"
+    transport: "websocket"
+    tls:
+      insecure: true
+  api-server:
+    endpoint: "127.0.0.1:10356"
+    tls:
+      insecure: true
+  local-name: "agntcy/otel/channel-manager"
+  auth:
+    type: shared_secret
+    secret: "test-secret-0123456789-abcdefghijk"
+"#;
+        let cfg: Config = serde_yaml::from_str(yaml).unwrap();
+        assert!(cfg.validate().is_ok());
+        assert_eq!(
+            cfg.manager.slim_connection.transport,
+            TransportProtocol::Websocket
+        );
     }
 
     #[test]

@@ -1,8 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-pub mod client;
-pub mod compression;
-pub mod headers_middleware;
-pub mod proxy;
-pub mod server;
+pub(crate) mod stream;
+
+pub(crate) use stream::spawn_transport_tasks;
