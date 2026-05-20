@@ -7,11 +7,11 @@ use tokio::time::timeout as stream_timeout;
 use tokio_stream::StreamExt;
 
 use crate::client::get_controller_client;
-use crate::config::ResolvedOpts;
 use crate::proto::controller::proto::v1::{
     ConfigurationCommand, ControlMessage, Subscription, control_message::Payload,
 };
 use crate::utils::{VIA_KEYWORD, parse_config_file, parse_endpoint, parse_route};
+use slim_config::grpc::client::ClientConfig;
 
 #[derive(Args)]
 pub struct NodeArgs {
@@ -24,7 +24,7 @@ pub enum NodeCommand {
     /// Manage routes directly on a SLIM node
     Route(NodeRouteArgs),
     /// Manage connections directly on a SLIM node
-    #[command(alias = "conn")]
+    #[command(visible_alias = "conn")]
     Connection(NodeConnectionArgs),
 }
 
@@ -39,7 +39,7 @@ pub struct NodeRouteArgs {
 #[derive(Subcommand)]
 pub enum NodeRouteCommand {
     /// List routes on a node
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List,
     /// Add a route to a node
     ///
@@ -76,20 +76,20 @@ pub struct NodeConnectionArgs {
 #[derive(Subcommand)]
 pub enum NodeConnectionCommand {
     /// List active connections on a node
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List,
 }
 
 // ── Dispatch ──────────────────────────────────────────────────────────────────
 
-pub async fn run(args: &NodeArgs, opts: &ResolvedOpts) -> Result<()> {
+pub async fn run(args: &NodeArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
         NodeCommand::Route(a) => run_route(a, opts).await,
         NodeCommand::Connection(a) => run_connection(a, opts).await,
     }
 }
 
-async fn run_route(args: &NodeRouteArgs, opts: &ResolvedOpts) -> Result<()> {
+async fn run_route(args: &NodeRouteArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
         NodeRouteCommand::List => route_list(opts).await,
         NodeRouteCommand::Add {
@@ -105,7 +105,7 @@ async fn run_route(args: &NodeRouteArgs, opts: &ResolvedOpts) -> Result<()> {
     }
 }
 
-async fn run_connection(args: &NodeConnectionArgs, opts: &ResolvedOpts) -> Result<()> {
+async fn run_connection(args: &NodeConnectionArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
         NodeConnectionCommand::List => connection_list(opts).await,
     }
@@ -113,7 +113,7 @@ async fn run_connection(args: &NodeConnectionArgs, opts: &ResolvedOpts) -> Resul
 
 // ── Route commands ─────────────────────────────────────────────────────────────
 
-async fn route_list(opts: &ResolvedOpts) -> Result<()> {
+async fn route_list(opts: &ClientConfig) -> Result<()> {
     let mut client = get_controller_client(opts).await?;
     let msg = ControlMessage {
         message_id: uuid::Uuid::new_v4().to_string(),
@@ -124,48 +124,52 @@ async fn route_list(opts: &ResolvedOpts) -> Result<()> {
     let req = tonic::Request::new(tokio_stream::once(msg));
     let mut stream = client.open_control_channel(req).await?.into_inner();
     loop {
-        match stream_timeout(opts.timeout, stream.next()).await {
+        match stream_timeout(opts.request_timeout.into(), stream.next()).await {
             Err(_) => bail!("timeout waiting for route list response"),
             Ok(None) => break,
             Ok(Some(Err(e))) => bail!("stream error: {}", e),
             Ok(Some(Ok(msg))) => {
                 if let Some(Payload::SubscriptionListResponse(list_resp)) = msg.payload {
-                    for e in &list_resp.entries {
-                        let local_names: Vec<String> = e
-                            .local_connections
-                            .iter()
-                            .map(|c| {
-                                format!(
-                                    "local:{}:{}:{:?}:{:?}",
-                                    c.id,
-                                    c.config_data,
-                                    c.link_id,
-                                    c.direction()
-                                )
-                            })
-                            .collect();
-                        let remote_names: Vec<String> = e
-                            .remote_connections
-                            .iter()
-                            .map(|c| {
-                                format!(
-                                    "remote:{}:{}:{:?}:{:?}",
-                                    c.id,
-                                    c.config_data,
-                                    c.link_id,
-                                    c.direction()
-                                )
-                            })
-                            .collect();
-                        println!(
-                            "{}/{}/{} id={} local={:?} remote={:?}",
-                            e.component_0,
-                            e.component_1,
-                            e.component_2,
-                            e.id.map_or_else(|| "None".to_string(), |id| id.to_string()),
-                            local_names,
-                            remote_names
-                        );
+                    if list_resp.entries.is_empty() {
+                        println!("No routes configured");
+                    } else {
+                        for e in &list_resp.entries {
+                            let local_names: Vec<String> = e
+                                .local_connections
+                                .iter()
+                                .map(|c| {
+                                    format!(
+                                        "local:{}:{}:{:?}:{:?}",
+                                        c.id,
+                                        c.config_data,
+                                        c.link_id,
+                                        c.direction()
+                                    )
+                                })
+                                .collect();
+                            let remote_names: Vec<String> = e
+                                .remote_connections
+                                .iter()
+                                .map(|c| {
+                                    format!(
+                                        "remote:{}:{}:{:?}:{:?}",
+                                        c.id,
+                                        c.config_data,
+                                        c.link_id,
+                                        c.direction()
+                                    )
+                                })
+                                .collect();
+                            println!(
+                                "{}/{}/{} id={} local={:?} remote={:?}",
+                                e.component_0,
+                                e.component_1,
+                                e.component_2,
+                                e.id.map_or_else(|| "None".to_string(), |id| id.to_string()),
+                                local_names,
+                                remote_names
+                            );
+                        }
                     }
                     break;
                 }
@@ -175,7 +179,7 @@ async fn route_list(opts: &ResolvedOpts) -> Result<()> {
     Ok(())
 }
 
-async fn route_add(route: &str, via: &str, config_file: &str, opts: &ResolvedOpts) -> Result<()> {
+async fn route_add(route: &str, via: &str, config_file: &str, opts: &ClientConfig) -> Result<()> {
     if !via.eq_ignore_ascii_case(VIA_KEYWORD) {
         bail!("invalid syntax: expected 'via' keyword, got '{}'", via);
     }
@@ -203,7 +207,7 @@ async fn route_add(route: &str, via: &str, config_file: &str, opts: &ResolvedOpt
     let mut client = get_controller_client(opts).await?;
     let req = tonic::Request::new(tokio_stream::once(msg));
     let mut stream = client.open_control_channel(req).await?.into_inner();
-    match stream_timeout(opts.timeout, stream.next()).await {
+    match stream_timeout(opts.request_timeout.into(), stream.next()).await {
         Err(_) => bail!("timeout waiting for ACK"),
         Ok(None) => bail!("stream closed before receiving ACK"),
         Ok(Some(Err(e))) => bail!("error receiving ACK: {}", e),
@@ -237,7 +241,7 @@ async fn route_add(route: &str, via: &str, config_file: &str, opts: &ResolvedOpt
     Ok(())
 }
 
-async fn route_del(route: &str, via: &str, endpoint: &str, opts: &ResolvedOpts) -> Result<()> {
+async fn route_del(route: &str, via: &str, endpoint: &str, opts: &ClientConfig) -> Result<()> {
     if !via.eq_ignore_ascii_case(VIA_KEYWORD) {
         bail!("invalid syntax: expected 'via' keyword, got '{}'", via);
     }
@@ -265,7 +269,7 @@ async fn route_del(route: &str, via: &str, endpoint: &str, opts: &ResolvedOpts) 
     let mut client = get_controller_client(opts).await?;
     let req = tonic::Request::new(tokio_stream::once(msg));
     let mut stream = client.open_control_channel(req).await?.into_inner();
-    match stream_timeout(opts.timeout, stream.next()).await {
+    match stream_timeout(opts.request_timeout.into(), stream.next()).await {
         Err(_) => bail!("timeout waiting for ACK"),
         Ok(None) => bail!("stream closed before receiving ACK"),
         Ok(Some(Err(e))) => bail!("error receiving ACK: {}", e),
@@ -291,7 +295,7 @@ async fn route_del(route: &str, via: &str, endpoint: &str, opts: &ResolvedOpts) 
 
 // ── Connection commands ────────────────────────────────────────────────────────
 
-async fn connection_list(opts: &ResolvedOpts) -> Result<()> {
+async fn connection_list(opts: &ClientConfig) -> Result<()> {
     let mut client = get_controller_client(opts).await?;
     let msg = ControlMessage {
         message_id: uuid::Uuid::new_v4().to_string(),
@@ -302,20 +306,24 @@ async fn connection_list(opts: &ResolvedOpts) -> Result<()> {
     let req = tonic::Request::new(tokio_stream::once(msg));
     let mut stream = client.open_control_channel(req).await?.into_inner();
     loop {
-        match stream_timeout(opts.timeout, stream.next()).await {
+        match stream_timeout(opts.request_timeout.into(), stream.next()).await {
             Err(_) => bail!("timeout waiting for connection list response"),
             Ok(None) => break,
             Ok(Some(Err(e))) => bail!("stream error: {}", e),
             Ok(Some(Ok(msg))) => {
                 if let Some(Payload::ConnectionListResponse(list_resp)) = msg.payload {
-                    for e in &list_resp.entries {
-                        println!(
-                            "id={} direction={:?} link_id={:?} {}",
-                            e.id,
-                            e.direction(),
-                            e.link_id,
-                            e.config_data
-                        );
+                    if list_resp.entries.is_empty() {
+                        println!("No connections configured");
+                    } else {
+                        for e in &list_resp.entries {
+                            println!(
+                                "id={} direction={:?} link_id={:?} {}",
+                                e.id,
+                                e.direction(),
+                                e.link_id,
+                                e.config_data
+                            );
+                        }
                     }
                     break;
                 }
@@ -333,12 +341,12 @@ mod tests {
     use tokio_stream::StreamExt;
     use tokio_stream::wrappers::TcpListenerStream;
 
-    use crate::config::ResolvedOpts;
     use crate::proto::controller::proto::v1::{
         ConfigurationCommandAck, ConnectionListResponse, ControlMessage, SubscriptionListResponse,
         control_message::Payload,
         controller_service_server::{ControllerService, ControllerServiceServer},
     };
+    use slim_config::grpc::client::ClientConfig;
 
     use super::*;
 
@@ -415,17 +423,10 @@ mod tests {
         format!("{}:{}", addr.ip(), addr.port())
     }
 
-    fn make_opts(addr: &str) -> ResolvedOpts {
-        ResolvedOpts {
-            server: addr.to_string(),
-            timeout: Duration::from_secs(5),
-            tls_insecure: true,
-            tls_insecure_skip_verify: false,
-            tls_ca_file: String::new(),
-            tls_cert_file: String::new(),
-            tls_key_file: String::new(),
-            basic_auth_creds: String::new(),
-        }
+    fn make_opts(addr: &str) -> ClientConfig {
+        slim_config::grpc::client::ClientConfig::with_endpoint(&format!("http://{}", addr))
+            .with_tls_setting(slim_config::tls::client::TlsClientConfig::insecure())
+            .with_request_timeout(Duration::from_secs(5))
     }
 
     #[test]

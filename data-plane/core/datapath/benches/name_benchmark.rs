@@ -30,6 +30,7 @@ fn make_slim_header() -> SlimHeader {
         source: Some(proto_name.clone()),
         destination: Some(proto_name),
         identity: String::new(),
+        version: String::new(),
         fanout: 1,
         recv_from: None,
         forward_to: None,

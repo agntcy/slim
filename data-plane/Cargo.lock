@@ -116,6 +116,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "agntcy-slim-channel-manager"
+version = "0.1.0"
+dependencies = [
+ "agntcy-slim",
+ "agntcy-slim-bindings",
+ "agntcy-slim-config",
+ "agntcy-slim-datapath",
+ "agntcy-slim-session",
+ "agntcy-slim-signal",
+ "agntcy-slim-tracing",
+ "anyhow",
+ "clap",
+ "prost",
+ "protoc-bin-vendored",
+ "serde",
+ "serde_yaml",
+ "tempfile",
+ "tokio",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tracing",
+]
+
+[[package]]
 name = "agntcy-slim-config"
 version = "0.9.3"
 dependencies = [
@@ -182,7 +207,6 @@ dependencies = [
  "prost",
  "prost-types",
  "protoc-bin-vendored",
- "rand 0.9.4",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -378,7 +402,6 @@ dependencies = [
  "prost",
  "prost-types",
  "protoc-bin-vendored",
- "serde",
  "serde_json",
  "serde_yaml",
  "tempfile",
@@ -3877,6 +3900,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
+ "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",

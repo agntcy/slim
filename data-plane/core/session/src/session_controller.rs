@@ -417,9 +417,7 @@ impl SessionController {
 
     /// Creates a discovery request message with minimum required information
     fn create_discovery_request(&self, destination: &ProtoName) -> Result<Message, SessionError> {
-        let payload = CommandPayload::builder()
-            .discovery_request(None)
-            .as_content();
+        let payload = CommandPayload::builder().discovery_request().as_content();
 
         let msg = Message::builder()
             .source(self.source().clone())
@@ -477,7 +475,7 @@ impl SessionController {
                     .session_message_type(ProtoSessionMessageType::LeaveRequest)
                     .session_id(self.id())
                     .message_id(rand::random::<u32>())
-                    .payload(CommandPayload::builder().leave_request(None).as_content())
+                    .payload(CommandPayload::builder().leave_request().as_content())
                     .build_publish()?;
                 self.publish_message(msg).await
             }
@@ -724,7 +722,7 @@ where
                 debug!(%name, %conn, %subscription_id, "subscription deleted");
             }
             None => {
-                tracing::warn!(
+                tracing::debug!(
                     %name, %conn,
                     "no subscription_id found for subscription, skipping delete"
                 );
@@ -790,6 +788,7 @@ mod tests {
     // session is transitioning, indicating that graceful draining has begun.
     // Removed broken test_internal_draining_via_leave_request (incompatible mock trait implementation)
 
+    use crate::Direction;
     use crate::subscription_manager::{SpySubscriptionManager, SubscriptionCall};
     use crate::transmitter::SessionTransmitter;
     use slim_auth::shared_secret::SharedSecret;
@@ -932,9 +931,10 @@ mod tests {
             controller.source(),
             &ProtoName::from_strings(["org", "ns", "source"]).with_id(1)
         );
+        // For multicast sessions, destination uses DATA_CHANNEL_ID
         assert_eq!(
             controller.dst(),
-            &ProtoName::from_strings(["org", "ns", "dest"]).with_id(2)
+            &ProtoName::from_strings(["org", "ns", "dest"]).with_id(ProtoName::DATA_CHANNEL_ID)
         );
         assert_eq!(controller.session_type(), ProtoSessionType::Multicast);
         assert!(controller.is_initiator());
@@ -1113,11 +1113,7 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
             .session_id(session_id)
             .message_id(123)
-            .payload(
-                CommandPayload::builder()
-                    .discovery_request(None)
-                    .as_content(),
-            )
+            .payload(CommandPayload::builder().discovery_request().as_content())
             .build_publish()
             .unwrap();
 
@@ -1630,7 +1626,7 @@ mod tests {
             .session_message_type(slim_datapath::api::ProtoSessionMessageType::LeaveRequest)
             .session_id(session_id)
             .message_id(rand::random::<u32>())
-            .payload(CommandPayload::builder().leave_request(None).as_content())
+            .payload(CommandPayload::builder().leave_request().as_content())
             .build_publish()
             .unwrap();
 
@@ -1789,6 +1785,7 @@ mod tests {
             id: 999,
             source: ProtoName::from_strings(["org", "ns", "source"]).with_id(1),
             destination: ProtoName::from_strings(["org", "ns", "dest"]).with_id(2),
+            control: ProtoName::from_strings(["org", "ns", "dest"]).with_id(2),
             config: SessionConfig {
                 session_type: ProtoSessionType::PointToPoint,
                 max_retries: Some(3),
@@ -1797,6 +1794,7 @@ mod tests {
                 initiator: true,
                 metadata: HashMap::new(),
             },
+            direction: Direction::Bidirectional,
             tx: SessionTransmitter::new(tx_slim, tx_app),
             tx_session: tx_session.clone(),
             tx_to_session_layer: tx_session_layer,
@@ -1960,6 +1958,7 @@ mod tests {
             id: 1,
             source: ProtoName::from_strings(["org", "ns", "test"]).with_id(1),
             destination: ProtoName::from_strings(["org", "ns", "test"]).with_id(2),
+            control: ProtoName::from_strings(["org", "ns", "test"]).with_id(2),
             config: SessionConfig {
                 session_type: ProtoSessionType::PointToPoint,
                 max_retries: Some(5),
@@ -1968,6 +1967,7 @@ mod tests {
                 initiator: true,
                 metadata: HashMap::new(),
             },
+            direction: Direction::Bidirectional,
             tx: SessionTransmitter::new(tx_slim, tx_app),
             tx_session,
             tx_to_session_layer: tx_session_layer,

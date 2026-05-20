@@ -6,7 +6,6 @@ mod cli;
 mod client;
 mod commands;
 mod config;
-mod defaults;
 mod proto;
 mod utils;
 

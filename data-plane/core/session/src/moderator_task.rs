@@ -5,8 +5,6 @@
 use tokio::sync::oneshot;
 use tracing::debug;
 
-use slim_datapath::api::ProtoMessage as Message;
-
 // Local crate
 use crate::errors::SessionError;
 
@@ -73,14 +71,6 @@ impl ModeratorTask {
             ModeratorTask::CloseOrDisconnect(_) => SessionError::ModeratorTaskCloseFailed {
                 source: Box::new(err),
             },
-        }
-    }
-    pub(crate) fn ack_msg(&self) -> Option<&Message> {
-        match self {
-            ModeratorTask::Add(t) => t.ack_msg.as_ref(),
-            ModeratorTask::Remove(t) => t.ack_msg.as_ref(),
-            ModeratorTask::CloseOrDisconnect(t) => t.ack_msg.as_ref(),
-            ModeratorTask::Update(t) => t.ack_msg.as_ref(),
         }
     }
 }
@@ -176,23 +166,17 @@ pub struct AddParticipant {
     join: State,
     welcome: State,
     commit: State,
-    /// Optional ack message to send back to the control plane upon completion
-    ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the invite operation completes (after welcome+commit)
     pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
 }
 
 impl AddParticipant {
-    pub(crate) fn new(
-        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
-        ack_msg: Option<Message>,
-    ) -> Self {
+    pub(crate) fn new(ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>) -> Self {
         Self {
             discovery: Default::default(),
             join: Default::default(),
             welcome: Default::default(),
             commit: Default::default(),
-            ack_msg,
             ack_tx,
         }
     }
@@ -202,7 +186,7 @@ impl TaskUpdate for AddParticipant {
     fn discovery_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         debug!(
             %timer_id,
-            "start discovery on AddParticipan task",
+            "start discovery on AddParticipant task",
         );
         self.discovery.received = false;
         self.discovery.timer_id = timer_id;
@@ -214,7 +198,7 @@ impl TaskUpdate for AddParticipant {
             self.discovery.received = true;
             debug!(
                 %timer_id,
-                "discovery completed on AddParticipan task"
+                "discovery completed on AddParticipant task"
             );
             Ok(())
         } else {
@@ -223,7 +207,7 @@ impl TaskUpdate for AddParticipant {
     }
 
     fn join_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!(%timer_id, "start join on AddParticipan task");
+        debug!(%timer_id, "start join on AddParticipant task");
         self.join.received = false;
         self.join.timer_id = timer_id;
         Ok(())
@@ -234,7 +218,7 @@ impl TaskUpdate for AddParticipant {
             self.join.received = true;
             debug!(
                 %timer_id,
-                "join completed on AddParticipan task"
+                "join completed on AddParticipant task"
             );
             Ok(())
         } else {
@@ -251,14 +235,14 @@ impl TaskUpdate for AddParticipant {
     }
 
     fn welcome_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!(%timer_id, "start welcome on AddParticipan task");
+        debug!(%timer_id, "start welcome on AddParticipant task");
         self.welcome.received = false;
         self.welcome.timer_id = timer_id;
         Ok(())
     }
 
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        debug!(%timer_id, "start commit on AddParticipan task");
+        debug!(%timer_id, "start commit on AddParticipant task");
         self.commit.received = false;
         self.commit.timer_id = timer_id;
         Ok(())
@@ -273,13 +257,13 @@ impl TaskUpdate for AddParticipant {
             self.welcome.received = true;
             debug!(
                 %timer_id,
-                "welcome completed on AddParticipan task",
+                "welcome completed on AddParticipant task",
             );
         } else if self.commit.timer_id == timer_id {
             self.commit.received = true;
             debug!(
                 %timer_id,
-                "commit completed on AddParticipan task",
+                "commit completed on AddParticipant task",
             );
         } else {
             return Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id));
@@ -308,21 +292,15 @@ impl TaskUpdate for AddParticipant {
 pub struct RemoveParticipant {
     commit: State,
     leave: State,
-    /// Optional ack message to send back to the control plane upon completion
-    ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the remove operation completes (after LeaveReply)
     pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
 }
 
 impl RemoveParticipant {
-    pub(crate) fn new(
-        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
-        ack_msg: Option<Message>,
-    ) -> Self {
+    pub(crate) fn new(ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>) -> Self {
         Self {
             commit: Default::default(),
             leave: Default::default(),
-            ack_msg,
             ack_tx,
         }
     }
@@ -413,20 +391,14 @@ impl TaskUpdate for RemoveParticipant {
 #[derive(Debug, Default)]
 pub struct NotifyParticipants {
     notify: State,
-    /// Optional ack message to send back to the control plane upon completion
-    ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the notify operation completes
     pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
 }
 
 impl NotifyParticipants {
-    pub(crate) fn new(
-        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
-        ack_msg: Option<Message>,
-    ) -> Self {
+    pub(crate) fn new(ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>) -> Self {
         Self {
             notify: Default::default(),
-            ack_msg,
             ack_tx,
         }
     }
@@ -500,8 +472,6 @@ impl TaskUpdate for NotifyParticipants {
 pub struct UpdateParticipant {
     proposal: State,
     commit: State,
-    /// Optional ack message to send back to the control plane upon completion
-    ack_msg: Option<Message>,
     /// Optional ack notifier to signal when the update operation completes
     pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
 }
@@ -785,7 +755,7 @@ mod tests {
     fn test_add_participant_ack_after_welcome_and_commit() {
         let base = 10u32;
         let (tx, mut rx) = tokio::sync::oneshot::channel::<Result<(), SessionError>>();
-        let mut task = ModeratorTask::Add(AddParticipant::new(Some(tx), None));
+        let mut task = ModeratorTask::Add(AddParticipant::new(Some(tx)));
 
         task.discovery_start(base).unwrap();
         task.discovery_complete(base).unwrap();
