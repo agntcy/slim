@@ -40,13 +40,12 @@ use crate::websocket::client::WebSocketClientChannel;
 /// Result of [`ClientConfig::to_channel`]: either a gRPC channel (the generic
 /// `G` parameter) or a WebSocket channel.
 ///
-/// The WebSocket variant is boxed because [`WebSocketClientChannel`] owns the
-/// upgraded socket and its buffers (~tens of KB), which is much larger than
-/// the gRPC variant (a `tonic::transport::Channel` wraps an internal `Arc`).
-/// Boxing keeps `TransportChannel` small and cheap to move between callers.
+/// [`WebSocketClientChannel`] is internally `Arc`-backed and cheap to clone,
+/// matching the gRPC variant (a `tonic::transport::Channel` also wraps an
+/// internal `Arc`).
 pub enum TransportChannel<G> {
     Grpc(G),
-    Websocket(Box<WebSocketClientChannel>),
+    Websocket(WebSocketClientChannel),
 }
 
 /// Keepalive configuration for the client.
@@ -504,9 +503,9 @@ impl ClientConfig {
     > {
         match self.transport {
             TransportProtocol::Grpc => Ok(TransportChannel::Grpc(self.to_grpc_channel().await?)),
-            TransportProtocol::Websocket => Ok(TransportChannel::Websocket(Box::new(
+            TransportProtocol::Websocket => Ok(TransportChannel::Websocket(
                 self.to_websocket_channel().await?,
-            ))),
+            )),
         }
     }
 

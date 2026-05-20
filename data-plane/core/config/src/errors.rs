@@ -41,8 +41,16 @@ pub enum ConfigError {
     WebSocketTlsHandshake(#[source] std::io::Error),
     #[error("websocket TLS handshake timed out")]
     WebSocketTlsHandshakeTimeout,
-    #[error("websocket SPIRE authentication is not yet supported")]
-    WebSocketSpireUnsupported,
+    #[error("websocket protocol upgrade timed out")]
+    WebSocketHandshakeTimeout,
+    #[error("websocket handshake returned non-101 status: {0}")]
+    WebSocketHandshakeStatus(http::StatusCode),
+    #[error("websocket handshake response missing Sec-WebSocket-Accept header")]
+    WebSocketMissingAcceptHeader,
+    #[error("websocket handshake response Sec-WebSocket-Accept did not match the sent key")]
+    WebSocketAcceptMismatch,
+    #[error("websocket client send error")]
+    WebSocketClientSend(#[source] Box<dyn std::error::Error + Send + Sync>),
 
     // Network / transport
     #[error("transport error")]
@@ -134,7 +142,12 @@ impl ConfigError {
             ConfigError::WebSocketConnection(_)
             | ConfigError::WebSocketTlsHandshake(_)
             | ConfigError::WebSocketTlsHandshakeTimeout
-            | ConfigError::WebSocketHandshake(_) => true,
+            | ConfigError::WebSocketHandshake(_)
+            | ConfigError::WebSocketHandshakeTimeout
+            | ConfigError::WebSocketHandshakeStatus(_)
+            | ConfigError::WebSocketMissingAcceptHeader
+            | ConfigError::WebSocketAcceptMismatch
+            | ConfigError::WebSocketClientSend(_) => true,
 
             _ => false,
         }

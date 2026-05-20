@@ -5,8 +5,6 @@ pub use crate::server::{AuthenticationConfig, KeepaliveServerParameters, ServerC
 
 use std::convert::Infallible;
 use std::future::Future;
-#[cfg(target_family = "unix")]
-use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::{net::SocketAddr, str::FromStr};
@@ -15,15 +13,14 @@ use display_error_chain::ErrorChainExt;
 use futures::FutureExt;
 use futures::Stream;
 use tokio::io::{AsyncRead, AsyncWrite};
-#[cfg(target_family = "unix")]
-use tokio::net::UnixListener;
-#[cfg(target_family = "unix")]
-use tokio_stream::wrappers::UnixListenerStream;
 use tokio_util::sync::CancellationToken;
 use tonic::service::Routes;
 use tonic::transport::server::TcpIncoming;
 use tower_http::BoxError;
 use tracing::debug;
+
+#[cfg(target_family = "unix")]
+use {std::path::PathBuf, tokio::net::UnixListener, tokio_stream::wrappers::UnixListenerStream};
 
 use crate::auth::ServerAuthenticator;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;

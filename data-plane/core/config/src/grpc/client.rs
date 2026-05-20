@@ -6,36 +6,26 @@ pub use crate::client::{
     is_valid_uuid_v4,
 };
 
-use std::collections::HashMap;
-#[cfg(target_family = "unix")]
-use std::error::Error as StdErrorTrait;
-#[cfg(target_family = "unix")]
-use std::path::PathBuf;
 use std::str::FromStr;
-#[cfg(target_family = "unix")]
-use std::sync::Arc;
 
-use base64::prelude::*;
-use http::header::{HeaderMap, HeaderName, HeaderValue};
+use http::header::HeaderMap;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::connect::proxy::Tunnel;
 use hyper_util::client::proxy::matcher::Intercept;
-#[cfg(target_family = "unix")]
-use hyper_util::rt::TokioIo;
 use rustls_pki_types::ServerName;
-#[cfg(target_family = "unix")]
-use tokio::net::UnixStream;
 use tonic::codegen::{Body, Bytes, StdError};
 use tonic::transport::{Channel, Uri};
 use tower::ServiceExt;
+
 #[cfg(target_family = "unix")]
-use tower::service_fn;
-use tracing::warn;
+use {
+    hyper_util::rt::TokioIo, std::error::Error as StdErrorTrait, std::path::PathBuf,
+    std::sync::Arc, tokio::net::UnixStream, tower::service_fn,
+};
 
 use crate::auth::ClientAuthenticator;
 use crate::errors::ConfigError;
 use crate::grpc::headers_middleware::SetRequestHeaderLayer;
-use crate::grpc::proxy::ProxyConfig;
 use crate::tls::common::RustlsConfigLoader;
 use crate::transport::TransportProtocol;
 
@@ -246,28 +236,6 @@ impl ClientConfig {
         Ok(Uri::from_str(&self.endpoint)?)
     }
 
-    /// Creates and configures the HTTP connector
-    fn create_http_connector(&self) -> Result<HttpConnector, ConfigError> {
-        let mut http = HttpConnector::new();
-
-        // NOTE(msardara): we might want to make these configurable as well.
-        http.enforce_http(false);
-        http.set_nodelay(false);
-
-        // set the connection timeout
-        match self.connect_timeout.as_secs() {
-            0 => http.set_connect_timeout(None),
-            _ => http.set_connect_timeout(Some(self.connect_timeout.into())),
-        }
-
-        // set keepalive settings
-        if let Some(keepalive) = &self.keepalive {
-            http.set_keepalive(Some(keepalive.tcp_keepalive.into()));
-        }
-
-        Ok(http)
-    }
-
     /// Creates the channel builder with all configuration settings
     fn create_channel_builder(&self, uri: Uri) -> Result<tonic::transport::Endpoint, ConfigError> {
         let mut builder = Channel::builder(uri);
@@ -308,22 +276,6 @@ impl ClientConfig {
         Ok(builder)
     }
 
-    /// Parses headers from the configuration
-    fn parse_headers(&self) -> Result<HeaderMap, ConfigError> {
-        Self::parse_header_map(&self.headers)
-    }
-
-    /// Generic helper to parse a HashMap<String, String> into HeaderMap
-    fn parse_header_map(headers: &HashMap<String, String>) -> Result<HeaderMap, ConfigError> {
-        let mut header_map = HeaderMap::new();
-        for (key, value) in headers {
-            let header_name = HeaderName::from_str(key)?;
-            let header_value = HeaderValue::from_str(value)?;
-            header_map.insert(header_name, header_value);
-        }
-        Ok(header_map)
-    }
-
     #[cfg(target_family = "unix")]
     fn map_transport_error(err: tonic::transport::Error) -> ConfigError {
         let mut source: Option<&(dyn StdErrorTrait + 'static)> = Some(&err);
@@ -336,47 +288,6 @@ impl ClientConfig {
         }
 
         ConfigError::from(err)
-    }
-
-    /// Helper to create basic auth header for proxy authentication
-    fn create_proxy_auth_header(
-        username: &str,
-        password: &str,
-    ) -> Result<HeaderValue, ConfigError> {
-        let auth_value = BASE64_STANDARD.encode(format!("{}:{}", username, password));
-        Ok(HeaderValue::from_str(&format!("Basic {}", auth_value))?)
-    }
-
-    /// Helper to apply authentication and headers to a tunnel
-    fn apply_tunnel_config<T>(
-        &self,
-        mut tunnel: Tunnel<T>,
-        proxy_config: &ProxyConfig,
-        warn_insecure: bool,
-    ) -> Result<Tunnel<T>, ConfigError> {
-        // Set proxy authentication if provided
-        if let (Some(username), Some(password)) = (&proxy_config.username, &proxy_config.password) {
-            if warn_insecure {
-                self.warn_insecure_auth();
-            }
-
-            let auth_header = Self::create_proxy_auth_header(username, password)?;
-            tunnel = tunnel.with_auth(auth_header);
-        }
-
-        // Set custom headers for proxy requests
-        if !proxy_config.headers.is_empty() {
-            let proxy_headers = self.parse_proxy_headers(&proxy_config.headers)?;
-            tunnel = tunnel.with_headers(proxy_headers);
-        }
-
-        Ok(tunnel)
-    }
-
-    /// Loads TLS configuration
-    async fn load_tls_config(&self) -> Result<Option<rustls::ClientConfig>, ConfigError> {
-        let tls = self.tls_setting.load_rustls_config().await?;
-        Ok(tls)
     }
 
     #[cfg(target_family = "unix")]
@@ -566,14 +477,6 @@ impl ClientConfig {
         }
     }
 
-    /// Parses proxy headers
-    fn parse_proxy_headers(
-        &self,
-        headers: &HashMap<String, String>,
-    ) -> Result<HeaderMap, ConfigError> {
-        Self::parse_header_map(headers)
-    }
-
     /// Applies authentication and headers to the channel
     async fn apply_auth_and_headers(
         &self,
@@ -614,13 +517,6 @@ impl ClientConfig {
                 .boxed_clone()),
         }
     }
-
-    /// Warns if authentication is enabled without TLS
-    fn warn_insecure_auth(&self) {
-        if self.tls_setting.insecure {
-            warn!("Auth is enabled without TLS. This is not recommended.");
-        }
-    }
 }
 
 /// Parse the rate limit string into a limit and a duration.
@@ -644,6 +540,7 @@ fn parse_rate_limit(rate_limit: &str) -> Result<(u64, std::time::Duration), Conf
 mod tests {
     use super::*;
     use crate::client::{BackoffConfig, KeepaliveConfig};
+    use crate::grpc::proxy::ProxyConfig;
     use crate::tls::client::TlsClientConfig as TLSSetting;
     use crate::tls::common::CaSource;
     use hyper_util::rt::TokioIo;

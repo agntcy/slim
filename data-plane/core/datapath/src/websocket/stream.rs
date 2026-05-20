@@ -121,17 +121,17 @@ pub(crate) fn spawn_transport_tasks(
                         OpCode::Close => break,
                         OpCode::Text => {
                             warn!(
-                                "received text websocket frame on binary subprotocol; closing connection with status 1003"
+                                "received text websocket frame; closing connection with status 1003 (binary frames only)"
                             );
                             let _ = tx_inbound
                                 .send(Err(Status::invalid_argument(
-                                    "unexpected text websocket frame on binary subprotocol",
+                                    "unexpected text websocket frame; binary frames only",
                                 )))
                                 .await;
                             let _ = control_tx
                                 .send(ControlFrame::Close {
                                     code: 1003,
-                                    reason: b"unsupported data: text frame".to_vec(),
+                                    reason: b"unsupported data: text frames not accepted".to_vec(),
                                 })
                                 .await;
                             break;
@@ -231,7 +231,7 @@ mod tests {
     use slim_config::tls::client::TlsClientConfig;
     use slim_config::tls::server::TlsServerConfig;
     use slim_config::transport::TransportProtocol;
-    use slim_config::websocket::client::WebSocketClientChannel;
+    use slim_config::websocket::common::UpgradedWebSocket;
     use slim_config::websocket::server::OnAcceptedWebSocket;
     use std::net::TcpListener as StdTcpListener;
     use std::sync::Arc;
@@ -294,13 +294,15 @@ mod tests {
         token
     }
 
-    async fn connect_ws_client(port: u16) -> WebSocketClientChannel {
+    async fn connect_ws_client(port: u16) -> UpgradedWebSocket {
         let endpoint = format!("ws://127.0.0.1:{port}");
         let cfg = ClientConfig::with_endpoint(&endpoint)
             .with_transport(TransportProtocol::Websocket)
             .with_tls_setting(TlsClientConfig::insecure());
         match cfg.to_channel().await.expect("connect") {
-            TransportChannel::Websocket(ws) => *ws,
+            TransportChannel::Websocket(ws) => {
+                ws.take_websocket().expect("websocket already taken")
+            }
             TransportChannel::Grpc(_) => panic!("expected websocket"),
         }
     }
@@ -313,7 +315,6 @@ mod tests {
         let mut channel = connect_ws_client(port).await;
 
         channel
-            .websocket
             .write_frame(Frame::new(
                 true,
                 OpCode::Ping,
@@ -325,7 +326,7 @@ mod tests {
 
         let payload = tokio::time::timeout(Duration::from_secs(3), async {
             loop {
-                let frame = channel.websocket.read_frame().await.expect("read frame");
+                let frame = channel.read_frame().await.expect("read frame");
                 if frame.opcode == OpCode::Pong {
                     return frame.payload.to_vec();
                 }
@@ -350,14 +351,13 @@ mod tests {
         let mut channel = connect_ws_client(port).await;
 
         channel
-            .websocket
             .write_frame(Frame::close(1000, b"bye"))
             .await
             .expect("write close");
 
         let saw_close_or_error = tokio::time::timeout(Duration::from_secs(3), async {
             loop {
-                match channel.websocket.read_frame().await {
+                match channel.read_frame().await {
                     Ok(frame) => {
                         if frame.opcode == OpCode::Close {
                             return true;

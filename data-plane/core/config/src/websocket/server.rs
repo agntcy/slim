@@ -18,23 +18,36 @@ use hyper::Response;
 use hyper::StatusCode;
 use hyper::body::Incoming;
 use hyper::server::conn::http1;
-use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
+use hyper_util::service::TowerToHyperService;
+use slim_auth::jwt::VerifierJwt;
+use slim_auth::jwt_middleware::ValidateJwtLayer;
+use slim_auth::metadata::MetadataMap;
+#[cfg(not(target_family = "windows"))]
+use slim_auth::spire::SpireIdentityManager;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
+use tower::util::BoxCloneService;
+use tower::{ServiceBuilder, service_fn};
+#[allow(deprecated)]
+use tower_http::auth::require_authorization::Basic;
+use tower_http::validate_request::ValidateRequestHeaderLayer;
 use tracing::{debug, warn};
 
+use crate::auth::ServerAuthenticator;
+use crate::auth::jwt::Config as JwtAuthenticationConfig;
+#[cfg(not(target_family = "windows"))]
+use crate::auth::spire::SpireConfig as SpireAuthConfig;
 use crate::errors::ConfigError;
-use crate::server::ServerConfig;
+use crate::server::{AuthenticationConfig as ServerAuthConfig, ServerConfig};
 use crate::tls::common::RustlsConfigLoader;
 use crate::transport::TransportProtocol;
+use crate::websocket::query_token_layer::QueryTokenToAuthHeaderLayer;
 
-use super::common::{
-    ServerHandshakeAuth, UpgradedWebSocket, WebSocketEndpoint, build_server_handshake_auth,
-};
+use super::common::{UpgradedWebSocket, WebSocketEndpoint};
 
 /// Maximum time allowed for the TLS handshake to complete after accepting a
 /// TCP connection. Prevents a silent or malicious client from pinning an
@@ -112,6 +125,48 @@ pub type OnAcceptedWebSocket = Arc<
     dyn Fn(AcceptedWebSocketConnection) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync,
 >;
 
+/// Resolved auth layers selected by [`ServerAuthConfig`]. The variant is
+/// built once at server startup and cloned into each accepted connection so
+/// the layer stack is composed at the point [`http1::Builder::serve_connection_with_upgrades`]
+/// is invoked. Each variant resolves to a different concrete tower
+/// `Service` type, which is why dispatch happens via `match` inside
+/// [`serve_connection`] rather than through a single boxed service.
+#[derive(Clone)]
+#[allow(clippy::large_enum_variant)]
+enum AuthKind {
+    None,
+    Basic(#[allow(deprecated)] ValidateRequestHeaderLayer<Basic<Empty<Bytes>>>),
+    Jwt(ValidateJwtLayer<MetadataMap, VerifierJwt>),
+    #[cfg(not(target_family = "windows"))]
+    Spire(ValidateJwtLayer<MetadataMap, SpireIdentityManager>),
+}
+
+async fn build_auth_kind(config: &ServerConfig) -> Result<AuthKind, ConfigError> {
+    match &config.auth {
+        ServerAuthConfig::None => Ok(AuthKind::None),
+        ServerAuthConfig::Basic(basic) => {
+            let layer = <_ as ServerAuthenticator<Empty<Bytes>>>::get_server_layer(basic)?;
+            Ok(AuthKind::Basic(layer))
+        }
+        ServerAuthConfig::Jwt(jwt) => {
+            let mut layer = <JwtAuthenticationConfig as ServerAuthenticator<
+                Response<Empty<Bytes>>,
+            >>::get_server_layer(jwt)?;
+            layer.initialize().await?;
+            Ok(AuthKind::Jwt(layer))
+        }
+        #[cfg(not(target_family = "windows"))]
+        ServerAuthConfig::Spire(spire) => {
+            let mut layer =
+                <SpireAuthConfig as ServerAuthenticator<Response<Empty<Bytes>>>>::get_server_layer(
+                    spire,
+                )?;
+            layer.initialize().await?;
+            Ok(AuthKind::Spire(layer))
+        }
+    }
+}
+
 impl ServerConfig {
     pub async fn run_websocket_server(
         &self,
@@ -133,7 +188,7 @@ impl ServerConfig {
             (false, None) => None,
         };
 
-        let auth = build_server_handshake_auth(self)?;
+        let auth_kind = build_auth_kind(self).await?;
         let expected_path = endpoint.path.clone();
 
         // Cap the number of concurrent accept tasks
@@ -186,7 +241,7 @@ impl ServerConfig {
                         };
 
                         let local_addr = stream.local_addr().ok();
-                        let auth = auth.clone();
+                        let auth_kind = auth_kind.clone();
                         let expected_path = expected_path.clone();
                         let on_accepted = on_accepted.clone();
                         let tls_acceptor = tls_acceptor.clone();
@@ -228,7 +283,7 @@ impl ServerConfig {
                             // active websocket (not just the upgrade).
                             serve_connection(
                                 stream,
-                                auth,
+                                auth_kind,
                                 expected_path,
                                 on_accepted,
                                 remote_addr,
@@ -248,7 +303,7 @@ impl ServerConfig {
 
 async fn serve_connection<S>(
     stream: S,
-    auth: ServerHandshakeAuth,
+    auth_kind: AuthKind,
     expected_path: String,
     on_accepted: OnAcceptedWebSocket,
     remote_addr: SocketAddr,
@@ -272,74 +327,65 @@ async fn serve_connection<S>(
     let permit_slot = Arc::new(parking_lot::Mutex::new(Some(permit)));
     let permit_slot_service = permit_slot.clone();
 
-    let service = service_fn(move |mut request: Request<Incoming>| {
-        let auth = auth.clone();
+    let inner = service_fn(move |mut request: Request<Incoming>| {
         let expected_path = expected_path.clone();
         let on_accepted = on_accepted.clone();
         let upgrade_done = upgrade_done_service.clone();
         let permit_slot = permit_slot_service.clone();
 
-        async move {
-            if request.uri().path() != expected_path {
-                return Ok::<Response<Empty<Bytes>>, Infallible>(response_with_status(
-                    StatusCode::NOT_FOUND,
-                ));
-            }
-
-            if !upgrade::is_upgrade_request(&request) {
-                return Ok::<Response<Empty<Bytes>>, Infallible>(response_with_status(
-                    StatusCode::BAD_REQUEST,
-                ));
-            }
-
-            if !auth.authorize(&request).await {
-                return Ok::<Response<Empty<Bytes>>, Infallible>(response_with_status(
-                    StatusCode::UNAUTHORIZED,
-                ));
-            }
-
-            match upgrade::upgrade(&mut request) {
-                Ok((response, future)) => {
-                    // Mark the upgrade as successful so the connection
-                    // future is no longer bound by `HTTP_UPGRADE_TIMEOUT`.
-                    upgrade_done.store(true, Ordering::SeqCst);
-                    // Transfer the semaphore permit out of the accept
-                    // task and into the websocket task: the connection
-                    // cap must bound *active websockets*, not just the
-                    // brief upgrade phase.
-                    let permit = permit_slot.lock().take();
-                    tokio::spawn(async move {
-                        let _permit = permit;
-                        match future.await {
-                            Ok(websocket) => {
-                                on_accepted(AcceptedWebSocketConnection {
-                                    websocket,
-                                    remote_addr: Some(remote_addr),
-                                    local_addr,
-                                })
-                                .await;
-                            }
-                            Err(err) => {
-                                warn!(error = %err, "websocket upgrade error");
-                            }
-                        }
-                    });
-
-                    Ok::<Response<Empty<Bytes>>, Infallible>(response)
+        let fut: Pin<Box<dyn Future<Output = Result<Response<Empty<Bytes>>, Infallible>> + Send>> =
+            Box::pin(async move {
+                if request.uri().path() != expected_path {
+                    return Ok::<Response<Empty<Bytes>>, Infallible>(response_with_status(
+                        StatusCode::NOT_FOUND,
+                    ));
                 }
-                Err(err) => {
-                    warn!(error = %err, "websocket upgrade rejected");
-                    Ok::<Response<Empty<Bytes>>, Infallible>(response_with_status(
+
+                if !upgrade::is_upgrade_request(&request) {
+                    return Ok::<Response<Empty<Bytes>>, Infallible>(response_with_status(
                         StatusCode::BAD_REQUEST,
-                    ))
+                    ));
                 }
-            }
-        }
-    });
 
-    let connection = http1::Builder::new()
-        .serve_connection(io, service)
-        .with_upgrades();
+                match upgrade::upgrade(&mut request) {
+                    Ok((response, future)) => {
+                        // Mark the upgrade as successful so the connection
+                        // future is no longer bound by `HTTP_UPGRADE_TIMEOUT`.
+                        upgrade_done.store(true, Ordering::SeqCst);
+                        // Transfer the semaphore permit out of the accept
+                        // task and into the websocket task: the connection
+                        // cap must bound *active websockets*, not just the
+                        // brief upgrade phase.
+                        let permit = permit_slot.lock().take();
+                        tokio::spawn(async move {
+                            let _permit = permit;
+                            match future.await {
+                                Ok(websocket) => {
+                                    on_accepted(AcceptedWebSocketConnection {
+                                        websocket,
+                                        remote_addr: Some(remote_addr),
+                                        local_addr,
+                                    })
+                                    .await;
+                                }
+                                Err(err) => {
+                                    warn!(error = %err, "websocket upgrade error");
+                                }
+                            }
+                        });
+
+                        Ok::<Response<Empty<Bytes>>, Infallible>(response)
+                    }
+                    Err(err) => {
+                        warn!(error = %err, "websocket upgrade rejected");
+                        Ok::<Response<Empty<Bytes>>, Infallible>(response_with_status(
+                            StatusCode::BAD_REQUEST,
+                        ))
+                    }
+                }
+            });
+        fut
+    });
 
     // Bound the HTTP/WS upgrade phase so a client that opens a TCP/TLS
     // connection but never sends a valid upgrade request cannot pin this
@@ -347,9 +393,46 @@ async fn serve_connection<S>(
     // upgrade succeeds the websocket IO is hijacked into its own task and
     // the remaining `serve_connection` future may resolve at any time
     // without being killed by the upgrade timeout.
-    tokio::pin!(connection);
     let upgrade_deadline = tokio::time::sleep(HTTP_UPGRADE_TIMEOUT);
     tokio::pin!(upgrade_deadline);
+
+    // Each auth variant produces a different concrete tower `Service` type
+    // (the static Layer stacking precludes a single variable), so we
+    // type-erase each variant into a `BoxCloneService` with identical
+    // signatures and then hand it to hyper via `TowerToHyperService`. The
+    // dispatch mirrors the gRPC server's auth-layer construction
+    // (`grpc/server.rs`).
+    let svc: BoxCloneService<Request<Incoming>, Response<Empty<Bytes>>, Infallible> =
+        match auth_kind {
+            AuthKind::None => BoxCloneService::new(inner),
+            AuthKind::Basic(layer) => {
+                BoxCloneService::new(ServiceBuilder::new().layer(layer).service(inner))
+            }
+            AuthKind::Jwt(layer) => {
+                // QueryTokenToAuthHeaderLayer promotes `?token=<jwt>` to an
+                // `Authorization: Bearer <jwt>` header so browser clients —
+                // which cannot set custom headers on `new WebSocket(url)` —
+                // can still authenticate. Existing headers win over query.
+                BoxCloneService::new(
+                    ServiceBuilder::new()
+                        .layer(QueryTokenToAuthHeaderLayer::new())
+                        .layer(layer)
+                        .service(inner),
+                )
+            }
+            #[cfg(not(target_family = "windows"))]
+            AuthKind::Spire(layer) => BoxCloneService::new(
+                ServiceBuilder::new()
+                    .layer(QueryTokenToAuthHeaderLayer::new())
+                    .layer(layer)
+                    .service(inner),
+            ),
+        };
+
+    let connection = http1::Builder::new()
+        .serve_connection(io, TowerToHyperService::new(svc))
+        .with_upgrades();
+    tokio::pin!(connection);
 
     tokio::select! {
         biased;
@@ -593,8 +676,10 @@ mod tests {
                 .expect("handshake timed out")
                 .expect("handshake failed");
 
-        assert!(channel.remote_addr.is_some());
-        assert!(channel.local_addr.is_some());
+        assert!(channel.remote_addr().is_some());
+        // local_addr is unavailable when driving the upgrade via hyper-util's
+        // legacy Client — its HttpInfo extension only exposes remote_addr.
+        assert!(channel.local_addr().is_none());
 
         token.cancel();
     }

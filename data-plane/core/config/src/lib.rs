@@ -13,6 +13,7 @@ pub mod server_handler;
 pub mod testutils;
 pub mod tls;
 pub mod transport;
+mod transport_common;
 pub mod websocket;
 
 mod opaque;

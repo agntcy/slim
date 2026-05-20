@@ -27,7 +27,7 @@ http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 hyper-rustls = { workspace = true }
-hyper-util = { workspace = true, features = ["client-proxy-system"] }
+hyper-util = { workspace = true, features = ["client-proxy-system", "service"] }
 lazy_static = { workspace = true }
 parking_lot = { workspace = true }
 percent-encoding = { workspace = true }
@@ -40,6 +40,7 @@ schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
+sha1 = "0.10"
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-retry = { workspace = true }

@@ -314,16 +314,17 @@ impl MessageProcessor {
                 Ok((handle, conn_index))
             }
             TransportChannel::Websocket(ws_channel) => {
-                let streams = websocket::spawn_transport_tasks(
-                    ws_channel.websocket,
-                    cancellation_token.clone(),
-                );
+                let websocket = ws_channel
+                    .take_websocket()
+                    .expect("websocket channel already consumed");
+                let streams =
+                    websocket::spawn_transport_tasks(websocket, cancellation_token.clone());
                 self.register_remote_connection(
                     streams.inbound,
                     Channel::Client(streams.outbound),
                     &client_config,
-                    local.or(ws_channel.local_addr),
-                    remote.or(ws_channel.remote_addr),
+                    local.or(ws_channel.local_addr()),
+                    remote.or(ws_channel.remote_addr()),
                     existing_conn_index,
                     cancellation_token,
                     None,

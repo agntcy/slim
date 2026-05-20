@@ -3,19 +3,12 @@
 
 use std::str::FromStr;
 
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use fastwebsockets::WebSocket;
-use hyper::Request;
 use hyper::upgrade::Upgraded;
 use hyper_util::rt::TokioIo;
 use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
-use slim_auth::traits::{TokenProvider, Verifier};
-use tracing::warn;
 
-use crate::client::{AuthenticationConfig as ClientAuthConfig, ClientConfig};
 use crate::errors::ConfigError;
-use crate::server::{AuthenticationConfig as ServerAuthConfig, ServerConfig};
 
 pub type UpgradedWebSocket = WebSocket<TokioIo<Upgraded>>;
 
@@ -43,19 +36,6 @@ pub struct WebSocketEndpoint {
     pub authority: String,
     pub port: u16,
     pub path: String,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct ClientHandshakeAuth {
-    pub authorization_header: Option<String>,
-    pub bearer_token: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub enum ServerHandshakeAuth {
-    None,
-    Basic { username: String, password: String },
-    Jwt { config: crate::auth::jwt::Config },
 }
 
 impl WebSocketEndpoint {
@@ -103,12 +83,25 @@ impl WebSocketEndpoint {
     }
 
     pub fn request_uri(&self, query_param: Option<(&str, &str)>) -> Result<http::Uri, ConfigError> {
-        let mut uri = format!(
-            "{}://{}{}",
-            if self.secure { "wss" } else { "ws" },
-            self.authority,
-            self.path,
-        );
+        self.build_uri(if self.secure { "wss" } else { "ws" }, query_param)
+    }
+
+    /// Like [`Self::request_uri`] but uses `http://` / `https://` schemes
+    /// instead of `ws://` / `wss://`. Required when driving the upgrade via
+    /// `hyper_util::client::legacy::Client`, which rejects WebSocket schemes.
+    pub fn http_request_uri(
+        &self,
+        query_param: Option<(&str, &str)>,
+    ) -> Result<http::Uri, ConfigError> {
+        self.build_uri(if self.secure { "https" } else { "http" }, query_param)
+    }
+
+    fn build_uri(
+        &self,
+        scheme: &str,
+        query_param: Option<(&str, &str)>,
+    ) -> Result<http::Uri, ConfigError> {
+        let mut uri = format!("{}://{}{}", scheme, self.authority, self.path);
 
         if let Some(existing_query) = self.uri.query() {
             uri.push('?');
@@ -141,127 +134,7 @@ impl WebSocketEndpoint {
     }
 }
 
-pub async fn build_client_handshake_auth(
-    config: &ClientConfig,
-) -> Result<ClientHandshakeAuth, ConfigError> {
-    match &config.auth {
-        ClientAuthConfig::None => Ok(ClientHandshakeAuth::default()),
-        ClientAuthConfig::Basic(basic) => {
-            let encoded = BASE64_STANDARD.encode(format!(
-                "{}:{}",
-                basic.username(),
-                basic.password().as_str()
-            ));
-            Ok(ClientHandshakeAuth {
-                authorization_header: Some(format!("Basic {}", encoded)),
-                bearer_token: None,
-            })
-        }
-        ClientAuthConfig::StaticJwt(static_jwt) => {
-            let mut provider = static_jwt.build_static_token_provider()?;
-            provider.initialize().await?;
-            let token = provider.get_token()?;
-            Ok(ClientHandshakeAuth {
-                authorization_header: Some(format!("Bearer {}", token)),
-                bearer_token: Some(token),
-            })
-        }
-        ClientAuthConfig::Jwt(jwt) => {
-            let mut provider = jwt.get_provider()?;
-            provider.initialize().await?;
-            let token = provider.get_token()?;
-            Ok(ClientHandshakeAuth {
-                authorization_header: Some(format!("Bearer {}", token)),
-                bearer_token: Some(token),
-            })
-        }
-        #[cfg(not(target_family = "windows"))]
-        ClientAuthConfig::Spire(_) => Err(ConfigError::WebSocketSpireUnsupported),
-    }
-}
-
-pub fn build_server_handshake_auth(
-    config: &ServerConfig,
-) -> Result<ServerHandshakeAuth, ConfigError> {
-    match &config.auth {
-        ServerAuthConfig::None => Ok(ServerHandshakeAuth::None),
-        ServerAuthConfig::Basic(basic) => Ok(ServerHandshakeAuth::Basic {
-            username: basic.username().to_string(),
-            password: basic.password().as_str().to_string(),
-        }),
-        ServerAuthConfig::Jwt(jwt) => Ok(ServerHandshakeAuth::Jwt {
-            config: jwt.clone(),
-        }),
-        // SPIRE-based client verification over the websocket handshake is
-        // not yet implemented. Fail-closed at server start rather than
-        // silently fall back to `None` and accept *any* client.
-        #[cfg(not(target_family = "windows"))]
-        ServerAuthConfig::Spire(_) => Err(ConfigError::WebSocketSpireUnsupported),
-    }
-}
-
-impl ServerHandshakeAuth {
-    pub async fn authorize<B>(&self, request: &Request<B>) -> bool {
-        match self {
-            ServerHandshakeAuth::None => true,
-            ServerHandshakeAuth::Basic { username, password } => {
-                let auth = match request
-                    .headers()
-                    .get(http::header::AUTHORIZATION)
-                    .and_then(|v| v.to_str().ok())
-                {
-                    Some(value) => value,
-                    None => return false,
-                };
-
-                let Some(encoded) = auth.strip_prefix("Basic ") else {
-                    return false;
-                };
-
-                let decoded = match BASE64_STANDARD.decode(encoded.as_bytes()) {
-                    Ok(bytes) => bytes,
-                    Err(_) => return false,
-                };
-
-                let credentials = match std::str::from_utf8(&decoded) {
-                    Ok(credentials) => credentials,
-                    Err(_) => return false,
-                };
-
-                credentials == format!("{username}:{password}")
-            }
-            ServerHandshakeAuth::Jwt { config } => {
-                let token = request
-                    .headers()
-                    .get(http::header::AUTHORIZATION)
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|header| header.strip_prefix("Bearer "))
-                    .map(str::to_string)
-                    .or_else(|| extract_query_param(request.uri().query(), "token"));
-
-                let Some(token) = token else {
-                    return false;
-                };
-
-                let mut verifier = match config.get_verifier() {
-                    Ok(verifier) => verifier,
-                    Err(err) => {
-                        warn!(error = %err, "failed to create websocket JWT verifier");
-                        return false;
-                    }
-                };
-
-                if verifier.initialize().await.is_err() {
-                    return false;
-                }
-
-                verifier.verify(token).await.is_ok()
-            }
-        }
-    }
-}
-
-fn extract_query_param(query: Option<&str>, name: &str) -> Option<String> {
+pub(crate) fn extract_query_param(query: Option<&str>, name: &str) -> Option<String> {
     let query = query?;
 
     for pair in query.split('&') {
@@ -295,83 +168,6 @@ fn extract_query_param(query: Option<&str>, name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use base64::Engine;
-    use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-    use bytes::Bytes;
-    use http::Uri;
-    use http_body_util::Empty;
-    use hyper::Request;
-    use slim_auth::jwt::{Algorithm, KeyData, KeyFormat};
-    use slim_auth::traits::TokenProvider;
-    use std::time::Duration as StdDuration;
-
-    use crate::auth::jwt::{Claims as JwtClaims, Config as JwtConfig, JwtKey};
-
-    // pragma: allowlist secret
-    const TEST_USER: &str = "user";
-    // pragma: allowlist secret
-    const TEST_PASS: &str = "pass";
-    // pragma: allowlist secret -- HS256 shared secret for unit tests only
-    const TEST_JWT_SECRET: &str = "websocket-tests-shared-secret";
-
-    fn empty_request(uri: &str) -> Request<Empty<Bytes>> {
-        Request::builder()
-            .method("GET")
-            .uri(uri)
-            .body(Empty::<Bytes>::new())
-            .expect("build request")
-    }
-
-    fn request_with_header(uri: &str, header: &str, value: String) -> Request<Empty<Bytes>> {
-        Request::builder()
-            .method("GET")
-            .uri(uri)
-            .header(header, value)
-            .body(Empty::<Bytes>::new())
-            .expect("build request")
-    }
-
-    fn hs256_key_data() -> KeyData {
-        // pragma: allowlist secret
-        KeyData::Data(TEST_JWT_SECRET.to_string())
-    }
-
-    fn jwt_signer_config() -> JwtConfig {
-        JwtConfig::new(
-            JwtClaims::default()
-                .with_issuer("slim-tests")
-                .with_audience(&["slim-tests".to_string()])
-                .with_subject("ws-client"),
-            StdDuration::from_secs(60),
-            JwtKey::Encoding(slim_auth::jwt::Key {
-                algorithm: Algorithm::HS256,
-                format: KeyFormat::Pem,
-                key: hs256_key_data(),
-            }),
-        )
-    }
-
-    fn jwt_verifier_config() -> JwtConfig {
-        JwtConfig::new(
-            JwtClaims::default()
-                .with_issuer("slim-tests")
-                .with_audience(&["slim-tests".to_string()])
-                .with_subject("ws-client"),
-            StdDuration::from_secs(60),
-            JwtKey::Decoding(slim_auth::jwt::Key {
-                algorithm: Algorithm::HS256,
-                format: KeyFormat::Pem,
-                key: hs256_key_data(),
-            }),
-        )
-    }
-
-    async fn issue_jwt_token(config: &JwtConfig) -> String {
-        let mut provider = config.get_provider().expect("provider");
-        provider.initialize().await.expect("initialize");
-        provider.get_token().expect("token")
-    }
 
     #[test]
     fn test_websocket_endpoint_parse_ws() {
@@ -557,250 +353,5 @@ mod tests {
             extract_query_param(Some("to%6Ben=value"), "token"),
             Some("value".to_string())
         );
-    }
-
-    #[tokio::test]
-    async fn test_server_handshake_auth_none() {
-        let auth = ServerHandshakeAuth::None;
-        assert!(auth.authorize(&empty_request("/")).await);
-    }
-
-    #[tokio::test]
-    async fn test_server_handshake_auth_basic_success() {
-        let auth = ServerHandshakeAuth::Basic {
-            username: TEST_USER.to_string(),
-            password: TEST_PASS.to_string(), // pragma: allowlist secret
-        };
-        let encoded = BASE64_STANDARD.encode(format!("{TEST_USER}:{TEST_PASS}"));
-        let req = request_with_header("/", "Authorization", format!("Basic {encoded}"));
-        assert!(auth.authorize(&req).await);
-    }
-
-    #[tokio::test]
-    async fn test_server_handshake_auth_basic_wrong_credentials() {
-        let auth = ServerHandshakeAuth::Basic {
-            username: TEST_USER.to_string(),
-            password: TEST_PASS.to_string(), // pragma: allowlist secret
-        };
-        let encoded = BASE64_STANDARD.encode(format!("{TEST_USER}:wrong"));
-        let req = request_with_header("/", "Authorization", format!("Basic {encoded}"));
-        assert!(!auth.authorize(&req).await);
-    }
-
-    #[tokio::test]
-    async fn test_server_handshake_auth_basic_missing_header() {
-        let auth = ServerHandshakeAuth::Basic {
-            username: TEST_USER.to_string(),
-            password: TEST_PASS.to_string(), // pragma: allowlist secret
-        };
-        assert!(!auth.authorize(&empty_request("/")).await);
-    }
-
-    #[tokio::test]
-    async fn test_server_handshake_auth_basic_invalid_base64() {
-        let auth = ServerHandshakeAuth::Basic {
-            username: TEST_USER.to_string(),
-            password: TEST_PASS.to_string(), // pragma: allowlist secret
-        };
-        let req = request_with_header("/", "Authorization", "Basic !!not-base64!!".to_string());
-        assert!(!auth.authorize(&req).await);
-    }
-
-    #[tokio::test]
-    async fn test_server_handshake_auth_basic_invalid_prefix() {
-        let auth = ServerHandshakeAuth::Basic {
-            username: TEST_USER.to_string(),
-            password: TEST_PASS.to_string(), // pragma: allowlist secret
-        };
-        let encoded = BASE64_STANDARD.encode(format!("{TEST_USER}:{TEST_PASS}"));
-        let req = request_with_header("/", "Authorization", format!("Bearer {encoded}"));
-        assert!(!auth.authorize(&req).await);
-    }
-
-    #[tokio::test]
-    async fn test_server_handshake_auth_basic_non_utf8() {
-        let auth = ServerHandshakeAuth::Basic {
-            username: TEST_USER.to_string(),
-            password: TEST_PASS.to_string(), // pragma: allowlist secret
-        };
-        let encoded = BASE64_STANDARD.encode([0xff, 0xfe, 0xfd]);
-        let req = request_with_header("/", "Authorization", format!("Basic {encoded}"));
-        assert!(!auth.authorize(&req).await);
-    }
-
-    #[tokio::test]
-    async fn test_server_handshake_auth_jwt_bearer_success() {
-        let token = issue_jwt_token(&jwt_signer_config()).await;
-        let auth = ServerHandshakeAuth::Jwt {
-            config: jwt_verifier_config(),
-        };
-
-        let req = request_with_header("/", "Authorization", format!("Bearer {token}"));
-        assert!(
-            auth.authorize(&req).await,
-            "valid JWT in Bearer header should authorize"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_server_handshake_auth_jwt_bearer_invalid_token() {
-        let auth = ServerHandshakeAuth::Jwt {
-            config: jwt_verifier_config(),
-        };
-        let req = request_with_header(
-            "/",
-            "Authorization",
-            "Bearer not.a.jwt".to_string(), // pragma: allowlist secret
-        );
-        assert!(!auth.authorize(&req).await);
-    }
-
-    #[tokio::test]
-    async fn test_server_handshake_auth_jwt_missing_token() {
-        let auth = ServerHandshakeAuth::Jwt {
-            config: jwt_verifier_config(),
-        };
-        assert!(!auth.authorize(&empty_request("/")).await);
-    }
-
-    #[tokio::test]
-    async fn test_server_handshake_auth_jwt_wrong_signing_secret() {
-        let other_signer = JwtConfig::new(
-            JwtClaims::default()
-                .with_issuer("slim-tests")
-                .with_audience(&["slim-tests".to_string()])
-                .with_subject("ws-client"),
-            StdDuration::from_secs(60),
-            JwtKey::Encoding(slim_auth::jwt::Key {
-                algorithm: Algorithm::HS256,
-                format: KeyFormat::Pem,
-                // pragma: allowlist secret
-                key: KeyData::Data("different-secret".to_string()),
-            }),
-        );
-        let token = issue_jwt_token(&other_signer).await;
-
-        let auth = ServerHandshakeAuth::Jwt {
-            config: jwt_verifier_config(),
-        };
-        let req = request_with_header("/", "Authorization", format!("Bearer {token}"));
-        assert!(
-            !auth.authorize(&req).await,
-            "JWT signed with a different secret must be rejected"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_server_handshake_auth_jwt_query_param_success() {
-        let token = issue_jwt_token(&jwt_signer_config()).await;
-        let auth = ServerHandshakeAuth::Jwt {
-            config: jwt_verifier_config(),
-        };
-
-        let uri = Uri::try_from(format!("/?token={token}")).expect("uri");
-        let req = Request::builder()
-            .method("GET")
-            .uri(uri)
-            .body(Empty::<Bytes>::new())
-            .expect("build request");
-        assert!(
-            auth.authorize(&req).await,
-            "valid JWT in ?token= query param should authorize"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_server_handshake_auth_jwt_query_param_invalid() {
-        let auth = ServerHandshakeAuth::Jwt {
-            config: jwt_verifier_config(),
-        };
-        let req = empty_request("/?token=not.a.jwt"); // pragma: allowlist secret
-        assert!(!auth.authorize(&req).await);
-    }
-
-    #[tokio::test]
-    async fn test_build_server_handshake_auth_none() {
-        let cfg = ServerConfig::with_endpoint("ws://127.0.0.1:0");
-        assert!(matches!(
-            build_server_handshake_auth(&cfg).expect("ok"),
-            ServerHandshakeAuth::None
-        ));
-    }
-
-    #[tokio::test]
-    async fn test_build_server_handshake_auth_basic() {
-        let cfg = ServerConfig::with_endpoint("ws://127.0.0.1:0").with_auth(
-            ServerAuthConfig::Basic(crate::auth::basic::Config::new(TEST_USER, TEST_PASS)),
-        );
-        match build_server_handshake_auth(&cfg).expect("ok") {
-            ServerHandshakeAuth::Basic { username, password } => {
-                assert_eq!(username, TEST_USER);
-                assert_eq!(password, TEST_PASS);
-            }
-            _ => panic!("expected Basic"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_build_client_handshake_auth_none() {
-        let cfg = ClientConfig::with_endpoint("ws://127.0.0.1:0");
-        let auth = build_client_handshake_auth(&cfg).await.expect("ok");
-        assert!(auth.authorization_header.is_none());
-        assert!(auth.bearer_token.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_build_client_handshake_auth_basic() {
-        let cfg = ClientConfig::with_endpoint("ws://127.0.0.1:0").with_auth(
-            ClientAuthConfig::Basic(crate::auth::basic::Config::new(TEST_USER, TEST_PASS)),
-        );
-        let auth = build_client_handshake_auth(&cfg).await.expect("ok");
-        let header = auth.authorization_header.expect("header");
-        assert!(header.starts_with("Basic "));
-        let encoded = header.strip_prefix("Basic ").unwrap();
-        let decoded = BASE64_STANDARD.decode(encoded).expect("decode");
-        assert_eq!(decoded, format!("{TEST_USER}:{TEST_PASS}").as_bytes());
-    }
-
-    #[tokio::test]
-    async fn test_build_client_handshake_auth_jwt_emits_bearer_token() {
-        let cfg = ClientConfig::with_endpoint("ws://127.0.0.1:0")
-            .with_auth(ClientAuthConfig::Jwt(jwt_signer_config()));
-        let auth = build_client_handshake_auth(&cfg).await.expect("ok");
-        let token = auth.bearer_token.expect("bearer token");
-        assert_eq!(
-            auth.authorization_header.as_deref(),
-            Some(format!("Bearer {token}").as_str())
-        );
-    }
-
-    /// SPIRE-based handshake auth is not implemented for WebSocket. The
-    /// server builder must fail-closed rather than silently accept any
-    /// client.
-    #[cfg(not(target_family = "windows"))]
-    #[tokio::test]
-    async fn test_build_server_handshake_auth_spire_rejected() {
-        use crate::auth::spire::SpireConfig;
-        let cfg = ServerConfig::with_endpoint("ws://127.0.0.1:0")
-            .with_auth(ServerAuthConfig::Spire(SpireConfig::default()));
-        assert!(matches!(
-            build_server_handshake_auth(&cfg),
-            Err(ConfigError::WebSocketSpireUnsupported)
-        ));
-    }
-
-    /// Mirror of the server-side guard: clients configured with SPIRE auth
-    /// over WebSocket must fail-closed at handshake build time.
-    #[cfg(not(target_family = "windows"))]
-    #[tokio::test]
-    async fn test_build_client_handshake_auth_spire_rejected() {
-        use crate::auth::spire::SpireConfig;
-        let cfg = ClientConfig::with_endpoint("ws://127.0.0.1:0")
-            .with_auth(ClientAuthConfig::Spire(SpireConfig::default()));
-        let result = build_client_handshake_auth(&cfg).await;
-        assert!(matches!(
-            result,
-            Err(ConfigError::WebSocketSpireUnsupported)
-        ));
     }
 }
