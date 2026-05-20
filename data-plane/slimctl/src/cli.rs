@@ -6,8 +6,8 @@ use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::{Args, Parser, Subcommand};
 
 use crate::commands::{
-    channel_manager::{self, ChannelManagerArgs},
     bench::{self, BenchArgs},
+    channel_manager::{self, ChannelManagerArgs},
     config_cmd::{self, ConfigArgs},
     controller::{self, ControllerArgs},
     node::{self, NodeArgs},
