@@ -32,6 +32,8 @@ impl ConnList {
         }
     }
 
+    // Linear scan: acceptable for the expected connection counts (≤ 256).
+    // Switch to a HashSet if this ever grows significantly larger.
     /// Add `conn` if not already present (deduped).
     fn push(&mut self, conn: u64) {
         if !self.conns.contains(&conn) {
@@ -112,6 +114,10 @@ struct PrefixEntry {
     ids: Vec<u64>,
     local: Vec<ConnList>,
     remote: Vec<ConnList>,
+    /// Deduplicated union of all per-slot local connections.
+    all_local_conns: Vec<u64>,
+    /// Deduplicated union of all per-slot remote connections.
+    all_remote_conns: Vec<u64>,
     /// Round-robin cursor for NULL_COMPONENT slot selection.
     slot_cursor: AtomicUsize,
     /// Human-readable prefix strings for for_each / Display / ProtoName.
@@ -124,6 +130,8 @@ impl PrefixEntry {
             ids: Vec::new(),
             local: Vec::new(),
             remote: Vec::new(),
+            all_local_conns: Vec::new(),
+            all_remote_conns: Vec::new(),
             slot_cursor: AtomicUsize::new(0),
             strings,
         }
@@ -136,32 +144,66 @@ impl PrefixEntry {
         self.remote.push(ConnList::new());
     }
 
-    fn len(&self) -> usize {
-        self.ids.len()
-    }
-
     fn is_empty(&self) -> bool {
         self.ids.is_empty()
     }
 
     /// Add `conn` to the appropriate list for slot `idx` if not already present.
+    /// Also updates the aggregate deduped connection list.
     fn insert_conn(&mut self, idx: usize, conn: u64, is_local: bool) {
-        let list = if is_local {
-            &mut self.local[idx]
+        if is_local {
+            self.local[idx].push(conn);
+            if !self.all_local_conns.contains(&conn) {
+                self.all_local_conns.push(conn);
+            }
         } else {
-            &mut self.remote[idx]
-        };
-        list.push(conn);
+            self.remote[idx].push(conn);
+            if !self.all_remote_conns.contains(&conn) {
+                self.all_remote_conns.push(conn);
+            }
+        }
     }
 
     /// Remove `conn` from the appropriate list for slot `idx` (no-op if absent).
+    /// Evicts from the aggregate only when no other slot still holds the connection.
     fn remove_conn(&mut self, idx: usize, conn: u64, is_local: bool) {
-        let list = if is_local {
-            &mut self.local[idx]
+        if is_local {
+            self.local[idx].remove(conn);
+            let still_present = self.local.iter().any(|l| l.conns.contains(&conn));
+            if !still_present
+                && let Some(pos) = self.all_local_conns.iter().position(|&c| c == conn)
+            {
+                self.all_local_conns.swap_remove(pos);
+            }
         } else {
-            &mut self.remote[idx]
-        };
-        list.remove(conn);
+            self.remote[idx].remove(conn);
+            let still_present = self.remote.iter().any(|r| r.conns.contains(&conn));
+            if !still_present
+                && let Some(pos) = self.all_remote_conns.iter().position(|&c| c == conn)
+            {
+                self.all_remote_conns.swap_remove(pos);
+            }
+        }
+    }
+
+    /// Rebuild aggregate connection lists from scratch (called after a slot is removed).
+    fn rebuild_aggregates(&mut self) {
+        self.all_local_conns.clear();
+        for list in &self.local {
+            for &c in &list.conns {
+                if !self.all_local_conns.contains(&c) {
+                    self.all_local_conns.push(c);
+                }
+            }
+        }
+        self.all_remote_conns.clear();
+        for list in &self.remote {
+            for &c in &list.conns {
+                if !self.all_remote_conns.contains(&c) {
+                    self.all_remote_conns.push(c);
+                }
+            }
+        }
     }
 
     /// True when both local and remote lists for slot `idx` are empty.
@@ -174,6 +216,7 @@ impl PrefixEntry {
         self.ids.swap_remove(idx);
         self.local.swap_remove(idx);
         self.remote.swap_remove(idx);
+        self.rebuild_aggregates();
     }
 
     /// Remove all slots whose local and remote lists are both empty.
@@ -196,10 +239,13 @@ impl PrefixEntry {
 
     /// Ensure a slot for `id` exists, then insert `conn` (deduped).
     fn insert_conn_for_id(&mut self, id: u64, conn: u64, is_local: bool) {
-        if !self.ids.contains(&id) {
-            self.push_id(id);
-        }
-        let idx = self.ids.iter().position(|&i| i == id).unwrap();
+        let idx = match self.ids.iter().position(|&i| i == id) {
+            Some(i) => i,
+            None => {
+                self.push_id(id);
+                self.ids.len() - 1
+            }
+        };
         self.insert_conn(idx, conn, is_local);
     }
 
@@ -235,52 +281,38 @@ impl PrefixEntry {
     }
 
     /// NULL_COMPONENT `match_one`: pick one connection, all locals before any remote,
-    /// starting from a random slot, skipping `skip`.
+    /// round-robin across the pre-built aggregate lists, skipping `skip`.
     fn pick_one_any(&self, skip: u64) -> Option<u64> {
-        let n = self.len();
-        if n == 0 {
-            return None;
-        }
-        // Skip the atomic increment when there is only one slot.
-        let start = if n == 1 {
-            0
-        } else {
-            self.slot_cursor.fetch_add(1, Ordering::Relaxed) % n
-        };
-        // All locals first (starting from random slot, wrapping).
-        for i in (start..n).chain(0..start) {
-            if let Some(c) = self.local[i].next(skip) {
-                return Some(c);
+        let n = self.all_local_conns.len();
+        if n > 0 {
+            let start = self.slot_cursor.fetch_add(1, Ordering::Relaxed) % n;
+            for i in (start..n).chain(0..start) {
+                if self.all_local_conns[i] != skip {
+                    return Some(self.all_local_conns[i]);
+                }
             }
         }
-        // Then all remotes (same wrapping start).
-        for i in (start..n).chain(0..start) {
-            if let Some(c) = self.remote[i].next(skip) {
-                return Some(c);
+        let n = self.all_remote_conns.len();
+        if n > 0 {
+            let start = self.slot_cursor.fetch_add(1, Ordering::Relaxed) % n;
+            for i in (start..n).chain(0..start) {
+                if self.all_remote_conns[i] != skip {
+                    return Some(self.all_remote_conns[i]);
+                }
             }
         }
         None
     }
 
     /// NULL_COMPONENT `match_all`: collect all distinct connections, locals before
-    /// remotes, skipping `skip`.
+    /// remotes, skipping `skip`. Uses the pre-built aggregate lists (already deduped).
     fn get_all_any(&self, skip: u64) -> Vec<u64> {
-        let mut out: Vec<u64> = Vec::with_capacity(self.len());
-        for local in &self.local {
-            for c in local.iter() {
-                if c != skip && !out.contains(&c) {
-                    out.push(c);
-                }
-            }
-        }
-        for remote in &self.remote {
-            for c in remote.iter() {
-                if c != skip && !out.contains(&c) {
-                    out.push(c);
-                }
-            }
-        }
-        out
+        self.all_local_conns
+            .iter()
+            .chain(self.all_remote_conns.iter())
+            .copied()
+            .filter(|&c| c != skip)
+            .collect()
     }
 
     /// Iterate all slots, yielding `(id, local, remote)` — used by `for_each`.
@@ -311,6 +343,8 @@ impl Clone for PrefixEntry {
             ids: self.ids.clone(),
             local: self.local.clone(),
             remote: self.remote.clone(),
+            all_local_conns: self.all_local_conns.clone(),
+            all_remote_conns: self.all_remote_conns.clone(),
             slot_cursor: AtomicUsize::new(self.slot_cursor.load(Ordering::Relaxed)),
             strings: self.strings.clone(),
         }
@@ -337,7 +371,46 @@ struct SubRecord {
 #[derive(Debug, Default)]
 struct SubscriptionState {
     subscriptions: HashMap<u64, SubRecord>, // sub_id  → (encoded, conn_id)
-    conn_subs: HashMap<u64, Vec<u64>>,      // conn_id → sub_ids
+    conn_subs: HashMap<u64, HashSet<u64>>,  // conn_id → sub_ids
+}
+
+impl SubscriptionState {
+    /// Record a new subscription and update the reverse conn→sub_ids map.
+    fn add(&mut self, sub_id: u64, record: SubRecord) {
+        self.subscriptions.insert(sub_id, record);
+        self.conn_subs
+            .entry(record.conn_id)
+            .or_default()
+            .insert(sub_id);
+    }
+
+    /// Remove a subscription by `sub_id`, cleaning up `conn_subs` when empty.
+    /// Returns the removed record, or `None` if the `sub_id` was not present.
+    fn remove(&mut self, sub_id: u64) -> Option<SubRecord> {
+        let record = self.subscriptions.remove(&sub_id)?;
+        if let Some(set) = self.conn_subs.get_mut(&record.conn_id) {
+            set.remove(&sub_id);
+        }
+        if self
+            .conn_subs
+            .get(&record.conn_id)
+            .is_some_and(|s| s.is_empty())
+        {
+            self.conn_subs.remove(&record.conn_id);
+        }
+        Some(record)
+    }
+
+    /// True when `conn` still has at least one subscription for `encoded`.
+    fn conn_still_subscribed(&self, conn: u64, encoded: EncodedName) -> bool {
+        self.conn_subs.get(&conn).is_some_and(|subs| {
+            subs.iter().any(|&s| {
+                self.subscriptions
+                    .get(&s)
+                    .is_some_and(|r| r.encoded == encoded)
+            })
+        })
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -354,8 +427,8 @@ struct SubscriptionState {
 
 #[derive(Debug)]
 pub struct SubscriptionTableImpl {
-    routing: ArcSwap<HashMap<[u64; 3], PrefixEntry>>, // lock-free on the hot read path
-    subscription_state: Mutex<SubscriptionState>,     // never held by match_one / match_all
+    routing: ArcSwap<HashMap<[u64; 3], Arc<PrefixEntry>>>, // lock-free on the hot read path
+    subscription_state: Mutex<SubscriptionState>,          // never held by match_one / match_all
 }
 
 impl Default for SubscriptionTableImpl {
@@ -441,29 +514,28 @@ impl SubscriptionTable for SubscriptionTableImpl {
         let mut rs = (**self.routing.load()).clone();
 
         // 1. Ensure PrefixEntry exists; record strings on first insertion.
-        let prefix_entry = rs.entry(prefix).or_insert_with(|| {
+        let entry = rs.entry(prefix).or_insert_with(|| {
             let (s0, s1, s2) = name.str_components();
-            PrefixEntry::new([s0.to_string(), s1.to_string(), s2.to_string()])
+            Arc::new(PrefixEntry::new([
+                s0.to_string(),
+                s1.to_string(),
+                s2.to_string(),
+            ]))
         });
 
         // 2 & 3. Ensure an ID slot exists and insert conn (deduped).
-        prefix_entry.insert_conn_for_id(id, conn, is_local);
+        // Arc::make_mut does COW: clones only this PrefixEntry if other refs exist.
+        Arc::make_mut(entry).insert_conn_for_id(id, conn, is_local);
         self.routing.store(Arc::new(rs));
 
-        // 4. Record the subscription (idempotent: same sub_id overwrites itself).
-        ss.subscriptions.insert(
+        // 4 & 5. Record subscription and update the reverse conn→sub_ids map.
+        ss.add(
             subscription_id,
             SubRecord {
                 encoded,
                 conn_id: conn,
             },
         );
-
-        // 5. Track sub_id → conn (deduped).
-        let subs = ss.conn_subs.entry(conn).or_default();
-        if !subs.contains(&subscription_id) {
-            subs.push(subscription_id);
-        }
 
         debug!(%name, %conn, "subscription table: add subscription");
         Ok(())
@@ -511,28 +583,20 @@ impl SubscriptionTable for SubscriptionTableImpl {
             return Err(DataPathError::SubscriptionIdNotFound(subscription_id));
         }
 
-        // Remove sub_id from the subscriptions map and the reverse conn_subs map.
-        ss.subscriptions.remove(&subscription_id);
-        if let Some(subs) = ss.conn_subs.get_mut(&conn) {
-            subs.retain(|&s| s != subscription_id);
-        }
+        // Remove sub_id from both maps (conn_subs is cleaned up when empty).
+        ss.remove(subscription_id);
 
         // Check whether the connection is still subscribed to the same encoded name via another
         // subscription_id.
-        let conn_still_subscribed = ss.conn_subs.get(&conn).is_some_and(|subs| {
-            subs.iter().any(|&s| {
-                ss.subscriptions
-                    .get(&s)
-                    .is_some_and(|r| r.encoded == encoded)
-            })
-        });
+        let conn_still_subscribed = ss.conn_still_subscribed(conn, encoded);
 
         if !conn_still_subscribed {
             let mut rs = (**self.routing.load()).clone();
-            let should_remove_prefix = if let Some(prefix_entry) = rs.get_mut(&prefix) {
-                prefix_entry.remove_conn_for_id(id, conn, is_local);
-                prefix_entry.retain_non_empty();
-                prefix_entry.is_empty()
+            let should_remove_prefix = if let Some(entry) = rs.get_mut(&prefix) {
+                let pe = Arc::make_mut(entry);
+                pe.remove_conn_for_id(id, conn, is_local);
+                pe.retain_non_empty();
+                pe.is_empty()
             } else {
                 false
             };
@@ -540,11 +604,6 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 rs.remove(&prefix);
             }
             self.routing.store(Arc::new(rs));
-        }
-
-        // Clean up conn_subs if empty.
-        if ss.conn_subs.get(&conn).is_some_and(|s| s.is_empty()) {
-            ss.conn_subs.remove(&conn);
         }
 
         Ok(())
@@ -604,10 +663,11 @@ impl SubscriptionTable for SubscriptionTableImpl {
             ];
             let id = encoded.component_3;
 
-            let should_remove_prefix = if let Some(prefix_entry) = rs.get_mut(&prefix) {
-                prefix_entry.remove_conn_for_id(id, conn, is_local);
-                prefix_entry.retain_non_empty();
-                prefix_entry.is_empty()
+            let should_remove_prefix = if let Some(entry) = rs.get_mut(&prefix) {
+                let pe = Arc::make_mut(entry);
+                pe.remove_conn_for_id(id, conn, is_local);
+                pe.retain_non_empty();
+                pe.is_empty()
             } else {
                 false
             };
@@ -823,7 +883,7 @@ mod tests {
         assert!(out.contains(&1));
         assert!(out.contains(&2));
 
-        // run multiple times for randomnes
+        // run multiple times for randomness
         for _ in 0..20 {
             let out = t.match_one(&enc(&name1), 100).unwrap();
             if out != 1 && out != 2 {
