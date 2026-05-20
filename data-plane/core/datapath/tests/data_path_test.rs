@@ -9,10 +9,85 @@ mod tests {
     use tracing::info;
     use tracing_test::traced_test;
 
-    use slim_config::grpc::{client::ClientConfig, server::ServerConfig};
+    use slim_config::tls::client::TlsClientConfig;
+    use slim_config::tls::server::TlsServerConfig;
+    use slim_config::transport::TransportProtocol;
+    use slim_config::{client::ClientConfig, server::ServerConfig};
     use slim_datapath::api::{DataPlaneServiceServer, ProtoMessage as Message};
     use slim_datapath::errors::DataPathError;
     use slim_datapath::message_processing::MessageProcessor;
+
+    /// Poll for server readiness with exponential backoff (max 2 seconds)
+    async fn wait_for_server_ready(addr: &str, max_attempts: u32) {
+        for attempt in 0..max_attempts {
+            match tokio::net::TcpStream::connect(addr).await {
+                Ok(_) => return, // Server is ready
+                Err(_) => {
+                    if attempt < max_attempts - 1 {
+                        let backoff =
+                            std::time::Duration::from_millis(50 * (1 + attempt as u64).min(10));
+                        tokio::time::sleep(backoff).await;
+                    }
+                }
+            }
+        }
+    }
+
+    async fn run_transport_roundtrip(
+        server_conf: ServerConfig,
+        client_conf: ClientConfig,
+        connect_addr: Option<SocketAddr>,
+        transport_label: &str,
+    ) -> u64 {
+        let processor = MessageProcessor::new();
+        let server_token = processor
+            .run_server(&server_conf)
+            .await
+            .unwrap_or_else(|e| panic!("failed to start {transport_label} dataplane server: {e}"));
+
+        // Wait for server to be ready by polling instead of fixed sleep
+        let addr = if let Some(addr) = connect_addr {
+            addr.to_string()
+        } else {
+            "127.0.0.1:51060".to_string()
+        };
+        wait_for_server_ready(&addr, 40).await;
+
+        let (_handle, conn_index) = processor
+            .connect(client_conf, None, connect_addr)
+            .await
+            .unwrap_or_else(|e| panic!("failed to connect {transport_label} client: {e}"));
+
+        for _ in 0..3 {
+            processor
+                .send_msg(make_message("org", "namespace", "type"), conn_index)
+                .await
+                .unwrap_or_else(|e| {
+                    panic!("failed to send message over {transport_label} client transport: {e}")
+                });
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        for _ in 0..3 {
+            processor
+                .send_msg(make_message("org", "namespace", "type"), 0)
+                .await
+                .unwrap_or_else(|e| {
+                    panic!("failed to send message over {transport_label} server transport: {e}")
+                });
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        let _ = processor.disconnect(conn_index);
+        server_token.cancel();
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        processor
+            .shutdown()
+            .await
+            .unwrap_or_else(|e| panic!("failed to shutdown {transport_label} processor: {e}"));
+
+        conn_index
+    }
 
     #[tokio::test]
     #[traced_test]
@@ -37,12 +112,11 @@ mod tests {
             }
         });
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        wait_for_server_ready("127.0.0.1:50051", 40).await;
 
         // connect client
         let mut client_config = ClientConfig::with_endpoint("http://127.0.0.1:50051");
         client_config.tls_setting.insecure = true;
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         // create bidirectional stream
         info!("Client connected");
@@ -70,7 +144,7 @@ mod tests {
         }
 
         // wait for messages to be received by the server
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
         // assert messages from the client were received by the server
         let expected_msg = "received message from connection conn_index=0";
@@ -88,7 +162,7 @@ mod tests {
         }
 
         // wait for messages to be received by the client
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
         // assert messages from the server were received by the client
         let expected_msg = "received message from connection conn_index=".to_string()
@@ -103,7 +177,7 @@ mod tests {
         tx.send(Ok(msg)).await.unwrap();
 
         // wait for messages to be received by the server
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
         // assert messages from the client were received by the server
         let expected_msg =
@@ -132,7 +206,7 @@ mod tests {
         let sub_form = make_sub_from_command("org", "ns", "type", 0);
         tx.send(Ok(sub_form)).await.unwrap();
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
         let expected_msg = "processing subscription";
         assert!(logs_contain(expected_msg));
@@ -141,7 +215,7 @@ mod tests {
         let fwd_to = make_fwd_to_command("org", "ns", "type", 0);
         tx.send(Ok(fwd_to)).await.unwrap();
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
         // After link negotiation the peer version is ≥ 1.2.0, so the remote-ack
         // path is taken instead of the synchronous forwarding path.
         assert!(
@@ -172,7 +246,7 @@ mod tests {
             }
         });
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        wait_for_server_ready("127.0.0.1:50053", 40).await;
 
         // create a client config we will attach to the connection
         let mut client_config = ClientConfig::with_endpoint("http://127.0.0.1:50053");
@@ -204,6 +278,81 @@ mod tests {
             msg_processor.connection_table().get(conn_index).is_none(),
             "connection should be removed after disconnect"
         );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_transport_roundtrip_grpc() {
+        let server_conf = ServerConfig::with_endpoint("127.0.0.1:51060")
+            .with_tls_settings(TlsServerConfig::insecure());
+
+        let client_conf = ClientConfig::with_endpoint("http://127.0.0.1:51060")
+            .with_tls_setting(TlsClientConfig::insecure());
+
+        let conn_index = run_transport_roundtrip(
+            server_conf,
+            client_conf,
+            Some(SocketAddr::from(([127, 0, 0, 1], 51060))),
+            "grpc",
+        )
+        .await;
+
+        assert!(logs_contain(
+            "received message from connection conn_index=0"
+        ));
+        let expected = format!("received message from connection conn_index={conn_index}");
+        assert!(logs_contain(expected.as_str()));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_websocket_connection_ws() {
+        let server_conf = ServerConfig::with_endpoint("ws://127.0.0.1:51061")
+            .with_transport(TransportProtocol::Websocket)
+            .with_tls_settings(TlsServerConfig::insecure());
+
+        let client_conf = ClientConfig::with_endpoint("ws://127.0.0.1:51061")
+            .with_transport(TransportProtocol::Websocket)
+            .with_tls_setting(TlsClientConfig::insecure());
+        let conn_index =
+            run_transport_roundtrip(server_conf, client_conf, None, "websocket ws").await;
+
+        assert!(logs_contain(
+            "received message from connection conn_index=0"
+        ));
+        let expected = format!("received message from connection conn_index={conn_index}");
+        assert!(logs_contain(expected.as_str()));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_websocket_connection_wss() {
+        let grpc_tls_testdata = format!("{}/../config/testdata/grpc", env!("CARGO_MANIFEST_DIR"));
+
+        let server_tls = TlsServerConfig::new().with_cert_and_key_file(
+            &format!("{}/server.crt", grpc_tls_testdata),
+            &format!("{}/server.key", grpc_tls_testdata),
+        );
+
+        let server_conf = ServerConfig::with_endpoint("wss://127.0.0.1:51062")
+            .with_transport(TransportProtocol::Websocket)
+            .with_tls_settings(server_tls);
+
+        let client_tls =
+            TlsClientConfig::new().with_ca_file(&format!("{}/ca.crt", grpc_tls_testdata));
+
+        let client_conf = ClientConfig::with_endpoint("wss://127.0.0.1:51062")
+            .with_transport(TransportProtocol::Websocket)
+            .with_server_name("example1")
+            .with_tls_setting(client_tls);
+        let conn_index =
+            run_transport_roundtrip(server_conf, client_conf, None, "websocket wss").await;
+
+        assert!(logs_contain(
+            "received message from connection conn_index=0"
+        ));
+        let expected = format!("received message from connection conn_index={conn_index}");
+        assert!(logs_contain(expected.as_str()));
     }
 
     fn make_message(org: &str, ns: &str, name: &str) -> Message {

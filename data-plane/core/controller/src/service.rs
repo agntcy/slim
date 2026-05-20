@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use display_error_chain::ErrorChainExt;
 use slim_config::component::id::ID;
-use slim_config::grpc::server::ServerConfig;
+use slim_config::server::ServerConfig;
 use slim_session::subscription_manager::SubscriptionManager;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -31,7 +31,7 @@ use crate::errors::ControllerError;
 use prost_types::Struct;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::TokenProvider;
-use slim_config::grpc::client::ClientConfig;
+use slim_config::client::{ClientConfig, TransportChannel};
 use slim_datapath::api::ProtoName;
 use slim_datapath::api::{
     MessageType::Subscribe, MessageType::SubscriptionAck as SubscriptionAckType,
@@ -202,7 +202,6 @@ impl ControlPlane {
             .unwrap();
 
         let (signal, watch) = drain::channel();
-
         ControlPlane {
             servers: config.servers,
             clients: config.clients,
@@ -440,7 +439,7 @@ impl ControlPlane {
         }
 
         let token = config
-            .run_server(
+            .run_grpc_server(
                 &[ControllerServiceServer::new(self.controller.clone())],
                 self.controller.drain_watch()?,
             )
@@ -1509,7 +1508,14 @@ impl ControllerService {
     ) -> Result<mpsc::Sender<Result<ControlMessage, Status>>, ControllerError> {
         info!(%config.endpoint, "connecting to control plane");
 
-        let channel = config.to_channel().await?;
+        let channel = match config.to_channel().await? {
+            TransportChannel::Grpc(c) => c,
+            TransportChannel::Websocket(_) => {
+                return Err(ControllerError::ConfigError(
+                    slim_config::errors::ConfigError::GrpcChannelUnsupportedTransport,
+                ));
+            }
+        };
 
         let mut client = ControllerServiceClient::new(channel.clone());
         let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);

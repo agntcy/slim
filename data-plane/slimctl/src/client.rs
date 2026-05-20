@@ -1,13 +1,14 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use tonic::codegen::{Body, Bytes, StdError};
 
 use crate::proto::channel_manager::proto::v1::channel_manager_service_client::ChannelManagerServiceClient;
 use crate::proto::controller::proto::v1::controller_service_client::ControllerServiceClient;
 use crate::proto::controlplane::proto::v1::control_plane_service_client::ControlPlaneServiceClient;
-use slim_config::grpc::client::ClientConfig;
+use slim_config::client::{ClientConfig, TransportChannel};
+use slim_config::errors::ConfigError;
 
 /// Create a `ControlPlaneServiceClient` with TLS and auth configured from `opts`.
 pub async fn get_control_plane_client(
@@ -24,10 +25,14 @@ pub async fn get_control_plane_client(
         + 'static,
     >,
 > {
-    let channel = opts
+    let channel = match opts
         .to_channel()
         .await
-        .context("failed to connect to server")?;
+        .context("failed to connect to server")?
+    {
+        TransportChannel::Grpc(channel) => channel,
+        TransportChannel::Websocket(_) => bail!("{}", ConfigError::GrpcChannelUnsupportedTransport),
+    };
     Ok(ControlPlaneServiceClient::new(channel))
 }
 
@@ -46,10 +51,14 @@ pub async fn get_controller_client(
         + 'static,
     >,
 > {
-    let channel = opts
+    let channel = match opts
         .to_channel()
         .await
-        .context("failed to connect to server")?;
+        .context("failed to connect to server")?
+    {
+        TransportChannel::Grpc(channel) => channel,
+        TransportChannel::Websocket(_) => bail!("{}", ConfigError::GrpcChannelUnsupportedTransport),
+    };
     Ok(ControllerServiceClient::new(channel))
 }
 
@@ -68,10 +77,14 @@ pub async fn get_channel_manager_client(
         + 'static,
     >,
 > {
-    let channel = opts
+    let channel = match opts
         .to_channel()
         .await
-        .context("failed to connect to channel manager")?;
+        .context("failed to connect to channel manager")?
+    {
+        TransportChannel::Grpc(channel) => channel,
+        TransportChannel::Websocket(_) => bail!("{}", ConfigError::GrpcChannelUnsupportedTransport),
+    };
     Ok(ChannelManagerServiceClient::new(channel))
 }
 
