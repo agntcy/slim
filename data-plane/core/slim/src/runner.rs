@@ -86,5 +86,5 @@ pub fn run(config_file: &str) -> Result<()> {
     provider::initialize_crypto_provider();
 
     let slim_runtime = runtime::build(config.runtime().context("invalid runtime configuration")?);
-    slim_runtime.runtime.block_on(run_services(config))
+    slim_runtime.block_on(run_services(config))
 }

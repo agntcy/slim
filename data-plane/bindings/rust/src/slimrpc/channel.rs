@@ -283,7 +283,7 @@ impl Channel {
             ));
         }
 
-        let runtime = crate::get_runtime().handle().clone();
+        let runtime = crate::get_runtime();
 
         let members_set: HashSet<Name> = members.into_iter().collect();
 
