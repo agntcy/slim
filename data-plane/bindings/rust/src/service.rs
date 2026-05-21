@@ -10,10 +10,6 @@ use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
 use crate::server_config::ServerConfig;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_config::auth::identity::{
-    IdentityProviderConfig as CoreIdentityProviderConfig,
-    IdentityVerifierConfig as CoreIdentityVerifierConfig,
-};
 use slim_config::component::Component;
 use slim_config::component::id::{ID, Kind};
 use slim_config::grpc::client::ClientConfig as CoreClientConfig;
@@ -55,8 +51,6 @@ impl From<DataplaneConfig> for CoreControllerConfig {
                 core
             })
             .collect();
-        core_config.token_provider = CoreIdentityProviderConfig::None;
-        core_config.token_verifier = CoreIdentityVerifierConfig::None;
         core_config
     }
 }
@@ -565,16 +559,6 @@ mod tests {
         let core_config: CoreControllerConfig = config.clone().into();
         assert_eq!(core_config.servers.len(), 1);
         assert_eq!(core_config.clients.len(), 1);
-
-        // Verify token provider/verifier are set to None
-        assert!(matches!(
-            core_config.token_provider,
-            CoreIdentityProviderConfig::None
-        ));
-        assert!(matches!(
-            core_config.token_verifier,
-            CoreIdentityVerifierConfig::None
-        ));
     }
 
     #[test]
