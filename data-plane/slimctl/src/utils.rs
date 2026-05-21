@@ -53,12 +53,14 @@ pub fn parse_route(route: &str) -> Result<(String, String, String, u64)> {
 }
 
 /// Return true if the string looks like an endpoint URL (contains ':' or starts with http/https).
+#[cfg(test)]
 pub fn is_endpoint(s: &str) -> bool {
     s.contains(':') || s.starts_with("http://") || s.starts_with("https://")
 }
 
 /// Parse an endpoint string "http://host:port" or "https://host:port" into a Connection.
-/// Returns (Connection, connection_id).
+/// Returns (Connection, link_id).
+#[cfg(test)]
 pub fn parse_endpoint(endpoint: &str) -> Result<(Connection, String)> {
     let url = url::Url::parse(endpoint)
         .map_err(|e| anyhow::anyhow!("failed to parse endpoint '{}': {}", endpoint, e))?;
@@ -90,7 +92,7 @@ pub fn parse_endpoint(endpoint: &str) -> Result<(Connection, String)> {
     }
 
     let conn = Connection {
-        connection_id: endpoint.to_string(),
+        link_id: endpoint.to_string(),
         config_data: String::new(),
     };
 
@@ -98,7 +100,7 @@ pub fn parse_endpoint(endpoint: &str) -> Result<(Connection, String)> {
 }
 
 /// Parse a JSON connection config file, validate it against [`ClientConfig`], and
-/// return a [`Connection`] whose `connection_id` is the endpoint and whose
+/// return a [`Connection`] whose `link_id` is the endpoint and whose
 /// `config_data` is the raw JSON text.
 pub fn parse_config_file(config_file: &str) -> Result<Connection> {
     use slim_config::grpc::client::ClientConfig;
@@ -121,9 +123,51 @@ pub fn parse_config_file(config_file: &str) -> Result<Connection> {
         .map_err(|e| anyhow::anyhow!("invalid connection config in '{}': {}", config_file, e))?;
 
     Ok(Connection {
-        connection_id: cfg.endpoint,
+        link_id: cfg.endpoint,
         config_data: data,
     })
+}
+
+/// Parse a JSON connection config file, ensure it has a `link_id` (generating
+/// one if absent), and return the [`Connection`] plus the resolved link_id.
+/// The returned `config_data` always contains the link_id so the node can
+/// register it when creating the connection.
+pub fn parse_config_file_with_link_id(config_file: &str) -> Result<(Connection, String)> {
+    use slim_config::grpc::client::ClientConfig;
+
+    if config_file.is_empty() {
+        bail!("config file path cannot be empty");
+    }
+    if !config_file.ends_with(".json") {
+        bail!("config file '{}' must be a JSON file", config_file);
+    }
+
+    let data = std::fs::read_to_string(config_file)
+        .map_err(|e| anyhow::anyhow!("failed to read config file '{}': {}", config_file, e))?;
+
+    let mut cfg: ClientConfig = serde_json::from_str(&data)
+        .map_err(|e| anyhow::anyhow!("invalid connection config in '{}': {}", config_file, e))?;
+
+    use slim_config::component::configuration::Configuration;
+    cfg.validate()
+        .map_err(|e| anyhow::anyhow!("invalid connection config in '{}': {}", config_file, e))?;
+
+    if cfg.link_id.trim().is_empty() {
+        cfg.link_id = uuid::Uuid::new_v4().to_string();
+    }
+    let link_id = cfg.link_id.clone();
+    let endpoint = cfg.endpoint.clone();
+
+    let config_data = serde_json::to_string(&cfg)
+        .map_err(|e| anyhow::anyhow!("failed to serialize config: {}", e))?;
+
+    Ok((
+        Connection {
+            link_id: endpoint,
+            config_data,
+        },
+        link_id,
+    ))
 }
 
 #[cfg(test)]
@@ -235,7 +279,7 @@ mod tests {
     #[test]
     fn parse_endpoint_valid_http() {
         let (conn, id) = parse_endpoint("http://localhost:8080").unwrap();
-        assert_eq!(conn.connection_id, "http://localhost:8080");
+        assert_eq!(conn.link_id, "http://localhost:8080");
         assert_eq!(conn.config_data, "");
         assert_eq!(id, "http://localhost:8080");
     }
@@ -244,7 +288,7 @@ mod tests {
     fn parse_endpoint_valid_https() {
         // Use a non-default port; url::Url::port() returns None for scheme defaults (443).
         let (conn, id) = parse_endpoint("https://example.com:8443").unwrap();
-        assert_eq!(conn.connection_id, "https://example.com:8443");
+        assert_eq!(conn.link_id, "https://example.com:8443");
         assert_eq!(id, "https://example.com:8443");
     }
 
@@ -285,7 +329,7 @@ mod tests {
         let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         write!(f, r#"{{"endpoint": "http://host:8080"}}"#).unwrap();
         let conn = parse_config_file(f.path().to_str().unwrap()).unwrap();
-        assert_eq!(conn.connection_id, "http://host:8080");
+        assert_eq!(conn.link_id, "http://host:8080");
         assert!(conn.config_data.contains("endpoint"));
     }
 

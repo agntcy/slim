@@ -31,6 +31,3 @@ services:
             factor: 1
             max_delay: 1500ms
             jitter: true
-      token_provider:
-        type: shared_secret
-        data: "group-abcdef-12345678901234567890"
