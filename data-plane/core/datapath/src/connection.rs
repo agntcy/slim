@@ -4,7 +4,7 @@
 use crate::api::proto::dataplane::v1::Message;
 use parking_lot::RwLock;
 use semver::Version;
-use slim_config::grpc::client::{ClientConfig, is_valid_uuid_v4};
+use slim_config::client::{ClientConfig, is_valid_uuid_v4};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::mpsc;

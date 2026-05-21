@@ -1,5 +1,6 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
+
 tracing:
   log_level: debug
   display_thread_names: true
@@ -14,8 +15,11 @@ services:
   slim/0:
     dataplane:
       servers:
-        - endpoint: "ws://0.0.0.0:46357"
+        - endpoint: "wss://0.0.0.0:46357"
           transport: websocket
           tls:
-            insecure: true
+            source:
+              type: file
+              cert: ./config/crypto/server-cert.pem
+              key: ./config/crypto/server-key.pem
       clients: []

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use slim_auth::errors::AuthError;
-use slim_config::grpc::errors::ConfigError;
+use slim_config::errors::ConfigError;
 use slim_datapath::errors::DataPathError;
 use thiserror::Error;
 use tonic::Status;
