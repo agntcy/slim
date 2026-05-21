@@ -1510,7 +1510,7 @@ impl MessageProcessor {
                                         }
 
                                         if let Err(e) = self_clone.handle_new_message(conn_index, is_local, msg).await {
-                                            // Checking if NegotioationError occured
+                                            // Checking if NegotiationError occurred
                                             if matches!(e, DataPathError::NegotiationError(_)) {
                                                 error!(%conn_index, "fatal link negotiation error, closing connection");
                                                 break;
