@@ -5,7 +5,7 @@ use crate::api::ProtoName;
 use crate::api::ProtoSessionMessageType;
 use crate::api::proto::dataplane::v1::Message;
 use crate::messages::utils::MessageError;
-use slim_config::grpc::errors::ConfigError;
+use slim_config::errors::ConfigError;
 use thiserror::Error;
 
 /// DataPath and subscription table errors merged into a single enum.

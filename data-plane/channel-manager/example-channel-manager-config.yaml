@@ -2,13 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 channel-manager:
-  # gRPC client configuration for connecting to the SLIM node.
+  # Client configuration for connecting to the SLIM node.
   # Supports the same options as the SLIM data-plane ClientConfig:
-  # TLS, authentication, keepalive, proxy, backoff, headers, etc.
+  # transport (grpc/websocket), TLS, authentication, keepalive, proxy, backoff, headers, etc.
   slim-connection:
     endpoint: "http://127.0.0.1:46357"
+    transport: "grpc"
     tls:
       insecure: true
+    # For websocket transport, use:
+    # endpoint: "ws://127.0.0.1:46357"
+    # transport: "websocket"
     # Uncomment below for TLS-secured connections:
     # tls:
     #   insecure: false

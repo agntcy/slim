@@ -34,12 +34,12 @@ impl ControlPlane {
             SouthboundApiService::new(db, cmd_handler, route_service.clone(), shared_drain.clone());
 
         cfg.northbound
-            .run_server(&[ControlPlaneServiceServer::new(nb_svc)], drain_rx.clone())
+            .run_grpc_server(&[ControlPlaneServiceServer::new(nb_svc)], drain_rx.clone())
             .await
             .context("failed to start northbound server")?;
 
         cfg.southbound
-            .run_server(&[ControllerServiceServer::new(sb_svc)], drain_rx)
+            .run_grpc_server(&[ControllerServiceServer::new(sb_svc)], drain_rx)
             .await
             .context("failed to start southbound server")?;
 

@@ -4,7 +4,7 @@
 use tonic::{Request, Response, Status, metadata::KeyAndValueRef};
 use tracing::info;
 
-use slim_config::grpc::client::ClientConfig;
+use slim_config::client::ClientConfig;
 use slim_config::testutils::helloworld::greeter_server::Greeter;
 use slim_config::testutils::helloworld::{HelloReply, HelloRequest};
 
@@ -93,10 +93,10 @@ mod tests {
     // use slim_config_grpc::headers_middleware::SetRequestHeader;
     use slim_auth::jwt::{Key, KeyData};
     use slim_auth::traits::Signer;
-    use slim_config::grpc::{client::ClientConfig, server::ServerConfig};
     use slim_config::testutils::helloworld::HelloRequest;
     use slim_config::testutils::helloworld::greeter_client::GreeterClient;
     use slim_config::testutils::helloworld::greeter_server::GreeterServer;
+    use slim_config::{client::ClientConfig, server::ServerConfig};
     use slim_testing::utils::setup_test_jwt_resolver;
     #[cfg(unix)]
     use {
@@ -147,7 +147,8 @@ mod tests {
 
         // create a client using the channel
         let channel = match client_config.to_channel().await {
-            Ok(ch) => ch,
+            Ok(slim_config::client::TransportChannel::Grpc(ch)) => ch,
+            Ok(_) => panic!("expected grpc channel"),
             Err(e) => return Err(Box::new(e)),
         };
         let mut client = GreeterClient::new(channel);
@@ -199,7 +200,10 @@ mod tests {
         yield_now().await;
 
         // Use the config-driven client to connect over the Unix socket
-        let channel = client_config.to_channel().await?;
+        let channel = match client_config.to_channel().await? {
+            slim_config::client::TransportChannel::Grpc(ch) => ch,
+            _ => panic!("expected grpc channel"),
+        };
         let mut client = GreeterClient::new(channel);
 
         let request = tonic::Request::new(HelloRequest {
@@ -312,10 +316,14 @@ mod tests {
         setup_client_and_server(client_config.clone(), server_config).await?;
 
         // create a new client with wrong credentials
-        let channel = client_config
+        let channel = match client_config
             .with_auth(auth_wrong_client_config)
             .to_channel()
-            .await?;
+            .await?
+        {
+            slim_config::client::TransportChannel::Grpc(ch) => ch,
+            _ => panic!("expected grpc channel"),
+        };
 
         let mut client = GreeterClient::new(channel);
 

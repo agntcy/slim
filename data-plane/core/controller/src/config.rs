@@ -5,10 +5,10 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 
+use slim_config::client::ClientConfig;
 use slim_config::component::configuration::Configuration;
 use slim_config::component::id::ID;
-use slim_config::grpc::client::ClientConfig;
-use slim_config::grpc::server::ServerConfig;
+use slim_config::server::ServerConfig;
 use slim_datapath::message_processing::MessageProcessor;
 
 use crate::errors::ControllerError;
@@ -108,8 +108,7 @@ impl Configuration for Config {
 mod tests {
     use super::*;
     use slim_config::component::id::{ID, Kind};
-    use slim_config::grpc::client::ClientConfig;
-    use slim_config::grpc::server::ServerConfig;
+    use slim_config::server::ServerConfig;
     use slim_datapath::message_processing::MessageProcessor;
     use std::sync::Arc;
 

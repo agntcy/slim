@@ -20,8 +20,7 @@ use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer};
 use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 use slim_config::{
-    grpc::{client::ClientConfig, errors::ConfigError as GrpcConfigError},
-    tls::client::TlsClientConfig,
+    client::ClientConfig, errors::ConfigError as SlimConfigError, tls::client::TlsClientConfig,
 };
 
 const OTEL_EXPORTER_OTLP_ENDPOINT: &str = "http://localhost:4317";
@@ -30,7 +29,7 @@ const OTEL_EXPORTER_OTLP_ENDPOINT: &str = "http://localhost:4317";
 pub enum ConfigError {
     // gRPC / remote configuration
     #[error("error loading GRPC config")]
-    GRPCError(#[from] GrpcConfigError),
+    GRPCError(#[from] SlimConfigError),
 
     #[error("error building exporter")]
     OpenTelemetryInitError(#[from] ExporterBuildError),

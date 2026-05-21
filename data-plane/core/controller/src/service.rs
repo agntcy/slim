@@ -10,7 +10,7 @@ use std::vec;
 
 use display_error_chain::ErrorChainExt;
 use slim_config::component::id::ID;
-use slim_config::grpc::server::ServerConfig;
+use slim_config::server::ServerConfig;
 use slim_session::SessionMessage;
 use slim_session::subscription_manager::SubscriptionManager;
 use tokio::sync::mpsc;
@@ -33,7 +33,7 @@ use crate::api::proto::api::v1::{
 };
 use crate::errors::ControllerError;
 use prost_types::Struct;
-use slim_config::grpc::client::ClientConfig;
+use slim_config::client::{ClientConfig, TransportChannel};
 use slim_datapath::api::ProtoName;
 use slim_datapath::api::ProtoName as Name;
 use slim_datapath::api::ProtoSessionMessageType;
@@ -563,7 +563,7 @@ impl ControlPlane {
         }
 
         let token = config
-            .run_server(
+            .run_grpc_server(
                 &[ControllerServiceServer::new(self.controller.clone())],
                 self.controller.drain_watch()?,
             )
@@ -2042,7 +2042,14 @@ impl ControllerService {
         self.inner.route_subscription_ids.lock().clear();
         self.inner.link_id_to_conn_id.write().clear();
 
-        let channel = config.to_channel().await?;
+        let channel = match config.to_channel().await? {
+            TransportChannel::Grpc(c) => c,
+            TransportChannel::Websocket(_) => {
+                return Err(ControllerError::ConfigError(
+                    slim_config::errors::ConfigError::GrpcChannelUnsupportedTransport,
+                ));
+            }
+        };
 
         let mut client = ControllerServiceClient::new(channel.clone());
         let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
