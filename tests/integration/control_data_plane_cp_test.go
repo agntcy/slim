@@ -67,8 +67,8 @@ var _ = Describe("Routing", func() {
 		}
 
 		controlPlaneReplacements := map[string]string{
-			"httpPort: 50051": fmt.Sprintf("httpPort: %d", controlPlaneNorthPort),
-			"httpPort: 50052": fmt.Sprintf("httpPort: %d", controlPlaneSouthPort),
+			"0.0.0.0:50051": fmt.Sprintf("0.0.0.0:%d", controlPlaneNorthPort),
+			"0.0.0.0:50052": fmt.Sprintf("0.0.0.0:%d", controlPlaneSouthPort),
 		}
 
 		tempDir = newTempDir("slim-integration-control-plane-")
@@ -131,7 +131,7 @@ var _ = Describe("Routing", func() {
 				GinkgoWriter, GinkgoWriter,
 			)
 			Expect(errCP).NotTo(HaveOccurred())
-			Eventually(controlPlaneSession.Out, 15*time.Second).Should(gbytes.Say("Northbound API Service is listening on"))
+			Eventually(controlPlaneSession.Out, 15*time.Second).Should(gbytes.Say("control plane started"))
 			// test if SLIM node b connects to control plane
 			Eventually(serverBSession.Out, 15*time.Second).Should(gbytes.Say(`connected to control plane`))
 

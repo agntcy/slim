@@ -25,7 +25,3 @@ services:
         - endpoint: "http://127.0.0.1:50052"
           tls:
             insecure: true
-      token_provider:
-        type: shared_secret
-        id: controller
-        data: "group-abcdef-12345678901234567890"

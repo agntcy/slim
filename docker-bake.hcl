@@ -33,6 +33,7 @@ group "data-plane" {
 group "control-plane" {
   targets = [
     "control-plane",
+    "control-plane-debug",
   ]
 }
 
@@ -74,12 +75,23 @@ target "slim-debug" {
 }
 
 target "control-plane" {
-  context = "."
-  dockerfile = "./control-plane/Dockerfile"
-  target     = "control-plane"
+  context    = "."
+  dockerfile = "./data-plane/Dockerfile"
+  target     = "control-plane-release"
   inherits = [
     "_common",
     "docker-metadata-action",
   ]
   tags = get_tag(target.docker-metadata-action.tags, "${target.control-plane.name}")
+}
+
+target "control-plane-debug" {
+  context    = "."
+  dockerfile = "./data-plane/Dockerfile"
+  target     = "control-plane-debug"
+  inherits = [
+    "_common",
+    "docker-metadata-action",
+  ]
+  tags = get_tag(target.docker-metadata-action.tags, "${target.control-plane-debug.name}")
 }

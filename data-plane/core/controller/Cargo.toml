@@ -11,7 +11,6 @@ include = ["src/**", "build.rs", "proto/**"]
 name = "slim_controller"
 
 [dependencies]
-agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-session = { workspace = true }
@@ -21,10 +20,12 @@ agntcy-slim-version = { workspace = true }
 display-error-chain = { workspace = true }
 drain = { workspace = true }
 duration-string = { workspace = true }
+futures = { workspace = true }
 h2 = { workspace = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
+rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -41,5 +42,4 @@ protoc-bin-vendored = { workspace = true }
 tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
-agntcy-slim-testing = { workspace = true }
 tracing-test = { workspace = true }
