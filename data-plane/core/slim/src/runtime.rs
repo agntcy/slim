@@ -151,7 +151,7 @@ enum RuntimeDriver {
 }
 
 impl SlimRuntime {
-    /// Return a clonable handle to this runtime. Cheap; safe to call from any
+    /// Return a cloneable handle to this runtime. Cheap; safe to call from any
     /// thread.
     pub fn handle(&self) -> Handle {
         match &self.driver {

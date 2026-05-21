@@ -627,7 +627,6 @@ mod tests {
     }
 
     #[test_fork::fork]
-    #[test_fork::fork]
     #[test]
     fn test_single_thread_runtime_drives_io() {
         // With n_cores=1 the runtime is built as `current_thread` on a
