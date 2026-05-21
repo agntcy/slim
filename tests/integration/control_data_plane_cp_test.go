@@ -131,7 +131,7 @@ var _ = Describe("Routing", func() {
 				GinkgoWriter, GinkgoWriter,
 			)
 			Expect(errCP).NotTo(HaveOccurred())
-			Eventually(controlPlaneSession.Out, 15*time.Second).Should(gbytes.Say("Northbound API Service is listening on"))
+			Eventually(controlPlaneSession.Out, 15*time.Second).Should(gbytes.Say("control plane started"))
 			// test if SLIM node b connects to control plane
 			Eventually(serverBSession.Out, 15*time.Second).Should(gbytes.Say(`connected to control plane`))
 

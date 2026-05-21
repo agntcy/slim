@@ -15,15 +15,7 @@ services:
   slim/0:
     node_id: slim-client
     dataplane:
-      servers:
-        - endpoint: "0.0.0.0:46358"
-          tls:
-            insecure: true
-
-    controller:
       clients:
-        - endpoint: "http://127.0.0.1:50052"
+        - endpoint: "http://localhost:46357"
           tls:
             insecure: true
-
-      servers: []

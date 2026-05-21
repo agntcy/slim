@@ -72,7 +72,7 @@ func setBinaryPaths(target string) {
 	receiverPath = mustAbs(filepath.Join(examplesTarget, "receiver"))
 	senderPath = mustAbs(filepath.Join(examplesTarget, "sender"))
 
-	dataPlaneDebug := filepath.Join("..", "..", "data-plane", "target", "debug")
+	dataPlaneDebug := filepath.Join("..", "..", "data-plane", "target", target, "debug")
 	controlPlanePath = mustAbs(filepath.Join(dataPlaneDebug, "slim-control-plane"))
 
 	distBin := filepath.Join("..", "..", ".dist", "bin")
