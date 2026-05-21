@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod client;
-pub mod compression;
-pub mod headers_middleware;
-pub mod proxy;
+pub mod common;
+pub mod query_token_layer;
 pub mod server;

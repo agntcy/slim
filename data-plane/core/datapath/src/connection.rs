@@ -7,7 +7,7 @@ use crate::api::proto::dataplane::v1::Message;
 use aws_lc_rs::agreement::EphemeralPrivateKey;
 use parking_lot::RwLock;
 use semver::Version;
-use slim_config::grpc::client::{ClientConfig, is_valid_uuid_v4};
+use slim_config::client::{ClientConfig, is_valid_uuid_v4};
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;

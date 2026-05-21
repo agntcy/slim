@@ -267,9 +267,6 @@ pub struct ClientConfig {
     /// Transport protocol to use (defaults to gRPC in core config when omitted)
     pub transport: Option<TransportProtocol>,
 
-    /// Optional websocket authentication query parameter key
-    pub websocket_auth_query_param: Option<String>,
-
     /// TLS client configuration
     pub tls: TlsClientConfig,
 
@@ -325,7 +322,6 @@ impl From<ClientConfig> for CoreClientConfig {
                 .transport
                 .map(Into::into)
                 .unwrap_or(core_defaults.transport),
-            websocket_auth_query_param: config.websocket_auth_query_param,
             origin: config.origin,
             server_name: config.server_name,
             compression: config.compression.map(Into::into),
@@ -364,7 +360,6 @@ impl From<CoreClientConfig> for ClientConfig {
         ClientConfig {
             endpoint: config.endpoint,
             transport: Some(config.transport.into()),
-            websocket_auth_query_param: config.websocket_auth_query_param,
             origin: config.origin,
             server_name: config.server_name,
             compression: config.compression.map(Into::into),
@@ -390,7 +385,6 @@ impl Default for ClientConfig {
         Self {
             endpoint: core_defaults.endpoint,
             transport: None,
-            websocket_auth_query_param: None,
             origin: None,
             server_name: None,
             compression: None,
@@ -462,7 +456,6 @@ mod tests {
         let config = ClientConfig {
             endpoint: "example.com:443".to_string(),
             transport: None,
-            websocket_auth_query_param: None,
             origin: None,
             server_name: None,
             compression: None,
@@ -501,7 +494,6 @@ mod tests {
         // Verify defaults are all None (core defaults applied during conversion)
         assert_eq!(config.endpoint, "");
         assert_eq!(config.transport, None);
-        assert_eq!(config.websocket_auth_query_param, None);
         assert_eq!(config.origin, None);
         assert_eq!(config.server_name, None);
         assert_eq!(config.compression, None);
@@ -587,7 +579,6 @@ mod tests {
         let ffi_config = ClientConfig {
             endpoint: "api.example.com:443".to_string(),
             transport: Some(TransportProtocol::Websocket),
-            websocket_auth_query_param: Some("token".to_string()),
             origin: Some("example.com".to_string()),
             server_name: Some("sni.example.com".to_string()),
             compression: Some(CompressionType::Gzip),
@@ -619,10 +610,6 @@ mod tests {
 
         assert_eq!(core_config.endpoint, "api.example.com:443");
         assert_eq!(core_config.transport, CoreTransportProtocol::Websocket);
-        assert_eq!(
-            core_config.websocket_auth_query_param,
-            Some("token".to_string())
-        );
         assert_eq!(core_config.origin, Some("example.com".to_string()));
         assert_eq!(core_config.server_name, Some("sni.example.com".to_string()));
         assert!(core_config.compression.is_some());
@@ -643,10 +630,6 @@ mod tests {
 
         assert_eq!(ffi_config.endpoint, core_config.endpoint);
         assert_eq!(ffi_config.transport, Some(core_config.transport.into()));
-        assert_eq!(
-            ffi_config.websocket_auth_query_param,
-            core_config.websocket_auth_query_param
-        );
         assert_eq!(ffi_config.origin, core_config.origin);
         assert_eq!(ffi_config.server_name, core_config.server_name);
         assert_eq!(ffi_config.rate_limit, core_config.rate_limit);
@@ -665,7 +648,6 @@ mod tests {
         let original = ClientConfig {
             endpoint: "localhost:8080".to_string(),
             transport: Some(TransportProtocol::Grpc),
-            websocket_auth_query_param: Some("token".to_string()),
             origin: Some("test.local".to_string()),
             server_name: None,
             compression: Some(CompressionType::Zstd),
@@ -691,10 +673,6 @@ mod tests {
 
         assert_eq!(roundtrip.endpoint, original.endpoint);
         assert_eq!(roundtrip.transport, original.transport);
-        assert_eq!(
-            roundtrip.websocket_auth_query_param,
-            original.websocket_auth_query_param
-        );
         assert_eq!(roundtrip.origin, original.origin);
         assert_eq!(roundtrip.rate_limit, original.rate_limit);
         assert_eq!(roundtrip.buffer_size, original.buffer_size);
