@@ -11,9 +11,6 @@ on:
 
 permissions:
   contents: read
-  # Required for npm trusted publishing (OIDC); jobs that set their own `permissions`
-  # must also include `id-token: write` if they publish to npm.
-  id-token: write
 
 env:
   LIBRARY_NAME: slim_bindings
