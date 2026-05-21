@@ -69,6 +69,12 @@ class PointToPointTest {
 
     /**
      * Publish messages and wait for completion.
+     *
+     * Publishes sequentially (each delivery awaited before the next) so we do not
+     * stack thousands of in-flight reliable sends. Each send uses session-layer
+     * ACK timers (maxRetries × interval); queuing many publishes at once can
+     * exhaust retries on slower CI runners. The Java bindings test publishes
+     * one-at-a-time for the same reason.
      */
     private suspend fun publishMessages(
         senderSession: Session,
@@ -76,19 +82,16 @@ class PointToPointTest {
         payloadType: String?,
         metadata: Map<String, String>?,
     ) {
-        val handles = mutableListOf<suspend () -> Unit>()
-        repeat(nMessages) {
-            val h =
-                senderSession.publishAsync(
-                    "Hello from sender".toByteArray(),
-                    payloadType,
-                    metadata,
-                )
-            handles.add { h.waitAsync() }
+        repeat(nMessages) { i ->
+            senderSession.publishAndWaitAsync(
+                "Hello from sender".toByteArray(),
+                payloadType,
+                metadata,
+            )
+            if ((i + 1) % 200 == 0) {
+                println("[PointToPointTest] published ${i + 1}/$nMessages messages")
+            }
         }
-
-        // Wait for all messages
-        handles.forEach { it() }
     }
 
     /**
