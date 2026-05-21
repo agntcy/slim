@@ -397,6 +397,7 @@ name = "agntcy-slimctl"
 version = "1.4.0"
 dependencies = [
  "agntcy-slim",
+ "agntcy-slim-bindings",
  "agntcy-slim-config",
  "agntcy-slim-datapath",
  "agntcy-slim-service",
