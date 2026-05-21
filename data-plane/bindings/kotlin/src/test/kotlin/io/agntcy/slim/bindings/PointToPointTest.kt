@@ -3,6 +3,8 @@
 
 package io.agntcy.slim.bindings
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -147,7 +149,7 @@ class PointToPointTest {
     fun testStickySession(
         endpoint: String?,
         mlsEnabled: Boolean,
-    ) = runBlocking {
+    ) = runBlocking(Dispatchers.Default) {
         // Match BindingsTest: blank CSV cell must mean global service, not embedded "" endpoint.
         val server = setupServer(endpoint?.takeIf { it.isNotBlank() })
 
@@ -214,10 +216,16 @@ class PointToPointTest {
                             receiverCounts[i] = receiverCounts[i]!! + 1
 
                             if (receiverCounts[i] == nMessages) {
-                                // Send back application acknowledgment
-                                session.publishAsync("All messages received: $i".toByteArray(), null, null)
+                                // Send back application acknowledgment (await so the sender never races teardown)
+                                session.publishAndWaitAsync(
+                                    "All messages received: $i".toByteArray(),
+                                    null,
+                                    null,
+                                )
                             }
                         }
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         println("Receiver $i error: ${e.message}")
                         break
@@ -237,13 +245,24 @@ class PointToPointTest {
             // Give receivers a moment to start listening
             delay(1000)
 
+            // Global in-process service shares one datapath; CI can be slower than a local server.
+            val sessionMaxRetries: UInt
+            val sessionRetryInterval: Duration
+            if (server.localService) {
+                sessionMaxRetries = 5u
+                sessionRetryInterval = Duration.ofMillis(100)
+            } else {
+                sessionMaxRetries = 10u
+                sessionRetryInterval = Duration.ofMillis(200)
+            }
+
             // Create a new session
             val sessionConfig =
                 SessionConfig(
                     sessionType = SessionType.POINT_TO_POINT,
                     enableMls = mlsEnabled,
-                    maxRetries = 5u,
-                    interval = Duration.ofMillis(100),
+                    maxRetries = sessionMaxRetries,
+                    interval = sessionRetryInterval,
                     metadata = emptyMap(),
                 )
             val senderSessionContext = sender.createSession(sessionConfig, receiverName)
