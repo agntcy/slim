@@ -14,7 +14,7 @@ include = ["src/**", "build.rs", "proto/**"]
 [package.metadata.cargo-machete]
 # prost and tonic-prost are used by the generated proto code (via build.rs /
 # tonic-prost-build); cargo-machete does not scan generated sources.
-ignored = ["prost", "tonic-prost"]
+ignored = ["prost", "tonic-prost", "prost-types"]
 
 [[bin]]
 name = "slimctl"
@@ -23,6 +23,7 @@ path = "src/main.rs"
 [dependencies]
 # Local workspace
 agntcy-slim = { workspace = true }
+agntcy-slim-bindings = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-service = { workspace = true }
