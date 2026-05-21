@@ -6,6 +6,7 @@ use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::{Args, Parser, Subcommand};
 
 use crate::commands::{
+    bench::{self, BenchArgs},
     channel_manager::{self, ChannelManagerArgs},
     config_cmd::{self, ConfigArgs},
     controller::{self, ControllerArgs},
@@ -121,6 +122,9 @@ enum Commands {
     /// Commands to interact with the Channel Manager service
     #[command(visible_alias = "cm")]
     ChannelManager(ChannelManagerArgs),
+
+    /// Benchmark SLIM messaging performance
+    Bench(BenchArgs),
 }
 
 pub(crate) async fn run(cli: Cli) -> Result<()> {
@@ -171,6 +175,9 @@ pub(crate) async fn run(cli: Cli) -> Result<()> {
         }
         Commands::ChannelManager(args) => {
             channel_manager::run(&args, &opts).await?;
+        }
+        Commands::Bench(args) => {
+            bench::run(&args).await?;
         }
     }
 
@@ -822,6 +829,42 @@ mod tests {
             args.command,
             ChannelManagerCommand::ListParticipants { .. }
         ));
+    }
+
+    // ── bench ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_bench_sub() {
+        let cli = parse_ok(&["slimctl", "bench", "sub"]);
+        assert!(matches!(cli.command, Commands::Bench(_)));
+    }
+
+    #[test]
+    fn parse_bench_pub() {
+        let cli = parse_ok(&["slimctl", "bench", "pub"]);
+        assert!(matches!(cli.command, Commands::Bench(_)));
+    }
+
+    #[test]
+    fn parse_bench_channel_sub() {
+        let cli = parse_ok(&["slimctl", "bench", "channel", "sub"]);
+        assert!(matches!(cli.command, Commands::Bench(_)));
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn cmd_bench_dispatch_is_reachable() {
+        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _dir = setup_home();
+        // bench::run requires a live SLIM server and will fail or run
+        // indefinitely without one.  A short timeout is enough to execute the
+        // dispatch arm in cli::run() and cover those lines; we discard the
+        // result entirely.
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            run(parse_ok(&["slimctl", "bench", "sub"])),
+        )
+        .await;
     }
 
     // ── command aliases ───────────────────────────────────────────────────────

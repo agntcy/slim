@@ -90,9 +90,12 @@ tasks:
   data-plane:slimctl:build:
     desc: "Build Rust slimctl and stage it in .dist/bin"
     cmds:
-      - cargo build --package agntcy-slimctl
+      - cargo build --package agntcy-slimctl --profile {{.PROFILE}} --target {{.TARGET}}
       - mkdir -p ../.dist/bin
-      - cp target/debug/slimctl ../.dist/bin/slimctl
+      - cp target/{{.PROFILE}}/slimctl ../.dist/bin/slimctl
+    vars:
+      PROFILE: '{{.PROFILE | default "debug"}}'
+      TARGET: '{{.TARGET | default ""}}'
 
   data-plane:control-plane:build:
     desc: "Build Rust control-plane binary and stage it in .dist/bin"
