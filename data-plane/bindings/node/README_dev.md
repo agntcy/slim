@@ -98,7 +98,7 @@ Optional platform packages (`@agntcy/slim-bindings-*`) are version-pinned beside
 
 - **Dry run**: From `data-plane/bindings/node`, run `npm pack` for the main tarball; platform bundles via `task pack:platform TARGET=<target>` → `dist/node-<platform>.tgz`.
 - **Version**: In `package.json`; release tags use `slim-bindings-v*` (see `.github/scripts/get-binding-version.sh`).
-- **Secrets**: `NPM_TOKEN` for `npm publish`.
+- **CI**: Releases publish via [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) (OIDC from `release-bindings.yaml`); no publish token in GitHub. For **local** `npm publish`, use `npm login` or an automation token as usual.
 
 ## Resources
 
