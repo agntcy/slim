@@ -24,6 +24,13 @@ import (
 	"github.com/onsi/gomega/gexec"
 )
 
+// sessionLog returns captured stdout/stderr for a gexec session. Use with ContainSubstring
+// instead of gbytes.Say when multiple SLIM nodes run in parallel (Say only matches new bytes
+// since the last successful Say on the same buffer).
+func sessionLog(session *gexec.Session) string {
+	return string(session.Out.Contents()) + string(session.Err.Contents())
+}
+
 func headerIntegrityControlPlaneReplacements(nodeAPort, nodeBPort, ctrlAPort, ctrlBPort int) map[string]string {
 	return map[string]string{
 		"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", nodeAPort),
@@ -84,6 +91,8 @@ var _ = Describe("Header integrity across federated dataplane nodes", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer terminateSession(nodeASession, 30*time.Second)
 
+		Eventually(nodeASession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
+
 		nodeBSession, err := gexec.Start(
 			exec.Command(slimPath, "--config", nodeBConfig),
 			GinkgoWriter, GinkgoWriter,
@@ -91,12 +100,12 @@ var _ = Describe("Header integrity across federated dataplane nodes", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer terminateSession(nodeBSession, 30*time.Second)
 
-		Eventually(nodeASession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
 		Eventually(nodeBSession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
 		Eventually(nodeASession.Out, 15*time.Second).Should(gbytes.Say("started controlplane server"))
 		Eventually(nodeBSession.Out, 15*time.Second).Should(gbytes.Say("started controlplane server"))
-		Eventually(nodeASession.Out, 10*time.Second).Should(gbytes.Say("received link negotiation"))
-		Eventually(nodeBSession.Out, 10*time.Second).Should(gbytes.Say("received link negotiation"))
+		Eventually(func() string { return sessionLog(nodeBSession) }).Should(ContainSubstring("client connected"))
+		Eventually(func() string { return sessionLog(nodeASession) }).Should(ContainSubstring("received link negotiation"))
+		Eventually(func() string { return sessionLog(nodeBSession) }).Should(ContainSubstring("received link negotiation"))
 
 		getRouteWithID := func(controllerPort int, routePrefix string) string {
 			var routeName string
@@ -203,6 +212,8 @@ var _ = Describe("Header integrity across federated dataplane nodes", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer terminateSession(nodeASession, 30*time.Second)
 
+		Eventually(nodeASession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
+
 		nodeBSession, err := gexec.Start(
 			exec.Command(slimPath, "--config", nodeBConfig),
 			GinkgoWriter, GinkgoWriter,
@@ -210,12 +221,12 @@ var _ = Describe("Header integrity across federated dataplane nodes", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer terminateSession(nodeBSession, 30*time.Second)
 
-		Eventually(nodeASession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
 		Eventually(nodeBSession.Out, 15*time.Second).Should(gbytes.Say("dataplane server started"))
 		Eventually(nodeASession.Out, 15*time.Second).Should(gbytes.Say("started controlplane server"))
 		Eventually(nodeBSession.Out, 15*time.Second).Should(gbytes.Say("started controlplane server"))
-		Eventually(nodeASession.Out, 10*time.Second).Should(gbytes.Say("received link negotiation"))
-		Eventually(nodeBSession.Out, 10*time.Second).Should(gbytes.Say("received link negotiation"))
+		Eventually(func() string { return sessionLog(nodeBSession) }).Should(ContainSubstring("client connected"))
+		Eventually(func() string { return sessionLog(nodeASession) }).Should(ContainSubstring("received link negotiation"))
+		Eventually(func() string { return sessionLog(nodeBSession) }).Should(ContainSubstring("received link negotiation"))
 
 		getRouteWithID := func(controllerPort int, routePrefix string) string {
 			var routeName string

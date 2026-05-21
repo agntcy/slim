@@ -178,6 +178,7 @@ impl MessageProcessor {
         let connection = Connection::new(ConnectionType::Remote, Channel::Client(streams.outbound))
             .with_remote_addr(accepted.remote_addr)
             .with_local_addr(accepted.local_addr)
+            .with_require_header_mac(self.internal.server_require_header_mac)
             .with_cancellation_token(Some(cancellation_token.clone()));
 
         debug!(
@@ -377,6 +378,9 @@ impl MessageProcessor {
                     .open_channel(Request::new(ReceiverStream::new(rx)))
                     .await?;
 
+                let (ecdh_sk, ecdh_pk) = link_ecdh::generate_x25519_ephemeral()
+                    .map_err(|_| DataPathError::LinkKeyGeneration)?;
+
                 let (handle, conn_index) = self.register_remote_connection(
                     stream.into_inner(),
                     Channel::Client(tx),
@@ -386,22 +390,13 @@ impl MessageProcessor {
                     existing_conn_index,
                     cancellation_token,
                     Some(link_id.clone()),
+                    Some(ecdh_sk),
                 )?;
 
-                // Send the link negotiation message to the remote peer.
-                // Old SLIM instances that do not understand this message will silently drop it.
-                let negotiation_msg = ProtoMessage::builder().build_link_negotiation(
-                    &link_id,
-                    local_version(),
-                    false,
-                );
-                if let Err(e) = self.send_msg(negotiation_msg, conn_index).await {
-                    debug!(
-                        %conn_index,
-                        error = %e.chain(),
-                        "failed to send link negotiation (remote may be an older SLIM instance)",
-                    );
-                }
+                self.send_client_link_negotiation(&link_id, conn_index, Some(ecdh_pk))
+                    .await;
+                self.await_link_hmac_ready(conn_index, client_config.require_header_mac)
+                    .await?;
 
                 Ok((handle, conn_index))
             }
@@ -411,7 +406,11 @@ impl MessageProcessor {
                     .expect("websocket channel already consumed");
                 let streams =
                     websocket::spawn_transport_tasks(websocket, cancellation_token.clone());
-                self.register_remote_connection(
+
+                let (ecdh_sk, ecdh_pk) = link_ecdh::generate_x25519_ephemeral()
+                    .map_err(|_| DataPathError::LinkKeyGeneration)?;
+
+                let (handle, conn_index) = self.register_remote_connection(
                     streams.inbound,
                     Channel::Client(streams.outbound),
                     &client_config,
@@ -419,10 +418,67 @@ impl MessageProcessor {
                     remote.or(ws_channel.remote_addr()),
                     existing_conn_index,
                     cancellation_token,
-                    None,
-                )
+                    Some(link_id.clone()),
+                    Some(ecdh_sk),
+                )?;
+
+                self.send_client_link_negotiation(&link_id, conn_index, Some(ecdh_pk))
+                    .await;
+                self.await_link_hmac_ready(conn_index, client_config.require_header_mac)
+                    .await?;
+
+                Ok((handle, conn_index))
             }
         }
+    }
+
+    /// Send the outbound link negotiation request (best-effort for older peers).
+    async fn send_client_link_negotiation(
+        &self,
+        link_id: &str,
+        conn_index: u64,
+        ecdh_public_key: Option<Vec<u8>>,
+    ) {
+        let negotiation_msg = ProtoMessage::builder().build_link_negotiation(
+            link_id,
+            local_version(),
+            false,
+            ecdh_public_key,
+        );
+        if let Err(e) = self.send_msg(negotiation_msg, conn_index).await {
+            debug!(
+                %conn_index,
+                error = %e.chain(),
+                "failed to send link negotiation (remote may be an older SLIM instance)",
+            );
+        }
+    }
+
+    /// Block until the link HMAC session is installed when strict header MAC is enabled.
+    async fn await_link_hmac_ready(
+        &self,
+        conn_index: u64,
+        require_header_mac: bool,
+    ) -> Result<(), DataPathError> {
+        if !require_header_mac {
+            return Ok(());
+        }
+
+        let timeout = std::time::Duration::from_secs(5);
+        let start = tokio::time::Instant::now();
+        while start.elapsed() < timeout {
+            match self.forwarder().get_connection(conn_index) {
+                Some(conn) if conn.header_hmac().is_some() => return Ok(()),
+                Some(_) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                }
+                None => return Err(DataPathError::ConnectionNotFound(conn_index)),
+            }
+        }
+
+        Err(DataPathError::NegotiationError(
+            "timed out waiting for link HMAC session after negotiation".to_string(),
+        ))
     }
 
     /// Common post-connect plumbing shared by every transport: register the
@@ -441,6 +497,7 @@ impl MessageProcessor {
         existing_conn_index: Option<u64>,
         cancellation_token: CancellationToken,
         link_id: Option<String>,
+        outbound_ecdh_private: Option<aws_lc_rs::agreement::EphemeralPrivateKey>,
     ) -> Result<(JoinHandle<()>, u64), DataPathError>
     where
         S: Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
@@ -455,7 +512,9 @@ impl MessageProcessor {
             connection = connection.with_link_id(link_id);
         }
 
-        connection.set_outbound_ecdh_private(ecdh_sk);
+        if let Some(ecdh_sk) = outbound_ecdh_private {
+            connection.set_outbound_ecdh_private(ecdh_sk);
+        }
 
         debug!(
             remote = ?connection.remote_addr(),
@@ -1698,6 +1757,7 @@ impl DataPlaneService for MessageProcessor {
 
 #[cfg(test)]
 mod tests {
+    use slim_config::client::ClientConfig;
     use slim_config::grpc::client::is_valid_uuid_v4;
     use std::sync::Arc;
     use std::time::Duration;
@@ -1818,7 +1878,8 @@ mod tests {
         processor: &MessageProcessor,
     ) -> (u64, tokio::sync::mpsc::Receiver<Message>) {
         let (tx, rx) = mpsc::channel(16);
-        let conn = Connection::new(ConnectionType::Remote, Channel::Client(tx));
+        let conn = Connection::new(ConnectionType::Remote, Channel::Client(tx))
+            .with_config_data(Some(ClientConfig::default()));
         let conn_id = processor
             .forwarder()
             .on_connection_established(conn, None)

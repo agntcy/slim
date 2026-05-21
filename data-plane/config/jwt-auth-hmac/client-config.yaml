@@ -32,5 +32,4 @@ services:
               algorithm: "HS256"
               format: pem
               key:
-               data: |
-                 "secret2"
+                data: "secret"

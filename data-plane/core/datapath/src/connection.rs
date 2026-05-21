@@ -182,10 +182,16 @@ impl Connection {
         matches!(self.connection_type, Type::Local)
     }
 
-    /// Return true if this node initiated the connection (client side).
-    /// False means the remote peer connected to us (server side).
+    /// Return true if this node initiated the connection (outbound dial).
+    ///
+    /// gRPC inbound peers use [`Channel::Server`]; outbound dials use [`Channel::Client`]
+    /// with [`config_data`](Self::config_data) set from [`ClientConfig`].
+    ///
+    /// WebSocket is asymmetric: the server accept path still uses [`Channel::Client`] for
+    /// writes, but leaves `config_data` unset, so inbound WebSocket is distinguished from
+    /// outbound WebSocket (which always carries `config_data` from the dial).
     pub fn is_outgoing(&self) -> bool {
-        matches!(self.channel, Channel::Client(_))
+        matches!(self.channel, Channel::Client(_)) && self.config_data.is_some()
     }
 
     /// Set cancellation token
@@ -283,6 +289,7 @@ mod tests {
     fn client_conn() -> Connection {
         let (tx, _rx) = mpsc::channel(1);
         Connection::new(Type::Remote, Channel::Client(tx))
+            .with_config_data(Some(ClientConfig::default()))
     }
 
     #[test]
@@ -293,6 +300,13 @@ mod tests {
     #[test]
     fn test_is_outgoing_server() {
         assert!(!server_conn().is_outgoing());
+    }
+
+    #[test]
+    fn test_is_outgoing_websocket_inbound() {
+        let (tx, _rx) = mpsc::channel(1);
+        let conn = Connection::new(Type::Remote, Channel::Client(tx));
+        assert!(!conn.is_outgoing());
     }
 
     #[test]
