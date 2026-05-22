@@ -4,10 +4,10 @@
 package io.agntcy.slim.bindings
 
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import java.time.Duration
@@ -49,6 +49,7 @@ class PointToPointTest {
             if (server.localService) {
                 val svc = Service("svcsender")
                 connIdSender = svc.connectAsync(server.getClientConfig()!!)
+                delay(50)
                 svc
             } else {
                 server.service
@@ -90,6 +91,10 @@ class PointToPointTest {
                 payloadType,
                 metadata,
             )
+            // Let the runtime process I/O and reconnect work (embedded server + many clients).
+            if (i % 25 == 24) {
+                yield()
+            }
             if ((i + 1) % 200 == 0) {
                 println("[PointToPointTest] published ${i + 1}/$nMessages messages")
             }
@@ -149,7 +154,7 @@ class PointToPointTest {
     fun testStickySession(
         endpoint: String?,
         mlsEnabled: Boolean,
-    ) = runBlocking(Dispatchers.Default) {
+    ) = runBlocking {
         // Match BindingsTest: blank CSV cell must mean global service, not embedded "" endpoint.
         val server = setupServer(endpoint?.takeIf { it.isNotBlank() })
 
@@ -180,12 +185,19 @@ class PointToPointTest {
              * - Continues until sender finishes publishing (loop ends by external cancel or test end).
              */
             suspend fun runReceiver(i: Int) {
+                // Avoid hammering the embedded server with N simultaneous TCP connects (CI sees
+                // transport errors, reconnect storms, and "send retries exhausted").
+                if (server.localService) {
+                    delay(80L * i)
+                }
+
                 // Create receiver service and app
                 var connIdReceiver: ULong? = null
                 val svcReceiver =
                     if (server.localService) {
                         val svc = Service("svcreceiver$i")
                         connIdReceiver = svc.connectAsync(server.getClientConfig()!!)
+                        delay(50)
                         svc
                     } else {
                         server.service
@@ -245,16 +257,10 @@ class PointToPointTest {
             // Give receivers a moment to start listening
             delay(1000)
 
-            // Global in-process service shares one datapath; CI can be slower than a local server.
-            val sessionMaxRetries: UInt
-            val sessionRetryInterval: Duration
-            if (server.localService) {
-                sessionMaxRetries = 5u
-                sessionRetryInterval = Duration.ofMillis(100)
-            } else {
-                sessionMaxRetries = 10u
-                sessionRetryInterval = Duration.ofMillis(200)
-            }
+            // Long runs (1000× reliable publish) need a wide ACK window on slow / contended CI
+            // runners and when the embedded server is reconnecting.
+            val sessionMaxRetries = 30u
+            val sessionRetryInterval = Duration.ofMillis(400)
 
             // Create a new session
             val sessionConfig =
