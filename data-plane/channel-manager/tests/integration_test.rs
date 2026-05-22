@@ -90,7 +90,7 @@ services:
 
             let runtime =
                 slim::runtime::build(config.runtime().expect("invalid runtime configuration"));
-            let _ = runtime.runtime.block_on(slim::runner::run_services(config));
+            let _ = runtime.block_on(slim::runner::run_services(config));
         })
         .expect("failed to spawn slim runtime thread")
 }
