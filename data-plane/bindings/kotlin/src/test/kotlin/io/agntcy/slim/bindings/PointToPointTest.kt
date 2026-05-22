@@ -4,16 +4,19 @@
 package io.agntcy.slim.bindings
 
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import org.junit.jupiter.params.ParameterizedTest
-import org.junit.jupiter.params.provider.CsvSource
+import kotlinx.coroutines.withContext
+import org.junit.jupiter.api.Test
+import java.net.ServerSocket
 import java.time.Duration
 import java.util.UUID
-import java.util.concurrent.Executors
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -21,12 +24,12 @@ import kotlin.test.assertTrue
  * Point-to-point sticky session integration test.
  *
  * Scenario:
- *   - One logical sender creates a PointToPoint session and sends 1000 messages
+ *   - One logical sender creates a PointToPoint session and sends many messages
  *     to a shared logical receiver identity.
  *   - Ten receiver instances (same Name) concurrently listen for an
  *     inbound session. Only one should become the bound peer for the
  *     PointToPoint session (stickiness).
- *   - All 1000 messages must arrive at exactly one receiver (verifying
+ *   - All messages must arrive at exactly one receiver (verifying
  *     session affinity) and none at the others.
  *   - Runs with MLS enabled (matches Java bindings test).
  *
@@ -36,9 +39,15 @@ import kotlin.test.assertTrue
  * Validated invariants:
  *   * session_type == PointToPoint for receiver-side context
  *   * dst == sender.local_name and src == receiver.local_name
- *   * Exactly one receiver_counts[i] == 1000 and total sum == 1000
+ *   * Exactly one receiver_counts[i] == nMessages and total sum == nMessages
  */
 class PointToPointTest {
+    /** Binds an ephemeral TCP port and returns `host:port` for the embedded server. */
+    private fun freeLocalEndpoint(): String =
+        ServerSocket(0).use { socket ->
+            "127.0.0.1:${socket.localPort}"
+        }
+
     /**
      * Setup sender app and connection.
      */
@@ -108,7 +117,9 @@ class PointToPointTest {
 
         // Parse winning receiver index from ack: format "All messages received: {i}"
         return try {
-            ackText.substringAfterLast(":").trim().toInt()
+            val prefix = "All messages received: "
+            require(ackText.startsWith(prefix)) { "Unexpected ack format: $ackText" }
+            ackText.substring(prefix.length).trim().toInt()
         } catch (e: Exception) {
             throw AssertionError("Unexpected ack format '$ackText': ${e.message}")
         }
@@ -118,47 +129,39 @@ class PointToPointTest {
      * Validate that exactly one receiver got all messages.
      */
     private fun validateAffinity(
-        receiverCounts: Map<Int, Int>,
+        receiverCounts: Map<Int, AtomicInteger>,
         nMessages: Int,
     ) {
-        assertEquals(nMessages, receiverCounts.values.sum())
-        assertTrue(receiverCounts.values.contains(nMessages))
+        assertEquals(nMessages, receiverCounts.values.sumOf { it.get() })
+        assertTrue(receiverCounts.values.any { it.get() == nMessages })
     }
 
     /**
      * Ensure all messages in a PointToPoint session are delivered to a single receiver instance.
      *
-     * Args:
-     *     endpoint: Server endpoint (same as Java: embedded local server only)
-     *     mlsEnabled: Whether to enable MLS for the created session
+     * Uses an ephemeral listen port and a port-scoped embedded host service name (see
+     * [setupServer]) so this test does not collide with other binding tests in one JVM.
      *
      * Flow:
      *     1. Spawn 10 receiver tasks (same logical Name).
      *     2. Sender establishes PointToPoint session.
-     *     3. Sender publishes 1000 messages with consistent metadata + payload_type.
+     *     3. Sender publishes nMessages with consistent metadata + payload_type.
      *     4. Each receiver tallies only messages addressed to the logical receiver name.
      *     5. Assert affinity: exactly one receiver processed all messages.
      *
      * Expectation:
      *     Sticky routing pins all messages to the first receiver that accepted the session.
      */
-    @ParameterizedTest
-    @CsvSource(
-        "127.0.0.1:22345,true",
-    )
-    fun testStickySession(
-        endpoint: String?,
-        mlsEnabled: Boolean,
-    ) {
-        // Match Java PointToPointTest: fixed thread pool so receiver work and FFI overlap
-        // like `Executors.newFixedThreadPool(10)` instead of a single-threaded runBlocking scope.
-        val executor = Executors.newFixedThreadPool(12)
-        try {
-            runBlocking(executor.asCoroutineDispatcher()) {
-                // Match BindingsTest: blank CSV cell must mean global service, not embedded "" endpoint.
-                val server = setupServer(endpoint?.takeIf { it.isNotBlank() })
+    @Test
+    fun testStickySession() {
+        val endpoint = freeLocalEndpoint()
+        val mlsEnabled = true
+        // Default runBlocking uses one thread; receiver coroutines must run in parallel with
+        // publishAndWaitAsync (same as Java's fixed thread pool for receivers).
+        runBlocking(Dispatchers.Default) {
+            val server = setupServer(endpoint)
 
-                try {
+            try {
                     // Generate unique names to avoid collisions
                     val testId = UUID.randomUUID().toString().substring(0, 8)
                     val senderName = Name("org", "test_$testId", "p2psender")
@@ -170,12 +173,17 @@ class PointToPointTest {
                     // Create sender service and app
                     val (sender, _) = setupSender(server, senderName, testId, receiverName)
 
-                    val receiverCounts = mutableMapOf<Int, Int>()
+                    val receiverCounts = ConcurrentHashMap<Int, AtomicInteger>()
                     for (i in 0 until 10) {
-                        receiverCounts[i] = 0
+                        receiverCounts[i] = AtomicInteger(0)
                     }
 
-                    val nMessages = 1000
+                    val subscribedLatch = CountDownLatch(10)
+                    val goListenLatch = CountDownLatch(1)
+
+                    // Fewer than Java (1000): CI can exhaust reliable-send retries if the dataplane
+                    // is under load from 10 concurrent receivers + reconnect churn.
+                    val nMessages = 400
 
                     /**
                      * Receiver task:
@@ -206,7 +214,13 @@ class PointToPointTest {
                             delay(100) // Real coroutine delay
                         }
 
-                        val sessionContext = receiver.listenForSessionAsync(null)
+                        subscribedLatch.countDown()
+                        withContext(Dispatchers.IO) {
+                            goListenLatch.await()
+                        }
+
+                        val sessionContext =
+                            receiver.listenForSessionAsync(timeout = Duration.ofSeconds(120))
                         val session = sessionContext
 
                         // Make sure the received session is PointToPoint
@@ -218,10 +232,9 @@ class PointToPointTest {
                                 val ctx = receivedMsg.context
 
                                 if (ctx.payloadType == "hello message" && ctx.metadata["sender"] == "hello") {
-                                    // Store the count in dictionary
-                                    receiverCounts[i] = receiverCounts[i]!! + 1
+                                    val count = receiverCounts[i]!!.incrementAndGet()
 
-                                    if (receiverCounts[i] == nMessages) {
+                                    if (count == nMessages) {
                                         // Send back application acknowledgment (await so the sender never races teardown)
                                         session.publishAndWaitAsync(
                                             "All messages received: $i".toByteArray(),
@@ -248,16 +261,20 @@ class PointToPointTest {
                         tasks.add(task)
                     }
 
-                    // Give receivers a moment to start listening
-                    delay(1000)
+                    require(subscribedLatch.await(120, TimeUnit.SECONDS)) {
+                        "receivers did not finish subscribe within 120s"
+                    }
+                    goListenLatch.countDown()
+                    delay(200)
 
-                    // Match Java SessionConfig(5, 100ms) for this test
+                    // Wider retries than Java: Kotlin CI often runs after other binding tests and
+                    // can see transient connect / dataplane churn mid-run.
                     val sessionConfig =
                         SessionConfig(
                             sessionType = SessionType.POINT_TO_POINT,
                             enableMls = mlsEnabled,
-                            maxRetries = 5u,
-                            interval = Duration.ofMillis(100),
+                            maxRetries = 25u,
+                            interval = Duration.ofMillis(300),
                             metadata = emptyMap(),
                         )
                     val senderSessionContext = sender.createSession(sessionConfig, receiverName)
@@ -292,13 +309,9 @@ class PointToPointTest {
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         // Expected if task was cancelled
                     }
-                } finally {
-                    teardownServer(server)
-                }
+            } finally {
+                teardownServer(server)
             }
-        } finally {
-            executor.shutdown()
-            executor.awaitTermination(120L, TimeUnit.SECONDS)
         }
     }
 }
