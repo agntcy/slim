@@ -5,7 +5,7 @@ use std::fmt::Display;
 use std::{collections::HashMap, time::Duration};
 
 use crate::api::proto::dataplane::v1::{
-    GroupClosePayload, GroupNackPayload, Participant, ParticipantSettings, PingPayload,
+    GroupClosePayload, GroupNackPayload, NameId, Participant, ParticipantSettings, PingPayload
 };
 use crate::api::{
     Content, LinkNegotiationPayload, MessageType, ProtoLink, ProtoLinkMessageType, ProtoLinkType,
@@ -21,6 +21,7 @@ use crate::api::{
     },
 };
 
+use prost::Name;
 use slim_version::version;
 use thiserror::Error;
 

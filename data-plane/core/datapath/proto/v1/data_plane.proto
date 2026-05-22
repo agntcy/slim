@@ -78,11 +78,18 @@ message Name {
   StringName str_name = 2;
 }
 
+message NameId {
+  // higher 64 bits
+  uint64 id_0 = 1;
+  // lower 64 bits
+  uint64 id_1 = 2;
+}
+
 message EncodedName {
   uint64 component_0 = 1;
   uint64 component_1 = 2;
   uint64 component_2 = 3;
-  uint64 component_3 = 4;
+  NameId name_id = 4;
 }
 
 message StringName {

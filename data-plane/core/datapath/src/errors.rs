@@ -1,6 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::string;
+
 use crate::api::ProtoName;
 use crate::api::ProtoSessionMessageType;
 use crate::api::proto::dataplane::v1::Message;
@@ -33,7 +35,7 @@ pub enum DataPathError {
     #[error("subscription id not found: {0}")]
     SubscriptionIdNotFound(u64),
     #[error("id not found: {0}")]
-    IdNotFound(u64),
+    IdNotFound(string::String),
 
     // Connection lookup
     #[error("connection not found: {0}")]

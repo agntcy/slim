@@ -4,6 +4,7 @@
 //! gRPC bindings for data plane service.
 pub(crate) mod proto;
 
+use crate::api::proto::dataplane::v1::NameId;
 use crate::messages::encoder::calculate_hash;
 
 pub use proto::dataplane::v1::ApplicationPayload;
@@ -60,7 +61,7 @@ impl std::fmt::Display for ProtoName {
             write!(
                 f,
                 "{}/{}/{}/{}",
-                enc.component_0, enc.component_1, enc.component_2, enc.component_3
+                enc.component_0, enc.component_1, enc.component_2, enc.name_id.as_ref().map_or("no-id".to_string(), |id| id.to_string())
             )
         } else {
             write!(f, "<empty>")
@@ -68,24 +69,72 @@ impl std::fmt::Display for ProtoName {
     }
 }
 
-impl ProtoName {
-    /// Sentinel value indicating no ID is set (equivalent to `Name::NULL_COMPONENT`).
-    pub const NULL_COMPONENT: u64 = u64::MAX;
+
+impl NameId {
+    // NULL_COMPONENT is used to represent an id component that is not set
+    pub const NULL_COMPONENT: u128 = u128::MAX;
     // Channels gets two different names: one for data and one for control
     // messages. The first 3 components are the same for both. Only the 4th
     // component (id) is different.
     // DATA_CHANNEL_ID is the id for the data channel name
-    pub const DATA_CHANNEL_ID: u64 = u64::MAX - 2; // ends with 0xfd (data)
+    pub const DATA_CHANNEL_ID: u128 = u128::MAX - 2; // ends with 0xfd (data)
     // CONTROL_CHANNEL_ID is the id for the control channel name.
-    pub const CONTROL_CHANNEL_ID: u64 = u64::MAX - 3; // ends with 0xfc (control)
+    pub const CONTROL_CHANNEL_ID: u128 = u128::MAX - 3; // ends with 0xfc (control))
 
-    /// Returns `true` if `id` is one of the reserved values.
-    /// Notice that u64::MAX - 1 (ends with 0xfe) is not used at the moment
-    /// and is reserved for future use.
-    pub const fn is_reserved_id(id: u64) -> bool {
-        id >= Self::CONTROL_CHANNEL_ID
+    pub fn new(id: u128) -> Self {
+        NameId {
+            id_0: (id >> 64) as u64,
+            id_1: (id & 0xFFFFFFFFFFFFFFFF) as u64,
+        }
     }
 
+    pub fn id(&self) -> u128 {
+        (self.id_0 as u128) << 64 | (self.id_1 as u128)
+    }
+
+    pub fn to_string(&self) -> String {
+        Self::id_to_string(self.id())
+    }
+
+    pub fn id_to_string(id: u128) -> String {
+        match id {
+            Self::NULL_COMPONENT => "NULL_COMPONENT".to_string(),
+            Self::DATA_CHANNEL_ID => "DATA_CHANNEL_ID".to_string(),
+            Self::CONTROL_CHANNEL_ID => "CONTROL_CHANNEL_ID".to_string(),
+            id => {
+                let bytes = id.to_be_bytes();
+                format!(
+                    "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
+                    u32::from_be_bytes(bytes[0..4].try_into().unwrap()),
+                    u16::from_be_bytes(bytes[4..6].try_into().unwrap()),
+                    u16::from_be_bytes(bytes[6..8].try_into().unwrap()),
+                    u16::from_be_bytes(bytes[8..10].try_into().unwrap()),
+                    u64::from_be_bytes({
+                        let mut buf = [0u8; 8];
+                        buf[2..8].copy_from_slice(&bytes[10..16]);
+                        buf
+                    }),
+                )
+            }
+        }
+    }
+
+    /// Returns true if `id` is one of the reserved values
+    /// Notice that u128::MAX - 1 is not used at the moment
+    /// and it reserved for future use.
+    pub const fn is_reserved_id(id: u128) -> bool {
+        id >= Self::CONTROL_CHANNEL_ID
+    }
+}
+
+impl EncodedName {
+    /// Returns the u128 ID from the embedded `NameId`, or `NULL_COMPONENT` if absent.
+    pub fn id(&self) -> u128 {
+        self.name_id.as_ref().map_or(NameId::NULL_COMPONENT, |nid| nid.id())
+    }
+}
+
+impl ProtoName {
     /// Construct from three string components (org, namespace, app).
     /// Encoded components are computed via XxHash64, matching the legacy `Name::from_strings` behaviour.
     pub fn from_strings(components: [impl Into<String>; 3]) -> Self {
@@ -95,7 +144,7 @@ impl ProtoName {
                 component_0: calculate_hash(&s0),
                 component_1: calculate_hash(&s1),
                 component_2: calculate_hash(&s2),
-                component_3: Self::NULL_COMPONENT,
+                name_id: Some(NameId::new(NameId::NULL_COMPONENT)),
             }),
             str_name: Some(StringName {
                 str_component_0: s0,
@@ -106,31 +155,30 @@ impl ProtoName {
     }
 
     /// Builder-style: set the ID (4th encoded component).
-    pub fn with_id(mut self, id: u64) -> Self {
-        self.name.as_mut().unwrap().component_3 = id;
+    pub fn with_id(mut self, id: u128) -> Self {
+        self.name.as_mut().unwrap().name_id = Some(NameId::new(id));
         self
     }
 
-    /// Returns the ID component (4th encoded component), or `NULL_COMPONENT` if unset.
-    pub fn id(&self) -> u64 {
-        self.name
-            .map(|e| e.component_3)
-            .unwrap_or(Self::NULL_COMPONENT)
+    /// Returns the ID component 
+    pub fn id(&self) -> u128 {
+        self.name.as_ref().unwrap().id()
     }
 
     /// Returns `true` if an ID has been set (i.e. is not `NULL_COMPONENT`).
     pub fn has_id(&self) -> bool {
-        self.id() != Self::NULL_COMPONENT
+        self.id() != NameId::NULL_COMPONENT
     }
 
     /// Set the ID component in-place.
-    pub fn set_id(&mut self, id: u64) {
-        self.name.as_mut().unwrap().component_3 = id;
+    pub fn set_id(&mut self, id: u128) {
+        let id = NameId::new(id);
+        self.name.as_mut().unwrap().name_id = Some(id);
     }
 
     /// Clear the ID component (reset to `NULL_COMPONENT`).
     pub fn reset_id(&mut self) {
-        self.name.as_mut().unwrap().component_3 = Self::NULL_COMPONENT;
+        self.name.as_mut().unwrap().name_id = Some(NameId::new(NameId::NULL_COMPONENT));
     }
 
     /// Compare the first 3 encoded components (ignoring the ID).
@@ -174,7 +222,7 @@ mod tests {
     fn test_proto_name_reset_id() {
         let mut n = ProtoName::from_strings(["a", "b", "c"]).with_id(42);
         n.reset_id();
-        assert_eq!(n.id(), ProtoName::NULL_COMPONENT);
+        assert_eq!(n.id(), NameId::NULL_COMPONENT);
         assert!(!n.has_id());
     }
 
@@ -207,6 +255,6 @@ mod tests {
         let proto2 = ProtoName::from_strings(["Org", "Default", "App"]).with_id(7);
         let enc2 = proto2.name.unwrap();
         assert_eq!(enc, enc2);
-        assert_eq!(enc.component_3, 7);
+        assert_eq!(enc.name_id.as_ref().unwrap().id(), 7);
     }
 }

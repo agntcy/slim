@@ -112,6 +112,15 @@ pub struct Name {
     pub str_name: ::core::option::Option<StringName>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct NameId {
+    /// higher 64 bits
+    #[prost(uint64, tag = "1")]
+    pub id_0: u64,
+    /// lower 64 bits
+    #[prost(uint64, tag = "2")]
+    pub id_1: u64,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct EncodedName {
     #[prost(uint64, tag = "1")]
     pub component_0: u64,
@@ -119,8 +128,8 @@ pub struct EncodedName {
     pub component_1: u64,
     #[prost(uint64, tag = "3")]
     pub component_2: u64,
-    #[prost(uint64, tag = "4")]
-    pub component_3: u64,
+    #[prost(message, optional, tag = "4")]
+    pub name_id: ::core::option::Option<NameId>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct StringName {
