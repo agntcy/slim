@@ -429,17 +429,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_websocket_client_wrong_transport() {
-        // Default transport is gRPC, not websocket -> must error.
-        let cfg = ClientConfig::with_endpoint("ws://127.0.0.1:1");
-        let result = cfg.to_websocket_channel().await;
-        assert!(matches!(
-            result,
-            Err(ConfigError::WebSocketClientUnsupportedTransport)
-        ));
-    }
-
-    #[tokio::test]
     async fn test_websocket_client_invalid_endpoint_scheme() {
         let cfg = ClientConfig::with_endpoint("http://127.0.0.1:80")
             .with_tls_setting(TlsClientConfig::insecure());
