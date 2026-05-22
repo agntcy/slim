@@ -210,7 +210,7 @@ impl Service {
         let inner = self.inner.clone();
 
         // Spawn on the runtime's handle to ensure tokio context is available
-        let handle: JoinHandle<Result<(), SlimError>> = runtime.handle().spawn(async move {
+        let handle: JoinHandle<Result<(), SlimError>> = runtime.spawn(async move {
             inner.run_server(&core_config).await?;
             Ok(())
         });

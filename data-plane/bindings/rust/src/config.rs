@@ -13,7 +13,7 @@ use futures_timer::Delay;
 use tracing::{debug, info};
 
 use slim::config::ConfigLoader;
-use slim::runtime::RuntimeConfiguration as CoreRuntimeConfiguration;
+use slim::runtime::{RuntimeConfiguration as CoreRuntimeConfiguration, SlimRuntime};
 use slim_config::tls::provider;
 use slim_service::ServiceConfiguration as CoreServiceConfiguration;
 use slim_tracing::TracingConfiguration as CoreTracingConfiguration;
@@ -40,8 +40,10 @@ struct GlobalState {
     /// Service configuration
     service_config: Vec<CoreServiceConfiguration>,
 
-    /// Global Tokio runtime
-    runtime: tokio::runtime::Runtime,
+    /// Global Tokio runtime. Built via `slim::runtime::build`, which picks a
+    /// multi-threaded runtime or a `current_thread` runtime on a dedicated
+    /// driver thread based on the effective core count.
+    runtime: SlimRuntime,
 
     /// Global service instances (all services)
     services: Vec<Arc<crate::service::Service>>,
@@ -237,8 +239,12 @@ fn initialize_internal(
     // Initialize crypto provider (must be done before any TLS operations)
     provider::initialize_crypto_provider();
 
-    // Build runtime from configuration
-    let runtime = slim::runtime::build(&runtime_config).runtime;
+    // Build runtime from configuration. `build_for_embedding` picks a
+    // dedicated-thread `current_thread` runtime when the effective core count
+    // is 1, so the I/O reactor stays driven even when the host language's
+    // event loop owns the calling thread; otherwise it falls back to the
+    // standard multi-threaded runtime.
+    let runtime = slim::runtime::build_for_embedding(&runtime_config);
 
     // Setup tracing subscriber (may fail if already set, which is OK)
     let guard = match tracing_conf.setup_tracing_subscriber() {
@@ -256,35 +262,22 @@ fn initialize_internal(
         }
     };
 
-    // Initialize the global service with config and start it
-    // If we're already in an async tokio context, we need to spawn a separate thread
-    // to avoid "Cannot start a runtime from within a runtime" panic.
-    // Even though we created a new runtime, calling block_on on it will still panic
-    // if the current thread is being used by another runtime to drive async tasks.
-    let (runtime, services) = if tokio::runtime::Handle::try_current().is_ok() {
-        // We're in an async context - spawn a separate OS thread to run block_on
-        // Wrap the runtime in Arc to safely share it across thread boundaries
-        let runtime_arc = Arc::new(runtime);
-        let runtime_clone = Arc::clone(&runtime_arc);
-        let service_config_clone = service_configs.to_vec();
-
-        let services = std::thread::spawn(move || {
-            runtime_clone.block_on(async move {
-                initialize_and_start_global_services(&service_config_clone).await
-            })
-        })
-        .join()
-        .expect("Thread panicked while initializing services")?;
-
-        // Extract the runtime back from Arc (will succeed since we have the only reference)
-        let runtime = Arc::try_unwrap(runtime_arc).expect("Failed to unwrap runtime from Arc");
-
-        (runtime, services)
-    } else {
-        // Not in an async context, safe to use block_on directly
-        let services = runtime
-            .block_on(async { initialize_and_start_global_services(service_configs).await })?;
-        (runtime, services)
+    // Initialize the global service with config and start it.
+    // If we're already in an async tokio context (e.g. #[tokio::test]),
+    // delegate the block_on to a fresh OS thread so we don't get "Cannot
+    // start a runtime from within a runtime". `Handle` is Clone, so we just
+    // hand a copy to the worker thread.
+    let services = {
+        let handle = runtime.handle();
+        let configs = service_configs.to_vec();
+        let work = move || handle.block_on(initialize_and_start_global_services(&configs));
+        if tokio::runtime::Handle::try_current().is_ok() {
+            std::thread::spawn(work)
+                .join()
+                .expect("Thread panicked while initializing services")?
+        } else {
+            work()?
+        }
     };
 
     // Get first service for backward compatibility
@@ -315,15 +308,23 @@ pub fn is_initialized() -> bool {
     GLOBAL_STATE.get().is_some()
 }
 
-/// Get the global runtime
+/// Get a handle to the global Tokio runtime.
 ///
-/// Returns a reference to the runtime, or initializes with defaults if not yet initialized.
-pub fn get_runtime() -> &'static tokio::runtime::Runtime {
+/// The returned `Handle` is cheap to clone and is safe to call `block_on` /
+/// `spawn` on from any thread (including foreign-language threads driven by
+/// UniFFI). When the runtime was built in single-threaded mode the actual
+/// scheduler runs on a dedicated background OS thread; the `Handle` simply
+/// routes work onto it.
+///
+/// If the bindings have not been initialized yet, this initializes them with
+/// defaults first.
+pub fn get_runtime() -> tokio::runtime::Handle {
     initialize_with_defaults();
-    &GLOBAL_STATE
+    GLOBAL_STATE
         .get()
         .expect("Global runtime not initialized")
         .runtime
+        .handle()
 }
 
 /// Returns references to all global services.
@@ -523,8 +524,7 @@ pub async fn shutdown() -> Result<(), SlimError> {
 /// * `Err(SlimError)` - If shutdown fails
 #[uniffi::export]
 pub fn shutdown_blocking() -> Result<(), SlimError> {
-    let runtime = get_runtime();
-    runtime.block_on(shutdown())
+    get_runtime().block_on(shutdown())
 }
 
 #[cfg(test)]
@@ -543,8 +543,7 @@ mod tests {
     #[test]
     fn test_runtime_always_accessible() {
         // The runtime can always be accessed (either from init or get_runtime fallback)
-        let runtime = get_runtime();
-        let _handle = runtime.handle();
+        let _handle = get_runtime();
     }
 
     #[test]
@@ -616,8 +615,7 @@ mod tests {
         initialize_with_defaults();
 
         // Verify we can access the runtime
-        let runtime = get_runtime();
-        let _handle = runtime.handle();
+        let _handle = get_runtime();
 
         // Verify we can access configs
         let _ = get_runtime_config();
@@ -629,6 +627,34 @@ mod tests {
     }
 
     #[test_fork::fork]
+    #[test]
+    fn test_single_thread_runtime_drives_io() {
+        // With n_cores=1 the runtime is built as `current_thread` on a
+        // dedicated OS thread. Verify it actually drives timers and spawned
+        // tasks — this is the property that prevents the UniFFI/asyncio
+        // deadlock from issue #1648.
+        use crate::init_config::{new_runtime_config_with, new_service_config, new_tracing_config};
+        use std::time::Duration;
+
+        let runtime_config =
+            new_runtime_config_with(1, "slim-single".to_string(), Duration::from_secs(1));
+        let result = initialize_with_configs(
+            runtime_config,
+            new_tracing_config(),
+            &[new_service_config()],
+        );
+        assert!(result.is_ok());
+
+        // Schedule work on the global handle from a non-async thread. If the
+        // bg driver thread isn't actually polling, this will hang forever.
+        let handle = get_runtime();
+        let value = handle.block_on(async {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            42_u32
+        });
+        assert_eq!(value, 42);
+    }
+
     #[test]
     fn test_initialize_with_configs() {
         // Test initializing with custom config structs using wrapper types
