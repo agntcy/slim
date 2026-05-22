@@ -349,9 +349,8 @@ impl App {
         let runtime = get_runtime();
 
         // Spawn on the runtime's handle to ensure tokio context is available
-        let handle = runtime
-            .handle()
-            .spawn(async move { app.create_session(slim_config, slim_dest, None).await });
+        let handle =
+            runtime.spawn(async move { app.create_session(slim_config, slim_dest, None).await });
 
         let (session_ctx, completion) = handle.await.map_err(|e| SlimError::SessionError {
             message: format!("Failed to create session: {}", e),

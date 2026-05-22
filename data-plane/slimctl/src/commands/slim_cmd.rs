@@ -99,7 +99,7 @@ fn run_slim_in_thread(config_file: &str) -> Result<()> {
     slim_config::tls::provider::initialize_crypto_provider();
 
     let runtime = slim::runtime::build(config.runtime().context("invalid runtime configuration")?);
-    runtime.runtime.block_on(slim::runner::run_services(config))
+    runtime.block_on(slim::runner::run_services(config))
 }
 
 async fn start_slim_instance(config_file: &str) -> Result<()> {
