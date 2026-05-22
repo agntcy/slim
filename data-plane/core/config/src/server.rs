@@ -82,11 +82,11 @@ pub enum AuthenticationConfig {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct ServerConfig {
     /// Endpoint is the address to listen on.
+    ///
+    /// The transport protocol is inferred from the endpoint scheme:
+    /// * `ws://`, `wss://`  → WebSocket (TLS when `wss`)
+    /// * `http://`, `https://`, bare `host:port` → gRPC
     pub endpoint: String,
-
-    /// Transport protocol to use for dataplane communication.
-    #[serde(default)]
-    pub transport: TransportProtocol,
 
     /// Configures the protocol to use TLS.
     #[serde(default, rename = "tls")]
@@ -163,7 +163,6 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             endpoint: String::new(),
-            transport: TransportProtocol::default(),
             tls_setting: TLSSetting::default(),
             http2_only: default_http2_only(),
             max_frame_size: Some(4),
@@ -189,7 +188,7 @@ impl std::fmt::Display for ServerConfig {
             f,
             "ServerConfig {{ endpoint: {}, transport: {:?}, tls_setting: {}, http2_only: {}, max_frame_size: {:?}, max_concurrent_streams: {:?}, max_header_list_size: {:?}, read_buffer_size: {:?}, write_buffer_size: {:?}, keepalive: {:?}, auth: {:?}, metadata: {:?} }}",
             self.endpoint,
-            self.transport,
+            self.resolved_transport(),
             self.tls_setting,
             self.http2_only,
             self.max_frame_size,
@@ -226,10 +225,6 @@ impl ServerConfig {
             tls_setting,
             ..self
         }
-    }
-
-    pub fn with_transport(self, transport: TransportProtocol) -> Self {
-        Self { transport, ..self }
     }
 
     pub fn with_http2_only(self, http2_only: bool) -> Self {
@@ -290,7 +285,7 @@ impl ServerConfig {
         watch: drain::Watch,
         handler: Arc<H>,
     ) -> Result<CancellationToken, ConfigError> {
-        match self.transport {
+        match self.resolved_transport() {
             TransportProtocol::Grpc => {
                 let routes = handler
                     .grpc_routes()
@@ -304,6 +299,12 @@ impl ServerConfig {
                 self.run_websocket_server(watch, on_accepted).await
             }
         }
+    }
+
+    /// Resolve the transport protocol for this configuration by inspecting
+    /// the endpoint URI scheme. See [`TransportProtocol::from_endpoint`].
+    pub fn resolved_transport(&self) -> TransportProtocol {
+        TransportProtocol::from_endpoint(&self.endpoint)
     }
 }
 
@@ -353,7 +354,7 @@ mod tests {
     fn test_default_server_config() {
         let server_config = ServerConfig::default();
         assert_eq!(server_config.endpoint, String::new());
-        assert_eq!(server_config.transport, TransportProtocol::Grpc);
+        assert_eq!(server_config.resolved_transport(), TransportProtocol::Grpc);
         assert_eq!(server_config.tls_setting, TLSSetting::default());
         assert_eq!(server_config.http2_only, default_http2_only());
         assert_eq!(server_config.max_frame_size, Some(4));

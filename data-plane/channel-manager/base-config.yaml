@@ -4,7 +4,6 @@
 channel-manager:
   slim-connection:
     endpoint: "http://127.0.0.1:46357"
-    transport: "grpc"
     tls:
       insecure: true
 

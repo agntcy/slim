@@ -16,7 +16,6 @@ services:
     dataplane:
       clients:
         - endpoint: "ws://localhost:46357"
-          transport: websocket
           websocket_auth_query_param: token
           tls:
             insecure: true
