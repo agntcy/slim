@@ -80,7 +80,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-bindings"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
