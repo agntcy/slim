@@ -17,7 +17,6 @@ use std::{collections::HashMap, str::FromStr, time::Duration};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tonic::codegen::{Body, Bytes, StdError};
-use tonic::transport::Uri;
 
 use slim_auth::metadata::MetadataMap;
 
@@ -498,15 +497,17 @@ impl ClientConfig {
     }
 
     /// Validates that the endpoint scheme is one of the recognized values.
-    /// gRPC builders additionally check the scheme at channel-build time.
     fn validate_endpoint_scheme(&self) -> Result<(), ConfigError> {
         // Bare `host:port` (no scheme) is accepted and resolves to gRPC.
-        if !self.endpoint.contains("://") {
+        let Some((scheme, _rest)) = self.endpoint.split_once("://") else {
             return Ok(());
-        }
-        let endpoint = Uri::from_str(self.endpoint.as_str())?;
-        match endpoint.scheme_str() {
-            Some("ws") | Some("wss") | Some("http") | Some("https") | Some("unix") => Ok(()),
+        };
+        // Match the scheme by prefix only. Parsing the full URI via `http::Uri`
+        // here would reject otherwise-valid endpoints such as
+        // `unix:///tmp/slim.sock` (no authority), which gRPC handles via its
+        // own URI builder in `parse_endpoint_uri`.
+        match scheme {
+            "ws" | "wss" | "http" | "https" | "unix" => Ok(()),
             _ => Err(ConfigError::InvalidEndpointScheme),
         }
     }
@@ -532,6 +533,33 @@ mod metadata_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_validate_accepts_supported_schemes() {
+        // Includes `unix://` with no authority — must not be rejected by the
+        // scheme validator even though `http::Uri::from_str` would fail on it.
+        for endpoint in [
+            "host:1234",
+            "http://host:1234",
+            "https://host:1234",
+            "ws://host:1234",
+            "wss://host:1234",
+            "unix:///tmp/slim.sock",
+        ] {
+            let cfg = ClientConfig::with_endpoint(endpoint);
+            cfg.validate_endpoint_scheme()
+                .unwrap_or_else(|e| panic!("endpoint {endpoint} rejected: {e}"));
+        }
+    }
+
+    #[test]
+    fn test_validate_rejects_unknown_scheme() {
+        let cfg = ClientConfig::with_endpoint("ftp://host:21");
+        assert!(matches!(
+            cfg.validate_endpoint_scheme(),
+            Err(ConfigError::InvalidEndpointScheme)
+        ));
+    }
 
     #[test]
     fn test_default_keepalive_config() {
