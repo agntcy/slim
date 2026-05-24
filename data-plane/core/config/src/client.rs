@@ -12,7 +12,7 @@
 //! * `crate::websocket::client` — WebSocket channel building
 
 use duration_string::DurationString;
-use std::{collections::HashMap, str::FromStr, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
