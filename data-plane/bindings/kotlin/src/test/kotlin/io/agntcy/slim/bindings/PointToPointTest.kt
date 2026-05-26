@@ -30,7 +30,7 @@ import kotlin.test.assertTrue
  *   - All messages must arrive at exactly one receiver (verifying
  *     session affinity) and none at the others.
  *   - Runs with MLS enabled (same intent as Java). Message count is lower than Java's 1000
- *     because Kotlin+embedded CI consistently exhausts reliable-send retries past ~35 messages.
+ *     for faster Kotlin tests; Gradle runs each bindings test class in its own JVM (forkEvery).
  *
  * This Kotlin test uses an **embedded TCP** server on an ephemeral port with a
  * port-scoped host service name (see [TestHelpers.setupServer]). Receiver count is reduced
@@ -145,10 +145,6 @@ class PointToPointTest {
     /**
      * Ensure all messages in a PointToPoint session are delivered to a single receiver instance.
      *
- * Uses the global in-process Slim service (see [setupServer] with a null endpoint), like the
- * Python bindings `None` server case. The embedded TCP server variant is still covered by the
- * Java bindings test; Kotlin CI was flaky there under concurrent clients + MLS.
-     *
      * Flow:
      *     1. Spawn two receiver tasks (same logical Name).
      *     2. Sender establishes PointToPoint session.
@@ -181,10 +177,10 @@ class PointToPointTest {
                         receiverCounts[i] = AtomicInteger(0)
                     }
 
-                    // Empirically, Kotlin + UniFFI + embedded TCP exhausts reliable-send retries
-                    // around ~35+ sequential publishes on CI; keep below that while still
-                    // exercising multi-message sticky delivery.
-                    val nMessages = 30
+                    // Small batch: enough to prove sticky multi-message delivery; each test
+                    // class runs in a fresh JVM (see build.gradle.kts forkEvery) so we need not
+                    // keep this as tiny as when native state leaked between classes on CI.
+                    val nMessages = 20
 
                     suspend fun runReceiver(i: Int) {
                         var connIdReceiver: ULong? = null
