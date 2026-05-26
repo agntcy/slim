@@ -1,0 +1,21 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+#
+# Minimal tracing config for the stress-session / stress-publish binaries.
+# Pass it with: --config data-plane/testing/tracing.yaml
+#
+# The default log level is warn so only actionable messages appear.
+# Uncomment the filters block to narrow or widen logging per crate.
+
+tracing:
+  log_level: info
+  # filters:
+  #   - slim_session=debug       # session layer (controller, sender, receiver)
+  #   - slim_datapath=debug      # routing / forwarding hot-path
+  #   - slim_service=debug       # app / service lifecycle
+
+runtime:
+  n_cores: 0
+  drain_timeout: 10s
+
+services: {}
