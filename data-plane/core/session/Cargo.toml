@@ -25,6 +25,7 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
+trait-variant = { workspace = true }
 
 [dev-dependencies]
 agntcy-slim-testing = { workspace = true }

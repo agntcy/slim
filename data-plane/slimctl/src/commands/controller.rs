@@ -3,15 +3,16 @@
 
 use anyhow::{Result, bail};
 use clap::{Args, Subcommand};
+use tokio_stream::StreamExt;
 
 use crate::client::get_control_plane_client;
-use crate::proto::controller::proto::v1::{Connection, Subscription};
+use crate::proto::controller::proto::v1::{Connection, Route};
 use crate::proto::controlplane::proto::v1::{
     AddRouteRequest, DeleteRouteRequest, LinkEntry, LinkListRequest, LinkStatus, Node,
     NodeListRequest, RouteEntry, RouteListRequest, RouteStatus,
 };
 use crate::rpc;
-use crate::utils::{VIA_KEYWORD, is_endpoint, parse_config_file, parse_endpoint, parse_route};
+use crate::utils::{VIA_KEYWORD, parse_config_file, parse_route};
 use slim_config::grpc::client::ClientConfig;
 use slim_datapath::api::ProtoName;
 
@@ -79,7 +80,7 @@ pub struct ControllerRouteArgs {
 
 #[derive(Subcommand)]
 pub enum ControllerRouteCommand {
-    /// List subscriptions on a node
+    /// List routes on a node
     #[command(visible_alias = "ls")]
     List {
         /// ID of the node to manage routes for
@@ -200,21 +201,26 @@ async fn run_link(args: &ControllerLinkArgs, opts: &ClientConfig) -> Result<()> 
 
 async fn node_list(opts: &ClientConfig) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(client, list_nodes, NodeListRequest {});
-    println!("{} node(s) found", resp.entries.len());
-    for node in &resp.entries {
+    let mut stream = rpc!(client, list_nodes, NodeListRequest {});
+    let mut entries = Vec::new();
+    while let Some(entry) = stream.next().await {
+        entries.push(entry?);
+    }
+    println!("{} node(s) found", entries.len());
+    for node in &entries {
         println!("Node ID: {} status: {:?}", node.id, node.status);
         if !node.connections.is_empty() {
             println!("  Connection details:");
             for conn in &node.connections {
                 println!("  - Endpoint: {}", conn.endpoint);
-                println!("    MtlsRequired: {}", conn.mtls_required);
-                if let Some(meta) = &conn.metadata
-                    && let Some(ext) = meta.fields.get("external_endpoint")
-                    && let Some(prost_types::value::Kind::StringValue(val)) = &ext.kind
-                    && !val.is_empty()
-                {
-                    println!("    ExternalEndpoint: {}", val);
+                if let Some(ref ee) = conn.external_endpoint {
+                    println!("    ExternalEndpoint: {}", ee);
+                }
+                if let Some(ref spire) = conn.spire_mtls {
+                    println!("    SpireMtls: socket={}", spire.socket_path);
+                    if let Some(ref td) = spire.trust_domain {
+                        println!("              trust_domain={}", td);
+                    }
                 }
             }
         } else {
@@ -257,28 +263,23 @@ async fn route_list(node_id: &str, opts: &ClientConfig) -> Result<()> {
     println!("Listing routes for node ID: {}", node_id);
     let resp = rpc!(
         client,
-        list_subscriptions,
+        list_node_routes,
         Node {
             id: node_id.to_string()
         }
     );
-    println!(
-        "Received subscription list response: {}",
-        resp.entries.len()
-    );
+    println!("Received route list response: {}", resp.entries.len());
     for e in &resp.entries {
-        let local_names: Vec<String> = e
-            .local_connections
-            .iter()
-            .map(|c| format!("local:{}:{:?}:{}", c.id, c.link_id, c.config_data))
-            .collect();
-        let remote_names: Vec<String> = e
-            .remote_connections
+        let conn_names: Vec<String> = e
+            .connections
             .iter()
             .map(|c| {
                 format!(
-                    "remote:{:?}:{:?}:{}:{}",
-                    c.connection_type, c.link_id, c.config_data, c.id
+                    "{}:{}:{:?}:{}",
+                    c.connection_type().as_str_name(),
+                    c.id,
+                    c.link_id,
+                    c.config_data
                 )
             })
             .collect();
@@ -317,9 +318,8 @@ async fn route_add(
 
     let (cp_connection, final_dest_node) = if std::path::Path::new(destination).exists() {
         let conn = parse_config_file(destination)?;
-        subscription.connection_id = conn.connection_id.clone();
         let cp_conn = Connection {
-            connection_id: conn.connection_id.clone(),
+            link_id: conn.link_id.clone(),
             config_data: conn.config_data.clone(),
         };
         (Some(cp_conn), String::new())
@@ -333,7 +333,7 @@ async fn route_add(
         add_route,
         AddRouteRequest {
             node_id: node_id.to_string(),
-            subscription: Some(subscription),
+            route: Some(route),
             connection: cp_connection,
             dest_node_id: final_dest_node,
         }
@@ -366,20 +366,11 @@ async fn route_del(
         direction: None,
     };
 
-    let mut req = DeleteRouteRequest {
+    let req = DeleteRouteRequest {
         node_id: node_id.to_string(),
-        subscription: Some(subscription.clone()),
-        dest_node_id: String::new(),
+        route: Some(route),
+        dest_node_id: destination.to_string(),
     };
-
-    if is_endpoint(destination) {
-        let (_, conn_id) = parse_endpoint(destination)
-            .map_err(|e| anyhow::anyhow!("invalid endpoint '{}': {}", destination, e))?;
-        subscription.connection_id = conn_id;
-        req.subscription = Some(subscription);
-    } else {
-        req.dest_node_id = destination.to_string();
-    }
 
     let mut client = get_control_plane_client(opts).await?;
     let resp = rpc!(client, delete_route, req);
@@ -401,7 +392,7 @@ async fn route_outline(
         origin_node_id, target_node_id
     );
     let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(
+    let mut stream = rpc!(
         client,
         list_routes,
         RouteListRequest {
@@ -409,12 +400,15 @@ async fn route_outline(
             dest_node_id: target_node_id.to_string(),
         }
     );
-    let routes = &resp.routes;
+    let mut routes = Vec::new();
+    while let Some(entry) = stream.next().await {
+        routes.push(entry?);
+    }
     println!("Number of routes: {}\n", routes.len());
     if !routes.is_empty() {
-        let col_widths = compute_route_col_widths(routes);
+        let col_widths = compute_route_col_widths(&routes);
         print_route_header(&col_widths);
-        for route in routes {
+        for route in &routes {
             print_route_row(route, &col_widths);
         }
     }
@@ -431,7 +425,7 @@ async fn link_outline(
         origin_node_id, target_node_id
     );
     let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(
+    let mut stream = rpc!(
         client,
         list_links,
         LinkListRequest {
@@ -439,30 +433,32 @@ async fn link_outline(
             dest_node_id: target_node_id.to_string(),
         }
     );
-    let links = &resp.links;
+    let mut links = Vec::new();
+    while let Some(entry) = stream.next().await {
+        links.push(entry?);
+    }
     println!("Number of links: {}\n", links.len());
     if !links.is_empty() {
-        let col_widths = compute_link_col_widths(links);
+        let col_widths = compute_link_col_widths(&links);
         print_link_header(&col_widths);
-        for link in links {
+        for link in &links {
             print_link_row(link, &col_widths);
         }
     }
     Ok(())
 }
 
-const ROUTE_HEADERS: [&str; 8] = [
+const ROUTE_HEADERS: [&str; 7] = [
     "SOURCE",
     "DEST_NODE",
-    "SUBSCRIPTION",
+    "ROUTE",
     "STATUS",
     "STATUS_MSG",
-    "DELETED",
     "LAST_UPDATED",
     "LINK_ID",
 ];
 
-fn route_cells(r: &RouteEntry) -> [String; 8] {
+fn route_cells(r: &RouteEntry) -> [String; 7] {
     [
         r.source_node_id.clone(),
         if r.dest_node_id.is_empty() {
@@ -478,7 +474,6 @@ fn route_cells(r: &RouteEntry) -> [String; 8] {
         } else {
             r.status_msg.clone()
         },
-        if r.deleted { "Yes" } else { "No" }.to_string(),
         format_unix_timestamp(r.last_updated),
         if r.link_id.is_empty() {
             "-".to_string()
@@ -497,7 +492,7 @@ fn print_row<T: AsRef<str>>(cells: &[T], widths: &[usize]) {
     println!("  {}", line.join("  "));
 }
 
-fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 8] {
+fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 7] {
     let mut widths = ROUTE_HEADERS.map(|h| h.len());
     for r in routes {
         for (w, cell) in widths.iter_mut().zip(route_cells(r).iter()) {
@@ -507,13 +502,13 @@ fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 8] {
     widths
 }
 
-fn print_route_header(widths: &[usize; 8]) {
+fn print_route_header(widths: &[usize; 7]) {
     print_row(&ROUTE_HEADERS, widths);
     let total: usize = widths.iter().sum::<usize>() + widths.len() * 2;
     println!("  {}", "-".repeat(total));
 }
 
-fn print_route_row(route: &RouteEntry, widths: &[usize; 8]) {
+fn print_route_row(route: &RouteEntry, widths: &[usize; 7]) {
     print_row(&route_cells(route), widths);
 }
 
@@ -580,7 +575,7 @@ fn route_status_str(status: i32) -> String {
     match RouteStatus::try_from(status) {
         Ok(RouteStatus::Applied) => "APPLIED".to_string(),
         Ok(RouteStatus::Failed) => "FAILED".to_string(),
-        Ok(RouteStatus::Stale) => "STALE".to_string(),
+        Ok(RouteStatus::Deleted) => "DELETED".to_string(),
         Ok(RouteStatus::Pending) => "PENDING".to_string(),
         _ => "UNKNOWN".to_string(),
     }
@@ -620,11 +615,10 @@ mod tests {
         c2: &str,
         component_id: Option<u64>,
         status: i32,
-        deleted: bool,
         last_updated: i64,
     ) -> RouteEntry {
         RouteEntry {
-            id: 1,
+            id: 1.to_string(),
             source_node_id: source.to_string(),
             dest_node_id: dest_node.to_string(),
             component_0: c0.to_string(),
@@ -632,7 +626,6 @@ mod tests {
             component_2: c2.to_string(),
             component_id,
             status,
-            deleted,
             last_updated,
             ..Default::default()
         }
@@ -692,19 +685,19 @@ mod tests {
 
     #[test]
     fn build_subscription_str_with_component_id() {
-        let r = make_route("", "", "org", "ns", "agent", Some(42), 0, false, 0);
+        let r = make_route("", "", "org", "ns", "agent", Some(42), 0, 0);
         assert_eq!(build_subscription_str(&r), "org/ns/agent/42");
     }
 
     #[test]
     fn build_subscription_str_without_component_id() {
-        let r = make_route("", "", "org", "ns", "agent", None, 0, false, 0);
+        let r = make_route("", "", "org", "ns", "agent", None, 0, 0);
         assert_eq!(build_subscription_str(&r), "org/ns/agent");
     }
 
     #[test]
     fn build_subscription_str_zero_component_id() {
-        let r = make_route("", "", "a", "b", "c", Some(0), 0, false, 0);
+        let r = make_route("", "", "a", "b", "c", Some(0), 0, 0);
         assert_eq!(build_subscription_str(&r), "a/b/c/00000000-0000-0000-0000-000000000000");
     }
 
@@ -720,35 +713,27 @@ mod tests {
             "agent",
             Some(7),
             RouteStatus::Applied as i32,
-            false,
             0,
         );
         r.status_msg = "apply succeeded".to_string();
         let cells = route_cells(&r);
         assert_eq!(cells[0], "src-node"); // source
         assert_eq!(cells[1], "dst-node"); // dest node
-        assert_eq!(cells[2], "org/ns/agent/7"); // subscription
+        assert_eq!(cells[2], "org/ns/agent/7"); // route
         assert_eq!(cells[3], "APPLIED"); // status
         assert_eq!(cells[4], "apply succeeded"); // status msg
-        assert_eq!(cells[5], "No"); // deleted
     }
 
     #[test]
     fn route_cells_empty_dest_node_becomes_dash() {
-        let r = make_route("src", "", "o", "n", "a", None, 0, false, 0);
+        let r = make_route("src", "", "o", "n", "a", None, 0, 0);
         assert_eq!(route_cells(&r)[1], "-");
     }
 
     #[test]
     fn route_cells_subscription_column() {
-        let r = make_route("src", "", "o", "n", "a", None, 0, false, 0);
+        let r = make_route("src", "", "o", "n", "a", None, 0, 0);
         assert_eq!(route_cells(&r)[2], "o/n/a");
-    }
-
-    #[test]
-    fn route_cells_deleted_shows_yes() {
-        let r = make_route("src", "", "o", "n", "a", None, 0, true, 0);
-        assert_eq!(route_cells(&r)[5], "Yes");
     }
 
     // ── compute_route_col_widths ─────────────────────────────────────────────
@@ -811,7 +796,6 @@ mod tests {
             "agent",
             Some(1),
             RouteStatus::Applied as i32,
-            false,
             0,
         );
         let widths = compute_route_col_widths(std::slice::from_ref(&r));
@@ -845,25 +829,37 @@ mod tests {
 
         use tokio_stream::wrappers::TcpListenerStream;
 
-        use crate::proto::controller::proto::v1::{
-            Ack, AddParticipantRequest, ConnectionListResponse, DeleteChannelRequest,
-            DeleteParticipantRequest, ListChannelsRequest, ListChannelsResponse,
-            ListParticipantsRequest, ListParticipantsResponse, SubscriptionListResponse,
-        };
+        use crate::proto::controller::proto::v1::{ConnectionListResponse, RouteListResponse};
         use crate::proto::controlplane::proto::v1::{
-            AddRouteRequest, AddRouteResponse, CreateChannelRequest, CreateChannelResponse,
-            DeleteRouteRequest, DeleteRouteResponse, LinkListRequest, LinkListResponse,
-            Node as CpNode, NodeListRequest, NodeListResponse, RouteListRequest, RouteListResponse,
+            AddRouteRequest, AddRouteResponse, DeleteRouteRequest, DeleteRouteResponse, LinkEntry,
+            LinkListRequest, Node as CpNode, NodeEntry, NodeListRequest, RouteEntry,
+            RouteListRequest,
             control_plane_service_server::{ControlPlaneService, ControlPlaneServiceServer},
         };
         use slim_config::grpc::client::ClientConfig;
 
         use super::super::*;
 
+        type EmptyNodeStream =
+            tokio_stream::wrappers::ReceiverStream<Result<NodeEntry, tonic::Status>>;
+        type EmptyRouteStream =
+            tokio_stream::wrappers::ReceiverStream<Result<RouteEntry, tonic::Status>>;
+        type EmptyLinkStream =
+            tokio_stream::wrappers::ReceiverStream<Result<LinkEntry, tonic::Status>>;
+
+        fn empty_stream<T>() -> tokio_stream::wrappers::ReceiverStream<Result<T, tonic::Status>> {
+            let (_, rx) = tokio::sync::mpsc::channel(1);
+            tokio_stream::wrappers::ReceiverStream::new(rx)
+        }
+
         struct MockControlPlaneSvc;
 
         #[tonic::async_trait]
         impl ControlPlaneService for MockControlPlaneSvc {
+            type ListNodesStream = EmptyNodeStream;
+            type ListRoutesStream = EmptyRouteStream;
+            type ListLinksStream = EmptyLinkStream;
+
             async fn add_route(
                 &self,
                 _req: tonic::Request<AddRouteRequest>,
@@ -881,13 +877,14 @@ mod tests {
                 Ok(tonic::Response::new(DeleteRouteResponse { success: true }))
             }
 
-            async fn list_subscriptions(
+            async fn list_node_routes(
                 &self,
                 _req: tonic::Request<CpNode>,
-            ) -> Result<tonic::Response<SubscriptionListResponse>, tonic::Status> {
-                Ok(tonic::Response::new(SubscriptionListResponse {
+            ) -> Result<tonic::Response<RouteListResponse>, tonic::Status> {
+                Ok(tonic::Response::new(RouteListResponse {
                     original_message_id: String::new(),
                     entries: vec![],
+                    done: true,
                 }))
             }
 
@@ -898,66 +895,29 @@ mod tests {
                 Ok(tonic::Response::new(ConnectionListResponse {
                     original_message_id: String::new(),
                     entries: vec![],
+                    done: true,
                 }))
             }
 
             async fn list_nodes(
                 &self,
                 _req: tonic::Request<NodeListRequest>,
-            ) -> Result<tonic::Response<NodeListResponse>, tonic::Status> {
-                Ok(tonic::Response::new(NodeListResponse { entries: vec![] }))
+            ) -> Result<tonic::Response<Self::ListNodesStream>, tonic::Status> {
+                Ok(tonic::Response::new(empty_stream()))
             }
 
             async fn list_routes(
                 &self,
                 _req: tonic::Request<RouteListRequest>,
-            ) -> Result<tonic::Response<RouteListResponse>, tonic::Status> {
-                Ok(tonic::Response::new(RouteListResponse { routes: vec![] }))
+            ) -> Result<tonic::Response<Self::ListRoutesStream>, tonic::Status> {
+                Ok(tonic::Response::new(empty_stream()))
             }
 
             async fn list_links(
                 &self,
                 _req: tonic::Request<LinkListRequest>,
-            ) -> Result<tonic::Response<LinkListResponse>, tonic::Status> {
-                Ok(tonic::Response::new(LinkListResponse { links: vec![] }))
-            }
-
-            // Stubs required by the proto trait but not used by the CLI commands, so they just return unimplemented.
-            async fn create_channel(
-                &self,
-                _: tonic::Request<CreateChannelRequest>,
-            ) -> Result<tonic::Response<CreateChannelResponse>, tonic::Status> {
-                unimplemented!()
-            }
-            async fn delete_channel(
-                &self,
-                _: tonic::Request<DeleteChannelRequest>,
-            ) -> Result<tonic::Response<Ack>, tonic::Status> {
-                unimplemented!()
-            }
-            async fn add_participant(
-                &self,
-                _: tonic::Request<AddParticipantRequest>,
-            ) -> Result<tonic::Response<Ack>, tonic::Status> {
-                unimplemented!()
-            }
-            async fn delete_participant(
-                &self,
-                _: tonic::Request<DeleteParticipantRequest>,
-            ) -> Result<tonic::Response<Ack>, tonic::Status> {
-                unimplemented!()
-            }
-            async fn list_channels(
-                &self,
-                _: tonic::Request<ListChannelsRequest>,
-            ) -> Result<tonic::Response<ListChannelsResponse>, tonic::Status> {
-                unimplemented!()
-            }
-            async fn list_participants(
-                &self,
-                _: tonic::Request<ListParticipantsRequest>,
-            ) -> Result<tonic::Response<ListParticipantsResponse>, tonic::Status> {
-                unimplemented!()
+            ) -> Result<tonic::Response<Self::ListLinksStream>, tonic::Status> {
+                Ok(tonic::Response::new(empty_stream()))
             }
         }
 
@@ -1049,6 +1009,10 @@ mod tests {
 
         #[tonic::async_trait]
         impl ControlPlaneService for ErrorControlPlaneSvc {
+            type ListNodesStream = EmptyNodeStream;
+            type ListRoutesStream = EmptyRouteStream;
+            type ListLinksStream = EmptyLinkStream;
+
             async fn add_route(
                 &self,
                 _: tonic::Request<AddRouteRequest>,
@@ -1061,10 +1025,10 @@ mod tests {
             ) -> Result<tonic::Response<DeleteRouteResponse>, tonic::Status> {
                 Err(tonic::Status::internal("error"))
             }
-            async fn list_subscriptions(
+            async fn list_node_routes(
                 &self,
                 _: tonic::Request<CpNode>,
-            ) -> Result<tonic::Response<SubscriptionListResponse>, tonic::Status> {
+            ) -> Result<tonic::Response<RouteListResponse>, tonic::Status> {
                 Err(tonic::Status::internal("error"))
             }
             async fn list_connections(
@@ -1076,59 +1040,21 @@ mod tests {
             async fn list_nodes(
                 &self,
                 _: tonic::Request<NodeListRequest>,
-            ) -> Result<tonic::Response<NodeListResponse>, tonic::Status> {
-                Err(tonic::Status::internal("error"))
-            }
-            async fn list_channels(
-                &self,
-                _: tonic::Request<ListChannelsRequest>,
-            ) -> Result<tonic::Response<ListChannelsResponse>, tonic::Status> {
-                Err(tonic::Status::internal("error"))
-            }
-            async fn list_participants(
-                &self,
-                _: tonic::Request<ListParticipantsRequest>,
-            ) -> Result<tonic::Response<ListParticipantsResponse>, tonic::Status> {
+            ) -> Result<tonic::Response<Self::ListNodesStream>, tonic::Status> {
                 Err(tonic::Status::internal("error"))
             }
             async fn list_routes(
                 &self,
                 _: tonic::Request<RouteListRequest>,
-            ) -> Result<tonic::Response<RouteListResponse>, tonic::Status> {
+            ) -> Result<tonic::Response<Self::ListRoutesStream>, tonic::Status> {
                 Err(tonic::Status::internal("error"))
             }
 
             async fn list_links(
                 &self,
                 _: tonic::Request<LinkListRequest>,
-            ) -> Result<tonic::Response<LinkListResponse>, tonic::Status> {
+            ) -> Result<tonic::Response<Self::ListLinksStream>, tonic::Status> {
                 Err(tonic::Status::internal("error"))
-            }
-
-            // Stubs required by the proto trait but not used by the CLI commands, so they just return unimplemented.
-            async fn create_channel(
-                &self,
-                _: tonic::Request<CreateChannelRequest>,
-            ) -> Result<tonic::Response<CreateChannelResponse>, tonic::Status> {
-                unimplemented!()
-            }
-            async fn delete_channel(
-                &self,
-                _: tonic::Request<DeleteChannelRequest>,
-            ) -> Result<tonic::Response<Ack>, tonic::Status> {
-                unimplemented!()
-            }
-            async fn add_participant(
-                &self,
-                _: tonic::Request<AddParticipantRequest>,
-            ) -> Result<tonic::Response<Ack>, tonic::Status> {
-                unimplemented!()
-            }
-            async fn delete_participant(
-                &self,
-                _: tonic::Request<DeleteParticipantRequest>,
-            ) -> Result<tonic::Response<Ack>, tonic::Status> {
-                unimplemented!()
             }
         }
 
@@ -1141,6 +1067,10 @@ mod tests {
 
         #[tonic::async_trait]
         impl ControlPlaneService for FailureControlPlaneSvc {
+            type ListNodesStream = EmptyNodeStream;
+            type ListRoutesStream = EmptyRouteStream;
+            type ListLinksStream = EmptyLinkStream;
+
             async fn add_route(
                 &self,
                 _: tonic::Request<AddRouteRequest>,
@@ -1156,13 +1086,14 @@ mod tests {
             ) -> Result<tonic::Response<DeleteRouteResponse>, tonic::Status> {
                 Ok(tonic::Response::new(DeleteRouteResponse { success: true }))
             }
-            async fn list_subscriptions(
+            async fn list_node_routes(
                 &self,
                 _: tonic::Request<CpNode>,
-            ) -> Result<tonic::Response<SubscriptionListResponse>, tonic::Status> {
-                Ok(tonic::Response::new(SubscriptionListResponse {
+            ) -> Result<tonic::Response<RouteListResponse>, tonic::Status> {
+                Ok(tonic::Response::new(RouteListResponse {
                     original_message_id: String::new(),
                     entries: vec![],
+                    done: true,
                 }))
             }
             async fn list_connections(
@@ -1172,63 +1103,27 @@ mod tests {
                 Ok(tonic::Response::new(ConnectionListResponse {
                     original_message_id: String::new(),
                     entries: vec![],
+                    done: true,
                 }))
             }
             async fn list_nodes(
                 &self,
                 _: tonic::Request<NodeListRequest>,
-            ) -> Result<tonic::Response<NodeListResponse>, tonic::Status> {
-                Ok(tonic::Response::new(NodeListResponse { entries: vec![] }))
+            ) -> Result<tonic::Response<Self::ListNodesStream>, tonic::Status> {
+                Ok(tonic::Response::new(empty_stream()))
             }
             async fn list_routes(
                 &self,
                 _: tonic::Request<RouteListRequest>,
-            ) -> Result<tonic::Response<RouteListResponse>, tonic::Status> {
-                Ok(tonic::Response::new(RouteListResponse { routes: vec![] }))
+            ) -> Result<tonic::Response<Self::ListRoutesStream>, tonic::Status> {
+                Ok(tonic::Response::new(empty_stream()))
             }
 
             async fn list_links(
                 &self,
                 _: tonic::Request<LinkListRequest>,
-            ) -> Result<tonic::Response<LinkListResponse>, tonic::Status> {
-                Ok(tonic::Response::new(LinkListResponse { links: vec![] }))
-            }
-
-            async fn create_channel(
-                &self,
-                _: tonic::Request<CreateChannelRequest>,
-            ) -> Result<tonic::Response<CreateChannelResponse>, tonic::Status> {
-                unimplemented!()
-            }
-            async fn delete_channel(
-                &self,
-                _: tonic::Request<DeleteChannelRequest>,
-            ) -> Result<tonic::Response<Ack>, tonic::Status> {
-                unimplemented!()
-            }
-            async fn add_participant(
-                &self,
-                _: tonic::Request<AddParticipantRequest>,
-            ) -> Result<tonic::Response<Ack>, tonic::Status> {
-                unimplemented!()
-            }
-            async fn delete_participant(
-                &self,
-                _: tonic::Request<DeleteParticipantRequest>,
-            ) -> Result<tonic::Response<Ack>, tonic::Status> {
-                unimplemented!()
-            }
-            async fn list_channels(
-                &self,
-                _: tonic::Request<ListChannelsRequest>,
-            ) -> Result<tonic::Response<ListChannelsResponse>, tonic::Status> {
-                unimplemented!()
-            }
-            async fn list_participants(
-                &self,
-                _: tonic::Request<ListParticipantsRequest>,
-            ) -> Result<tonic::Response<ListParticipantsResponse>, tonic::Status> {
-                unimplemented!()
+            ) -> Result<tonic::Response<Self::ListLinksStream>, tonic::Status> {
+                Ok(tonic::Response::new(empty_stream()))
             }
         }
 

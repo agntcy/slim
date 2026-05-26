@@ -111,7 +111,7 @@ impl Session {
     }
 
     /// Get the runtime (for internal use)
-    pub fn runtime(&self) -> &'static tokio::runtime::Runtime {
+    pub fn runtime(&self) -> tokio::runtime::Handle {
         crate::config::get_runtime()
     }
 }

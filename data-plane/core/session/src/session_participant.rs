@@ -3,7 +3,6 @@
 
 use std::{collections::HashMap, time::Duration};
 
-use async_trait::async_trait;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -78,7 +77,6 @@ where
 
 /// Implementation of MessageHandler trait for SessionParticipant
 /// This allows the participant to be used as a layer in the generic layer system
-#[async_trait]
 impl<P, V, I, M> MessageHandler for SessionParticipant<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,

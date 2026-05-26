@@ -16,7 +16,6 @@ services:
     dataplane:
       servers:
         - endpoint: "wss://0.0.0.0:46357"
-          transport: websocket
           tls:
             source:
               type: file
