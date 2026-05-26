@@ -1745,7 +1745,6 @@ mod tests {
             }
         }
 
-        #[async_trait::async_trait]
         impl MessageHandler for InternalDrainHandler {
             async fn init(&mut self) -> Result<(), SessionError> {
                 Ok(())
@@ -1924,7 +1923,6 @@ mod tests {
         }
     }
 
-    #[async_trait::async_trait]
     impl MessageHandler for DrainableHandler {
         async fn init(&mut self) -> Result<(), SessionError> {
             Ok(())

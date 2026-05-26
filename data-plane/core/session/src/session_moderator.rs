@@ -6,8 +6,8 @@ use std::{
     time::Duration,
 };
 
-use async_trait::async_trait;
 use display_error_chain::ErrorChainExt;
+
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -104,7 +104,6 @@ where
 
 /// Implementation of MessageHandler trait for SessionModerator
 /// This allows the moderator to be used as a layer in the generic layer system
-#[async_trait]
 impl<P, V, I, M> MessageHandler for SessionModerator<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -1159,17 +1158,22 @@ where
             }
         };
 
-        debug!("Process a new task from the todo list");
-        // Process the control message by calling on_message
-        // Since this is a control message coming from our internal queue,
-        // we use MessageDirection::North (coming from network/control plane)
-        // The ack_tx that was stored with the task is now used
-        self.on_message(SessionMessage::OnMessage {
-            message: msg,
-            direction: MessageDirection::North,
-            ack_tx,
-        })
-        .await
+        debug!("Re-enqueue a task from the todo list onto the processing loop");
+        // Send the task back to the processing loop instead of recursing into
+        // `on_message`. Recursive async calls would otherwise require a boxed
+        // future (and `async_trait` was hiding that cost before).
+        self.common
+            .settings
+            .tx_session
+            .send(SessionMessage::OnMessage {
+                message: msg,
+                direction: MessageDirection::North,
+                ack_tx,
+            })
+            .await
+            .map_err(|_| SessionError::SlimMessageSendFailed)?;
+
+        Ok(())
     }
 
     async fn join(&mut self, remote: ProtoName, conn: u64) -> Result<(), SessionError> {

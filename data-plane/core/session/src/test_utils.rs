@@ -91,7 +91,6 @@ impl SessionInterceptorProvider for MockTransmitter {
     }
 }
 
-#[async_trait::async_trait]
 impl Transmitter for MockTransmitter {
     async fn send_to_slim(&self, message: Result<Message, Status>) -> Result<(), SessionError> {
         self.slim_tx
@@ -142,7 +141,6 @@ impl Default for MockInnerHandler {
     }
 }
 
-#[async_trait::async_trait]
 impl MessageHandler for MockInnerHandler {
     async fn init(&mut self) -> Result<(), SessionError> {
         Ok(())

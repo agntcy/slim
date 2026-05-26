@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Third-party crates
-use async_trait::async_trait;
 use slim_datapath::Status;
 use slim_datapath::api::ProtoMessage as Message;
 
@@ -17,7 +16,7 @@ pub enum ProcessingState {
 }
 
 /// Session transmitter trait
-#[async_trait]
+#[trait_variant::make(Send)]
 pub trait Transmitter: SessionInterceptorProvider {
     async fn send_to_slim(&self, message: Result<Message, Status>) -> Result<(), SessionError>;
 
@@ -29,8 +28,8 @@ pub trait Transmitter: SessionInterceptorProvider {
 ///
 /// Each layer implements this trait and can hold an inner layer.
 /// The layer decides whether to pass messages to its inner layer or handle them itself (or both).
-#[async_trait]
-pub trait MessageHandler: Send + Sync {
+#[trait_variant::make(Send)]
+pub trait MessageHandler {
     /// Init the layer.
     async fn init(&mut self) -> Result<(), SessionError>;
 
@@ -51,7 +50,7 @@ pub trait MessageHandler: Send + Sync {
         &mut self,
         _endpoint: &slim_datapath::api::Participant,
     ) -> Result<(), SessionError> {
-        Ok(())
+        async { Ok(()) }
     }
 
     /// Remove an endpoint from the session.
@@ -75,7 +74,7 @@ pub trait MessageHandler: Send + Sync {
     /// Optional hook for periodic ops (e.g. MLS key rotation)
     #[allow(dead_code)]
     async fn on_tick(&mut self) -> Result<(), SessionError> {
-        Ok(())
+        async { Ok(()) }
     }
 
     /// Get the current participants list (participants in the session)
