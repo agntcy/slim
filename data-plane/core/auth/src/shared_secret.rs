@@ -518,7 +518,11 @@ impl TokenProvider for SharedSecret {
     }
 
     fn get_token(&self) -> Result<String, AuthError> {
+<<<<<<< HEAD
         let mut buf = String::with_capacity(self.token_capacity());
+=======
+        let mut buf = String::new();
+>>>>>>> 4d74f6c4 (perf(auth): cache HMAC key and claims, drop per-call allocations in SharedSecret)
         self.get_token_into(&mut buf)?;
         Ok(buf)
     }
