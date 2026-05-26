@@ -1,7 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use async_trait::async_trait;
 use slim_datapath::api::{
     EncodedName, Participant, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
 };
@@ -297,7 +296,6 @@ impl Session {
 
 /// Implementation of MessageHandler trait for Session
 /// This allows Session to be used as a layer in the generic layer system
-#[async_trait]
 impl MessageHandler for Session {
     async fn init(&mut self) -> Result<(), SessionError> {
         // Session is the innermost layer, no initialization needed
