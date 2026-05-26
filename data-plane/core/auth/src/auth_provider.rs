@@ -282,7 +282,7 @@ impl Verifier for AuthVerifier {
         }
     }
 
-    async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
+    async fn verify(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError> {
         match self {
             AuthVerifier::JwtVerifier(verifier) => verifier.verify(token).await,
             #[cfg(not(target_family = "windows"))]
@@ -291,7 +291,7 @@ impl Verifier for AuthVerifier {
         }
     }
 
-    fn try_verify(&self, token: impl Into<String>) -> Result<(), AuthError> {
+    fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
         match self {
             AuthVerifier::JwtVerifier(verifier) => verifier.try_verify(token),
             #[cfg(not(target_family = "windows"))]
@@ -300,7 +300,7 @@ impl Verifier for AuthVerifier {
         }
     }
 
-    async fn get_claims<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
+    async fn get_claims<Claims>(&self, token: impl AsRef<str> + Send) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
@@ -312,7 +312,7 @@ impl Verifier for AuthVerifier {
         }
     }
 
-    fn try_get_claims<Claims>(&self, token: impl Into<String>) -> Result<Claims, AuthError>
+    fn try_get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {

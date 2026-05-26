@@ -732,35 +732,36 @@ impl Verifier for SpireIdentityManager {
         self.initialize().await
     }
 
-    async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
+    async fn verify(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError> {
         self.try_verify(token)
     }
 
-    fn try_verify(&self, token: impl Into<String>) -> Result<(), AuthError> {
+    fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
         let bundles = self.get_jwt_bundles()?;
-        JwtSvid::parse_and_validate(&token.into(), &*bundles, &self.inner.jwt_audiences)?;
+        JwtSvid::parse_and_validate(token.as_ref(), &*bundles, &self.inner.jwt_audiences)?;
         debug!("Successfully verified JWT token (sync)");
         Ok(())
     }
 
-    async fn get_claims<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
+    async fn get_claims<Claims>(&self, token: impl AsRef<str> + Send) -> Result<Claims, AuthError>
     where
         Claims: DeserializeOwned + Send,
     {
         self.try_get_claims(token)
     }
 
-    fn try_get_claims<Claims>(&self, token: impl Into<String>) -> Result<Claims, AuthError>
+    fn try_get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
     where
         Claims: DeserializeOwned + Send,
     {
         let bundles = self.get_jwt_bundles()?;
         let jwt_svid =
-            JwtSvid::parse_and_validate(&token.into(), &*bundles, &self.inner.jwt_audiences)?;
+            JwtSvid::parse_and_validate(token.as_ref(), &*bundles, &self.inner.jwt_audiences)?;
 
         debug!(
             spiffe_id = %jwt_svid.spiffe_id(),
-            "Successfully extracted claims"        );
+            "Successfully extracted claims"
+        );
 
         // Extract custom claims from audiences and filter them out
         let audiences = jwt_svid.audience();

@@ -388,18 +388,17 @@ pub struct V {}
 impl<V> Jwt<V> {
     fn try_verify_claims<Claims: serde::de::DeserializeOwned>(
         &self,
-        token: impl Into<String>,
+        token: impl AsRef<str>,
     ) -> Result<Claims, AuthError> {
-        // Convert the token into a String
-        let token = token.into();
+        let token = token.as_ref();
 
         // Check if the token is in the cache first for cacheable claim types
-        if let Some(cached_claims) = self.get_cached_claims::<Claims>(&token) {
+        if let Some(cached_claims) = self.get_cached_claims::<Claims>(token) {
             return Ok(cached_claims);
         }
 
         // Try to decode the key from the cache first; if this would require async, return WouldBlockOn
-        let decoding_key = self.decoding_key(&token)?;
+        let decoding_key = self.decoding_key(token)?;
 
         // If we have a decoding key, proceed with verification
         self.verify_internal::<Claims>(token, decoding_key)
@@ -407,42 +406,42 @@ impl<V> Jwt<V> {
 
     async fn verify_claims<Claims: serde::de::DeserializeOwned>(
         &self,
-        token: impl Into<String>,
+        token: impl AsRef<str>,
     ) -> Result<Claims, AuthError> {
-        let token = token.into();
+        let token = token.as_ref();
 
         // Check if the token is in the cache first for cacheable claim types
-        if let Some(cached_claims) = self.get_cached_claims::<Claims>(&token) {
+        if let Some(cached_claims) = self.get_cached_claims::<Claims>(token) {
             return Ok(cached_claims);
         }
 
         // Resolve the decoding key for verification
-        let decoding_key = self.resolve_decoding_key(&token).await?;
+        let decoding_key = self.resolve_decoding_key(token).await?;
 
         self.verify_internal::<Claims>(token, decoding_key)
     }
 
     fn verify_internal<Claims: serde::de::DeserializeOwned>(
         &self,
-        token: impl Into<String>,
+        token: impl AsRef<str>,
         decoding_key: DecodingKey,
     ) -> Result<Claims, AuthError> {
-        let token = token.into();
+        let token = token.as_ref();
 
         // Get the token header (propagate underlying jsonwebtoken error directly)
-        let token_header = decode_header(&token)?;
+        let token_header = decode_header(token)?;
 
         // Derive a validation using the same algorithm
         let validation = self.get_validation(token_header.alg);
 
         // Decode and verify the token
-        let token_data: TokenData<Claims> = decode(&token, &decoding_key, &validation)?;
+        let token_data: TokenData<Claims> = decode(token, &decoding_key, &validation)?;
 
         // Get the exp to cache the token - do not verify token again
-        let token_exp_data: TokenData<ExpClaim> = jsonwebtoken::dangerous::insecure_decode(&token)?;
+        let token_exp_data: TokenData<ExpClaim> = jsonwebtoken::dangerous::insecure_decode(token)?;
 
         // Cache the token with its expiry
-        self.cache(token, token_exp_data.claims.exp);
+        self.cache(token.to_owned(), token_exp_data.claims.exp);
 
         // Parse the token to extract the expiry claim
         Ok(token_data.claims)
@@ -627,26 +626,26 @@ impl Verifier for VerifierJwt {
         Ok(()) // no-op
     }
 
-    async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
+    async fn verify(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError> {
         // Just verify the token is valid, don't extract claims
         self.verify_claims::<StandardClaims>(token)
             .await
             .map(|_| ())
     }
 
-    fn try_verify(&self, token: impl Into<String>) -> Result<(), AuthError> {
+    fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
         // Just verify the token is valid, don't extract claims
         self.try_verify_claims::<StandardClaims>(token).map(|_| ())
     }
 
-    async fn get_claims<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
+    async fn get_claims<Claims>(&self, token: impl AsRef<str> + Send) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
         self.verify_claims(token).await
     }
 
-    fn try_get_claims<Claims>(&self, token: impl Into<String>) -> Result<Claims, AuthError>
+    fn try_get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {

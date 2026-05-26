@@ -500,19 +500,19 @@ impl Verifier for OidcVerifier {
         Ok(()) // no-op
     }
 
-    async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
+    async fn verify(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError> {
         // Verify the token structure is valid - this will fetch JWKS if needed
-        let _: serde_json::Value = self.verify_token(&token.into()).await?;
+        let _: serde_json::Value = self.verify_token(token.as_ref()).await?;
         Ok(())
     }
 
-    fn try_verify(&self, token: impl Into<String>) -> Result<(), AuthError> {
-        let token = token.into();
+    fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
+        let token = token.as_ref();
 
         // First try to verify with cached JWKS only
         if let Some(cached_jwks) = self.jwks_cache.get(&self.issuer_url) {
             // Use the utility function to verify the token with cached JWKS
-            let _: serde_json::Value = self.verify_token_util(&token, &cached_jwks)?;
+            let _: serde_json::Value = self.verify_token_util(token, &cached_jwks)?;
             Ok(())
         } else {
             // Indicate that a blocking (network) operation would be required
@@ -520,19 +520,19 @@ impl Verifier for OidcVerifier {
         }
     }
 
-    async fn get_claims<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
+    async fn get_claims<Claims>(&self, token: impl AsRef<str> + Send) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
-        self.verify_token(&token.into()).await
+        self.verify_token(token.as_ref()).await
     }
 
-    fn try_get_claims<Claims>(&self, token: impl Into<String>) -> Result<Claims, AuthError>
+    fn try_get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
         // For synchronous verification, we need a runtime
-        block_on(self.verify_token(&token.into()))
+        block_on(self.verify_token(token.as_ref()))
     }
 }
 
