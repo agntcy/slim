@@ -59,10 +59,9 @@ services:
         # No default, this must be specified.
         - endpoint: "0.0.0.0:46357"
 
-          # Dataplane transport protocol.
-          # Available options: grpc, websocket
-          # Default: grpc
-          # transport: grpc
+          # Transport protocol is inferred from the endpoint scheme:
+          #   ws://, wss://  → websocket (TLS when wss)
+          #   http://, https://, bare host:port, unix://  → grpc
 
           # Authentication configuration
           auth:
@@ -217,13 +216,12 @@ services:
         # No default, this must be specified.
         - endpoint: "1.2.3.4:54321"
 
-          # Dataplane transport protocol.
-          # Available options: grpc, websocket
-          # Default: grpc
-          # transport: grpc
+          # Transport protocol is inferred from the endpoint scheme:
+          #   ws://, wss://  → websocket (TLS when wss)
+          #   http://, https://, bare host:port, unix://  → grpc
 
           # Optional websocket auth query parameter key.
-          # Used only when transport=websocket.
+          # Used only when endpoint scheme is ws:// or wss://.
           # websocket_auth_query_param: token
 
           # Authentication configuration
