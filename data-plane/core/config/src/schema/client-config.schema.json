@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ClientConfig",
-  "description": "Struct for the client configuration.\nThis struct contains the endpoint, origin, compression type, rate limit,\nTLS settings, keepalive settings, proxy settings, timeout settings, buffer size settings,\nheaders, and auth settings.\nThe client configuration can be converted to a tonic channel.",
+  "description": "Struct for the client configuration.\nThis struct contains the endpoint, origin, compression type, rate limit,\nTLS settings, keepalive settings, proxy settings, timeout settings, buffer size settings,\nheaders, and auth settings.\nThe client configuration can be converted to a transport channel via\n[`ClientConfig::to_channel`].",
   "type": "object",
   "properties": {
     "auth": {
@@ -49,7 +49,7 @@
       "default": "0y"
     },
     "endpoint": {
-      "description": "The target the client will connect to.",
+      "description": "The target the client will connect to.\n\nThe transport protocol is inferred from the endpoint scheme:\n* `ws://`, `wss://`  → WebSocket (TLS when `wss`)\n* `http://`, `https://`, `unix://`, bare `host:port` → gRPC",
       "type": "string"
     },
     "headers": {
@@ -74,7 +74,7 @@
     "link_id": {
       "description": "Link identifier for this connection, used during link negotiation.\nMust be a valid UUID v4. Defaults to a randomly generated UUID v4.",
       "type": "string",
-      "default": "b2ee9307-0199-4d1c-8670-a73eee887631"
+      "default": "5809da77-44e1-4b56-b221-de07c3b641e9"
     },
     "metadata": {
       "description": "Arbitrary user-provided metadata.",
@@ -152,18 +152,6 @@
         },
         "tls_version": "tls1.3"
       }
-    },
-    "transport": {
-      "description": "Transport protocol to use for dataplane communication.",
-      "$ref": "#/$defs/TransportProtocol",
-      "default": "grpc"
-    },
-    "websocket_auth_query_param": {
-      "description": "Optional websocket authentication query parameter key.\nThis is only used when `transport=websocket`.",
-      "type": [
-        "string",
-        "null"
-      ]
     }
   },
   "required": [
@@ -964,21 +952,6 @@
           "required": [
             "type"
           ]
-        }
-      ]
-    },
-    "TransportProtocol": {
-      "description": "Transport protocol used by client and server dataplane configuration.",
-      "oneOf": [
-        {
-          "description": "gRPC transport (default).",
-          "type": "string",
-          "const": "grpc"
-        },
-        {
-          "description": "Native websocket transport.",
-          "type": "string",
-          "const": "websocket"
         }
       ]
     }

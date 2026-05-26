@@ -11,7 +11,6 @@ mod tests {
 
     use slim_config::tls::client::TlsClientConfig;
     use slim_config::tls::server::TlsServerConfig;
-    use slim_config::transport::TransportProtocol;
     use slim_config::{client::ClientConfig, server::ServerConfig};
     use slim_datapath::api::{DataPlaneServiceServer, ProtoMessage as Message};
     use slim_datapath::errors::DataPathError;
@@ -308,11 +307,9 @@ mod tests {
     #[traced_test]
     async fn test_websocket_connection_ws() {
         let server_conf = ServerConfig::with_endpoint("ws://127.0.0.1:51061")
-            .with_transport(TransportProtocol::Websocket)
             .with_tls_settings(TlsServerConfig::insecure());
 
         let client_conf = ClientConfig::with_endpoint("ws://127.0.0.1:51061")
-            .with_transport(TransportProtocol::Websocket)
             .with_tls_setting(TlsClientConfig::insecure());
         let conn_index =
             run_transport_roundtrip(server_conf, client_conf, None, "websocket ws").await;
@@ -334,15 +331,13 @@ mod tests {
             &format!("{}/server.key", grpc_tls_testdata),
         );
 
-        let server_conf = ServerConfig::with_endpoint("wss://127.0.0.1:51062")
-            .with_transport(TransportProtocol::Websocket)
-            .with_tls_settings(server_tls);
+        let server_conf =
+            ServerConfig::with_endpoint("wss://127.0.0.1:51062").with_tls_settings(server_tls);
 
         let client_tls =
             TlsClientConfig::new().with_ca_file(&format!("{}/ca.crt", grpc_tls_testdata));
 
         let client_conf = ClientConfig::with_endpoint("wss://127.0.0.1:51062")
-            .with_transport(TransportProtocol::Websocket)
             .with_server_name("example1")
             .with_tls_setting(client_tls);
         let conn_index =

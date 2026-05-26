@@ -11,7 +11,7 @@
       }
     },
     "endpoint": {
-      "description": "Endpoint is the address to listen on.",
+      "description": "Endpoint is the address to listen on.\n\nThe transport protocol is inferred from the endpoint scheme:\n* `ws://`, `wss://`  → WebSocket (TLS when `wss`)\n* `http://`, `https://`, bare `host:port` → gRPC",
       "type": "string"
     },
     "http2_only": {
@@ -97,11 +97,6 @@
         "tls_version": "tls1.3"
       }
     },
-    "transport": {
-      "description": "Transport protocol to use for dataplane communication.",
-      "$ref": "#/$defs/TransportProtocol",
-      "default": "grpc"
-    },
     "write_buffer_size": {
       "description": "WriteBufferSize for gRPC server.",
       "type": [
@@ -135,7 +130,7 @@
       ]
     },
     "AuthenticationConfig": {
-      "description": "Enum holding one configuration for the client.",
+      "description": "Enum holding one configuration for the server.",
       "oneOf": [
         {
           "description": "Basic authentication configuration.",
@@ -746,21 +741,6 @@
           "required": [
             "type"
           ]
-        }
-      ]
-    },
-    "TransportProtocol": {
-      "description": "Transport protocol used by client and server dataplane configuration.",
-      "oneOf": [
-        {
-          "description": "gRPC transport (default).",
-          "type": "string",
-          "const": "grpc"
-        },
-        {
-          "description": "Native websocket transport.",
-          "type": "string",
-          "const": "websocket"
         }
       ]
     }

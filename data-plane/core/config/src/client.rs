@@ -12,12 +12,11 @@
 //! * `crate::websocket::client` — WebSocket channel building
 
 use duration_string::DurationString;
-use std::{collections::HashMap, str::FromStr, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tonic::codegen::{Body, Bytes, StdError};
-use tonic::transport::Uri;
 
 use slim_auth::metadata::MetadataMap;
 
@@ -34,7 +33,7 @@ use crate::errors::ConfigError;
 use crate::grpc::compression::CompressionType;
 use crate::grpc::proxy::ProxyConfig;
 use crate::tls::client::TlsClientConfig as TLSSetting;
-use crate::transport::TransportProtocol;
+use crate::transport::{TransportProtocol, validate_endpoint_scheme};
 use crate::websocket::client::WebSocketClientChannel;
 
 /// Result of [`ClientConfig::to_channel`]: either a gRPC channel (the generic
@@ -178,11 +177,11 @@ impl Strategy for BackoffConfig {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct ClientConfig {
     /// The target the client will connect to.
+    ///
+    /// The transport protocol is inferred from the endpoint scheme:
+    /// * `ws://`, `wss://`  → WebSocket (TLS when `wss`)
+    /// * `http://`, `https://`, `unix://`, bare `host:port` → gRPC
     pub endpoint: String,
-
-    /// Transport protocol to use for dataplane communication.
-    #[serde(default)]
-    pub transport: TransportProtocol,
 
     /// Origin (HTTP Host authority override) for the client.
     pub origin: Option<String>,
@@ -247,7 +246,6 @@ impl Default for ClientConfig {
     fn default() -> Self {
         ClientConfig {
             endpoint: String::new(),
-            transport: TransportProtocol::default(),
             origin: None,
             server_name: None,
             compression: None,
@@ -286,7 +284,7 @@ impl std::fmt::Display for ClientConfig {
             f,
             "ClientConfig {{ endpoint: {}, transport: {:?}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, backoff: {:?}, metadata: {:?}, link_id: {:?} }}",
             self.endpoint,
-            self.transport,
+            self.resolved_transport(),
             self.origin,
             self.server_name,
             self.compression,
@@ -328,7 +326,7 @@ impl Configuration for ClientConfig {
 
         // Validate the client configuration
         self.tls_setting.validate()?;
-        self.validate_websocket_endpoint()?;
+        validate_endpoint_scheme(&self.endpoint)?;
 
         Ok(())
     }
@@ -350,10 +348,6 @@ impl ClientConfig {
             origin: Some(origin.to_string()),
             ..self
         }
-    }
-
-    pub fn with_transport(self, transport: TransportProtocol) -> Self {
-        Self { transport, ..self }
     }
 
     pub fn with_server_name(self, server_name: &str) -> Self {
@@ -488,7 +482,7 @@ impl ClientConfig {
         >,
         ConfigError,
     > {
-        match self.transport {
+        match self.resolved_transport() {
             TransportProtocol::Grpc => Ok(TransportChannel::Grpc(self.to_grpc_channel().await?)),
             TransportProtocol::Websocket => Ok(TransportChannel::Websocket(
                 self.to_websocket_channel().await?,
@@ -496,19 +490,10 @@ impl ClientConfig {
         }
     }
 
-    /// Validates that the endpoint scheme matches the transport when set to
-    /// WebSocket. For gRPC transports the scheme is checked at channel-build
-    /// time by `grpc::client`.
-    fn validate_websocket_endpoint(&self) -> Result<(), ConfigError> {
-        if self.transport != TransportProtocol::Websocket {
-            return Ok(());
-        }
-
-        let endpoint = Uri::from_str(self.endpoint.as_str())?;
-        match endpoint.scheme_str() {
-            Some("ws") | Some("wss") => Ok(()),
-            _ => Err(ConfigError::InvalidWebSocketEndpointScheme),
-        }
+    /// Resolve the transport protocol for this configuration by inspecting
+    /// the endpoint URI scheme. See [`TransportProtocol::from_endpoint`].
+    pub fn resolved_transport(&self) -> TransportProtocol {
+        TransportProtocol::from_endpoint(&self.endpoint)
     }
 }
 
@@ -546,7 +531,7 @@ mod tests {
     fn test_default_client_config() {
         let client = ClientConfig::default();
         assert_eq!(client.endpoint, String::new());
-        assert_eq!(client.transport, TransportProtocol::Grpc);
+        assert_eq!(client.resolved_transport(), TransportProtocol::Grpc);
         assert_eq!(client.origin, None);
         assert_eq!(client.compression, None);
         assert_eq!(client.rate_limit, None);
@@ -560,21 +545,34 @@ mod tests {
     }
 
     #[test]
-    fn test_websocket_transport_endpoint_validation() {
-        let ws_config = ClientConfig::with_endpoint("ws://localhost:46357")
-            .with_transport(TransportProtocol::Websocket);
-        assert!(ws_config.validate().is_ok());
+    fn test_transport_inferred_from_endpoint_scheme() {
+        assert_eq!(
+            ClientConfig::with_endpoint("ws://localhost:46357").resolved_transport(),
+            TransportProtocol::Websocket
+        );
+        assert_eq!(
+            ClientConfig::with_endpoint("wss://localhost:46357").resolved_transport(),
+            TransportProtocol::Websocket
+        );
+        assert_eq!(
+            ClientConfig::with_endpoint("http://localhost:46357").resolved_transport(),
+            TransportProtocol::Grpc
+        );
+        assert_eq!(
+            ClientConfig::with_endpoint("https://localhost:46357").resolved_transport(),
+            TransportProtocol::Grpc
+        );
+        assert_eq!(
+            ClientConfig::with_endpoint("127.0.0.1:46357").resolved_transport(),
+            TransportProtocol::Grpc
+        );
 
-        let wss_config = ClientConfig::with_endpoint("wss://localhost:46357")
-            .with_transport(TransportProtocol::Websocket);
-        assert!(wss_config.validate().is_ok());
-
-        let invalid = ClientConfig::with_endpoint("http://localhost:46357")
-            .with_transport(TransportProtocol::Websocket);
-        let err = invalid
-            .validate()
-            .expect_err("expected invalid websocket scheme");
-        assert!(matches!(err, ConfigError::InvalidWebSocketEndpointScheme));
+        // Validation rejects unknown schemes.
+        let invalid = ClientConfig::with_endpoint("ftp://localhost:46357");
+        assert!(matches!(
+            invalid.validate(),
+            Err(ConfigError::InvalidEndpointScheme)
+        ));
     }
 
     #[test]
