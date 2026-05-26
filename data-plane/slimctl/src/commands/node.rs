@@ -12,6 +12,7 @@ use crate::proto::controller::proto::v1::{
 };
 use crate::utils::{VIA_KEYWORD, parse_config_file, parse_endpoint, parse_route};
 use slim_config::grpc::client::ClientConfig;
+use slim_datapath::api::ProtoName;
 
 #[derive(Args)]
 pub struct NodeArgs {
@@ -160,14 +161,13 @@ async fn route_list(opts: &ClientConfig) -> Result<()> {
                                     )
                                 })
                                 .collect();
+                            let name_str = e
+                                .name
+                                .as_ref()
+                                .map_or_else(|| "None".to_string(), |n| format!("{}", n));
                             println!(
-                                "{}/{}/{} id={} local={:?} remote={:?}",
-                                e.component_0,
-                                e.component_1,
-                                e.component_2,
-                                e.id.map_or_else(|| "None".to_string(), |id| id.to_string()),
-                                local_names,
-                                remote_names
+                                "{} local={:?} remote={:?}",
+                                name_str, local_names, remote_names
                             );
                         }
                     }
@@ -186,10 +186,7 @@ async fn route_add(route: &str, via: &str, config_file: &str, opts: &ClientConfi
     let (org, ns, agent_type, agent_id) = parse_route(route)?;
     let conn = parse_config_file(config_file)?;
     let subscription = Subscription {
-        component_0: org,
-        component_1: ns,
-        component_2: agent_type,
-        id: Some(agent_id),
+        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id)),
         connection_id: conn.connection_id.clone(),
         node_id: None,
         link_id: None,
@@ -248,10 +245,7 @@ async fn route_del(route: &str, via: &str, endpoint: &str, opts: &ClientConfig) 
     let (org, ns, agent_type, agent_id) = parse_route(route)?;
     let (_, conn_id) = parse_endpoint(endpoint)?;
     let subscription = Subscription {
-        component_0: org,
-        component_1: ns,
-        component_2: agent_type,
-        id: Some(agent_id),
+        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id)),
         connection_id: conn_id,
         node_id: None,
         link_id: None,

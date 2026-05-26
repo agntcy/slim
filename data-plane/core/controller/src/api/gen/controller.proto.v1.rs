@@ -71,21 +71,15 @@ pub struct ConnectionAck {
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Subscription {
-    #[prost(string, tag = "1")]
-    pub component_0: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "1")]
+    pub name: ::core::option::Option<::slim_datapath::api::proto::dataplane::v1::Name>,
     #[prost(string, tag = "2")]
-    pub component_1: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
-    pub component_2: ::prost::alloc::string::String,
-    #[prost(message, optional, tag = "4")]
-    pub id: ::core::option::Option<u64>,
-    #[prost(string, tag = "5")]
     pub connection_id: ::prost::alloc::string::String,
-    #[prost(string, optional, tag = "6")]
+    #[prost(string, optional, tag = "3")]
     pub node_id: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(string, optional, tag = "7")]
+    #[prost(string, optional, tag = "4")]
     pub link_id: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(enumeration = "ConnectionDirection", optional, tag = "8")]
+    #[prost(enumeration = "ConnectionDirection", optional, tag = "5")]
     pub direction: ::core::option::Option<i32>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -137,17 +131,11 @@ pub struct SubscriptionListResponse {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SubscriptionEntry {
-    #[prost(string, tag = "1")]
-    pub component_0: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
-    pub component_1: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
-    pub component_2: ::prost::alloc::string::String,
-    #[prost(message, optional, tag = "4")]
-    pub id: ::core::option::Option<u64>,
-    #[prost(message, repeated, tag = "5")]
+    #[prost(message, optional, tag = "1")]
+    pub name: ::core::option::Option<::slim_datapath::api::proto::dataplane::v1::Name>,
+    #[prost(message, repeated, tag = "2")]
     pub local_connections: ::prost::alloc::vec::Vec<ConnectionEntry>,
-    #[prost(message, repeated, tag = "6")]
+    #[prost(message, repeated, tag = "3")]
     pub remote_connections: ::prost::alloc::vec::Vec<ConnectionEntry>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

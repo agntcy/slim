@@ -13,6 +13,7 @@ use crate::proto::controlplane::proto::v1::{
 use crate::rpc;
 use crate::utils::{VIA_KEYWORD, is_endpoint, parse_config_file, parse_endpoint, parse_route};
 use slim_config::grpc::client::ClientConfig;
+use slim_datapath::api::ProtoName;
 
 #[derive(Args)]
 pub struct ControllerArgs {
@@ -281,9 +282,13 @@ async fn route_list(node_id: &str, opts: &ClientConfig) -> Result<()> {
                 )
             })
             .collect();
+        let name_str = e
+            .name
+            .as_ref()
+            .map_or_else(|| "None".to_string(), |n| format!("{}", n));
         println!(
-            "{}/{}/{} id={:?} local={:?} remote={:?}",
-            e.component_0, e.component_1, e.component_2, e.id, local_names, remote_names
+            "{} local={:?} remote={:?}",
+            name_str, local_names, remote_names
         );
     }
     Ok(())
@@ -303,10 +308,7 @@ async fn route_add(
     let (org, ns, agent_type, agent_id) = parse_route(route)?;
 
     let mut subscription = Subscription {
-        component_0: org,
-        component_1: ns,
-        component_2: agent_type,
-        id: Some(agent_id),
+        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id)),
         connection_id: String::new(),
         node_id: None,
         link_id: None,
@@ -357,10 +359,7 @@ async fn route_del(
     let (org, ns, agent_type, agent_id) = parse_route(route)?;
 
     let mut subscription = Subscription {
-        component_0: org,
-        component_1: ns,
-        component_2: agent_type,
-        id: Some(agent_id),
+        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id)),
         connection_id: String::new(),
         node_id: None,
         link_id: None,
@@ -706,7 +705,7 @@ mod tests {
     #[test]
     fn build_subscription_str_zero_component_id() {
         let r = make_route("", "", "a", "b", "c", Some(0), 0, false, 0);
-        assert_eq!(build_subscription_str(&r), "a/b/c/0");
+        assert_eq!(build_subscription_str(&r), "a/b/c/00000000-0000-0000-0000-000000000000");
     }
 
     // ── route_cells ─────────────────────────────────────────────────────────
@@ -824,7 +823,7 @@ mod tests {
     #[tokio::test]
     async fn route_add_invalid_via_fails() {
         let opts = make_opts("127.0.0.1:1");
-        let err = route_add("node1", "a/b/c/0", "not_via", "dest", &opts)
+        let err = route_add("node1", "a/b/c/00000000-0000-0000-0000-000000000000", "not_via", "dest", &opts)
             .await
             .unwrap_err();
         assert!(err.to_string().contains("via"));
@@ -833,7 +832,7 @@ mod tests {
     #[tokio::test]
     async fn route_del_invalid_via_fails() {
         let opts = make_opts("127.0.0.1:1");
-        let err = route_del("node1", "a/b/c/0", "bad", "dest", &opts)
+        let err = route_del("node1", "a/b/c/00000000-0000-0000-0000-000000000000", "bad", "dest", &opts)
             .await
             .unwrap_err();
         assert!(err.to_string().contains("via"));
@@ -1004,7 +1003,7 @@ mod tests {
         #[tokio::test]
         async fn route_add_succeeds() {
             let addr = spawn_mock_cp_server().await;
-            route_add("node1", "a/b/c/0", "via", "node-dest", &make_opts(&addr))
+            route_add("node1", "a/b/c/00000000-0000-0000-0000-000000000000", "via", "node-dest", &make_opts(&addr))
                 .await
                 .unwrap();
         }
@@ -1014,7 +1013,7 @@ mod tests {
             let addr = spawn_mock_cp_server().await;
             route_del(
                 "node1",
-                "a/b/c/0",
+                "a/b/c/00000000-0000-0000-0000-000000000000",
                 "via",
                 "http://127.0.0.1:8080",
                 &make_opts(&addr),
@@ -1026,7 +1025,7 @@ mod tests {
         #[tokio::test]
         async fn route_del_with_node_id_succeeds() {
             let addr = spawn_mock_cp_server().await;
-            route_del("node1", "a/b/c/0", "via", "dest-node", &make_opts(&addr))
+            route_del("node1", "a/b/c/00000000-0000-0000-0000-000000000000", "via", "dest-node", &make_opts(&addr))
                 .await
                 .unwrap();
         }
@@ -1275,7 +1274,7 @@ mod tests {
         async fn route_add_grpc_error_propagates() {
             let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
             assert!(
-                route_add("n1", "a/b/c/0", "via", "dest", &make_opts(&addr))
+                route_add("n1", "a/b/c/00000000-0000-0000-0000-000000000000", "via", "dest", &make_opts(&addr))
                     .await
                     .is_err()
             );
@@ -1285,7 +1284,7 @@ mod tests {
         async fn route_del_grpc_error_propagates() {
             let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
             assert!(
-                route_del("n1", "a/b/c/0", "via", "dest", &make_opts(&addr))
+                route_del("n1", "a/b/c/00000000-0000-0000-0000-000000000000", "via", "dest", &make_opts(&addr))
                     .await
                     .is_err()
             );
@@ -1308,7 +1307,7 @@ mod tests {
         #[tokio::test]
         async fn route_add_negative_ack_fails() {
             let addr = spawn_cp_svc(FailureControlPlaneSvc).await;
-            let err = route_add("n1", "a/b/c/0", "via", "dest", &make_opts(&addr))
+            let err = route_add("n1", "a/b/c/00000000-0000-0000-0000-000000000000", "via", "dest", &make_opts(&addr))
                 .await
                 .unwrap_err();
             assert!(err.to_string().contains("failed to create route"));

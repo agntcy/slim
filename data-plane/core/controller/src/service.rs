@@ -32,11 +32,11 @@ use prost_types::Struct;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::TokenProvider;
 use slim_config::client::{ClientConfig, TransportChannel};
+use slim_datapath::api::ProtoName;
 use slim_datapath::api::{
     MessageType::Subscribe, MessageType::SubscriptionAck as SubscriptionAckType,
     MessageType::Unsubscribe, ProtoMessage as DataPlaneMessage,
 };
-use slim_datapath::api::{NameId, ProtoName};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_datapath::tables::SubscriptionTable;
@@ -659,19 +659,8 @@ impl ControllerService {
                             let conn = self.resolve_subscription_connection(subscription);
 
                             if let Ok(Some(conn)) = conn {
-                                let source = ProtoName::from_strings([
-                                    subscription.component_0.as_str(),
-                                    subscription.component_1.as_str(),
-                                    subscription.component_2.as_str(),
-                                ])
-                                .with_id(0);
-                                let name = ProtoName::from_strings([
-                                    subscription.component_0.as_str(),
-                                    subscription.component_1.as_str(),
-                                    subscription.component_2.as_str(),
-                                ])
-                                .with_id(subscription.id.unwrap_or(NameId::NULL_COMPONENT as u64)
-                                    as u128);
+                                let name = subscription.name.clone().unwrap_or_default();
+                                let source = name.clone().with_id(0);
 
                                 let msg = DataPlaneMessage::builder()
                                     .source(source.clone())
@@ -730,19 +719,8 @@ impl ControllerService {
                             let conn = self.resolve_subscription_connection(subscription);
 
                             if let Ok(Some(conn)) = conn {
-                                let source = ProtoName::from_strings([
-                                    subscription.component_0.as_str(),
-                                    subscription.component_1.as_str(),
-                                    subscription.component_2.as_str(),
-                                ])
-                                .with_id(0);
-                                let name = ProtoName::from_strings([
-                                    subscription.component_0.as_str(),
-                                    subscription.component_1.as_str(),
-                                    subscription.component_2.as_str(),
-                                ])
-                                .with_id(subscription.id.unwrap_or(NameId::NULL_COMPONENT as u64)
-                                    as u128);
+                                let name = subscription.name.clone().unwrap_or_default();
+                                let source = name.clone().with_id(0);
 
                                 let msg = DataPlaneMessage::builder()
                                     .source(source.clone())
@@ -838,13 +816,9 @@ impl ControllerService {
                         let mut entries = Vec::new();
 
                         self.inner.message_processor.subscription_table().for_each(
-                            |name, id, local, remote| {
-                                let (c0, c1, c2) = name.str_components();
+                            |name, _id, local, remote| {
                                 let mut entry = SubscriptionEntry {
-                                    component_0: c0.to_string(),
-                                    component_1: c1.to_string(),
-                                    component_2: c2.to_string(),
-                                    id: Some(id as u64),
+                                    name: Some(name.clone()),
                                     ..Default::default()
                                 };
 
@@ -999,12 +973,8 @@ impl ControllerService {
     async fn handle_subscribe_message(&self, dst: ProtoName, clients: &[ClientConfig]) {
         let mut sub_vec = vec![];
 
-        let (c0, c1, c2) = dst.str_components();
         let cmd = v1::Subscription {
-            component_0: c0.to_string(),
-            component_1: c1.to_string(),
-            component_2: c2.to_string(),
-            id: Some(dst.id() as u64),
+            name: Some(dst),
             connection_id: "n/a".to_string(),
             node_id: None,
             link_id: None,
@@ -1029,12 +999,8 @@ impl ControllerService {
     async fn handle_unsubscribe_message(&self, dst: ProtoName, clients: &[ClientConfig]) {
         let mut unsub_vec = vec![];
 
-        let (c0, c1, c2) = dst.str_components();
         let cmd = v1::Subscription {
-            component_0: c0.to_string(),
-            component_1: c1.to_string(),
-            component_2: c2.to_string(),
-            id: Some(dst.id() as u64),
+            name: Some(dst),
             connection_id: "n/a".to_string(),
             node_id: None,
             link_id: None,
@@ -1518,10 +1484,10 @@ mod tests {
                     connections_to_create: vec![],
                     connections_to_delete: vec![],
                     subscriptions_to_set: vec![v1::Subscription {
-                        component_0: "queued".to_string(),
-                        component_1: "sub".to_string(),
-                        component_2: format!("name-{i}"),
-                        id: Some(i as u64),
+                        name: Some(
+                            ProtoName::from_strings(["queued", "sub", &format!("name-{i}")])
+                                .with_id(i as u128),
+                        ),
                         connection_id: "test-conn".to_string(),
                         node_id: None,
                         link_id: None,
@@ -1769,10 +1735,7 @@ mod tests {
                 connections_to_create: vec![],
                 connections_to_delete: vec![],
                 subscriptions_to_set: vec![v1::Subscription {
-                    component_0: "org".to_string(),
-                    component_1: "ns".to_string(),
-                    component_2: "agent".to_string(),
-                    id: Some(1),
+                    name: Some(ProtoName::from_strings(["org", "ns", "agent"]).with_id(1u128)),
                     connection_id: String::new(),
                     node_id: None,
                     link_id: Some("missing-link-id".to_string()),
@@ -1873,10 +1836,7 @@ mod tests {
                 connections_to_delete: vec![],
                 subscriptions_to_set: vec![],
                 subscriptions_to_delete: vec![v1::Subscription {
-                    component_0: "org".to_string(),
-                    component_1: "ns".to_string(),
-                    component_2: "agent".to_string(),
-                    id: Some(1),
+                    name: Some(ProtoName::from_strings(["org", "ns", "agent"]).with_id(1u128)),
                     connection_id: String::new(),
                     node_id: None,
                     link_id: Some("missing-link-id-delete".to_string()),

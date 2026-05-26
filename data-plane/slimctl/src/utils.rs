@@ -13,11 +13,11 @@ pub const VIA_KEYWORD: &str = "via";
 /// Parse a route string `"org/namespace/agentname[/agentid]"` into its components.
 ///
 /// The fourth component (`agentid`) is optional; when omitted it defaults to
-/// [`ProtoName::NULL_COMPONENT`] (`u64::MAX`), matching the behaviour of the data-plane
+/// [`NameId::NULL_COMPONENT`], matching the behaviour of the data-plane
 /// when no specific instance is targeted.
 ///
 /// Returns `(organization, namespace, agent_type, agent_id)`.
-pub fn parse_route(route: &str) -> Result<(String, String, String, u64)> {
+pub fn parse_route(route: &str) -> Result<(String, String, String, u128)> {
     let parts: Vec<&str> = route.split('/').collect();
     if parts.len() < 3 || parts.len() > 4 {
         bail!(
@@ -31,18 +31,20 @@ pub fn parse_route(route: &str) -> Result<(String, String, String, u64)> {
             route
         );
     }
-    let agent_id: u64 = if let Some(&id_str) = parts.get(3) {
+    let agent_id: u128 = if let Some(&id_str) = parts.get(3) {
         if id_str.is_empty() {
             bail!(
                 "invalid route format '{}', expected 'org/namespace/agentname[/agentid]'",
                 route
             );
         }
-        id_str
-            .parse()
-            .map_err(|_| anyhow::anyhow!("invalid agent instance ID (must be u64): '{}'", id_str))?
+        NameId::from_string(id_str)
+            .ok_or_else(|| {
+                anyhow::anyhow!("invalid agent instance ID (must be a UUID): '{}'", id_str)
+            })?
+            .id()
     } else {
-        NameId::NULL_COMPONENT as u64
+        NameId::NULL_COMPONENT
     };
     Ok((
         parts[0].to_string(),
@@ -135,7 +137,8 @@ mod tests {
 
     #[test]
     fn parse_route_valid() {
-        let (org, ns, agent, id) = parse_route("myorg/mynamespace/myagent/42").unwrap();
+        let (org, ns, agent, id) =
+            parse_route("myorg/mynamespace/myagent/00000000-0000-0000-0000-00000000002a").unwrap();
         assert_eq!(org, "myorg");
         assert_eq!(ns, "mynamespace");
         assert_eq!(agent, "myagent");
@@ -144,14 +147,16 @@ mod tests {
 
     #[test]
     fn parse_route_zero_agent_id() {
-        let (_, _, _, id) = parse_route("org/ns/agent/0").unwrap();
+        let (_, _, _, id) =
+            parse_route("org/ns/agent/00000000-0000-0000-0000-000000000000").unwrap();
         assert_eq!(id, 0);
     }
 
     #[test]
-    fn parse_route_max_u64_agent_id() {
-        let (_, _, _, id) = parse_route("org/ns/agent/18446744073709551615").unwrap();
-        assert_eq!(id, u64::MAX);
+    fn parse_route_max_u128_agent_id() {
+        let (_, _, _, id) =
+            parse_route("org/ns/agent/ffffffff-ffff-ffff-ffff-ffffffffffff").unwrap();
+        assert_eq!(id, u128::MAX);
     }
 
     #[test]
@@ -160,7 +165,7 @@ mod tests {
         assert_eq!(org, "myorg");
         assert_eq!(ns, "mynamespace");
         assert_eq!(agent, "myagent");
-        assert_eq!(id, NameId::NULL_COMPONENT as u64);
+        assert_eq!(id, NameId::NULL_COMPONENT);
     }
 
     #[test]

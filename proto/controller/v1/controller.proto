@@ -6,6 +6,7 @@ package controller.proto.v1;
 
 import "google/protobuf/struct.proto";
 import "google/protobuf/wrappers.proto";
+import "v1/data_plane.proto";
 
 option go_package = "github.com/agntcy/slim/control-plane/common/proto/controller/v1;controllerv1";
 
@@ -53,14 +54,11 @@ message ConnectionAck {
 }
 
 message Subscription {
-  string component_0 = 1;
-  string component_1 = 2;
-  string component_2 = 3;
-  google.protobuf.UInt64Value id = 4;
-  string connection_id = 5;
-  optional string node_id = 6;
-  optional string link_id = 7;
-  optional ConnectionDirection direction = 8;
+  dataplane.proto.v1.Name name = 1;
+  string connection_id = 2;
+  optional string node_id = 3;
+  optional string link_id = 4;
+  optional ConnectionDirection direction = 5;
 }
 
 message SubscriptionAck {
@@ -96,12 +94,9 @@ message SubscriptionListResponse {
 }
 
 message SubscriptionEntry {
-  string component_0 = 1;
-  string component_1 = 2;
-  string component_2 = 3;
-  google.protobuf.UInt64Value id = 4;
-  repeated ConnectionEntry local_connections = 5;
-  repeated ConnectionEntry remote_connections = 6;
+  dataplane.proto.v1.Name name = 1;
+  repeated ConnectionEntry local_connections = 2;
+  repeated ConnectionEntry remote_connections = 3;
 }
 
 enum ConnectionType {

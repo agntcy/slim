@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! gRPC bindings for data plane service.
-pub(crate) mod proto;
+pub mod proto;
 
 use crate::messages::encoder::calculate_hash;
 
