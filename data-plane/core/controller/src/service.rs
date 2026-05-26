@@ -271,7 +271,7 @@ impl ControlPlane {
             CONTROLLER_COMPONENT,
             CONTROLLER_COMPONENT,
         ])
-        .with_id(rand::random::<u64>());
+        .with_id(rand::random::<u128>());
         debug!("create controller with name: {}", controller_name);
 
         ControlPlane {
@@ -793,12 +793,7 @@ impl ControllerService {
         for sub in desired_routes {
             match self.resolve_route_connection(sub) {
                 Ok(Some(conn_id)) => {
-                    let name = Name::from_strings([
-                        sub.component_0.as_str(),
-                        sub.component_1.as_str(),
-                        sub.component_2.as_str(),
-                    ])
-                    .with_id(sub.id.unwrap_or(Name::NULL_COMPONENT));
+                    let name = sub.name.clone().unwrap_or_default();
                     desired_subs.insert((name, conn_id), sub);
                 }
                 Ok(None) => {
@@ -889,11 +884,10 @@ impl ControllerService {
             let (c0, c1, c2) = name.str_components();
             routes_status.push(v1::RouteAck {
                 route: Some(v1::Route {
-                    component_0: c0.to_string(),
-                    component_1: c1.to_string(),
-                    component_2: c2.to_string(),
-                    id: Some(name.id()),
+                    name: Some(name.clone()),
+                    connection_id: String::new(),
                     link_id: None,
+                    node_id: None,
                     direction: None,
                 }),
                 success,
@@ -1115,18 +1109,8 @@ impl ControllerService {
                                 let conn = self.resolve_route_connection(route);
 
                                 if let Ok(Some(conn)) = conn {
-                                    let source = Name::from_strings([
-                                        route.component_0.as_str(),
-                                        route.component_1.as_str(),
-                                        route.component_2.as_str(),
-                                    ])
-                                    .with_id(0);
-                                    let name = Name::from_strings([
-                                        route.component_0.as_str(),
-                                        route.component_1.as_str(),
-                                        route.component_2.as_str(),
-                                    ])
-                                    .with_id(route.id.unwrap_or(Name::NULL_COMPONENT));
+                                    let name = route.name.clone().unwrap_or_default();
+                                    let source = name.clone().with_id(0);
 
                                     let msg = DataPlaneMessage::builder()
                                         .source(source.clone())
@@ -1181,18 +1165,8 @@ impl ControllerService {
                                 let conn = self.resolve_route_connection(route);
 
                                 if let Ok(Some(conn)) = conn {
-                                    let source = Name::from_strings([
-                                        route.component_0.as_str(),
-                                        route.component_1.as_str(),
-                                        route.component_2.as_str(),
-                                    ])
-                                    .with_id(0);
-                                    let name = Name::from_strings([
-                                        route.component_0.as_str(),
-                                        route.component_1.as_str(),
-                                        route.component_2.as_str(),
-                                    ])
-                                    .with_id(route.id.unwrap_or(Name::NULL_COMPONENT));
+                                    let name = route.name.clone().unwrap_or_default();
+                                    let source = name.clone().with_id(0);
 
                                     let msg = DataPlaneMessage::builder()
                                         .source(source.clone())
@@ -1316,13 +1290,13 @@ impl ControllerService {
 
                         self.inner.message_processor.subscription_table().for_each(
                             |name, _id, local, remote| {
-                                let mut entry = SubscriptionEntry {
-                                    name: Some(name.clone()),
+                                let mut entry = RouteEntry {
+                                    name: Some(name.clone()),   
                                     ..Default::default()
                                 };
 
                                 for &cid in local {
-                                    entry.connections.push(ConnectionEntry {
+                                    entry.local_connections.push(ConnectionEntry {
                                         id: cid,
                                         connection_type: ConnectionType::Local as i32,
                                         config_data: "{}".to_string(),
@@ -1333,7 +1307,7 @@ impl ControllerService {
 
                                 for &cid in remote {
                                     if let Some(conn) = conn_table.get(cid) {
-                                        entry.connections.push(ConnectionEntry {
+                                        entry.remote_connections.push(ConnectionEntry {
                                             id: cid,
                                             connection_type: ConnectionType::Remote as i32,
                                             config_data: match conn.config_data() {
@@ -1494,7 +1468,7 @@ impl ControllerService {
     async fn handle_subscribe_message(&self, dst: ProtoName, clients: &[ClientConfig]) {
         let mut sub_vec = vec![];
 
-        let cmd = v1::Subscription {
+        let cmd = v1::Route {
             name: Some(dst),
             connection_id: "n/a".to_string(),
             node_id: None,
@@ -1521,7 +1495,7 @@ impl ControllerService {
     async fn handle_unsubscribe_message(&self, dst: ProtoName, clients: &[ClientConfig]) {
         let mut unsub_vec = vec![];
 
-        let cmd = v1::Subscription {
+        let cmd = v1::Route {
             name: Some(dst),
             connection_id: "n/a".to_string(),
             node_id: None,
@@ -1795,18 +1769,11 @@ impl ControllerService {
                     .lock()
                     .iter()
                     .map(|((name, conn_id), _sub_id)| {
-                        let (c0, c1, c2) = name.str_components();
-                        let id = name.id();
                         v1::Route {
-                            component_0: c0.to_string(),
-                            component_1: c1.to_string(),
-                            component_2: c2.to_string(),
-                            id: if id != Name::NULL_COMPONENT {
-                                Some(id)
-                            } else {
-                                None
-                            },
+                            name: Some(name.clone()),
+                            connection_id: String::new(),
                             link_id: conn_id_to_link_id.get(conn_id).cloned(),
+                            node_id: None,
                             direction: None,
                         }
                     })
@@ -2248,7 +2215,7 @@ mod tests {
                 payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
                     connections_to_create: vec![],
                     connections_to_delete: vec![],
-                    subscriptions_to_set: vec![v1::Subscription {
+                    routes_to_set: vec![v1::Route {
                         name: Some(
                             ProtoName::from_strings(["queued", "sub", &format!("name-{i}")])
                                 .with_id(i as u128),
@@ -2504,7 +2471,7 @@ mod tests {
             payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
                 connections_to_create: vec![],
                 connections_to_delete: vec![],
-                subscriptions_to_set: vec![v1::Subscription {
+                routes_to_set: vec![v1::Route {
                     name: Some(ProtoName::from_strings(["org", "ns", "agent"]).with_id(1u128)),
                     connection_id: String::new(),
                     node_id: None,
@@ -2606,8 +2573,8 @@ mod tests {
             payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
                 connections_to_create: vec![],
                 connections_to_delete: vec![],
-                subscriptions_to_set: vec![],
-                subscriptions_to_delete: vec![v1::Subscription {
+                routes_to_set: vec![],
+                routes_to_delete: vec![v1::Route {
                     name: Some(ProtoName::from_strings(["org", "ns", "agent"]).with_id(1u128)),
                     connection_id: String::new(),
                     node_id: None,

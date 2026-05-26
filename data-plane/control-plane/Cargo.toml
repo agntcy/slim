@@ -22,6 +22,7 @@ path = "src/main.rs"
 
 [dependencies]
 agntcy-slim-config = { workspace = true }
+agntcy-slim-datapath = { workspace = true }
 agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 

@@ -18,6 +18,7 @@ use crate::api::proto::controller::proto::v1::{
 use crate::db::{LinkStatus, RouteStatus, SharedDb};
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus, ResponseKind};
 use crate::workqueue::WorkQueue;
+use slim_datapath::api::ProtoName;
 
 use super::is_connection_not_found;
 
