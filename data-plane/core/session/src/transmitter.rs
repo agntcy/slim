@@ -52,7 +52,6 @@ impl SessionInterceptorProvider for SessionTransmitter {
     }
 }
 
-#[async_trait::async_trait]
 impl Transmitter for SessionTransmitter {
     async fn send_to_app(
         &self,
@@ -70,12 +69,11 @@ impl Transmitter for SessionTransmitter {
             }
         }
 
-        let ret = self
-            .app_tx
+        self.app_tx
             .send(message)
             .map_err(|_e| SessionError::ApplicationMessageSendFailed)?;
 
-        Ok(ret)
+        Ok(())
     }
 
     async fn send_to_slim(&self, mut message: Result<Message, Status>) -> Result<(), SessionError> {
@@ -120,7 +118,6 @@ impl SessionInterceptorProvider for AppTransmitter {
     }
 }
 
-#[async_trait::async_trait]
 impl Transmitter for AppTransmitter {
     async fn send_to_app(
         &self,
