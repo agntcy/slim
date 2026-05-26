@@ -85,6 +85,12 @@ struct MessageProcessorInternal {
 
     /// Default strict header MAC policy for server-accepted inter-node connections (see [`ServerConfig::require_header_mac`]).
     server_require_header_mac: bool,
+
+    /// Timeout to wait for link HMAC session to be installed.
+    link_hmac_timeout: std::time::Duration,
+
+    /// Polling interval (in milliseconds) to wait between HMAC existence checks.
+    link_hmac_poll_interval: std::time::Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -104,7 +110,13 @@ impl MessageProcessor {
     }
 
     pub fn new_with_options(service_id: String, recovery_ttl: Option<std::time::Duration>) -> Self {
-        Self::new_internal(service_id, recovery_ttl, false)
+        Self::new_internal(
+            service_id,
+            recovery_ttl,
+            false,
+            std::time::Duration::from_secs(5),
+            std::time::Duration::from_millis(5),
+        )
     }
 
     /// Create a processor with the server strict header MAC policy from `server_config`.
@@ -113,13 +125,21 @@ impl MessageProcessor {
         server_config: &ServerConfig,
         recovery_ttl: Option<std::time::Duration>,
     ) -> Self {
-        Self::new_internal(service_id, recovery_ttl, server_config.require_header_mac)
+        Self::new_internal(
+            service_id,
+            recovery_ttl,
+            server_config.require_header_mac,
+            std::time::Duration::from_secs(server_config.link_hmac_timeout_secs),
+            std::time::Duration::from_millis(server_config.link_hmac_poll_interval_ms),
+        )
     }
 
     fn new_internal(
         service_id: String,
         recovery_ttl: Option<std::time::Duration>,
         server_require_header_mac: bool,
+        link_hmac_timeout: std::time::Duration,
+        link_hmac_poll_interval: std::time::Duration,
     ) -> Self {
         let (signal, watch) = drain::channel();
         let recovery_table = match recovery_ttl {
@@ -135,6 +155,8 @@ impl MessageProcessor {
             sub_ack_manager: crate::subscription_ack::RemoteSubAckManager::new(),
             service_id,
             server_require_header_mac,
+            link_hmac_timeout,
+            link_hmac_poll_interval,
         };
         Self {
             internal: Arc::new(internal),
@@ -474,13 +496,13 @@ impl MessageProcessor {
             return Ok(());
         }
 
-        let timeout = std::time::Duration::from_secs(5);
+        let timeout = self.internal.link_hmac_timeout;
         let start = tokio::time::Instant::now();
         while start.elapsed() < timeout {
             match self.forwarder().get_connection(conn_index) {
                 Some(conn) if conn.header_hmac().is_some() => return Ok(()),
                 Some(_) => {
-                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                    tokio::time::sleep(self.internal.link_hmac_poll_interval).await;
                 }
                 None => return Err(DataPathError::ConnectionNotFound(conn_index)),
             }
@@ -2178,6 +2200,44 @@ mod tests {
         c.test_install_header_mac(Arc::new(
             HeaderMacSession::new(b"01234567890123456789012345678901").unwrap(),
         ));
+    }
+
+    #[tokio::test]
+    async fn test_await_link_hmac_ready_timeout_configurable() {
+        let server_config = ServerConfig {
+            endpoint: "localhost:12345".to_string(),
+            link_hmac_timeout_secs: 1,      // 1 second timeout
+            link_hmac_poll_interval_ms: 10, // 10 milliseconds poll interval
+            ..Default::default()
+        };
+        let processor = MessageProcessor::new_with_server_config(
+            "test_service".to_string(),
+            &server_config,
+            None,
+        );
+
+        assert_eq!(
+            processor.internal.link_hmac_timeout,
+            std::time::Duration::from_secs(1)
+        );
+        assert_eq!(
+            processor.internal.link_hmac_poll_interval,
+            std::time::Duration::from_millis(10)
+        );
+
+        // Register a connection but do not install any HMAC session
+        let (conn_id, _tx, _rx) = processor
+            .register_local_connection(false)
+            .expect("failed to register local connection");
+
+        // Measure time taken to fail
+        let start = std::time::Instant::now();
+        let result = processor.await_link_hmac_ready(conn_id, true).await;
+        let elapsed = start.elapsed();
+
+        assert!(result.is_err());
+        assert!(elapsed >= std::time::Duration::from_millis(900));
+        assert!(elapsed < std::time::Duration::from_secs(3));
     }
 
     #[test]

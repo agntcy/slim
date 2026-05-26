@@ -128,6 +128,16 @@ pub struct ServerConfig {
     /// By default it is `true`
     #[serde(default = "default_require_header_mac")]
     pub require_header_mac: bool,
+
+    /// Timeout (in seconds) to wait for the link HMAC session to be installed.
+    /// By default it is 5 seconds.
+    #[serde(default = "default_link_hmac_timeout_secs")]
+    pub link_hmac_timeout_secs: u64,
+
+    /// Polling interval (in milliseconds) to wait between HMAC existence checks.
+    /// By default it is 5 milliseconds.
+    #[serde(default = "default_link_hmac_poll_interval_ms")]
+    pub link_hmac_poll_interval_ms: u64,
 }
 
 /// Default values for KeepaliveServerParameters
@@ -179,6 +189,8 @@ impl Default for ServerConfig {
             auth: AuthenticationConfig::default(),
             metadata: None,
             require_header_mac: true,
+            link_hmac_timeout_secs: default_link_hmac_timeout_secs(),
+            link_hmac_poll_interval_ms: default_link_hmac_poll_interval_ms(),
         }
     }
 }
@@ -191,12 +203,20 @@ fn default_require_header_mac() -> bool {
     true
 }
 
+fn default_link_hmac_timeout_secs() -> u64 {
+    5
+}
+
+fn default_link_hmac_poll_interval_ms() -> u64 {
+    5
+}
+
 /// Display implementation for ServerConfig
 impl std::fmt::Display for ServerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ServerConfig {{ endpoint: {}, transport: {:?}, tls_setting: {}, http2_only: {}, max_frame_size: {:?}, max_concurrent_streams: {:?}, max_header_list_size: {:?}, read_buffer_size: {:?}, write_buffer_size: {:?}, keepalive: {:?}, auth: {:?}, metadata: {:?} }}",
+            "ServerConfig {{ endpoint: {}, transport: {:?}, tls_setting: {}, http2_only: {}, max_frame_size: {:?}, max_concurrent_streams: {:?}, max_header_list_size: {:?}, read_buffer_size: {:?}, write_buffer_size: {:?}, keepalive: {:?}, auth: {:?}, metadata: {:?}, require_header_mac: {}, link_hmac_timeout_secs: {}, link_hmac_poll_interval_ms: {} }}",
             self.endpoint,
             self.resolved_transport(),
             self.tls_setting,
@@ -208,7 +228,10 @@ impl std::fmt::Display for ServerConfig {
             self.write_buffer_size,
             self.keepalive,
             self.auth,
-            self.metadata
+            self.metadata,
+            self.require_header_mac,
+            self.link_hmac_timeout_secs,
+            self.link_hmac_poll_interval_ms,
         )
     }
 }

@@ -106,6 +106,12 @@ pub struct ServerConfig {
 
     /// When true, reject inter-node messages without a valid header MAC (strict mode).
     pub require_header_mac: Option<bool>,
+
+    /// Timeout (in seconds) to wait for the link HMAC session to be installed.
+    pub link_hmac_timeout_secs: Option<u64>,
+
+    /// Polling interval (in milliseconds) to wait between HMAC existence checks.
+    pub link_hmac_poll_interval_ms: Option<u64>,
 }
 
 impl Default for ServerConfig {
@@ -124,6 +130,8 @@ impl Default for ServerConfig {
             auth: None,
             metadata: None,
             require_header_mac: None,
+            link_hmac_timeout_secs: None,
+            link_hmac_poll_interval_ms: None,
         }
     }
 }
@@ -161,6 +169,12 @@ impl From<ServerConfig> for CoreServerConfig {
             require_header_mac: config
                 .require_header_mac
                 .unwrap_or(core_defaults.require_header_mac),
+            link_hmac_timeout_secs: config
+                .link_hmac_timeout_secs
+                .unwrap_or(core_defaults.link_hmac_timeout_secs),
+            link_hmac_poll_interval_ms: config
+                .link_hmac_poll_interval_ms
+                .unwrap_or(core_defaults.link_hmac_poll_interval_ms),
         }
     }
 }
@@ -180,6 +194,8 @@ impl From<CoreServerConfig> for ServerConfig {
             auth: Some(config.auth.into()),
             metadata: config.metadata.and_then(|m| serde_json::to_string(&m).ok()),
             require_header_mac: Some(config.require_header_mac),
+            link_hmac_timeout_secs: Some(config.link_hmac_timeout_secs),
+            link_hmac_poll_interval_ms: Some(config.link_hmac_poll_interval_ms),
         }
     }
 }
@@ -266,6 +282,8 @@ mod tests {
         assert_eq!(config.keepalive, None);
         assert_eq!(config.auth, None);
         assert_eq!(config.metadata, None);
+        assert_eq!(config.link_hmac_timeout_secs, None);
+        assert_eq!(config.link_hmac_poll_interval_ms, None);
 
         // Verify core defaults are applied when converting to CoreServerConfig
         let core: CoreServerConfig = config.into();
@@ -274,6 +292,8 @@ mod tests {
         assert_eq!(core.max_concurrent_streams, Some(100));
         assert_eq!(core.read_buffer_size, Some(1024 * 1024));
         assert_eq!(core.write_buffer_size, Some(1024 * 1024));
+        assert_eq!(core.link_hmac_timeout_secs, 5);
+        assert_eq!(core.link_hmac_poll_interval_ms, 5);
         assert_eq!(
             core.auth,
             slim_config::grpc::server::AuthenticationConfig::None
@@ -342,6 +362,8 @@ mod tests {
             auth: Some(ServerAuthenticationConfig::None),
             metadata: Some(r#"{"key":"value"}"#.to_string()),
             require_header_mac: None,
+            link_hmac_timeout_secs: None,
+            link_hmac_poll_interval_ms: None,
         };
 
         let core_config: CoreServerConfig = ffi_config.into();
@@ -396,6 +418,8 @@ mod tests {
             auth: Some(ServerAuthenticationConfig::None),
             metadata: None,
             require_header_mac: None,
+            link_hmac_timeout_secs: None,
+            link_hmac_poll_interval_ms: None,
         };
 
         // FFI -> Core -> FFI using the new From implementation

@@ -14,13 +14,11 @@ use tokio::sync::oneshot;
 use tracing::debug;
 
 use crate::api::proto::dataplane::v1::Message;
-use crate::connection::Connection;
 use crate::errors::DataPathError;
 use crate::message_processing::MessageProcessor;
 
 pub(crate) const TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) const MAX_RETRIES: u32 = 3;
-
 
 /// Owns the in-flight pending ACK state.
 #[derive(Debug)]
@@ -57,7 +55,6 @@ impl RemoteSubAckManager {
         self.pending.write().remove(&ack_id);
     }
 }
-
 
 /// Wait/retry loop for a remote subscription ACK.
 ///
@@ -117,9 +114,6 @@ pub(crate) async fn retry_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::connection::{Channel, Type as ConnectionType};
-    use crate::header_mac::HeaderMacSession;
-    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_register_and_resolve_delivers_ok() {
@@ -164,6 +158,4 @@ mod tests {
         manager.remove(5);
         assert!(!manager.pending.read().contains_key(&5));
     }
-
-
 }
