@@ -6,7 +6,6 @@ use std::time::SystemTime;
 
 use async_trait::async_trait;
 use diesel::OptionalExtension;
-use diesel::connection::SimpleConnection;
 use diesel::prelude::*;
 use diesel::serialize::{self, IsNull, Output, ToSql};
 use diesel::sql_types::{Integer, Text};

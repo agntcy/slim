@@ -177,7 +177,7 @@ impl ClientConfig {
         + use<>,
         ConfigError,
     > {
-        if self.transport == TransportProtocol::Websocket {
+        if self.resolved_transport() == TransportProtocol::Websocket {
             return Err(ConfigError::GrpcChannelUnsupportedTransport);
         }
 
@@ -749,8 +749,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_to_grpc_channel_rejects_websocket_transport() {
-        let client = ClientConfig::with_endpoint("ws://localhost:46357")
-            .with_transport(TransportProtocol::Websocket);
+        let client = ClientConfig::with_endpoint("ws://localhost:46357");
         let channel = client.to_grpc_channel_lazy().await;
         assert!(matches!(
             channel,

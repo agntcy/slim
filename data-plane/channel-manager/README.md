@@ -22,10 +22,11 @@ Create a YAML configuration file (see [example-channel-manager-config.yaml](exam
 ```yaml
 channel-manager:
   # Connection configuration for the SLIM data-plane node.
-  # transport can be "grpc" (http/https endpoint) or "websocket" (ws/wss endpoint).
+  # Transport is inferred from the endpoint scheme:
+  #   ws://, wss://      → websocket (TLS when wss)
+  #   http://, https://, bare host:port → grpc
   slim-connection:
     endpoint: "http://127.0.0.1:46357"
-    transport: "grpc"
     tls:
       insecure: true
 

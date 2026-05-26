@@ -36,7 +36,13 @@ func fileUsesWebsocketTransport(path string) bool {
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(content), "transport: websocket")
+	// Transport is inferred from the endpoint scheme: ws:// or wss:// means
+	// websocket. Match both quoted and unquoted endpoint forms.
+	s := string(content)
+	return strings.Contains(s, "endpoint: \"ws://") ||
+		strings.Contains(s, "endpoint: \"wss://") ||
+		strings.Contains(s, "endpoint: ws://") ||
+		strings.Contains(s, "endpoint: wss://")
 }
 
 func resolveConfigCases() []configCase {

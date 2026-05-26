@@ -84,7 +84,7 @@ impl ClientConfig {
     /// Build a WebSocket channel. Crate-private; external callers should use
     /// [`ClientConfig::to_channel`].
     pub(crate) async fn to_websocket_channel(&self) -> Result<WebSocketClientChannel, ConfigError> {
-        if self.transport != TransportProtocol::Websocket {
+        if self.resolved_transport() != TransportProtocol::Websocket {
             return Err(ConfigError::WebSocketClientUnsupportedTransport);
         }
 
@@ -417,7 +417,6 @@ mod tests {
     use super::*;
 
     use crate::tls::client::TlsClientConfig;
-    use crate::transport::TransportProtocol;
     use std::net::TcpListener;
     use std::time::Duration;
 
@@ -430,20 +429,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_websocket_client_wrong_transport() {
-        // Default transport is gRPC, not websocket -> must error.
-        let cfg = ClientConfig::with_endpoint("ws://127.0.0.1:1");
-        let result = cfg.to_websocket_channel().await;
-        assert!(matches!(
-            result,
-            Err(ConfigError::WebSocketClientUnsupportedTransport)
-        ));
-    }
-
-    #[tokio::test]
     async fn test_websocket_client_invalid_endpoint_scheme() {
         let cfg = ClientConfig::with_endpoint("http://127.0.0.1:80")
-            .with_transport(TransportProtocol::Websocket)
             .with_tls_setting(TlsClientConfig::insecure());
         let result = cfg.to_websocket_channel().await;
         assert!(result.is_err(), "non-ws scheme must be rejected");
@@ -454,7 +441,6 @@ mod tests {
         // Bind to grab a port, then drop the listener to guarantee it's closed.
         let port = available_port();
         let cfg = ClientConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
-            .with_transport(TransportProtocol::Websocket)
             .with_tls_setting(TlsClientConfig::insecure())
             .with_backoff(crate::client::BackoffConfig::new_fixed_interval(
                 Duration::from_millis(0),
@@ -469,7 +455,6 @@ mod tests {
     async fn test_websocket_client_connect_timeout() {
         // RFC 5737 TEST-NET-1: guaranteed unroutable.
         let cfg = ClientConfig::with_endpoint("ws://192.0.2.1:9")
-            .with_transport(TransportProtocol::Websocket)
             .with_tls_setting(TlsClientConfig::insecure())
             .with_connect_timeout(Duration::from_millis(200))
             .with_backoff(crate::client::BackoffConfig::new_fixed_interval(
@@ -570,8 +555,7 @@ mod tests {
 
     #[test]
     fn test_handshake_request_sets_required_headers() {
-        let cfg = ClientConfig::with_endpoint("ws://example.com:8080/p")
-            .with_transport(TransportProtocol::Websocket);
+        let cfg = ClientConfig::with_endpoint("ws://example.com:8080/p");
         let req = handshake_request_for(&cfg);
         let h = req.headers();
         assert_eq!(h.get(HOST).unwrap(), "example.com:8080");
@@ -590,32 +574,28 @@ mod tests {
 
     #[test]
     fn test_handshake_request_host_omits_default_ws_port() {
-        let cfg = ClientConfig::with_endpoint("ws://api.example.com/p")
-            .with_transport(TransportProtocol::Websocket);
+        let cfg = ClientConfig::with_endpoint("ws://api.example.com/p");
         let req = handshake_request_for(&cfg);
         assert_eq!(req.headers().get(HOST).unwrap(), "api.example.com");
     }
 
     #[test]
     fn test_handshake_request_host_omits_default_wss_port() {
-        let cfg = ClientConfig::with_endpoint("wss://api.example.com/p")
-            .with_transport(TransportProtocol::Websocket);
+        let cfg = ClientConfig::with_endpoint("wss://api.example.com/p");
         let req = handshake_request_for(&cfg);
         assert_eq!(req.headers().get(HOST).unwrap(), "api.example.com");
     }
 
     #[test]
     fn test_handshake_request_host_preserves_explicit_port() {
-        let cfg = ClientConfig::with_endpoint("ws://api.example.com:80/p")
-            .with_transport(TransportProtocol::Websocket);
+        let cfg = ClientConfig::with_endpoint("ws://api.example.com:80/p");
         let req = handshake_request_for(&cfg);
         assert_eq!(req.headers().get(HOST).unwrap(), "api.example.com:80");
     }
 
     #[test]
     fn test_handshake_request_host_excludes_userinfo() {
-        let cfg = ClientConfig::with_endpoint("ws://user:pw@example.com:8080/p")
-            .with_transport(TransportProtocol::Websocket);
+        let cfg = ClientConfig::with_endpoint("ws://user:pw@example.com:8080/p");
         let req = handshake_request_for(&cfg);
         let host = req.headers().get(HOST).unwrap().to_str().unwrap();
         assert!(
@@ -627,8 +607,7 @@ mod tests {
 
     #[test]
     fn test_handshake_request_host_for_ipv6() {
-        let cfg = ClientConfig::with_endpoint("ws://[::1]:9000/p")
-            .with_transport(TransportProtocol::Websocket);
+        let cfg = ClientConfig::with_endpoint("ws://[::1]:9000/p");
         let req = handshake_request_for(&cfg);
         assert_eq!(req.headers().get(HOST).unwrap(), "[::1]:9000");
     }
@@ -653,9 +632,7 @@ mod tests {
         );
         headers.insert("Sec-WebSocket-Version".to_string(), "8".to_string());
         headers.insert("Host".to_string(), "attacker.example".to_string());
-        let cfg = ClientConfig::with_endpoint("ws://example.com:8080/p")
-            .with_transport(TransportProtocol::Websocket)
-            .with_headers(headers);
+        let cfg = ClientConfig::with_endpoint("ws://example.com:8080/p").with_headers(headers);
         let req = handshake_request_for(&cfg);
         let h = req.headers();
         assert_eq!(h.get(UPGRADE).unwrap(), "websocket");
@@ -670,9 +647,7 @@ mod tests {
     fn test_handshake_request_allows_user_supplied_non_reserved_headers() {
         let mut headers = std::collections::HashMap::new();
         headers.insert("X-Trace-Id".to_string(), "abc-123".to_string());
-        let cfg = ClientConfig::with_endpoint("ws://example.com:8080/p")
-            .with_transport(TransportProtocol::Websocket)
-            .with_headers(headers);
+        let cfg = ClientConfig::with_endpoint("ws://example.com:8080/p").with_headers(headers);
         let req = handshake_request_for(&cfg);
         assert_eq!(req.headers().get("X-Trace-Id").unwrap(), "abc-123");
     }

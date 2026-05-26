@@ -16,7 +16,6 @@ services:
     dataplane:
       clients:
         - endpoint: "wss://localhost:46357"
-          transport: websocket
           server_name: "localhost"
           tls:
             ca_source:

@@ -1230,7 +1230,7 @@ impl Server {
             base_name.as_ref().into(),
             connection_id,
             rx,
-            Some(crate::get_runtime().handle().clone()),
+            Some(crate::get_runtime()),
         )
     }
 
