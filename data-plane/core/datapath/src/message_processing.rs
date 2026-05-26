@@ -1164,20 +1164,10 @@ impl MessageProcessor {
                 .unwrap_or(true)
         });
 
-        // If forwarding to a remote ACK-capable node (v≥1.2.0), use the remote ack path:
+        // If forwarding to a remote node, use the remote ack path:
         // update local state now, then asynchronously forward and wait for the remote ACK
         // before notifying the upstream requester.
-        let use_remote_ack = forward
-            .and_then(|out| self.forwarder().get_connection(out))
-            .map(|c| crate::subscription_ack::supports(&c))
-            .unwrap_or(false);
-
-        if forward.is_some() && !use_remote_ack {
-            debug!(
-                forward_to = forward,
-                "subscription: remote ack not available, link negotiation may not have completed yet"
-            );
-        }
+        let use_remote_ack = forward.is_some();
 
         // As connection is deleted only after processing, at this point it must exist.
         let Some(connection) = self.forwarder().get_connection(in_conn) else {
@@ -2410,65 +2400,6 @@ mod tests {
         let ack_inner = upstream_ack.get_subscription_ack();
         assert_eq!(ack_inner.subscription_id, upstream_ack_id);
         assert!(ack_inner.success);
-    }
-
-    #[tokio::test]
-    async fn test_process_subscription_remote_ack_path_old_node_immediate_ack() {
-        // Old remote node (v < 1.2.0): should use the existing immediate-ack path.
-        let processor = MessageProcessor::new();
-        let (local_conn, _tx_local, mut rx_local) = processor
-            .register_local_connection(false)
-            .expect("failed to create local connection");
-
-        let (remote_conn, mut rx_remote) = make_server_conn(&processor);
-        negotiate_conn(&processor, remote_conn, "1.1.0");
-
-        let source = ProtoName::from_strings(["org", "ns", "src"]).with_id(1);
-        let destination = ProtoName::from_strings(["org", "ns", "dst"]).with_id(2);
-        let upstream_ack_id: u64 = 101;
-
-        let sub_msg = Message::builder()
-            .source(source.clone())
-            .destination(destination.clone())
-            .incoming_conn(local_conn)
-            .forward_to(remote_conn)
-            .subscription_id(upstream_ack_id)
-            .build_subscribe()
-            .unwrap();
-
-        processor
-            .process_subscription(sub_msg, local_conn, true)
-            .await
-            .unwrap();
-
-        // Forwarded subscribe must have been sent to remote.
-        // The subscription_id is a globally unique identifier that always travels
-        // with the subscription, regardless of whether the remote supports acks.
-        let forwarded = tokio::time::timeout(Duration::from_secs(1), rx_remote.recv())
-            .await
-            .expect("timeout waiting for forwarded subscribe")
-            .expect("channel closed")
-            .unwrap();
-        assert!(matches!(forwarded.get_type(), SubscribeType(_)));
-        let forwarded_sub_id = forwarded
-            .get_subscription_id()
-            .expect("forwarded subscribe must carry the subscription_id");
-        assert_eq!(
-            forwarded_sub_id, upstream_ack_id,
-            "subscription_id must not change when forwarding"
-        );
-
-        // Upstream ACK must be sent immediately (without waiting for remote).
-        let upstream_ack = tokio::time::timeout(Duration::from_secs(1), rx_local.recv())
-            .await
-            .expect("timeout waiting for upstream ack")
-            .expect("channel closed")
-            .expect("upstream ack must be Ok");
-
-        assert!(matches!(upstream_ack.get_type(), SubscriptionAckType(_)));
-        let ack = upstream_ack.get_subscription_ack();
-        assert_eq!(ack.subscription_id, upstream_ack_id);
-        assert!(ack.success);
     }
 
     #[tokio::test]
