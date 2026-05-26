@@ -881,7 +881,6 @@ impl ControllerService {
                     .remove(&(name.clone(), conn_id));
             }
 
-            let (c0, c1, c2) = name.str_components();
             routes_status.push(v1::RouteAck {
                 route: Some(v1::Route {
                     name: Some(name.clone()),

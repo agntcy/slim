@@ -270,26 +270,21 @@ async fn route_list(node_id: &str, opts: &ClientConfig) -> Result<()> {
     );
     println!("Received route list response: {}", resp.entries.len());
     for e in &resp.entries {
-        let conn_names: Vec<String> = e
-            .connections
-            .iter()
-            .map(|c| {
-                format!(
-                    "{}:{}:{:?}:{}",
-                    c.connection_type().as_str_name(),
-                    c.id,
-                    c.link_id,
-                    c.config_data
-                )
-            })
-            .collect();
         let name_str = e
             .name
             .as_ref()
             .map_or_else(|| "None".to_string(), |n| format!("{}", n));
+        
+        let local: Vec<String> = e.local_connections.iter()
+            .map(|c| format!("local:{}:{:?}", c.id, c.link_id))
+            .collect();
+        let remote: Vec<String> = e.remote_connections.iter()
+            .map(|c| format!("remote:{}:{:?}", c.id, c.link_id))
+            .collect();
+        
         println!(
             "{} local={:?} remote={:?}",
-            name_str, local_names, remote_names
+            name_str, local, remote
         );
     }
     Ok(())
@@ -308,8 +303,8 @@ async fn route_add(
     println!("Add route for node ID: {}", node_id);
     let (org, ns, agent_type, agent_id) = parse_route(route)?;
 
-    let mut subscription = Subscription {
-        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id)),
+    let route_msg = Route {
+        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id as u128)),
         connection_id: String::new(),
         node_id: None,
         link_id: None,
@@ -333,7 +328,7 @@ async fn route_add(
         add_route,
         AddRouteRequest {
             node_id: node_id.to_string(),
-            route: Some(route),
+            route: Some(route_msg),
             connection: cp_connection,
             dest_node_id: final_dest_node,
         }
@@ -358,8 +353,8 @@ async fn route_del(
     println!("Delete route for node ID: {}", node_id);
     let (org, ns, agent_type, agent_id) = parse_route(route)?;
 
-    let mut subscription = Subscription {
-        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id)),
+    let route_msg = Route {
+        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id as u128)),
         connection_id: String::new(),
         node_id: None,
         link_id: None,
@@ -368,7 +363,7 @@ async fn route_del(
 
     let req = DeleteRouteRequest {
         node_id: node_id.to_string(),
-        route: Some(route),
+        route: Some(route_msg),
         dest_node_id: destination.to_string(),
     };
 
@@ -561,14 +556,10 @@ fn print_link_row(link: &LinkEntry, widths: &[usize; 8]) {
 }
 
 fn build_subscription_str(route: &RouteEntry) -> String {
-    let mut s = format!(
-        "{}/{}/{}",
-        route.component_0, route.component_1, route.component_2
-    );
-    if let Some(id) = route.component_id {
-        s = format!("{}/{}", s, id);
-    }
-    s
+    route
+        .name
+        .as_ref()
+        .map_or_else(|| "None".to_string(), |n| format!("{}", n))
 }
 
 fn route_status_str(status: i32) -> String {
@@ -621,10 +612,8 @@ mod tests {
             id: 1.to_string(),
             source_node_id: source.to_string(),
             dest_node_id: dest_node.to_string(),
-            component_0: c0.to_string(),
-            component_1: c1.to_string(),
-            component_2: c2.to_string(),
-            component_id,
+            name: Some(ProtoName::from_strings([c0, c1, c2])
+                .with_id(component_id.map(|id| id as u128).unwrap_or(0))),
             status,
             last_updated,
             ..Default::default()

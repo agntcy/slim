@@ -5,6 +5,7 @@ syntax = "proto3";
 package controlplane.proto.v1;
 
 import "controller/v1/controller.proto";
+import "v1/data_plane.proto";
 
 service ControlPlaneService {
   rpc AddRoute(AddRouteRequest) returns (AddRouteResponse) {}
@@ -96,15 +97,12 @@ message RouteEntry {
   string dest_endpoint = 4;
   // deprecated
   string conn_config_data = 5;
-  string component_0 = 6;
-  string component_1 = 7;
-  string component_2 = 8;
-  optional uint64 component_id = 9;
-  RouteStatus status = 10;
-  string status_msg = 11;
-  reserved 12;
-  int64 last_updated = 13; // Unix timestamp
-  string link_id = 14;
+  dataplane.proto.v1.Name name = 6;
+  RouteStatus status = 7;
+  string status_msg = 8;
+  reserved 9;
+  int64 last_updated = 10; // Unix timestamp
+  string link_id = 11;
 }
 
 // Response containing a list of route representations

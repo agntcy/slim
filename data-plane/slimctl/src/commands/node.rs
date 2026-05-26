@@ -132,27 +132,21 @@ async fn route_list(opts: &ClientConfig) -> Result<()> {
             Ok(Some(Ok(msg))) => {
                 if let Some(Payload::RouteListResponse(list_resp)) = msg.payload {
                     for e in &list_resp.entries {
-                        let conn_names: Vec<String> = e
-                            .connections
-                            .iter()
-                            .map(|c| {
-                                format!(
-                                    "{}:{}:{}:{:?}:{:?}",
-                                    c.connection_type().as_str_name(),
-                                    c.id,
-                                    c.config_data,
-                                    c.link_id,
-                                    c.direction()
-                                )
-                            })
+                        let name_str = e
+                            .name
+                            .as_ref()
+                            .map_or_else(|| "None".to_string(), |n| format!("{}", n));
+                        
+                        let local: Vec<String> = e.local_connections.iter()
+                            .map(|c| format!("local:{}:{:?}", c.id, c.link_id))
                             .collect();
+                        let remote: Vec<String> = e.remote_connections.iter()
+                            .map(|c| format!("remote:{}:{:?}", c.id, c.link_id))
+                            .collect();
+                        
                         println!(
-                            "{}/{}/{} id={} connections={:?}",
-                            e.component_0,
-                            e.component_1,
-                            e.component_2,
-                            e.id.map_or_else(|| "None".to_string(), |id| id.to_string()),
-                            conn_names
+                            "{} local={:?} remote={:?}",
+                            name_str, local, remote
                         );
                     }
                     break;
@@ -170,8 +164,9 @@ async fn route_add(route: &str, via: &str, config_file: &str, opts: &ClientConfi
     let (org, ns, agent_type, agent_id) = parse_route(route)?;
     let (conn, link_id) = parse_config_file_with_link_id(config_file)?;
     let route = Route {
-        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id)),
-        id: Some(agent_id),
+        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id as u128)),
+        connection_id: String::new(),
+        node_id: None,
         link_id: Some(link_id),
         direction: None,
     };
@@ -231,8 +226,9 @@ async fn route_del(route: &str, via: &str, destination: &str, opts: &ClientConfi
         destination.to_string()
     };
     let route = Route {
-        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id)),
-        connection_id: conn_id,
+        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id as u128)),
+        connection_id: String::new(),
+        node_id: None,
         link_id: Some(link_id),
         direction: None,
     };
