@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use rlimit::increase_nofile_limit;
 use std::net::TcpListener;
 use std::time::Duration;
 use uuid::Uuid;
@@ -29,7 +30,15 @@ use tracing_subscriber::EnvFilter;
 
 // --- Helpers ---
 
+fn raise_fd_limit() {
+    static INIT_FD_LIMIT: std::sync::Once = std::sync::Once::new();
+    INIT_FD_LIMIT.call_once(|| {
+        let _ = increase_nofile_limit(4096).expect("unable to raise open file descriptor limit");
+    });
+}
+
 fn reserve_port() -> u16 {
+    raise_fd_limit();
     let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind test port");
     let port = listener.local_addr().expect("failed to read port").port();
     drop(listener);
