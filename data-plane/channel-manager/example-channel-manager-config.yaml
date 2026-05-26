@@ -7,13 +7,11 @@ channel-manager:
   # transport (grpc/websocket), TLS, authentication, keepalive, proxy, backoff, headers, etc.
   slim-connection:
     endpoint: "http://127.0.0.1:46357"
-    transport: "grpc"
     tls:
       insecure: true
-    # For websocket transport, use:
+    # For websocket transport, change the endpoint scheme to ws:// or wss://, e.g.:
     # endpoint: "ws://127.0.0.1:46357"
-    # transport: "websocket"
-    # Uncomment below for TLS-secured connections:
+    # Uncomment below for TLS-secured connections (or use https://, wss://):
     # tls:
     #   insecure: false
     #   ca_file: "/path/to/ca.pem"

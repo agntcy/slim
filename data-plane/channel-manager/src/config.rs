@@ -9,7 +9,6 @@
 //! channel-manager:
 //!   slim-connection:
 //!     endpoint: "http://127.0.0.1:46357"
-//!     transport: "grpc"
 //!     tls:
 //!       insecure: true
 //!   api-server:
@@ -285,7 +284,6 @@ channel-manager:
 channel-manager:
   slim-connection:
     endpoint: "ws://127.0.0.1:46357"
-    transport: "websocket"
     tls:
       insecure: true
   api-server:
@@ -300,7 +298,7 @@ channel-manager:
         let cfg: Config = serde_yaml::from_str(yaml).unwrap();
         assert!(cfg.validate().is_ok());
         assert_eq!(
-            cfg.manager.slim_connection.transport,
+            cfg.manager.slim_connection.resolved_transport(),
             TransportProtocol::Websocket
         );
     }
