@@ -189,7 +189,7 @@ mod tests {
         let expected = name.clone().with_id(2);
 
         let err = fwd.on_publish_msg_match(enc(&expected), 100, 1);
-        assert!(matches!(err, Err(DataPathError::NoMatchEncoded(_))));
+        assert!(matches!(err, Err(DataPathError::NoMatchEncoded(..))));
 
         assert!(
             fwd.on_subscription_msg(name.clone(), 10, false, false, 1)

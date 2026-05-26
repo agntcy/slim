@@ -3,7 +3,7 @@
 
 use anyhow::{Result, bail};
 
-use slim_datapath::api::ProtoName;
+use slim_datapath::api::{NameId, ProtoName};
 
 use crate::proto::controller::proto::v1::Connection;
 
@@ -42,7 +42,7 @@ pub fn parse_route(route: &str) -> Result<(String, String, String, u64)> {
             .parse()
             .map_err(|_| anyhow::anyhow!("invalid agent instance ID (must be u64): '{}'", id_str))?
     } else {
-        ProtoName::NULL_COMPONENT
+        NameId::NULL_COMPONENT as u64
     };
     Ok((
         parts[0].to_string(),
@@ -160,7 +160,7 @@ mod tests {
         assert_eq!(org, "myorg");
         assert_eq!(ns, "mynamespace");
         assert_eq!(agent, "myagent");
-        assert_eq!(id, ProtoName::NULL_COMPONENT);
+        assert_eq!(id, NameId::NULL_COMPONENT as u64);
     }
 
     #[test]

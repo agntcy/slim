@@ -32,7 +32,7 @@ use prost_types::Struct;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::TokenProvider;
 use slim_config::client::{ClientConfig, TransportChannel};
-use slim_datapath::api::ProtoName;
+use slim_datapath::api::{NameId, ProtoName};
 use slim_datapath::api::{
     MessageType::Subscribe, MessageType::SubscriptionAck as SubscriptionAckType,
     MessageType::Unsubscribe, ProtoMessage as DataPlaneMessage,
@@ -670,7 +670,7 @@ impl ControllerService {
                                     subscription.component_1.as_str(),
                                     subscription.component_2.as_str(),
                                 ])
-                                .with_id(subscription.id.unwrap_or(ProtoName::NULL_COMPONENT));
+                                .with_id(subscription.id.unwrap_or(NameId::NULL_COMPONENT as u64) as u128);
 
                                 let msg = DataPlaneMessage::builder()
                                     .source(source.clone())
@@ -740,7 +740,7 @@ impl ControllerService {
                                     subscription.component_1.as_str(),
                                     subscription.component_2.as_str(),
                                 ])
-                                .with_id(subscription.id.unwrap_or(ProtoName::NULL_COMPONENT));
+                                .with_id(subscription.id.unwrap_or(NameId::NULL_COMPONENT as u64) as u128);
 
                                 let msg = DataPlaneMessage::builder()
                                     .source(source.clone())
@@ -842,7 +842,7 @@ impl ControllerService {
                                     component_0: c0.to_string(),
                                     component_1: c1.to_string(),
                                     component_2: c2.to_string(),
-                                    id: Some(id),
+                                    id: Some(id as u64),
                                     ..Default::default()
                                 };
 
@@ -1002,7 +1002,7 @@ impl ControllerService {
             component_0: c0.to_string(),
             component_1: c1.to_string(),
             component_2: c2.to_string(),
-            id: Some(dst.id()),
+            id: Some(dst.id() as u64),
             connection_id: "n/a".to_string(),
             node_id: None,
             link_id: None,
@@ -1032,7 +1032,7 @@ impl ControllerService {
             component_0: c0.to_string(),
             component_1: c1.to_string(),
             component_2: c2.to_string(),
-            id: Some(dst.id()),
+            id: Some(dst.id() as u64),
             connection_id: "n/a".to_string(),
             node_id: None,
             link_id: None,

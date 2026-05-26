@@ -309,9 +309,9 @@ impl App {
         get_global_service().create_app_with_secret(name, secret)
     }
 
-    /// Get the app ID (derived from name)
-    pub fn id(&self) -> u64 {
-        self.app.app_name().id()
+    /// Get the app ID in UUID format
+    pub fn id(&self) -> String {
+        self.app.app_name().string_id()
     }
 
     /// Get the app name
@@ -705,7 +705,7 @@ mod tests {
         assert!(result.is_ok());
 
         let adapter = result.unwrap();
-        assert!(adapter.id() > 0);
+        assert!(!adapter.id().is_empty());
     }
 
     /// Test that adapter ID is consistently derived from its internal provider's token ID
@@ -721,7 +721,7 @@ mod tests {
 
         // The adapter's ID should be non-zero (derived from token ID hash)
         let adapter_id = adapter.id();
-        assert!(adapter_id > 0, "Adapter ID should be non-zero");
+        assert!(!adapter_id.is_empty(), "Adapter ID should not be empty");
 
         // Verify the adapter's name includes the ID
         let adapter_name = adapter.name();
@@ -903,16 +903,16 @@ mod tests {
             .await
             .expect("Failed to create adapter");
 
-        // ID should be non-zero
+        // ID should be non-empty
         let id = adapter.id();
-        assert!(id > 0, "Adapter ID should be positive");
+        assert!(!id.is_empty(), "Adapter ID should not be empty");
 
         // Name should have the right components
         let name = adapter.name();
         assert_eq!(name.components()[0], "org");
         assert_eq!(name.components()[1], "namespace");
         assert_eq!(name.components()[2], "id-test");
-        assert!(name.id() > 0);
+        assert!(!name.id().is_empty());
     }
 
     /// Test adapter with local service
@@ -973,7 +973,7 @@ mod tests {
         assert!(result.is_ok(), "App::new_async should succeed");
 
         let adapter = result.unwrap();
-        assert!(adapter.id() > 0);
+        assert!(!adapter.id().is_empty(), "Adapter ID should not be empty");
 
         let name = adapter.name();
         assert_eq!(name.components()[0], "org");
@@ -1258,7 +1258,7 @@ mod tests {
             .expect("Failed to create adapter via service");
 
         // Verify the adapter created via from_parts works correctly
-        assert!(adapter2.id() > 0);
+        assert!(!adapter2.id().is_empty());
         assert!(!adapter2.name().to_string().is_empty());
     }
 
@@ -1286,7 +1286,7 @@ mod tests {
 
         assert!(result.is_ok(), "Should create adapter with custom service");
         let adapter = result.unwrap();
-        assert!(adapter.id() > 0);
+        assert!(!adapter.id().is_empty());
         assert!(!adapter.name().to_string().is_empty());
     }
 
@@ -1311,8 +1311,8 @@ mod tests {
             .expect("Failed to create second adapter");
 
         // Both should be created successfully (using the same global service)
-        assert!(adapter1.id() > 0);
-        assert!(adapter2.id() > 0);
+        assert!(!adapter1.id().is_empty());
+        assert!(!adapter2.id().is_empty());
         assert_ne!(
             adapter1.id(),
             adapter2.id(),
@@ -1380,7 +1380,7 @@ mod tests {
 
         assert!(result.is_ok(), "Should create app with secret");
         let app = result.unwrap();
-        assert!(app.id() > 0, "App should have non-zero ID");
+        assert!(!app.id().is_empty(), "App should have non-empty ID");
         assert!(
             !app.name().to_string().is_empty(),
             "App should have valid name"
@@ -1405,7 +1405,7 @@ mod tests {
             "Should create app with secret in blocking mode"
         );
         let app = result.unwrap();
-        assert!(app.id() > 0, "App should have non-zero ID");
+        assert!(!app.id().is_empty(), "App should have empty ID");
     }
 
     /// Test new_with_secret creates unique IDs for different apps
@@ -1527,7 +1527,7 @@ mod tests {
 
         assert!(result.is_ok(), "Should create app via internal function");
         let app = result.unwrap();
-        assert!(app.id() > 0);
+        assert!(!app.id().is_empty());
         assert!(!app.name().to_string().is_empty());
     }
 }

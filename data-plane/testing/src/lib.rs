@@ -69,7 +69,7 @@ pub struct ParsedMessage {
     pub name: Name,
 
     /// publication id to add in the payload
-    pub id: u64,
+    pub id: u128,
 
     /// list of possible receives for the publication
     pub receivers: Vec<u64>,
@@ -94,7 +94,7 @@ fn parse_ids(iter: &mut SplitWhitespace<'_>) -> Result<Name, ParsingError> {
     let id = iter
         .next()
         .ok_or(ParsingError::MissingId)?
-        .parse::<u64>()
+        .parse::<u128>()
         .map_err(|_e| ParsingError::MissingId)?;
 
     Ok(Name::from_strings([org, namespace, app_val]).with_id(id))
@@ -126,7 +126,7 @@ pub fn parse_pub(mut iter: SplitWhitespace<'_>) -> Result<ParsedMessage, Parsing
     let id = iter
         .next()
         .ok_or(ParsingError::MissingPublicationId)?
-        .parse::<u64>()?;
+        .parse::<u128>()?;
 
     // get the publication name
     let pub_name = parse_ids(&mut iter)?;

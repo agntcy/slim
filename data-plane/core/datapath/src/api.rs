@@ -4,7 +4,6 @@
 //! gRPC bindings for data plane service.
 pub(crate) mod proto;
 
-use crate::api::proto::dataplane::v1::NameId;
 use crate::messages::encoder::calculate_hash;
 
 pub use proto::dataplane::v1::ApplicationPayload;
@@ -13,6 +12,7 @@ pub use proto::dataplane::v1::Content;
 pub use proto::dataplane::v1::DiscoveryReplyPayload;
 pub use proto::dataplane::v1::DiscoveryRequestPayload;
 pub use proto::dataplane::v1::EncodedName;
+pub use proto::dataplane::v1::NameId;
 pub use proto::dataplane::v1::GroupAckPayload;
 pub use proto::dataplane::v1::GroupAddPayload;
 pub use proto::dataplane::v1::GroupNackPayload;
@@ -88,34 +88,32 @@ impl NameId {
         }
     }
 
+    // parse Name Id from string as UUID format. Returns None if the string is not a valid UUID.
+    pub fn from_string(s: &str) -> Option<Self> {
+        // Try to parse as UUID first
+        if let Ok(uuid) = uuid::Uuid::parse_str(s) {
+            return Some(Self::new(uuid.as_u128()));
+        }
+        None
+    }
+
     pub fn id(&self) -> u128 {
         (self.id_0 as u128) << 64 | (self.id_1 as u128)
     }
 
+   /// Returns the ID as a human-readable string
     pub fn to_string(&self) -> String {
         Self::id_to_string(self.id())
     }
 
+    /// Returns the ID as a human-readable string: UUID format if not a reserved value,
+    /// otherwise the reserved name (e.g. "NULL_COMPONENT", "DATA_CHANNEL_ID").
     pub fn id_to_string(id: u128) -> String {
         match id {
             Self::NULL_COMPONENT => "NULL_COMPONENT".to_string(),
             Self::DATA_CHANNEL_ID => "DATA_CHANNEL_ID".to_string(),
             Self::CONTROL_CHANNEL_ID => "CONTROL_CHANNEL_ID".to_string(),
-            id => {
-                let bytes = id.to_be_bytes();
-                format!(
-                    "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
-                    u32::from_be_bytes(bytes[0..4].try_into().unwrap()),
-                    u16::from_be_bytes(bytes[4..6].try_into().unwrap()),
-                    u16::from_be_bytes(bytes[6..8].try_into().unwrap()),
-                    u16::from_be_bytes(bytes[8..10].try_into().unwrap()),
-                    u64::from_be_bytes({
-                        let mut buf = [0u8; 8];
-                        buf[2..8].copy_from_slice(&bytes[10..16]);
-                        buf
-                    }),
-                )
-            }
+            id => uuid::Uuid::from_u128(id).to_string(),
         }
     }
 
@@ -131,6 +129,11 @@ impl EncodedName {
     /// Returns the u128 ID from the embedded `NameId`, or `NULL_COMPONENT` if absent.
     pub fn id(&self) -> u128 {
         self.name_id.as_ref().map_or(NameId::NULL_COMPONENT, |nid| nid.id())
+    }
+
+    /// Returns the ID as a human-readable string.
+    pub fn string_id(&self) -> String {
+        NameId::id_to_string(self.id())
     }
 }
 
@@ -163,6 +166,14 @@ impl ProtoName {
     /// Returns the ID component 
     pub fn id(&self) -> u128 {
         self.name.as_ref().unwrap().id()
+    }
+
+    pub fn name_id(&self) -> Option<NameId> {
+        self.name.as_ref().unwrap().name_id
+    }
+
+    pub fn string_id(&self) -> String {
+        NameId::id_to_string(self.id())
     }
 
     /// Returns `true` if an ID has been set (i.e. is not `NULL_COMPONENT`).

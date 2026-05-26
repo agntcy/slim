@@ -108,8 +108,8 @@ pub async fn run_benchmark(
 
     // Set up N independent (sender_i → topic_i → receiver_i) lanes.
     for (i, count) in received_counts.iter().enumerate() {
-        let topic = Name::from_strings(["perf", "stress", "topic"]).with_id(i as u64);
-        let sender_name = Name::from_strings(["perf", "stress", "sender"]).with_id(i as u64);
+        let topic = Name::from_strings(["perf", "stress", "topic"]).with_id(i as u128);
+        let sender_name = Name::from_strings(["perf", "stress", "sender"]).with_id(i as u128);
 
         // Register receiver and subscribe it exclusively to topic_i.
         let (_recv_conn_id, recv_tx, mut recv_rx) = mp

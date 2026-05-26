@@ -1060,7 +1060,7 @@ mod tests {
             "org".to_string(),
             "ns".to_string(),
             "dest".to_string(),
-            123,
+            "00000000-0000-0000-0000-000000012345".to_string(),
         ));
 
         let mut metadata = HashMap::new();

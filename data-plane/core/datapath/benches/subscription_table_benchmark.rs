@@ -18,12 +18,12 @@ fn build_specific_ids(n: usize) -> (SubscriptionTableImpl, EncodedName) {
     let base = ProtoName::from_strings(["org", "ns", "svc"]);
     let table = SubscriptionTableImpl::default();
     for i in 1..=n {
-        let name = base.clone().with_id(i as u64);
+        let name = base.clone().with_id(i as u128);
         table
             .add_subscription(name, (i + 100) as u64, false, i as u64)
             .unwrap();
     }
-    let target = base.with_id(n as u64);
+    let target = base.with_id(n as u128);
     (table, encoded(&target))
 }
 
@@ -35,7 +35,7 @@ fn build_with_null(n: usize) -> (SubscriptionTableImpl, EncodedName) {
     let table = SubscriptionTableImpl::default();
     table.add_subscription(base.clone(), 1, false, 1).unwrap();
     for i in 1..n {
-        let name = base.clone().with_id(i as u64);
+        let name = base.clone().with_id(i as u128);
         table
             .add_subscription(name, (i + 100) as u64, false, (i + 100) as u64)
             .unwrap();

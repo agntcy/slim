@@ -15,8 +15,7 @@ use tracing::{Instrument, debug, error, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{
-    EncodedName, ParticipantSettings, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
-    ProtoSessionType,
+    EncodedName, NameId, ParticipantSettings, ProtoMessage as Message, ProtoName, ProtoSessionMessageType, ProtoSessionType
 };
 
 use crate::common::SessionMessage;
@@ -91,7 +90,7 @@ where
     pool: Arc<SyncRwLock<HashMap<u32, Arc<SessionController>>>>,
 
     /// Default name of the local app
-    app_id: u64,
+    app_id: u128,
 
     /// Names registered by local app, keyed by encoded name (null id) → subscription_id
     app_names: SyncRwLock<HashMap<EncodedName, u64>>,
@@ -193,7 +192,7 @@ where
         self.conn_id
     }
 
-    pub fn app_id(&self) -> u64 {
+    pub fn app_id(&self) -> u128 {
         self.app_id
     }
 
@@ -204,7 +203,7 @@ where
             component_0: enc.component_0,
             component_1: enc.component_1,
             component_2: enc.component_2,
-            component_3: ProtoName::NULL_COMPONENT,
+            name_id: name.name_id(),
         }
     }
 
@@ -1135,7 +1134,7 @@ mod tests {
         session_layer.remove_app_name(&name);
 
         // The name with NULL_COMPONENT should be removed
-        let name_null = name.with_id(ProtoName::NULL_COMPONENT);
+        let name_null = name.with_id(NameId::NULL_COMPONENT);
         assert!(
             !session_layer
                 .app_names

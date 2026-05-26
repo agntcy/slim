@@ -4,7 +4,7 @@
 use std::marker::PhantomData;
 
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::api::ProtoName;
+use slim_datapath::api::{NameId, ProtoName};
 
 use crate::{
     Direction,
@@ -267,9 +267,9 @@ where
             }
             slim_datapath::api::ProtoSessionType::Multicast => {
                 // For Multicast, force the destination to use DATA_CHANNEL_ID and control to use CONTROL_CHANNEL_ID
-                let data_destination = destination.clone().with_id(ProtoName::DATA_CHANNEL_ID);
+                let data_destination = destination.clone().with_id(NameId::DATA_CHANNEL_ID);
                 let control_destination =
-                    destination.clone().with_id(ProtoName::CONTROL_CHANNEL_ID);
+                    destination.clone().with_id(NameId::CONTROL_CHANNEL_ID);
                 (data_destination, control_destination)
             }
             _ => {
@@ -1188,7 +1188,7 @@ mod tests {
         config.session_type = ProtoSessionType::Multicast;
 
         let dest = create_test_name("group");
-        let data_channel = dest.with_id(ProtoName::DATA_CHANNEL_ID);
+        let data_channel = dest.with_id(NameId::DATA_CHANNEL_ID);
         let builder =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_id(3)
@@ -1423,11 +1423,11 @@ mod tests {
         // Verify the builder forced the correct IDs
         assert_eq!(
             ready_builder.destination.unwrap().id(),
-            ProtoName::DATA_CHANNEL_ID
+            NameId::DATA_CHANNEL_ID
         );
         assert_eq!(
             ready_builder.control.unwrap().id(),
-            ProtoName::CONTROL_CHANNEL_ID
+            NameId::CONTROL_CHANNEL_ID
         );
     }
 

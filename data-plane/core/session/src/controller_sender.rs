@@ -8,7 +8,8 @@ use std::{
 
 use display_error_chain::ErrorChainExt;
 use slim_datapath::api::{
-    CommandPayload, ProtoMessage as Message, ProtoName, ProtoSessionMessageType, ProtoSessionType,
+    CommandPayload, NameId, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
+    ProtoSessionType,
 };
 use tokio::sync::mpsc::Sender;
 use tracing::debug;
@@ -222,7 +223,7 @@ impl ControllerSender {
                             .as_ref()
                             .ok_or(SessionError::MissingGroupNameInJoinRequest)?
                             .clone();
-                        group_name.set_id(ProtoName::CONTROL_CHANNEL_ID);
+                        group_name.set_id(NameId::CONTROL_CHANNEL_ID);
                         debug!(
                             destination = %group_name,
                             "update group name on join request message for multicast session",
@@ -2522,9 +2523,9 @@ mod tests {
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let data_channel_name =
-            ProtoName::from_strings(["org", "ns", "channel"]).with_id(ProtoName::DATA_CHANNEL_ID);
+            ProtoName::from_strings(["org", "ns", "channel"]).with_id(NameId::DATA_CHANNEL_ID);
         let control_channel_name = ProtoName::from_strings(["org", "ns", "channel"])
-            .with_id(ProtoName::CONTROL_CHANNEL_ID);
+            .with_id(NameId::CONTROL_CHANNEL_ID);
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
         let session_id = 1;
 

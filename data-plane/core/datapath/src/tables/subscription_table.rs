@@ -701,12 +701,12 @@ impl SubscriptionTable for SubscriptionTableImpl {
                     component_3 = id,
                     "match not found for name"
                 );
-                return Err(DataPathError::NoMatchEncoded([
+                return Err(DataPathError::NoMatchEncoded(
                     encoded.component_0,
                     encoded.component_1,
                     encoded.component_2,
-                    id,
-                ]));
+                    encoded.string_id(),
+                ));
             }
             Some(pe) => pe,
         };
@@ -715,24 +715,24 @@ impl SubscriptionTable for SubscriptionTableImpl {
             // Specific ID: linear scan over ids (8 per cache line).
             prefix_entry.get_one(id, incoming_conn).ok_or_else(|| {
                 debug!(component_3 = id, "match not found for name");
-                DataPathError::NoMatchEncoded([
+                DataPathError::NoMatchEncoded(
                     encoded.component_0,
                     encoded.component_1,
                     encoded.component_2,
-                    id,
-                ])
+                    encoded.string_id(),
+                )
             })
         } else {
             // NULL_COMPONENT: pick one connection across all registered IDs,
             // locals preferred.  Data is already hot from the single lookup above.
             prefix_entry.pick_one_any(incoming_conn).ok_or_else(|| {
                 debug!("no output connection available");
-                DataPathError::NoMatchEncoded([
+                DataPathError::NoMatchEncoded(
                     encoded.component_0,
                     encoded.component_1,
                     encoded.component_2,
-                    id,
-                ])
+                    encoded.string_id(),
+                )
             })
         }
     }
@@ -760,12 +760,12 @@ impl SubscriptionTable for SubscriptionTableImpl {
                     component_3 = id,
                     "match not found for name"
                 );
-                return Err(DataPathError::NoMatchEncoded([
+                return Err(DataPathError::NoMatchEncoded(
                     encoded.component_0,
                     encoded.component_1,
                     encoded.component_2,
-                    id,
-                ]));
+                    encoded.string_id(),
+                ));
             }
             Some(pe) => pe,
         };
@@ -775,21 +775,21 @@ impl SubscriptionTable for SubscriptionTableImpl {
             match prefix_entry.get_all(id, incoming_conn) {
                 None => {
                     debug!(component_3 = id, "match not found for name");
-                    Err(DataPathError::NoMatchEncoded([
+                    Err(DataPathError::NoMatchEncoded(
                         encoded.component_0,
                         encoded.component_1,
                         encoded.component_2,
-                        id,
-                    ]))
+                        encoded.string_id(),
+                    ))
                 }
                 Some(out) if out.is_empty() => {
                     debug!("no connection available (local/remote)");
-                    Err(DataPathError::NoMatchEncoded([
+                    Err(DataPathError::NoMatchEncoded(
                         encoded.component_0,
                         encoded.component_1,
                         encoded.component_2,
-                        id,
-                    ]))
+                        encoded.string_id(),
+                    ))
                 }
                 Some(out) => {
                     debug!(?out, "found connections");
@@ -802,12 +802,12 @@ impl SubscriptionTable for SubscriptionTableImpl {
             let out = prefix_entry.get_all_any(incoming_conn);
             if out.is_empty() {
                 debug!("no connection available");
-                Err(DataPathError::NoMatchEncoded([
+                Err(DataPathError::NoMatchEncoded(
                     encoded.component_0,
                     encoded.component_1,
                     encoded.component_2,
-                    id,
-                ]))
+                    encoded.string_id(),
+                ))
             } else {
                 debug!(?out, "found connections");
                 Ok(out)
@@ -873,7 +873,7 @@ mod tests {
 
         // return no match
         let err = t.match_all(&enc(&name1), 1);
-        assert!(matches!(err, Err(DataPathError::NoMatchEncoded(_))));
+        assert!(matches!(err, Err(DataPathError::NoMatchEncoded(..))));
 
         // add subscription again
         assert!(t.add_subscription(name1_1.clone(), 2, false, 5).is_ok());
@@ -959,7 +959,7 @@ mod tests {
         // Test that specific ID (name1_1) does NOT match NULL_COMPONENT subscriptions
         // At this point only name1 (NULL_COMPONENT) subscriptions exist on conn 1 and 2
         let err = t.match_one(&enc(&name1_1), 100);
-        assert!(matches!(err, Err(DataPathError::NoMatchEncoded(_))));
+        assert!(matches!(err, Err(DataPathError::NoMatchEncoded(..))));
 
         assert!(
             // this generates a warning
@@ -1109,7 +1109,7 @@ mod tests {
         assert!(t.remove_subscription(&name1, 1, false, 100).is_ok());
         let err = t.match_one(&enc(&name1), 100_u64);
         assert!(
-            matches!(err, Err(DataPathError::NoMatchEncoded(_))),
+            matches!(err, Err(DataPathError::NoMatchEncoded(..))),
             "Subscription should be fully removed after removing its subscription_id"
         );
 
@@ -1164,7 +1164,7 @@ mod tests {
         assert!(t.remove_subscription(&name2, 3, false, 206).is_ok());
         let err = t.match_one(&enc(&name2), 100_u64);
         assert!(
-            matches!(err, Err(DataPathError::NoMatchEncoded(_))),
+            matches!(err, Err(DataPathError::NoMatchEncoded(..))),
             "No connections should remain"
         );
     }
@@ -1249,7 +1249,7 @@ mod tests {
         assert!(t.remove_subscription(&name1, 2, false, 405).is_ok());
         let err = t.match_one(&enc(&name1), 100);
         assert!(
-            matches!(err, Err(DataPathError::NoMatchEncoded(_))),
+            matches!(err, Err(DataPathError::NoMatchEncoded(..))),
             "No connections should remain"
         );
     }
@@ -1313,7 +1313,7 @@ mod tests {
         assert!(t.remove_subscription(&name_id1, 3, false, 3).is_ok());
         let err = t.match_one(&enc(&name_id1), 100);
         assert!(
-            matches!(err, Err(DataPathError::NoMatchEncoded(_))),
+            matches!(err, Err(DataPathError::NoMatchEncoded(..))),
             "Specific ID message should NOT match NULL_COMPONENT subscriptions"
         );
 
@@ -1339,6 +1339,6 @@ mod tests {
 
         // But specific ID 1 should still fail (was removed earlier)
         let err = t.match_one(&enc(&name_id1), 100);
-        assert!(matches!(err, Err(DataPathError::NoMatchEncoded(_))));
+        assert!(matches!(err, Err(DataPathError::NoMatchEncoded(..))));
     }
 }
