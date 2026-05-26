@@ -92,7 +92,8 @@ impl Transmitter for SessionTransmitter {
         }
 
         self.slim_tx
-            .try_send(message)
+            .send(message)
+            .await
             .map_err(|_e| SessionError::SlimMessageSendFailed)
     }
 }
@@ -158,7 +159,8 @@ impl Transmitter for AppTransmitter {
         }
 
         self.slim_tx
-            .try_send(message)
+            .send(message)
+            .await
             .map_err(|_e| SessionError::SlimMessageSendFailed)
     }
 }
