@@ -230,7 +230,6 @@ mod tests {
     use slim_config::server::ServerConfig;
     use slim_config::tls::client::TlsClientConfig;
     use slim_config::tls::server::TlsServerConfig;
-    use slim_config::transport::TransportProtocol;
     use slim_config::websocket::common::UpgradedWebSocket;
     use slim_config::websocket::server::OnAcceptedWebSocket;
     use std::net::TcpListener as StdTcpListener;
@@ -260,9 +259,8 @@ mod tests {
 
     async fn start_server_with_transport_tasks(port: u16) -> CancellationToken {
         let endpoint = format!("ws://127.0.0.1:{port}");
-        let server_conf = ServerConfig::with_endpoint(&endpoint)
-            .with_transport(TransportProtocol::Websocket)
-            .with_tls_settings(TlsServerConfig::insecure());
+        let server_conf =
+            ServerConfig::with_endpoint(&endpoint).with_tls_settings(TlsServerConfig::insecure());
 
         let cancel = CancellationToken::new();
         let cancel_for_cb = cancel.clone();
@@ -296,9 +294,8 @@ mod tests {
 
     async fn connect_ws_client(port: u16) -> UpgradedWebSocket {
         let endpoint = format!("ws://127.0.0.1:{port}");
-        let cfg = ClientConfig::with_endpoint(&endpoint)
-            .with_transport(TransportProtocol::Websocket)
-            .with_tls_setting(TlsClientConfig::insecure());
+        let cfg =
+            ClientConfig::with_endpoint(&endpoint).with_tls_setting(TlsClientConfig::insecure());
         match cfg.to_channel().await.expect("connect") {
             TransportChannel::Websocket(ws) => {
                 ws.take_websocket().expect("websocket already taken")
@@ -412,7 +409,6 @@ mod tests {
 
         let endpoint = format!("ws://127.0.0.1:{port}");
         let cfg = ClientConfig::with_endpoint(&endpoint)
-            .with_transport(TransportProtocol::Websocket)
             .with_tls_setting(TlsClientConfig::insecure())
             .with_backoff(slim_config::client::BackoffConfig::new_fixed_interval(
                 Duration::from_millis(0),

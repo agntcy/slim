@@ -86,7 +86,7 @@ impl ServerConfig {
         &self,
         routes: Routes,
     ) -> Result<ServerFuture, ConfigError> {
-        if self.transport == TransportProtocol::Websocket {
+        if self.resolved_transport() == TransportProtocol::Websocket {
             return Err(ConfigError::GrpcServerUnsupportedTransport);
         }
 
@@ -357,8 +357,7 @@ mod tests {
     #[tokio::test]
     async fn test_to_server_future_rejects_websocket_transport() {
         let empty_service = Arc::new(Empty::new());
-        let server_config = ServerConfig::with_endpoint("0.0.0.0:12345")
-            .with_transport(TransportProtocol::Websocket);
+        let server_config = ServerConfig::with_endpoint("ws://0.0.0.0:12345");
         let ret = server_config
             .to_server_future(&[GreeterServer::from_arc(empty_service)])
             .await;

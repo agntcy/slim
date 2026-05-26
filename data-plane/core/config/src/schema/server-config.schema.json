@@ -11,7 +11,7 @@
       }
     },
     "endpoint": {
-      "description": "Endpoint is the address to listen on.",
+      "description": "Endpoint is the address to listen on.\n\nThe transport protocol is inferred from the endpoint scheme:\n* `ws://`, `wss://`  → WebSocket (TLS when `wss`)\n* `http://`, `https://`, bare `host:port` → gRPC",
       "type": "string"
     },
     "http2_only": {
@@ -97,11 +97,6 @@
         "tls_version": "tls1.3"
       }
     },
-    "transport": {
-      "description": "Transport protocol to use for dataplane communication.",
-      "$ref": "#/$defs/TransportProtocol",
-      "default": "grpc"
-    },
     "write_buffer_size": {
       "description": "WriteBufferSize for gRPC server.",
       "type": [
@@ -135,7 +130,7 @@
       ]
     },
     "AuthenticationConfig": {
-      "description": "Enum holding one configuration for the client.",
+      "description": "Enum holding one configuration for the server.",
       "oneOf": [
         {
           "description": "Basic authentication configuration.",
@@ -161,6 +156,20 @@
             }
           },
           "$ref": "#/$defs/Config2",
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "description": "SPIRE/SPIFFE authentication configuration.",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "spire"
+            }
+          },
+          "$ref": "#/$defs/SpireConfig",
           "required": [
             "type"
           ]
@@ -518,10 +527,13 @@
       }
     },
     "MetadataValue": {
-      "description": "A generic metadata value.\n\nSupported variants:\n- String\n- Number (serde_json::Number – can represent integer & floating point)\n- List (Vec<MetadataValue>)\n- Map (nested MetadataMap)",
+      "description": "A generic metadata value.\n\nSupported variants:\n- String\n- Bool\n- Number (serde_json::Number – can represent integer & floating point)\n- List (Vec<MetadataValue>)\n- Map (nested MetadataMap)",
       "anyOf": [
         {
           "type": "string"
+        },
+        {
+          "type": "boolean"
         },
         {
           "type": "number"
@@ -539,6 +551,44 @@
     },
     "OpaqueString": {
       "type": "string"
+    },
+    "SpireConfig": {
+      "description": "SPIRE authentication configuration",
+      "type": "object",
+      "properties": {
+        "jwt_audiences": {
+          "description": "Audiences to request / verify for JWT SVIDs",
+          "type": "array",
+          "default": [
+            "slim"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "socket_path": {
+          "description": "Path to the SPIFFE Workload API socket (None => use SPIFFE_ENDPOINT_SOCKET env var)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target_spiffe_id": {
+          "description": "Optional target SPIFFE ID when requesting JWT SVIDs",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trust_domains": {
+          "description": "Optional trust domains override for X.509 bundle retrieval. If set,\n`get_x509_bundle()` uses this instead of deriving from the current SVID.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        }
+      }
     },
     "TlsServerConfig": {
       "type": "object",
@@ -691,21 +741,6 @@
           "required": [
             "type"
           ]
-        }
-      ]
-    },
-    "TransportProtocol": {
-      "description": "Transport protocol used by client and server dataplane configuration.",
-      "oneOf": [
-        {
-          "description": "gRPC transport (default).",
-          "type": "string",
-          "const": "grpc"
-        },
-        {
-          "description": "Native websocket transport.",
-          "type": "string",
-          "const": "websocket"
         }
       ]
     }

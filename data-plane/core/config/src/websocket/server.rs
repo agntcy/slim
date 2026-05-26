@@ -173,7 +173,7 @@ impl ServerConfig {
         drain_rx: drain::Watch,
         on_accepted: OnAcceptedWebSocket,
     ) -> Result<CancellationToken, ConfigError> {
-        if self.transport != TransportProtocol::Websocket {
+        if self.resolved_transport() != TransportProtocol::Websocket {
             return Err(ConfigError::WebSocketServerUnsupportedTransport);
         }
 
@@ -522,7 +522,6 @@ mod tests {
     async fn test_websocket_server_starts() {
         let port = available_port();
         let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
-            .with_transport(TransportProtocol::Websocket)
             .with_tls_settings(TlsServerConfig::insecure());
 
         let token = start_ws_server(cfg).await;
@@ -546,7 +545,6 @@ mod tests {
     #[tokio::test]
     async fn test_websocket_server_rejects_invalid_endpoint() {
         let cfg = ServerConfig::with_endpoint("not-a-ws-uri")
-            .with_transport(TransportProtocol::Websocket)
             .with_tls_settings(TlsServerConfig::insecure());
         let (signal, watch) = drain::channel();
         std::mem::forget(signal);
@@ -585,7 +583,6 @@ mod tests {
     async fn test_websocket_server_404_on_unknown_path() {
         let port = available_port();
         let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
-            .with_transport(TransportProtocol::Websocket)
             .with_tls_settings(TlsServerConfig::insecure());
         let token = start_ws_server(cfg).await;
 
@@ -611,7 +608,6 @@ mod tests {
     async fn test_websocket_server_400_when_not_upgrade() {
         let port = available_port();
         let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
-            .with_transport(TransportProtocol::Websocket)
             .with_tls_settings(TlsServerConfig::insecure());
         let token = start_ws_server(cfg).await;
 
@@ -632,7 +628,6 @@ mod tests {
         let test_user = format!("user-{}", std::process::id());
         let test_pass = format!("pw-{}-{}", std::process::id(), port);
         let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
-            .with_transport(TransportProtocol::Websocket)
             .with_tls_settings(TlsServerConfig::insecure())
             .with_auth(ServerAuthConfig::Basic(BasicConfig::new(
                 &test_user, &test_pass,
@@ -692,7 +687,6 @@ mod tests {
         let server_jwt = JwtConfig::new(claims, Duration::from_secs(3600), decoding_key);
 
         let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
-            .with_transport(TransportProtocol::Websocket)
             .with_tls_settings(TlsServerConfig::insecure())
             .with_auth(ServerAuthConfig::Jwt(server_jwt));
         let token = start_ws_server(cfg).await;
@@ -771,7 +765,6 @@ mod tests {
         let server_jwt = JwtConfig::new(claims, Duration::from_secs(3600), decoding_key);
 
         let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
-            .with_transport(TransportProtocol::Websocket)
             .with_tls_settings(TlsServerConfig::insecure())
             .with_auth(ServerAuthConfig::Jwt(server_jwt));
         let token = start_ws_server(cfg).await;
@@ -825,12 +818,10 @@ mod tests {
     async fn test_websocket_server_full_handshake_via_client() {
         let port = available_port();
         let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
-            .with_transport(TransportProtocol::Websocket)
             .with_tls_settings(TlsServerConfig::insecure());
         let token = start_ws_server(cfg).await;
 
         let client_cfg = ClientConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
-            .with_transport(TransportProtocol::Websocket)
             .with_tls_setting(TlsClientConfig::insecure());
 
         let channel =
@@ -851,7 +842,6 @@ mod tests {
     async fn test_websocket_server_cancellation_stops_listener() {
         let port = available_port();
         let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
-            .with_transport(TransportProtocol::Websocket)
             .with_tls_settings(TlsServerConfig::insecure());
         let token = start_ws_server(cfg).await;
 
@@ -874,7 +864,6 @@ mod tests {
     async fn test_websocket_server_enforces_max_connections() {
         let port = available_port();
         let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
-            .with_transport(TransportProtocol::Websocket)
             .with_tls_settings(TlsServerConfig::insecure())
             .with_max_concurrent_streams(Some(1));
 
@@ -892,7 +881,6 @@ mod tests {
             .expect("server start");
 
         let client_cfg = ClientConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
-            .with_transport(TransportProtocol::Websocket)
             .with_tls_setting(TlsClientConfig::insecure())
             .with_connect_timeout(Duration::from_secs(5))
             .with_backoff(crate::client::BackoffConfig::new_fixed_interval(
