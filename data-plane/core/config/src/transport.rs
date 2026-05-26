@@ -4,6 +4,35 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::errors::ConfigError;
+
+/// Endpoint URI schemes recognized by `ClientConfig` and `ServerConfig`.
+///
+/// Kept in sync with the dispatch in [`TransportProtocol::from_endpoint`] and
+/// the role-specific handling in `grpc/{client,server}.rs` and
+/// `websocket/{client,server}.rs`.
+const ALLOWED_ENDPOINT_SCHEMES: &[&str] = &["ws", "wss", "http", "https", "unix"];
+
+/// Validates that an endpoint string carries a recognized URI scheme (or no
+/// scheme, in which case it is treated as a bare `host:port` gRPC endpoint).
+///
+/// Shared by `ClientConfig::validate` and `ServerConfig::validate` so both
+/// sides reject unknown schemes consistently.
+///
+/// The scheme is matched as a literal prefix rather than via `http::Uri`
+/// parsing because authority-less endpoints such as `unix:///tmp/slim.sock`
+/// are valid for gRPC but rejected by `http::Uri::from_str`.
+pub fn validate_endpoint_scheme(endpoint: &str) -> Result<(), ConfigError> {
+    let Some((scheme, _rest)) = endpoint.split_once("://") else {
+        return Ok(());
+    };
+    if ALLOWED_ENDPOINT_SCHEMES.contains(&scheme) {
+        Ok(())
+    } else {
+        Err(ConfigError::InvalidEndpointScheme)
+    }
+}
+
 /// Transport protocol used by client and server dataplane configuration.
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -73,5 +102,28 @@ mod tests {
             TransportProtocol::from_endpoint("unix:///tmp/slim.sock"),
             TransportProtocol::Grpc
         );
+    }
+
+    #[test]
+    fn validate_endpoint_scheme_accepts_known_schemes() {
+        for endpoint in [
+            "host:1234",
+            "http://host:1234",
+            "https://host:1234",
+            "ws://host:1234",
+            "wss://host:1234",
+            "unix:///tmp/slim.sock",
+        ] {
+            validate_endpoint_scheme(endpoint)
+                .unwrap_or_else(|e| panic!("endpoint {endpoint} rejected: {e}"));
+        }
+    }
+
+    #[test]
+    fn validate_endpoint_scheme_rejects_unknown_scheme() {
+        assert!(matches!(
+            validate_endpoint_scheme("ftp://host:21"),
+            Err(ConfigError::InvalidEndpointScheme)
+        ));
     }
 }

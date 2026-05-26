@@ -433,8 +433,6 @@ mod tests {
     use super::*;
     use crate::common_config::{CaSource, TlsSource};
     use crate::errors::SlimError;
-    #[allow(unused_imports)]
-    use slim_config::component::configuration::Configuration as _;
     use slim_config::transport::TransportProtocol as CoreTransportProtocol;
     use std::collections::HashMap;
 

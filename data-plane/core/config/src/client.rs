@@ -33,7 +33,7 @@ use crate::errors::ConfigError;
 use crate::grpc::compression::CompressionType;
 use crate::grpc::proxy::ProxyConfig;
 use crate::tls::client::TlsClientConfig as TLSSetting;
-use crate::transport::TransportProtocol;
+use crate::transport::{TransportProtocol, validate_endpoint_scheme};
 use crate::websocket::client::WebSocketClientChannel;
 
 /// Result of [`ClientConfig::to_channel`]: either a gRPC channel (the generic
@@ -326,7 +326,7 @@ impl Configuration for ClientConfig {
 
         // Validate the client configuration
         self.tls_setting.validate()?;
-        self.validate_endpoint_scheme()?;
+        validate_endpoint_scheme(&self.endpoint)?;
 
         Ok(())
     }
@@ -495,22 +495,6 @@ impl ClientConfig {
     pub fn resolved_transport(&self) -> TransportProtocol {
         TransportProtocol::from_endpoint(&self.endpoint)
     }
-
-    /// Validates that the endpoint scheme is one of the recognized values.
-    fn validate_endpoint_scheme(&self) -> Result<(), ConfigError> {
-        // Bare `host:port` (no scheme) is accepted and resolves to gRPC.
-        let Some((scheme, _rest)) = self.endpoint.split_once("://") else {
-            return Ok(());
-        };
-        // Match the scheme by prefix only. Parsing the full URI via `http::Uri`
-        // here would reject otherwise-valid endpoints such as
-        // `unix:///tmp/slim.sock` (no authority), which gRPC handles via its
-        // own URI builder in `parse_endpoint_uri`.
-        match scheme {
-            "ws" | "wss" | "http" | "https" | "unix" => Ok(()),
-            _ => Err(ConfigError::InvalidEndpointScheme),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -533,33 +517,6 @@ mod metadata_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_validate_accepts_supported_schemes() {
-        // Includes `unix://` with no authority — must not be rejected by the
-        // scheme validator even though `http::Uri::from_str` would fail on it.
-        for endpoint in [
-            "host:1234",
-            "http://host:1234",
-            "https://host:1234",
-            "ws://host:1234",
-            "wss://host:1234",
-            "unix:///tmp/slim.sock",
-        ] {
-            let cfg = ClientConfig::with_endpoint(endpoint);
-            cfg.validate_endpoint_scheme()
-                .unwrap_or_else(|e| panic!("endpoint {endpoint} rejected: {e}"));
-        }
-    }
-
-    #[test]
-    fn test_validate_rejects_unknown_scheme() {
-        let cfg = ClientConfig::with_endpoint("ftp://host:21");
-        assert!(matches!(
-            cfg.validate_endpoint_scheme(),
-            Err(ConfigError::InvalidEndpointScheme)
-        ));
-    }
 
     #[test]
     fn test_default_keepalive_config() {

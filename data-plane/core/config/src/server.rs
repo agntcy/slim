@@ -32,7 +32,7 @@ use crate::auth::spire::SpireConfig as SpireAuthConfig;
 use crate::component::configuration::Configuration;
 use crate::errors::ConfigError;
 use crate::tls::server::TlsServerConfig as TLSSetting;
-use crate::transport::TransportProtocol;
+use crate::transport::{TransportProtocol, validate_endpoint_scheme};
 use slim_auth::metadata::MetadataMap;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
@@ -85,7 +85,7 @@ pub struct ServerConfig {
     ///
     /// The transport protocol is inferred from the endpoint scheme:
     /// * `ws://`, `wss://`  → WebSocket (TLS when `wss`)
-    /// * `http://`, `https://`, bare `host:port` → gRPC
+    /// * `http://`, `https://`, `unix://`, bare `host:port` → gRPC
     pub endpoint: String,
 
     /// Configures the protocol to use TLS.
@@ -208,6 +208,7 @@ impl Configuration for ServerConfig {
 
     fn validate(&self) -> Result<(), Self::Error> {
         self.tls_setting.validate()?;
+        validate_endpoint_scheme(&self.endpoint)?;
         Ok(())
     }
 }
@@ -336,6 +337,31 @@ mod metadata_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_validate_rejects_unknown_scheme() {
+        let cfg = ServerConfig::with_endpoint("ftp://0.0.0.0:46357");
+        assert!(matches!(
+            cfg.validate(),
+            Err(ConfigError::InvalidEndpointScheme)
+        ));
+    }
+
+    #[test]
+    fn test_validate_accepts_supported_schemes() {
+        for endpoint in [
+            "0.0.0.0:46357",
+            "http://0.0.0.0:46357",
+            "https://0.0.0.0:46357",
+            "ws://0.0.0.0:46357",
+            "wss://0.0.0.0:46357",
+            "unix:///tmp/slim.sock",
+        ] {
+            let cfg = ServerConfig::with_endpoint(endpoint);
+            cfg.validate()
+                .unwrap_or_else(|e| panic!("endpoint {endpoint} rejected: {e}"));
+        }
+    }
 
     #[test]
     fn test_default_keepalive_server_parameters() {
