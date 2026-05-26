@@ -12,7 +12,6 @@ pub use proto::dataplane::v1::Content;
 pub use proto::dataplane::v1::DiscoveryReplyPayload;
 pub use proto::dataplane::v1::DiscoveryRequestPayload;
 pub use proto::dataplane::v1::EncodedName;
-pub use proto::dataplane::v1::NameId;
 pub use proto::dataplane::v1::GroupAckPayload;
 pub use proto::dataplane::v1::GroupAddPayload;
 pub use proto::dataplane::v1::GroupNackPayload;
@@ -28,6 +27,7 @@ pub use proto::dataplane::v1::LinkNegotiationPayload;
 pub use proto::dataplane::v1::Message as ProtoMessage;
 pub use proto::dataplane::v1::MlsPayload;
 pub use proto::dataplane::v1::Name as ProtoName;
+pub use proto::dataplane::v1::NameId;
 pub use proto::dataplane::v1::Participant;
 pub use proto::dataplane::v1::ParticipantSettings;
 pub use proto::dataplane::v1::Publish as ProtoPublish;
@@ -61,14 +61,18 @@ impl std::fmt::Display for ProtoName {
             write!(
                 f,
                 "{}/{}/{}/{}",
-                enc.component_0, enc.component_1, enc.component_2, enc.name_id.as_ref().map_or("no-id".to_string(), |id| id.to_string())
+                enc.component_0,
+                enc.component_1,
+                enc.component_2,
+                enc.name_id
+                    .as_ref()
+                    .map_or("no-id".to_string(), |id| id.to_string())
             )
         } else {
             write!(f, "<empty>")
         }
     }
 }
-
 
 impl NameId {
     // NULL_COMPONENT is used to represent an id component that is not set
@@ -101,11 +105,6 @@ impl NameId {
         (self.id_0 as u128) << 64 | (self.id_1 as u128)
     }
 
-   /// Returns the ID as a human-readable string
-    pub fn to_string(&self) -> String {
-        Self::id_to_string(self.id())
-    }
-
     /// Returns the ID as a human-readable string: UUID format if not a reserved value,
     /// otherwise the reserved name (e.g. "NULL_COMPONENT", "DATA_CHANNEL_ID").
     pub fn id_to_string(id: u128) -> String {
@@ -125,10 +124,18 @@ impl NameId {
     }
 }
 
+impl std::fmt::Display for NameId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", Self::id_to_string(self.id()))
+    }
+}
+
 impl EncodedName {
     /// Returns the u128 ID from the embedded `NameId`, or `NULL_COMPONENT` if absent.
     pub fn id(&self) -> u128 {
-        self.name_id.as_ref().map_or(NameId::NULL_COMPONENT, |nid| nid.id())
+        self.name_id
+            .as_ref()
+            .map_or(NameId::NULL_COMPONENT, |nid| nid.id())
     }
 
     /// Returns the ID as a human-readable string.
@@ -163,7 +170,7 @@ impl ProtoName {
         self
     }
 
-    /// Returns the ID component 
+    /// Returns the ID component
     pub fn id(&self) -> u128 {
         self.name.as_ref().unwrap().id()
     }

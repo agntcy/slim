@@ -33,7 +33,7 @@ pub enum ConfigError {
     #[error("invalid configuration - key {0} not valid")]
     InvalidKey(String),
     #[error("validation error")]
-    Invalid(#[from] ServiceError),
+    Invalid(Box<ServiceError>),
 
     // YAML decoding (typed propagation)
     #[error("yaml parse error")]
@@ -46,6 +46,12 @@ pub enum ConfigError {
     // Provider errors
     #[error("config provider error")]
     ConfigProviderError(#[from] slim_config::provider::ProviderError),
+}
+
+impl From<ServiceError> for ConfigError {
+    fn from(err: ServiceError) -> Self {
+        ConfigError::Invalid(Box::new(err))
+    }
 }
 
 lazy_static! {

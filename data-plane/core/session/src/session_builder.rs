@@ -268,8 +268,7 @@ where
             slim_datapath::api::ProtoSessionType::Multicast => {
                 // For Multicast, force the destination to use DATA_CHANNEL_ID and control to use CONTROL_CHANNEL_ID
                 let data_destination = destination.clone().with_id(NameId::DATA_CHANNEL_ID);
-                let control_destination =
-                    destination.clone().with_id(NameId::CONTROL_CHANNEL_ID);
+                let control_destination = destination.clone().with_id(NameId::CONTROL_CHANNEL_ID);
                 (data_destination, control_destination)
             }
             _ => {

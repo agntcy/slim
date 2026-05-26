@@ -15,7 +15,8 @@ use tracing::{Instrument, debug, error, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{
-    EncodedName, NameId, ParticipantSettings, ProtoMessage as Message, ProtoName, ProtoSessionMessageType, ProtoSessionType
+    EncodedName, NameId, ParticipantSettings, ProtoMessage as Message, ProtoName,
+    ProtoSessionMessageType, ProtoSessionType,
 };
 
 use crate::common::SessionMessage;
@@ -203,7 +204,7 @@ where
             component_0: enc.component_0,
             component_1: enc.component_1,
             component_2: enc.component_2,
-            name_id: name.name_id(),
+            name_id: Some(NameId::new(NameId::NULL_COMPONENT)),
         }
     }
 
@@ -714,7 +715,7 @@ mod tests {
     use super::*;
     use crate::test_utils::{MockTokenProvider, MockTransmitter, MockVerifier};
     use slim_datapath::Status;
-    use slim_datapath::api::{ProtoName, ProtoSessionType};
+    use slim_datapath::api::{NameId, ProtoName, ProtoSessionType};
     use tokio::sync::mpsc;
 
     // --- Test Mocks -----------------------------------------------------------------------

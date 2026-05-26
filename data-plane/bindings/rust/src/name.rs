@@ -103,9 +103,9 @@ impl Name {
         vec![c0.to_string(), c1.to_string(), c2.to_string()]
     }
 
-    /// Get the name ID formated as a string
+    /// Get the name ID formatted as UUID string
     pub fn id(&self) -> String {
-        self.inner.id().to_string()
+        self.inner.string_id()
     }
 }
 
@@ -145,7 +145,12 @@ mod tests {
         assert_eq!(c0, "org");
         assert_eq!(c1, "namespace");
         assert_eq!(c2, "app");
-        assert_eq!(proto_name.id(), 12345);
+        assert_eq!(
+            proto_name.id(),
+            NameId::from_string("00000000-0000-0000-0000-000000012345")
+                .unwrap()
+                .id()
+        );
     }
 
     /// Test Name to ProtoName conversion with partial components
@@ -209,14 +214,24 @@ mod tests {
     /// Test Name Debug, Clone, and PartialEq traits
     #[test]
     fn test_name_traits() {
-        let name1 = Name::new_with_id("a".to_string(), "b".to_string(), "c".to_string(), "00000000-0000-0000-0000-000000000064".to_string());
+        let name1 = Name::new_with_id(
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "00000000-0000-0000-0000-000000000064".to_string(),
+        );
         let name2 = name1.clone();
 
         // PartialEq
         assert_eq!(name1, name2);
 
         // Different names should not be equal
-        let name3 = Name::new_with_id("x".to_string(), "y".to_string(), "z".to_string(), "00000000-0000-0000-0000-0000000000c8".to_string());
+        let name3 = Name::new_with_id(
+            "x".to_string(),
+            "y".to_string(),
+            "z".to_string(),
+            "00000000-0000-0000-0000-0000000000c8".to_string(),
+        );
         assert_ne!(name1, name3);
 
         // Debug
@@ -243,13 +258,20 @@ mod tests {
     /// Test Name with different ID values
     #[test]
     fn test_name_with_various_ids() {
-        let name_with_id =
-            Name::new_with_id("org".to_string(), "ns".to_string(), "app".to_string(), "00000000-0000-0000-0000-00000000002a".to_string());
-        assert_eq!(name_with_id.id(), "00000000-0000-0000-0000-00000000002a".to_string());
+        let name_with_id = Name::new_with_id(
+            "org".to_string(),
+            "ns".to_string(),
+            "app".to_string(),
+            "00000000-0000-0000-0000-00000000002a".to_string(),
+        );
+        assert_eq!(
+            name_with_id.id(),
+            "00000000-0000-0000-0000-00000000002a".to_string()
+        );
 
         let name_without_id = Name::new("org".to_string(), "ns".to_string(), "app".to_string());
         // ProtoName without with_id sets component_3 to NULL_COMPONENT
-        assert_eq!(name_without_id.id(), "NULLCOMPONENT".to_string());
+        assert_eq!(name_without_id.id(), "NULL_COMPONENT".to_string());
     }
 
     /// Test Name::from_string with a valid input

@@ -11,7 +11,8 @@ use display_error_chain::ErrorChainExt;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, MlsPayload, NameId, Participant, ProtoMessage as Message, ProtoName, ProtoSessionMessageType, ProtoSessionType
+        CommandPayload, MlsPayload, NameId, Participant, ProtoMessage as Message, ProtoName,
+        ProtoSessionMessageType, ProtoSessionType,
     },
     messages::utils::{DELETE_GROUP, DISCONNECTION_DETECTED, LEAVING_SESSION, TRUE_VAL},
 };
@@ -1698,8 +1699,8 @@ mod tests {
         // Create moderator with agntcy/ns/moderator naming
         let source = ProtoName::from_strings(["agntcy", "ns", "moderator"]).with_id(100);
         let destination = ProtoName::from_strings(["agntcy", "ns", "chat"]);
-        let control = ProtoName::from_strings(["agntcy", "ns", "chat"])
-            .with_id(NameId::CONTROL_CHANNEL_ID);
+        let control =
+            ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(NameId::CONTROL_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -1842,8 +1843,8 @@ mod tests {
         let source = ProtoName::from_strings(["agntcy", "ns", "moderator"]).with_id(100);
         let destination =
             ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(NameId::DATA_CHANNEL_ID);
-        let control = ProtoName::from_strings(["agntcy", "ns", "chat"])
-            .with_id(NameId::CONTROL_CHANNEL_ID);
+        let control =
+            ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(NameId::CONTROL_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;

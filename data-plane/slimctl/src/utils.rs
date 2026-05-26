@@ -3,7 +3,7 @@
 
 use anyhow::{Result, bail};
 
-use slim_datapath::api::{NameId, ProtoName};
+use slim_datapath::api::NameId;
 
 use crate::proto::controller::proto::v1::Connection;
 

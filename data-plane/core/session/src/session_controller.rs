@@ -14,7 +14,8 @@ use tracing::{Instrument, debug};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, Content, NameId, ProtoMessage as Message, ProtoName, ProtoSessionMessageType, ProtoSessionType, SlimHeader
+        CommandPayload, Content, NameId, ProtoMessage as Message, ProtoName,
+        ProtoSessionMessageType, ProtoSessionType, SlimHeader,
     },
     messages::utils::SlimHeaderFlags,
 };

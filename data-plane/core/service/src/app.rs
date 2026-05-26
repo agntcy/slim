@@ -186,6 +186,7 @@ where
     }
 
     /// Delete a session and return a completion handle to await on
+    #[allow(clippy::result_large_err)]
     pub fn delete_session(
         &self,
         session: &SessionController,
@@ -463,7 +464,8 @@ mod tests {
     use crate::SubscriptionAckError;
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::api::{
-        CommandPayload, NameId, Participant, ParticipantSettings, ProtoMessage, ProtoSessionMessageType, ProtoSessionType
+        CommandPayload, NameId, Participant, ParticipantSettings, ProtoMessage,
+        ProtoSessionMessageType, ProtoSessionType,
     };
     use slim_datapath::messages::utils::SlimHeaderFlags;
     use slim_testing::utils::TEST_VALID_SECRET;

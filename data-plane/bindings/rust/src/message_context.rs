@@ -67,6 +67,7 @@ impl MessageContext {
     /// * `payload_type` defaults to "msg" if unset
     /// * `metadata` is copied from the underlying protocol envelope
     /// * The returned `Vec<u8>` is the raw application payload
+    #[allow(clippy::result_large_err)]
     pub fn from_proto_message(msg: ProtoMessage) -> Result<(Self, Vec<u8>), SessionError> {
         let Some(ProtoPublishType(publish)) = msg.message_type.as_ref() else {
             return Err(SessionError::MessageTypeUnexpected(Box::new(msg)));
@@ -341,12 +342,17 @@ mod tests {
     fn test_received_message() {
         let msg = ReceivedMessage {
             context: MessageContext::new(
-                Name::new_with_id("org".to_string(), "ns".to_string(), "app".to_string(), "00000000-0000-0000-0000-00000000007b".to_string()),
+                Name::new_with_id(
+                    "org".to_string(),
+                    "ns".to_string(),
+                    "app".to_string(),
+                    "00000000-0000-0000-0000-00000000007b".to_string(),
+                ),
                 Some(Name::new_with_id(
                     "org".to_string(),
                     "ns".to_string(),
                     "dest".to_string(),
-                                "00000000-0000-0000-0000-000000012345".to_string(),
+                    "00000000-0000-0000-0000-000000012345".to_string(),
                 )),
                 "application/json".to_string(),
                 std::collections::HashMap::new(),

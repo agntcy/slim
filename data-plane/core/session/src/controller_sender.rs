@@ -2524,8 +2524,8 @@ mod tests {
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let data_channel_name =
             ProtoName::from_strings(["org", "ns", "channel"]).with_id(NameId::DATA_CHANNEL_ID);
-        let control_channel_name = ProtoName::from_strings(["org", "ns", "channel"])
-            .with_id(NameId::CONTROL_CHANNEL_ID);
+        let control_channel_name =
+            ProtoName::from_strings(["org", "ns", "channel"]).with_id(NameId::CONTROL_CHANNEL_ID);
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
         let session_id = 1;
 

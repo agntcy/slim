@@ -32,11 +32,11 @@ use prost_types::Struct;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::TokenProvider;
 use slim_config::client::{ClientConfig, TransportChannel};
-use slim_datapath::api::{NameId, ProtoName};
 use slim_datapath::api::{
     MessageType::Subscribe, MessageType::SubscriptionAck as SubscriptionAckType,
     MessageType::Unsubscribe, ProtoMessage as DataPlaneMessage,
 };
+use slim_datapath::api::{NameId, ProtoName};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_datapath::tables::SubscriptionTable;
@@ -670,7 +670,8 @@ impl ControllerService {
                                     subscription.component_1.as_str(),
                                     subscription.component_2.as_str(),
                                 ])
-                                .with_id(subscription.id.unwrap_or(NameId::NULL_COMPONENT as u64) as u128);
+                                .with_id(subscription.id.unwrap_or(NameId::NULL_COMPONENT as u64)
+                                    as u128);
 
                                 let msg = DataPlaneMessage::builder()
                                     .source(source.clone())
@@ -740,7 +741,8 @@ impl ControllerService {
                                     subscription.component_1.as_str(),
                                     subscription.component_2.as_str(),
                                 ])
-                                .with_id(subscription.id.unwrap_or(NameId::NULL_COMPONENT as u64) as u128);
+                                .with_id(subscription.id.unwrap_or(NameId::NULL_COMPONENT as u64)
+                                    as u128);
 
                                 let msg = DataPlaneMessage::builder()
                                     .source(source.clone())
