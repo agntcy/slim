@@ -103,6 +103,11 @@ impl SqliteDb {
             SqliteConnection::establish(&path_owned)
                 .map_err(|e| format!("failed to open db: {e}"))
                 .and_then(|mut conn| {
+                    diesel::connection::SimpleConnection::batch_execute(
+                        &mut conn,
+                        "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;",
+                    )
+                    .map_err(|e| format!("failed to set pragmas: {e}"))?;
                     conn.run_pending_migrations(MIGRATIONS)
                         .map(|_| ())
                         .map_err(|e| format!("migration failed: {e}"))
@@ -120,7 +125,7 @@ impl SqliteDb {
             let url = url.to_string();
             Box::pin(async move {
                 let mut conn: AsyncSqliteConn = AsyncSqliteConn::establish(&url).await?;
-                conn.batch_execute("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")
+                conn.batch_execute("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;")
                     .await
                     .map_err(|e| diesel::ConnectionError::BadConnection(e.to_string()))?;
                 Ok(conn)
