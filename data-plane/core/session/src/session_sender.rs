@@ -4,6 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use rand::Rng;
+use slim_auth::traits::TokenProvider;
 use slim_datapath::api::{EncodedName, Participant, ProtoSessionType};
 use slim_datapath::messages::utils::{MAX_PUBLISH_ID, PUBLISH_TO};
 use slim_datapath::{api::ProtoMessage as Message, api::ProtoName};
@@ -38,7 +39,10 @@ struct GroupTimer {
 }
 
 #[allow(dead_code)]
-pub struct SessionSender {
+pub struct SessionSender<P>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+{
     /// buffer storing messages coming from the application
     buffer: ProducerBuffer,
 
@@ -72,7 +76,7 @@ pub struct SessionSender {
     session_type: ProtoSessionType,
 
     /// send packets to slim or the app
-    tx: SessionTransmitter,
+    tx: SessionTransmitter<P>,
 
     /// set to true if the sender is receiving packets
     /// to send but no one is connected to the session yet
@@ -86,14 +90,17 @@ pub struct SessionSender {
 }
 
 #[allow(dead_code)]
-impl SessionSender {
+impl<P> SessionSender<P>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+{
     const MAX_FANOUT: u32 = 256;
 
     pub fn new(
         timer_settings: Option<TimerSettings>,
         session_id: u32,
         session_type: ProtoSessionType,
-        tx: SessionTransmitter,
+        tx: SessionTransmitter<P>,
         tx_signals: Option<Sender<SessionMessage>>,
     ) -> Self {
         let factory = if let Some(settings) = timer_settings
@@ -589,6 +596,7 @@ impl SessionSender {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_utils::MockTokenProvider;
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
@@ -607,7 +615,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let mut sender = SessionSender::new(
             Some(settings),
@@ -687,7 +695,7 @@ mod tests {
         let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let mut sender = SessionSender::new(
             Some(settings),
@@ -826,7 +834,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let mut sender = SessionSender::new(
             Some(settings),
@@ -907,7 +915,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let mut sender = SessionSender::new(
             Some(settings),
@@ -1029,7 +1037,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let mut sender = SessionSender::new(
             Some(settings),
@@ -1214,7 +1222,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let mut sender = SessionSender::new(
             Some(settings),
@@ -1326,7 +1334,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let mut sender = SessionSender::new(
             Some(settings),
@@ -1467,7 +1475,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
         let mut sender = SessionSender::new(
             Some(settings),
             10,
@@ -1613,7 +1621,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let mut sender = SessionSender::new(
             Some(settings),
@@ -1684,7 +1692,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let mut sender = SessionSender::new(
             Some(settings),
@@ -1763,7 +1771,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let mut sender = SessionSender::new(
             Some(settings),
@@ -1814,7 +1822,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let mut sender = SessionSender::new(
             Some(settings),
@@ -1873,7 +1881,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let mut sender = SessionSender::new(
             Some(settings),
@@ -1958,7 +1966,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let mut sender = SessionSender::new(
             Some(settings),
@@ -2049,7 +2057,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let mut sender = SessionSender::new(
             Some(settings),
@@ -2123,7 +2131,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let mut sender = SessionSender::new(
             Some(settings),
@@ -2206,7 +2214,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let mut sender = SessionSender::new(
             Some(settings),
@@ -2255,7 +2263,7 @@ mod tests {
         assert_eq!(received_normal.get_id(), 1); // Sequential ID
         assert_eq!(
             received_normal.get_slim_header().get_fanout(),
-            SessionSender::MAX_FANOUT
+            SessionSender::<MockTokenProvider>::MAX_FANOUT
         );
 
         // Send a PUBLISH_TO message

@@ -6,7 +6,6 @@ pub mod completion_handle;
 pub mod context;
 pub mod controller_sender;
 pub mod errors;
-pub mod interceptor;
 
 mod mls_state;
 mod moderator_task;
@@ -41,9 +40,6 @@ pub use session_builder::{ForController, ForModerator, ForParticipant, SessionBu
 
 // Session Errors
 pub use errors::SessionError;
-
-// Interceptor
-pub use interceptor::SessionInterceptorProvider;
 
 // Session Config
 pub use session_config::SessionConfig;
