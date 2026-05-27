@@ -59,17 +59,19 @@ async def _setup_sender(server, sender_name, test_id, receiver_name):
 
 async def _publish_messages(sender_session, n_messages, payload_type, metadata):
     """Publish messages and wait for completion."""
-    handles = []
-    for _ in range(n_messages):
-        h = await sender_session.publish_async(
-            b"Hello from sender",
-            payload_type,
-            metadata,
-        )
-        handles.append(h.wait_async())
+    sem = asyncio.Semaphore(5)
 
-    # wait for all messages
-    await asyncio.gather(*handles)
+    async def publish_one():
+        async with sem:
+            h = await sender_session.publish_async(
+                b"Hello from sender",
+                payload_type,
+                metadata,
+            )
+            await h.wait_async()
+
+    tasks = [asyncio.create_task(publish_one()) for _ in range(n_messages)]
+    await asyncio.gather(*tasks)
 
 
 async def _wait_for_ack(sender_session):

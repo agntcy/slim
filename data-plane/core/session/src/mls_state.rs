@@ -338,7 +338,12 @@ where
             if should_validate {
                 let expected_aad = self.build_aad(msg);
                 if expected_aad != auth_data {
-                    error!("Header integrity validation failed");
+                    let expected_decoded = HeaderIntegrityAad::decode(&expected_aad[..]);
+                    let got_decoded = HeaderIntegrityAad::decode(&auth_data[..]);
+                    error!(
+                        "Header integrity validation failed! Expected AAD: {:?}, Got AAD: {:?}",
+                        expected_decoded, got_decoded
+                    );
                     return Err(MlsError::verification_failed("Header integrity mismatch").into());
                 }
             }

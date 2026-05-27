@@ -24,14 +24,14 @@ use crate::{
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
-    traits::{MessageHandler, ProcessingState},
+    traits::{MessageHandler, ProcessingState, MlsStateSelector},
 };
 
 pub struct SessionParticipant<P, V, I, M = SubscriptionManager>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     /// name of the moderator, used to send mls proposal messages
@@ -59,7 +59,7 @@ impl<P, V, I, M> SessionParticipant<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     pub(crate) fn new(inner: I, settings: SessionSettings<P, V, M>) -> Self {
@@ -83,7 +83,7 @@ impl<P, V, I, M> MessageHandler for SessionParticipant<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     async fn init(&mut self) -> Result<(), SessionError> {
@@ -97,7 +97,9 @@ where
                 mls_settings.header_integrity_validation_percent,
             )
             .expect("failed to create MLS state");
-            Some(Arc::new(Mutex::new(mls_state)))
+            let shared = Arc::new(Mutex::new(mls_state));
+            self.inner.set_mls_state(shared.clone());
+            Some(shared)
         } else {
             None
         };
@@ -277,7 +279,7 @@ impl<P, V, I, M> SessionParticipant<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     /// Helper method to handle MessageError

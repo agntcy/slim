@@ -383,7 +383,7 @@ where
     /// between moderator and participant stack building.
     fn build_session_stack<W>(
         self,
-        wrapper_constructor: impl FnOnce(crate::session::Session<P>, SessionSettings<P, V, M>) -> W,
+        wrapper_constructor: impl FnOnce(crate::session::Session<P, V>, SessionSettings<P, V, M>) -> W,
     ) -> Result<
         (
             W,

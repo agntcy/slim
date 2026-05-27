@@ -35,14 +35,14 @@ use crate::{
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
-    traits::{MessageHandler, ProcessingState},
+    traits::{MessageHandler, ProcessingState, MlsStateSelector},
 };
 
 pub struct SessionModerator<P, V, I, M = SubscriptionManager>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     /// Queue of tasks to be performed by the moderator
@@ -80,7 +80,7 @@ impl<P, V, I, M> SessionModerator<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     pub(crate) fn new(inner: I, settings: SessionSettings<P, V, M>) -> Self {
@@ -106,7 +106,7 @@ impl<P, V, I, M> MessageHandler for SessionModerator<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     async fn init(&mut self) -> Result<(), SessionError> {
@@ -121,6 +121,7 @@ where
             )
             .expect("failed to create MLS state");
             let shared = Arc::new(Mutex::new(mls_state));
+            self.inner.set_mls_state(shared.clone());
             Some(MlsModeratorState::new(shared))
         } else {
             None
@@ -147,13 +148,14 @@ where
                     // this is a application message. if direction (needs to go to the remote endpoint) and
                     // the session is p2p, update the destination of the message with the destination in
                     // the self.common. In this way we always add the right id to the name
-                    if direction == MessageDirection::South
-                        && self.common.settings.config.session_type
+                    if direction == MessageDirection::South {
+                        if self.common.settings.config.session_type
                             == ProtoSessionType::PointToPoint
-                    {
-                        message
-                            .get_slim_header_mut()
-                            .set_destination(self.common.settings.destination.clone());
+                        {
+                            message
+                                .get_slim_header_mut()
+                                .set_destination(self.common.settings.destination.clone());
+                        }
                     }
 
                     // Decrypt inbound application messages.
@@ -337,7 +339,7 @@ impl<P, V, I, M> SessionModerator<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     /// Helper method to handle MessageError
