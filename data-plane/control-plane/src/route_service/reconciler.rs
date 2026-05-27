@@ -408,9 +408,9 @@ async fn process_route_acks(
                     .get_route_for_src_dest_name(
                         node_id,
                         &crate::db::RouteName {
-                            component0: &c0,
-                            component1: &c1,
-                            component2: &c2,
+                            component0: c0,
+                            component1: c1,
+                            component2: c2,
                             component_id: comp_id.as_deref(),
                         },
                         "",

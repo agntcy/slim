@@ -261,13 +261,7 @@ impl RouteService {
             let per_node = self
                 .0
                 .db
-                .get_routes_for_dest_node_id_and_name(
-                    dest_node_id,
-                    &c0,
-                    &c1,
-                    &c2,
-                    comp_id.as_deref(),
-                )
+                .get_routes_for_dest_node_id_and_name(dest_node_id, c0, c1, c2, comp_id.as_deref())
                 .await?;
             for r in per_node {
                 self.delete_single_route(&r.source_node_id, &r.id, &r.to_string())

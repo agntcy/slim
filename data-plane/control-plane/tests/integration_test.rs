@@ -381,7 +381,7 @@ async fn print_state(client: &mut NbClient, label: &str) {
             "    - {} -> {} [{status}{deleted}] sub={}",
             r.source_node_id,
             r.dest_node_id,
-            r.name.as_ref().unwrap().to_string()
+            r.name.as_ref().unwrap()
         );
     }
 

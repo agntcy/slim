@@ -283,11 +283,7 @@ async fn route_list(node_id: &str, opts: &ClientConfig) -> Result<()> {
                 )
             })
             .collect();
-        println!(
-            "{} connections={:?}",
-            e.name.as_ref().unwrap().to_string(),
-            conn_names
-        );
+        println!("{} connections={:?}", e.name.as_ref().unwrap(), conn_names);
     }
     Ok(())
 }
@@ -306,7 +302,7 @@ async fn route_add(
     let (org, ns, agent_type, agent_id) = parse_route(route)?;
 
     let route_msg = Route {
-        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id as u128)),
+        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id)),
         link_id: None,
         direction: None,
     };
@@ -354,7 +350,7 @@ async fn route_del(
     let (org, ns, agent_type, agent_id) = parse_route(route)?;
 
     let route_msg = Route {
-        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id as u128)),
+        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id)),
         link_id: None,
         direction: None,
     };

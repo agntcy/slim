@@ -146,11 +146,7 @@ async fn route_list(opts: &ClientConfig) -> Result<()> {
                                 )
                             })
                             .collect();
-                        println!(
-                            "{} connections={:?}",
-                            e.name.as_ref().unwrap().to_string(),
-                            conn_names
-                        );
+                        println!("{} connections={:?}", e.name.as_ref().unwrap(), conn_names);
                     }
                     break;
                 }

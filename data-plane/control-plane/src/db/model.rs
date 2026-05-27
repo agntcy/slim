@@ -582,7 +582,7 @@ mod tests {
         assert_eq!(sn.component2, "type");
         assert_eq!(
             sn.component_id,
-            Some("00000000-0000-0000-0000-000000000001".as_ref())
+            Some("00000000-0000-0000-0000-000000000001")
         );
     }
 
