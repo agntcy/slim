@@ -581,6 +581,7 @@ impl ControlPlane {
         Ok(())
     }
 }
+
 impl ControllerService {
     fn resolve_connection_by_link_id(&self, link_id: &str) -> Result<Option<u64>, String> {
         let cached = self.inner.link_id_to_conn_id.read().get(link_id).copied();
