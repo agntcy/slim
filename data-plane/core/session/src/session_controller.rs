@@ -157,6 +157,11 @@ impl SessionController {
                     // Finish any ongoing processing before starting drain
                     debug!("consuming pending messages before entering draining state");
                     while let Ok(msg) = rx.try_recv() {
+                        if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &msg
+                            && let Err(e) = crate::transmitter::verify_identity(message, &settings.identity_verifier).await {
+                            debug!(error = %e.chain(), "dropping inbound message during drain: identity verification failed");
+                            continue;
+                        }
                         if let Err(e) = inner.on_message(msg).await {
                             tracing::error!(error = %e.chain(), "error processing message during draining - close immediately.");
                             break;
@@ -186,6 +191,17 @@ impl SessionController {
                             if let SessionMessage::GetParticipantsList { tx } = session_message {
                                 let participants_list = inner.participants_list();
                                 let _ = tx.send(participants_list);
+                                continue;
+                            }
+
+                            if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &session_message
+                                && let Err(e) = crate::transmitter::verify_identity(message, &settings.identity_verifier).await {
+                                debug!(
+                                    error = %e.chain(),
+                                    msg_type = %message.get_session_message_type().as_str_name(),
+                                    msg_id = %message.get_id(),
+                                    "dropping inbound message: identity verification failed",
+                                );
                                 continue;
                             }
 
@@ -509,7 +525,7 @@ pub fn handle_channel_discovery_message(
     let slim_header = SlimHeader::new(
         source,
         destination,
-        "", // the identity will be added by the identity interceptor
+        "",
         Some(SlimHeaderFlags::default().with_forward_to(message.get_incoming_conn())),
     );
 
@@ -538,7 +554,7 @@ pub(crate) struct SessionControllerCommon<
     pub(crate) settings: SessionSettings<P, V, M>,
 
     /// sender for command messages
-    pub(crate) sender: ControllerSender,
+    pub(crate) sender: ControllerSender<P>,
 
     /// processing state
     pub(crate) processing_state: ProcessingState,
@@ -801,6 +817,13 @@ mod tests {
 
     const SHARED_SECRET: &str = "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas";
 
+    fn test_identity() -> String {
+        SharedSecret::new("test", SHARED_SECRET)
+            .unwrap()
+            .get_token()
+            .unwrap()
+    }
+
     /// Test helper to create a SessionController with common setup
     struct SessionControllerTestBuilder {
         session_id: u32,
@@ -894,7 +917,11 @@ mod tests {
             let (tx_app, rx_app) = tokio::sync::mpsc::unbounded_channel();
             let (tx_session_layer, _rx_session_layer) = tokio::sync::mpsc::channel(10);
 
-            let tx = SessionTransmitter::new(tx_slim, tx_app);
+            let tx = SessionTransmitter::new(
+                tx_slim,
+                tx_app,
+                SharedSecret::new("test", SHARED_SECRET).unwrap(),
+            );
 
             let controller = SessionController::builder()
                 .with_id(self.session_id)
@@ -1107,7 +1134,7 @@ mod tests {
         let discovery_request = Message::builder()
             .source(ProtoName::from_strings(["org", "ns", "requester"]).with_id(1))
             .destination(ProtoName::from_strings(["org", "ns", "service"]))
-            .identity("")
+            .identity(test_identity())
             .incoming_conn(999)
             .session_type(ProtoSessionType::Multicast)
             .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
@@ -1221,7 +1248,7 @@ mod tests {
         let test_message = Message::builder()
             .source(controller.dst().clone())
             .destination(controller.source().clone())
-            .identity("")
+            .identity(test_identity())
             .session_type(ProtoSessionType::PointToPoint)
             .session_message_type(ProtoSessionMessageType::Msg)
             .session_id(controller.id())
@@ -1274,8 +1301,11 @@ mod tests {
         let (tx_session_layer_moderator, _rx_session_layer_moderator) =
             tokio::sync::mpsc::channel(10);
 
-        let tx_moderator =
-            SessionTransmitter::new(tx_slim_moderator.clone(), tx_app_moderator.clone());
+        let tx_moderator = SessionTransmitter::new(
+            tx_slim_moderator.clone(),
+            tx_app_moderator.clone(),
+            SharedSecret::new("moderator", SHARED_SECRET).unwrap(),
+        );
 
         let moderator_config = SessionConfig {
             session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
@@ -1308,8 +1338,11 @@ mod tests {
         let (tx_session_layer_participant, _rx_session_layer_participant) =
             tokio::sync::mpsc::channel(10);
 
-        let tx_participant =
-            SessionTransmitter::new(tx_slim_participant.clone(), tx_app_participant.clone());
+        let tx_participant = SessionTransmitter::new(
+            tx_slim_participant.clone(),
+            tx_app_participant.clone(),
+            SharedSecret::new("participant", SHARED_SECRET).unwrap(),
+        );
 
         let participant_config = SessionConfig {
             session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
@@ -1359,7 +1392,7 @@ mod tests {
         let mut discovery_reply = Message::builder()
             .source(participant_name_id.clone())
             .destination(moderator_name.clone())
-            .identity("")
+            .identity(test_identity())
             .forward_to(1)
             .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
             .session_message_type(slim_datapath::api::ProtoSessionMessageType::DiscoveryReply)
@@ -1513,7 +1546,7 @@ mod tests {
         let app_message = Message::builder()
             .source(moderator_name.clone())
             .destination(participant_name.clone())
-            .identity("")
+            .identity(test_identity())
             .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
             .session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg)
             .session_id(session_id)
@@ -1621,7 +1654,7 @@ mod tests {
         let leave_request = Message::builder()
             .source(moderator_name.clone())
             .destination(participant_name.clone())
-            .identity("")
+            .identity(test_identity())
             .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
             .session_message_type(slim_datapath::api::ProtoSessionMessageType::LeaveRequest)
             .session_id(session_id)
@@ -1794,7 +1827,11 @@ mod tests {
                 metadata: HashMap::new(),
             },
             direction: Direction::Bidirectional,
-            tx: SessionTransmitter::new(tx_slim, tx_app),
+            tx: SessionTransmitter::new(
+                tx_slim,
+                tx_app,
+                SharedSecret::new("src", SHARED_SECRET).unwrap(),
+            ),
             tx_session: tx_session.clone(),
             tx_to_session_layer: tx_session_layer,
             identity_provider: SharedSecret::new("src", SHARED_SECRET).unwrap(),
@@ -1966,7 +2003,11 @@ mod tests {
                 metadata: HashMap::new(),
             },
             direction: Direction::Bidirectional,
-            tx: SessionTransmitter::new(tx_slim, tx_app),
+            tx: SessionTransmitter::new(
+                tx_slim,
+                tx_app,
+                SharedSecret::new("src", SHARED_SECRET).unwrap(),
+            ),
             tx_session,
             tx_to_session_layer: tx_session_layer,
             identity_provider: SharedSecret::new("test", SHARED_SECRET).unwrap(),
@@ -1983,7 +2024,7 @@ mod tests {
             message: Message::builder()
                 .source(ProtoName::from_strings(["org", "ns", "test"]).with_id(1))
                 .destination(ProtoName::from_strings(["org", "ns", "test"]).with_id(2))
-                .identity("")
+                .identity(test_identity())
                 .forward_to(1)
                 .session_type(ProtoSessionType::PointToPoint)
                 .session_message_type(ProtoSessionMessageType::Msg)

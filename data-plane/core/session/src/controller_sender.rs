@@ -7,6 +7,7 @@ use std::{
 };
 
 use display_error_chain::ErrorChainExt;
+use slim_auth::traits::TokenProvider;
 use slim_datapath::api::{
     CommandPayload, NameId, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
     ProtoSessionType,
@@ -82,7 +83,10 @@ struct PingState {
     ping_timer: Timer,
 }
 
-pub struct ControllerSender {
+pub struct ControllerSender<P>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+{
     /// timer factory to crate timers for acks
     timer_factory: TimerFactory,
 
@@ -115,7 +119,7 @@ pub struct ControllerSender {
     group_list: HashSet<ProtoName>,
 
     /// send packets to slim or the app
-    tx: SessionTransmitter,
+    tx: SessionTransmitter<P>,
 
     /// send message to the session controller
     tx_session: Sender<SessionMessage>,
@@ -124,7 +128,10 @@ pub struct ControllerSender {
     draining_state: ControllerSenderDrainStatus,
 }
 
-impl ControllerSender {
+impl<P> ControllerSender<P>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+{
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         timer_settings: TimerSettings,
@@ -133,7 +140,7 @@ impl ControllerSender {
         session_id: u32,
         ping_interval: Option<Duration>,
         initiator: bool,
-        tx: SessionTransmitter,
+        tx: SessionTransmitter<P>,
         tx_signals: Sender<SessionMessage>,
     ) -> Self {
         let mut list = HashSet::new();
@@ -685,6 +692,7 @@ impl ControllerSender {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_utils::MockTokenProvider;
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
@@ -705,7 +713,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let remote = ProtoName::from_strings(["org", "ns", "remote"]);
@@ -824,7 +832,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let remote = ProtoName::from_strings(["org", "ns", "remote"]);
@@ -952,7 +960,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let remote = ProtoName::from_strings(["org", "ns", "remote"]);
@@ -1071,7 +1079,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
         let source_name = ProtoName::from_strings(["org", "ns", "source"]);
         let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
         let source = Participant::new(source_name.clone(), ParticipantSettings::bidirectional());
@@ -1189,7 +1197,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let group = ProtoName::from_strings(["org", "ns", "group"]);
@@ -1344,7 +1352,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let remote = ProtoName::from_strings(["org", "ns", "remote"]);
@@ -1557,7 +1565,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
@@ -1951,7 +1959,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let participant_name = ProtoName::from_strings(["org", "ns", "participant"]);
         let moderator_name = ProtoName::from_strings(["org", "ns", "moderator"]);
@@ -2149,7 +2157,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let moderator = ProtoName::from_strings(["org", "ns", "moderator"]);
         let participant1 = ProtoName::from_strings(["org", "ns", "participant1"]);
@@ -2381,7 +2389,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let remote = ProtoName::from_strings(["org", "ns", "remote"]);
@@ -2519,7 +2527,7 @@ mod tests {
         let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app);
+        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let data_channel_name =

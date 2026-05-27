@@ -122,7 +122,7 @@ where
     config: Option<SessionConfig>,
     identity_provider: Option<P>,
     identity_verifier: Option<V>,
-    tx: Option<SessionTransmitter>,
+    tx: Option<SessionTransmitter<P>>,
     tx_to_session_layer: Option<tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>>,
     graceful_shutdown_timeout: Option<std::time::Duration>,
     direction: Direction,
@@ -189,7 +189,7 @@ where
         self
     }
 
-    pub fn with_tx(mut self, tx: SessionTransmitter) -> Self {
+    pub fn with_tx(mut self, tx: SessionTransmitter<P>) -> Self {
         self.tx = Some(tx);
         self
     }
@@ -382,7 +382,7 @@ where
     /// between moderator and participant stack building.
     fn build_session_stack<W>(
         self,
-        wrapper_constructor: impl FnOnce(crate::session::Session, SessionSettings<P, V, M>) -> W,
+        wrapper_constructor: impl FnOnce(crate::session::Session<P>, SessionSettings<P, V, M>) -> W,
     ) -> Result<
         (
             W,
@@ -462,10 +462,10 @@ mod tests {
         ProtoName::from_strings([prefix, "test", "name"]).with_id(1)
     }
 
-    fn create_test_transmitter() -> SessionTransmitter {
+    fn create_test_transmitter() -> SessionTransmitter<MockTokenProvider> {
         let (slim_tx, _) = mpsc::channel(10);
         let (app_tx, _) = mpsc::unbounded_channel();
-        SessionTransmitter::new(slim_tx, app_tx)
+        SessionTransmitter::new(slim_tx, app_tx, MockTokenProvider)
     }
 
     #[test]
@@ -1144,7 +1144,7 @@ mod tests {
         let (tx_to_session, _rx_from_session) = mpsc::channel(10);
         let (slim_tx, mut slim_rx) = mpsc::channel(10);
         let (app_tx, _app_rx) = mpsc::unbounded_channel();
-        let tx = SessionTransmitter::new(slim_tx, app_tx);
+        let tx = SessionTransmitter::new(slim_tx, app_tx, MockTokenProvider);
 
         let mut config = create_test_config(true); // moderator (initiator)
         config.session_type = ProtoSessionType::PointToPoint;
@@ -1181,7 +1181,7 @@ mod tests {
         let (tx_to_session, _rx_from_session) = mpsc::channel(10);
         let (slim_tx, mut slim_rx) = mpsc::channel(10);
         let (app_tx, _app_rx) = mpsc::unbounded_channel();
-        let tx = SessionTransmitter::new(slim_tx, app_tx);
+        let tx = SessionTransmitter::new(slim_tx, app_tx, MockTokenProvider);
 
         let mut config = create_test_config(true); // moderator (initiator)
         config.session_type = ProtoSessionType::Multicast;

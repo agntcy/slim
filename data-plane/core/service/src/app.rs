@@ -24,7 +24,6 @@ use slim_session::{SessionConfig, session_controller::SessionController};
 // Local crate
 use crate::ServiceError;
 use slim_session::SlimChannelSender;
-use slim_session::interceptor::{IdentityInterceptor, SessionInterceptorProvider};
 use slim_session::notification::Notification;
 use slim_session::subscription_manager::{SubscriptionManager, SubscriptionOps};
 use slim_session::transmitter::AppTransmitter;
@@ -130,20 +129,9 @@ where
             }
         };
 
-        // Create identity interceptor
-        let identity_interceptor = Arc::new(IdentityInterceptor::new(
-            identity_provider.clone(),
-            identity_verifier.clone(),
-        ));
-
         // Create the transmitter
-        let transmitter = AppTransmitter {
-            slim_tx: tx_slim.clone(),
-            app_tx: tx_app.clone(),
-            interceptors: Arc::new(parking_lot::RwLock::new(vec![])),
-        };
-
-        transmitter.add_interceptor(identity_interceptor);
+        let transmitter =
+            AppTransmitter::new(tx_slim.clone(), tx_app.clone(), identity_provider.clone());
 
         // Create the session layer
         let service_id_clone = service_id.clone();
@@ -204,7 +192,7 @@ where
 
     /// Send a message to SLIM with identity token attached.
     async fn send_message_without_context(&self, mut msg: Message) -> Result<(), ServiceError> {
-        // These messages are not associated to a session yet, so they bypass interceptors.
+        // These messages are not associated to a session yet.
         // Add the identity manually.
         let identity = self.session_layer.get_identity_token()?;
         msg.get_slim_header_mut().set_identity(identity);
@@ -833,10 +821,13 @@ mod tests {
         app.session_layer
             .handle_message_from_slim(join_request.clone())
             .await
-            .expect_err("should fail as identity is not verified");
+            .unwrap();
 
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        assert!(rx_app.try_recv().is_err());
+        assert!(
+            rx_app.try_recv().is_err(),
+            "bad identity must not produce a NewSession notification"
+        );
 
         // Set the right identity
         join_request

@@ -6,7 +6,6 @@
 //! This module provides mock implementations of traits used in session management
 //! for testing purposes. It is only compiled when running tests.
 
-use parking_lot::Mutex;
 use slim_auth::errors::AuthError;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
@@ -16,7 +15,6 @@ use tokio::sync::mpsc;
 
 use crate::SessionError;
 use crate::common::SessionMessage;
-use crate::interceptor::{SessionInterceptor, SessionInterceptorProvider};
 use crate::traits::{MessageHandler, Transmitter};
 
 /// Mock token provider for testing.
@@ -30,7 +28,7 @@ impl TokenProvider for MockTokenProvider {
     }
 
     fn get_token(&self) -> Result<String, AuthError> {
-        Ok("mock_token".to_string())
+        Ok(String::new())
     }
 
     fn get_id(&self) -> Result<String, AuthError> {
@@ -78,17 +76,6 @@ impl Verifier for MockVerifier {
 #[derive(Clone)]
 pub struct MockTransmitter {
     pub slim_tx: mpsc::UnboundedSender<Result<Message, Status>>,
-    pub interceptors: Arc<Mutex<Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>>>>,
-}
-
-impl SessionInterceptorProvider for MockTransmitter {
-    fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {
-        self.interceptors.lock().push(interceptor);
-    }
-
-    fn get_interceptors(&self) -> Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>> {
-        self.interceptors.lock().clone()
-    }
 }
 
 impl Transmitter for MockTransmitter {

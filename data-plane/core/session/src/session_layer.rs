@@ -10,6 +10,7 @@ use display_error_chain::ErrorChainExt;
 use parking_lot::RwLock as SyncRwLock;
 use rand::Rng;
 
+use tokio::sync::Semaphore;
 use tokio::sync::mpsc::Sender;
 use tracing::{Instrument, debug, error, warn};
 
@@ -21,7 +22,6 @@ use slim_datapath::api::{
 
 use crate::common::SessionMessage;
 use crate::completion_handle::CompletionHandle;
-use crate::interceptor::IdentityInterceptor;
 use crate::notification::Notification;
 use crate::session_config::SessionConfig;
 use crate::session_controller::SessionController;
@@ -34,8 +34,7 @@ use super::context::SessionContext;
 
 use super::{SESSION_RANGE, SlimChannelSender};
 use super::{SessionError, session_controller::handle_channel_discovery_message};
-use crate::interceptor::SessionInterceptorProvider;
-use crate::traits::Transmitter; // needed for add_interceptor
+use crate::traits::Transmitter;
 
 /// Direction enum for session creation
 /// Indicates whether the session can send, receive, both, or neither data messages.
@@ -81,11 +80,10 @@ impl Direction {
 }
 
 /// SessionLayer manages sessions and their lifecycle
-pub struct SessionLayer<P, V, T = AppTransmitter>
+pub struct SessionLayer<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
 {
     /// Session pool
     pool: Arc<SyncRwLock<HashMap<u32, Arc<SessionController>>>>,
@@ -110,7 +108,7 @@ where
     tx_app: Sender<Result<Notification, SessionError>>,
 
     // Transmitter to bypass sessions
-    transmitter: T,
+    transmitter: AppTransmitter<P>,
 
     /// Channel to clone on session creation
     tx_session: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
@@ -128,14 +126,19 @@ where
 
     /// Service ID propagated into every session span
     service_id: String,
+
+    /// Bounds concurrent identity verifications for messages without a session.
+    /// Caps the blast radius of an unknown-session flood with slow verifications.
+    pre_session_verify_slots: Arc<Semaphore>,
 }
 
-impl<P, V, T> SessionLayer<P, V, T>
+impl<P, V> SessionLayer<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    T: Transmitter + Send + Sync + Clone + 'static,
 {
+    const PRE_SESSION_VERIFY_SLOTS: usize = 128;
+
     /// Create a new SessionLayer
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -145,7 +148,7 @@ where
         conn_id: u64,
         tx_slim: SlimChannelSender,
         tx_app: Sender<Result<Notification, SessionError>>,
-        transmitter: T,
+        transmitter: AppTransmitter<P>,
         direction: Direction,
         service_id: String,
     ) -> Self {
@@ -169,6 +172,7 @@ where
             direction,
             subscription_manager,
             service_id,
+            pre_session_verify_slots: Arc::new(Semaphore::new(Self::PRE_SESSION_VERIFY_SLOTS)),
         };
 
         sl.listen_from_sessions(rx_session);
@@ -320,16 +324,13 @@ where
                 }
             }; // lock is dropped here
 
-            // Create a new transmitter with identity interceptors
+            // Create a new transmitter
             let (app_tx, app_rx) = tokio::sync::mpsc::unbounded_channel();
-            let tx = SessionTransmitter::new(self.tx_slim.clone(), app_tx);
-
-            let identity_interceptor = Arc::new(IdentityInterceptor::new(
+            let tx = SessionTransmitter::new(
+                self.tx_slim.clone(),
+                app_tx,
                 self.identity_provider.clone(),
-                self.identity_verifier.clone(),
-            ));
-
-            tx.add_interceptor(identity_interceptor);
+            );
 
             // Build the session controller (this is async, so no locks are held)
             // The builder will automatically force DATA_CHANNEL_ID for multicast destinations
@@ -446,35 +447,6 @@ where
             .collect()
     }
 
-    /// Handle session from slim without creating a session
-    /// return true is the message processing is done and no
-    /// other action is needed, false otherwise
-    pub(crate) async fn handle_message_from_slim_without_session(
-        &self,
-        local_name: &ProtoName,
-        message: &slim_datapath::api::ProtoMessage,
-        session_type: ProtoSessionType,
-        session_message_type: ProtoSessionMessageType,
-        session_id: u32,
-    ) -> Result<(), SessionError> {
-        match session_message_type {
-            ProtoSessionMessageType::DiscoveryRequest => {
-                // reply directly without creating any new Session
-                let msg = handle_channel_discovery_message(
-                    message,
-                    local_name,
-                    session_id,
-                    session_type,
-                )?;
-
-                self.transmitter.send_to_slim(Ok(msg)).await
-            }
-            _ => Err(SessionError::SessionMessageTypeUnexpected(
-                session_message_type,
-            )),
-        }
-    }
-
     /// Handle an error coming from SLIM. Forward it to the corresponding session.
     #[tracing::instrument(skip_all, fields(service_id = %self.service_id))]
     pub async fn handle_error_from_slim(&self, error: SessionError) -> Result<(), SessionError> {
@@ -512,48 +484,32 @@ where
     /// Handle a message from the message processor, and pass it to the
     /// corresponding session
     #[tracing::instrument(skip_all, fields(service_id = %self.service_id))]
-    pub async fn handle_message_from_slim(&self, mut message: Message) -> Result<(), SessionError> {
+    pub async fn handle_message_from_slim(
+        self: &Arc<Self>,
+        message: Message,
+    ) -> Result<(), SessionError> {
         tracing::trace!(
             msg_type = %message.get_session_message_type().as_str_name(),
             session_id = %message.get_id(),
             "received message from SLIM",
         );
 
-        // Pass message to interceptors in the transmitter
-        self.transmitter
-            .on_msg_from_slim_interceptors(&mut message)
-            .await?;
-
         let (id, session_type, session_message_type) = {
-            // get the session type and the session id from the message
             let header = message.get_session_header();
-
-            // get the session type from the header
-            let session_type = header.session_type();
-
-            // get the session message type
-            let session_message_type = header.session_message_type();
-
-            // get the session ID
-            let id = header.session_id;
-
-            (id, session_type, session_message_type)
+            (
+                header.session_id,
+                header.session_type(),
+                header.session_message_type(),
+            )
         };
 
-        // special handling for discovery request messages
-        if session_message_type == ProtoSessionMessageType::DiscoveryRequest {
-            return self
-                .handle_discovery_request(message, id, session_type, session_message_type)
-                .await;
-        }
-
-        // check if we have a session for the given session ID
+        // Fast path: known session — route to its controller. The controller's
+        // processing loop verifies identity in its own task, so sessions don't
+        // serialize behind each other.
         let session_controller = self.pool.read().get(&id).cloned();
         if let Some(controller) = session_controller {
-            // pass the message to the session
             controller.on_message_from_slim(message).await?;
 
-            // if this is a welcome message, notify the app that a new session is ready to be used
             if session_message_type == ProtoSessionMessageType::GroupWelcome {
                 let new_session = self
                     .to_notify
@@ -570,94 +526,123 @@ where
             return Ok(());
         }
 
-        // get local name for the session
-        let local_name = self.get_local_name_for_session(message.get_slim_header().get_dst())?;
-
-        let new_session = match session_message_type {
+        // Slow path: no session yet. JoinRequest is processed inline so that
+        // the session is registered before the next message (e.g. GroupWelcome)
+        // arrives on this same receive loop. Its identity will be verified by
+        // the new controller's processing loop (single verify, no replay
+        // collision). Stateless DiscoveryRequest is verified off-task before
+        // replying. Everything else is dropped.
+        match session_message_type {
             ProtoSessionMessageType::JoinRequest => {
-                match message.get_session_header().session_type() {
-                    ProtoSessionType::PointToPoint => {
-                        let conf = crate::SessionConfig::from_join_request(
-                            ProtoSessionType::PointToPoint,
-                            message.extract_command_payload()?,
-                            message.get_metadata_map(),
-                            false,
-                        )?;
-
-                        self.create_session_internal(
-                            conf,
-                            local_name,
-                            message.get_source(),
-                            Some(message.get_session_header().session_id),
-                        )?
-                    }
-                    ProtoSessionType::Multicast => {
-                        // Multicast sessions require timer settings; reject if missing.
-                        let payload = message.extract_join_request()?;
-
-                        if payload.timer_settings.is_none() {
-                            return Err(SessionError::MissingPayload {
-                                context: "timer options",
-                            });
-                        }
-
-                        let channel = if let Some(c) = &payload.channel {
-                            c.clone()
-                        } else {
-                            return Err(SessionError::MissingChannelName);
-                        };
-
-                        let initiator = false;
-                        let conf = crate::SessionConfig::from_join_request(
-                            ProtoSessionType::Multicast,
-                            message.extract_command_payload()?,
-                            message.get_metadata_map(),
-                            initiator,
-                        )?;
-
-                        self.create_session_internal(
-                            conf,
-                            local_name,
-                            channel,
-                            Some(message.get_session_header().session_id),
-                        )?
-                    }
-                    _ => {
-                        warn!(
-                            session_type = %session_type.as_str_name(),
-                            "received channel join request with unknown session type",
-                        );
-                        return Err(SessionError::SessionTypeUnknown(session_type));
-                    }
-                }
+                self.handle_join_request(message, id, session_type).await
             }
-            ProtoSessionMessageType::DiscoveryRequest
-            | ProtoSessionMessageType::DiscoveryReply
-            | ProtoSessionMessageType::JoinReply
-            | ProtoSessionMessageType::LeaveRequest
-            | ProtoSessionMessageType::LeaveReply
-            | ProtoSessionMessageType::GroupAdd
-            | ProtoSessionMessageType::GroupRemove
-            | ProtoSessionMessageType::GroupWelcome
-            | ProtoSessionMessageType::GroupAck
-            | ProtoSessionMessageType::GroupClose
-            | ProtoSessionMessageType::Msg
-            | ProtoSessionMessageType::MsgAck
-            | ProtoSessionMessageType::RtxRequest
-            | ProtoSessionMessageType::RtxReply
-            | ProtoSessionMessageType::Ping => {
-                tracing::debug!(?message, "received channel message with unknown session id",);
-                // We can ignore these messages
-                return Ok(());
+            ProtoSessionMessageType::DiscoveryRequest => {
+                self.handle_discovery_request(message, id, session_type, session_message_type)
             }
             _ => {
-                return Err(SessionError::SessionMessageTypeUnknown(
-                    session_message_type,
-                ));
+                tracing::debug!(?message, "received channel message with unknown session id");
+                Ok(())
+            }
+        }
+    }
+
+    fn handle_discovery_request(
+        self: &Arc<Self>,
+        message: Message,
+        id: u32,
+        session_type: ProtoSessionType,
+        session_message_type: ProtoSessionMessageType,
+    ) -> Result<(), SessionError> {
+        let layer = self.clone();
+        tokio::spawn(async move {
+            let _permit = match layer.pre_session_verify_slots.clone().acquire_owned().await {
+                Ok(p) => p,
+                Err(_) => return,
+            };
+
+            if let Err(e) =
+                crate::transmitter::verify_identity(&message, &layer.identity_verifier).await
+            {
+                debug!(
+                    error = %e.chain(),
+                    msg_type = %session_message_type.as_str_name(),
+                    "dropping pre-session message: identity verification failed",
+                );
+                return;
+            }
+
+            let local_name =
+                match layer.get_local_name_for_session(message.get_slim_header().get_dst()) {
+                    Ok(n) => n,
+                    Err(e) => {
+                        debug!(error = %e.chain(), "error handling discovery request");
+                        return;
+                    }
+                };
+
+            let reply =
+                match handle_channel_discovery_message(&message, &local_name, id, session_type) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        debug!(error = %e.chain(), "error building discovery reply");
+                        return;
+                    }
+                };
+
+            if let Err(e) = layer.transmitter.send_to_slim(Ok(reply)).await {
+                debug!(error = %e.chain(), "error sending discovery reply");
+            }
+        });
+
+        Ok(())
+    }
+
+    async fn handle_join_request(
+        &self,
+        message: Message,
+        id: u32,
+        session_type: ProtoSessionType,
+    ) -> Result<(), SessionError> {
+        let local_name = self.get_local_name_for_session(message.get_slim_header().get_dst())?;
+
+        let new_session = match session_type {
+            ProtoSessionType::PointToPoint => {
+                let conf = crate::SessionConfig::from_join_request(
+                    ProtoSessionType::PointToPoint,
+                    message.extract_command_payload()?,
+                    message.get_metadata_map(),
+                    false,
+                )?;
+                self.create_session_internal(conf, local_name, message.get_source(), Some(id))?
+            }
+            ProtoSessionType::Multicast => {
+                let payload = message.extract_join_request()?;
+                if payload.timer_settings.is_none() {
+                    return Err(SessionError::MissingPayload {
+                        context: "timer options",
+                    });
+                }
+                let channel = payload
+                    .channel
+                    .clone()
+                    .ok_or(SessionError::MissingChannelName)?;
+                let conf = crate::SessionConfig::from_join_request(
+                    ProtoSessionType::Multicast,
+                    message.extract_command_payload()?,
+                    message.get_metadata_map(),
+                    false,
+                )?;
+                self.create_session_internal(conf, local_name, channel, Some(id))?
+            }
+            _ => {
+                warn!(
+                    session_type = %session_type.as_str_name(),
+                    "received channel join request with unknown session type",
+                );
+                return Err(SessionError::SessionTypeUnknown(session_type));
             }
         };
 
-        // process the message
         let session_controller = new_session
             .session()
             .upgrade()
@@ -665,33 +650,11 @@ where
 
         session_controller.on_message_from_slim(message).await?;
 
-        // add the new session to the to_notify map
         self.to_notify
             .write()
             .insert(new_session.session_id(), new_session);
 
         Ok(())
-    }
-
-    /// Handle a discovery request message.
-    async fn handle_discovery_request(
-        &self,
-        message: Message,
-        id: u32,
-        session_type: ProtoSessionType,
-        session_message_type: ProtoSessionMessageType,
-    ) -> Result<(), SessionError> {
-        // Handle the discovery request without creating a local session.
-        let local_name = self.get_local_name_for_session(message.get_slim_header().get_dst())?;
-
-        self.handle_message_from_slim_without_session(
-            &local_name,
-            &message,
-            session_type,
-            session_message_type,
-            id,
-        )
-        .await
     }
 
     /// Check if the session pool is empty (for testing purposes)
@@ -713,7 +676,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{MockTokenProvider, MockTransmitter, MockVerifier};
+    use crate::test_utils::{MockTokenProvider, MockVerifier};
     use slim_datapath::Status;
     use slim_datapath::api::{NameId, ProtoName, ProtoSessionType};
     use tokio::sync::mpsc;
@@ -724,10 +687,10 @@ mod tests {
         ProtoName::from_strings([parts[0], parts[1], parts[2]]).with_id(0)
     }
 
-    type TestSessionLayer = SessionLayer<MockTokenProvider, MockVerifier, MockTransmitter>;
+    type TestSessionLayer = Arc<SessionLayer<MockTokenProvider, MockVerifier>>;
     type SlimReceiver = mpsc::Receiver<Result<Message, Status>>;
     type AppReceiver = mpsc::Receiver<Result<Notification, SessionError>>;
-    type TransmitterReceiver = mpsc::UnboundedReceiver<Result<Message, Status>>;
+    type TransmitterReceiver = mpsc::Receiver<Result<Message, Status>>;
 
     fn setup_session_layer() -> (
         TestSessionLayer,
@@ -742,14 +705,11 @@ mod tests {
 
         let (tx_slim, rx_slim) = mpsc::channel(16);
         let (tx_app, rx_app) = mpsc::channel(16);
-        let (tx_transmitter, rx_transmitter) = mpsc::unbounded_channel();
+        let (tx_transmitter, rx_transmitter) = mpsc::channel(16);
 
-        let transmitter = MockTransmitter {
-            slim_tx: tx_transmitter,
-            interceptors: Arc::new(parking_lot::Mutex::new(vec![])),
-        };
+        let transmitter = AppTransmitter::new(tx_transmitter, tx_app.clone(), MockTokenProvider);
 
-        let session_layer = SessionLayer::new(
+        let session_layer = Arc::new(SessionLayer::new(
             app_name,
             identity_provider,
             identity_verifier,
@@ -759,7 +719,7 @@ mod tests {
             transmitter,
             Direction::Bidirectional,
             "test-service".to_string(),
-        );
+        ));
 
         (session_layer, rx_slim, rx_app, rx_transmitter)
     }
@@ -799,7 +759,7 @@ mod tests {
 
         let token = session_layer.get_identity_token();
         assert!(token.is_ok());
-        assert_eq!(token.unwrap(), "mock_token");
+        assert_eq!(token.unwrap(), "");
     }
 
     #[tokio::test]
@@ -1022,58 +982,49 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = session_layer
-            .handle_message_from_slim_without_session(
-                &local_name,
-                &message,
-                ProtoSessionType::PointToPoint,
-                ProtoSessionMessageType::DiscoveryRequest,
-                100,
-            )
-            .await;
+        session_layer
+            .handle_message_from_slim(message)
+            .await
+            .unwrap();
 
-        assert!(result.is_ok());
+        let sent = tokio::time::timeout(std::time::Duration::from_secs(1), rx_transmitter.recv())
+            .await
+            .expect("expected a discovery reply")
+            .expect("transmitter channel closed")
+            .expect("transmitter delivered an error");
 
-        // Verify that a discovery reply was sent
-        let sent_message = rx_transmitter.try_recv();
-        assert!(
-            sent_message.is_ok(),
-            "Expected a message to be sent to transmitter"
-        );
-        let msg = sent_message.unwrap().unwrap();
         assert_eq!(
-            msg.get_session_header().session_message_type(),
+            sent.get_session_header().session_message_type(),
             ProtoSessionMessageType::DiscoveryReply
         );
     }
 
     #[tokio::test]
-    async fn test_handle_message_from_slim_without_session_invalid_type() {
-        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+    async fn test_pre_session_unknown_message_is_dropped() {
+        let (session_layer, _rx_slim, _rx_app, mut rx_transmitter) = setup_session_layer();
 
         let local_name = make_name(&["local", "app", "v1"]);
+        session_layer.add_app_name(local_name.clone(), 0);
+
         let source = make_name(&["remote", "app", "v1"]);
-        let message = Message::builder()
+        let mut message = Message::builder()
             .source(source.clone())
             .destination(local_name.clone().with_id(session_layer.app_id()))
             .application_payload("application/octet-stream", vec![])
             .build_publish()
             .unwrap();
+        let header = message.get_session_header_mut();
+        header.set_session_type(ProtoSessionType::PointToPoint);
+        header.set_session_message_type(ProtoSessionMessageType::Msg);
+        header.session_id = 100;
 
-        let result = session_layer
-            .handle_message_from_slim_without_session(
-                &local_name,
-                &message,
-                ProtoSessionType::PointToPoint,
-                ProtoSessionMessageType::Msg, // Not a DiscoveryRequest
-                100,
-            )
-            .await;
+        session_layer
+            .handle_message_from_slim(message)
+            .await
+            .unwrap();
 
-        assert!(result.is_err_and(|e| matches!(
-            e,
-            SessionError::SessionMessageTypeUnexpected(ProtoSessionMessageType::Msg)
-        )));
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(rx_transmitter.try_recv().is_err());
     }
 
     #[tokio::test]
@@ -1140,7 +1091,9 @@ mod tests {
             !session_layer
                 .app_names
                 .read()
-                .contains_key(&TestSessionLayer::name_to_key(&name_null))
+                .contains_key(
+                    &SessionLayer::<MockTokenProvider, MockVerifier>::name_to_key(&name_null)
+                )
         );
     }
 }
