@@ -3,6 +3,8 @@
 
 use std::time::SystemTime;
 
+use slim_datapath::api::NameId;
+
 use crate::api::proto::controller::proto::v1::Route as ProtoRoute;
 use crate::db::RouteStatus;
 use crate::error::{Error, Result};
@@ -24,12 +26,23 @@ pub fn validate_route_nodes(source_node_id: &str, dest_node_id: &str) -> Result<
 
 impl ProtoRoute {
     pub fn to_db_route(&self, source_node_id: &str, dest_node_id: &str) -> crate::db::Route {
+        let n = self.name.as_ref().unwrap();
+        let (c0, c1, c2) = n.str_components();
+        let comp_id = if n.id() == NameId::NULL_COMPONENT {
+            None
+        } else {
+            Some(n.string_id())
+        };
+
         crate::db::Route {
             id: String::new(),
             source_node_id: source_node_id.to_string(),
             dest_node_id: dest_node_id.to_string(),
             link_id: None,
-            name: self.name.clone(),
+            component0: c0.to_string(),
+            component1: c1.to_string(),
+            component2: c2.to_string(),
+            component_id: comp_id,
             status: if source_node_id != ALL_NODES_ID {
                 RouteStatus::Pending
             } else {

@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS routes (
     component0 TEXT NOT NULL,
     component1 TEXT NOT NULL,
     component2 TEXT NOT NULL,
-    component_id BIGINT,
+    component_id TEXT,
     status INTEGER NOT NULL,
     status_msg TEXT NOT NULL,
     created_at BIGINT NOT NULL,

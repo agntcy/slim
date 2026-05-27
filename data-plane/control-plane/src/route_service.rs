@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use slim_config::grpc::client::ClientConfig;
+use slim_datapath::api::NameId;
 use uuid::Uuid;
 
 use crate::config::ReconcilerConfig;
@@ -232,11 +233,18 @@ impl RouteService {
             return Err(Error::EmptyDestNodeId);
         }
 
+        let (c0, c1, c2) = route.name.as_ref().unwrap().str_components();
+        let comp_id = if route.name.as_ref().unwrap().id() == NameId::NULL_COMPONENT {
+            None
+        } else {
+            Some(route.name.as_ref().unwrap().string_id())
+        };
+
         let name = RouteName {
-            component0: &route.component_0,
-            component1: &route.component_1,
-            component2: &route.component_2,
-            component_id: route.id.map(|v| v as i64),
+            component0: c0,
+            component1: c1,
+            component2: c2,
+            component_id: comp_id.as_deref(),
         };
 
         if source_node_id == ALL_NODES_ID {
@@ -255,10 +263,10 @@ impl RouteService {
                 .db
                 .get_routes_for_dest_node_id_and_name(
                     dest_node_id,
-                    &route.component_0,
-                    &route.component_1,
-                    &route.component_2,
-                    route.id.map(|v| v as i64),
+                    &c0,
+                    &c1,
+                    &c2,
+                    comp_id.as_deref(),
                 )
                 .await?;
             for r in per_node {
@@ -450,9 +458,16 @@ impl RouteService {
                     continue;
                 }
                 let matched = dp_routes.iter().any(|dp| {
-                    dp.component_0 == db_route.component0
-                        && dp.component_1 == db_route.component1
-                        && dp.component_2 == db_route.component2
+                    let (c0, c1, c2) = dp.name.as_ref().unwrap().str_components();
+                    let comp_id = if dp.name.as_ref().unwrap().id() == NameId::NULL_COMPONENT {
+                        None
+                    } else {
+                        Some(dp.name.as_ref().unwrap().string_id())
+                    };
+                    c0 == db_route.component0
+                        && c1 == db_route.component1
+                        && c2 == db_route.component2
+                        && comp_id == db_route.component_id
                         && dp.link_id.as_deref() == db_route.link_id.as_deref()
                 });
                 if matched && let Err(e) = self.0.db.mark_route_applied(&db_route.id).await {
@@ -981,7 +996,7 @@ impl RouteService {
             String,
             String,
             String,
-            Option<i64>,
+            Option<String>,
             Option<String>,
         );
         let existing_routes: HashSet<RouteKey> = routes_as_src
@@ -995,7 +1010,7 @@ impl RouteService {
                     r.component0.clone(),
                     r.component1.clone(),
                     r.component2.clone(),
-                    r.component_id,
+                    r.component_id.clone(),
                     r.link_id.clone(),
                 )
             })
@@ -1022,7 +1037,7 @@ impl RouteService {
                 r.component0.clone(),
                 r.component1.clone(),
                 r.component2.clone(),
-                r.component_id,
+                r.component_id.clone(),
                 Some(link_id.clone()),
             );
             if existing_routes.contains(&key) {
@@ -1036,7 +1051,7 @@ impl RouteService {
                 component0: r.component0.clone(),
                 component1: r.component1.clone(),
                 component2: r.component2.clone(),
-                component_id: r.component_id,
+                component_id: r.component_id.clone(),
                 status: RouteStatus::Pending,
                 status_msg: String::new(),
                 created_at: SystemTime::now(),
@@ -1080,7 +1095,7 @@ impl RouteService {
                     r.component0.clone(),
                     r.component1.clone(),
                     r.component2.clone(),
-                    r.component_id,
+                    r.component_id.clone(),
                     Some(link_id.clone()),
                 );
                 if existing_routes.contains(&key) {
@@ -1094,7 +1109,7 @@ impl RouteService {
                     component0: r.component0.clone(),
                     component1: r.component1.clone(),
                     component2: r.component2.clone(),
-                    component_id: r.component_id,
+                    component_id: r.component_id.clone(),
                     status: RouteStatus::Pending,
                     status_msg: String::new(),
                     created_at: SystemTime::now(),
@@ -1402,7 +1417,9 @@ fn endpoint_matches(reported: &str, node_endpoint: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use slim_datapath::api::ProtoName;
+
+use super::*;
     use crate::db::ConnectionDetails;
     use crate::db::inmemory::InMemoryDb;
     use crate::node_transport::DefaultNodeCommandHandler;
@@ -1525,9 +1542,7 @@ mod tests {
         let db = InMemoryDb::shared();
         let svc = make_route_service(db);
         let route = ProtoRoute {
-            component_0: "o".to_string(),
-            component_1: "n".to_string(),
-            component_2: "t".to_string(),
+            name: Some(ProtoName::from_strings(["o", "n", "t"])),
             ..Default::default()
         };
         let result = svc.add_route("", "dst", &route).await;
@@ -1540,9 +1555,7 @@ mod tests {
         let db = InMemoryDb::shared();
         let svc = make_route_service(db);
         let route = ProtoRoute {
-            component_0: "o".to_string(),
-            component_1: "n".to_string(),
-            component_2: "t".to_string(),
+            name: Some(ProtoName::from_strings(["o", "n", "t"])),
             ..Default::default()
         };
         let result = svc.add_route("src", "", &route).await;
@@ -1555,9 +1568,7 @@ mod tests {
         let db = InMemoryDb::shared();
         let svc = make_route_service(db);
         let route = ProtoRoute {
-            component_0: "o".to_string(),
-            component_1: "n".to_string(),
-            component_2: "t".to_string(),
+            name: Some(ProtoName::from_strings(["o", "n", "t"])),
             ..Default::default()
         };
         let result = svc.add_route("node1", "node1", &route).await;
@@ -1572,9 +1583,7 @@ mod tests {
         let db = InMemoryDb::shared();
         let svc = make_route_service(db);
         let route = ProtoRoute {
-            component_0: "o".to_string(),
-            component_1: "n".to_string(),
-            component_2: "t".to_string(),
+            name: Some(ProtoName::from_strings(["o", "n", "t"])),
             ..Default::default()
         };
         let result = svc.delete_route("src", "", &route).await;
@@ -1592,9 +1601,7 @@ mod tests {
         let db = InMemoryDb::shared();
         let svc = make_route_service(db);
         let route = ProtoRoute {
-            component_0: "o".to_string(),
-            component_1: "n".to_string(),
-            component_2: "t".to_string(),
+            name: Some(ProtoName::from_strings(["o", "n", "t"])),
             ..Default::default()
         };
         let result = svc.delete_route("src", "dst", &route).await;

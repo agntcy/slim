@@ -57,13 +57,9 @@ pub struct ConnectionAck {
 pub struct Route {
     #[prost(message, optional, tag = "1")]
     pub name: ::core::option::Option<::slim_datapath::api::proto::dataplane::v1::Name>,
-    #[prost(string, tag = "2")]
-    pub connection_id: ::prost::alloc::string::String,
-    #[prost(string, optional, tag = "3")]
-    pub node_id: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(string, optional, tag = "4")]
+    #[prost(string, optional, tag = "2")]
     pub link_id: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(enumeration = "ConnectionDirection", optional, tag = "5")]
+    #[prost(enumeration = "ConnectionDirection", optional, tag = "3")]
     pub direction: ::core::option::Option<i32>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -122,9 +118,7 @@ pub struct RouteEntry {
     #[prost(message, optional, tag = "1")]
     pub name: ::core::option::Option<::slim_datapath::api::proto::dataplane::v1::Name>,
     #[prost(message, repeated, tag = "2")]
-    pub local_connections: ::prost::alloc::vec::Vec<ConnectionEntry>,
-    #[prost(message, repeated, tag = "3")]
-    pub remote_connections: ::prost::alloc::vec::Vec<ConnectionEntry>,
+    pub connections: ::prost::alloc::vec::Vec<ConnectionEntry>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ConnectionEntry {

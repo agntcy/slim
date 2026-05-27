@@ -18,7 +18,7 @@ use crate::api::proto::controller::proto::v1::{
 use crate::db::{LinkStatus, RouteStatus, SharedDb};
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus, ResponseKind};
 use crate::workqueue::WorkQueue;
-use slim_datapath::api::ProtoName;
+use slim_datapath::api::{NameId, ProtoName};
 
 use super::is_connection_not_found;
 
@@ -91,7 +91,7 @@ impl Reconciler {
 
 // ── Main reconciliation logic ───────────────────────────────────────────────
 
-type SubKey = (String, String, String, Option<u64>, String);
+type SubKey = (String, String, String, Option<String>, String);
 
 async fn handle_request(
     db: &SharedDb,
@@ -285,10 +285,21 @@ async fn build_desired_routes<'a>(
         }
 
         let sub = Route {
-            component_0: route.component0.clone(),
-            component_1: route.component1.clone(),
-            component_2: route.component2.clone(),
-            id: route.component_id.map(|v| v as u64),
+            name: Some(
+                ProtoName::from_strings([
+                    &route.component0,
+                    &route.component1,
+                    &route.component2,
+                ])
+                .with_id(
+                    route
+                        .component_id
+                        .as_deref()
+                        .and_then(|s| uuid::Uuid::parse_str(s).ok())
+                        .map(|u| u.as_u128())
+                        .unwrap_or(NameId::NULL_COMPONENT),
+                ),
+            ),
             link_id: Some(link_id.to_string()),
             ..Default::default()
         };
@@ -297,7 +308,7 @@ async fn build_desired_routes<'a>(
             route.component0.clone(),
             route.component1.clone(),
             route.component2.clone(),
-            route.component_id.map(|v| v as u64),
+            route.component_id.clone(),
             link_id.to_string(),
         );
         included_routes.insert(key, route);
@@ -378,11 +389,19 @@ async fn process_route_acks(
         };
 
         let link_id = sub.link_id.clone().unwrap_or_default();
+        let proto_name = sub.name.as_ref().unwrap();
+        let (c0, c1, c2) = proto_name.str_components();
+        let comp_id = if proto_name.id() == NameId::NULL_COMPONENT {
+            None
+        } else {
+            Some(proto_name.string_id())
+        };
+
         let key: SubKey = (
-            sub.component_0.clone(),
-            sub.component_1.clone(),
-            sub.component_2.clone(),
-            sub.id,
+            c0.to_string(),
+            c1.to_string(),
+            c2.to_string(),
+            comp_id.clone(),
             link_id.clone(),
         );
 
@@ -393,10 +412,10 @@ async fn process_route_acks(
                     .get_route_for_src_dest_name(
                         node_id,
                         &crate::db::RouteName {
-                            component0: &sub.component_0,
-                            component1: &sub.component_1,
-                            component2: &sub.component_2,
-                            component_id: sub.id.map(|v| v as i64),
+                            component0: &c0,
+                            component1: &c1,
+                            component2: &c2,
+                            component_id: comp_id.as_deref(),
                         },
                         "",
                         Some(&link_id),

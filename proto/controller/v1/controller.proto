@@ -46,10 +46,8 @@ message ConnectionAck {
 
 message Route {
   dataplane.proto.v1.Name name = 1;
-  string connection_id = 2;
-  optional string node_id = 3;
-  optional string link_id = 4;
-  optional ConnectionDirection direction = 5;
+  optional string link_id = 2;
+  optional ConnectionDirection direction = 3;
 }
 
 message RouteAck {
@@ -88,8 +86,7 @@ message RouteListResponse {
 
 message RouteEntry {
   dataplane.proto.v1.Name name = 1;
-  repeated ConnectionEntry local_connections = 2;
-  repeated ConnectionEntry remote_connections = 3;
+  repeated ConnectionEntry connections = 2;
 }
 
 enum ConnectionType {
