@@ -664,7 +664,7 @@ where
 mod tests {
     use super::*;
     use crate::Direction;
-    use crate::session_config::{MlsSettings, SessionConfig};
+    use crate::session_config::SessionConfig;
     use crate::session_settings::SessionSettings;
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
     use slim_datapath::Status;

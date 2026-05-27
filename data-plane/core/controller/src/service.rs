@@ -42,7 +42,6 @@ use slim_datapath::api::{
     MessageType::SubscriptionAck as SubscriptionAckType, MessageType::Unsubscribe,
     ProtoMessage as DataPlaneMessage,
 };
-use slim_datapath::api::{ProtoMlsSettings, ProtoSessionMessageType, ProtoSessionType};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_datapath::tables::SubscriptionTable;

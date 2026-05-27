@@ -21,7 +21,6 @@ import datetime
 import pytest
 
 import slim_bindings
-from slim_bindings._slim_bindings.slim_bindings import MlsSettings
 
 LONG_SECRET = "e4aaecb9ae0b23b82086bb8a8633e01fba16ae8d9c1379a613c00838"
 
