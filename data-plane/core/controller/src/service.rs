@@ -34,7 +34,7 @@ use crate::api::proto::api::v1::{
 use crate::errors::ControllerError;
 use prost_types::Struct;
 use slim_config::client::{ClientConfig, TransportChannel};
-use slim_datapath::api::ProtoName;
+use slim_datapath::api::{NameId, ProtoName};
 use slim_datapath::api::ProtoName as Name;
 use slim_datapath::api::ProtoSessionMessageType;
 use slim_datapath::api::{
@@ -793,7 +793,7 @@ impl ControllerService {
         for sub in desired_routes {
             match self.resolve_route_connection(sub) {
                 Ok(Some(conn_id)) => {
-                    let name = sub.name.clone().unwrap_or_default();
+                    let name = sub.name.clone().unwrap();
                     desired_subs.insert((name, conn_id), sub);
                 }
                 Ok(None) => {
@@ -1106,8 +1106,8 @@ impl ControllerService {
                                 let conn = self.resolve_route_connection(route);
 
                                 if let Ok(Some(conn)) = conn {
-                                    let name = route.name.clone().unwrap_or_default();
-                                    let source = name.clone().with_id(0);
+                                    let name = route.name.clone().unwrap();
+                                    let source = name.clone().with_id(NameId::NULL_COMPONENT);
 
                                     let msg = DataPlaneMessage::builder()
                                         .source(source.clone())
@@ -1162,8 +1162,8 @@ impl ControllerService {
                                 let conn = self.resolve_route_connection(route);
 
                                 if let Ok(Some(conn)) = conn {
-                                    let name = route.name.clone().unwrap_or_default();
-                                    let source = name.clone().with_id(0);
+                                    let name = route.name.clone().unwrap();
+                                    let source = name.clone().with_id(NameId::NULL_COMPONENT);
 
                                     let msg = DataPlaneMessage::builder()
                                         .source(source.clone())
@@ -1286,9 +1286,9 @@ impl ControllerService {
                         let mut entries = Vec::new();
 
                         self.inner.message_processor.subscription_table().for_each(
-                            |name, _id, local, remote| {
+                            |name, id, local, remote| {
                                 let mut entry = RouteEntry {
-                                    name: Some(name.clone()),
+                                    name: Some(name.clone().with_id(id)),
                                     ..Default::default()
                                 };
 
