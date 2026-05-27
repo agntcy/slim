@@ -232,7 +232,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         initiator: true,
         metadata: HashMap::new(),
-        mls_settings: MlsSettings::default(),
     };
 
     for c in &clients {

@@ -824,11 +824,7 @@ mod tests {
 
         // send join_request message to create the session
         let payload = CommandPayload::builder()
-<<<<<<< HEAD
             .join_request(None, None, None, None)
-=======
-            .join_request(false, None, None, None, None)
->>>>>>> 30d04323 (feat: adding mls_settings parameter to protos)
             .as_content();
 
         let mut join_request = Message::builder()
@@ -946,7 +942,6 @@ mod tests {
             interval: Some(std::time::Duration::from_millis(1000)),
             mls_settings: None,
             metadata: HashMap::new(),
-            mls_settings: MlsSettings::default(),
         };
 
         let sender_session =
@@ -1193,7 +1188,6 @@ mod tests {
             mls_settings: Some(MlsSettings::default()),
             initiator: true,
             metadata: HashMap::new(),
-            mls_settings: MlsSettings::default(),
         };
 
         let session_ctx =
@@ -1299,7 +1293,6 @@ mod tests {
                 mls_settings: Some(MlsSettings::default()),
                 initiator: true,
                 metadata: HashMap::new(),
-                mls_settings: MlsSettings::default(),
             },
             receiver_name.clone(),
         )
@@ -1420,7 +1413,6 @@ mod tests {
                 mls_settings: None,
                 initiator: true,
                 metadata: HashMap::new(),
-                mls_settings: MlsSettings::default(),
             },
             channel_name.clone(),
         )
@@ -1637,10 +1629,13 @@ mod tests {
                 session_type: ProtoSessionType::Multicast,
                 max_retries: Some(5),
                 interval: Some(std::time::Duration::from_millis(1000)),
-                mls_settings: if mls_enabled { Some(MlsSettings::default()) } else { None },
+                mls_settings: if mls_enabled {
+                    Some(MlsSettings::default())
+                } else {
+                    None
+                },
                 initiator: true,
                 metadata: HashMap::new(),
-                mls_settings: MlsSettings::default(),
             },
             channel_name.clone(),
         )
