@@ -240,7 +240,7 @@ class PointToPointTest {
                     sessionType = SessionType.POINT_TO_POINT,
                     enableMls = mlsEnabled,
                     maxRetries = 5u,
-                    interval = Duration.ofMillis(100),
+                    interval = Duration.ofSeconds(1),
                     metadata = emptyMap(),
                 )
             val senderSessionContext = sender.createSession(sessionConfig, receiverName)
