@@ -46,7 +46,7 @@ public class PointToPoint {
             App app = connection.app;
             long connId = connection.connectionId;
 
-            long instanceId = app.id();
+            String instanceId = app.id();
             System.out.println(Colors.instancePrefix(instanceId) + "✅ Created app");
             System.out.println(Colors.instancePrefix(instanceId) +
                     "🔌 Connected to " + config.server + " (conn ID: " + connId + ")");
@@ -74,7 +74,7 @@ public class PointToPoint {
         }
     }
 
-    private static void runSender(App app, long connId, Config.PointToPointConfig config, long instanceId)
+    private static void runSender(App app, long connId, Config.PointToPointConfig config, String instanceId)
             throws Exception {
         Name remoteName = Name.fromString(config.remote);
 
@@ -127,7 +127,7 @@ public class PointToPoint {
         app.deleteSessionAndWait(session);
     }
 
-    private static void runReceiver(App app, long instanceId) throws Exception {
+    private static void runReceiver(App app, String instanceId) throws Exception {
         System.out.println(Colors.instancePrefix(instanceId) + "👂 Waiting for incoming sessions...");
 
         ExecutorService executor = Executors.newCachedThreadPool();
@@ -146,7 +146,7 @@ public class PointToPoint {
         }
     }
 
-    private static void handleSession(App app, Session session, long instanceId) {
+    private static void handleSession(App app, Session session, String instanceId) {
         try {
             while (true) {
                 Duration timeout = Duration.ofSeconds(60);

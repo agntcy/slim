@@ -94,7 +94,7 @@ class Program
     }
 
     static async Task RunSender(SlimApp app, ulong connId, string remote, string message,
-        int iterations, bool enableMls, ulong instance)
+        int iterations, bool enableMls, string instance)
     {
         using var remoteName = SlimName.Parse(remote);
 
@@ -138,7 +138,7 @@ class Program
         // Note: session.Dispose() is automatically called by 'using var' at end of method
     }
 
-    static async Task RunReceiver(SlimApp app, ulong instance)
+    static async Task RunReceiver(SlimApp app, string instance)
     {
         Console.WriteLine($"[{instance}] Waiting for incoming sessions...");
 
@@ -159,7 +159,7 @@ class Program
         }
     }
 
-    static async Task HandleSession(SlimApp app, SlimSession session, ulong instance)
+    static async Task HandleSession(SlimApp app, SlimSession session, string instance)
     {
         try
         {

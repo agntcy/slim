@@ -101,7 +101,7 @@ class Program
     }
 
     static async Task RunModerator(SlimApp app, ulong connId, string remote,
-        List<string> invites, bool enableMls, ulong instance)
+        List<string> invites, bool enableMls, string instance)
     {
         // Parse remote channel name
         using var channelName = SlimName.Parse(remote);
@@ -151,7 +151,7 @@ class Program
         // Note: session.Dispose() is automatically called by 'using var' at end of method
     }
 
-    static async Task RunParticipant(SlimApp app, ulong instance)
+    static async Task RunParticipant(SlimApp app, string instance)
     {
         Console.WriteLine($"{ColorCyan}[{instance}]{ColorReset} Waiting for incoming group session invitation...");
 
@@ -168,7 +168,7 @@ class Program
     }
 
     static async Task RunMessageLoops(SlimApp app, SlimSession session,
-        SlimName channelName, ulong instance)
+        SlimName channelName, string instance)
     {
         using var cts = new CancellationTokenSource();
         var sourceName = session.Source;
@@ -197,7 +197,7 @@ class Program
     }
 
     static async Task ReceiveLoop(SlimSession session, SlimName sourceName,
-        ulong instance, CancellationToken cancellationToken)
+        string instance, CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -225,7 +225,7 @@ class Program
     }
 
     static async Task KeyboardLoop(SlimSession session, SlimName sourceName,
-        SlimName channelName, ulong instance, CancellationToken cancellationToken)
+        SlimName channelName, string instance, CancellationToken cancellationToken)
     {
         Console.WriteLine($"\n{ColorCyan}[{instance}]{ColorReset} Welcome to the group {channelName}!");
 

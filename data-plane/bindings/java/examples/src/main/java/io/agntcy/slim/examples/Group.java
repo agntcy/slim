@@ -76,7 +76,7 @@ public class Group {
         App app = connection.app;
         long connId = connection.connectionId;
 
-        long instanceId = app.id();
+        String instanceId = app.id();
         System.out.println(Colors.instancePrefix(instanceId) + "✅ Created app");
         System.out.println(Colors.instancePrefix(instanceId) +
                 "🔌 Connected to " + config.server + " (conn ID: " + connId + ")");
@@ -150,7 +150,7 @@ public class Group {
     }
 
     private static void receiveLoop(App app, Session createdSession,
-            CompletableFuture<Session> sessionReady, long instanceId) throws Exception {
+            CompletableFuture<Session> sessionReady, String instanceId) throws Exception {
         Session session;
 
         if (createdSession == null) {
@@ -204,7 +204,7 @@ public class Group {
     }
 
     private static void keyboardLoop(App app, Long connId, Session createdSession,
-            CompletableFuture<Session> sessionReady, long instanceId, Config.GroupConfig config)
+            CompletableFuture<Session> sessionReady, String instanceId, Config.GroupConfig config)
             throws Exception {
         // Wait for the session to be established
         Session session = sessionReady.get();
