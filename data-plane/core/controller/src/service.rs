@@ -6,12 +6,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use std::time::Duration;
-use std::vec;
 
 use display_error_chain::ErrorChainExt;
 use slim_config::component::id::ID;
 use slim_config::server::ServerConfig;
-use slim_session::SessionMessage;
 use slim_session::subscription_manager::SubscriptionManager;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -27,7 +25,7 @@ use crate::api::proto::api::v1::{
     RouteListResponse,
 };
 use crate::api::proto::api::v1::{
-    Ack, ConnectionEntry, ControlMessage, RouteEntry,
+    ConnectionEntry, ControlMessage, RouteEntry,
     controller_service_client::ControllerServiceClient,
     controller_service_server::ControllerService as GrpcControllerService,
 };
@@ -36,18 +34,13 @@ use prost_types::Struct;
 use slim_config::client::{ClientConfig, TransportChannel};
 use slim_datapath::api::ProtoName;
 use slim_datapath::api::ProtoName as Name;
-use slim_datapath::api::ProtoSessionMessageType;
 use slim_datapath::api::{
-    MessageType::Link as LinkType, MessageType::Publish, MessageType::Subscribe,
-    MessageType::SubscriptionAck as SubscriptionAckType, MessageType::Unsubscribe,
-    ProtoMessage as DataPlaneMessage,
+    MessageType::Subscribe, MessageType::SubscriptionAck as SubscriptionAckType,
+    MessageType::Unsubscribe, ProtoMessage as DataPlaneMessage,
 };
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_datapath::tables::SubscriptionTable;
-
-use slim_session::timer::{Timer, TimerType};
-use slim_session::timer_factory::{TimerFactory, TimerSettings};
 
 type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
 type TxChannels = HashMap<String, TxChannel>;
@@ -112,17 +105,6 @@ struct ControllerServiceInternal {
 
     /// Manages pending subscription ack tracking (id generation, registration, resolution).
     subscription_manager: SubscriptionManager,
-
-    /// Maps generated u32 keys to original string message IDs and their associated timers.
-    /// u32 keys have a ~0.01% collision probability at ~650 concurrent entries (birthday bound).
-    /// Entries are short-lived (removed on ack or timeout), so practical risk is negligible.
-    message_id_map: Arc<parking_lot::RwLock<HashMap<u32, (String, Option<Timer>)>>>,
-
-    /// timer factory for controller messages
-    /// used to create timers for messages that require timeouts
-    /// the lock is needed to set the timer factory after initialization
-    /// because it requires a channel to send session messages
-    timer_factory: parking_lot::RwLock<Option<TimerFactory>>,
 
     /// connection details used by control plane to store connection settings
     connection_details: Vec<ConnectionDetails>,
@@ -289,8 +271,6 @@ impl ControlPlane {
                     cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
                     drain_watch: parking_lot::RwLock::new(Some(watch)),
                     pending_notifications: Arc::new(parking_lot::Mutex::new(VecDeque::new())),
-                    message_id_map: Arc::new(parking_lot::RwLock::new(HashMap::new())),
-                    timer_factory: parking_lot::RwLock::new(None),
                     connection_details: config.connection_details,
                     route_subscription_ids: parking_lot::Mutex::new(HashMap::new()),
                     link_id_to_conn_id: parking_lot::RwLock::new(HashMap::new()),
@@ -453,18 +433,11 @@ impl ControlPlane {
                                             Unsubscribe(_) => {
                                                 controller.handle_unsubscribe_message(msg.get_dst(), &clients).await;
                                             }
-                                            Publish(_) => {
-                                                if msg.get_session_message_type() == ProtoSessionMessageType::GroupAck {
-                                                    controller.send_ack_message(msg.get_id(), true, &clients).await;
-                                                } else {
-                                                    debug!("Ignoring publish message with session type: {:?}", msg.get_session_message_type());
-                                                }
-                                            }
-                                            LinkType(_) => {
-                                                debug!("received link message from dataplane - this should not happen");
-                                            }
                                             SubscriptionAckType(_) => {
                                                 controller.inner.subscription_manager.resolve_ack(msg.get_subscription_ack());
+                                            }
+                                            _ => {
+                                                debug!("Ignoring unexpected message type from dataplane: {:?}", msg.get_type());
                                             }
                                         }
                                     }
@@ -1605,37 +1578,6 @@ impl ControllerService {
         }
     }
 
-    // send an ack back to the control plane. the success field indicates whether the original
-    // operation was successfully delivered/processed or not.
-    async fn send_ack_message(&self, msg_id: u32, success: bool, clients: &[ClientConfig]) {
-        let original_message_id = self.inner.message_id_map.write().remove(&msg_id);
-        match original_message_id {
-            Some(entry) => {
-                debug!("Received GroupAck for message ID: {}", entry.0);
-                // stop timer and send ack
-                if let Some(mut timer) = entry.1 {
-                    timer.stop();
-                }
-
-                let ack = Ack {
-                    original_message_id: entry.0,
-                    success,
-                    messages: vec![msg_id.to_string()],
-                };
-
-                let reply = ControlMessage {
-                    message_id: uuid::Uuid::new_v4().to_string(),
-                    payload: Some(Payload::Ack(ack)),
-                };
-
-                self.send_or_queue_notification(reply, clients).await;
-            }
-            None => {
-                debug!("Received GroupAck for unknown message ID: {}", msg_id);
-            }
-        }
-    }
-
     /// Send a control message to SLIM.
     async fn send_control_message(&self, msg: DataPlaneMessage) -> Result<(), ControllerError> {
         self.inner.tx_slim.send(Ok(msg)).await.map_err(|e| {
@@ -1749,13 +1691,11 @@ impl ControllerService {
         &self,
         config: Option<ClientConfig>,
         mut stream: impl Stream<Item = Result<ControlMessage, Status>> + Unpin + Send + 'static,
-        mut timer_rx: Option<mpsc::Receiver<SessionMessage>>,
         tx: mpsc::Sender<Result<ControlMessage, Status>>,
         cancellation_token: CancellationToken,
     ) -> Result<JoinHandle<()>, ControllerError> {
         let this = self.clone();
         let watch = self.drain_watch()?;
-        let clients = config.clone();
 
         let handle = tokio::spawn(async move {
             // Send a register message to the control plane
@@ -1947,25 +1887,6 @@ impl ControllerService {
                             }
                         }
                     }
-                    Some(session_msg) = async {
-                        match &mut timer_rx {
-                            Some(rx) => rx.recv().await,
-                            None => std::future::pending().await,
-                        }
-                    } => {
-                        match session_msg {
-                            SessionMessage::TimerFailure { message_id, message_type: _, name: _, timeouts: _} => {
-                                tracing::info!("got a failure for message id: {}", message_id);
-                                // if there's a timer the clientconfig is always set
-                                if let Some(clients) = &clients {
-                                    this.send_ack_message(message_id, false, std::slice::from_ref(clients)).await;
-                                }
-                            }
-                            _ => {
-                                error!("unexpected session message received in controller");
-                            }
-                        }
-                    }
                     _ = cancellation_token.cancelled() => {
                         debug!("shutting down stream on cancellation token");
                         break;
@@ -2012,30 +1933,6 @@ impl ControllerService {
     ) -> Result<mpsc::Sender<Result<ControlMessage, Status>>, ControllerError> {
         info!(%config.endpoint, "connecting to control plane");
 
-        // On reconnect, drain message_id_map entries from the previous session.
-        // Their timers reference the old channel, so stop each one and send a
-        // failure ack to unblock waiters.
-        {
-            let prev_entries: Vec<(u32, (String, Option<Timer>))> =
-                self.inner.message_id_map.write().drain().collect();
-            for (msg_id, (original_id, timer)) in prev_entries {
-                if let Some(mut t) = timer {
-                    t.stop();
-                }
-                let ack = Ack {
-                    original_message_id: original_id,
-                    success: false,
-                    messages: vec![msg_id.to_string()],
-                };
-                let reply = ControlMessage {
-                    message_id: uuid::Uuid::new_v4().to_string(),
-                    payload: Some(Payload::Ack(ack)),
-                };
-                self.send_or_queue_notification(reply, std::slice::from_ref(&config))
-                    .await;
-            }
-        }
-
         // Reset connection state before establishing a new session. The CP
         // will send fresh ConfigCommands after re-registration to rebuild
         // these maps.
@@ -2064,22 +1961,11 @@ impl ControllerService {
             .open_control_channel(Request::new(out_stream))
             .await?;
 
-        let timer_settings = TimerSettings::new(
-            Duration::from_millis(2000),
-            None,
-            Some(0),
-            TimerType::Constant,
-        );
-        let (timer_tx, timer_rx) = mpsc::channel::<SessionMessage>(128);
-        let timer_factory = TimerFactory::new(timer_settings, timer_tx.clone());
-        self.inner.timer_factory.write().replace(timer_factory);
-
         // start processing the incoming stream
         let endpoint_key = config.endpoint.clone();
         let handle = self.process_control_message_stream(
             Some(config),
             stream.into_inner(),
-            Some(timer_rx),
             tx.clone(),
             cancellation_token.clone(),
         )?;
@@ -2135,13 +2021,7 @@ impl GrpcControllerService for ControllerService {
 
         // Server-side connections don't initiate operations requiring acks, so no timer channel needed
         let handle = self
-            .process_control_message_stream(
-                None,
-                stream,
-                None,
-                tx.clone(),
-                cancellation_token.clone(),
-            )
+            .process_control_message_stream(None, stream, tx.clone(), cancellation_token.clone())
             .map_err(|e| {
                 error!(error = %e.chain(), "error processing control message stream");
                 Status::unavailable("failed to process control message stream")
