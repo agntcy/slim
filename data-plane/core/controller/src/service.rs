@@ -884,9 +884,7 @@ impl ControllerService {
             routes_status.push(v1::RouteAck {
                 route: Some(v1::Route {
                     name: Some(name.clone()),
-                    connection_id: String::new(),
                     link_id: None,
-                    node_id: None,
                     direction: None,
                 }),
                 success,
@@ -1295,7 +1293,7 @@ impl ControllerService {
                                 };
 
                                 for &cid in local {
-                                    entry.local_connections.push(ConnectionEntry {
+                                    entry.connections.push(ConnectionEntry {
                                         id: cid,
                                         connection_type: ConnectionType::Local as i32,
                                         config_data: "{}".to_string(),
@@ -1306,7 +1304,7 @@ impl ControllerService {
 
                                 for &cid in remote {
                                     if let Some(conn) = conn_table.get(cid) {
-                                        entry.remote_connections.push(ConnectionEntry {
+                                        entry.connections.push(ConnectionEntry {
                                             id: cid,
                                             connection_type: ConnectionType::Remote as i32,
                                             config_data: match conn.config_data() {
@@ -1469,8 +1467,6 @@ impl ControllerService {
 
         let cmd = v1::Route {
             name: Some(dst),
-            connection_id: "n/a".to_string(),
-            node_id: None,
             link_id: None,
             direction: None,
         };
@@ -1496,8 +1492,6 @@ impl ControllerService {
 
         let cmd = v1::Route {
             name: Some(dst),
-            connection_id: "n/a".to_string(),
-            node_id: None,
             link_id: None,
             direction: None,
         };
@@ -1770,9 +1764,7 @@ impl ControllerService {
                     .map(|((name, conn_id), _sub_id)| {
                         v1::Route {
                             name: Some(name.clone()),
-                            connection_id: String::new(),
                             link_id: conn_id_to_link_id.get(conn_id).cloned(),
-                            node_id: None,
                             direction: None,
                         }
                     })
@@ -2219,8 +2211,6 @@ mod tests {
                             ProtoName::from_strings(["queued", "sub", &format!("name-{i}")])
                                 .with_id(i as u128),
                         ),
-                        connection_id: "test-conn".to_string(),
-                        node_id: None,
                         link_id: None,
                         direction: None,
                     }],
@@ -2472,8 +2462,6 @@ mod tests {
                 connections_to_delete: vec![],
                 routes_to_set: vec![v1::Route {
                     name: Some(ProtoName::from_strings(["org", "ns", "agent"]).with_id(1u128)),
-                    connection_id: String::new(),
-                    node_id: None,
                     link_id: Some("missing-link-id".to_string()),
                     direction: None,
                 }],
@@ -2575,8 +2563,6 @@ mod tests {
                 routes_to_set: vec![],
                 routes_to_delete: vec![v1::Route {
                     name: Some(ProtoName::from_strings(["org", "ns", "agent"]).with_id(1u128)),
-                    connection_id: String::new(),
-                    node_id: None,
                     link_id: Some("missing-link-id-delete".to_string()),
                     direction: None,
                 }],

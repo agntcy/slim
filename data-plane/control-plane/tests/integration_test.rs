@@ -338,10 +338,7 @@ async fn add_route(
             node_id: src_node_id.to_string(),
             dest_node_id: dest_node_id.to_string(),
             route: Some(Route {
-                component_0: component0.to_string(),
-                component_1: component1.to_string(),
-                component_2: component2.to_string(),
-                id: None,
+                name: Some(Name::from_strings([component0, component1, component2])),
                 link_id: None,
                 direction: None,
             }),
