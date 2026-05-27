@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use slim_auth::traits::TokenProvider;
 use slim_datapath::api::{
     EncodedName, Participant, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
 };
@@ -19,19 +20,25 @@ use crate::{
     transmitter::SessionTransmitter,
 };
 
-pub(crate) struct Session {
+pub(crate) struct Session<P>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+{
     local_name: ProtoName,
-    sender: Option<SessionSender>,
-    receiver: Option<SessionReceiver>,
+    sender: Option<SessionSender<P>>,
+    receiver: Option<SessionReceiver<P>>,
     processing_state: ProcessingState,
 }
 
-impl Session {
+impl<P> Session<P>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+{
     pub(crate) fn new(
         session_id: u32,
         session_config: SessionConfig,
         local_name: &ProtoName,
-        tx: SessionTransmitter,
+        tx: SessionTransmitter<P>,
         tx_signals: mpsc::Sender<SessionMessage>,
         direction: Direction,
     ) -> Self {
@@ -171,7 +178,7 @@ impl Session {
     ) -> Result<(), SessionError>
     where
         F: FnOnce(
-            &'a mut SessionSender,
+            &'a mut SessionSender<P>,
             Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
         ) -> Fut,
         Fut: std::future::Future<Output = Result<(), SessionError>> + 'a,
@@ -191,7 +198,7 @@ impl Session {
     /// Helper to call sender methods without ack_tx
     fn with_sender_without_ack<F, R>(&mut self, f: F) -> Result<R, SessionError>
     where
-        F: FnOnce(&mut SessionSender) -> Result<R, SessionError>,
+        F: FnOnce(&mut SessionSender<P>) -> Result<R, SessionError>,
     {
         match self.sender {
             Some(ref mut sender) => f(sender),
@@ -202,7 +209,7 @@ impl Session {
     /// Helper to call receiver methods
     async fn with_receiver<'a, F, Fut>(&'a mut self, f: F) -> Result<(), SessionError>
     where
-        F: FnOnce(&'a mut SessionReceiver) -> Fut,
+        F: FnOnce(&'a mut SessionReceiver<P>) -> Fut,
         Fut: std::future::Future<Output = Result<(), SessionError>> + 'a,
     {
         match self.receiver {
@@ -296,7 +303,10 @@ impl Session {
 
 /// Implementation of MessageHandler trait for Session
 /// This allows Session to be used as a layer in the generic layer system
-impl MessageHandler for Session {
+impl<P> MessageHandler for Session<P>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+{
     async fn init(&mut self) -> Result<(), SessionError> {
         // Session is the innermost layer, no initialization needed
         Ok(())
@@ -334,6 +344,7 @@ impl MessageHandler for Session {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_utils::MockTokenProvider;
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
@@ -349,7 +360,7 @@ mod tests {
         let (tx_app, _rx_app) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim.clone(), tx_app.clone());
+        let tx = SessionTransmitter::new(tx_slim.clone(), tx_app.clone(), MockTokenProvider);
         let session_id = 10;
 
         let local_name = ProtoName::from_strings(["org", "ns", "local"]);
@@ -491,7 +502,7 @@ mod tests {
         let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim.clone(), tx_app.clone());
+        let tx = SessionTransmitter::new(tx_slim.clone(), tx_app.clone(), MockTokenProvider);
         let session_id = 10;
 
         let local_name = ProtoName::from_strings(["org", "ns", "local"]);
@@ -704,7 +715,11 @@ mod tests {
         let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal_sender, mut rx_signal_sender) = tokio::sync::mpsc::channel(10);
 
-        let tx_sender = SessionTransmitter::new(tx_slim_sender.clone(), tx_app_sender.clone());
+        let tx_sender = SessionTransmitter::new(
+            tx_slim_sender.clone(),
+            tx_app_sender.clone(),
+            MockTokenProvider,
+        );
 
         let sender_name = ProtoName::from_strings(["org", "ns", "sender"]);
         let receiver_name = ProtoName::from_strings(["org", "ns", "receiver"]);
@@ -741,8 +756,11 @@ mod tests {
         let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal_receiver, _rx_signal_receiver) = tokio::sync::mpsc::channel(10);
 
-        let tx_receiver =
-            SessionTransmitter::new(tx_slim_receiver.clone(), tx_app_receiver.clone());
+        let tx_receiver = SessionTransmitter::new(
+            tx_slim_receiver.clone(),
+            tx_app_receiver.clone(),
+            MockTokenProvider,
+        );
 
         let receiver_config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,

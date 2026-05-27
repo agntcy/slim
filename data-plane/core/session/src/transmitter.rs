@@ -1,92 +1,66 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-// Standard library imports
-use std::sync::Arc;
-
-// Third-party crates
-use parking_lot::RwLock;
-use tokio::sync::mpsc::Sender;
-
+use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
 use slim_datapath::api::ProtoMessage as Message;
 
-// Local crate
 use crate::{
-    SessionError, SlimChannelSender, Transmitter,
-    common::AppChannelSender,
-    interceptor::{SessionInterceptor, SessionInterceptorProvider},
+    SessionError, SlimChannelSender, Transmitter, common::AppChannelSender,
     notification::Notification,
 };
 
-/// Transmitter used to send messages between session and application/network
-#[derive(Clone)]
-pub struct SessionTransmitter {
-    /// SLIM tx (bounded channel)
-    pub(crate) slim_tx: SlimChannelSender,
-
-    /// App tx (unbounded channel)
-    pub(crate) app_tx: AppChannelSender,
-
-    // Interceptors to be called on message reception/send
-    pub(crate) interceptors: Arc<RwLock<Vec<Arc<dyn SessionInterceptor + Send + Sync>>>>,
+pub(crate) async fn verify_identity<V>(msg: &Message, verifier: &V) -> Result<(), SessionError>
+where
+    V: Verifier + Send + Sync,
+{
+    let identity = msg.get_slim_header().get_identity();
+    if verifier.try_verify(&identity).is_err() {
+        verifier.verify(&identity).await?;
+    }
+    Ok(())
 }
 
-impl SessionTransmitter {
-    pub(crate) fn new(slim_tx: SlimChannelSender, app_tx: AppChannelSender) -> Self {
+#[derive(Clone)]
+pub struct SessionTransmitter<P>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+{
+    pub(crate) slim_tx: SlimChannelSender,
+    pub(crate) app_tx: AppChannelSender,
+    pub(crate) identity_provider: P,
+}
+
+impl<P> SessionTransmitter<P>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+{
+    pub fn new(slim_tx: SlimChannelSender, app_tx: AppChannelSender, identity_provider: P) -> Self {
         SessionTransmitter {
             slim_tx,
             app_tx,
-            interceptors: Arc::new(RwLock::new(vec![])),
+            identity_provider,
         }
     }
 }
 
-impl SessionInterceptorProvider for SessionTransmitter {
-    fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {
-        self.interceptors.write().push(interceptor);
-    }
-
-    fn get_interceptors(&self) -> Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>> {
-        self.interceptors.read().clone()
-    }
-}
-
-impl Transmitter for SessionTransmitter {
+impl<P> Transmitter for SessionTransmitter<P>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+{
     async fn send_to_app(
         &self,
-        mut message: Result<Message, SessionError>,
+        message: Result<Message, SessionError>,
     ) -> Result<(), SessionError> {
-        // Interceptors only run on successful messages
-        let interceptors = match &message {
-            Ok(_) => self.interceptors.read().clone(),
-            Err(_) => Vec::new(),
-        };
-
-        if let Ok(msg) = message.as_mut() {
-            for interceptor in interceptors {
-                interceptor.on_msg_from_slim(msg).await?;
-            }
-        }
-
         self.app_tx
             .send(message)
-            .map_err(|_e| SessionError::ApplicationMessageSendFailed)?;
-
-        Ok(())
+            .map_err(|_e| SessionError::ApplicationMessageSendFailed)
     }
 
     async fn send_to_slim(&self, mut message: Result<Message, Status>) -> Result<(), SessionError> {
-        // Interceptors only run on successful messages
-        let interceptors = match &message {
-            Ok(_) => self.interceptors.read().clone(),
-            Err(_) => Vec::new(),
-        };
-
         if let Ok(msg) = message.as_mut() {
-            for interceptor in interceptors {
-                interceptor.on_msg_from_app(msg).await?;
-            }
+            let identity = self.identity_provider.get_token()?;
+            msg.get_slim_header_mut().set_identity(identity);
         }
 
         self.slim_tx
@@ -96,46 +70,41 @@ impl Transmitter for SessionTransmitter {
     }
 }
 
-/// Transmitter used to send messages from the application side
 #[derive(Clone)]
-pub struct AppTransmitter {
-    /// SLIM tx (bounded channel)
+pub struct AppTransmitter<P>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+{
     pub slim_tx: SlimChannelSender,
-
-    /// App tx (bounded channel here; notifications)
-    pub app_tx: Sender<Result<Notification, SessionError>>,
-
-    /// Interceptors to be called on message reception/send
-    pub interceptors: Arc<RwLock<Vec<Arc<dyn SessionInterceptor + Send + Sync>>>>,
+    pub app_tx: tokio::sync::mpsc::Sender<Result<Notification, SessionError>>,
+    pub identity_provider: P,
 }
 
-impl SessionInterceptorProvider for AppTransmitter {
-    fn add_interceptor(&self, interceptor: Arc<dyn SessionInterceptor + Send + Sync + 'static>) {
-        self.interceptors.write().push(interceptor);
-    }
-
-    fn get_interceptors(&self) -> Vec<Arc<dyn SessionInterceptor + Send + Sync + 'static>> {
-        self.interceptors.read().clone()
+impl<P> AppTransmitter<P>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+{
+    pub fn new(
+        slim_tx: SlimChannelSender,
+        app_tx: tokio::sync::mpsc::Sender<Result<Notification, SessionError>>,
+        identity_provider: P,
+    ) -> Self {
+        AppTransmitter {
+            slim_tx,
+            app_tx,
+            identity_provider,
+        }
     }
 }
 
-impl Transmitter for AppTransmitter {
+impl<P> Transmitter for AppTransmitter<P>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+{
     async fn send_to_app(
         &self,
-        mut message: Result<Message, SessionError>,
+        message: Result<Message, SessionError>,
     ) -> Result<(), SessionError> {
-        // Apply interceptors only on successful messages
-        let interceptors = match &message {
-            Ok(_) => self.interceptors.read().clone(),
-            Err(_) => Vec::new(),
-        };
-
-        if let Ok(msg) = message.as_mut() {
-            for interceptor in interceptors {
-                interceptor.on_msg_from_slim(msg).await?;
-            }
-        }
-
         self.app_tx
             .send(message.map(|msg| Notification::NewMessage(Box::new(msg))))
             .await
@@ -143,16 +112,9 @@ impl Transmitter for AppTransmitter {
     }
 
     async fn send_to_slim(&self, mut message: Result<Message, Status>) -> Result<(), SessionError> {
-        // Apply interceptors only on successful messages
-        let interceptors = match &message {
-            Ok(_) => self.interceptors.read().clone(),
-            Err(_) => Vec::new(),
-        };
-
         if let Ok(msg) = message.as_mut() {
-            for interceptor in interceptors {
-                interceptor.on_msg_from_app(msg).await?;
-            }
+            let identity = self.identity_provider.get_token()?;
+            msg.get_slim_header_mut().set_identity(identity);
         }
 
         self.slim_tx
@@ -165,38 +127,18 @@ impl Transmitter for AppTransmitter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{SessionError, notification::Notification};
-    use async_trait::async_trait;
+    use crate::SessionError;
+    use crate::notification::Notification;
+    use crate::test_utils::{MockTokenProvider, MockVerifier};
     use slim_datapath::Status;
     use slim_datapath::api::ProtoMessage as Message;
     use slim_datapath::api::ProtoName as Name;
     use tokio::sync::mpsc;
 
-    #[derive(Clone, Default)]
-    struct RecordingInterceptor {
-        pub app_calls: Arc<RwLock<usize>>,
-        pub slim_calls: Arc<RwLock<usize>>,
-    }
-
-    #[async_trait]
-    impl SessionInterceptor for RecordingInterceptor {
-        async fn on_msg_from_app(&self, msg: &mut Message) -> Result<(), SessionError> {
-            *self.app_calls.write() += 1;
-            msg.insert_metadata("APP".into(), "1".into());
-            Ok(())
-        }
-        async fn on_msg_from_slim(&self, msg: &mut Message) -> Result<(), SessionError> {
-            *self.slim_calls.write() += 1;
-            msg.insert_metadata("SLIM".into(), "1".into());
-            Ok(())
-        }
-    }
-
     fn make_message() -> Message {
         let source = Name::from_strings(["a", "b", "c"]).with_id(0);
         let dst = Name::from_strings(["d", "e", "f"]).with_id(0);
 
-        // Signature: (&Name, &Name, Option<SlimHeaderFlags>, &str, Vec<u8>)
         Message::builder()
             .source(source)
             .destination(dst)
@@ -206,65 +148,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn session_transmitter_interceptor_application_send_to_slim() {
+    async fn session_transmitter_sets_identity_on_outbound() {
         let (slim_tx, mut slim_rx) = mpsc::channel::<Result<Message, Status>>(4);
-        let (app_tx, mut app_rx) = mpsc::unbounded_channel::<Result<Message, SessionError>>();
-        let tx = SessionTransmitter::new(slim_tx, app_tx);
-        let interceptor = Arc::new(RecordingInterceptor::default());
-        tx.add_interceptor(interceptor.clone());
+        let (app_tx, _app_rx) = mpsc::unbounded_channel::<Result<Message, SessionError>>();
+        let tx = SessionTransmitter::new(slim_tx, app_tx, MockTokenProvider);
 
         tx.send_to_slim(Ok(make_message())).await.unwrap();
         let sent = slim_rx.recv().await.unwrap().unwrap();
-        assert_eq!(sent.get_metadata("APP").map(|s| s.as_str()), Some("1"));
-        assert_eq!(*interceptor.app_calls.read(), 1);
-        assert_eq!(*interceptor.slim_calls.read(), 0);
-
-        tx.send_to_app(Ok(make_message())).await.unwrap();
-        let app_msg = app_rx.recv().await.unwrap().unwrap();
-        assert_eq!(app_msg.get_metadata("SLIM").map(|s| s.as_str()), Some("1"));
-        assert_eq!(*interceptor.slim_calls.read(), 1);
+        assert_eq!(sent.get_slim_header().get_identity(), "");
     }
 
     #[tokio::test]
-    async fn session_transmitter_error_bypasses_interceptors() {
-        let (slim_tx, mut slim_rx) = mpsc::channel::<Result<Message, Status>>(1);
-        let (app_tx, _app_rx) = mpsc::unbounded_channel::<Result<Message, SessionError>>();
-        let tx = SessionTransmitter::new(slim_tx, app_tx);
-        let interceptor = Arc::new(RecordingInterceptor::default());
-        tx.add_interceptor(interceptor.clone());
-
-        tx.send_to_slim(Err(Status::failed_precondition("err")))
-            .await
-            .unwrap();
-        let _ = slim_rx.recv().await.unwrap();
-        assert_eq!(*interceptor.slim_calls.read(), 0);
-        assert_eq!(*interceptor.app_calls.read(), 0);
+    async fn verify_identity_accepts_mock() {
+        let msg = make_message();
+        verify_identity(&msg, &MockVerifier).await.unwrap();
     }
 
     #[tokio::test]
-    async fn app_transmitter_interceptor_application_send_to_app() {
-        let (slim_tx, mut slim_rx) = mpsc::channel::<Result<Message, Status>>(4);
+    async fn app_transmitter_wraps_notification() {
+        let (slim_tx, _slim_rx) = mpsc::channel::<Result<Message, Status>>(4);
         let (app_tx, mut app_rx) = mpsc::channel::<Result<Notification, SessionError>>(4);
-        let tx = AppTransmitter {
-            slim_tx,
-            app_tx,
-            interceptors: Arc::new(RwLock::new(vec![])),
-        };
-        let interceptor = Arc::new(RecordingInterceptor::default());
-        tx.add_interceptor(interceptor.clone());
+        let tx = AppTransmitter::new(slim_tx, app_tx, MockTokenProvider);
 
         tx.send_to_app(Ok(make_message())).await.unwrap();
-        if let Ok(Notification::NewMessage(msg)) = app_rx.recv().await.unwrap() {
-            assert_eq!(msg.get_metadata("SLIM").map(|s| s.as_str()), Some("1"));
-            assert_eq!(*interceptor.slim_calls.read(), 1);
-            assert_eq!(*interceptor.app_calls.read(), 0);
-        } else {
-            panic!("expected NewMessage notification");
+        match app_rx.recv().await.unwrap().unwrap() {
+            Notification::NewMessage(_) => {}
+            _ => panic!("expected NewMessage"),
         }
-
-        tx.send_to_slim(Ok(make_message())).await.unwrap();
-        let slim_msg = slim_rx.recv().await.unwrap().unwrap();
-        assert_eq!(slim_msg.get_metadata("APP").map(|s| s.as_str()), Some("1"));
-        assert_eq!(*interceptor.app_calls.read(), 1);
     }
 }

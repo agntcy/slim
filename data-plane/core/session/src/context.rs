@@ -164,7 +164,7 @@ mod tests {
         let (slim_tx, _slim_rx): (SlimChannelSender, _) = mpsc::channel(32);
 
         // Create a SessionTransmitter
-        let session_tx = SessionTransmitter::new(slim_tx, app_tx.clone());
+        let session_tx = SessionTransmitter::new(slim_tx, app_tx.clone(), DummyProvider);
 
         // Create channel for session layer communication
         let (tx_session, _rx_session): (mpsc::Sender<Result<SessionMessage, SessionError>>, _) =

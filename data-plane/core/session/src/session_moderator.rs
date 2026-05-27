@@ -1162,12 +1162,17 @@ where
         // Send the task back to the processing loop instead of recursing into
         // `on_message`. Recursive async calls would otherwise require a boxed
         // future (and `async_trait` was hiding that cost before).
+        // Use South direction: these are deferred control messages that the
+        // moderator buffered while busy. They originate from the local app (e.g.
+        // invite_participant) and therefore carry no identity token. Marking them
+        // as South lets the session-controller loop skip identity verification,
+        // which only applies to messages arriving from SLIM (North).
         self.common
             .settings
             .tx_session
             .send(SessionMessage::OnMessage {
                 message: msg,
-                direction: MessageDirection::North,
+                direction: MessageDirection::South,
                 ack_tx,
             })
             .await
@@ -1298,7 +1303,7 @@ mod tests {
 
         let subscription_manager =
             crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
-        let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app);
+        let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let config = SessionConfig {
             session_type: ProtoSessionType::Multicast,
@@ -1659,7 +1664,7 @@ mod tests {
 
         let subscription_manager =
             crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
-        let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app);
+        let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
@@ -1740,7 +1745,7 @@ mod tests {
 
         let subscription_manager =
             crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
-        let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app);
+        let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let config = SessionConfig {
             session_type: ProtoSessionType::Multicast,
@@ -1884,7 +1889,7 @@ mod tests {
 
         let subscription_manager =
             crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
-        let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app);
+        let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let config = SessionConfig {
             session_type: ProtoSessionType::Multicast,
