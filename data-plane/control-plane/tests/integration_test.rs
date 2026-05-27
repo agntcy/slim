@@ -445,8 +445,10 @@ async fn wait_for_node_subscriptions(
         .collect();
     loop {
         let subs = get_node_subscriptions(client, node_id).await;
-        let all_present = expected_names.iter().all(|n| subs.contains(n));
-        if all_present {
+        if expected_names
+            .iter()
+            .all(|n| subs.iter().any(|s| s.match_prefix(n)))
+        {
             return;
         }
         if tokio::time::Instant::now() >= deadline {
@@ -472,8 +474,10 @@ async fn wait_for_node_subscriptions_absent(
         .collect();
     loop {
         let subs = get_node_subscriptions(client, node_id).await;
-        let all_absent = absent_names.iter().all(|n| !subs.contains(n));
-        if all_absent {
+        if absent_names
+            .iter()
+            .all(|n| !subs.iter().any(|s| s.match_prefix(n)))
+        {
             return;
         }
         if tokio::time::Instant::now() >= deadline {
