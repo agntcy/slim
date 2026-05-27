@@ -3,643 +3,478 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
-use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use parking_lot::{RawRwLock, RwLock, lock_api::RwLockWriteGuard};
-use rand::Rng;
-use tracing::{debug, error, warn};
+use arc_swap::ArcSwap;
+use parking_lot::Mutex;
+use tracing::{debug, warn};
 
 use super::SubscriptionTable;
-use super::pool::Pool;
 use crate::api::{EncodedName, ProtoName};
 use crate::errors::DataPathError;
 
-#[derive(Debug, Clone)]
-struct SubscriptionName([u64; 3]);
+// ──────────────────────────────────────────────────────────────────────────────
+// ConnList – a connection Vec with a built-in round-robin cursor.
+// ──────────────────────────────────────────────────────────────────────────────
 
-impl Hash for SubscriptionName {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0[0].hash(state);
-        self.0[1].hash(state);
-        self.0[2].hash(state);
-    }
+#[derive(Debug)]
+struct ConnList {
+    conns: Vec<u64>,
+    cursor: AtomicUsize,
 }
 
-impl PartialEq for SubscriptionName {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl Eq for SubscriptionName {}
-
-#[derive(Debug, Default, Clone)]
-struct ConnId {
-    conn_id: u64,   // connection id
-    counter: usize, // number of references
-}
-
-impl ConnId {
-    fn new(conn_id: u64) -> Self {
-        ConnId {
-            conn_id,
-            counter: 1,
-        }
-    }
-}
-
-#[derive(Debug, Default)]
-struct SubscriptionRefs {
-    // map from connection id to set of subscription_ids
-    refs: HashMap<u64, HashSet<u64>>,
-}
-
-impl SubscriptionRefs {
-    fn new(conn: u64, subscription_id: u64) -> Self {
-        let mut set = HashSet::new();
-        set.insert(subscription_id);
-        let refs = HashMap::from([(conn, set)]);
-        SubscriptionRefs { refs }
-    }
-
-    /// Inserts a subscription_id for the given connection.
-    /// Returns true if the subscription_id was actually new (not a duplicate).
-    fn insert(&mut self, conn: u64, subscription_id: u64) -> bool {
-        self.refs.entry(conn).or_default().insert(subscription_id)
-    }
-
-    /// Removes a subscription_id for the given connection.
-    /// Returns `Ok(true)` if the connection has no remaining subscription_ids.
-    /// Returns `Ok(false)` if the connection still has other subscription_ids.
-    /// Returns `Err(SubscriptionIdNotFound)` if the subscription_id was not present.
-    /// Returns `Err(ConnectionIdNotFound)` if the connection was not found.
-    fn remove(&mut self, conn: u64, subscription_id: u64) -> Result<bool, DataPathError> {
-        match self.refs.get_mut(&conn) {
-            None => {
-                debug!(%conn, "connection not found in refs");
-                Err(DataPathError::ConnectionIdNotFound(conn))
-            }
-            Some(set) => {
-                if !set.remove(&subscription_id) {
-                    return Err(DataPathError::SubscriptionIdNotFound(subscription_id));
-                }
-                if set.is_empty() {
-                    self.refs.remove(&conn);
-                    Ok(true)
-                } else {
-                    Ok(false)
-                }
-            }
+impl ConnList {
+    fn new() -> Self {
+        ConnList {
+            conns: Vec::new(),
+            cursor: AtomicUsize::new(0),
         }
     }
 
-    fn force_remove(&mut self, conn: u64) -> Result<usize, DataPathError> {
-        // Returns the count that was removed
-        self.refs
-            .remove(&conn)
-            .map(|set| set.len())
-            .ok_or(DataPathError::ConnectionIdNotFound(conn))
+    // Linear scan: acceptable for the expected connection counts (≤ 256).
+    // Switch to a HashSet if this ever grows significantly larger.
+    /// Add `conn` if not already present (deduped).
+    fn push(&mut self, conn: u64) {
+        if !self.conns.contains(&conn) {
+            self.conns.push(conn);
+        }
+    }
+
+    /// Remove `conn` (no-op if absent).
+    fn remove(&mut self, conn: u64) {
+        if let Some(pos) = self.conns.iter().position(|&c| c == conn) {
+            self.conns.swap_remove(pos);
+        }
     }
 
     fn is_empty(&self) -> bool {
-        self.refs.is_empty()
+        self.conns.is_empty()
     }
 
     fn len(&self) -> usize {
-        self.refs.len()
+        self.conns.len()
     }
 
-    fn keys(&self) -> impl Iterator<Item = &u64> {
-        self.refs.keys()
+    fn as_slice(&self) -> &[u64] {
+        &self.conns
     }
 
-    fn iter(&self) -> impl Iterator<Item = (&u64, usize)> + '_ {
-        self.refs.iter().map(|(k, v)| (k, v.len()))
-    }
-}
-
-#[derive(Debug)]
-struct Connections {
-    // map from connection id to the pool ID returned on insert
-    index: HashMap<u64, u64>,
-    // pool of all connections ids that can to be used in the match
-    pool: Pool<ConnId>,
-}
-
-impl Default for Connections {
-    fn default() -> Self {
-        Connections {
-            index: HashMap::new(),
-            pool: Pool::with_capacity(2),
-        }
-    }
-}
-
-impl Connections {
-    fn insert(&mut self, conn: u64) {
-        match self.index.get(&conn) {
-            None => {
-                let conn_id = ConnId::new(conn);
-                let pos = self.pool.insert(conn_id);
-                self.index.insert(conn, pos);
-            }
-            Some(pos) => match self.pool.get_mut(*pos) {
-                None => {
-                    error!(index = %*pos, "error retrieving the connection from the pool");
-                }
-                Some(conn_id) => {
-                    conn_id.counter += 1;
-                }
-            },
-        }
+    fn iter(&self) -> impl Iterator<Item = u64> + '_ {
+        self.conns.iter().copied()
     }
 
-    fn remove(&mut self, conn: u64) -> Result<(), DataPathError> {
-        let conn_index_opt = self.index.get(&conn);
-        if conn_index_opt.is_none() {
-            debug!(%conn, "cannot find the index for connection");
-            return Err(DataPathError::ConnectionIdNotFound(conn));
-        }
-        let conn_index = conn_index_opt.unwrap();
-        let conn_id_opt = self.pool.get_mut(*conn_index);
-        if conn_id_opt.is_none() {
-            debug!(%conn, "cannot find the connection in the pool");
-            return Err(DataPathError::ConnectionIdNotFound(conn));
-        }
-        let conn_id = conn_id_opt.unwrap();
-        if conn_id.counter == 1 {
-            // remove connection
-            self.pool.remove(*conn_index);
-            self.index.remove(&conn);
-        } else {
-            conn_id.counter -= 1;
-        }
-        Ok(())
-    }
-
-    fn get_one(&self, except_conn: u64) -> Option<u64> {
-        if self.index.len() == 1 {
-            if self.index.contains_key(&except_conn) {
-                debug!("the only available connection cannot be used");
-                return None;
-            } else {
-                let val = self.index.iter().next().unwrap();
-                return Some(*val.0);
-            }
-        }
-
-        // Walk at most n steps from the current cursor position, looking for
-        // a connection that isn't except_conn.
-        let n = self.pool.len();
+    /// Round-robin next connection, skipping `skip`.
+    fn next(&self, skip: u64) -> Option<u64> {
+        let n = self.conns.len();
         if n == 0 {
-            debug!("no output connection available");
             return None;
         }
+        if n == 1 {
+            return if self.conns[0] != skip {
+                Some(self.conns[0])
+            } else {
+                None
+            };
+        }
         for _ in 0..n {
-            let conn_id = self.pool.next_val().expect("pool is non-empty").conn_id;
-            if conn_id != except_conn {
-                return Some(conn_id);
+            let pos = self.cursor.fetch_add(1, Ordering::Relaxed) % n;
+            let c = self.conns[pos];
+            if c != skip {
+                return Some(c);
             }
         }
-        debug!("no output connection available");
+        None
+    }
+}
+
+impl Clone for ConnList {
+    fn clone(&self) -> Self {
+        ConnList {
+            conns: self.conns.clone(),
+            cursor: AtomicUsize::new(self.cursor.load(Ordering::Relaxed)),
+        }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// PrefixEntry – one allocation per unique [u64; 3] prefix.
+//
+// Struct-of-arrays layout: `ids` is a flat Vec<u64> so a scan for a matching
+// component_3 value reads 8 IDs per cache line instead of striding across
+// 72-byte AoS IdEntry objects.  Once the index is found the per-slot
+// ConnLists are accessed by that index.
+//
+// Invariant: all three Vecs always have the same length.
+// ──────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug)]
+struct PrefixEntry {
+    /// Dense u64 array — 8 IDs per cache line.
+    ids: Vec<u64>,
+    local: Vec<ConnList>,
+    remote: Vec<ConnList>,
+    /// Deduplicated union of all per-slot local connections.
+    all_local_conns: Vec<u64>,
+    /// Deduplicated union of all per-slot remote connections.
+    all_remote_conns: Vec<u64>,
+    /// Round-robin cursor for NULL_COMPONENT slot selection.
+    slot_cursor: AtomicUsize,
+    /// Human-readable prefix strings for for_each / Display / ProtoName.
+    strings: [String; 3],
+}
+
+impl PrefixEntry {
+    fn new(strings: [String; 3]) -> Self {
+        PrefixEntry {
+            ids: Vec::new(),
+            local: Vec::new(),
+            remote: Vec::new(),
+            all_local_conns: Vec::new(),
+            all_remote_conns: Vec::new(),
+            slot_cursor: AtomicUsize::new(0),
+            strings,
+        }
+    }
+
+    /// Append a new ID slot. Called only when `id` is not already present.
+    fn push_id(&mut self, id: u64) {
+        self.ids.push(id);
+        self.local.push(ConnList::new());
+        self.remote.push(ConnList::new());
+    }
+
+    fn is_empty(&self) -> bool {
+        self.ids.is_empty()
+    }
+
+    /// Add `conn` to the appropriate list for slot `idx` if not already present.
+    /// Also updates the aggregate deduped connection list.
+    fn insert_conn(&mut self, idx: usize, conn: u64, is_local: bool) {
+        if is_local {
+            self.local[idx].push(conn);
+            if !self.all_local_conns.contains(&conn) {
+                self.all_local_conns.push(conn);
+            }
+        } else {
+            self.remote[idx].push(conn);
+            if !self.all_remote_conns.contains(&conn) {
+                self.all_remote_conns.push(conn);
+            }
+        }
+    }
+
+    /// Remove `conn` from the appropriate list for slot `idx` (no-op if absent).
+    /// Evicts from the aggregate only when no other slot still holds the connection.
+    fn remove_conn(&mut self, idx: usize, conn: u64, is_local: bool) {
+        if is_local {
+            self.local[idx].remove(conn);
+            let still_present = self.local.iter().any(|l| l.conns.contains(&conn));
+            if !still_present
+                && let Some(pos) = self.all_local_conns.iter().position(|&c| c == conn)
+            {
+                self.all_local_conns.swap_remove(pos);
+            }
+        } else {
+            self.remote[idx].remove(conn);
+            let still_present = self.remote.iter().any(|r| r.conns.contains(&conn));
+            if !still_present
+                && let Some(pos) = self.all_remote_conns.iter().position(|&c| c == conn)
+            {
+                self.all_remote_conns.swap_remove(pos);
+            }
+        }
+    }
+
+    /// Rebuild aggregate connection lists from scratch (called after a slot is removed).
+    fn rebuild_aggregates(&mut self) {
+        self.all_local_conns.clear();
+        for list in &self.local {
+            for &c in &list.conns {
+                if !self.all_local_conns.contains(&c) {
+                    self.all_local_conns.push(c);
+                }
+            }
+        }
+        self.all_remote_conns.clear();
+        for list in &self.remote {
+            for &c in &list.conns {
+                if !self.all_remote_conns.contains(&c) {
+                    self.all_remote_conns.push(c);
+                }
+            }
+        }
+    }
+
+    /// True when both local and remote lists for slot `idx` are empty.
+    fn is_slot_empty(&self, idx: usize) -> bool {
+        self.local[idx].is_empty() && self.remote[idx].is_empty()
+    }
+
+    /// Remove slot `idx` using swap_remove on every parallel Vec.
+    fn remove_slot(&mut self, idx: usize) {
+        self.ids.swap_remove(idx);
+        self.local.swap_remove(idx);
+        self.remote.swap_remove(idx);
+        self.rebuild_aggregates();
+    }
+
+    /// Remove all slots whose local and remote lists are both empty.
+    /// Replaces `by_id.retain(|e| !e.is_empty())`.
+    fn retain_non_empty(&mut self) {
+        let mut i = 0;
+        while i < self.ids.len() {
+            if self.is_slot_empty(i) {
+                self.remove_slot(i); // swap_remove: don't advance i
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    /// True when a slot for `id` exists.
+    fn has_id(&self, id: u64) -> bool {
+        self.ids.contains(&id)
+    }
+
+    /// Ensure a slot for `id` exists, then insert `conn` (deduped).
+    fn insert_conn_for_id(&mut self, id: u64, conn: u64, is_local: bool) {
+        let idx = match self.ids.iter().position(|&i| i == id) {
+            Some(i) => i,
+            None => {
+                self.push_id(id);
+                self.ids.len() - 1
+            }
+        };
+        self.insert_conn(idx, conn, is_local);
+    }
+
+    /// Remove `conn` from the slot for `id` (no-op if slot absent).
+    fn remove_conn_for_id(&mut self, id: u64, conn: u64, is_local: bool) {
+        if let Some(idx) = self.ids.iter().position(|&i| i == id) {
+            self.remove_conn(idx, conn, is_local);
+        }
+    }
+
+    /// Return one connection for `id`, preferring local, round-robin, excluding `skip`.
+    /// Returns `None` if `id` has no slot or all connections equal `skip`.
+    fn get_one(&self, id: u64, skip: u64) -> Option<u64> {
+        let idx = self.ids.iter().position(|&i| i == id)?;
+        self.local[idx]
+            .next(skip)
+            .or_else(|| self.remote[idx].next(skip))
+    }
+
+    /// Return all connections for `id` (local + remote) excluding `skip`.
+    /// `None` means the slot for `id` does not exist;
+    /// `Some(empty)` means the slot exists but all connections equal `skip`.
+    fn get_all(&self, id: u64, skip: u64) -> Option<Vec<u64>> {
+        let idx = self.ids.iter().position(|&i| i == id)?;
+        let mut out = Vec::with_capacity(self.local[idx].len() + self.remote[idx].len());
+        out.extend(
+            self.local[idx]
+                .iter()
+                .chain(self.remote[idx].iter())
+                .filter(|&c| c != skip),
+        );
+        Some(out)
+    }
+
+    /// NULL_COMPONENT `match_one`: pick one connection, all locals before any remote,
+    /// round-robin across the pre-built aggregate lists, skipping `skip`.
+    fn pick_one_any(&self, skip: u64) -> Option<u64> {
+        let n = self.all_local_conns.len();
+        if n > 0 {
+            let start = self.slot_cursor.fetch_add(1, Ordering::Relaxed) % n;
+            for i in (start..n).chain(0..start) {
+                if self.all_local_conns[i] != skip {
+                    return Some(self.all_local_conns[i]);
+                }
+            }
+        }
+        let n = self.all_remote_conns.len();
+        if n > 0 {
+            let start = self.slot_cursor.fetch_add(1, Ordering::Relaxed) % n;
+            for i in (start..n).chain(0..start) {
+                if self.all_remote_conns[i] != skip {
+                    return Some(self.all_remote_conns[i]);
+                }
+            }
+        }
         None
     }
 
-    fn get_all(&self, except_conn: u64) -> Option<Vec<u64>> {
-        if self.index.len() == 1 {
-            if self.index.contains_key(&except_conn) {
-                debug!("the only available connection cannot be used");
-                return None;
-            } else {
-                let val = self.index.iter().next().unwrap();
-                return Some(vec![*val.0]);
-            }
-        }
-        let mut out = Vec::new();
-        for val in self.index.iter() {
-            if *val.0 != except_conn {
-                out.push(*val.0);
-            }
-        }
-        if out.is_empty() { None } else { Some(out) }
+    /// NULL_COMPONENT `match_all`: collect all distinct connections, locals before
+    /// remotes, skipping `skip`. Uses the pre-built aggregate lists (already deduped).
+    fn get_all_any(&self, skip: u64) -> Vec<u64> {
+        self.all_local_conns
+            .iter()
+            .chain(self.all_remote_conns.iter())
+            .copied()
+            .filter(|&c| c != skip)
+            .collect()
     }
-}
 
-#[derive(Debug)]
-struct NameState {
-    // map name -> [local connection refs, remote connection refs]
-    // the array contains the local connections at position 0 and the
-    // remote ones at position 1
-    // SubscriptionRefs tracks reference counts for each connection
-    ids: HashMap<u64, [SubscriptionRefs; 2]>,
-    // List of all the connections that are available for this name
-    // as for the ids map position 0 stores local connections and position
-    // 1 store remotes ones
-    connections: [Connections; 2],
-    // The human-readable name that this NameState represents in the subscription table.
-    representative_strings: [String; 3],
-}
+    /// Iterate all slots, yielding `(id, local, remote)` — used by `for_each`.
+    fn for_each_slot<F: FnMut(u64, &[u64], &[u64])>(&self, mut f: F) {
+        for (i, &id) in self.ids.iter().enumerate() {
+            f(id, self.local[i].as_slice(), self.remote[i].as_slice());
+        }
+    }
 
-impl NameState {
-    fn new(id: u64, conn: u64, is_local: bool, subscription_id: u64, name: ProtoName) -> Self {
-        let (s0, s1, s2) = name.str_components();
-        let mut type_state = NameState {
-            ids: HashMap::new(),
-            connections: [Connections::default(), Connections::default()],
-            representative_strings: [s0.to_string(), s1.to_string(), s2.to_string()],
-        };
-        let refs = SubscriptionRefs::new(conn, subscription_id);
-        if is_local {
-            type_state.connections[0].insert(conn);
-            type_state
-                .ids
-                .insert(id, [refs, SubscriptionRefs::default()]);
+    /// Build a `ProtoName` from the stored strings and a component_3 value.
+    fn to_proto_name(&self, id: u64) -> ProtoName {
+        let base = ProtoName::from_strings([
+            self.strings[0].as_str(),
+            self.strings[1].as_str(),
+            self.strings[2].as_str(),
+        ]);
+        if id != ProtoName::NULL_COMPONENT {
+            base.with_id(id)
         } else {
-            type_state.connections[1].insert(conn);
-            type_state
-                .ids
-                .insert(id, [SubscriptionRefs::default(), refs]);
-        }
-        type_state
-    }
-
-    fn insert(&mut self, id: u64, conn: u64, is_local: bool, subscription_id: u64) {
-        let index = if is_local { 0 } else { 1 };
-
-        let actually_new = match self.ids.get_mut(&id) {
-            None => {
-                // the id does not exist
-                let mut connections = [SubscriptionRefs::default(), SubscriptionRefs::default()];
-                connections[index].insert(conn, subscription_id);
-                self.ids.insert(id, connections);
-                true
-            }
-            Some(v) => v[index].insert(conn, subscription_id),
-        };
-
-        // Only add to connections pool if this was actually a new subscription_id
-        if actually_new {
-            self.connections[index].insert(conn);
-        }
-    }
-
-    fn remove(
-        &mut self,
-        id: &u64,
-        conn: u64,
-        is_local: bool,
-        subscription_id: u64,
-    ) -> Result<bool, DataPathError> {
-        match self.ids.get_mut(id) {
-            None => {
-                warn!(%id, "not found");
-                Err(DataPathError::IdNotFound(*id))
-            }
-            Some(connection_refs) => {
-                let index = if is_local { 0 } else { 1 };
-
-                let conn_fully_removed = connection_refs[index].remove(conn, subscription_id)?;
-                // Decrement the Connections counter — it was incremented
-                // once per unique subscription_id in insert().
-                self.connections[index].remove(conn)?;
-
-                if conn_fully_removed
-                    && connection_refs[0].is_empty()
-                    && connection_refs[1].is_empty()
-                {
-                    self.ids.remove(id);
-                }
-
-                Ok(conn_fully_removed)
-            }
-        }
-    }
-
-    fn force_remove(&mut self, id: &u64, conn: u64, is_local: bool) -> Result<(), DataPathError> {
-        // Force remove regardless of counter - used when connection dies
-        match self.ids.get_mut(id) {
-            None => {
-                warn!(%id, "not found");
-                Err(DataPathError::IdNotFound(*id))
-            }
-            Some(connection_refs) => {
-                let index = if is_local { 0 } else { 1 };
-
-                let count = connection_refs[index].force_remove(conn)?;
-                // Remove from connections pool, decrementing by the full count
-                for _ in 0..count {
-                    self.connections[index].remove(conn)?;
-                }
-                // if both refs are empty remove the id from the tables
-                if connection_refs[0].is_empty() && connection_refs[1].is_empty() {
-                    self.ids.remove(id);
-                }
-                Ok(())
-            }
-        }
-    }
-
-    fn get_one_connection(
-        &self,
-        id: u64,
-        incoming_conn: u64,
-        get_local_connection: bool,
-    ) -> Option<u64> {
-        let mut index = 0;
-        if !get_local_connection {
-            index = 1;
-        }
-
-        if id == ProtoName::NULL_COMPONENT {
-            return self.connections[index].get_one(incoming_conn);
-        }
-
-        let val = self.ids.get(&id);
-        match val {
-            None => {
-                debug!(name = %id, "cannot find out connection, name does not exists");
-                None
-            }
-            Some(refs) => {
-                if refs[index].is_empty() {
-                    // no connections available
-                    return None;
-                }
-
-                if refs[index].len() == 1 {
-                    // Get the single connection id
-                    let conn_id = *refs[index].keys().next().unwrap();
-                    if conn_id == incoming_conn {
-                        // cannot return the incoming connection
-                        debug!("the only available connection cannot be used");
-                        return None;
-                    } else {
-                        return Some(conn_id);
-                    }
-                }
-
-                // we need to iterate and find a value starting from a random point
-                let conns: Vec<u64> = refs[index].keys().copied().collect();
-                let mut rng = rand::rng();
-                let pos = rng.random_range(0..conns.len());
-                let mut stop = false;
-                let mut i = pos;
-                while !stop {
-                    if conns[i] != incoming_conn {
-                        return Some(conns[i]);
-                    }
-                    i = (i + 1) % conns.len();
-                    if i == pos {
-                        stop = true;
-                    }
-                }
-                debug!("no output connection available");
-                None
-            }
-        }
-    }
-
-    fn get_all_connections(
-        &self,
-        id: u64,
-        incoming_conn: u64,
-        get_local_connection: bool,
-    ) -> Option<Vec<u64>> {
-        let mut index = 0;
-        if !get_local_connection {
-            index = 1;
-        }
-
-        if id == ProtoName::NULL_COMPONENT {
-            return self.connections[index].get_all(incoming_conn);
-        }
-
-        let val = self.ids.get(&id);
-        match val {
-            None => {
-                debug!(%id, "cannot find out connection, id does not exists");
-                None
-            }
-            Some(refs) => {
-                if refs[index].is_empty() {
-                    // should never happen
-                    return None;
-                }
-
-                if refs[index].len() == 1 {
-                    // Get the single connection id
-                    let conn_id = *refs[index].keys().next().unwrap();
-                    if conn_id == incoming_conn {
-                        // cannot return the incoming connection
-                        debug!("the only available connection cannot be used");
-                        return None;
-                    } else {
-                        return Some(vec![conn_id]);
-                    }
-                }
-
-                // we need to iterate over the refs and exclude the incoming connection
-                let mut out = Vec::new();
-                for conn_id in refs[index].keys() {
-                    if *conn_id != incoming_conn {
-                        out.push(*conn_id);
-                    }
-                }
-                if out.is_empty() { None } else { Some(out) }
-            }
+            base
         }
     }
 }
+
+impl Clone for PrefixEntry {
+    fn clone(&self) -> Self {
+        PrefixEntry {
+            ids: self.ids.clone(),
+            local: self.local.clone(),
+            remote: self.remote.clone(),
+            all_local_conns: self.all_local_conns.clone(),
+            all_remote_conns: self.all_remote_conns.clone(),
+            slot_cursor: AtomicUsize::new(self.slot_cursor.load(Ordering::Relaxed)),
+            strings: self.strings.clone(),
+        }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// SubRecord – flat write-path record stored per subscription_id.
+// ──────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy)]
+struct SubRecord {
+    encoded: EncodedName,
+    conn_id: u64,
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// SubscriptionState — COLD write path.
+//
+// Protected by a Mutex (exclusive access always required). Never held by
+// match_one / match_all, so subscription churn never blocks message routing.
+// ──────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Default)]
+struct SubscriptionState {
+    subscriptions: HashMap<u64, SubRecord>, // sub_id  → (encoded, conn_id)
+    conn_subs: HashMap<u64, HashSet<u64>>,  // conn_id → sub_ids
+}
+
+impl SubscriptionState {
+    /// Record a new subscription and update the reverse conn→sub_ids map.
+    fn add(&mut self, sub_id: u64, record: SubRecord) {
+        self.subscriptions.insert(sub_id, record);
+        self.conn_subs
+            .entry(record.conn_id)
+            .or_default()
+            .insert(sub_id);
+    }
+
+    /// Remove a subscription by `sub_id`, cleaning up `conn_subs` when empty.
+    /// Returns the removed record, or `None` if the `sub_id` was not present.
+    fn remove(&mut self, sub_id: u64) -> Option<SubRecord> {
+        let record = self.subscriptions.remove(&sub_id)?;
+        if let Some(set) = self.conn_subs.get_mut(&record.conn_id) {
+            set.remove(&sub_id);
+        }
+        if self
+            .conn_subs
+            .get(&record.conn_id)
+            .is_some_and(|s| s.is_empty())
+        {
+            self.conn_subs.remove(&record.conn_id);
+        }
+        Some(record)
+    }
+
+    /// True when `conn` still has at least one subscription for `encoded`.
+    fn conn_still_subscribed(&self, conn: u64, encoded: EncodedName) -> bool {
+        self.conn_subs.get(&conn).is_some_and(|subs| {
+            subs.iter().any(|&s| {
+                self.subscriptions
+                    .get(&s)
+                    .is_some_and(|r| r.encoded == encoded)
+            })
+        })
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// SubscriptionTableImpl
+//
+// Concurrency design:
+//   - Hot read path (match_one / match_all): lock-free via ArcSwap::load().
+//     Readers get an immutable snapshot with a single atomic pointer load.
+//   - Write path (add/remove subscription, remove connection):
+//       1. subscription_state.lock() — bookkeeping, always acquired first
+//       2. load current routing snapshot
+//       3. clone → modify → ArcSwap::store()  (no write lock held)
+// ──────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug)]
 pub struct SubscriptionTableImpl {
-    // subscriptions table
-    // name -> name state
-    // if a subscription comes for a specific id, it is added
-    // to that specific id, otherwise the connection is added
-    // to the ProtoName::NULL_COMPONENT id
-    table: RwLock<HashMap<SubscriptionName, NameState>>,
-    // connections tables
-    // conn_index -> set(name)
-    connections: RwLock<HashMap<u64, HashSet<ProtoName>>>,
+    routing: ArcSwap<HashMap<[u64; 3], Arc<PrefixEntry>>>, // lock-free on the hot read path
+    subscription_state: Mutex<SubscriptionState>,          // never held by match_one / match_all
+}
+
+impl Default for SubscriptionTableImpl {
+    fn default() -> Self {
+        SubscriptionTableImpl {
+            routing: ArcSwap::from_pointee(HashMap::new()),
+            subscription_state: Mutex::default(),
+        }
+    }
 }
 
 impl Display for SubscriptionTableImpl {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // print main table
-        let table = self.table.read();
+        let rs = self.routing.load();
         writeln!(f, "Subscription Table")?;
-        for (_, v) in table.iter() {
-            let s = &v.representative_strings;
-            writeln!(f, "Type: {}/{}/{}", s[0], s[1], s[2])?;
+        for prefix_entry in rs.values() {
+            writeln!(
+                f,
+                "Type: {}/{}/{}",
+                prefix_entry.strings[0], prefix_entry.strings[1], prefix_entry.strings[2]
+            )?;
             writeln!(f, "  Names:")?;
-            for (id, conn_refs) in v.ids.iter() {
+            for (i, &id) in prefix_entry.ids.iter().enumerate() {
                 writeln!(f, "    Id: {}", id)?;
-                if conn_refs[0].is_empty() {
+                if prefix_entry.local[i].is_empty() {
                     writeln!(f, "       Local Connections:")?;
                     writeln!(f, "         None")?;
                 } else {
                     writeln!(f, "       Local Connections:")?;
-                    for (c, count) in conn_refs[0].iter() {
-                        writeln!(f, "         Connection: {} (refs: {})", c, count)?;
+                    for c in prefix_entry.local[i].iter() {
+                        writeln!(f, "         Connection: {}", c)?;
                     }
                 }
-                if conn_refs[1].is_empty() {
+                if prefix_entry.remote[i].is_empty() {
                     writeln!(f, "       Remote Connections:")?;
                     writeln!(f, "         None")?;
                 } else {
                     writeln!(f, "       Remote Connections:")?;
-                    for (c, count) in conn_refs[1].iter() {
-                        writeln!(f, "         Connection: {} (refs: {})", c, count)?;
+                    for c in prefix_entry.remote[i].iter() {
+                        writeln!(f, "         Connection: {}", c)?;
                     }
                 }
             }
         }
-
         Ok(())
     }
-}
-
-fn add_subscription_to_sub_table(
-    name: ProtoName,
-    conn: u64,
-    is_local: bool,
-    subscription_id: u64,
-    mut table: RwLockWriteGuard<'_, RawRwLock, HashMap<SubscriptionName, NameState>>,
-) {
-    let uid = name.id();
-    let enc = name.name.as_ref().unwrap();
-    let key = SubscriptionName([enc.component_0, enc.component_1, enc.component_2]);
-
-    match table.get_mut(&key) {
-        None => {
-            debug!(
-                %name, %conn,
-                "subscription table: add first subscription",
-            );
-            let state = NameState::new(uid, conn, is_local, subscription_id, name);
-            table.insert(key, state);
-        }
-        Some(state) => {
-            state.insert(uid, conn, is_local, subscription_id);
-        }
-    }
-}
-
-fn add_subscription_to_connection(
-    name: ProtoName,
-    conn_index: u64,
-    mut map: RwLockWriteGuard<'_, RawRwLock, HashMap<u64, HashSet<ProtoName>>>,
-) -> Result<(), DataPathError> {
-    let name_str = name.to_string();
-
-    let set = map.get_mut(&conn_index);
-    match set {
-        None => {
-            debug!(
-                name = %name_str, %conn_index,
-                "add first subscription for name",
-            );
-            let mut set = HashSet::new();
-            set.insert(name);
-            map.insert(conn_index, set);
-        }
-        Some(s) => {
-            debug!(
-                name = %name_str, %conn_index, "add subscription",
-            );
-
-            if !s.insert(name) {
-                // Subscription already exists in the set - this is expected with refcounting
-                debug!(
-                    name = %name_str,
-                    %conn_index,
-                    "subscription already tracked in connections set (refcount incremented)",
-                );
-                return Ok(());
-            }
-        }
-    }
-    debug!(
-        name = %name_str, %conn_index,
-        "subscription successfully added on connection",
-    );
-    Ok(())
-}
-
-fn remove_subscription_from_sub_table(
-    name: &ProtoName,
-    conn_index: u64,
-    is_local: bool,
-    subscription_id: u64,
-    table: &mut RwLockWriteGuard<'_, RawRwLock, HashMap<SubscriptionName, NameState>>,
-) -> Result<bool, DataPathError> {
-    let enc = name.name.as_ref().unwrap();
-    let key = SubscriptionName([enc.component_0, enc.component_1, enc.component_2]);
-
-    if let Some(state) = table.get_mut(&key) {
-        let conn_fully_removed = state.remove(&name.id(), conn_index, is_local, subscription_id)?;
-
-        if state.ids.is_empty() {
-            table.remove(&key);
-        }
-        Ok(conn_fully_removed)
-    } else {
-        debug!("subscription not found {}", name);
-        Err(DataPathError::SubscriptionNotFound(name.clone()))
-    }
-}
-
-fn force_remove_subscription_from_sub_table(
-    name: &ProtoName,
-    conn_index: u64,
-    is_local: bool,
-    table: &mut RwLockWriteGuard<'_, RawRwLock, HashMap<SubscriptionName, NameState>>,
-) -> Result<(), DataPathError> {
-    let enc = name.name.as_ref().unwrap();
-    let key = SubscriptionName([enc.component_0, enc.component_1, enc.component_2]);
-
-    if let Some(state) = table.get_mut(&key) {
-        state.force_remove(&name.id(), conn_index, is_local)?;
-        if state.ids.is_empty() {
-            table.remove(&key);
-        }
-        Ok(())
-    } else {
-        debug!("subscription not found {}", name);
-        Err(DataPathError::SubscriptionNotFound(name.clone()))
-    }
-}
-
-fn remove_subscription_from_connection(
-    name: &ProtoName,
-    conn_index: u64,
-    mut map: RwLockWriteGuard<'_, RawRwLock, HashMap<u64, HashSet<ProtoName>>>,
-) -> Result<(), DataPathError> {
-    let set = map.get_mut(&conn_index);
-    match set {
-        None => {
-            warn!(%conn_index, "connection not found");
-            return Err(DataPathError::ConnectionIdNotFound(conn_index));
-        }
-        Some(s) => {
-            if !s.remove(name) {
-                warn!(
-                    %name, %conn_index,
-                    "subscription not found for connection",
-                );
-                return Err(DataPathError::SubscriptionNotFound(name.clone()));
-            }
-            if s.is_empty() {
-                map.remove(&conn_index);
-            }
-        }
-    }
-    debug!(
-        %name, %conn_index,
-        "subscription successfully removed",
-    );
-    Ok(())
 }
 
 impl SubscriptionTable for SubscriptionTableImpl {
@@ -649,17 +484,16 @@ impl SubscriptionTable for SubscriptionTableImpl {
     where
         F: FnMut(&ProtoName, u64, &[u64], &[u64]),
     {
-        let table = self.table.read();
-
-        for (_, v) in table.iter() {
-            let s = &v.representative_strings;
-            let name = ProtoName::from_strings([s[0].as_str(), s[1].as_str(), s[2].as_str()]);
-            for (id, conn_refs) in v.ids.iter() {
-                // Convert SubscriptionRefs keys to Vec for the callback
-                let local: Vec<u64> = conn_refs[0].keys().copied().collect();
-                let remote: Vec<u64> = conn_refs[1].keys().copied().collect();
-                f(&name, *id, local.as_ref(), remote.as_ref());
-            }
+        let rs = self.routing.load();
+        for prefix_entry in rs.values() {
+            let base_name = ProtoName::from_strings([
+                prefix_entry.strings[0].as_str(),
+                prefix_entry.strings[1].as_str(),
+                prefix_entry.strings[2].as_str(),
+            ]);
+            prefix_entry.for_each_slot(|id, local, remote| {
+                f(&base_name, id, local, remote);
+            });
         }
     }
 
@@ -670,14 +504,40 @@ impl SubscriptionTable for SubscriptionTableImpl {
         is_local: bool,
         subscription_id: u64,
     ) -> Result<(), Self::Error> {
-        {
-            let table = self.table.write();
-            add_subscription_to_sub_table(name.clone(), conn, is_local, subscription_id, table);
-        }
-        {
-            let conn_table = self.connections.write();
-            let _ = add_subscription_to_connection(name, conn, conn_table);
-        }
+        let enc = name.name.as_ref().unwrap();
+        let prefix = [enc.component_0, enc.component_1, enc.component_2];
+        let id = enc.component_3;
+        let encoded = *enc;
+
+        // subscription_state locked first; routing updated via clone-modify-store.
+        let mut ss = self.subscription_state.lock();
+        let mut rs = (**self.routing.load()).clone();
+
+        // 1. Ensure PrefixEntry exists; record strings on first insertion.
+        let entry = rs.entry(prefix).or_insert_with(|| {
+            let (s0, s1, s2) = name.str_components();
+            Arc::new(PrefixEntry::new([
+                s0.to_string(),
+                s1.to_string(),
+                s2.to_string(),
+            ]))
+        });
+
+        // 2 & 3. Ensure an ID slot exists and insert conn (deduped).
+        // Arc::make_mut does COW: clones only this PrefixEntry if other refs exist.
+        Arc::make_mut(entry).insert_conn_for_id(id, conn, is_local);
+        self.routing.store(Arc::new(rs));
+
+        // 4 & 5. Record subscription and update the reverse conn→sub_ids map.
+        ss.add(
+            subscription_id,
+            SubRecord {
+                encoded,
+                conn_id: conn,
+            },
+        );
+
+        debug!(%name, %conn, "subscription table: add subscription");
         Ok(())
     }
 
@@ -688,14 +548,64 @@ impl SubscriptionTable for SubscriptionTableImpl {
         is_local: bool,
         subscription_id: u64,
     ) -> Result<(), Self::Error> {
-        let conn_fully_removed = {
-            let mut table = self.table.write();
-            remove_subscription_from_sub_table(name, conn, is_local, subscription_id, &mut table)?
-        };
-        if conn_fully_removed {
-            let conn_table = self.connections.write();
-            remove_subscription_from_connection(name, conn, conn_table)?;
+        let enc = name.name.as_ref().unwrap();
+        let prefix = [enc.component_0, enc.component_1, enc.component_2];
+        let id = enc.component_3;
+        let encoded = *enc;
+
+        // subscription_state locked first; routing validated then updated via clone-modify-store.
+        let mut ss = self.subscription_state.lock();
+
+        // Error precedence: routing checks first (read snapshot, no clone yet).
+        {
+            let current = self.routing.load();
+            if !current.contains_key(&prefix) {
+                debug!("subscription not found {}", name);
+                return Err(DataPathError::SubscriptionNotFound(name.clone()));
+            }
+            if !current[&prefix].has_id(id) {
+                warn!(%id, "not found");
+                return Err(DataPathError::IdNotFound(id));
+            }
         }
+
+        // Validate the subscription record.
+        let record = ss
+            .subscriptions
+            .get(&subscription_id)
+            .copied()
+            .ok_or(DataPathError::SubscriptionIdNotFound(subscription_id))?;
+
+        if record.conn_id != conn {
+            return Err(DataPathError::ConnectionIdNotFound(conn));
+        }
+        if record.encoded != encoded {
+            return Err(DataPathError::SubscriptionIdNotFound(subscription_id));
+        }
+
+        // Remove sub_id from both maps (conn_subs is cleaned up when empty).
+        ss.remove(subscription_id);
+
+        // Check whether the connection is still subscribed to the same encoded name via another
+        // subscription_id.
+        let conn_still_subscribed = ss.conn_still_subscribed(conn, encoded);
+
+        if !conn_still_subscribed {
+            let mut rs = (**self.routing.load()).clone();
+            let should_remove_prefix = if let Some(entry) = rs.get_mut(&prefix) {
+                let pe = Arc::make_mut(entry);
+                pe.remove_conn_for_id(id, conn, is_local);
+                pe.retain_non_empty();
+                pe.is_empty()
+            } else {
+                false
+            };
+            if should_remove_prefix {
+                rs.remove(&prefix);
+            }
+            self.routing.store(Arc::new(rs));
+        }
+
         Ok(())
     }
 
@@ -704,79 +614,125 @@ impl SubscriptionTable for SubscriptionTableImpl {
         conn: u64,
         is_local: bool,
     ) -> Result<HashMap<ProtoName, HashSet<u64>>, Self::Error> {
-        let removed_subscriptions = self
-            .connections
-            .write()
+        // subscription_state locked first; routing updated via clone-modify-store.
+        let mut ss = self.subscription_state.lock();
+
+        let sub_ids = ss
+            .conn_subs
             .remove(&conn)
             .ok_or(DataPathError::ConnectionIdNotFound(conn))?;
-        let mut table = self.table.write();
-        let idx = if is_local { 0 } else { 1 };
-        let mut result: HashMap<ProtoName, HashSet<u64>> =
-            HashMap::with_capacity(removed_subscriptions.len());
-        for name in removed_subscriptions {
-            debug!(%name, %conn, "remove subscription");
-            // Extract subscription IDs before removing so callers can restore exact state.
-            let enc = name.name.as_ref().unwrap();
-            let query_name = SubscriptionName([enc.component_0, enc.component_1, enc.component_2]);
-            if let Some(state) = table.get(&query_name)
-                && let Some(refs) = state.ids.get(&name.id())
-                && let Some(sub_ids) = refs[idx].refs.get(&conn)
-            {
-                result.insert(name.clone(), sub_ids.clone());
+
+        let mut result: HashMap<ProtoName, HashSet<u64>> = HashMap::with_capacity(sub_ids.len());
+
+        // Pass 1: remove each subscription record and build the result map.
+        // Use a read snapshot (no clone yet) for proto_name lookups.
+        let mut encoded_names: Vec<EncodedName> = Vec::new();
+
+        let current = self.routing.load();
+        for sub_id in sub_ids {
+            if let Some(record) = ss.subscriptions.remove(&sub_id) {
+                let prefix = [
+                    record.encoded.component_0,
+                    record.encoded.component_1,
+                    record.encoded.component_2,
+                ];
+                let proto_name = current
+                    .get(&prefix)
+                    .map(|pe| pe.to_proto_name(record.encoded.component_3))
+                    .unwrap_or(ProtoName {
+                        name: Some(record.encoded),
+                        str_name: None,
+                    });
+                result.entry(proto_name).or_default().insert(sub_id);
+
+                if !encoded_names.contains(&record.encoded) {
+                    encoded_names.push(record.encoded);
+                }
             }
-            force_remove_subscription_from_sub_table(&name, conn, is_local, &mut table)?;
         }
+
+        // Pass 2: clone snapshot, remove conn from routing for every affected encoded name.
+        let mut rs = (**current).clone();
+        drop(current);
+        for encoded in &encoded_names {
+            debug!(%conn, ?encoded, "remove subscription");
+            let prefix = [
+                encoded.component_0,
+                encoded.component_1,
+                encoded.component_2,
+            ];
+            let id = encoded.component_3;
+
+            let should_remove_prefix = if let Some(entry) = rs.get_mut(&prefix) {
+                let pe = Arc::make_mut(entry);
+                pe.remove_conn_for_id(id, conn, is_local);
+                pe.retain_non_empty();
+                pe.is_empty()
+            } else {
+                false
+            };
+
+            if should_remove_prefix {
+                rs.remove(&prefix);
+            }
+        }
+        self.routing.store(Arc::new(rs));
+
         Ok(result)
     }
 
     fn match_one(&self, encoded: &EncodedName, incoming_conn: u64) -> Result<u64, Self::Error> {
-        let key = SubscriptionName([
+        let prefix = [
             encoded.component_0,
             encoded.component_1,
             encoded.component_2,
-        ]);
-        let table = self.table.read();
+        ];
+        let id = encoded.component_3;
+        let rs = self.routing.load();
 
-        match table.get(&key) {
+        // ONE HashMap lookup — the same for any c3 value.
+        let prefix_entry = match rs.get(&prefix) {
             None => {
                 debug!(
                     component_0 = encoded.component_0,
                     component_1 = encoded.component_1,
                     component_2 = encoded.component_2,
+                    component_3 = id,
                     "match not found for name"
                 );
-                Err(DataPathError::NoMatchEncoded([
+                return Err(DataPathError::NoMatchEncoded([
                     encoded.component_0,
                     encoded.component_1,
                     encoded.component_2,
-                    encoded.component_3,
-                ]))
+                    id,
+                ]));
             }
-            Some(state) => {
-                // first try to send the message to the local connections
-                // if no local connection exists or the message cannot
-                // be sent try on remote ones
-                let id = encoded.component_3;
-                let local_out = state.get_one_connection(id, incoming_conn, true);
-                if let Some(out) = local_out {
-                    return Ok(out);
-                }
-                let remote_out = state.get_one_connection(id, incoming_conn, false);
-                if let Some(out) = remote_out {
-                    return Ok(out);
-                }
-                let s = &state.representative_strings;
-                debug!(
-                    name = format!("{}/{}/{}", s[0], s[1], s[2]),
-                    "no output connection available"
-                );
-                Err(DataPathError::NoMatchEncoded([
+            Some(pe) => pe,
+        };
+
+        if id != ProtoName::NULL_COMPONENT {
+            // Specific ID: linear scan over ids (8 per cache line).
+            prefix_entry.get_one(id, incoming_conn).ok_or_else(|| {
+                debug!(component_3 = id, "match not found for name");
+                DataPathError::NoMatchEncoded([
                     encoded.component_0,
                     encoded.component_1,
                     encoded.component_2,
-                    encoded.component_3,
-                ]))
-            }
+                    id,
+                ])
+            })
+        } else {
+            // NULL_COMPONENT: pick one connection across all registered IDs,
+            // locals preferred.  Data is already hot from the single lookup above.
+            prefix_entry.pick_one_any(incoming_conn).ok_or_else(|| {
+                debug!("no output connection available");
+                DataPathError::NoMatchEncoded([
+                    encoded.component_0,
+                    encoded.component_1,
+                    encoded.component_2,
+                    id,
+                ])
+            })
         }
     }
 
@@ -785,59 +741,75 @@ impl SubscriptionTable for SubscriptionTableImpl {
         encoded: &EncodedName,
         incoming_conn: u64,
     ) -> Result<Vec<u64>, Self::Error> {
-        let key = SubscriptionName([
+        let prefix = [
             encoded.component_0,
             encoded.component_1,
             encoded.component_2,
-        ]);
-        let table = self.table.read();
+        ];
+        let id = encoded.component_3;
+        let rs = self.routing.load();
 
-        match table.get(&key) {
+        // ONE HashMap lookup — the same for any c3 value.
+        let prefix_entry = match rs.get(&prefix) {
             None => {
                 debug!(
                     component_0 = encoded.component_0,
                     component_1 = encoded.component_1,
                     component_2 = encoded.component_2,
+                    component_3 = id,
                     "match not found for name"
                 );
-                Err(DataPathError::NoMatchEncoded([
+                return Err(DataPathError::NoMatchEncoded([
                     encoded.component_0,
                     encoded.component_1,
                     encoded.component_2,
-                    encoded.component_3,
-                ]))
+                    id,
+                ]));
             }
-            Some(state) => {
-                let id = encoded.component_3;
-                let mut all_connections = Vec::new();
+            Some(pe) => pe,
+        };
 
-                // Collect local connections
-                if let Some(local_out) = state.get_all_connections(id, incoming_conn, true) {
-                    debug!(?local_out, "found local connections");
-                    all_connections.extend(local_out);
-                }
-
-                // Collect remote connections
-                if let Some(remote_out) = state.get_all_connections(id, incoming_conn, false) {
-                    debug!(?remote_out, "found remote connections");
-                    all_connections.extend(remote_out);
-                }
-
-                if all_connections.is_empty() {
-                    let s = &state.representative_strings;
-                    debug!(
-                        name = format!("{}/{}/{}", s[0], s[1], s[2]),
-                        "no connection available (local/remote)"
-                    );
+        if id != ProtoName::NULL_COMPONENT {
+            // Specific ID: linear scan over ids (8 per cache line).
+            match prefix_entry.get_all(id, incoming_conn) {
+                None => {
+                    debug!(component_3 = id, "match not found for name");
                     Err(DataPathError::NoMatchEncoded([
                         encoded.component_0,
                         encoded.component_1,
                         encoded.component_2,
-                        encoded.component_3,
+                        id,
                     ]))
-                } else {
-                    Ok(all_connections)
                 }
+                Some(out) if out.is_empty() => {
+                    debug!("no connection available (local/remote)");
+                    Err(DataPathError::NoMatchEncoded([
+                        encoded.component_0,
+                        encoded.component_1,
+                        encoded.component_2,
+                        id,
+                    ]))
+                }
+                Some(out) => {
+                    debug!(?out, "found connections");
+                    Ok(out)
+                }
+            }
+        } else {
+            // NULL_COMPONENT: union of all connections, locals before remotes.
+            // Data is already hot from the single lookup above.
+            let out = prefix_entry.get_all_any(incoming_conn);
+            if out.is_empty() {
+                debug!("no connection available");
+                Err(DataPathError::NoMatchEncoded([
+                    encoded.component_0,
+                    encoded.component_1,
+                    encoded.component_2,
+                    id,
+                ]))
+            } else {
+                debug!(?out, "found connections");
+                Ok(out)
             }
         }
     }
@@ -911,7 +883,7 @@ mod tests {
         assert!(out.contains(&1));
         assert!(out.contains(&2));
 
-        // run multiple times for randomenes
+        // run multiple times for randomness
         for _ in 0..20 {
             let out = t.match_one(&enc(&name1), 100).unwrap();
             if out != 1 && out != 2 {
