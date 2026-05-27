@@ -50,7 +50,6 @@ SPDX-License-Identifier: Apache-2.0
 //! * Interior mutability only for the replay cache (parking_lot::Mutex).
 //! * All other fields are immutable after construction.
 
-use async_trait::async_trait;
 use aws_lc_rs::hmac;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as STANDARD_BASE64;
@@ -510,7 +509,6 @@ impl SharedSecret {
     }
 }
 
-#[async_trait]
 impl TokenProvider for SharedSecret {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         // SharedSecret has no async initialization steps.
@@ -518,11 +516,7 @@ impl TokenProvider for SharedSecret {
     }
 
     fn get_token(&self) -> Result<String, AuthError> {
-<<<<<<< HEAD
         let mut buf = String::with_capacity(self.token_capacity());
-=======
-        let mut buf = String::new();
->>>>>>> 4d74f6c4 (perf(auth): cache HMAC key and claims, drop per-call allocations in SharedSecret)
         self.get_token_into(&mut buf)?;
         Ok(buf)
     }
@@ -546,7 +540,6 @@ impl TokenProvider for SharedSecret {
     }
 }
 
-#[async_trait]
 impl Verifier for SharedSecret {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         Ok(())
