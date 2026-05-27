@@ -33,7 +33,6 @@ use crate::errors::ControllerError;
 use prost_types::Struct;
 use slim_config::client::{ClientConfig, TransportChannel};
 use slim_datapath::api::ProtoName;
-use slim_datapath::api::ProtoName as Name;
 use slim_datapath::api::{
     MessageType::Subscribe, MessageType::SubscriptionAck as SubscriptionAckType,
     MessageType::Unsubscribe, ProtoMessage as DataPlaneMessage,
@@ -45,8 +44,6 @@ use slim_datapath::tables::SubscriptionTable;
 type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
 type TxChannels = HashMap<String, TxChannel>;
 
-// Controller component
-const CONTROLLER_COMPONENT: &str = "controller";
 /// Maximum number of queued subscription notifications
 const MAX_QUEUED_NOTIFICATIONS: usize = 1000;
 
@@ -79,9 +76,6 @@ struct ControllerServiceInternal {
     /// ID of this SLIM instance
     id: ID,
 
-    /// controller name
-    controller_name: ProtoName,
-
     /// optional group name
     group_name: Option<String>,
 
@@ -110,7 +104,7 @@ struct ControllerServiceInternal {
     connection_details: Vec<ConnectionDetails>,
 
     /// Maps (subscription_name, link_id) → subscription_id for route tracking
-    route_subscription_ids: parking_lot::Mutex<HashMap<(Name, u64), u64>>,
+    route_subscription_ids: parking_lot::Mutex<HashMap<(ProtoName, u64), u64>>,
 
     /// Reverse index: link_id → conn_id for O(1) lookup.
     /// Populated lazily on first resolve and eagerly on connection create/delete.
@@ -248,13 +242,6 @@ impl ControlPlane {
             .unwrap();
 
         let (signal, watch) = drain::channel();
-        let controller_name = ProtoName::from_strings([
-            CONTROLLER_COMPONENT,
-            CONTROLLER_COMPONENT,
-            CONTROLLER_COMPONENT,
-        ])
-        .with_id(rand::random::<u64>());
-        debug!("create controller with name: {}", controller_name);
 
         ControlPlane {
             servers: config.servers,
@@ -262,7 +249,6 @@ impl ControlPlane {
             controller: ControllerService {
                 inner: Arc::new(ControllerServiceInternal {
                     id: config.id,
-                    controller_name,
                     group_name: config.group_name,
                     message_processor: config.message_processor,
                     subscription_manager: SubscriptionManager::new(tx_slim.clone()),
@@ -393,29 +379,10 @@ impl ControlPlane {
         let clients = self.clients.clone();
         let controller = self.controller.clone();
 
-        // Send subscription to data-plane to receive messages for the controller source name
-        let controller_name = self.controller.inner.controller_name.clone();
-        let subscribe_msg = DataPlaneMessage::builder()
-            .source(controller_name.clone())
-            .destination(controller_name.clone())
-            .identity(controller_name.to_string())
-            .build_subscribe()
-            .unwrap();
-
-        controller
-            .inner
-            .tx_slim
-            .send(Ok(subscribe_msg))
-            .await
-            .map_err(|e| {
-                error!(error = %e.chain(), "failed to send subscribe message to data plane");
-                ControllerError::DatapathSendError(e.to_string())
-            })?;
-
         // Get a drain watch clone
         let watch = self.controller.drain_watch()?;
 
-        debug!("Starting data plane listener: {}", controller_name);
+        debug!("Starting data plane listener");
         tokio::spawn(async move {
             let mut drain_fut = std::pin::pin!(watch.signaled());
             loop {
@@ -425,7 +392,7 @@ impl ControlPlane {
                             Some(res) => {
                                 match res {
                                     Ok(msg) => {
-                                        debug!("Send sub/unsub/ack to control plane for message: {:?}", msg);
+                                        debug!("Send sub/unsub to control plane for message: {:?}", msg);
                                         match msg.get_type() {
                                             Subscribe(_) => {
                                                 controller.handle_subscribe_message(msg.get_dst(), &clients).await;
@@ -758,20 +725,20 @@ impl ControllerService {
     fn resolve_desired_routes<'a>(
         &self,
         desired_routes: &'a [v1::Route],
-    ) -> (HashMap<(Name, u64), &'a v1::Route>, Vec<v1::RouteAck>) {
-        type SubKey = (Name, u64);
+    ) -> (HashMap<(ProtoName, u64), &'a v1::Route>, Vec<v1::RouteAck>) {
+        type SubKey = (ProtoName, u64);
         let mut desired_subs: HashMap<SubKey, &v1::Route> = HashMap::new();
         let mut failures: Vec<v1::RouteAck> = Vec::new();
 
         for sub in desired_routes {
             match self.resolve_route_connection(sub) {
                 Ok(Some(conn_id)) => {
-                    let name = Name::from_strings([
+                    let name = ProtoName::from_strings([
                         sub.component_0.as_str(),
                         sub.component_1.as_str(),
                         sub.component_2.as_str(),
                     ])
-                    .with_id(sub.id.unwrap_or(Name::NULL_COMPONENT));
+                    .with_id(sub.id.unwrap_or(ProtoName::NULL_COMPONENT));
                     desired_subs.insert((name, conn_id), sub);
                 }
                 Ok(None) => {
@@ -796,9 +763,9 @@ impl ControllerService {
 
     async fn delete_stale_subscriptions(
         &self,
-        desired_subs: &HashMap<(Name, u64), &v1::Route>,
+        desired_subs: &HashMap<(ProtoName, u64), &v1::Route>,
     ) -> Vec<v1::RouteAck> {
-        let active_subs: Vec<((Name, u64), u64)> = self
+        let active_subs: Vec<((ProtoName, u64), u64)> = self
             .inner
             .route_subscription_ids
             .lock()
@@ -879,11 +846,11 @@ impl ControllerService {
 
     async fn create_new_subscriptions(
         &self,
-        desired_subs: &HashMap<(Name, u64), &v1::Route>,
+        desired_subs: &HashMap<(ProtoName, u64), &v1::Route>,
     ) -> Vec<v1::RouteAck> {
         let mut routes_status = Vec::new();
 
-        let to_create: Vec<((Name, u64), v1::Route)> = desired_subs
+        let to_create: Vec<((ProtoName, u64), v1::Route)> = desired_subs
             .iter()
             .filter(|((name, conn_id), _)| {
                 !self
@@ -1088,18 +1055,18 @@ impl ControllerService {
                                 let conn = self.resolve_route_connection(route);
 
                                 if let Ok(Some(conn)) = conn {
-                                    let source = Name::from_strings([
+                                    let source = ProtoName::from_strings([
                                         route.component_0.as_str(),
                                         route.component_1.as_str(),
                                         route.component_2.as_str(),
                                     ])
                                     .with_id(0);
-                                    let name = Name::from_strings([
+                                    let name = ProtoName::from_strings([
                                         route.component_0.as_str(),
                                         route.component_1.as_str(),
                                         route.component_2.as_str(),
                                     ])
-                                    .with_id(route.id.unwrap_or(Name::NULL_COMPONENT));
+                                    .with_id(route.id.unwrap_or(ProtoName::NULL_COMPONENT));
 
                                     let msg = DataPlaneMessage::builder()
                                         .source(source.clone())
@@ -1154,18 +1121,18 @@ impl ControllerService {
                                 let conn = self.resolve_route_connection(route);
 
                                 if let Ok(Some(conn)) = conn {
-                                    let source = Name::from_strings([
+                                    let source = ProtoName::from_strings([
                                         route.component_0.as_str(),
                                         route.component_1.as_str(),
                                         route.component_2.as_str(),
                                     ])
                                     .with_id(0);
-                                    let name = Name::from_strings([
+                                    let name = ProtoName::from_strings([
                                         route.component_0.as_str(),
                                         route.component_1.as_str(),
                                         route.component_2.as_str(),
                                     ])
-                                    .with_id(route.id.unwrap_or(Name::NULL_COMPONENT));
+                                    .with_id(route.id.unwrap_or(ProtoName::NULL_COMPONENT));
 
                                     let msg = DataPlaneMessage::builder()
                                         .source(source.clone())
@@ -1431,29 +1398,15 @@ impl ControllerService {
                             }
                         }
                     }
-                    Payload::Ack(_ack) => {
-                        // received an ack, do nothing - this should not happen
-                    }
-                    Payload::ConfigCommandAck(_) => {
-                        // received a config command ack, do nothing - this should not happen
-                    }
-                    Payload::RouteListResponse(_) => {
-                        // received a route list response, do nothing - this should not happen
-                    }
-                    Payload::ConnectionListResponse(_) => {
-                        // received a connection list response, do nothing - this should not happen
-                    }
                     Payload::RegisterNodeRequest(_) => {
                         error!("received a register node request");
-                    }
-                    Payload::RegisterNodeResponse(_) => {
-                        // received a register node response, do nothing
                     }
                     Payload::DeregisterNodeRequest(_) => {
                         error!("received a deregister node request");
                     }
-                    Payload::DeregisterNodeResponse(_) => {
-                        // received a deregister node response, do nothing
+                    _ => {
+                        // received unsupported message type, do nothing
+                        debug!("received unsupported message type from control - ignoring");
                     }
                 }
             }
@@ -1749,7 +1702,7 @@ impl ControllerService {
                             component_0: c0.to_string(),
                             component_1: c1.to_string(),
                             component_2: c2.to_string(),
-                            id: if id != Name::NULL_COMPONENT {
+                            id: if id != ProtoName::NULL_COMPONENT {
                                 Some(id)
                             } else {
                                 None
