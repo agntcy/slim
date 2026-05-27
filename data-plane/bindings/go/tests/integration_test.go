@@ -285,8 +285,8 @@ func TestAppCreationAndProperties(t *testing.T) {
 
 	// Verify app properties
 	appID := app.Id()
-	if appID == 0 {
-		t.Error("App ID should not be zero")
+	if appID == "" || appID == "NULL_COMPONENT" {
+		t.Error("App ID should not be empty or NULL_COMPONENT")
 	}
 
 	retrievedName := app.Name()
@@ -305,7 +305,7 @@ func TestAppCreationAndProperties(t *testing.T) {
 		}
 	}
 
-	t.Logf("✅ App created successfully with ID: %d", appID)
+	t.Logf("✅ App created successfully with ID: %s", appID)
 	t.Logf("   Name: %v", retrievedName.Components())
 }
 

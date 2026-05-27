@@ -4,12 +4,11 @@
 syntax = "proto3";
 package controller.proto.v1;
 
+import "data-plane/v1/data_plane.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/wrappers.proto";
-import "data-plane/v1/data_plane.proto";
 
 option go_package = "github.com/agntcy/slim/control-plane/common/proto/controller/v1;controllerv1";
-
 
 service ControllerService {
   rpc OpenControlChannel(stream ControlMessage) returns (stream ControlMessage) {}

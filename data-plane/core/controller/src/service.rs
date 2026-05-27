@@ -34,7 +34,6 @@ use crate::api::proto::api::v1::{
 use crate::errors::ControllerError;
 use prost_types::Struct;
 use slim_config::client::{ClientConfig, TransportChannel};
-use slim_datapath::api::{NameId, ProtoName};
 use slim_datapath::api::ProtoName as Name;
 use slim_datapath::api::ProtoSessionMessageType;
 use slim_datapath::api::{
@@ -42,6 +41,7 @@ use slim_datapath::api::{
     MessageType::SubscriptionAck as SubscriptionAckType, MessageType::Unsubscribe,
     ProtoMessage as DataPlaneMessage,
 };
+use slim_datapath::api::{NameId, ProtoName};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_datapath::tables::SubscriptionTable;

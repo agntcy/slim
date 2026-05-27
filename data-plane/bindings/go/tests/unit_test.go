@@ -46,10 +46,10 @@ func TestAppCreation(t *testing.T) {
 
 	// Test app properties
 	appID := app.Id()
-	if appID == 0 {
-		t.Error("App ID should not be 0")
+	if appID == "" || appID == "NULL_COMPONENT" {
+		t.Error("App ID should not be empty or NULL_COMPONENT")
 	}
-	t.Logf("App ID: %d", appID)
+	t.Logf("App ID: %s", appID)
 
 	returnedName := app.Name()
 	returnedNameComponents := returnedName.Components()
@@ -68,7 +68,7 @@ func TestNameStructure(t *testing.T) {
 	tests := []struct {
 		name       string
 		components []string
-		id         *uint64
+		id         *string
 		valid      bool
 	}{
 		{
@@ -80,7 +80,7 @@ func TestNameStructure(t *testing.T) {
 		{
 			name:       "Valid name with ID",
 			components: []string{"org", "app", "v1"},
-			id:         func() *uint64 { v := uint64(12345); return &v }(),
+			id:         func() *string { v := "00000000-0000-0000-0000-000000000001"; return &v }(),
 			valid:      true,
 		},
 	}
@@ -204,16 +204,16 @@ func TestMultipleApps(t *testing.T) {
 		t.Error("Different apps should have different IDs")
 	}
 
-	t.Logf("App1 ID: %d, App2 ID: %d", app1.Id(), app2.Id())
+	t.Logf("App1 ID: %s, App2 ID: %s", app1.Id(), app2.Id())
 }
 
 // TestNameWithID tests creating names with explicit IDs
 func TestNameWithID(t *testing.T) {
-	testID := uint64(99999)
+	testID := "00000000-0000-0000-0000-000000000001"
 	name := slim.NameNewWithId("org", "app", "v1", testID)
 
 	if name.Id() != testID {
-		t.Errorf("Expected ID %d, got %d", testID, name.Id())
+		t.Errorf("Expected ID %s, got %s", testID, name.Id())
 	}
 }
 
