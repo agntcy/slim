@@ -334,7 +334,6 @@ impl MessageHandler for Session {
 
 #[cfg(test)]
 mod tests {
-    use crate::session_config::MlsSettings;
     use crate::transmitter::SessionTransmitter;
 
     use super::*;

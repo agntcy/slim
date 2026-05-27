@@ -2521,8 +2521,6 @@ mod tests {
         let tx = SessionTransmitter::new(tx_slim, tx_app);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
-        let data_channel_name =
-            ProtoName::from_strings(["org", "ns", "channel"]).with_id(ProtoName::DATA_CHANNEL_ID);
         let control_channel_name = ProtoName::from_strings(["org", "ns", "channel"])
             .with_id(ProtoName::CONTROL_CHANNEL_ID);
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
@@ -2542,10 +2540,10 @@ mod tests {
 
         // Simulate sending a join request with channel name in payload
         let payload = CommandPayload::builder().join_request(
-            None,                       // max_retries
-            None,                       // timer_duration
-            Some(channel_name.clone()), // channel name
-            None,                       // mls_settings
+            None,                               // max_retries
+            None,                               // timer_duration
+            Some(control_channel_name.clone()), // channel name
+            None,                               // mls_settings
         );
 
         let join_request = Message::builder()

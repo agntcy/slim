@@ -53,7 +53,7 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub(crate) fn new(
+    pub fn new(
         mut mls: Mls<P, V>,
         header_integrity_validation_percent: u32,
     ) -> Result<Self, SessionError> {
@@ -646,5 +646,348 @@ mod tests {
                 .blob,
             original_payload
         );
+    }
+
+    #[tokio::test]
+    async fn test_header_integrity_0_percent_skips_validation() {
+        let mut alice_mls = Mls::new(
+            SharedSecret::new("alice", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("alice", TEST_VALID_SECRET).unwrap(),
+        );
+        let mut bob_mls = Mls::new(
+            SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
+        );
+
+        alice_mls.initialize().unwrap();
+        bob_mls.initialize().unwrap();
+
+        let _group_id = alice_mls.create_group().unwrap();
+        let bob_key_package = bob_mls.generate_key_package().unwrap();
+        let ret = alice_mls.add_member(&bob_key_package).unwrap();
+        bob_mls.process_welcome(&ret.welcome_message).unwrap();
+
+        let mut alice_state = MlsState {
+            mls: alice_mls,
+            group: vec![],
+            last_mls_msg_id: 0,
+            stored_commits_proposals: BTreeMap::new(),
+            header_integrity_validation_percent: 0,
+        };
+
+        let mut bob_state = MlsState {
+            mls: bob_mls,
+            group: vec![],
+            last_mls_msg_id: 0,
+            stored_commits_proposals: BTreeMap::new(),
+            header_integrity_validation_percent: 0,
+        };
+
+        let original_payload = b"Hello from Alice!";
+
+        let mut alice_msg = Message::builder()
+            .source(
+                slim_datapath::api::ProtoName::from_strings(["org", "default", "alice"]).with_id(0),
+            )
+            .destination(slim_datapath::api::ProtoName::from_strings([
+                "org", "default", "bob",
+            ]))
+            .session_id(1)
+            .message_id(1)
+            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg)
+            .application_payload("text", original_payload.to_vec())
+            .build_publish()
+            .unwrap();
+
+        alice_state.encrypt_message(&mut alice_msg).unwrap();
+
+        let mut tampered_msg = alice_msg.clone();
+        tampered_msg.get_session_header_mut().message_id += 1;
+
+        // Decryption should succeed because 0% means validation is skipped entirely.
+        bob_state.decrypt_message(&mut tampered_msg).unwrap();
+
+        assert_eq!(
+            tampered_msg
+                .get_payload()
+                .unwrap()
+                .as_application_payload()
+                .unwrap()
+                .blob,
+            original_payload
+        );
+    }
+
+    #[tokio::test]
+    async fn test_header_integrity_100_percent_always_fails_on_tampered() {
+        let mut alice_mls = Mls::new(
+            SharedSecret::new("alice", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("alice", TEST_VALID_SECRET).unwrap(),
+        );
+        let mut bob_mls = Mls::new(
+            SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
+        );
+
+        alice_mls.initialize().unwrap();
+        bob_mls.initialize().unwrap();
+
+        let _group_id = alice_mls.create_group().unwrap();
+        let bob_key_package = bob_mls.generate_key_package().unwrap();
+        let ret = alice_mls.add_member(&bob_key_package).unwrap();
+        bob_mls.process_welcome(&ret.welcome_message).unwrap();
+
+        let mut alice_state = MlsState {
+            mls: alice_mls,
+            group: vec![],
+            last_mls_msg_id: 0,
+            stored_commits_proposals: BTreeMap::new(),
+            header_integrity_validation_percent: 100,
+        };
+
+        let mut bob_state = MlsState {
+            mls: bob_mls,
+            group: vec![],
+            last_mls_msg_id: 0,
+            stored_commits_proposals: BTreeMap::new(),
+            header_integrity_validation_percent: 100,
+        };
+
+        let original_payload = b"Hello from Alice!";
+
+        let mut alice_msg = Message::builder()
+            .source(
+                slim_datapath::api::ProtoName::from_strings(["org", "default", "alice"]).with_id(0),
+            )
+            .destination(slim_datapath::api::ProtoName::from_strings([
+                "org", "default", "bob",
+            ]))
+            .session_id(1)
+            .message_id(1)
+            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg)
+            .application_payload("text", original_payload.to_vec())
+            .build_publish()
+            .unwrap();
+
+        alice_state.encrypt_message(&mut alice_msg).unwrap();
+
+        let mut tampered_msg = alice_msg.clone();
+        tampered_msg.get_session_header_mut().message_id += 1;
+
+        // Decryption should fail because validation runs and detects tampered header.
+        let decrypt_result = bob_state.decrypt_message(&mut tampered_msg);
+        assert!(decrypt_result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_header_integrity_50_percent_stochastic_validation() {
+        let mut alice_mls = Mls::new(
+            SharedSecret::new("alice", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("alice", TEST_VALID_SECRET).unwrap(),
+        );
+        let mut bob_mls = Mls::new(
+            SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
+        );
+
+        alice_mls.initialize().unwrap();
+        bob_mls.initialize().unwrap();
+
+        let _group_id = alice_mls.create_group().unwrap();
+        let bob_key_package = bob_mls.generate_key_package().unwrap();
+        let ret = alice_mls.add_member(&bob_key_package).unwrap();
+        bob_mls.process_welcome(&ret.welcome_message).unwrap();
+
+        let mut alice_state = MlsState {
+            mls: alice_mls,
+            group: vec![],
+            last_mls_msg_id: 0,
+            stored_commits_proposals: BTreeMap::new(),
+            header_integrity_validation_percent: 50,
+        };
+
+        let mut bob_state = MlsState {
+            mls: bob_mls,
+            group: vec![],
+            last_mls_msg_id: 0,
+            stored_commits_proposals: BTreeMap::new(),
+            header_integrity_validation_percent: 50,
+        };
+
+        let original_payload = b"Hello from Alice!";
+
+        let mut failure_count = 0;
+        let trials = 1000;
+
+        for i in 0..trials {
+            let mut alice_msg = Message::builder()
+                .source(
+                    slim_datapath::api::ProtoName::from_strings(["org", "default", "alice"])
+                        .with_id(0),
+                )
+                .destination(slim_datapath::api::ProtoName::from_strings([
+                    "org", "default", "bob",
+                ]))
+                .session_id(1)
+                .message_id(i as u32 + 1)
+                .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+                .session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg)
+                .application_payload("text", original_payload.to_vec())
+                .build_publish()
+                .unwrap();
+
+            alice_state.encrypt_message(&mut alice_msg).unwrap();
+
+            let mut tampered_msg = alice_msg.clone();
+            tampered_msg.get_session_header_mut().message_id += 1;
+
+            if bob_state.decrypt_message(&mut tampered_msg).is_err() {
+                failure_count += 1;
+            }
+        }
+
+        // 50% rate over 1000 trials means we expect ~500 failures.
+        // Assert we are within a very safe margin (e.g. 400 to 600) to prevent any test flakiness.
+        assert!(
+            (400..=600).contains(&failure_count),
+            "Failure count {} was not within expected stochastic range [400, 600]",
+            failure_count
+        );
+    }
+
+    #[tokio::test]
+    async fn test_header_integrity_always_passes_for_valid_messages() {
+        for percent in [0, 50, 100, 150] {
+            let mut alice_mls = Mls::new(
+                SharedSecret::new("alice", TEST_VALID_SECRET).unwrap(),
+                SharedSecret::new("alice", TEST_VALID_SECRET).unwrap(),
+            );
+            let mut bob_mls = Mls::new(
+                SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
+                SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
+            );
+
+            alice_mls.initialize().unwrap();
+            bob_mls.initialize().unwrap();
+
+            let _group_id = alice_mls.create_group().unwrap();
+            let bob_key_package = bob_mls.generate_key_package().unwrap();
+            let ret = alice_mls.add_member(&bob_key_package).unwrap();
+            bob_mls.process_welcome(&ret.welcome_message).unwrap();
+
+            let mut alice_state = MlsState {
+                mls: alice_mls,
+                group: vec![],
+                last_mls_msg_id: 0,
+                stored_commits_proposals: BTreeMap::new(),
+                header_integrity_validation_percent: percent,
+            };
+
+            let mut bob_state = MlsState {
+                mls: bob_mls,
+                group: vec![],
+                last_mls_msg_id: 0,
+                stored_commits_proposals: BTreeMap::new(),
+                header_integrity_validation_percent: percent,
+            };
+
+            let original_payload = b"Valid Message";
+
+            let mut alice_msg = Message::builder()
+                .source(
+                    slim_datapath::api::ProtoName::from_strings(["org", "default", "alice"])
+                        .with_id(0),
+                )
+                .destination(slim_datapath::api::ProtoName::from_strings([
+                    "org", "default", "bob",
+                ]))
+                .session_id(1)
+                .message_id(1)
+                .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+                .session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg)
+                .application_payload("text", original_payload.to_vec())
+                .build_publish()
+                .unwrap();
+
+            alice_state.encrypt_message(&mut alice_msg).unwrap();
+
+            let mut bob_msg = alice_msg.clone();
+            // Decryption should always succeed for non-tampered messages, regardless of percent setting
+            bob_state.decrypt_message(&mut bob_msg).unwrap();
+
+            assert_eq!(
+                bob_msg
+                    .get_payload()
+                    .unwrap()
+                    .as_application_payload()
+                    .unwrap()
+                    .blob,
+                original_payload
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_header_integrity_clamped_above_100() {
+        let mut alice_mls = Mls::new(
+            SharedSecret::new("alice", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("alice", TEST_VALID_SECRET).unwrap(),
+        );
+        let mut bob_mls = Mls::new(
+            SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
+        );
+
+        alice_mls.initialize().unwrap();
+        bob_mls.initialize().unwrap();
+
+        let _group_id = alice_mls.create_group().unwrap();
+        let bob_key_package = bob_mls.generate_key_package().unwrap();
+        let ret = alice_mls.add_member(&bob_key_package).unwrap();
+        bob_mls.process_welcome(&ret.welcome_message).unwrap();
+
+        let mut alice_state = MlsState {
+            mls: alice_mls,
+            group: vec![],
+            last_mls_msg_id: 0,
+            stored_commits_proposals: BTreeMap::new(),
+            header_integrity_validation_percent: 150, // above 100
+        };
+
+        let mut bob_state = MlsState {
+            mls: bob_mls,
+            group: vec![],
+            last_mls_msg_id: 0,
+            stored_commits_proposals: BTreeMap::new(),
+            header_integrity_validation_percent: 150, // above 100
+        };
+
+        let original_payload = b"Hello from Alice!";
+
+        let mut alice_msg = Message::builder()
+            .source(
+                slim_datapath::api::ProtoName::from_strings(["org", "default", "alice"]).with_id(0),
+            )
+            .destination(slim_datapath::api::ProtoName::from_strings([
+                "org", "default", "bob",
+            ]))
+            .session_id(1)
+            .message_id(1)
+            .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg)
+            .application_payload("text", original_payload.to_vec())
+            .build_publish()
+            .unwrap();
+
+        alice_state.encrypt_message(&mut alice_msg).unwrap();
+
+        let mut tampered_msg = alice_msg.clone();
+        tampered_msg.get_session_header_mut().message_id += 1;
+
+        // Decryption should fail because percent is clamped to behaves like 100%
+        let decrypt_result = bob_state.decrypt_message(&mut tampered_msg);
+        assert!(decrypt_result.is_err());
     }
 }

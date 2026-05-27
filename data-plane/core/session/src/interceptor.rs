@@ -10,11 +10,7 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::ProtoMessage as Message;
 
 // Local crate
-use crate::{
-    common::MessageDirection,
-    errors::SessionError,
-    mls_state::MlsState,
-};
+use crate::{common::MessageDirection, errors::SessionError, mls_state::MlsState};
 
 #[async_trait::async_trait]
 pub trait SessionInterceptor {

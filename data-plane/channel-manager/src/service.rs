@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use slim_bindings::{App, Name, SessionConfig, SessionType};
+use slim_bindings::{App, MlsSettings, Name, SessionConfig, SessionType};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
 
@@ -68,7 +68,11 @@ impl ChannelManagerServer {
         // Create a new session for the channel
         let session_config = SessionConfig {
             session_type: SessionType::Group,
-            enable_mls: req.mls_enabled,
+            mls_settings: if req.mls_enabled {
+                Some(MlsSettings::default())
+            } else {
+                None
+            },
             max_retries: Some(10),
             interval: Some(Duration::from_millis(1000)),
             metadata: std::collections::HashMap::new(),

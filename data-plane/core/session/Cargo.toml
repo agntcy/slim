@@ -30,4 +30,10 @@ trait-variant = { workspace = true }
 
 [dev-dependencies]
 agntcy-slim-testing = { workspace = true }
+criterion = { workspace = true }
 tracing-test = { workspace = true }
+
+[[bench]]
+name = "header_integrity"
+harness = false
+

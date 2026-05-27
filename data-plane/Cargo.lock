@@ -360,6 +360,7 @@ dependencies = [
  "agntcy-slim-testing",
  "agntcy-slim-version",
  "async-trait",
+ "criterion",
  "display-error-chain",
  "futures",
  "futures-timer",

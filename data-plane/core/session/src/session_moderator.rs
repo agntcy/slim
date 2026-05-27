@@ -11,8 +11,8 @@ use display_error_chain::ErrorChainExt;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, MlsPayload, ProtoMessage as Message, ProtoMlsSettings, ProtoName,
-        ProtoSessionMessageType, ProtoSessionType,
+        CommandPayload, MlsPayload, Participant, ProtoMessage as Message, ProtoMlsSettings,
+        ProtoName, ProtoSessionMessageType, ProtoSessionType,
     },
     messages::utils::{DELETE_GROUP, DISCONNECTION_DETECTED, LEAVING_SESSION, TRUE_VAL},
 };
@@ -1242,7 +1242,7 @@ where
 mod tests {
     use super::*;
     use crate::Direction;
-    use crate::session_config::{MlsSettings, SessionConfig};
+    use crate::session_config::SessionConfig;
     use crate::session_settings::SessionSettings;
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
     use slim_datapath::Status;

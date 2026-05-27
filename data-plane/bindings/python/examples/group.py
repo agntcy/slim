@@ -297,7 +297,9 @@ async def run_client(config: GroupConfig):
             max_retries=5,
             interval=datetime.timedelta(seconds=5),
             metadata={},
-            mls_settings=slim_bindings.MlsSettings(header_integrity_validation_percent=100)
+            mls_settings=slim_bindings.MlsSettings(
+                header_integrity_validation_percent=100
+            )
             if config.enable_mls
             else None,
         )

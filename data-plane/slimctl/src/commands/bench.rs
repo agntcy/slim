@@ -868,7 +868,7 @@ async fn run_pub_worker(
     // publisher can wait up to SESSION_ESTABLISH_TIMEOUT for the subscriber to come up.
     let session_config = SessionConfig {
         session_type: SessionType::PointToPoint,
-        enable_mls: false,
+        mls_settings: None,
         max_retries: Some(SESSION_MAX_RETRIES),
         interval: Some(SESSION_RETRY_INTERVAL),
         metadata: HashMap::new(),
@@ -1172,7 +1172,7 @@ async fn run_channel_pub_worker(
 
     let session_config = SessionConfig {
         session_type: SessionType::Group,
-        enable_mls: false,
+        mls_settings: None,
         max_retries: Some(SESSION_MAX_RETRIES),
         interval: Some(SESSION_RETRY_INTERVAL),
         metadata: HashMap::new(),

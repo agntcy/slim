@@ -8,7 +8,7 @@ pub mod controller_sender;
 pub mod errors;
 pub mod interceptor;
 
-mod mls_state;
+pub mod mls_state;
 mod moderator_task;
 pub mod notification;
 pub mod producer_buffer;
