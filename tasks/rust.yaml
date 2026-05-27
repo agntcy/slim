@@ -186,14 +186,14 @@ tasks:
     deps:
       - task: install-target
     cmds:
-      - cargo test --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
+      - ulimit -n 4096 2>/dev/null || true; cargo test --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
     vars:
       ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
   test:
     desc: "Run the tests"
     cmds:
-      - cargo test {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
+      - ulimit -n 4096 2>/dev/null || true; cargo test {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
       - task: bindings:test
       - task: core:test
     vars:
@@ -206,7 +206,7 @@ tasks:
         vars:
           COMPONENTS: "cargo-llvm-cov"
     cmds:
-      - cargo llvm-cov --lcov --output-path lcov.info {{.GLOBAL_ARGS}} {{.ARGS}}
+      - ulimit -n 4096 2>/dev/null || true; cargo llvm-cov --lcov --output-path lcov.info {{.GLOBAL_ARGS}} {{.ARGS}}
     vars:
       ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
