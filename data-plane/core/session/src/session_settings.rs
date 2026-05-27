@@ -51,7 +51,7 @@ where
     pub(crate) direction: Direction,
 
     /// Transmitter for sending messages to App and SLIM
-    pub(crate) tx: SessionTransmitter,
+    pub(crate) tx: SessionTransmitter<P>,
 
     /// Tx channel for sending messages to session queue
     pub(crate) tx_session: tokio::sync::mpsc::Sender<SessionMessage>,

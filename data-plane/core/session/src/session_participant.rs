@@ -717,7 +717,7 @@ mod tests {
         let (tx_session, _rx_session) = mpsc::channel(16);
         let subscription_manager =
             crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
-        let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app);
+        let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
         let (tx_session_layer, rx_session_layer) = mpsc::channel(16);
 
         let config = SessionConfig {
