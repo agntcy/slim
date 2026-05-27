@@ -259,13 +259,11 @@ async fn build_node_routes(db: &SharedDb, node_id: &str) -> Vec<ProtoRoute> {
         if route.status == RouteStatus::Deleted || route.link_id.is_none() {
             continue;
         }
-        let name = ProtoName::from_strings([
-                    &route.component0,
-                    &route.component1,
-                    &route.component2,
-                ])
+        let name =
+            ProtoName::from_strings([&route.component0, &route.component1, &route.component2])
                 .with_id(
-                    route.component_id
+                    route
+                        .component_id
                         .as_deref()
                         .and_then(|s| uuid::Uuid::parse_str(s).ok())
                         .map(|u| u.as_u128())

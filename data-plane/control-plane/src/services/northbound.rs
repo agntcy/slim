@@ -249,18 +249,14 @@ impl ControlPlaneService for NorthboundApiService {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0);
-                let name = ProtoName::from_strings([
-                    &r.component0,
-                    &r.component1,
-                    &r.component2,
-                ])
-                .with_id(
-                    r.component_id
-                        .as_deref()
-                        .and_then(|s| uuid::Uuid::parse_str(s).ok())
-                        .map(|u| u.as_u128())
-                        .unwrap_or(NameId::NULL_COMPONENT),
-                );
+                let name = ProtoName::from_strings([&r.component0, &r.component1, &r.component2])
+                    .with_id(
+                        r.component_id
+                            .as_deref()
+                            .and_then(|s| uuid::Uuid::parse_str(s).ok())
+                            .map(|u| u.as_u128())
+                            .unwrap_or(NameId::NULL_COMPONENT),
+                    );
                 RouteEntry {
                     id: r.id.clone(),
                     source_node_id: r.source_node_id.clone(),

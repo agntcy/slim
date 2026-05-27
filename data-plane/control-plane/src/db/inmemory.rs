@@ -917,7 +917,13 @@ mod tests {
         let db = db();
         db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
         let found = db
-            .get_routes_for_dest_node_id_and_name("dst", "org", "ns", "svc", Some("00000000-0000-0000-0000-000000000001"))
+            .get_routes_for_dest_node_id_and_name(
+                "dst",
+                "org",
+                "ns",
+                "svc",
+                Some("00000000-0000-0000-0000-000000000001"),
+            )
             .await
             .unwrap();
         assert_eq!(found.len(), 1);
@@ -984,7 +990,12 @@ mod tests {
         let r = make_route(ALL_NODES_ID, "dst_node", "lnk");
         db.add_route(r).await.unwrap();
         let result = db
-            .get_destination_node_id_for_name("org", "ns", "svc", Some("00000000-0000-0000-0000-000000000001"))
+            .get_destination_node_id_for_name(
+                "org",
+                "ns",
+                "svc",
+                Some("00000000-0000-0000-0000-000000000001"),
+            )
             .await
             .unwrap();
         assert_eq!(result.as_deref(), Some("dst_node"));

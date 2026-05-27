@@ -1419,7 +1419,7 @@ fn endpoint_matches(reported: &str, node_endpoint: &str) -> bool {
 mod tests {
     use slim_datapath::api::ProtoName;
 
-use super::*;
+    use super::*;
     use crate::db::ConnectionDetails;
     use crate::db::inmemory::InMemoryDb;
     use crate::node_transport::DefaultNodeCommandHandler;

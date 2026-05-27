@@ -286,19 +286,15 @@ async fn build_desired_routes<'a>(
 
         let sub = Route {
             name: Some(
-                ProtoName::from_strings([
-                    &route.component0,
-                    &route.component1,
-                    &route.component2,
-                ])
-                .with_id(
-                    route
-                        .component_id
-                        .as_deref()
-                        .and_then(|s| uuid::Uuid::parse_str(s).ok())
-                        .map(|u| u.as_u128())
-                        .unwrap_or(NameId::NULL_COMPONENT),
-                ),
+                ProtoName::from_strings([&route.component0, &route.component1, &route.component2])
+                    .with_id(
+                        route
+                            .component_id
+                            .as_deref()
+                            .and_then(|s| uuid::Uuid::parse_str(s).ok())
+                            .map(|u| u.as_u128())
+                            .unwrap_or(NameId::NULL_COMPONENT),
+                    ),
             ),
             link_id: Some(link_id.to_string()),
             ..Default::default()

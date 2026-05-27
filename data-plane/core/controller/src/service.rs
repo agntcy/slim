@@ -1288,7 +1288,7 @@ impl ControllerService {
                         self.inner.message_processor.subscription_table().for_each(
                             |name, _id, local, remote| {
                                 let mut entry = RouteEntry {
-                                    name: Some(name.clone()),   
+                                    name: Some(name.clone()),
                                     ..Default::default()
                                 };
 
@@ -1761,12 +1761,10 @@ impl ControllerService {
                     .route_subscription_ids
                     .lock()
                     .iter()
-                    .map(|((name, conn_id), _sub_id)| {
-                        v1::Route {
-                            name: Some(name.clone()),
-                            link_id: conn_id_to_link_id.get(conn_id).cloned(),
-                            direction: None,
-                        }
+                    .map(|((name, conn_id), _sub_id)| v1::Route {
+                        name: Some(name.clone()),
+                        link_id: conn_id_to_link_id.get(conn_id).cloned(),
+                        direction: None,
                     })
                     .collect::<Vec<_>>()
             };

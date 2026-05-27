@@ -1198,7 +1198,12 @@ mod tests {
             .await
             .unwrap();
         let result = db
-            .get_destination_node_id_for_name("org", "ns", "svc", Some("00000000-0000-0000-0000-000000000001"))
+            .get_destination_node_id_for_name(
+                "org",
+                "ns",
+                "svc",
+                Some("00000000-0000-0000-0000-000000000001"),
+            )
             .await
             .unwrap();
         assert_eq!(result.as_deref(), Some("dst_node"));

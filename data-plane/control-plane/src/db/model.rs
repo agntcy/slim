@@ -440,21 +440,61 @@ mod tests {
 
     #[test]
     fn unique_id_is_deterministic() {
-        let a = Route::unique_id("src", "c0", "c1", "c2", Some("00000000-0000-0000-0000-000000000007"), "dst", Some("link1"));
-        let b = Route::unique_id("src", "c0", "c1", "c2", Some("00000000-0000-0000-0000-000000000007"), "dst", Some("link1"));
+        let a = Route::unique_id(
+            "src",
+            "c0",
+            "c1",
+            "c2",
+            Some("00000000-0000-0000-0000-000000000007"),
+            "dst",
+            Some("link1"),
+        );
+        let b = Route::unique_id(
+            "src",
+            "c0",
+            "c1",
+            "c2",
+            Some("00000000-0000-0000-0000-000000000007"),
+            "dst",
+            Some("link1"),
+        );
         assert_eq!(a, b);
     }
 
     #[test]
     fn unique_id_differs_for_different_inputs() {
-        let a = Route::unique_id("src", "c0", "c1", "c2", Some("00000000-0000-0000-0000-000000000001"), "dst", Some("link1"));
-        let b = Route::unique_id("src", "c0", "c1", "c2", Some("00000000-0000-0000-0000-000000000002"), "dst", Some("link1"));
+        let a = Route::unique_id(
+            "src",
+            "c0",
+            "c1",
+            "c2",
+            Some("00000000-0000-0000-0000-000000000001"),
+            "dst",
+            Some("link1"),
+        );
+        let b = Route::unique_id(
+            "src",
+            "c0",
+            "c1",
+            "c2",
+            Some("00000000-0000-0000-0000-000000000002"),
+            "dst",
+            Some("link1"),
+        );
         assert_ne!(a, b);
 
         let c = Route::unique_id("src", "c0", "c1", "c2", None, "dst", Some("link1"));
         assert_ne!(a, c);
 
-        let d = Route::unique_id("OTHER", "c0", "c1", "c2", Some("00000000-0000-0000-0000-000000000001"), "dst", Some("link1"));
+        let d = Route::unique_id(
+            "OTHER",
+            "c0",
+            "c1",
+            "c2",
+            Some("00000000-0000-0000-0000-000000000001"),
+            "dst",
+            Some("link1"),
+        );
         assert_ne!(a, d);
     }
 
@@ -540,7 +580,10 @@ mod tests {
         assert_eq!(sn.component0, "org");
         assert_eq!(sn.component1, "ns");
         assert_eq!(sn.component2, "type");
-        assert_eq!(sn.component_id, Some("00000000-0000-0000-0000-000000000001".as_ref()));
+        assert_eq!(
+            sn.component_id,
+            Some("00000000-0000-0000-0000-000000000001".as_ref())
+        );
     }
 
     // ── has_connection_details_changed ─────────────────────────────────────
