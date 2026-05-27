@@ -1019,10 +1019,10 @@ impl AsRef<ProtoPublish> for ProtoMessage {
 ///
 /// let channel = ProtoName::from_strings(["org", "namespace", "channel"]);
 /// let payload = CommandPayload::builder().join_request(
-///     true,  // enable_mls
 ///     Some(5),  // max_retries
 ///     Some(Duration::from_secs(10)),  // timeout
 ///     Some(channel),
+///     None, // mls_settings
 /// );
 /// ```
 ///
@@ -1071,7 +1071,6 @@ impl CommandPayloadBuilder {
     /// Creates a join request payload
     pub fn join_request(
         self,
-        enable_mls: bool,
         max_retries: Option<u32>,
         timer_duration: Option<Duration>,
         channel: Option<ProtoName>,
@@ -1091,7 +1090,6 @@ impl CommandPayloadBuilder {
         };
 
         let payload = JoinRequestPayload {
-            enable_mls,
             timer_settings,
             channel: proto_channel,
             mls_settings,
@@ -2105,14 +2103,12 @@ mod tests {
 
         // Test join request
         let payload = CommandPayload::builder().join_request(
-            true,
             Some(5),
             Some(Duration::from_secs(10)),
             Some(dest.clone()),
             Some(MlsSettings::default()),
-        );
-        let extracted = payload.as_join_request_payload().unwrap();
-        assert!(extracted.enable_mls);
+        );        let extracted = payload.as_join_request_payload().unwrap();
+        assert!(extracted.mls_settings.is_some());
         assert!(extracted.timer_settings.is_some());
 
         // Test join reply

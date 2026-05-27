@@ -21,9 +21,15 @@ use tokio::sync::oneshot;
 use slim_mls::mls::Mls;
 use tracing::debug;
 
+use std::sync::Arc;
+
+use parking_lot::Mutex;
+
 use crate::{
+    SessionInterceptorProvider,
     common::{MessageDirection, SessionMessage},
     errors::SessionError,
+    interceptor::MlsEncryptInterceptor,
     mls_state::{MlsModeratorState, MlsState},
     moderator_task::{
         AddParticipant, ModeratorTask, NotifyParticipants, RemoveParticipant, TaskUpdate,
@@ -106,14 +112,20 @@ where
 {
     async fn init(&mut self) -> Result<(), SessionError> {
         // Initialize MLS
-        self.mls_state = if self.common.settings.config.mls_enabled {
-            let mls_state = MlsState::new(Mls::new(
-                self.common.settings.identity_provider.clone(),
-                self.common.settings.identity_verifier.clone(),
-            ))
+        self.mls_state = if let Some(mls_settings) = &self.common.settings.config.mls_settings {
+            let mls_state = MlsState::new(
+                Mls::new(
+                    self.common.settings.identity_provider.clone(),
+                    self.common.settings.identity_verifier.clone(),
+                ),
+                mls_settings.header_integrity_validation_percent,
+            )
             .expect("failed to create MLS state");
-
-            Some(MlsModeratorState::new(mls_state))
+            let shared = Arc::new(Mutex::new(mls_state));
+            self.common.settings.tx.add_interceptor(Arc::new(
+                MlsEncryptInterceptor::new(shared.clone()),
+            ));
+            Some(MlsModeratorState::new(shared))
         } else {
             None
         };
@@ -148,9 +160,15 @@ where
                             .set_destination(self.common.settings.destination.clone());
                     }
 
-                    // Apply MLS encryption/decryption if enabled
-                    if let Some(mls_state) = &mut self.mls_state {
-                        mls_state.common.process_message(&mut message, direction)?;
+                    // Decrypt inbound application messages; encryption runs in
+                    // MlsEncryptInterceptor after message_id is assigned on send.
+                    if direction == MessageDirection::North
+                        && let Some(mls_state) = &self.mls_state
+                    {
+                        mls_state
+                            .common
+                            .lock()
+                            .process_message(&mut message, direction)?;
                     }
 
                     self.inner
@@ -697,22 +715,12 @@ where
             None
         };
 
-        let mls_settings = if self.mls_state.is_some() {
-            Some(ProtoMlsSettings {
-                header_integrity_validation_percent: self
-                    .common
-                    .settings
-                    .config
-                    .mls_settings
-                    .header_integrity_validation_percent,
-            })
-        } else {
-            None
-        };
+        let mls_settings = self.common.settings.config.mls_settings.as_ref().map(|s| ProtoMlsSettings {
+            header_integrity_validation_percent: s.header_integrity_validation_percent,
+        });
 
         let payload = CommandPayload::builder()
             .join_request(
-                self.mls_state.is_some(),
                 self.common.settings.config.max_retries,
                 self.common.settings.config.interval,
                 channel,
@@ -1404,8 +1412,7 @@ mod tests {
             session_type: ProtoSessionType::Multicast,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
-            mls_settings: MlsSettings::default(),
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };
@@ -1555,7 +1562,6 @@ mod tests {
             .payload(
                 CommandPayload::builder()
                     .join_request(
-                        false,
                         Some(3),
                         Some(std::time::Duration::from_secs(1)),
                         None,
@@ -1790,8 +1796,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
-            mls_settings: MlsSettings::default(),
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };
@@ -1868,8 +1873,7 @@ mod tests {
             session_type: ProtoSessionType::Multicast,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
-            mls_settings: MlsSettings::default(),
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };
@@ -2003,8 +2007,7 @@ mod tests {
             session_type: ProtoSessionType::Multicast,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
-            mls_settings: MlsSettings::default(),
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };

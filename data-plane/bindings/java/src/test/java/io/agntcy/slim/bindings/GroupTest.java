@@ -30,11 +30,10 @@ class GroupTest {
     private Session createGroupSession(App participant, Name chatName, boolean mlsEnabled) throws Exception {
         SessionConfig sessionConfig = new SessionConfig(
                 SessionType.GROUP,
-                mlsEnabled,
                 5,
                 Duration.ofSeconds(1),
-                Map.of(),
-                TestHelpers.defaultMlsSettings());
+                Map.<String, String>of(),
+                mlsEnabled ? TestHelpers.defaultMlsSettings() : null);
         return participant.createSessionAndWait(sessionConfig, chatName);
     }
 

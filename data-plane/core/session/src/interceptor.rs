@@ -5,11 +5,16 @@
 use std::sync::Arc;
 
 // Third-party crates
+use parking_lot::Mutex;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::ProtoMessage as Message;
 
 // Local crate
-use crate::errors::SessionError;
+use crate::{
+    common::MessageDirection,
+    errors::SessionError,
+    mls_state::MlsState,
+};
 
 #[async_trait::async_trait]
 pub trait SessionInterceptor {
@@ -109,5 +114,40 @@ where
                 Ok(())
             }
         }
+    }
+}
+
+/// Encrypts application payloads after session headers (including message_id) are finalized.
+pub struct MlsEncryptInterceptor<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    mls_state: Arc<Mutex<MlsState<P, V>>>,
+}
+
+impl<P, V> MlsEncryptInterceptor<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    pub fn new(mls_state: Arc<Mutex<MlsState<P, V>>>) -> Self {
+        Self { mls_state }
+    }
+}
+
+#[async_trait::async_trait]
+impl<P, V> SessionInterceptor for MlsEncryptInterceptor<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    async fn on_msg_from_app(&self, msg: &mut Message) -> Result<(), SessionError> {
+        let mut state = self.mls_state.lock();
+        state.process_message(msg, MessageDirection::South)
+    }
+
+    async fn on_msg_from_slim(&self, _msg: &mut Message) -> Result<(), SessionError> {
+        Ok(())
     }
 }

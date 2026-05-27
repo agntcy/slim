@@ -164,8 +164,7 @@ message DiscoveryReplyPayload {}
 
 // Join Request
 message JoinRequestPayload {
-  // true if mls is enabled
-  bool enable_mls = 1;
+  reserved 1;
   // settings for timers for rtx and acks
   optional TimerSettings timer_settings = 2;
   // name where to send the messages

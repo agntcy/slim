@@ -168,8 +168,11 @@ async fn main() {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: None,
             interval: None,
-            mls_enabled: mls_group_id.is_some(),
-            mls_settings: MlsSettings::default(),
+            mls_settings: if mls_group_id.is_some() {
+                Some(MlsSettings::default())
+            } else {
+                None
+            },
             initiator: true,
             metadata: HashMap::new(),
         };

@@ -95,11 +95,10 @@ public class Group {
             // Create group session configuration
             SessionConfig sessionConfig = new SessionConfig(
                     SessionType.GROUP,
-                    config.enableMls,
-                    5, // maxRetries (Integer, not Long)
+                    5, // maxRetries
                     Duration.ofSeconds(5), // interval
-                    Map.of(), // metadata - use empty map instead of null
-                    new MlsSettings(100)
+                    Map.of(), // metadata
+                    config.enableMls ? new MlsSettings(100) : null
             );
 
             // Create session and wait for establishment

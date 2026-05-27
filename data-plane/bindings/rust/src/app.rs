@@ -673,7 +673,7 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use crate::{MlsSettings, SessionType};
+    use crate::SessionType;
 
     use super::*;
 
@@ -747,11 +747,10 @@ mod tests {
 
         let session_config = SessionConfig {
             session_type: SessionType::PointToPoint,
-            enable_mls: false,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_millis(100)),
             metadata: std::collections::HashMap::new(),
-            mls_settings: MlsSettings::default(),
+            mls_settings: None,
         };
 
         let destination = Arc::new(Name::new(
@@ -795,11 +794,10 @@ mod tests {
 
         let session_config = SessionConfig {
             session_type: SessionType::PointToPoint,
-            enable_mls: false,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_millis(100)),
             metadata: std::collections::HashMap::new(),
-            mls_settings: MlsSettings::default(),
+            mls_settings: None,
         };
 
         let destination = Arc::new(Name::new(
@@ -1152,11 +1150,10 @@ mod tests {
 
         let session_config = SessionConfig {
             session_type: SessionType::PointToPoint,
-            enable_mls: false,
             max_retries: Some(1),
             interval: Some(std::time::Duration::from_millis(50)),
             metadata: std::collections::HashMap::new(),
-            mls_settings: MlsSettings::default(),
+            mls_settings: None,
         };
 
         let destination = Arc::new(Name::new(
@@ -1450,11 +1447,10 @@ mod tests {
 
         let session_config = SessionConfig {
             session_type: SessionType::PointToPoint,
-            enable_mls: false,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_millis(100)),
             metadata: std::collections::HashMap::new(),
-            mls_settings: MlsSettings::default(),
+            mls_settings: None,
         };
 
         let destination = Arc::new(Name::new(

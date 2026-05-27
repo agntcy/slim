@@ -716,7 +716,8 @@ mod tests {
             initiator: true,
             max_retries: Some(2),
             interval: Some(std::time::Duration::from_millis(50)),
-            ..Default::default()
+            mls_settings: None,
+            metadata: HashMap::new(),
         };
         let dst = create_test_name("dst");
 
@@ -746,7 +747,8 @@ mod tests {
             initiator: true,
             interval: Some(std::time::Duration::from_millis(500)),
             max_retries: Some(5),
-            ..Default::default()
+            mls_settings: None,
+            metadata: HashMap::new(),
         };
         let dst = create_test_name("dst");
         let (res, completion_handle) = app.create_session(config, dst, None).await.unwrap();
@@ -775,7 +777,10 @@ mod tests {
         let config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
             initiator: true,
-            ..Default::default()
+            mls_settings: None,
+            max_retries: None,
+            interval: None,
+            metadata: HashMap::new(),
         };
         let dst = create_test_name("dst");
         let (session_ctx, _completion_error) = app
@@ -818,7 +823,7 @@ mod tests {
 
         // send join_request message to create the session
         let payload = CommandPayload::builder()
-            .join_request(false, None, None, None, None)
+            .join_request(None, None, None, None)
             .as_content();
 
         let mut join_request = Message::builder()
@@ -930,9 +935,8 @@ mod tests {
             initiator: true,
             max_retries: Some(5),
             interval: Some(std::time::Duration::from_millis(1000)),
-            mls_enabled: false,
+            mls_settings: None,
             metadata: HashMap::new(),
-            mls_settings: MlsSettings::default(),
         };
 
         let sender_session =
@@ -1037,7 +1041,10 @@ mod tests {
             let session_config = SessionConfig {
                 session_type: ProtoSessionType::PointToPoint,
                 initiator: true,
-                ..Default::default()
+                mls_settings: None,
+                max_retries: None,
+                interval: None,
+                metadata: HashMap::new(),
             };
 
             let session_ctx =
@@ -1173,10 +1180,9 @@ mod tests {
             session_type: ProtoSessionType::Multicast,
             max_retries: Some(5),
             interval: Some(std::time::Duration::from_millis(1000)),
-            mls_enabled: true,
+            mls_settings: Some(MlsSettings::default()),
             initiator: true,
             metadata: HashMap::new(),
-            mls_settings: MlsSettings::default(),
         };
 
         let session_ctx =
@@ -1278,10 +1284,9 @@ mod tests {
                 session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
                 max_retries: Some(5),
                 interval: Some(std::time::Duration::from_millis(1000)),
-                mls_enabled: true,
+                mls_settings: Some(MlsSettings::default()),
                 initiator: true,
                 metadata: HashMap::new(),
-                mls_settings: MlsSettings::default(),
             },
             receiver_name.clone(),
         )
@@ -1399,10 +1404,9 @@ mod tests {
                 session_type: slim_datapath::api::ProtoSessionType::Multicast,
                 max_retries: Some(5),
                 interval: Some(std::time::Duration::from_millis(100)),
-                mls_enabled: false,
+                mls_settings: None,
                 initiator: true,
                 metadata: HashMap::new(),
-                mls_settings: MlsSettings::default(),
             },
             channel_name.clone(),
         )
@@ -1619,10 +1623,9 @@ mod tests {
                 session_type: ProtoSessionType::Multicast,
                 max_retries: Some(5),
                 interval: Some(std::time::Duration::from_millis(1000)),
-                mls_enabled,
+                mls_settings: if mls_enabled { Some(MlsSettings::default()) } else { None },
                 initiator: true,
                 metadata: HashMap::new(),
-                mls_settings: MlsSettings::default(),
             },
             channel_name.clone(),
         )

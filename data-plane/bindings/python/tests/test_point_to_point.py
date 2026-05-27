@@ -210,10 +210,12 @@ async def test_sticky_session(server, mls_enabled):
     # create a new session
     session_config = slim_bindings.SessionConfig(
         session_type=slim_bindings.SessionType.POINT_TO_POINT,
-        enable_mls=mls_enabled,
         max_retries=5,
         interval=datetime.timedelta(milliseconds=100),
         metadata={},
+        mls_settings=slim_bindings.MlsSettings(header_integrity_validation_percent=100)
+        if mls_enabled
+        else None,
     )
     sender_session_context = await sender.create_session_async(
         session_config, receiver_name

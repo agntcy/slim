@@ -232,9 +232,6 @@ public sealed class SlimSessionConfig
     /// <summary>Session type (PointToPoint or Group).</summary>
     public SlimSessionType SessionType { get; init; } = SlimSessionType.PointToPoint;
 
-    /// <summary>Whether to enable MLS encryption.</summary>
-    public bool EnableMls { get; init; }
-
     /// <summary>Maximum retry attempts for session establishment.</summary>
     public uint MaxRetries { get; init; } = 5;
 
@@ -244,8 +241,8 @@ public sealed class SlimSessionConfig
     /// <summary>Optional metadata key-value pairs.</summary>
     public Dictionary<string, string>? Metadata { get; init; }
 
-    /// <summary>MLS options (meaningful when <see cref="EnableMls"/> is true).</summary>
-    public SlimMlsSettings MlsSettings { get; init; } = new();
+    /// <summary>MLS options (None disables MLS).</summary>
+    public SlimMlsSettings? MlsSettings { get; init; }
 
     internal Internal.SessionConfig ToInternal()
     {
@@ -253,11 +250,10 @@ public sealed class SlimSessionConfig
             SessionType: SessionType == SlimSessionType.PointToPoint
                 ? Internal.SessionType.PointToPoint
                 : Internal.SessionType.Group,
-            EnableMls: EnableMls,
             MaxRetries: MaxRetries,
             Interval: RetryInterval,
             Metadata: Metadata ?? new Dictionary<string, string>(),
-            MlsSettings: MlsSettings.ToInternal()
+            MlsSettings: MlsSettings?.ToInternal()
         );
     }
 }

@@ -65,10 +65,10 @@ suspend fun runClient(config: PointToPointConfig) = coroutineScope {
         // Create point-to-point session configuration
         val sessionConfig = SessionConfig(
             sessionType = SessionType.POINT_TO_POINT,
-            enableMls = config.enableMls,
             maxRetries = 5u,
             interval = Duration.ofSeconds(5),
-            metadata = emptyMap()
+            metadata = emptyMap(),
+            mlsSettings = if (config.enableMls) MlsSettings(100u) else null
         )
         
         // Create session - returns a context with completion and session

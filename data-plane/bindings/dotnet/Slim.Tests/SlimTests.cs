@@ -121,12 +121,11 @@ public class UnitTests
     {
         var config = new SlimSessionConfig
         {
-            SessionType = SlimSessionType.PointToPoint,
-            EnableMls = false
+            SessionType = SlimSessionType.PointToPoint
         };
 
         Assert.Equal(SlimSessionType.PointToPoint, config.SessionType);
-        Assert.False(config.EnableMls);
+        Assert.Null(config.MlsSettings);
     }
 
     [Fact]
@@ -134,12 +133,11 @@ public class UnitTests
     {
         var config = new SlimSessionConfig
         {
-            SessionType = SlimSessionType.Group,
-            EnableMls = false
+            SessionType = SlimSessionType.Group
         };
 
         Assert.Equal(SlimSessionType.Group, config.SessionType);
-        Assert.False(config.EnableMls);
+        Assert.Null(config.MlsSettings);
     }
 
     [Fact]
@@ -148,10 +146,10 @@ public class UnitTests
         var config = new SlimSessionConfig
         {
             SessionType = SlimSessionType.PointToPoint,
-            EnableMls = true
+            MlsSettings = new SlimMlsSettings()
         };
 
-        Assert.True(config.EnableMls);
+        Assert.NotNull(config.MlsSettings);
     }
 
     [Fact]

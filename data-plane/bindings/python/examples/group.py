@@ -294,10 +294,12 @@ async def run_client(config: GroupConfig):
         # Create group session configuration
         session_config = slim_bindings.SessionConfig(
             session_type=slim_bindings.SessionType.GROUP,
-            enable_mls=config.enable_mls,
             max_retries=5,
             interval=datetime.timedelta(seconds=5),
             metadata={},
+            mls_settings=slim_bindings.MlsSettings(header_integrity_validation_percent=100)
+            if config.enable_mls
+            else None,
         )
 
         # Create session - returns a tuple (SessionContext, CompletionHandle)

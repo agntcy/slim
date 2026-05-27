@@ -415,12 +415,11 @@ impl Channel {
 
             let slim_config = slim_session::session_config::SessionConfig {
                 session_type,
-                mls_enabled: true,
                 max_retries: Some(10),
                 interval: Some(Duration::from_secs(1)),
                 initiator: true,
                 metadata: HashMap::new(),
-                mls_settings: MlsSettings::default(),
+                mls_settings: Some(MlsSettings::default()),
             };
 
             let (session_ctx, completion) = app

@@ -138,16 +138,21 @@ func TestSessionConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			var mlsSettings *slim.MlsSettings
+			if tt.enableMls {
+				mlsSettings = &slim.MlsSettings{HeaderIntegrityValidationPercent: 100}
+			}
+
 			config := slim.SessionConfig{
 				SessionType: tt.sessionType,
-				EnableMls:   tt.enableMls,
+				MlsSettings: mlsSettings,
 			}
 
 			if config.SessionType != tt.sessionType {
 				t.Errorf("Expected session type %v, got %v", tt.sessionType, config.SessionType)
 			}
-			if config.EnableMls != tt.enableMls {
-				t.Errorf("Expected MLS enabled %v, got %v", tt.enableMls, config.EnableMls)
+			if (config.MlsSettings != nil) != tt.enableMls {
+				t.Errorf("Expected MLS enabled %v, got %v", tt.enableMls, config.MlsSettings != nil)
 			}
 		})
 	}

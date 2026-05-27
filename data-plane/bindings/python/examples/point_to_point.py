@@ -71,13 +71,15 @@ async def run_client(config: PointToPointConfig):
         # Create local route to enable forwarding towards remote name
         await local_app.set_route_async(remote_name, conn_id)
 
-        # Create point-to-point session configuration
+        # Create session configuration
         session_config = slim_bindings.SessionConfig(
             session_type=slim_bindings.SessionType.POINT_TO_POINT,
-            enable_mls=config.enable_mls,
             max_retries=5,
             interval=datetime.timedelta(seconds=5),
             metadata={},
+            mls_settings=slim_bindings.MlsSettings(header_integrity_validation_percent=100)
+            if config.enable_mls
+            else None,
         )
 
         # Create session - returns a context with completion and session

@@ -595,7 +595,6 @@ fn new_channel_message(
     let invite_payload = Some(
         CommandPayload::builder()
             .join_request(
-                true,
                 Some(10),
                 Some(Duration::from_secs(1)),
                 Some(channel.clone()),

@@ -143,11 +143,10 @@ async fn run_sender(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     // Create session configuration
     let session_config = SessionConfig {
         session_type: session_type.clone(),
-        enable_mls: true,
         max_retries: Some(5),
         interval: Some(Duration::from_secs(1)),
         metadata: HashMap::new(),
-        mls_settings: MlsSettings::default(),
+        mls_settings: Some(MlsSettings::default()),
     };
 
     // For p2p, destination is the single participant

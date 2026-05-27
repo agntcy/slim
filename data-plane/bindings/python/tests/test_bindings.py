@@ -21,6 +21,7 @@ import datetime
 import pytest
 
 import slim_bindings
+from slim_bindings._slim_bindings.slim_bindings import MlsSettings
 
 LONG_SECRET = "e4aaecb9ae0b23b82086bb8a8633e01fba16ae8d9c1379a613c00838"
 
@@ -83,10 +84,10 @@ async def test_end_to_end(server):
     session_context_alice = await app_alice.create_session_async(
         slim_bindings.SessionConfig(
             session_type=slim_bindings.SessionType.POINT_TO_POINT,
-            enable_mls=False,
             max_retries=5,
             interval=datetime.timedelta(seconds=1),
             metadata={},
+            mls_settings=None,
         ),
         bob_name,
     )
@@ -210,10 +211,10 @@ async def test_auto_reconnect_after_server_restart(server):
     session_context_alice = await app_alice.create_session_async(
         slim_bindings.SessionConfig(
             session_type=slim_bindings.SessionType.POINT_TO_POINT,
-            enable_mls=False,
             max_retries=5,
             interval=datetime.timedelta(seconds=1),
             metadata={},
+            mls_settings=None,
         ),
         bob_name,
     )
@@ -316,10 +317,10 @@ async def test_error_on_nonexistent_subscription(server):
         session = await app_alice.create_session_async(
             slim_bindings.SessionConfig(
                 session_type=slim_bindings.SessionType.POINT_TO_POINT,
-                enable_mls=False,
                 max_retries=None,
                 interval=None,
                 metadata={},
+                mls_settings=None,
             ),
             bob_name,
         )
@@ -430,10 +431,10 @@ async def test_get_message_timeout(server):
     session_context_alice = await app_alice.create_session_async(
         slim_bindings.SessionConfig(
             session_type=slim_bindings.SessionType.POINT_TO_POINT,
-            enable_mls=False,
             max_retries=5,
             interval=datetime.timedelta(seconds=1),
             metadata={},
+            mls_settings=None,
         ),
         bob_name,
     )

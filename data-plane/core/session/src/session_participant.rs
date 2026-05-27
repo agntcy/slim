@@ -1,7 +1,9 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashSet, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
+
+use parking_lot::Mutex;
 
 use async_trait::async_trait;
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -17,8 +19,10 @@ use slim_mls::mls::Mls;
 use tracing::debug;
 
 use crate::{
-    common::SessionMessage,
+    SessionInterceptorProvider,
+    common::{MessageDirection, SessionMessage},
     errors::SessionError,
+    interceptor::MlsEncryptInterceptor,
     mls_state::MlsState,
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
@@ -40,7 +44,7 @@ where
     group_list: HashSet<ProtoName>,
 
     /// mls state
-    mls_state: Option<MlsState<P, V>>,
+    mls_state: Option<Arc<Mutex<MlsState<P, V>>>>,
 
     /// common session state
     common: SessionControllerCommon<P, V, M>,
@@ -88,14 +92,20 @@ where
 {
     async fn init(&mut self) -> Result<(), SessionError> {
         // Initialize MLS
-        self.mls_state = if self.common.settings.config.mls_enabled {
-            let mls_state = MlsState::new(Mls::new(
-                self.common.settings.identity_provider.clone(),
-                self.common.settings.identity_verifier.clone(),
-            ))
+        self.mls_state = if let Some(mls_settings) = &self.common.settings.config.mls_settings {
+            let mls_state = MlsState::new(
+                Mls::new(
+                    self.common.settings.identity_provider.clone(),
+                    self.common.settings.identity_verifier.clone(),
+                ),
+                mls_settings.header_integrity_validation_percent,
+            )
             .expect("failed to create MLS state");
-
-            Some(mls_state)
+            let shared = Arc::new(Mutex::new(mls_state));
+            self.common.settings.tx.add_interceptor(Arc::new(
+                MlsEncryptInterceptor::new(shared.clone()),
+            ));
+            Some(shared)
         } else {
             None
         };
@@ -118,9 +128,18 @@ where
                     );
                     self.process_control_message(message).await
                 } else {
-                    // Apply MLS encryption/decryption if enabled
-                    if let Some(mls_state) = &mut self.mls_state {
-                        mls_state.process_message(&mut message, direction)?;
+                    if direction == MessageDirection::South
+                        && self.common.settings.config.session_type == ProtoSessionType::PointToPoint
+                    {
+                        message
+                            .get_slim_header_mut()
+                            .set_destination(self.common.settings.destination.clone());
+                    }
+
+                    if direction == MessageDirection::North
+                        && let Some(mls_state) = &self.mls_state
+                    {
+                        mls_state.lock().process_message(&mut message, direction)?;
                     }
 
                     self.inner
@@ -350,9 +369,9 @@ where
             .add_route(source.clone(), msg.get_incoming_conn())
             .await?;
 
-        let payload = if let Some(mls_state) = &mut self.mls_state {
+        let payload = if let Some(mls_state) = &self.mls_state {
             debug!("mls enabled, create the package key");
-            let key = mls_state.generate_key_package()?;
+            let key = mls_state.lock().generate_key_package()?;
             Some(key)
         } else {
             None
@@ -379,8 +398,8 @@ where
             "received welcome message",
         );
 
-        if let Some(mls_state) = &mut self.mls_state {
-            mls_state.process_welcome_message(&msg)?;
+        if let Some(mls_state) = &self.mls_state {
+            mls_state.lock().process_welcome_message(&msg)?;
         }
 
         self.join(&msg).await?;
@@ -430,10 +449,12 @@ where
             "received update",
         );
 
-        if let Some(mls_state) = &mut self.mls_state {
+        if let Some(mls_state) = &self.mls_state {
             debug!("process mls control update");
             let source_proto = self.common.settings.source.clone();
-            let ret = mls_state.process_control_message(msg.clone(), &source_proto)?;
+            let ret = mls_state
+                .lock()
+                .process_control_message(msg.clone(), &source_proto)?;
 
             if !ret {
                 debug!(
@@ -697,8 +718,7 @@ mod tests {
             session_type,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
-            mls_settings: MlsSettings::default(),
+            mls_settings: None,
             initiator: false,
             metadata: Default::default(),
         };
@@ -766,7 +786,6 @@ mod tests {
             .payload(
                 CommandPayload::builder()
                     .join_request(
-                        false,
                         Some(3),
                         Some(std::time::Duration::from_secs(1)),
                         None,
@@ -1044,7 +1063,6 @@ mod tests {
             .payload(
                 CommandPayload::builder()
                     .join_request(
-                        false,
                         Some(3),
                         Some(std::time::Duration::from_secs(1)),
                         None,

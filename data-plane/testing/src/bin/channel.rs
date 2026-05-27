@@ -220,10 +220,13 @@ async fn main() {
             session_type: slim_datapath::api::ProtoSessionType::Multicast,
             max_retries: Some(10),
             interval: Some(Duration::from_secs(1)),
-            mls_enabled,
+            mls_settings: if mls_enabled {
+                Some(MlsSettings::default())
+            } else {
+                None
+            },
             initiator: true,
             metadata: HashMap::new(),
-            mls_settings: MlsSettings::default(),
         };
         let (session_ctx, completion_handle) = app
             .create_session(config, channel_name.clone(), Some(12345))

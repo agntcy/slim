@@ -907,10 +907,9 @@ mod tests {
             session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
             max_retries: Some(3),
             interval: Some(Duration::from_millis(500)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: HashMap::new(),
-            mls_settings: MlsSettings::default(),
         };
         let dst = ProtoName::from_strings(["org", "ns", "dst"]);
         let (session_info, _completion_handle) = app
@@ -931,10 +930,9 @@ mod tests {
             session_type: slim_datapath::api::ProtoSessionType::Multicast,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(1000)),
-            mls_enabled: true,
+            mls_settings: Some(MlsSettings::default()),
             initiator: true,
             metadata: HashMap::new(),
-            mls_settings: MlsSettings::default(),
         };
         let (session_info, _completion_handle) = app
             .create_session(session_config.clone(), stream.clone(), None)

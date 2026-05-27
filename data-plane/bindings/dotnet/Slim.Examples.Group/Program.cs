@@ -112,7 +112,7 @@ class Program
         var config = new SlimSessionConfig
         {
             SessionType = SlimSessionType.Group,
-            EnableMls = enableMls,
+            MlsSettings = enableMls ? new SlimMlsSettings() : null,
             MaxRetries = 5,
             RetryInterval = TimeSpan.FromSeconds(5),
             Metadata = new Dictionary<string, string>()

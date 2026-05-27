@@ -839,7 +839,6 @@ mod tests {
 
         // Create a join request message
         let payload = CommandPayload::builder().join_request(
-            false,                 // enable_mls
             None,                  // max_retries
             None,                  // timer_duration
             Some(channel.clone()), // channel
@@ -2385,11 +2384,10 @@ mod tests {
 
         // Simulate sending a join request to establish group_name
         let payload = CommandPayload::builder().join_request(
-            false, // enable_mls
-            None,  // max_retries
-            None,  // timer_duration
-            None,  // channel (None for P2P)
-            None,  // mls_settings
+            None, // max_retries
+            None, // timer_duration
+            None, // channel (None for P2P)
+            None, // mls_settings
         );
 
         let join_request = Message::builder()
@@ -2522,7 +2520,6 @@ mod tests {
 
         // Simulate sending a join request with channel name in payload
         let payload = CommandPayload::builder().join_request(
-            false,                      // enable_mls
             None,                       // max_retries
             None,                       // timer_duration
             Some(channel_name.clone()), // channel name

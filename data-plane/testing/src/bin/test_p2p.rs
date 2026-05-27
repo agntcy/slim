@@ -225,10 +225,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
         max_retries: Some(10),
         interval: Some(Duration::from_secs(1)),
-        mls_enabled,
+        mls_settings: if mls_enabled {
+            Some(MlsSettings::default())
+        } else {
+            None
+        },
         initiator: true,
         metadata: HashMap::new(),
-        mls_settings: MlsSettings::default(),
     };
 
     for c in &clients {

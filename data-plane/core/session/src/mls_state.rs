@@ -3,17 +3,21 @@
 
 // Standard library imports
 use std::collections::{BTreeMap, HashMap, btree_map::Entry};
+use std::sync::Arc;
 
 // Third-party crates
+use parking_lot::Mutex;
 use tracing::{debug, error, trace};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{
-    ApplicationPayload, MlsPayload, ProtoMessage as Message, ProtoSessionMessageType,
+    ApplicationPayload, HeaderIntegrityAad, MlsPayload, ProtoMessage as Message,
+    ProtoSessionMessageType,
 };
 
 // Local crate
 use crate::{SessionError, common::MessageDirection};
+use prost::Message as _;
 use slim_datapath::api::ProtoName;
 use slim_mls::{
     errors::MlsError,
@@ -39,6 +43,9 @@ where
 
     /// map of stored commits and proposals
     pub(crate) stored_commits_proposals: BTreeMap<u32, Message>,
+
+    /// percent of messages to verify after decrypt
+    pub(crate) header_integrity_validation_percent: u32,
 }
 
 impl<P, V> MlsState<P, V>
@@ -46,7 +53,10 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub(crate) fn new(mut mls: Mls<P, V>) -> Result<Self, SessionError> {
+    pub(crate) fn new(
+        mut mls: Mls<P, V>,
+        header_integrity_validation_percent: u32,
+    ) -> Result<Self, SessionError> {
         mls.initialize()?;
 
         Ok(MlsState {
@@ -54,6 +64,7 @@ where
             group: vec![],
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
+            header_integrity_validation_percent,
         })
     }
 
@@ -288,7 +299,8 @@ where
         let payload = msg.get_payload().unwrap().as_application_payload()?;
 
         debug!("Encrypting message for group member");
-        let encrypted_payload = self.mls.encrypt_message(&payload.blob)?;
+        let aad = self.build_aad(msg);
+        let encrypted_payload = self.mls.encrypt_message(&payload.blob, aad)?;
 
         msg.set_payload(
             ApplicationPayload::new(&payload.payload_type, encrypted_payload.to_vec()).as_content(),
@@ -313,12 +325,59 @@ where
         let payload = msg.get_payload().unwrap().as_application_payload()?;
 
         debug!("Decrypting message for group member");
-        let decrypted_payload = self.mls.decrypt_message(&payload.blob)?;
+        let (decrypted_payload, auth_data) = self.mls.decrypt_message(&payload.blob)?;
+
+        // Validate header integrity if enabled
+        if self.header_integrity_validation_percent > 0 {
+            let should_validate = if self.header_integrity_validation_percent >= 100 {
+                true
+            } else {
+                (rand::random::<u32>() % 100) < self.header_integrity_validation_percent
+            };
+
+            if should_validate {
+                let expected_aad = self.build_aad(msg);
+                if expected_aad != auth_data {
+                    error!("Header integrity validation failed");
+                    return Err(MlsError::verification_failed("Header integrity mismatch").into());
+                }
+            }
+        }
 
         msg.set_payload(
             ApplicationPayload::new(&payload.payload_type, decrypted_payload.to_vec()).as_content(),
         );
         Ok(())
+    }
+
+    /// Builds the Authenticated Data (AAD) for header integrity checks
+    fn build_aad(&self, msg: &Message) -> Vec<u8> {
+        let slim_header = msg.get_slim_header();
+        let session_header = msg.get_session_header();
+
+        let payload_type = if let Some(payload) = msg.get_payload() {
+            if let Ok(app_payload) = payload.as_application_payload() {
+                app_payload.payload_type.clone()
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
+        let aad = HeaderIntegrityAad {
+            version: 1,
+            source: Some(slim_header.get_source().clone()),
+            destination: Some(slim_header.get_dst().clone()),
+            identity: slim_header.get_identity().to_string(),
+            session_type: session_header.session_type() as i32,
+            session_message_type: session_header.session_message_type() as i32,
+            session_id: session_header.get_session_id(),
+            message_id: session_header.get_message_id(),
+            payload_type,
+        };
+
+        aad.encode_to_vec()
     }
 }
 
@@ -329,7 +388,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     /// mls state in common between moderator and participants
-    pub(crate) common: MlsState<P, V>,
+    pub(crate) common: Arc<Mutex<MlsState<P, V>>>,
 
     /// map of the participants (with real ids) with package keys
     /// used to remove participants from the channel
@@ -344,7 +403,7 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub(crate) fn new(mls: MlsState<P, V>) -> Self {
+    pub(crate) fn new(mls: Arc<Mutex<MlsState<P, V>>>) -> Self {
         MlsModeratorState {
             common: mls,
             participants: HashMap::new(),
@@ -353,7 +412,7 @@ where
     }
 
     pub(crate) async fn init_moderator(&mut self) -> Result<(), SessionError> {
-        self.common.mls.create_group()?;
+        self.common.lock().mls.create_group()?;
         Ok(())
     }
 
@@ -364,7 +423,7 @@ where
         let payload = msg.extract_join_reply()?;
 
         // Propagate MlsError directly (will become SessionError::MlsOp via #[from])
-        let ret = self.common.mls.add_member(payload.key_package())?;
+        let ret = self.common.lock().mls.add_member(payload.key_package())?;
 
         // add participant to the list
         self.participants
@@ -384,7 +443,7 @@ where
             }
         };
 
-        let ret = self.common.mls.remove_member(id)?;
+        let ret = self.common.lock().mls.remove_member(id)?;
 
         // remove the participant from the list
         self.participants.remove(&name);
@@ -397,14 +456,14 @@ where
         &mut self,
         proposal: &ProposalMsg,
     ) -> Result<CommitMsg, SessionError> {
-        let commit = self.common.mls.process_proposal(proposal, true)?;
+        let commit = self.common.lock().mls.process_proposal(proposal, true)?;
 
         Ok(commit)
     }
 
     #[allow(dead_code)]
     pub(crate) fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, SessionError> {
-        let commit = self.common.mls.process_local_pending_proposal()?;
+        let commit = self.common.lock().mls.process_local_pending_proposal()?;
 
         Ok(commit)
     }
@@ -434,6 +493,7 @@ mod tests {
             group: vec![],
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
+            header_integrity_validation_percent: 100,
         };
 
         let mut msg = Message::builder()
@@ -479,6 +539,7 @@ mod tests {
             group: vec![],
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
+            header_integrity_validation_percent: 100,
         };
 
         let mut bob_state = MlsState {
@@ -486,6 +547,7 @@ mod tests {
             group: vec![],
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
+            header_integrity_validation_percent: 100,
         };
 
         let original_payload = b"Hello from Alice!";
@@ -545,6 +607,7 @@ mod tests {
             group: vec![],
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
+            header_integrity_validation_percent: 100,
         };
 
         // Create a message with a control message type (not Msg)
