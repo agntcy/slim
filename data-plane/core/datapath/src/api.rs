@@ -181,12 +181,12 @@ impl ProtoName {
         self.name.as_ref().unwrap().id()
     }
 
-    pub fn name_id(&self) -> Option<NameId> {
-        self.name.as_ref().unwrap().name_id
-    }
-
     pub fn string_id(&self) -> String {
         NameId::id_to_string(self.id())
+    }
+
+    pub fn name_id(&self) -> Option<NameId> {
+        self.name.as_ref().unwrap().name_id
     }
 
     /// Returns `true` if an ID has been set (i.e. is not `NULL_COMPONENT`).
@@ -280,5 +280,105 @@ mod tests {
         let enc2 = proto2.name.unwrap();
         assert_eq!(enc, enc2);
         assert_eq!(enc.name_id.as_ref().unwrap().id(), 7);
+    }
+
+    #[test]
+    fn test_name_id_roundtrip() {
+        // Verify u128 -> NameId -> u128 roundtrip
+        let values = [0u128, 1, 42, u128::MAX / 2, u128::MAX - 4];
+        for v in values {
+            let nid = NameId::new(v);
+            assert_eq!(nid.id(), v, "roundtrip failed for {v}");
+        }
+    }
+
+    #[test]
+    fn test_name_id_from_string_valid_uuid() {
+        let nid = NameId::from_string("00000000-0000-0000-0000-00000000002a").unwrap();
+        assert_eq!(nid.id(), 42);
+    }
+
+    #[test]
+    fn test_name_id_from_string_invalid() {
+        assert!(NameId::from_string("not-a-uuid").is_none());
+        assert!(NameId::from_string("").is_none());
+    }
+
+    #[test]
+    fn test_name_id_display_uuid() {
+        let nid = NameId::new(42);
+        assert_eq!(nid.to_string(), "00000000-0000-0000-0000-00000000002a");
+    }
+
+    #[test]
+    fn test_name_id_display_reserved() {
+        assert_eq!(
+            NameId::id_to_string(NameId::NULL_COMPONENT),
+            "NULL_COMPONENT"
+        );
+        assert_eq!(
+            NameId::id_to_string(NameId::DATA_CHANNEL_ID),
+            "DATA_CHANNEL_ID"
+        );
+        assert_eq!(
+            NameId::id_to_string(NameId::CONTROL_CHANNEL_ID),
+            "CONTROL_CHANNEL_ID"
+        );
+    }
+
+    #[test]
+    fn test_name_id_is_reserved() {
+        assert!(NameId::is_reserved_id(NameId::NULL_COMPONENT));
+        assert!(NameId::is_reserved_id(NameId::DATA_CHANNEL_ID));
+        assert!(NameId::is_reserved_id(NameId::CONTROL_CHANNEL_ID));
+        assert!(!NameId::is_reserved_id(0));
+        assert!(!NameId::is_reserved_id(42));
+    }
+
+    #[test]
+    fn test_proto_name_default_id_is_null_component() {
+        let n = ProtoName::from_strings(["a", "b", "c"]);
+        assert_eq!(n.id(), NameId::NULL_COMPONENT);
+        assert!(!n.has_id());
+    }
+
+    #[test]
+    fn test_proto_name_set_id() {
+        let mut n = ProtoName::from_strings(["a", "b", "c"]);
+        n.set_id(123);
+        assert_eq!(n.id(), 123);
+        assert!(n.has_id());
+    }
+
+    #[test]
+    fn test_proto_name_string_id() {
+        let n = ProtoName::from_strings(["a", "b", "c"]).with_id(42);
+        assert_eq!(n.string_id(), "00000000-0000-0000-0000-00000000002a");
+    }
+
+    #[test]
+    fn test_proto_name_display_with_id() {
+        let n = ProtoName::from_strings(["org", "ns", "app"]).with_id(1);
+        let s = format!("{}", n);
+        assert_eq!(s, "org/ns/app/00000000-0000-0000-0000-000000000001");
+    }
+
+    #[test]
+    fn test_proto_name_display_null_component() {
+        let n = ProtoName::from_strings(["org", "ns", "app"]);
+        let s = format!("{}", n);
+        assert_eq!(s, "org/ns/app/NULL_COMPONENT");
+    }
+
+    #[test]
+    fn test_encoded_name_id_when_name_id_none() {
+        let enc = EncodedName {
+            component_0: 0,
+            component_1: 0,
+            component_2: 0,
+            name_id: None,
+        };
+        assert_eq!(enc.id(), NameId::NULL_COMPONENT);
+        assert_eq!(enc.string_id(), "NULL_COMPONENT");
     }
 }
