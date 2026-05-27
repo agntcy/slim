@@ -599,10 +599,7 @@ mod tests {
     fn make_route(
         source: &str,
         dest_node: &str,
-        c0: &str,
-        c1: &str,
-        c2: &str,
-        component_id: Option<u64>,
+        name: ProtoName,
         status: i32,
         last_updated: i64,
     ) -> RouteEntry {
@@ -610,10 +607,7 @@ mod tests {
             id: 1.to_string(),
             source_node_id: source.to_string(),
             dest_node_id: dest_node.to_string(),
-            name: Some(
-                ProtoName::from_strings([c0, c1, c2])
-                    .with_id(component_id.map(|id| id as u128).unwrap_or(0)),
-            ),
+            name: Some(name),
             status,
             last_updated,
             ..Default::default()
@@ -674,19 +668,25 @@ mod tests {
 
     #[test]
     fn build_subscription_str_with_component_id() {
-        let r = make_route("", "", "org", "ns", "agent", Some(42), 0, 0);
-        assert_eq!(build_subscription_str(&r), "org/ns/agent/42");
+        let name = ProtoName::from_strings(["org", "ns", "agent"]).with_id(2);
+        let r = make_route("", "", name, 0, 0);
+        assert_eq!(
+            build_subscription_str(&r),
+            "org/ns/agent/00000000-0000-0000-0000-000000000002"
+        );
     }
 
     #[test]
     fn build_subscription_str_without_component_id() {
-        let r = make_route("", "", "org", "ns", "agent", None, 0, 0);
-        assert_eq!(build_subscription_str(&r), "org/ns/agent");
+        let name = ProtoName::from_strings(["org", "ns", "agent"]);
+        let r = make_route("", "", name, 0, 0);
+        assert_eq!(build_subscription_str(&r), "org/ns/agent/NULL_COMPONENT");
     }
 
     #[test]
     fn build_subscription_str_zero_component_id() {
-        let r = make_route("", "", "a", "b", "c", Some(0), 0, 0);
+        let name = ProtoName::from_strings(["a", "b", "c"]).with_id(0);
+        let r = make_route("", "", name, 0, 0);
         assert_eq!(
             build_subscription_str(&r),
             "a/b/c/00000000-0000-0000-0000-000000000000"
@@ -700,10 +700,7 @@ mod tests {
         let mut r = make_route(
             "src-node",
             "dst-node",
-            "org",
-            "ns",
-            "agent",
-            Some(7),
+            ProtoName::from_strings(["org", "ns", "agent"]).with_id(7),
             RouteStatus::Applied as i32,
             0,
         );
@@ -711,21 +708,26 @@ mod tests {
         let cells = route_cells(&r);
         assert_eq!(cells[0], "src-node"); // source
         assert_eq!(cells[1], "dst-node"); // dest node
-        assert_eq!(cells[2], "org/ns/agent/7"); // route
+        assert_eq!(
+            cells[2],
+            "org/ns/agent/00000000-0000-0000-0000-000000000007"
+        ); // route
         assert_eq!(cells[3], "APPLIED"); // status
         assert_eq!(cells[4], "apply succeeded"); // status msg
     }
 
     #[test]
     fn route_cells_empty_dest_node_becomes_dash() {
-        let r = make_route("src", "", "o", "n", "a", None, 0, 0);
+        let name = ProtoName::from_strings(["o", "n", "a"]);
+        let r = make_route("src", "", name, 0, 0);
         assert_eq!(route_cells(&r)[1], "-");
     }
 
     #[test]
     fn route_cells_subscription_column() {
-        let r = make_route("src", "", "o", "n", "a", None, 0, 0);
-        assert_eq!(route_cells(&r)[2], "o/n/a");
+        let name = ProtoName::from_strings(["o", "n", "a"]);
+        let r = make_route("src", "", name, 0, 0);
+        assert_eq!(route_cells(&r)[2], "o/n/a/NULL_COMPONENT");
     }
 
     // ── compute_route_col_widths ─────────────────────────────────────────────
@@ -780,16 +782,8 @@ mod tests {
 
     #[test]
     fn print_route_row_no_panic() {
-        let r = make_route(
-            "src",
-            "dst",
-            "org",
-            "ns",
-            "agent",
-            Some(1),
-            RouteStatus::Applied as i32,
-            0,
-        );
+        let name = ProtoName::from_strings(["org", "ns", "agent"]).with_id(1);
+        let r = make_route("src", "dst", name, RouteStatus::Applied as i32, 0);
         let widths = compute_route_col_widths(std::slice::from_ref(&r));
         print_route_row(&r, &widths);
     }

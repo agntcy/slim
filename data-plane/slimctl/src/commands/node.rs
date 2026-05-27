@@ -447,17 +447,27 @@ mod tests {
         let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         write!(f, r#"{{"endpoint": "http://127.0.0.1:8080"}}"#).unwrap();
         let path = f.path().to_str().unwrap().to_string();
-        route_add("a/b/c/0", "via", &path, &make_opts(&addr))
-            .await
-            .unwrap();
+        route_add(
+            "a/b/c/00000000-0000-0000-0000-000000000000",
+            "via",
+            &path,
+            &make_opts(&addr),
+        )
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
     async fn route_del_via_mock_server() {
         let addr = spawn_mock_node_server().await;
-        route_del("a/b/c/0", "via", "http://127.0.0.1:8080", &make_opts(&addr))
-            .await
-            .unwrap();
+        route_del(
+            "a/b/c/00000000-0000-0000-0000-000000000000",
+            "via",
+            "http://127.0.0.1:8080",
+            &make_opts(&addr),
+        )
+        .await
+        .unwrap();
     }
 
     // ── error-handling mock services ─────────────────────────────────────────
@@ -667,9 +677,14 @@ mod tests {
         let path = f.path().to_str().unwrap().to_string();
         // The client prints the failure but still returns Ok
         assert!(
-            route_add("a/b/c/0", "via", &path, &make_opts(&addr))
-                .await
-                .is_ok()
+            route_add(
+                "a/b/c/00000000-0000-0000-0000-000000000000",
+                "via",
+                &path,
+                &make_opts(&addr)
+            )
+            .await
+            .is_ok()
         );
     }
 
@@ -678,9 +693,14 @@ mod tests {
         let addr = spawn_svc(NackControllerSvc).await;
         // The client prints the failure but still returns Ok
         assert!(
-            route_del("a/b/c/0", "via", "http://127.0.0.1:8080", &make_opts(&addr))
-                .await
-                .is_ok()
+            route_del(
+                "a/b/c/00000000-0000-0000-0000-000000000000",
+                "via",
+                "http://127.0.0.1:8080",
+                &make_opts(&addr)
+            )
+            .await
+            .is_ok()
         );
     }
 
@@ -692,18 +712,28 @@ mod tests {
         let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         write!(f, r#"{{"endpoint": "http://127.0.0.1:8080"}}"#).unwrap();
         let path = f.path().to_str().unwrap().to_string();
-        let err = route_add("a/b/c/0", "via", &path, &make_opts(&addr))
-            .await
-            .unwrap_err();
+        let err = route_add(
+            "a/b/c/00000000-0000-0000-0000-000000000000",
+            "via",
+            &path,
+            &make_opts(&addr),
+        )
+        .await
+        .unwrap_err();
         assert!(err.to_string().contains("unexpected response type"));
     }
 
     #[tokio::test]
     async fn route_del_unexpected_payload_fails() {
         let addr = spawn_svc(UnexpectedPayloadControllerSvc).await;
-        let err = route_del("a/b/c/0", "via", "http://127.0.0.1:8080", &make_opts(&addr))
-            .await
-            .unwrap_err();
+        let err = route_del(
+            "a/b/c/00000000-0000-0000-0000-000000000000",
+            "via",
+            "http://127.0.0.1:8080",
+            &make_opts(&addr),
+        )
+        .await
+        .unwrap_err();
         assert!(err.to_string().contains("unexpected response type"));
     }
 }

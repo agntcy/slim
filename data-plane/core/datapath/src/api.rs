@@ -54,8 +54,14 @@ impl std::fmt::Display for ProtoName {
         if let Some(s) = &self.str_name {
             write!(
                 f,
-                "{}/{}/{}",
-                s.str_component_0, s.str_component_1, s.str_component_2
+                "{}/{}/{}/{}",
+                s.str_component_0,
+                s.str_component_1,
+                s.str_component_2,
+                self.name
+                    .as_ref()
+                    .and_then(|n| n.name_id)
+                    .map_or("NULL_COMPONENT".to_string(), |id| id.to_string())
             )
         } else if let Some(enc) = &self.name {
             write!(
@@ -66,7 +72,7 @@ impl std::fmt::Display for ProtoName {
                 enc.component_2,
                 enc.name_id
                     .as_ref()
-                    .map_or("no-id".to_string(), |id| id.to_string())
+                    .map_or("NULL_COMPONENT".to_string(), |id| id.to_string())
             )
         } else {
             write!(f, "<empty>")
