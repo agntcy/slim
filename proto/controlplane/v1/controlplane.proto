@@ -5,7 +5,7 @@ syntax = "proto3";
 package controlplane.proto.v1;
 
 import "controller/v1/controller.proto";
-import "v1/data_plane.proto";
+import "data-plane/v1/data_plane.proto";
 
 service ControlPlaneService {
   rpc AddRoute(AddRouteRequest) returns (AddRouteResponse) {}

@@ -16,7 +16,7 @@ fn main() {
 
     let controller_proto = base.join("proto/controller/v1/controller.proto");
     let controlplane_proto = base.join("proto/controlplane/v1/controlplane.proto");
-    let datapath_proto_dir = base.join("../core/datapath/proto");
+    let datapath_proto_dir = base.join("../../proto");
 
     if controller_proto.exists() && controlplane_proto.exists() {
         println!("cargo:rerun-if-changed={}", controller_proto.display());

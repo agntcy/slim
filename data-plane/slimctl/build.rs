@@ -22,7 +22,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", controller_proto.display());
     println!("cargo:rerun-if-changed={}", channel_manager_proto.display());
 
-    let datapath_proto_dir = std::path::Path::new(&manifest_dir).join("../core/datapath/proto");
+    let datapath_proto_dir = std::path::Path::new(&manifest_dir).join("../../proto");
 
     tonic_prost_build::configure()
         .extern_path(

@@ -6,7 +6,7 @@ package controller.proto.v1;
 
 import "google/protobuf/struct.proto";
 import "google/protobuf/wrappers.proto";
-import "v1/data_plane.proto";
+import "data-plane/v1/data_plane.proto";
 
 option go_package = "github.com/agntcy/slim/control-plane/common/proto/controller/v1;controllerv1";
 

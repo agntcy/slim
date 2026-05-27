@@ -45,7 +45,7 @@ fn main() {
                     .to_str()
                     .unwrap(),
                 std::path::Path::new(&manifest_dir)
-                    .join("../datapath/proto")
+                    .join("../../../proto")
                     .to_str()
                     .unwrap(),
             ],
