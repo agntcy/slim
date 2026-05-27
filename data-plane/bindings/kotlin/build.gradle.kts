@@ -95,6 +95,12 @@ tasks.test {
     }
 }
 
+// UniFFI/native Slim: each test class runs in a fresh JVM so async reconnect/teardown from one
+// class (e.g. BindingsTest alice/bob) cannot bleed into the next (PointToPointTest CI flakes).
+tasks.withType<Test>().configureEach {
+    forkEvery = 1
+}
+
 // Task to run all tests with verbose output
 tasks.register<Test>("testVerbose") {
     group = "verification"
