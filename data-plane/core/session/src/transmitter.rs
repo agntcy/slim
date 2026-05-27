@@ -112,8 +112,8 @@ where
     }
 
     async fn send_to_slim(&self, mut message: Result<Message, Status>) -> Result<(), SessionError> {
-        let identity = self.identity_provider.get_token()?;
         if let Ok(msg) = message.as_mut() {
+            let identity = self.identity_provider.get_token()?;
             msg.get_slim_header_mut().set_identity(identity);
         }
 
