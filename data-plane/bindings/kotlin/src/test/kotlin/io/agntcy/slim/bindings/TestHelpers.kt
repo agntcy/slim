@@ -54,9 +54,11 @@ suspend fun setupServer(endpoint: String?): ServerFixture {
         serviceConfig = listOf(serviceConfig)
     )
     
-    // Create service
+    // Create service — use a host name unique to the listen port so multiple embedded
+    // servers in one JVM (or after another test's teardown) do not collide on "localserver".
     val service = if (endpoint != null) {
-        val svc = Service("localserver")
+        val port = endpoint.substringAfterLast(':').substringBefore('/').substringBefore('?')
+        val svc = Service("local-$port")
         val serverConfig = newInsecureServerConfig(endpoint)
         svc.runServerAsync(serverConfig)
         svc
