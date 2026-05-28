@@ -92,7 +92,7 @@ const DEFAULT_REPLAY_CACHE_MAX: usize = 4096;
 
 /// Computes the encoded length of base64url-no-pad for a given byte length.
 const fn base64url_nopad_encoded_len(byte_len: usize) -> usize {
-    (byte_len * 4 + 2) / 3
+    (byte_len * 4).div_ceil(3)
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
