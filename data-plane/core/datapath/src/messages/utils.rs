@@ -276,6 +276,7 @@ impl SlimHeader {
             forward_to: flags.forward_to,
             incoming_conn: flags.incoming_conn,
             error: flags.error,
+            header_mac: None,
         }
     }
 
@@ -1686,12 +1687,15 @@ impl ProtoMessageBuilder {
         link_id: impl Into<String>,
         slim_version: impl Into<String>,
         is_reply: bool,
+        link_ecdh_public_key: Option<Vec<u8>>,
     ) -> ProtoMessage {
+        let link_ecdh_public_key = link_ecdh_public_key.unwrap_or_default();
         let link = ProtoLink {
             link_type: Some(ProtoLinkType::LinkNegotiation(LinkNegotiationPayload {
                 link_id: link_id.into(),
                 slim_version: slim_version.into(),
                 is_reply,
+                link_ecdh_public_key,
             })),
         };
         ProtoMessage::new(self.metadata, ProtoLinkMessageType(link))
@@ -2007,6 +2011,7 @@ mod tests {
             forward_to: None,
             incoming_conn: None,
             error: None,
+            header_mac: None,
         };
 
         // the operations to retrieve source and destination should fail with panic
@@ -2279,6 +2284,7 @@ mod tests {
                 link_id: "abc".into(),
                 slim_version: "1.0.0".into(),
                 is_reply: false,
+                link_ecdh_public_key: vec![],
             })),
         };
         let msg = ProtoMessage::new(HashMap::new(), ProtoLinkMessageType(link));
@@ -2287,7 +2293,7 @@ mod tests {
 
     #[test]
     fn test_build_link_negotiation_request() {
-        let msg = ProtoMessage::builder().build_link_negotiation("my-id", "1.2.3", false);
+        let msg = ProtoMessage::builder().build_link_negotiation("my-id", "1.2.3", false, None);
         assert!(msg.is_link());
         assert!(!msg.is_publish());
         assert!(!msg.is_subscribe());
@@ -2296,7 +2302,7 @@ mod tests {
 
     #[test]
     fn test_build_link_negotiation_reply() {
-        let msg = ProtoMessage::builder().build_link_negotiation("my-id", "1.2.3", true);
+        let msg = ProtoMessage::builder().build_link_negotiation("my-id", "1.2.3", true, None);
         assert!(msg.is_link());
         assert!(msg.validate().is_ok());
     }

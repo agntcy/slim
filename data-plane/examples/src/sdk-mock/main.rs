@@ -144,7 +144,6 @@ async fn main() {
     // run the service - this will create all the connections provided via the config file.
     svc.run().await.unwrap();
 
-    // get the connection id
     let conn_id = svc
         .get_connection_id(&svc.config().dataplane_clients()[0].endpoint)
         .unwrap();

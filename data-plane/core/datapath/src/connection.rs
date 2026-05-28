@@ -1,15 +1,19 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::sync::Arc;
+
 use crate::api::proto::dataplane::v1::Message;
+use aws_lc_rs::agreement::EphemeralPrivateKey;
 use parking_lot::RwLock;
 use semver::Version;
 use slim_config::client::{ClientConfig, is_valid_uuid_v4};
 use std::net::SocketAddr;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tonic::Status;
+
+use crate::header_mac::HeaderMacSession;
 
 /// Negotiation state shared between link negotiation fields.
 /// Kept under one lock so that the check-and-set is atomic.
@@ -17,6 +21,8 @@ use tonic::Status;
 struct NegotiationState {
     link_id: Option<String>,
     remote_slim_version: Option<Version>,
+    pub(crate) header_hmac: Option<Arc<HeaderMacSession>>,
+    outbound_ecdh_private: Option<EphemeralPrivateKey>,
 }
 
 #[derive(Debug, Clone)]
@@ -39,8 +45,7 @@ pub(crate) enum Type {
     Unknown,
 }
 
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
+#[derive(Clone)]
 /// Connection information
 pub struct Connection {
     /// Remote address and port. Not available for local connections
@@ -63,6 +68,23 @@ pub struct Connection {
 
     /// Link negotiation state (link_id + remote_slim_version) under one lock for atomic check-and-set.
     negotiation: Arc<RwLock<NegotiationState>>,
+
+    /// Strict header MAC policy for this connection (fixed at establishment).
+    require_header_mac: bool,
+}
+
+impl std::fmt::Debug for Connection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Connection")
+            .field("remote_addr", &self.remote_addr)
+            .field("local_addr", &self.local_addr)
+            .field("channel", &self.channel)
+            .field("config_data", &self.config_data)
+            .field("connection_type", &self.connection_type)
+            // Not printing sensitive data
+            .field("negotiation", &"NegotiationState")
+            .finish_non_exhaustive()
+    }
 }
 
 /// Implementation of Connection
@@ -77,7 +99,20 @@ impl Connection {
             connection_type,
             cancellation_token: None,
             negotiation: Arc::new(RwLock::new(NegotiationState::default())),
+            require_header_mac: false,
         }
+    }
+
+    /// Set whether strict header MAC verification applies on this connection.
+    pub(crate) fn with_require_header_mac(self, require_header_mac: bool) -> Self {
+        Self {
+            require_header_mac,
+            ..self
+        }
+    }
+
+    pub(crate) fn require_header_mac(&self) -> bool {
+        self.require_header_mac
     }
 
     /// Set the remote address
@@ -99,6 +134,22 @@ impl Connection {
             config_data,
             ..self
         }
+    }
+
+    pub(crate) fn header_hmac(&self) -> Option<Arc<HeaderMacSession>> {
+        self.negotiation.read().header_hmac.clone()
+    }
+
+    pub(crate) fn take_outbound_ecdh_private(&self) -> Option<EphemeralPrivateKey> {
+        self.negotiation.write().outbound_ecdh_private.take()
+    }
+
+    pub(crate) fn set_outbound_ecdh_private(&self, key: EphemeralPrivateKey) {
+        self.negotiation.write().outbound_ecdh_private = Some(key);
+    }
+
+    pub(crate) fn install_header_hmac(&self, mac: Arc<HeaderMacSession>) {
+        self.negotiation.write().header_hmac = Some(mac);
     }
 
     /// Get the remote address
@@ -131,10 +182,16 @@ impl Connection {
         matches!(self.connection_type, Type::Local)
     }
 
-    /// Return true if this node initiated the connection (client side).
-    /// False means the remote peer connected to us (server side).
+    /// Return true if this node initiated the connection (outbound dial).
+    ///
+    /// gRPC inbound peers use [`Channel::Server`]; outbound dials use [`Channel::Client`]
+    /// with [`config_data`](Self::config_data) set from [`ClientConfig`].
+    ///
+    /// WebSocket is asymmetric: the server accept path still uses [`Channel::Client`] for
+    /// writes, but leaves `config_data` unset, so inbound WebSocket is distinguished from
+    /// outbound WebSocket (which always carries `config_data` from the dial).
     pub fn is_outgoing(&self) -> bool {
-        matches!(self.channel, Channel::Client(_))
+        matches!(self.channel, Channel::Client(_)) && self.config_data.is_some()
     }
 
     /// Set cancellation token
@@ -210,10 +267,17 @@ impl Connection {
         state.remote_slim_version = Some(version);
         true
     }
+
+    #[cfg(test)]
+    pub(crate) fn test_install_header_mac(&self, mac: Arc<HeaderMacSession>) {
+        self.install_header_hmac(mac);
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::net::{Ipv4Addr, SocketAddrV4, ToSocketAddrs};
+
     use super::*;
     use tokio::sync::mpsc;
 
@@ -225,6 +289,7 @@ mod tests {
     fn client_conn() -> Connection {
         let (tx, _rx) = mpsc::channel(1);
         Connection::new(Type::Remote, Channel::Client(tx))
+            .with_config_data(Some(ClientConfig::default()))
     }
 
     #[test]
@@ -238,8 +303,42 @@ mod tests {
     }
 
     #[test]
+    fn test_is_outgoing_websocket_inbound() {
+        let (tx, _rx) = mpsc::channel(1);
+        let conn = Connection::new(Type::Remote, Channel::Client(tx));
+        assert!(!conn.is_outgoing());
+    }
+
+    #[test]
     fn test_link_id_initially_none() {
         assert!(server_conn().link_id().is_none());
+    }
+
+    #[test]
+    fn test_connection_format_print() {
+        let remote = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8080)
+            .to_socket_addrs()
+            .unwrap()
+            .next()
+            .unwrap();
+
+        let local = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8081)
+            .to_socket_addrs()
+            .unwrap()
+            .next()
+            .unwrap();
+
+        let conn = client_conn()
+            .with_remote_addr(Some(remote))
+            .with_local_addr(Some(local));
+        let debug = format!("{conn:?}");
+
+        assert!(debug.starts_with("Connection"));
+        assert!(debug.contains("connection_type: Remote"));
+        assert!(debug.contains("remote_addr: Some"));
+        assert!(debug.contains("local_addr: Some"));
+        // Sensitive fields are reducted
+        assert!(debug.contains(r#"negotiation: "NegotiationState""#));
     }
 
     #[test]
