@@ -26,7 +26,7 @@ use crate::ServiceError;
 use slim_session::SlimChannelSender;
 use slim_session::notification::Notification;
 use slim_session::subscription_manager::{SubscriptionManager, SubscriptionOps};
-use slim_session::transmitter::AppTransmitter;
+
 use slim_session::{SessionError, SessionLayer, context::SessionContext};
 
 pub struct App<P, V>
@@ -129,10 +129,6 @@ where
             }
         };
 
-        // Create the transmitter
-        let transmitter =
-            AppTransmitter::new(tx_slim.clone(), tx_app.clone(), identity_provider.clone());
-
         // Create the session layer
         let service_id_clone = service_id.clone();
         let session_layer = Arc::new(SessionLayer::new(
@@ -142,7 +138,6 @@ where
             conn_id,
             tx_slim,
             tx_app,
-            transmitter,
             direction,
             service_id,
         ));

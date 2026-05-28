@@ -33,7 +33,7 @@ pub mod transmitter;
 pub mod test_utils;
 
 // Traits
-pub use traits::{MessageHandler, Transmitter};
+pub use traits::MessageHandler;
 
 // Re-export the unified builder for convenience
 pub use session_builder::{ForController, ForModerator, ForParticipant, SessionBuilder};
