@@ -8,14 +8,12 @@
 
 use slim_auth::errors::AuthError;
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::Status;
-use slim_datapath::api::{Participant, ProtoMessage as Message, ProtoName};
+use slim_datapath::api::{Participant, ProtoName};
 use std::sync::Arc;
-use tokio::sync::mpsc;
 
 use crate::SessionError;
 use crate::common::SessionMessage;
-use crate::traits::{MessageHandler, Transmitter};
+use crate::traits::MessageHandler;
 
 /// Mock token provider for testing.
 #[derive(Clone, Default)]
@@ -69,27 +67,6 @@ impl Verifier for MockVerifier {
         Claims: serde::de::DeserializeOwned,
     {
         Err(AuthError::TokenInvalid)
-    }
-}
-
-/// Mock transmitter for testing.
-#[derive(Clone)]
-pub struct MockTransmitter {
-    pub slim_tx: mpsc::UnboundedSender<Result<Message, Status>>,
-}
-
-impl Transmitter for MockTransmitter {
-    async fn send_to_slim(&self, message: Result<Message, Status>) -> Result<(), SessionError> {
-        self.slim_tx
-            .send(message)
-            .map_err(|_| SessionError::SlimMessageSendFailed)
-    }
-
-    async fn send_to_app(
-        &self,
-        _message: Result<Message, SessionError>,
-    ) -> Result<(), SessionError> {
-        Ok(())
     }
 }
 

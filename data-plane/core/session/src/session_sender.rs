@@ -14,7 +14,7 @@ use tracing::debug;
 
 use crate::transmitter::SessionTransmitter;
 use crate::{
-    SessionError, Transmitter,
+    SessionError,
     common::SessionMessage,
     producer_buffer::ProducerBuffer,
     timer::Timer,

@@ -12,7 +12,7 @@ use tracing::debug;
 
 use crate::transmitter::SessionTransmitter;
 use crate::{
-    SessionError, Transmitter,
+    SessionError,
     common::SessionMessage,
     receiver_buffer::ReceiverBuffer,
     timer::Timer,
