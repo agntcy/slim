@@ -16,6 +16,8 @@ otel_tracing = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 agntcy-slim-config = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 agntcy-slim-version = { workspace = true }
+arc-swap = { workspace = true }
+aws-lc-rs = { workspace = true }
 display-error-chain = { workspace = true }
 drain = { workspace = true }
 fastwebsockets = { workspace = true }
@@ -54,4 +56,8 @@ harness = false
 
 [[bench]]
 name = "name_benchmark"
+harness = false
+
+[[bench]]
+name = "subscription_table_benchmark"
 harness = false

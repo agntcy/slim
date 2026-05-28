@@ -307,6 +307,9 @@ pub struct ClientConfig {
 
     /// Arbitrary user-provided metadata as JSON string
     pub metadata: Option<String>,
+
+    /// When true, reject inter-node messages without a valid header MAC (strict mode).
+    pub require_header_mac: Option<bool>,
 }
 
 impl From<ClientConfig> for CoreClientConfig {
@@ -340,6 +343,9 @@ impl From<ClientConfig> for CoreClientConfig {
                 .metadata
                 .and_then(|json| serde_json::from_str::<MetadataMap>(&json).ok()),
             link_id: core_defaults.link_id,
+            require_header_mac: config
+                .require_header_mac
+                .unwrap_or(core_defaults.require_header_mac),
         }
     }
 }
@@ -362,6 +368,7 @@ impl From<CoreClientConfig> for ClientConfig {
             auth: Some(config.auth.into()),
             backoff: Some(config.backoff.into()),
             metadata: config.metadata.and_then(|m| serde_json::to_string(&m).ok()),
+            require_header_mac: Some(config.require_header_mac),
         }
     }
 }
@@ -385,6 +392,7 @@ impl Default for ClientConfig {
             auth: None,
             backoff: None,
             metadata: None,
+            require_header_mac: None,
         }
     }
 }
@@ -463,6 +471,7 @@ mod tests {
             auth: None,
             backoff: None,
             metadata: None,
+            require_header_mac: None,
         };
 
         assert_eq!(config.endpoint, "example.com:443");
@@ -584,6 +593,7 @@ mod tests {
                 },
             }),
             metadata: Some(r#"{"client":"test"}"#.to_string()),
+            require_header_mac: None,
         };
 
         let core_config: CoreClientConfig = ffi_config.into();
@@ -645,6 +655,7 @@ mod tests {
                 config: ExponentialBackoff::default(),
             }),
             metadata: None,
+            require_header_mac: None,
         };
 
         // FFI -> Core -> FFI using the new From implementation

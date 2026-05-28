@@ -1,6 +1,5 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
-
 ---
 version: "3"
 
@@ -23,7 +22,8 @@ vars:
   # ROOT_DIR: directory of the invoked Taskfile (java/). TASKFILE_DIR can point at an included taskfile during var eval.
   MVNW: '{{.ROOT_DIR}}/mvnw'
   BINDINGS_VERSION:
-    sh: '{{.MVNW}} -f "{{.ROOT_DIR}}/pom.xml" help:evaluate -Dexpression=project.version -q -DforceStdout'
+    sh: '{{.MVNW}} -f "{{.ROOT_DIR}}/pom.xml" help:evaluate
+      -Dexpression=project.version -q -DforceStdout'
   BINDINGS_DIR: "{{.ROOT_DIR}}/../rust"
   PROFILE: '{{.PROFILE | default "debug"}}'
   CURRENT_TARGET:
@@ -114,10 +114,13 @@ tasks:
     desc: Install uniffi-bindgen-java CLI tool
     # Do not skip when ~/.cargo/bin caches an unrelated binary (CI restores ~/.cargo/bin).
     status:
-      - 'command -v uniffi-bindgen-java >/dev/null && uniffi-bindgen-java --version 2>/dev/null | grep -Fq "0.4.2"'
+      - 'command -v uniffi-bindgen-java >/dev/null && uniffi-bindgen-java
+        --version 2>/dev/null | grep -Fq "0.4.2"'
     cmds:
       - echo "Installing uniffi-bindgen-java..."
-      - cargo install uniffi-bindgen-java --git https://github.com/IronCoreLabs/uniffi-bindgen-java --tag 0.4.2 --config net.git-fetch-with-cli=true --force
+      - cargo install uniffi-bindgen-java --git
+        https://github.com/IronCoreLabs/uniffi-bindgen-java --tag 0.4.2 --config
+        net.git-fetch-with-cli=true --force
       - echo "uniffi-bindgen-java installed"
 
   generate:
@@ -163,6 +166,8 @@ tasks:
         fi
         echo "Using cdylib for UniFFI bindgen: $LIB"
         ls -lah "$LIB"
+        rm -rf generated/uniffi
+        mkdir -p generated/uniffi
         # UniFFI crate_name in metadata is the lib crate name (slim_bindings), not the Cargo package name.
         uniffi-bindgen-java generate "$LIB" \
           --out-dir generated/uniffi \
@@ -285,7 +290,8 @@ tasks:
       - echo "Installing bindings to local Maven repository..."
       - '{{.MVNW}} install -DskipTests -q'
       - echo "Compiling examples..."
-      - 'cd examples && {{.MVNW}} clean compile -q && {{.MVNW}} install -DskipTests -q'
+      - 'cd examples && {{.MVNW}} clean compile -q && {{.MVNW}} install
+        -DskipTests -q'
       - 'cd examples/slimrpc/simple && {{.MVNW}} clean compile -q'
       - echo "Build complete"
 
@@ -338,15 +344,20 @@ tasks:
       - echo "Installed to local Maven repository"
 
   publish:maven-central:
-    desc: Publish Java bindings to Maven Central (requires MVN_TOKEN_NAME, MVN_TOKEN_PASSWORD, GPG_SIGNING_KEY, GPG_PASSPHRASE, PUBLISH_VERSION)
+    desc: Publish Java bindings to Maven Central (requires MVN_TOKEN_NAME,
+      MVN_TOKEN_PASSWORD, GPG_SIGNING_KEY, GPG_PASSPHRASE, PUBLISH_VERSION)
     deps:
       - build
     vars:
       PUBLISH_VERSION: '{{.PUBLISH_VERSION | default "1.0.0"}}'
     cmds:
-      - '[ -n "$MVN_TOKEN_NAME" ] && [ -n "$MVN_TOKEN_PASSWORD" ] && [ -n "$GPG_SIGNING_KEY" ] && [ -n "$GPG_PASSPHRASE" ] || (echo "Error: MVN_TOKEN_NAME, MVN_TOKEN_PASSWORD, GPG_SIGNING_KEY, GPG_PASSPHRASE must be set"; exit 1)'
+      - '[ -n "$MVN_TOKEN_NAME" ] && [ -n "$MVN_TOKEN_PASSWORD" ] && [ -n
+        "$GPG_SIGNING_KEY" ] && [ -n "$GPG_PASSPHRASE" ] || (echo "Error:
+        MVN_TOKEN_NAME, MVN_TOKEN_PASSWORD, GPG_SIGNING_KEY, GPG_PASSPHRASE must
+        be set"; exit 1)'
       - echo "Publishing Java bindings to Maven Central (OSSRH Staging API)..."
-      - '{{.MVNW}} deploy -Drevision="{{.PUBLISH_VERSION}}" -DskipTests -DaltDeploymentRepository=central::default::https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/'
+      - '{{.MVNW}} deploy -Drevision="{{.PUBLISH_VERSION}}" -DskipTests
+        -DaltDeploymentRepository=central::default::https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/'
       - echo "Transferring deployment to Central Portal..."
       - |
         AUTH=$(echo -n "$MVN_TOKEN_NAME:$MVN_TOKEN_PASSWORD" | base64 | tr -d '\n')
@@ -392,7 +403,8 @@ tasks:
           -Dversion={{.BINDINGS_VERSION}} \
           -Dpackaging=jar \
           -DgeneratePom=true
-      - echo "Java bindings installed to ~/.m2/repository/io/agntcy/slim/slim-bindings-java/{{.BINDINGS_VERSION}}/"
+      - echo "Java bindings installed to
+        ~/.m2/repository/io/agntcy/slim/slim-bindings-java/{{.BINDINGS_VERSION}}/"
 
   examples:compile:
     desc: Compile Java examples
@@ -496,7 +508,8 @@ tasks:
       - build
     cmds:
       - echo "Starting SlimRPC server (instance={{.INSTANCE}})..."
-      - 'cd examples/slimrpc/simple && {{.MVNW}} exec:java@server -Dexec.args="--instance {{.INSTANCE}}"'
+      - 'cd examples/slimrpc/simple && {{.MVNW}} exec:java@server
+        -Dexec.args="--instance {{.INSTANCE}}"'
     vars:
       INSTANCE: '{{.INSTANCE | default "server"}}'
       CLI_ARGS: '{{.CLI_ARGS | default ""}}'

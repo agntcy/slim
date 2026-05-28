@@ -278,6 +278,8 @@ dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-tracing",
  "agntcy-slim-version",
+ "arc-swap",
+ "aws-lc-rs",
  "criterion",
  "display-error-chain",
  "drain",
