@@ -6,6 +6,7 @@ use std::time::SystemTime;
 
 use async_trait::async_trait;
 use diesel::OptionalExtension;
+use diesel::connection::SimpleConnection;
 use diesel::prelude::*;
 use diesel::serialize::{self, IsNull, Output, ToSql};
 use diesel::sql_types::{Integer, Text};
@@ -103,11 +104,12 @@ impl SqliteDb {
             SqliteConnection::establish(&path_owned)
                 .map_err(|e| format!("failed to open db: {e}"))
                 .and_then(|mut conn| {
-                    diesel::connection::SimpleConnection::batch_execute(
-                        &mut conn,
-                        "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;",
+                    // Match pool connections: WAL + long busy wait so migrations do not fight
+                    // concurrent pool opens during tests (avoids "database is locked").
+                    conn.batch_execute(
+                        "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=30000; PRAGMA synchronous=NORMAL;",
                     )
-                    .map_err(|e| format!("failed to set pragmas: {e}"))?;
+                    .map_err(|e| format!("pragma setup failed: {e}"))?;
                     conn.run_pending_migrations(MIGRATIONS)
                         .map(|_| ())
                         .map_err(|e| format!("migration failed: {e}"))
@@ -118,14 +120,16 @@ impl SqliteDb {
 
         // Build async pool.
         // Each connection enables WAL mode (one writer + concurrent readers) and a
-        // 5-second busy timeout so that concurrent writers retry instead of
-        // immediately returning "database is locked".
+        // long busy timeout so concurrent writers (southbound + reconciler under test)
+        // retry instead of returning "database is locked".
         let mut manager_config = ManagerConfig::<AsyncSqliteConn>::default();
         manager_config.custom_setup = Box::new(|url| {
             let url = url.to_string();
             Box::pin(async move {
                 let mut conn: AsyncSqliteConn = AsyncSqliteConn::establish(&url).await?;
-                conn.batch_execute("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;")
+                conn.batch_execute(
+                    "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=30000; PRAGMA synchronous=NORMAL;",
+                )
                     .await
                     .map_err(|e| diesel::ConnectionError::BadConnection(e.to_string()))?;
                 Ok(conn)

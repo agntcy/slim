@@ -56,3 +56,7 @@ harness = false
 [[bench]]
 name = "name_benchmark"
 harness = false
+
+[[bench]]
+name = "subscription_table_benchmark"
+harness = false
