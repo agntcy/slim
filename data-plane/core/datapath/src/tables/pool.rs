@@ -15,6 +15,15 @@ struct PoolEntry<T> {
     active_pos: usize,
 }
 
+impl<T: Clone> Clone for PoolEntry<T> {
+    fn clone(&self) -> Self {
+        PoolEntry {
+            value: self.value.clone(),
+            active_pos: self.active_pos,
+        }
+    }
+}
+
 /// A collection that assigns each inserted element a stable `u64` ID.
 ///
 /// IDs map directly to Vec indices, giving O(1) `get()` with no hash
@@ -237,6 +246,17 @@ impl<T> Pool<T> {
     /// Returns `true` if the pool contains no elements.
     pub fn is_empty(&self) -> bool {
         self.active_indexes.is_empty()
+    }
+}
+
+impl<T: Clone> Clone for Pool<T> {
+    fn clone(&self) -> Self {
+        Pool {
+            pool: self.pool.clone(),
+            active_indexes: self.active_indexes.clone(),
+            free_slots: self.free_slots.clone(),
+            cursor: AtomicUsize::new(self.cursor.load(Ordering::Relaxed)),
+        }
     }
 }
 
