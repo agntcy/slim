@@ -60,6 +60,8 @@ agntcy-slimctl = { path = "slimctl", version = "1.4.0" }
 arc-swap = "1.9.1"
 anyhow = "1.0.98"
 
+arc-swap = "1"
+
 async-stream = "0.3"
 async-trait = "0.1.88"
 aws-lc-rs = { version = "1.16", features = ["bindgen"] }
