@@ -667,4 +667,20 @@ mod tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_auth_verifier_verify_async() {
+        let provider = AuthProvider::shared_secret_from_str("test-id", TEST_SECRET).unwrap();
+        let verifier = AuthVerifier::shared_secret_from_str("test-id", TEST_SECRET).unwrap();
+        let token = provider.get_token().unwrap();
+        verifier.verify(&token).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_auth_verifier_get_claims_async() {
+        let provider = AuthProvider::shared_secret_from_str("test-id", TEST_SECRET).unwrap();
+        let verifier = AuthVerifier::shared_secret_from_str("test-id", TEST_SECRET).unwrap();
+        let token = provider.get_token().unwrap();
+        let _claims: serde_json::Value = verifier.get_claims(&token).await.unwrap();
+    }
 }

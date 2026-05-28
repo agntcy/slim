@@ -1324,4 +1324,39 @@ mod tests {
         assert!(!token.is_empty());
         assert_eq!(token.split('.').count(), 3); // JWT should have 3 parts
     }
+
+    #[tokio::test]
+    async fn test_verifier_jwt_verify_async() {
+        use crate::traits::Verifier;
+
+        let signer = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Data("secret-key".to_string()),
+            })
+            .build()
+            .unwrap();
+
+        let verifier = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .public_key(&Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Data("secret-key".to_string()),
+            })
+            .build()
+            .unwrap();
+
+        let claims = signer.create_claims();
+        let token = signer.sign_claims(&claims).unwrap();
+
+        // Exercise Verifier::verify (async) — the one patch line that was uncovered
+        verifier.verify(token).await.unwrap();
+    }
 }

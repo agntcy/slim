@@ -621,6 +621,7 @@ impl Verifier for SharedSecret {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::traits::{TokenProvider, Verifier};
     use serde::Deserialize;
     use std::thread;
     use std::time::Duration;
@@ -935,5 +936,183 @@ mod tests {
         let s2 = s.with_replay_cache_max(original_max * 2);
         assert_eq!(original_max, s2.replay_cache_max());
         assert!(!s2.replay_cache_enabled());
+    }
+
+    // --- Coverage tests for new PR code -------------------------------------------------------
+
+    #[test]
+    fn test_debug_shared_secret_internal() {
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        // Directly format the private inner struct to exercise Debug for SharedSecretInternal.
+        let debug_str = format!("{:?}", *s.inner);
+        assert!(debug_str.contains("SharedSecretInternal"));
+        assert!(debug_str.contains("svc"));
+    }
+
+    #[test]
+    fn test_with_replay_cache_max_when_enabled() {
+        let s = SharedSecret::new("svc", &valid_secret())
+            .unwrap()
+            .with_replay_cache_enabled(128);
+        let s2 = s.with_replay_cache_max(64);
+        assert_eq!(64, s2.replay_cache_max());
+        assert!(s2.replay_cache_enabled());
+    }
+
+    #[test]
+    fn test_rebuild_evicts_when_shrinking() {
+        let s = SharedSecret::new("svc", &valid_secret())
+            .unwrap()
+            .with_replay_cache_enabled(128);
+        // Fill the replay cache with 3 entries.
+        let t1 = s.get_token().unwrap();
+        let t2 = s.get_token().unwrap();
+        let t3 = s.get_token().unwrap();
+        assert!(s.try_verify(t1).is_ok());
+        assert!(s.try_verify(t2).is_ok());
+        assert!(s.try_verify(t3).is_ok());
+        // Shrink capacity to 1 — rebuild must evict the two oldest entries.
+        let s_small = s.with_replay_cache_max(1);
+        assert_eq!(1, s_small.replay_cache_max());
+    }
+
+    #[test]
+    fn test_replay_cache_purges_expired_entries() {
+        // Short validity window so entries expire quickly.
+        let s = SharedSecret::new("svc", &valid_secret())
+            .unwrap()
+            .with_validity_window(Duration::from_secs(1))
+            .with_replay_cache_enabled(128);
+        let t1 = s.get_token().unwrap();
+        assert!(s.try_verify(t1).is_ok());
+        // Sleep until t1's timestamp is older than the validity window.
+        thread::sleep(Duration::from_secs(2));
+        // A fresh token triggers the expiry-cleanup loop inside ReplayCache::insert.
+        let t2 = s.get_token().unwrap();
+        assert!(s.try_verify(t2).is_ok());
+    }
+
+    #[test]
+    fn test_accessors() {
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        assert_eq!(s.base_id(), "svc");
+        assert_eq!(
+            s.validity_window(),
+            Duration::from_secs(DEFAULT_VALIDITY_WINDOW)
+        );
+        assert_eq!(s.clock_skew(), Duration::from_secs(DEFAULT_CLOCK_SKEW));
+        assert!(!s.shared_secret().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_token_provider_trait_methods() {
+        let mut s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        // TokenProvider::initialize (no-op, explicit disambiguation).
+        <SharedSecret as TokenProvider>::initialize(&mut s)
+            .await
+            .unwrap();
+        // get_id
+        let id = s.get_id().unwrap();
+        assert!(id.starts_with("svc_"));
+        // get_signature_secret_key / get_signature_public_key
+        let sk = s.get_signature_secret_key().unwrap();
+        assert!(!sk.is_empty());
+        let pk_before = s.get_signature_public_key().unwrap();
+        assert!(!pk_before.is_empty());
+        // rotate_signature_keys: public key must change after rotation.
+        s.rotate_signature_keys().unwrap();
+        let pk_after = s.get_signature_public_key().unwrap();
+        assert_ne!(pk_before, pk_after);
+        // Token issued after rotation must still verify with the same shared secret.
+        let token = s.get_token().unwrap();
+        assert!(s.try_verify(token).is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_verifier_trait_methods() {
+        let mut s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        // Verifier::initialize (no-op, explicit disambiguation).
+        <SharedSecret as Verifier>::initialize(&mut s)
+            .await
+            .unwrap();
+        // Verifier::verify (async wrapper around try_verify).
+        let token = s.get_token().unwrap();
+        s.verify(&token).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_claims_async() {
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        let token = s.get_token().unwrap();
+        let claims: BasicClaims = s.get_claims(&token).await.unwrap();
+        assert!(claims.sub.starts_with("svc_"));
+        assert_eq!(claims.exp, claims.iat + s.validity_window_secs());
+    }
+
+    #[test]
+    fn test_token_with_colon_in_claims_field() {
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        let ts = s.get_current_timestamp();
+        let nonce = gen_nonce();
+        // claims_b64 field containing ':' must be rejected before HMAC verification.
+        let token = format!("{}:{}:{}:claims:with:colon:bad_mac", s.id(), ts, nonce);
+        let res = s.try_verify(&token);
+        assert!(res.is_err_and(|e| matches!(e, AuthError::TokenMalformed)));
+    }
+
+    #[test]
+    fn test_mac_43_chars_invalid_base64() {
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        let ts = s.get_current_timestamp();
+        let nonce = gen_nonce();
+        // Exactly 43 chars (fast path) but '!' is not valid URL-safe base64.
+        let invalid_43_mac = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA!";
+        assert_eq!(invalid_43_mac.len(), 43);
+        let token = format!("{}:{}:{}::{}", s.id(), ts, nonce, invalid_43_mac);
+        let res = s.try_verify(&token);
+        assert!(res.is_err_and(|e| matches!(e, AuthError::Base64DecodeError(_))));
+    }
+
+    #[test]
+    fn test_mac_valid_base64_wrong_byte_length() {
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        let ts = s.get_current_timestamp();
+        let nonce = gen_nonce();
+        // 33 bytes → 44 base64url chars (not 43), decodes to 33 bytes (not 32).
+        let wrong_len_mac = URL_SAFE_NO_PAD.encode([0u8; 33]);
+        assert_eq!(wrong_len_mac.len(), 44);
+        let token = format!("{}:{}:{}::{}", s.id(), ts, nonce, wrong_len_mac);
+        let res = s.try_verify(&token);
+        assert!(res.is_err_and(|e| matches!(e, AuthError::TokenMalformed)));
+    }
+
+    #[test]
+    fn test_get_claims_empty_claims_field() {
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        let ts = s.get_current_timestamp();
+        let nonce = gen_nonce();
+        // Forge a valid token with an empty claims_b64 field ("id:ts:nonce::mac").
+        let message = build_message(s.id(), ts, &nonce, "");
+        let mac = forge_mac(&s, &message);
+        let token = format!("{}:{}", message, mac);
+        // try_get_claims must fall through to the empty-claims branch (json!({})).
+        let claims: BasicClaims = s.try_get_claims(&token).unwrap();
+        assert!(claims.sub.starts_with("svc_"));
+        assert_eq!(claims.exp, ts + s.validity_window_secs());
+    }
+
+    #[test]
+    fn test_get_token_into_buffer_reuse() {
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        let mut buf = String::with_capacity(4); // intentionally small initial capacity
+        s.get_token_into(&mut buf).unwrap();
+        assert!(!buf.is_empty());
+        let first_token = buf.clone();
+        // A second call must clear the buffer and write a fresh token.
+        s.get_token_into(&mut buf).unwrap();
+        assert!(!buf.is_empty());
+        assert_ne!(first_token, buf); // different nonces
+        assert!(s.try_verify(&first_token).is_ok());
+        assert!(s.try_verify(&buf).is_ok());
     }
 }

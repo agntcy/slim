@@ -1093,4 +1093,82 @@ mod tests {
         let verified_claims: TestClaims = verifier.try_get_claims(token).unwrap();
         assert_eq!(verified_claims.sub, "user123");
     }
+
+    #[tokio::test]
+    async fn test_oidc_verifier_initialize_noop() {
+        let mut verifier = OidcVerifier::new("https://example.com", "audience");
+        // initialize is a no-op; should succeed without error
+        verifier.initialize().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_oidc_verifier_verify_async() {
+        let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let issuer_url = mock_server.uri();
+
+        let claims = TestClaims {
+            sub: "user456".to_string(),
+            iss: issuer_url.clone(),
+            aud: "test-audience".to_string(),
+            exp: (SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                + 3600),
+            iat: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        };
+
+        let header = Header::new(Algorithm::RS256);
+        let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes()).unwrap();
+        let token = encode(&header, &claims, &encoding_key).unwrap();
+
+        let verifier = OidcVerifier::new(issuer_url, "test-audience");
+
+        // Exercise Verifier::verify (async)
+        verifier.verify(token).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_oidc_verifier_try_verify_with_cached_jwks() {
+        let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let issuer_url = mock_server.uri();
+
+        let claims = TestClaims {
+            sub: "user789".to_string(),
+            iss: issuer_url.clone(),
+            aud: "test-audience".to_string(),
+            exp: (SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                + 3600),
+            iat: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        };
+
+        let header = Header::new(Algorithm::RS256);
+        let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes()).unwrap();
+        let token = encode(&header, &claims, &encoding_key).unwrap();
+
+        let verifier = OidcVerifier::new(issuer_url, "test-audience");
+
+        // Populate JWKS cache so try_verify can use it synchronously
+        let _jwks = verifier.get_jwks().await.unwrap();
+
+        // Exercise Verifier::try_verify (sync with warm cache)
+        verifier.try_verify(&token).unwrap();
+    }
+
+    #[test]
+    fn test_oidc_verifier_try_verify_without_cache_returns_would_block() {
+        let verifier = OidcVerifier::new("https://example.com", "audience");
+        // No JWKS cache — must return WouldBlockOn
+        let result = verifier.try_verify("any.token.value");
+        assert!(matches!(result, Err(AuthError::WouldBlockOn)));
+    }
 }
