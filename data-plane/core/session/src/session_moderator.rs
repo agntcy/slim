@@ -148,14 +148,13 @@ where
                     // this is a application message. if direction (needs to go to the remote endpoint) and
                     // the session is p2p, update the destination of the message with the destination in
                     // the self.common. In this way we always add the right id to the name
-                    if direction == MessageDirection::South {
-                        if self.common.settings.config.session_type
+                    if direction == MessageDirection::South
+                        && self.common.settings.config.session_type
                             == ProtoSessionType::PointToPoint
-                        {
-                            message
-                                .get_slim_header_mut()
-                                .set_destination(self.common.settings.destination.clone());
-                        }
+                    {
+                        message
+                            .get_slim_header_mut()
+                            .set_destination(self.common.settings.destination.clone());
                     }
 
                     // Decrypt inbound application messages.

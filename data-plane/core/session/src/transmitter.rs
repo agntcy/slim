@@ -58,11 +58,11 @@ where
     }
 
     async fn send_to_slim(&self, mut message: Result<Message, Status>) -> Result<(), SessionError> {
-        if let Ok(msg) = message.as_mut() {
-            if msg.get_slim_header().get_identity().is_empty() {
-                let identity = self.identity_provider.get_token()?;
-                msg.get_slim_header_mut().set_identity(identity);
-            }
+        if let Ok(msg) = message.as_mut()
+            && msg.get_slim_header().get_identity().is_empty()
+        {
+            let identity = self.identity_provider.get_token()?;
+            msg.get_slim_header_mut().set_identity(identity);
         }
 
         self.slim_tx
@@ -114,11 +114,11 @@ where
     }
 
     async fn send_to_slim(&self, mut message: Result<Message, Status>) -> Result<(), SessionError> {
-        if let Ok(msg) = message.as_mut() {
-            if msg.get_slim_header().get_identity().is_empty() {
-                let identity = self.identity_provider.get_token()?;
-                msg.get_slim_header_mut().set_identity(identity);
-            }
+        if let Ok(msg) = message.as_mut()
+            && msg.get_slim_header().get_identity().is_empty()
+        {
+            let identity = self.identity_provider.get_token()?;
+            msg.get_slim_header_mut().set_identity(identity);
         }
 
         self.slim_tx
