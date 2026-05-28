@@ -34,10 +34,11 @@ pub struct SessionConfig {
 }
 
 impl SessionConfig {
+    #[allow(deprecated)]
     fn mls_settings_from_join(
         join: &slim_datapath::api::JoinRequestPayload,
     ) -> Option<MlsSettings> {
-        if join.mls_settings.is_some() {
+        if join.mls_settings.is_some() || join.enable_mls {
             let header_integrity_validation_percent = join
                 .mls_settings
                 .as_ref()

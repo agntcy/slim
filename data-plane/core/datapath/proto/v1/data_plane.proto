@@ -172,7 +172,8 @@ message DiscoveryReplyPayload {}
 
 // Join Request
 message JoinRequestPayload {
-  reserved 1;
+  // Deprecated: use mls_settings instead. Kept for buf wire compatibility.
+  bool enable_mls = 1 [deprecated = true];
   // settings for timers for rtx and acks
   optional TimerSettings timer_settings = 2;
   // name where to send the messages
@@ -230,7 +231,6 @@ message HeaderIntegrityAad {
   uint32 message_id = 8;
   string payload_type = 9;
 }
-
 
 // Group Add Payload
 // sent when a new participant is added
