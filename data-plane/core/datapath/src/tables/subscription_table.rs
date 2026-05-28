@@ -447,6 +447,15 @@ impl Display for SubscriptionTableImpl {
                         }
                     }
                 }
+                let peer_slot = &prefix_entry.slots[ConnType::Peer.index()][i];
+                writeln!(f, "       Peer Connections:")?;
+                if peer_slot.is_empty() {
+                    writeln!(f, "         None")?;
+                } else {
+                    for c in peer_slot.iter() {
+                        writeln!(f, "         Connection: {}", c)?;
+                    }
+                }
             }
         }
         Ok(())
