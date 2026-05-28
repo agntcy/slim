@@ -38,6 +38,7 @@ tonic = { workspace = true }
 tonic-prost = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true, optional = true }
+trait-variant = { workspace = true }
 twox-hash = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
@@ -48,6 +49,7 @@ tonic-prost-build = { workspace = true }
 [dev-dependencies]
 anyhow = { workspace = true }
 criterion = { workspace = true }
+serde_yaml = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-test = { workspace = true, features = ["no-env-filter"] }
 

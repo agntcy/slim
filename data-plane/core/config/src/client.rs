@@ -28,6 +28,55 @@ use crate::auth::static_jwt::Config as BearerAuthenticationConfig;
 use crate::backoff::Strategy;
 use crate::backoff::exponential::Config as ExponentialBackoff;
 use crate::backoff::fixedinterval::Config as FixedIntervalBackoff;
+
+/// The type of connection a client establishes.
+///
+/// Determines how the datapath treats messages on this connection
+/// (routing rules, subscription forwarding, etc.).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ConnType {
+    /// Connection with a local application (agent).
+    /// Not exposed in configuration — only used internally.
+    #[serde(skip)]
+    Local,
+    /// Connection with a remote SLIM instance (other deployment, via controller).
+    #[default]
+    Remote,
+    /// Connection with a peer replica in the same deployment.
+    Peer,
+}
+
+impl ConnType {
+    /// All variants, for iteration.
+    pub const ALL: [ConnType; 3] = [ConnType::Local, ConnType::Remote, ConnType::Peer];
+
+    /// Number of ConnType variants (derived automatically).
+    pub const COUNT: usize = Self::ALL.len();
+
+    /// Index for array-based storage. Stable mapping.
+    pub const fn index(self) -> usize {
+        match self {
+            ConnType::Local => 0,
+            ConnType::Remote => 1,
+            ConnType::Peer => 2,
+        }
+    }
+
+    /// Converts from the legacy `is_local` boolean for backward compatibility.
+    pub fn from_is_local(is_local: bool) -> Self {
+        if is_local {
+            ConnType::Local
+        } else {
+            ConnType::Remote
+        }
+    }
+
+    /// Returns true if this is a local connection (app/agent).
+    pub fn is_local(self) -> bool {
+        matches!(self, ConnType::Local)
+    }
+}
 use crate::component::configuration::Configuration;
 use crate::errors::ConfigError;
 use crate::grpc::compression::CompressionType;
@@ -243,6 +292,11 @@ pub struct ClientConfig {
     /// Flag to enforce header integrity validation
     #[serde(default = "default_require_header_mac")]
     pub require_header_mac: bool,
+
+    /// The type of connection this client establishes.
+    /// Defaults to `remote`. Set to `peer` for intra-deployment peer connections.
+    #[serde(default)]
+    pub connection_type: ConnType,
 }
 
 /// Defaults for ClientConfig
@@ -266,6 +320,7 @@ impl Default for ClientConfig {
             metadata: None,
             link_id: default_link_id(),
             require_header_mac: true,
+            connection_type: ConnType::default(),
         }
     }
 }
@@ -291,7 +346,7 @@ impl std::fmt::Display for ClientConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ClientConfig {{ endpoint: {}, transport: {:?}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, backoff: {:?}, metadata: {:?}, link_id: {:?} }}",
+            "ClientConfig {{ endpoint: {}, transport: {:?}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, backoff: {:?}, metadata: {:?}, link_id: {:?}, connection_type: {:?} }}",
             self.endpoint,
             self.resolved_transport(),
             self.origin,
@@ -308,7 +363,8 @@ impl std::fmt::Display for ClientConfig {
             self.auth,
             self.backoff,
             self.metadata,
-            self.link_id
+            self.link_id,
+            self.connection_type
         )
     }
 }

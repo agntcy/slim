@@ -298,6 +298,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "serde_yaml",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
@@ -308,6 +309,7 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-test",
+ "trait-variant",
  "twox-hash",
  "uuid",
 ]

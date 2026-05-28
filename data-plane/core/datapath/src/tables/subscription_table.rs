@@ -11,7 +11,7 @@ use parking_lot::Mutex;
 use tracing::{debug, warn};
 
 use super::SubscriptionTable;
-use super::{CONN_TYPE_COUNT, ConnType, MatchFilter};
+use super::{ConnType, MatchFilter};
 use crate::api::{EncodedName, NameId, ProtoName};
 use crate::errors::DataPathError;
 
@@ -115,9 +115,9 @@ struct PrefixEntry {
     /// Dense u128 array for name IDs.
     ids: Vec<u128>,
     /// Per-slot connection lists, indexed by `ConnType::index()`.
-    slots: [Vec<ConnList>; CONN_TYPE_COUNT],
+    slots: [Vec<ConnList>; ConnType::COUNT],
     /// Deduplicated union of all per-slot connections, indexed by `ConnType::index()`.
-    aggregates: [Vec<u64>; CONN_TYPE_COUNT],
+    aggregates: [Vec<u64>; ConnType::COUNT],
     /// Round-robin cursor for NULL_COMPONENT slot selection.
     slot_cursor: AtomicUsize,
     /// Human-readable prefix strings for for_each / Display / ProtoName.

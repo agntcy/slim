@@ -14,52 +14,7 @@ pub mod pool;
 
 use crate::api::{EncodedName, ProtoName};
 
-/// Categorization of a connection for subscription table routing.
-///
-/// Determines which internal ConnList (local, remote, or peer) a subscription
-/// is stored in, and which lists are queried during publish-time matching.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ConnType {
-    /// Connection with a local application (agent)
-    Local,
-    /// Connection with a remote SLIM instance (other deployment, via controller)
-    #[default]
-    Remote,
-    /// Connection with a peer replica in the same deployment
-    Peer,
-}
-
-/// Number of ConnType variants.
-pub const CONN_TYPE_COUNT: usize = 3;
-
-impl ConnType {
-    /// All variants, for iteration.
-    pub const ALL: [ConnType; CONN_TYPE_COUNT] =
-        [ConnType::Local, ConnType::Remote, ConnType::Peer];
-
-    /// Index for array-based storage. Stable mapping.
-    pub const fn index(self) -> usize {
-        match self {
-            ConnType::Local => 0,
-            ConnType::Remote => 1,
-            ConnType::Peer => 2,
-        }
-    }
-
-    /// Converts from the legacy `is_local` boolean for backward compatibility.
-    pub fn from_is_local(is_local: bool) -> Self {
-        if is_local {
-            ConnType::Local
-        } else {
-            ConnType::Remote
-        }
-    }
-
-    /// Returns true if this is a local connection (app/agent).
-    pub fn is_local(self) -> bool {
-        matches!(self, ConnType::Local)
-    }
-}
+pub use slim_config::client::ConnType;
 
 /// Determines which connection categories to include when matching publish messages.
 ///
@@ -70,13 +25,13 @@ impl ConnType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MatchFilter {
     /// Indexed by `ConnType::index()`. True means include that category.
-    pub include: [bool; CONN_TYPE_COUNT],
+    pub include: [bool; ConnType::COUNT],
 }
 
 impl MatchFilter {
     /// Full routing: include all categories (used for Local and Remote sources)
     pub const ALL: Self = Self {
-        include: [true; CONN_TYPE_COUNT],
+        include: [true; ConnType::COUNT],
     };
 
     /// Exclude peers: used for Peer sources (1-hop rule)
