@@ -1074,10 +1074,8 @@ impl AsRef<ProtoPublish> for ProtoMessage {
 /// ## Discovery Request
 /// ```
 /// use slim_datapath::api::CommandPayload;
-/// use slim_datapath::api::ProtoName;
 ///
-/// let dest = ProtoName::from_strings(["org", "namespace", "service"]);
-/// let payload = CommandPayload::builder().discovery_request(Some(dest));
+/// let payload = CommandPayload::builder().discovery_request();
 /// ```
 ///
 /// ## Join Request with Timer Settings
@@ -1097,13 +1095,13 @@ impl AsRef<ProtoPublish> for ProtoMessage {
 ///
 /// ## Group Operations
 /// ```
-/// use slim_datapath::api::CommandPayload;
+/// use slim_datapath::api::{CommandPayload, Participant};
 /// use slim_datapath::api::ProtoName;
 ///
-/// let participant = ProtoName::from_strings(["org", "ns", "user1"]);
+/// let participant = Participant { name: Some(ProtoName::from_strings(["org", "ns", "user1"])), settings: None };
 /// let participants = vec![
-///     ProtoName::from_strings(["org", "ns", "user2"]),
-///     ProtoName::from_strings(["org", "ns", "user3"]),
+///     Participant { name: Some(ProtoName::from_strings(["org", "ns", "user2"])), settings: None },
+///     Participant { name: Some(ProtoName::from_strings(["org", "ns", "user3"])), settings: None },
 /// ];
 ///
 /// // Add participant
@@ -1336,7 +1334,7 @@ impl CommandPayload {
 /// let source = ProtoName::from_strings(["org", "ns", "app"]);
 /// let dest = ProtoName::from_strings(["org", "ns", "service"]);
 ///
-/// let cmd = CommandPayload::builder().discovery_request(Some(dest.clone()));
+/// let cmd = CommandPayload::builder().discovery_request();
 ///
 /// let msg = ProtoMessage::builder()
 ///     .source(source)
