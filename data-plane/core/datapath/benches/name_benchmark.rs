@@ -5,6 +5,7 @@ use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use slim_datapath::api::{EncodedName, ProtoName, SlimHeader, StringName};
 use slim_datapath::tables::SubscriptionTable;
 use slim_datapath::tables::subscription_table::SubscriptionTableImpl;
+use slim_datapath::tables::{ConnCategory, MatchFilter};
 
 fn make_proto_name() -> ProtoName {
     ProtoName {
@@ -68,14 +69,16 @@ fn bench_proto_name_from_other(c: &mut Criterion) {
 fn bench_routing_via_proto_name(c: &mut Criterion) {
     let table = SubscriptionTableImpl::default();
     let sub = ProtoName::from_strings(["org", "namespace", "agent"]).with_id(42);
-    table.add_subscription(sub, 1, true, 1).unwrap();
+    table
+        .add_subscription(sub, 1, ConnCategory::Local, 1)
+        .unwrap();
     let slim_header = make_slim_header();
 
     c.bench_function("routing_via_proto_name", |b| {
         b.iter(|| {
             let dst = black_box(slim_header.get_dst());
             let enc = dst.name.as_ref().unwrap();
-            black_box(table.match_one(black_box(enc), 0))
+            black_box(table.match_one(black_box(enc), 0, MatchFilter::ALL))
         })
     });
 }
@@ -85,13 +88,15 @@ fn bench_routing_via_proto_name(c: &mut Criterion) {
 fn bench_routing_via_encoded_name(c: &mut Criterion) {
     let table = SubscriptionTableImpl::default();
     let sub = ProtoName::from_strings(["org", "namespace", "agent"]).with_id(42);
-    table.add_subscription(sub, 1, true, 1).unwrap();
+    table
+        .add_subscription(sub, 1, ConnCategory::Local, 1)
+        .unwrap();
     let slim_header = make_slim_header();
 
     c.bench_function("routing_via_encoded_name", |b| {
         b.iter(|| {
             let encoded = black_box(slim_header.get_encoded_dst());
-            black_box(table.match_one(black_box(&encoded), 0))
+            black_box(table.match_one(black_box(&encoded), 0, MatchFilter::ALL))
         })
     });
 }

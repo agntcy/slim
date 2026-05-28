@@ -1255,7 +1255,7 @@ impl ControllerService {
                         let mut entries = Vec::new();
 
                         self.inner.message_processor.subscription_table().for_each(
-                            |name, id, local, remote| {
+                            |name, id, local, remote, _peer| {
                                 let (c0, c1, c2) = name.str_components();
                                 let mut entry = RouteEntry {
                                     component_0: c0.to_string(),

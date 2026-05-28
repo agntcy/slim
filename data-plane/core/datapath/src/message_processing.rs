@@ -40,7 +40,7 @@ use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneServic
 use crate::api::{
     LinkNegotiationPayload, ProtoLink, ProtoLinkMessageType as LinkType, ProtoLinkType, ProtoName,
 };
-use crate::connection::{Channel, Connection, Type as ConnectionType};
+use crate::connection::{Channel, Connection};
 use crate::errors::{DataPathError, MessageContext};
 use crate::forwarder::Forwarder;
 use crate::link_ecdh::{self, X25519_PUBLIC_KEY_LEN};
@@ -49,6 +49,7 @@ use crate::recovery::RecoveryTable;
 use crate::tables::connection_table::ConnectionTable;
 use crate::tables::remote_subscription_table::SubscriptionInfo;
 use crate::tables::subscription_table::SubscriptionTableImpl;
+use crate::tables::{ConnCategory, MatchFilter};
 use crate::websocket;
 use semver;
 
@@ -197,7 +198,7 @@ impl MessageProcessor {
         let streams =
             websocket::spawn_transport_tasks(accepted.websocket, cancellation_token.clone());
 
-        let connection = Connection::new(ConnectionType::Remote, Channel::Client(streams.outbound))
+        let connection = Connection::new(ConnCategory::Remote, Channel::Client(streams.outbound))
             .with_remote_addr(accepted.remote_addr)
             .with_local_addr(accepted.local_addr)
             .with_require_header_mac(self.internal.server_require_header_mac)
@@ -224,7 +225,7 @@ impl MessageProcessor {
             conn_index,
             None,
             cancellation_token,
-            false,
+            ConnCategory::Remote,
             false,
         ) {
             error!(error = %err.chain(), "error starting websocket processing stream");
@@ -284,7 +285,7 @@ impl MessageProcessor {
             .forwarder()
             .get_connection(conn_index)
             .ok_or(DataPathError::ConnectionNotFound(conn_index))?;
-        if !matches!(*conn.connection_type(), ConnectionType::Remote) {
+        if !matches!(*conn.connection_type(), ConnCategory::Remote) {
             return Ok(());
         }
         let header = message
@@ -534,7 +535,7 @@ impl MessageProcessor {
     where
         S: Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
     {
-        let mut connection = Connection::new(ConnectionType::Remote, outbound)
+        let mut connection = Connection::new(ConnCategory::Remote, outbound)
             .with_local_addr(local)
             .with_remote_addr(remote)
             .with_config_data(Some(client_config.clone()))
@@ -566,7 +567,7 @@ impl MessageProcessor {
             conn_index,
             Some(client_config.clone()),
             cancellation_token,
-            false,
+            ConnCategory::Remote,
             false,
         )?;
 
@@ -637,7 +638,7 @@ impl MessageProcessor {
 
         // create a connection
         let cancellation_token = CancellationToken::new();
-        let connection = Connection::new(ConnectionType::Local, Channel::Server(tx2))
+        let connection = Connection::new(ConnCategory::Local, Channel::Server(tx2))
             .with_cancellation_token(Some(cancellation_token.clone()));
 
         // add it to the connection table
@@ -655,7 +656,7 @@ impl MessageProcessor {
             conn_id,
             None,
             cancellation_token,
-            true,
+            ConnCategory::Local,
             from_control_plane,
         )?;
 
@@ -691,7 +692,7 @@ impl MessageProcessor {
 
                 if !msg.is_link()
                     && !msg.is_subscription_ack()
-                    && matches!(*conn.connection_type(), ConnectionType::Remote)
+                    && matches!(*conn.connection_type(), ConnCategory::Remote)
                     && conn.require_header_mac()
                     && conn.header_hmac().is_none()
                 {
@@ -703,7 +704,7 @@ impl MessageProcessor {
 
                 if !msg.is_link()
                     && !msg.is_subscription_ack()
-                    && matches!(*conn.connection_type(), ConnectionType::Remote)
+                    && matches!(*conn.connection_type(), ConnCategory::Remote)
                     && let Some(mac) = conn.header_hmac()
                 {
                     let link_id = conn
@@ -733,7 +734,7 @@ impl MessageProcessor {
                 if !msg.is_link()
                     && !msg.is_subscription_ack()
                     && matches!(conn.channel(), Channel::Server(_))
-                    && matches!(conn.connection_type(), ConnectionType::Local)
+                    && matches!(conn.connection_type(), ConnCategory::Local)
                 {
                     msg.get_slim_header_mut().header_mac = None;
                 }
@@ -767,6 +768,7 @@ impl MessageProcessor {
         #[cfg(not(feature = "otel_tracing"))] msg: Message,
         in_connection: u64,
         fanout: u32,
+        filter: MatchFilter,
     ) -> Result<(), DataPathError> {
         let header = msg.get_slim_header();
         debug!(name = %header.get_dst(), %fanout, "match and forward message");
@@ -782,7 +784,7 @@ impl MessageProcessor {
 
         match self
             .forwarder()
-            .on_publish_msg_match(encoded, in_connection, fanout)
+            .on_publish_msg_match(encoded, in_connection, fanout, filter)
         {
             Ok(out_vec) => {
                 let len = out_vec.len();
@@ -825,9 +827,9 @@ impl MessageProcessor {
         &self,
         link: ProtoLink,
         conn_index: u64,
-        is_local: bool,
+        category: ConnCategory,
     ) -> Result<(), DataPathError> {
-        if is_local {
+        if category.is_local() {
             debug!(%conn_index, "ignoring link message received on local connection");
             return Ok(());
         }
@@ -1001,7 +1003,7 @@ impl MessageProcessor {
                         if let Err(e) = self.forwarder().on_subscription_msg(
                             name.clone(),
                             in_connection,
-                            false,
+                            ConnCategory::Remote,
                             true,
                             subscription_id,
                         ) {
@@ -1039,7 +1041,12 @@ impl MessageProcessor {
         Ok(())
     }
 
-    async fn process_publish(&self, msg: Message, in_connection: u64) -> Result<(), DataPathError> {
+    async fn process_publish(
+        &self,
+        msg: Message,
+        in_connection: u64,
+        filter: MatchFilter,
+    ) -> Result<(), DataPathError> {
         debug!(
             %in_connection,
             ?msg,
@@ -1058,7 +1065,8 @@ impl MessageProcessor {
         // a publish message
         let fanout = msg.get_fanout();
 
-        self.match_and_forward_msg(msg, in_connection, fanout).await
+        self.match_and_forward_msg(msg, in_connection, fanout, filter)
+            .await
     }
 
     pub(crate) async fn send_subscription_ack(
@@ -1111,7 +1119,7 @@ impl MessageProcessor {
         self.forwarder().on_subscription_msg(
             dst.clone(),
             conn,
-            connection.is_local_connection(),
+            connection.conn_category(),
             add,
             subscription_id,
         )?;
@@ -1262,14 +1270,20 @@ impl MessageProcessor {
         &self,
         msg: Message,
         in_connection: u64,
-        is_local: bool,
+        category: ConnCategory,
     ) -> Result<(), DataPathError> {
         match msg.message_type {
             Some(SubscribeType(_)) => self.process_subscription(msg, in_connection, true).await,
             Some(UnsubscribeType(_)) => self.process_subscription(msg, in_connection, false).await,
-            Some(PublishType(_)) => self.process_publish(msg, in_connection).await,
+            Some(PublishType(_)) => {
+                let filter = match category {
+                    ConnCategory::Peer => MatchFilter::EXCLUDE_PEER,
+                    _ => MatchFilter::ALL,
+                };
+                self.process_publish(msg, in_connection, filter).await
+            }
             Some(LinkType(link)) => {
-                self.handle_link_message(link, in_connection, is_local)
+                self.handle_link_message(link, in_connection, category)
                     .await
             }
             Some(SubscriptionAckType(ack)) => {
@@ -1292,7 +1306,7 @@ impl MessageProcessor {
     async fn handle_new_message(
         &self,
         conn_index: u64,
-        is_local: bool,
+        category: ConnCategory,
         mut msg: Message,
     ) -> Result<(), DataPathError> {
         debug!(%conn_index, "received message from connection");
@@ -1328,11 +1342,11 @@ impl MessageProcessor {
                 "process_local",
                 &self.internal.service_id,
                 conn_index,
-                is_local,
+                category.is_local(),
             );
         }
 
-        match self.process_message(msg, conn_index, is_local).await {
+        match self.process_message(msg, conn_index, category).await {
             Ok(_) => Ok(()),
             Err(e) => {
                 // telemetry /////////////////////////////////////////
@@ -1470,7 +1484,7 @@ impl MessageProcessor {
         conn_index: u64,
         client_config: Option<ClientConfig>,
         cancellation_token: CancellationToken,
-        is_local: bool,
+        category: ConnCategory,
         from_control_plane: bool,
     ) -> Result<JoinHandle<()>, DataPathError> {
         // Clone self to be able to move it into the spawned task
@@ -1479,6 +1493,7 @@ impl MessageProcessor {
         let client_conf_clone = client_config.clone();
         let tx_cp: Option<Sender<Result<Message, Status>>> = self.get_tx_control_plane();
         let watch = self.get_drain_watch()?;
+        let is_local = category.is_local();
         let span = tracing::info_span!(
             "process_stream",
             service_id = %self.internal.service_id,
@@ -1531,7 +1546,7 @@ impl MessageProcessor {
                                             }
                                         }
 
-                                        if let Err(e) = self_clone.handle_new_message(conn_index, is_local, msg).await {
+                                        if let Err(e) = self_clone.handle_new_message(conn_index, category, msg).await {
                                             // Checking if NegotiationError occurred
                                             if matches!(e, DataPathError::NegotiationError(_)) {
                                                 error!(%conn_index, "fatal link negotiation error, closing connection");
@@ -1612,7 +1627,7 @@ impl MessageProcessor {
                 // Delete connection state from all tables.
                 let (local_subs, remote_subs) = self_clone
                     .forwarder()
-                    .on_connection_drop(conn_index, is_local);
+                    .on_connection_drop(conn_index, category);
 
                 let recovery_enabled =
                     !self_clone.internal.recovery_table.ttl().is_zero();
@@ -1650,7 +1665,7 @@ impl MessageProcessor {
                                     .into_iter()
                                     .filter(|(name, _)| {
                                         mp.forwarder()
-                                            .on_publish_msg_match(name.name.unwrap(), u64::MAX, u32::MAX)
+                                            .on_publish_msg_match(name.name.unwrap(), u64::MAX, u32::MAX, MatchFilter::ALL)
                                             .is_err()
                                     })
                                     .collect();
@@ -1739,7 +1754,7 @@ impl DataPlaneService for MessageProcessor {
         let stream = request.into_inner();
         let (tx, rx) = mpsc::channel(128);
 
-        let connection = Connection::new(ConnectionType::Remote, Channel::Server(tx))
+        let connection = Connection::new(ConnCategory::Remote, Channel::Server(tx))
             .with_remote_addr(remote_addr)
             .with_local_addr(local_addr)
             .with_require_header_mac(self.internal.server_require_header_mac);
@@ -1762,7 +1777,7 @@ impl DataPlaneService for MessageProcessor {
             conn_index,
             None,
             CancellationToken::new(),
-            false,
+            ConnCategory::Remote,
             false,
         )
         .map_err(|e| {
@@ -1871,14 +1886,24 @@ mod tests {
     async fn test_handle_link_message_is_local_ignored() {
         let processor = MessageProcessor::new();
         let link = ProtoLink { link_type: None };
-        assert!(processor.handle_link_message(link, 0, true).await.is_ok());
+        assert!(
+            processor
+                .handle_link_message(link, 0, ConnCategory::Local)
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
     async fn test_handle_link_message_none_link_type_ignored() {
         let processor = MessageProcessor::new();
         let link = ProtoLink { link_type: None };
-        assert!(processor.handle_link_message(link, 0, false).await.is_ok());
+        assert!(
+            processor
+                .handle_link_message(link, 0, ConnCategory::Remote)
+                .await
+                .is_ok()
+        );
     }
 
     // ── handle_link_negotiation ───────────────────────────────────────────────
@@ -1887,7 +1912,7 @@ mod tests {
         processor: &MessageProcessor,
     ) -> (u64, tokio::sync::mpsc::Receiver<Result<Message, Status>>) {
         let (tx, rx) = mpsc::channel(16);
-        let conn = Connection::new(ConnectionType::Remote, Channel::Server(tx))
+        let conn = Connection::new(ConnCategory::Remote, Channel::Server(tx))
             .with_require_header_mac(processor.internal.server_require_header_mac);
         let conn_id = processor
             .forwarder()
@@ -1900,7 +1925,7 @@ mod tests {
         processor: &MessageProcessor,
     ) -> (u64, tokio::sync::mpsc::Receiver<Message>) {
         let (tx, rx) = mpsc::channel(16);
-        let conn = Connection::new(ConnectionType::Remote, Channel::Client(tx))
+        let conn = Connection::new(ConnCategory::Remote, Channel::Client(tx))
             .with_config_data(Some(ClientConfig::default()));
         let conn_id = processor
             .forwarder()
@@ -2901,10 +2926,12 @@ mod tests {
             .unwrap();
 
         // The subscription should have been restored in the routing table.
-        let result =
-            processor
-                .forwarder()
-                .on_publish_msg_match(sub_name.name.unwrap(), u64::MAX, 1);
+        let result = processor.forwarder().on_publish_msg_match(
+            sub_name.name.unwrap(),
+            u64::MAX,
+            1,
+            MatchFilter::ALL,
+        );
         assert!(result.is_ok(), "recovered subscription should be routable");
         assert_eq!(result.unwrap(), vec![conn_id]);
     }
