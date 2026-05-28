@@ -17,6 +17,7 @@ agntcy-slim-config = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 agntcy-slim-version = { workspace = true }
 arc-swap = { workspace = true }
+aws-lc-rs = { workspace = true }
 display-error-chain = { workspace = true }
 drain = { workspace = true }
 fastwebsockets = { workspace = true }
