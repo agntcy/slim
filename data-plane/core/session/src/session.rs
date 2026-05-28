@@ -89,7 +89,10 @@ where
         }
     }
 
-    pub(crate) fn set_mls_state(&mut self, mls_state: std::sync::Arc<parking_lot::Mutex<crate::mls_state::MlsState<P, V>>>) {
+    pub(crate) fn set_mls_state(
+        &mut self,
+        mls_state: std::sync::Arc<parking_lot::Mutex<crate::mls_state::MlsState<P, V>>>,
+    ) {
         if let Some(sender) = &mut self.sender {
             sender.set_mls_state(mls_state);
         }
@@ -356,7 +359,10 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    fn set_mls_state(&mut self, mls_state: std::sync::Arc<parking_lot::Mutex<crate::mls_state::MlsState<P, V>>>) {
+    fn set_mls_state(
+        &mut self,
+        mls_state: std::sync::Arc<parking_lot::Mutex<crate::mls_state::MlsState<P, V>>>,
+    ) {
         self.set_mls_state(mls_state);
     }
 }

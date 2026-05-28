@@ -35,7 +35,7 @@ use crate::{
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
-    traits::{MessageHandler, ProcessingState, MlsStateSelector},
+    traits::{MessageHandler, MlsStateSelector, ProcessingState},
 };
 
 pub struct SessionModerator<P, V, I, M = SubscriptionManager>
