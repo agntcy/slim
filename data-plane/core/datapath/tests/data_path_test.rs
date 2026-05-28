@@ -48,7 +48,13 @@ mod tests {
         let addr = if let Some(addr) = connect_addr {
             addr.to_string()
         } else {
-            "127.0.0.1:51060".to_string()
+            let port = server_conf
+                .endpoint
+                .rsplit(':')
+                .next()
+                .and_then(|p| p.parse::<u16>().ok())
+                .expect("failed to parse port from server endpoint");
+            format!("127.0.0.1:{port}")
         };
         wait_for_server_ready(&addr, 40).await;
 
