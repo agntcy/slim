@@ -38,11 +38,11 @@ pub fn parse_route(route: &str) -> Result<(String, String, String, u128)> {
                 route
             );
         }
-        NameId::from_string(id_str)
-            .ok_or_else(|| {
+        NameId::try_from(id_str.to_string())
+            .map_err(|_| {
                 anyhow::anyhow!("invalid agent instance ID (must be a UUID): '{}'", id_str)
             })?
-            .id()
+            .into()
     } else {
         NameId::NULL_COMPONENT
     };

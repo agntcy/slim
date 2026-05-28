@@ -12,7 +12,7 @@ fn make_proto_name() -> ProtoName {
             component_0: 0x1234_5678_9abc_def0,
             component_1: 0xfeed_cafe_dead_beef,
             component_2: 0x0101_0101_0101_0101,
-            name_id: Some(NameId::new(u128::MAX)),
+            name_id: Some(NameId::from(u128::MAX)),
         }),
         str_name: Some(StringName {
             str_component_0: "org".to_string(),

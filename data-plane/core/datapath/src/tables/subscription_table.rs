@@ -566,7 +566,9 @@ impl SubscriptionTable for SubscriptionTableImpl {
             }
             if !current[&prefix].has_id(id) {
                 warn!(%id, "not found");
-                return Err(DataPathError::IdNotFound(NameId::id_to_string(id)));
+                let nid: NameId = id.into();
+                let str_nid: String = nid.into();
+                return Err(DataPathError::IdNotFound(str_nid));
             }
         }
 

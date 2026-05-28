@@ -201,7 +201,7 @@ where
             component_0: enc.component_0,
             component_1: enc.component_1,
             component_2: enc.component_2,
-            name_id: Some(NameId::new(NameId::NULL_COMPONENT)),
+            name_id: Some(NameId::from(NameId::NULL_COMPONENT)),
         }
     }
 

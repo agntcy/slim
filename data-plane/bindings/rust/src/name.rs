@@ -87,11 +87,11 @@ impl Name {
         component2: String,
         id: String,
     ) -> Self {
-        let id = NameId::from_string(&id)
-            .unwrap_or_else(|| panic!("invalid ID format: expected UUID string, got {id:?}"))
-            .id();
+        let id: u128 = NameId::try_from(id)
+            .unwrap_or_else(|_| panic!("invalid ID format: expected UUID string"))
+            .into();
         if NameId::is_reserved_id(id) {
-            panic!("id {id:#x} is a reserved sentinel value and cannot be used as a name id");
+            panic!("id {id:#x} is a reserved value and cannot be used as a name id");
         }
         let inner = ProtoName::from_strings([component0, component1, component2]).with_id(id);
         Name { inner }
@@ -145,12 +145,10 @@ mod tests {
         assert_eq!(c0, "org");
         assert_eq!(c1, "namespace");
         assert_eq!(c2, "app");
-        assert_eq!(
-            proto_name.id(),
-            NameId::from_string("00000000-0000-0000-0000-000000012345")
-                .unwrap()
-                .id()
-        );
+        let val: u128 = NameId::try_from("00000000-0000-0000-0000-000000012345".to_string())
+            .unwrap()
+            .into();
+        assert_eq!(proto_name.id(), val);
     }
 
     /// Test Name to ProtoName conversion with partial components
@@ -187,7 +185,8 @@ mod tests {
         let name = Name::from(&proto_name);
 
         assert_eq!(name.components(), vec!["org", "namespace", "app"]);
-        assert_eq!(name.id(), NameId::id_to_string(54321));
+        let str_id: String = NameId::from(54321).into();
+        assert_eq!(name.id(), str_id);
     }
 
     /// Test Name roundtrip conversion

@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 // Third-party crates
 use display_error_chain::ErrorChainExt;
+use slim_datapath::api::NameId;
 use slim_datapath::errors::ErrorPayload;
 use slim_session::Direction;
 use tokio::sync::mpsc;
@@ -115,7 +116,10 @@ where
         let app_name_with_id = match identity_provider.get_id() {
             Ok(token_id) => {
                 // Use XXH3-128 for a native 128-bit hash of the token ID
-                let id_hash = twox_hash::XxHash3_128::oneshot(token_id.as_bytes());
+                let mut id_hash = twox_hash::XxHash3_128::oneshot(token_id.as_bytes());
+                if NameId::is_reserved_id(id_hash) {
+                    id_hash %= u128::MAX - NameId::RESERVED_IDS;
+                }
 
                 app_name.clone().with_id(id_hash)
             }
