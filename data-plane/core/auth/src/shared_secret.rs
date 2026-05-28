@@ -73,12 +73,27 @@ use crate::{
 const MIN_SECRET_LEN: usize = 32;
 /// Raw nonce byte length before base64url encoding.
 const NONCE_LEN: usize = 12;
+/// Expected base64url-no-pad encoded length of the nonce.
+const NONCE_B64_LEN: usize = base64url_nopad_encoded_len(NONCE_LEN);
+/// HMAC-SHA256 tag length in bytes.
+const HMAC_TAG_LEN: usize = 32;
+/// Expected base64url-no-pad encoded length of the HMAC tag.
+const HMAC_TAG_B64_LEN: usize = base64url_nopad_encoded_len(HMAC_TAG_LEN);
+/// Maximum digits in a u64 timestamp.
+const MAX_TIMESTAMP_DIGITS: usize = 20;
+/// Number of colon separators in the token format.
+const TOKEN_SEPARATOR_COUNT: usize = 4;
 /// Default validity window (seconds).
 const DEFAULT_VALIDITY_WINDOW: u64 = 3600;
 /// Default tolerated forward clock skew (seconds).
 const DEFAULT_CLOCK_SKEW: u64 = 5;
 /// Default maximum replay cache entries (used if enabled without override).
 const DEFAULT_REPLAY_CACHE_MAX: usize = 4096;
+
+/// Computes the encoded length of base64url-no-pad for a given byte length.
+const fn base64url_nopad_encoded_len(byte_len: usize) -> usize {
+    (byte_len * 4 + 2) / 3
+}
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct ReplayEntry {
@@ -331,6 +346,17 @@ impl SharedSecret {
         }
     }
 
+    /// Returns the expected token byte length for this instance, suitable for
+    /// preallocating a `String` buffer.
+    fn token_capacity(&self) -> usize {
+        self.inner.id.len()
+            + TOKEN_SEPARATOR_COUNT
+            + MAX_TIMESTAMP_DIGITS
+            + NONCE_B64_LEN
+            + self.claims_b64.len()
+            + HMAC_TAG_B64_LEN
+    }
+
     /// Issue a token into a caller-owned buffer, avoiding the per-call allocation
     /// of `get_token`. The buffer is cleared first and grown to fit.
     ///
@@ -349,8 +375,7 @@ impl SharedSecret {
         let id = self.id();
         let claims_b64 = self.claims_b64.as_str();
 
-        // Pre-sized buffer: id + ':' + ts(<=20) + ':' + nonce_b64(16) + ':' + claims_b64 + ':' + mac_b64(43).
-        let cap = id.len() + 1 + 20 + 1 + 16 + 1 + claims_b64.len() + 1 + 43;
+        let cap = self.token_capacity();
         out.clear();
         out.reserve(cap.saturating_sub(out.capacity()));
         out.push_str(id);
@@ -493,7 +518,7 @@ impl TokenProvider for SharedSecret {
     }
 
     fn get_token(&self) -> Result<String, AuthError> {
-        let mut buf = String::new();
+        let mut buf = String::with_capacity(self.token_capacity());
         self.get_token_into(&mut buf)?;
         Ok(buf)
     }
@@ -550,30 +575,20 @@ impl Verifier for SharedSecret {
 
         self.validate_timestamp(now, ts)?;
 
-        // Happy path: 32-byte HMAC-SHA256 tag is exactly 43 unpadded base64 chars.
-        // Decode straight into a stack buffer — no heap allocation.
+        // HMAC-SHA256 tag is always HMAC_TAG_LEN bytes, which encodes to exactly
+        // HMAC_TAG_B64_LEN base64url-no-pad chars. Reject anything else immediately.
         let mac_bytes = mac_b64.as_bytes();
-        let mut mac_buf = [0u8; 32];
-        let expected: &[u8] = if mac_bytes.len() == 43 {
-            let n = URL_SAFE_NO_PAD
-                .decode_slice(mac_bytes, &mut mac_buf)
-                .map_err(|e| match e {
-                    base64::DecodeSliceError::DecodeError(de) => AuthError::Base64DecodeError(de),
-                    base64::DecodeSliceError::OutputSliceTooSmall => AuthError::TokenMalformed,
-                })?;
-            if n != 32 {
-                return Err(AuthError::TokenMalformed);
-            }
-            &mac_buf
-        } else {
-            // Wrong-length MAC: keep prior semantics (Base64DecodeError on bad b64).
-            let v = URL_SAFE_NO_PAD.decode(mac_bytes)?;
-            if v.len() != 32 {
-                return Err(AuthError::TokenMalformed);
-            }
-            mac_buf.copy_from_slice(&v);
-            &mac_buf
-        };
+        if mac_bytes.len() != HMAC_TAG_B64_LEN {
+            return Err(AuthError::TokenMalformed);
+        }
+        let mut mac_buf = [0u8; HMAC_TAG_LEN];
+        URL_SAFE_NO_PAD
+            .decode_slice(mac_bytes, &mut mac_buf)
+            .map_err(|e| match e {
+                base64::DecodeSliceError::DecodeError(de) => AuthError::Base64DecodeError(de),
+                base64::DecodeSliceError::OutputSliceTooSmall => AuthError::TokenMalformed,
+            })?;
+        let expected: &[u8] = &mac_buf;
         hmac::verify(&self.inner.hmac_key, message.as_bytes(), expected)
             .map_err(|_e| AuthError::TokenInvalid)?;
 
@@ -791,10 +806,11 @@ mod tests {
         let nonce = gen_nonce();
         let message = build_message(s.id(), ts, &nonce, "");
         let mac = forge_mac(&s, &message);
+        // Truncated MAC has wrong length → rejected as malformed before decoding.
         let truncated = &mac[..mac.len() / 2];
         let token = format!("{}:{}:{}::{}", s.id(), ts, nonce, truncated);
         let res = s.try_verify(token);
-        assert!(res.is_err_and(|e| matches!(e, AuthError::Base64DecodeError(_))));
+        assert!(res.is_err_and(|e| matches!(e, AuthError::TokenMalformed)));
     }
 
     #[test]
@@ -833,10 +849,11 @@ mod tests {
         let s = SharedSecret::new("svc", &valid_secret()).unwrap();
         let ts = s.get_current_timestamp();
         let nonce = gen_nonce();
+        // Wrong-length MAC is rejected as malformed before base64 decoding.
         let bad_mac = "*invalid*mac*";
         let token = format!("{}:{}:{}::{}", s.id(), ts, nonce, bad_mac);
         let res = s.try_verify(token);
-        assert!(res.is_err_and(|e| matches!(e, AuthError::Base64DecodeError(_))));
+        assert!(res.is_err_and(|e| matches!(e, AuthError::TokenMalformed)));
     }
 
     #[test]
