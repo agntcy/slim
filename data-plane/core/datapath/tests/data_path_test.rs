@@ -4,6 +4,7 @@
 mod tests {
     use std::{net::SocketAddr, sync::Arc};
 
+    use anyhow::Context;
     use slim_datapath::api::ProtoName as Name;
     use slim_datapath::messages::utils::SlimHeaderFlags;
     use tracing::info;
@@ -37,33 +38,38 @@ mod tests {
         client_conf: ClientConfig,
         connect_addr: Option<SocketAddr>,
         transport_label: &str,
-    ) -> u64 {
+    ) -> anyhow::Result<u64> {
         let processor = MessageProcessor::new();
-        let server_token = processor
-            .run_server(&server_conf)
-            .await
-            .unwrap_or_else(|e| panic!("failed to start {transport_label} dataplane server: {e}"));
+        let server_token = processor.run_server(&server_conf).await.context(format!(
+            "failed to start {transport_label} dataplane server"
+        ))?;
 
         // Wait for server to be ready by polling instead of fixed sleep
         let addr = if let Some(addr) = connect_addr {
             addr.to_string()
         } else {
-            "127.0.0.1:51060".to_string()
+            let port = server_conf
+                .endpoint
+                .rsplit(':')
+                .next()
+                .and_then(|p| p.parse::<u16>().ok())
+                .expect("failed to parse port from server endpoint");
+            format!("127.0.0.1:{port}")
         };
         wait_for_server_ready(&addr, 40).await;
 
         let (_handle, conn_index) = processor
             .connect(client_conf, None, connect_addr)
             .await
-            .unwrap_or_else(|e| panic!("failed to connect {transport_label} client: {e}"));
+            .context(format!("failed to connect {transport_label} client"))?;
 
         for _ in 0..3 {
             processor
                 .send_msg(make_message("org", "namespace", "type"), conn_index)
                 .await
-                .unwrap_or_else(|e| {
-                    panic!("failed to send message over {transport_label} client transport: {e}")
-                });
+                .context(format!(
+                    "failed to send message over {transport_label} client transport"
+                ))?;
         }
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
@@ -71,9 +77,9 @@ mod tests {
             processor
                 .send_msg(make_message("org", "namespace", "type"), 0)
                 .await
-                .unwrap_or_else(|e| {
-                    panic!("failed to send message over {transport_label} server transport: {e}")
-                });
+                .context(format!(
+                    "failed to send message over {transport_label} server transport"
+                ))?;
         }
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
@@ -83,9 +89,9 @@ mod tests {
         processor
             .shutdown()
             .await
-            .unwrap_or_else(|e| panic!("failed to shutdown {transport_label} processor: {e}"));
+            .context(format!("failed to shutdown {transport_label} processor"))?;
 
-        conn_index
+        Ok(conn_index)
     }
 
     #[tokio::test]
@@ -281,7 +287,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_transport_roundtrip_grpc() {
+    async fn test_transport_roundtrip_grpc() -> anyhow::Result<()> {
         let server_conf = ServerConfig::with_endpoint("127.0.0.1:51060")
             .with_tls_settings(TlsServerConfig::insecure());
 
@@ -294,36 +300,38 @@ mod tests {
             Some(SocketAddr::from(([127, 0, 0, 1], 51060))),
             "grpc",
         )
-        .await;
+        .await?;
 
         assert!(logs_contain(
             "received message from connection conn_index=0"
         ));
         let expected = format!("received message from connection conn_index={conn_index}");
         assert!(logs_contain(expected.as_str()));
+        Ok(())
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_websocket_connection_ws() {
+    async fn test_websocket_connection_ws() -> anyhow::Result<()> {
         let server_conf = ServerConfig::with_endpoint("ws://127.0.0.1:51061")
             .with_tls_settings(TlsServerConfig::insecure());
 
         let client_conf = ClientConfig::with_endpoint("ws://127.0.0.1:51061")
             .with_tls_setting(TlsClientConfig::insecure());
         let conn_index =
-            run_transport_roundtrip(server_conf, client_conf, None, "websocket ws").await;
+            run_transport_roundtrip(server_conf, client_conf, None, "websocket ws").await?;
 
         assert!(logs_contain(
             "received message from connection conn_index=0"
         ));
         let expected = format!("received message from connection conn_index={conn_index}");
         assert!(logs_contain(expected.as_str()));
+        Ok(())
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_websocket_connection_wss() {
+    async fn test_websocket_connection_wss() -> anyhow::Result<()> {
         let grpc_tls_testdata = format!("{}/../config/testdata/grpc", env!("CARGO_MANIFEST_DIR"));
 
         let server_tls = TlsServerConfig::new().with_cert_and_key_file(
@@ -341,13 +349,14 @@ mod tests {
             .with_server_name("example1")
             .with_tls_setting(client_tls);
         let conn_index =
-            run_transport_roundtrip(server_conf, client_conf, None, "websocket wss").await;
+            run_transport_roundtrip(server_conf, client_conf, None, "websocket wss").await?;
 
         assert!(logs_contain(
             "received message from connection conn_index=0"
         ));
         let expected = format!("received message from connection conn_index={conn_index}");
         assert!(logs_contain(expected.as_str()));
+        Ok(())
     }
 
     fn make_message(org: &str, ns: &str, name: &str) -> Message {
