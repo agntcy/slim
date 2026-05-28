@@ -938,8 +938,6 @@ mod tests {
         assert!(!s2.replay_cache_enabled());
     }
 
-    // --- Coverage tests for new PR code -------------------------------------------------------
-
     #[test]
     fn test_debug_shared_secret_internal() {
         let s = SharedSecret::new("svc", &valid_secret()).unwrap();
