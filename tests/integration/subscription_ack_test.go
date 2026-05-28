@@ -15,9 +15,7 @@ package integration
 // Scenarios:
 //   - new app ↔ new relay: remote ACK path.
 //   - new app ↔ old relay: default path.
-//   - old relay as upstream of new relay: mixed paths.
-//   - Legacy sdk-mock (pre-1.2.0) interoperability with old and new relays.
-
+//   - old relay as client of new relay.
 import (
 	"fmt"
 	"os"

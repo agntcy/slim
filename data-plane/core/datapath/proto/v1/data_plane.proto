@@ -64,6 +64,7 @@ message SLIMHeader {
   optional uint64 forward_to = 7;
   optional uint64 incoming_conn = 8;
   optional bool error = 9;
+  optional bytes header_mac = 10;
 }
 
 message SessionHeader {
@@ -290,4 +291,7 @@ message LinkNegotiationPayload {
   string slim_version = 2;
   // True if this message is a reply to a negotiation request.
   bool is_reply = 3;
+  // X25519 ephemeral public key (32 bytes) for per-link HMAC key agreement between nodes.
+  // Empty when absent (legacy peers); both sides must send a valid key to enable header HMAC.
+  bytes link_ecdh_public_key = 4;
 }

@@ -18,6 +18,8 @@ pub enum DataPathError {
     DisconnectionError(u64),
     #[error("grpc error")]
     GrpcError(#[from] tonic::Status),
+    #[error("link negotiation error")]
+    NegotiationError(String),
 
     // Message classification / validation
     #[error("unknown message type")]
@@ -73,6 +75,15 @@ pub enum DataPathError {
     ShuttingDownError,
     #[error("timeout during shutdown")]
     ShutdownTimeoutError,
+
+    #[error("SLIM header integrity: {0}")]
+    HeaderIntegrity(#[from] crate::header_mac::HeaderMacError),
+
+    #[error("header MAC requires completed link negotiation on connection {0}")]
+    HeaderMacAwaitingLinkNegotiation(u64),
+
+    #[error("inter-node ephemeral key generation failed")]
+    LinkKeyGeneration,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

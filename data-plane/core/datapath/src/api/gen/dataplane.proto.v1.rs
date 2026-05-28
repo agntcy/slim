@@ -92,6 +92,8 @@ pub struct SlimHeader {
     pub incoming_conn: ::core::option::Option<u64>,
     #[prost(bool, optional, tag = "9")]
     pub error: ::core::option::Option<bool>,
+    #[prost(bytes = "vec", optional, tag = "10")]
+    pub header_mac: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SessionHeader {
@@ -368,6 +370,10 @@ pub struct LinkNegotiationPayload {
     /// True if this message is a reply to a negotiation request.
     #[prost(bool, tag = "3")]
     pub is_reply: bool,
+    /// X25519 ephemeral public key (32 bytes) for per-link HMAC key agreement between nodes.
+    /// Empty when absent (legacy peers); both sides must send a valid key to enable header HMAC.
+    #[prost(bytes = "vec", tag = "4")]
+    pub link_ecdh_public_key: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

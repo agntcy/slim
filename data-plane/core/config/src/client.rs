@@ -239,6 +239,10 @@ pub struct ClientConfig {
     /// Must be a valid UUID v4. Defaults to a randomly generated UUID v4.
     #[serde(default = "default_link_id")]
     pub link_id: String,
+
+    /// Flag to enforce header integrity validation
+    #[serde(default = "default_require_header_mac")]
+    pub require_header_mac: bool,
 }
 
 /// Defaults for ClientConfig
@@ -261,12 +265,17 @@ impl Default for ClientConfig {
             backoff: BackoffConfig::default(),
             metadata: None,
             link_id: default_link_id(),
+            require_header_mac: true,
         }
     }
 }
 
 fn default_link_id() -> String {
     uuid::Uuid::new_v4().to_string()
+}
+
+fn default_require_header_mac() -> bool {
+    true
 }
 
 fn default_connect_timeout() -> DurationString {

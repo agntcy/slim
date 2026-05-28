@@ -222,11 +222,16 @@ tasks:
 
   install-uniffi-bindgen-go:
     desc: Install uniffi-bindgen-go
+    vars:
+      VERSION: v0.7.1+v0.31.0
     status:
-      - which uniffi-bindgen-go
+      - "command -v uniffi-bindgen-go >/dev/null && uniffi-bindgen-go --version
+        2>/dev/null | grep -Fq '{{.VERSION}}'"
     cmds:
       - echo "📦 Installing uniffi-bindgen-go..."
-      - cargo install uniffi-bindgen-go --git https://github.com/NordSecurity/uniffi-bindgen-go.git --tag v0.7.1+v0.31.0 --config net.git-fetch-with-cli=true
+      - "cargo install uniffi-bindgen-go --git
+        https://github.com/NordSecurity/uniffi-bindgen-go.git --tag {{.VERSION}}
+        --config net.git-fetch-with-cli=true --force"
     silent: true
 
   copy-library:
@@ -266,7 +271,9 @@ tasks:
         echo "   $TARGET → $DEST_NAME ($((file_size / 1024 / 1024))MB)"
         cp "$LIB_PATH" "$DEST_DIR/$DEST_NAME"
       - echo "Libraries in slim_bindings/:"
-      - ls -lah "slim_bindings/"*{{.LIB_NAME}}*.a "slim_bindings/"*{{.LIB_NAME}}*.lib 2>/dev/null || echo "  (no library files found)"
+      - ls -lah "slim_bindings/"*{{.LIB_NAME}}*.a
+        "slim_bindings/"*{{.LIB_NAME}}*.lib 2>/dev/null || echo "  (no library
+        files found)"
     silent: true
 
   generate-proto:
@@ -332,7 +339,8 @@ tasks:
       - go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}}
     status:
       - test -f $(go env GOPATH)/bin/golangci-lint
-      - $(go env GOPATH)/bin/golangci-lint version | grep -q "{{.GOLANGCI_LINT_VERSION}}"
+      - $(go env GOPATH)/bin/golangci-lint version | grep -q
+        "{{.GOLANGCI_LINT_VERSION}}"
 
   lint:
     desc: Running lint
@@ -375,7 +383,8 @@ tasks:
     dir: examples/point_to_point
     cmds:
       - echo "Starting Alice (receiver)..."
-      - go run . --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+      - go run . --local="org/alice/app" --server="http://localhost:46357"
+        {{.CLI_ARGS}}
     silent: true
 
   examples:p2p:no-mls:bob:
@@ -385,7 +394,8 @@ tasks:
     dir: examples/point_to_point
     cmds:
       - echo "Starting Bob (sender)..."
-      - go run . --local="org/bob/app" --remote="org/alice/app" --message="Hello SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
+      - go run . --local="org/bob/app" --remote="org/alice/app" --message="Hello
+        SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
     silent: true
 
   examples:p2p:mls:bob:
@@ -395,7 +405,9 @@ tasks:
     dir: examples/point_to_point
     cmds:
       - echo "Starting Bob (sender)..."
-      - go run . --enable-mls --local="org/bob/app" --remote="org/alice/app" --message="Hello SLIM" --iterations=5 --server="http://localhost:46357" {{.CLI_ARGS}}
+      - go run . --enable-mls --local="org/bob/app" --remote="org/alice/app"
+        --message="Hello SLIM" --iterations=5 --server="http://localhost:46357"
+        {{.CLI_ARGS}}
     silent: true
 
   examples:group:moderator:
@@ -405,7 +417,9 @@ tasks:
     dir: examples/group
     cmds:
       - echo "Starting group moderator..."
-      - go run . --local="org/moderator/app" --remote="org/default/chat-room" --invites="org/alice/app,org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+      - go run . --local="org/moderator/app" --remote="org/default/chat-room"
+        --invites="org/alice/app,org/bob/app" --server="http://localhost:46357"
+        {{.CLI_ARGS}}
     silent: true
 
   examples:group:participant:alice:
@@ -415,7 +429,8 @@ tasks:
     dir: examples/group
     cmds:
       - echo "Starting group participant..."
-      - go run . --local="org/alice/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+      - go run . --local="org/alice/app" --server="http://localhost:46357"
+        {{.CLI_ARGS}}
     silent: true
 
   examples:group:participant:bob:
@@ -425,7 +440,8 @@ tasks:
     dir: examples/group
     cmds:
       - echo "Starting group participant..."
-      - go run . --local="org/bob/app" --server="http://localhost:46357" {{.CLI_ARGS}}
+      - go run . --local="org/bob/app" --server="http://localhost:46357"
+        {{.CLI_ARGS}}
     silent: true
 
   examples:rpc:server:

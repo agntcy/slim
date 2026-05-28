@@ -14,17 +14,11 @@ use tokio::sync::oneshot;
 use tracing::debug;
 
 use crate::api::proto::dataplane::v1::Message;
-use crate::connection::Connection;
 use crate::errors::DataPathError;
 use crate::message_processing::MessageProcessor;
 
 pub(crate) const TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) const MAX_RETRIES: u32 = 3;
-
-/// Minimum remote SLIM version that supports subscription ACKs.
-pub(crate) fn min_version() -> semver::Version {
-    semver::Version::new(1, 2, 0)
-}
 
 /// Owns the in-flight pending ACK state.
 #[derive(Debug)]
@@ -60,13 +54,6 @@ impl RemoteSubAckManager {
     pub fn remove(&self, ack_id: u64) {
         self.pending.write().remove(&ack_id);
     }
-}
-
-/// Returns `true` if the remote peer supports subscription ACKs (version ≥ 1.2.0).
-pub(crate) fn supports(conn: &Connection) -> bool {
-    debug!(version = ?conn.remote_slim_version(), min = %min_version(), "checking remote subscription-ack support");
-    conn.remote_slim_version()
-        .is_some_and(|v| v >= min_version())
 }
 
 /// Wait/retry loop for a remote subscription ACK.
@@ -127,7 +114,6 @@ pub(crate) async fn retry_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::connection::{Channel, Type as ConnectionType};
 
     #[tokio::test]
     async fn test_register_and_resolve_delivers_ok() {
@@ -171,49 +157,5 @@ mod tests {
         assert!(manager.pending.read().contains_key(&5));
         manager.remove(5);
         assert!(!manager.pending.read().contains_key(&5));
-    }
-
-    #[test]
-    fn test_supports_no_version() {
-        use tokio::sync::mpsc;
-        let (tx, _rx) = mpsc::channel(1);
-        let conn = Connection::new(ConnectionType::Remote, Channel::Server(tx));
-        assert!(!supports(&conn));
-    }
-
-    #[test]
-    fn test_supports_old_version() {
-        use tokio::sync::mpsc;
-        let (tx, _rx) = mpsc::channel(1);
-        let conn = Connection::new(ConnectionType::Remote, Channel::Server(tx));
-        conn.complete_negotiation_as_server(
-            &uuid::Uuid::new_v4().to_string(),
-            semver::Version::new(1, 1, 0),
-        );
-        assert!(!supports(&conn));
-    }
-
-    #[test]
-    fn test_supports_exact_min_version() {
-        use tokio::sync::mpsc;
-        let (tx, _rx) = mpsc::channel(1);
-        let conn = Connection::new(ConnectionType::Remote, Channel::Server(tx));
-        conn.complete_negotiation_as_server(
-            &uuid::Uuid::new_v4().to_string(),
-            semver::Version::new(1, 2, 0),
-        );
-        assert!(supports(&conn));
-    }
-
-    #[test]
-    fn test_supports_newer_version() {
-        use tokio::sync::mpsc;
-        let (tx, _rx) = mpsc::channel(1);
-        let conn = Connection::new(ConnectionType::Remote, Channel::Server(tx));
-        conn.complete_negotiation_as_server(
-            &uuid::Uuid::new_v4().to_string(),
-            semver::Version::new(2, 0, 0),
-        );
-        assert!(supports(&conn));
     }
 }
