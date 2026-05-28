@@ -27,15 +27,13 @@ use crate::session_config::SessionConfig;
 use crate::session_controller::SessionController;
 use crate::subscription_manager::SubscriptionManager;
 
-use crate::transmitter::{AppTransmitter, SessionTransmitter};
+use crate::transmitter::SessionTransmitter;
 
 // Local crate
 use super::context::SessionContext;
 
 use super::{SESSION_RANGE, SlimChannelSender};
 use super::{SessionError, session_controller::handle_channel_discovery_message};
-use crate::traits::Transmitter;
-
 /// Direction enum for session creation
 /// Indicates whether the session can send, receive, both, or neither data messages.
 #[derive(Clone, Copy, Debug)]
@@ -107,9 +105,6 @@ where
     tx_slim: SlimChannelSender,
     tx_app: Sender<Result<Notification, SessionError>>,
 
-    // Transmitter to bypass sessions
-    transmitter: AppTransmitter<P>,
-
     /// Channel to clone on session creation
     tx_session: tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>,
 
@@ -148,7 +143,6 @@ where
         conn_id: u64,
         tx_slim: SlimChannelSender,
         tx_app: Sender<Result<Notification, SessionError>>,
-        transmitter: AppTransmitter<P>,
         direction: Direction,
         service_id: String,
     ) -> Self {
@@ -166,7 +160,6 @@ where
             conn_id,
             tx_slim,
             tx_app,
-            transmitter,
             tx_session,
             to_notify: SyncRwLock::new(HashMap::new()),
             direction,
@@ -580,7 +573,7 @@ where
                     }
                 };
 
-            let reply =
+            let mut reply =
                 match handle_channel_discovery_message(&message, &local_name, id, session_type) {
                     Ok(r) => r,
                     Err(e) => {
@@ -589,7 +582,15 @@ where
                     }
                 };
 
-            if let Err(e) = layer.transmitter.send_to_slim(Ok(reply)).await {
+            let identity = match layer.identity_provider.get_token() {
+                Ok(t) => t,
+                Err(e) => {
+                    debug!(error = %e.chain(), "error getting identity token for discovery reply");
+                    return;
+                }
+            };
+            reply.get_slim_header_mut().set_identity(identity);
+            if let Err(e) = layer.tx_slim.send(Ok(reply)).await {
                 debug!(error = %e.chain(), "error sending discovery reply");
             }
         });
@@ -690,14 +691,8 @@ mod tests {
     type TestSessionLayer = Arc<SessionLayer<MockTokenProvider, MockVerifier>>;
     type SlimReceiver = mpsc::Receiver<Result<Message, Status>>;
     type AppReceiver = mpsc::Receiver<Result<Notification, SessionError>>;
-    type TransmitterReceiver = mpsc::Receiver<Result<Message, Status>>;
 
-    fn setup_session_layer() -> (
-        TestSessionLayer,
-        SlimReceiver,
-        AppReceiver,
-        TransmitterReceiver,
-    ) {
+    fn setup_session_layer() -> (TestSessionLayer, SlimReceiver, AppReceiver) {
         let app_name = make_name(&["test", "app", "v1"]);
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -705,9 +700,6 @@ mod tests {
 
         let (tx_slim, rx_slim) = mpsc::channel(16);
         let (tx_app, rx_app) = mpsc::channel(16);
-        let (tx_transmitter, rx_transmitter) = mpsc::channel(16);
-
-        let transmitter = AppTransmitter::new(tx_transmitter, tx_app.clone(), MockTokenProvider);
 
         let session_layer = Arc::new(SessionLayer::new(
             app_name,
@@ -716,17 +708,16 @@ mod tests {
             conn_id,
             tx_slim,
             tx_app,
-            transmitter,
             Direction::Bidirectional,
             "test-service".to_string(),
         ));
 
-        (session_layer, rx_slim, rx_app, rx_transmitter)
+        (session_layer, rx_slim, rx_app)
     }
 
     #[tokio::test]
     async fn test_new_session_layer() {
-        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+        let (session_layer, _rx_slim, _rx_app) = setup_session_layer();
 
         assert_eq!(session_layer.app_id(), 0);
         assert_eq!(session_layer.conn_id(), 12345);
@@ -735,7 +726,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_and_remove_app_name() {
-        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+        let (session_layer, _rx_slim, _rx_app) = setup_session_layer();
 
         let name1 = make_name(&["service", "v1", "api"]);
         let name2 = make_name(&["service", "v2", "api"]);
@@ -755,7 +746,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_identity_token() {
-        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+        let (session_layer, _rx_slim, _rx_app) = setup_session_layer();
 
         let token = session_layer.get_identity_token();
         assert!(token.is_ok());
@@ -764,7 +755,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_session_with_auto_id() {
-        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+        let (session_layer, _rx_slim, _rx_app) = setup_session_layer();
 
         let local_name = make_name(&["local", "app", "v1"]);
         let destination = make_name(&["remote", "app", "v1"]);
@@ -785,7 +776,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_session_with_specific_id() {
-        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+        let (session_layer, _rx_slim, _rx_app) = setup_session_layer();
 
         let local_name = make_name(&["local", "app", "v1"]);
         let destination = make_name(&["remote", "app", "v1"]);
@@ -815,7 +806,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_session_with_invalid_id() {
-        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+        let (session_layer, _rx_slim, _rx_app) = setup_session_layer();
 
         let local_name = make_name(&["local", "app", "v1"]);
         let destination = make_name(&["remote", "app", "v1"]);
@@ -846,7 +837,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_session_with_duplicate_id() {
-        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+        let (session_layer, _rx_slim, _rx_app) = setup_session_layer();
 
         let local_name = make_name(&["local", "app", "v1"]);
         let destination = make_name(&["remote", "app", "v1"]);
@@ -887,7 +878,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_session() {
-        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+        let (session_layer, _rx_slim, _rx_app) = setup_session_layer();
 
         let local_name = make_name(&["local", "app", "v1"]);
         let destination = make_name(&["remote", "app", "v1"]);
@@ -921,7 +912,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_local_name_for_session() {
-        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+        let (session_layer, _rx_slim, _rx_app) = setup_session_layer();
 
         let name = make_name(&["service", "api", "v1"]);
         session_layer.add_app_name(name.clone(), 0);
@@ -936,7 +927,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_local_name_for_session_not_found() {
-        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+        let (session_layer, _rx_slim, _rx_app) = setup_session_layer();
 
         let unknown_name = make_name(&["unknown", "service", "v1"]);
         let result = session_layer.get_local_name_for_session(unknown_name);
@@ -950,7 +941,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tx_slim_and_tx_app_cloning() {
-        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+        let (session_layer, _rx_slim, _rx_app) = setup_session_layer();
 
         let tx_slim = session_layer.tx_slim();
         let tx_app = session_layer.tx_app();
@@ -962,7 +953,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_discovery_request_without_session() {
-        let (session_layer, _rx_slim, _rx_app, mut rx_transmitter) = setup_session_layer();
+        let (session_layer, mut rx_slim, _rx_app) = setup_session_layer();
 
         let local_name = make_name(&["local", "app", "v1"]);
         session_layer.add_app_name(local_name.clone(), 0);
@@ -987,11 +978,11 @@ mod tests {
             .await
             .unwrap();
 
-        let sent = tokio::time::timeout(std::time::Duration::from_secs(1), rx_transmitter.recv())
+        let sent = tokio::time::timeout(std::time::Duration::from_secs(1), rx_slim.recv())
             .await
             .expect("expected a discovery reply")
-            .expect("transmitter channel closed")
-            .expect("transmitter delivered an error");
+            .expect("slim channel closed")
+            .expect("slim delivered an error");
 
         assert_eq!(
             sent.get_session_header().session_message_type(),
@@ -1001,7 +992,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_pre_session_unknown_message_is_dropped() {
-        let (session_layer, _rx_slim, _rx_app, mut rx_transmitter) = setup_session_layer();
+        let (session_layer, mut rx_slim, _rx_app) = setup_session_layer();
 
         let local_name = make_name(&["local", "app", "v1"]);
         session_layer.add_app_name(local_name.clone(), 0);
@@ -1024,12 +1015,12 @@ mod tests {
             .unwrap();
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        assert!(rx_transmitter.try_recv().is_err());
+        assert!(rx_slim.try_recv().is_err());
     }
 
     #[tokio::test]
     async fn test_multiple_sessions_in_pool() {
-        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+        let (session_layer, _rx_slim, _rx_app) = setup_session_layer();
 
         let local_name = make_name(&["local", "app", "v1"]);
         let config = SessionConfig {
@@ -1077,7 +1068,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_app_name_with_null_component() {
-        let (session_layer, _rx_slim, _rx_app, _rx_transmitter) = setup_session_layer();
+        let (session_layer, _rx_slim, _rx_app) = setup_session_layer();
 
         let name = make_name(&["service", "v1", "api"]).with_id(123);
         session_layer.add_app_name(name.clone(), 0);

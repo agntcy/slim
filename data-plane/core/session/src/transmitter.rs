@@ -5,10 +5,7 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
 use slim_datapath::api::ProtoMessage as Message;
 
-use crate::{
-    SessionError, SlimChannelSender, Transmitter, common::AppChannelSender,
-    notification::Notification,
-};
+use crate::{SessionError, SlimChannelSender, common::AppChannelSender};
 
 pub(crate) async fn verify_identity<V>(msg: &Message, verifier: &V) -> Result<(), SessionError>
 where
@@ -44,11 +41,11 @@ where
     }
 }
 
-impl<P> Transmitter for SessionTransmitter<P>
+impl<P> SessionTransmitter<P>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
 {
-    async fn send_to_app(
+    pub async fn send_to_app(
         &self,
         message: Result<Message, SessionError>,
     ) -> Result<(), SessionError> {
@@ -105,7 +102,7 @@ where
 {
     async fn send_to_app(
         &self,
-        message: Result<Message, SessionError>,
+        mut message: Result<Message, Status>,
     ) -> Result<(), SessionError> {
         self.app_tx
             .send(message.map(|msg| Notification::NewMessage(Box::new(msg))))
@@ -132,7 +129,6 @@ where
 mod tests {
     use super::*;
     use crate::SessionError;
-    use crate::notification::Notification;
     use crate::test_utils::{MockTokenProvider, MockVerifier};
     use slim_datapath::Status;
     use slim_datapath::api::ProtoMessage as Message;
@@ -166,18 +162,5 @@ mod tests {
     async fn verify_identity_accepts_mock() {
         let msg = make_message();
         verify_identity(&msg, &MockVerifier).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn app_transmitter_wraps_notification() {
-        let (slim_tx, _slim_rx) = mpsc::channel::<Result<Message, Status>>(4);
-        let (app_tx, mut app_rx) = mpsc::channel::<Result<Notification, SessionError>>(4);
-        let tx = AppTransmitter::new(slim_tx, app_tx, MockTokenProvider);
-
-        tx.send_to_app(Ok(make_message())).await.unwrap();
-        match app_rx.recv().await.unwrap().unwrap() {
-            Notification::NewMessage(_) => {}
-            _ => panic!("expected NewMessage"),
-        }
     }
 }

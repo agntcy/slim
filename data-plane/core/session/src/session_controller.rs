@@ -22,7 +22,7 @@ use slim_datapath::{
 
 // Local crate
 use crate::{
-    MessageDirection, SessionError, Transmitter,
+    MessageDirection, SessionError,
     common::SessionMessage,
     completion_handle::CompletionHandle,
     controller_sender::{ControllerSender, PING_INTERVAL},

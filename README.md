@@ -1,5 +1,4 @@
-[![Data-plane CI](https://github.com/agntcy/slim/actions/workflows/data-plane.yaml/badge.svg)](https://github.com/agntcy/slim/actions/workflows/data-plane.yaml)
-[![Control-plane CI](https://github.com/agntcy/slim/actions/workflows/control-plane.yaml/badge.svg)](https://github.com/agntcy/slim/actions/workflows/control-plane.yaml)
+[![CI](https://github.com/agntcy/slim/actions/workflows/data-plane.yaml/badge.svg)](https://github.com/agntcy/slim/actions/workflows/data-plane.yaml)
 [![codecov](https://codecov.io/gh/agntcy/slim/branch/main/graph/badge.svg)](https://codecov.io/gh/agntcy/slim)
 [![Coverage](https://img.shields.io/badge/Coverage-passing-brightgreen)](https://codecov.io/gh/agntcy/slim)
 
@@ -62,15 +61,11 @@ SLIM consists of multiple components with different installation methods:
 Build all components using [Taskfile](https://taskfile.dev/):
 
 ```bash
-# Build data-plane (Rust)
+# Build the project
 task data-plane:build PROFILE=release
-
-# Build control-plane (Go)
-task control-plane:build
 
 # Run tests
 task data-plane:test
-task control-plane:test
 ```
 
 ### Running SLIM
@@ -97,17 +92,14 @@ options including TLS, authentication, and mTLS.
   libraries
     - SLIM node binary for message forwarding
     - Session layer with MLS encryption
-    - SRPC (SLIM RPC) for request-response patterns
+    - Control plane
+    - SRPC (SLIMRPC) for request-response patterns
     - Language bindings:
       [Python](./data-plane/bindings/python),
       [Go](./data-plane/bindings/go),
       [Dotnet](./data-plane/bindings/dotnet),
       [Kotlin](./data-plane/bindings/kotlin),
       [Java](./data-plane/bindings/java)
-
-- **[control-plane](./control-plane)**: Go-based management services
-    - Configuration management for SLIM nodes
-    - `slimctl` CLI tool for operations
 
 - **[charts](./charts)**: Kubernetes deployment
     - [slim](./charts/slim): Helm chart for data-plane nodes
@@ -149,11 +141,6 @@ The data-plane components are implemented in rust. Install with rustup:
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
-
-### [Golang](https://go.dev/doc/install)
-
-The control-plane components are implemented in golang. Follow the installation
-instructions in the golang website.
 
 ## Community & Resources
 

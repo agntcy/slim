@@ -15,7 +15,7 @@ use tokio::sync::mpsc::Sender;
 use tracing::debug;
 
 use crate::{
-    SessionError, Transmitter,
+    SessionError,
     common::SessionMessage,
     timer::Timer,
     timer_factory::{TimerFactory, TimerSettings},
