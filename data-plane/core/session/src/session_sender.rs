@@ -14,7 +14,7 @@ use tracing::debug;
 
 use crate::transmitter::SessionTransmitter;
 use crate::{
-    SessionError, Transmitter,
+    SessionError,
     common::SessionMessage,
     producer_buffer::ProducerBuffer,
     timer::Timer,
@@ -215,11 +215,6 @@ where
         session_header.set_session_type(self.session_type);
         message.get_slim_header_mut().set_fanout(fanout);
 
-        // Buffer the message after setting the ID (only for non-publish_to messages)
-        if !is_publish_to {
-            self.buffer.push(message.clone());
-        }
-
         // Store the ack notifier if provided
         if let Some(tx) = ack_tx {
             // In unreliable mode (no timer_factory), signal success immediately
@@ -235,8 +230,19 @@ where
             debug!(
                 "there is no remote endopoint connected to the session, store the packet and send it later"
             );
+            // Buffer for flush-on-connect. set_timer_and_send is never reached from
+            // this path, so we can move the message without cloning.
+            if !is_publish_to {
+                self.buffer.push(message);
+            }
             self.to_flush = true;
             return Ok(());
+        }
+
+        // Endpoints are present. Buffer group messages for retransmission in reliable
+        // mode only. A clone is necessary because set_timer_and_send also needs message.
+        if self.timer_factory.is_some() && !is_publish_to {
+            self.buffer.push(message.clone());
         }
 
         self.set_timer_and_send(message).await
