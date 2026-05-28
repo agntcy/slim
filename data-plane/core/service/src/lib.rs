@@ -17,18 +17,18 @@
 //! use slim_service::Service;
 //! use slim_config::component::ComponentBuilder;
 //! use slim_auth::shared_secret::SharedSecret;
-//! use slim_auth::testutils::TEST_VALID_SECRET;
 //! use slim_datapath::api::ProtoName;
 //!
 //! // Create service instance (handles message processing)
 //! let service = Service::builder().build("svc-0".to_string()).expect("Failed to create service");
 //!
 //! // Create authentication components
-//! let provider = SharedSecret::new("myapp", TEST_VALID_SECRET)?;
-//! let verifier = SharedSecret::new("myapp", TEST_VALID_SECRET)?;
+//! let secret = "test-shared-secret-value-0123456789abcdef";
+//! let provider = SharedSecret::new("myapp", secret).unwrap();
+//! let verifier = SharedSecret::new("myapp", secret).unwrap();
 //!
 //! // Create an app for messaging
-//! let app_name = Name::from_strings(["org", "ns", "app"]);
+//! let app_name = ProtoName::from_strings(["org", "ns", "app"]);
 //! let (app, rx) = service.create_app(&app_name, provider, verifier).expect("Failed to create app");
 //! # })
 //! ```
