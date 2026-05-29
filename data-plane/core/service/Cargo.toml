@@ -14,13 +14,16 @@ default = ["session"]
 session = ["agntcy-slim-session"]
 
 [dependencies]
+agntcy-slim-version = { workspace = true }
+cfg-if = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-controller = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-mls = { workspace = true }
 agntcy-slim-session = { workspace = true, optional = true }
-agntcy-slim-version = { workspace = true }
 async-trait = { workspace = true }
 display-error-chain = { workspace = true }
 futures = { workspace = true }
@@ -33,7 +36,7 @@ tracing = { workspace = true }
 twox-hash = { workspace = true }
 uuid = { workspace = true }
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim-testing = { workspace = true }
 rstest = { workspace = true }
 tokio-test = { workspace = true }

@@ -5,7 +5,15 @@ pub async fn shutdown() {
     imp::shutdown().await
 }
 
-#[cfg(unix)]
+// TODO(wasm32): listen for `beforeunload`/`pagehide` via wasm-bindgen.
+#[cfg(target_arch = "wasm32")]
+mod imp {
+    pub(super) async fn shutdown() {
+        std::future::pending::<()>().await
+    }
+}
+
+#[cfg(all(unix, not(target_arch = "wasm32")))]
 mod imp {
     use tokio::signal::unix::{SignalKind, signal};
     use tracing::info;
@@ -33,7 +41,7 @@ mod imp {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(all(not(unix), not(target_arch = "wasm32")))]
 mod imp {
     use tracing::info;
 

@@ -9,10 +9,13 @@ description = "SLIM session internal implementation."
 name = "slim_session"
 
 [dependencies]
+agntcy-slim-version = { workspace = true }
+cfg-if = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-mls = { workspace = true }
-agntcy-slim-version = { workspace = true }
 async-trait = { workspace = true }
 display-error-chain = { workspace = true }
 futures = { workspace = true }
@@ -29,7 +32,7 @@ tonic = { workspace = true }
 tracing = { workspace = true }
 trait-variant = { workspace = true }
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim-testing = { workspace = true }
 criterion = { workspace = true }
 tracing-test = { workspace = true }

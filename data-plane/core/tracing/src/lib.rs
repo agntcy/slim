@@ -3,6 +3,10 @@
 
 pub mod utils;
 
+// TODO(wasm32): provide a browser tracing pipeline (console_log + OTLP-HTTP).
+cfg_if::cfg_if! {
+if #[cfg(not(target_arch = "wasm32"))] {
+
 use opentelemetry::{KeyValue, global, trace::TracerProvider as _};
 use opentelemetry_otlp::{ExporterBuildError, WithExportConfig};
 use opentelemetry_sdk::{
@@ -651,3 +655,5 @@ mod tests {
         drop(guard); // Should not panic
     }
 }
+
+} } // cfg_if not(wasm32)

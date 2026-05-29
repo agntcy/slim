@@ -66,6 +66,7 @@ aws-lc-rs = { version = "1.16", features = ["bindgen"] }
 base64 = "0.22"
 bincode = "2.0.1"
 bytes = "1.9.0"
+cfg-if = "1.0"
 chrono = "0.4"
 clap = { version = "4.5.23", features = ["derive", "env"] }
 
@@ -187,6 +188,8 @@ url = "2.5.0"
 uuid = { version = "1.15.1", features = ["v4"] }
 
 wiremock = "0.6"
+
+getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [workspace.package]
 version = "2.0.0-alpha.0"
