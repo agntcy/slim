@@ -137,8 +137,8 @@ impl MessageHandler for MockInnerHandler {
 
 impl<P, V> crate::traits::MlsStateSelector<P, V> for MockInnerHandler
 where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
+    P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+    V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
 {
     fn set_mls_state(
         &mut self,

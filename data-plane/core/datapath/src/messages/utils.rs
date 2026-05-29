@@ -1158,6 +1158,7 @@ impl CommandPayloadBuilder {
         };
 
         let payload = JoinRequestPayload {
+            enable_mls: mls_settings.is_some(),
             timer_settings,
             channel: proto_channel,
             mls_settings,

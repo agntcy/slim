@@ -234,6 +234,10 @@ pub struct DiscoveryReplyPayload {}
 /// Join Request
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct JoinRequestPayload {
+    /// Deprecated: use mls_settings instead. Kept for buf wire compatibility.
+    #[deprecated]
+    #[prost(bool, tag = "1")]
+    pub enable_mls: bool,
     /// settings for timers for rtx and acks
     #[prost(message, optional, tag = "2")]
     pub timer_settings: ::core::option::Option<TimerSettings>,

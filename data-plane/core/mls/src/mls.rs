@@ -361,12 +361,12 @@ where
         Ok(commit_msg)
     }
 
-    pub fn encrypt_message(&mut self, message: &[u8], aad: &[u8]) -> Result<Vec<u8>, MlsError> {
+    pub fn encrypt_message(&mut self, message: &[u8], aad: Vec<u8>) -> Result<Vec<u8>, MlsError> {
         debug!("Encrypting MLS message");
 
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
-        let encrypted_msg = group.encrypt_application_message(message, aad.to_vec())?;
+        let encrypted_msg = group.encrypt_application_message(message, aad)?;
 
         let msg = encrypted_msg.to_bytes()?;
         Ok(msg)
@@ -531,7 +531,7 @@ mod tests {
 
         // test encrypt decrypt
         let original_message = b"Hello from Alice 1!";
-        let encrypted = alice.encrypt_message(original_message, &[])?;
+        let encrypted = alice.encrypt_message(original_message, vec![])?;
         let (decrypted, _) = bob.decrypt_message(&encrypted)?;
 
         assert_eq!(original_message, decrypted.as_slice());
@@ -561,14 +561,14 @@ mod tests {
 
         // test encrypt decrypt
         let original_message = b"Hello from Alice 1!";
-        let encrypted = alice.encrypt_message(original_message, &[])?;
+        let encrypted = alice.encrypt_message(original_message, vec![])?;
         let (decrypted_1, _) = bob.decrypt_message(&encrypted)?;
         let (decrypted_2, _) = charlie.decrypt_message(&encrypted)?;
         assert_eq!(original_message, decrypted_1.as_slice());
         assert_eq!(original_message, decrypted_2.as_slice());
 
         let original_message = b"Hello from Charlie!";
-        let encrypted = charlie.encrypt_message(original_message, &[])?;
+        let encrypted = charlie.encrypt_message(original_message, vec![])?;
         let (decrypted_1, _) = bob.decrypt_message(&encrypted)?;
         let (decrypted_2, _) = alice.decrypt_message(&encrypted)?;
         assert_eq!(original_message, decrypted_1.as_slice());
@@ -586,12 +586,12 @@ mod tests {
 
         // test encrypt decrypt
         let original_message = b"Hello from Alice 1!";
-        let encrypted = alice.encrypt_message(original_message, &[])?;
+        let encrypted = alice.encrypt_message(original_message, vec![])?;
         let (decrypted, _) = charlie.decrypt_message(&encrypted)?;
         assert_eq!(original_message, decrypted.as_slice());
 
         let original_message = b"Hello from Charlie!";
-        let encrypted = charlie.encrypt_message(original_message, &[])?;
+        let encrypted = charlie.encrypt_message(original_message, vec![])?;
         let (decrypted, _) = alice.decrypt_message(&encrypted)?;
         assert_eq!(original_message, decrypted.as_slice());
 
@@ -625,7 +625,7 @@ mod tests {
 
         // test encrypt decrypt
         let original_message = b"Hello from Alice 1!";
-        let encrypted = alice.encrypt_message(original_message, &[])?;
+        let encrypted = alice.encrypt_message(original_message, vec![])?;
         let (decrypted, _) = daniel.decrypt_message(&encrypted)?;
         assert_eq!(original_message, decrypted.as_slice());
 
@@ -652,7 +652,7 @@ mod tests {
         let _bob_group_id = bob.process_welcome(&res.welcome_message)?;
 
         let message = b"Test message";
-        let encrypted = alice.encrypt_message(message, &[])?;
+        let encrypted = alice.encrypt_message(message, vec![])?;
 
         let (decrypted, _) = bob.decrypt_message(&encrypted)?;
         assert_eq!(decrypted, message);
@@ -684,7 +684,7 @@ mod tests {
         let _bob_group_id = bob.process_welcome(&welcome_message)?;
 
         let message1 = b"Message with secret_v1";
-        let encrypted1 = alice.encrypt_message(message1, &[])?;
+        let encrypted1 = alice.encrypt_message(message1, vec![])?;
         let (decrypted1, _) = bob.decrypt_message(&encrypted1)?;
         assert_eq!(decrypted1, message1);
 
@@ -703,11 +703,11 @@ mod tests {
         alice_rotated_secret.initialize()?;
 
         let message2 = b"Message with rotated secret";
-        let encrypted2_result = alice_rotated_secret.encrypt_message(message2, &[]);
+        let encrypted2_result = alice_rotated_secret.encrypt_message(message2, vec![]);
         assert!(encrypted2_result.is_err());
 
         let message3 = b"Message from original alice after secret rotation";
-        let encrypted3 = alice.encrypt_message(message3, &[])?;
+        let encrypted3 = alice.encrypt_message(message3, vec![])?;
         let (decrypted3, _) = bob.decrypt_message(&encrypted3)?;
         assert_eq!(decrypted3, message3);
 
@@ -746,7 +746,7 @@ mod tests {
         alice.process_commit(&commit_bob)?;
 
         let message1 = b"Message before rotation";
-        let encrypted1 = alice.encrypt_message(message1, &[])?;
+        let encrypted1 = alice.encrypt_message(message1, vec![])?;
         let (decrypted1, _) = bob.decrypt_message(&encrypted1)?;
         assert_eq!(decrypted1, message1);
 
@@ -765,13 +765,13 @@ mod tests {
         // Test messaging after rotation
         // Bob can decrypt Alice's encrypted message
         let message2 = b"Message after rotation from alice";
-        let encrypted2 = alice.encrypt_message(message2, &[])?;
+        let encrypted2 = alice.encrypt_message(message2, vec![])?;
         let (decrypted2, _) = bob.decrypt_message(&encrypted2)?;
         assert_eq!(decrypted2, message2);
 
         // ... and Alice can decrypt Bob's encrypted message
         let message3 = b"Message after rotation from bob";
-        let encrypted3 = bob.encrypt_message(message3, &[])?;
+        let encrypted3 = bob.encrypt_message(message3, vec![])?;
         let (decrypted3, _) = alice.decrypt_message(&encrypted3)?;
         assert_eq!(decrypted3, message3);
 
@@ -857,7 +857,7 @@ mod tests {
 
         // Sanity application message
         let msg = b"Hello from the real Alice!";
-        let encrypted = alice.encrypt_message(msg, &[])?;
+        let encrypted = alice.encrypt_message(msg, vec![])?;
         let (decrypted, _) = charlie.decrypt_message(&encrypted)?;
         assert_eq!(decrypted, msg);
 

@@ -309,7 +309,7 @@ where
 
         debug!("Encrypting message for group member");
         let aad = self.build_aad(msg);
-        let encrypted_payload = self.mls.encrypt_message(&payload.blob, &aad)?;
+        let encrypted_payload = self.mls.encrypt_message(&payload.blob, aad)?;
 
         msg.set_payload(
             ApplicationPayload::new(&payload.payload_type, encrypted_payload.to_vec()).as_content(),
