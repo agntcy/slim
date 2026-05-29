@@ -39,12 +39,7 @@ where
             identity_provider,
         }
     }
-}
 
-impl<P> SessionTransmitter<P>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-{
     pub async fn send_to_app(
         &self,
         message: Result<Message, SessionError>,
@@ -54,63 +49,10 @@ where
             .map_err(|_e| SessionError::ApplicationMessageSendFailed)
     }
 
-    async fn send_to_slim(&self, mut message: Result<Message, Status>) -> Result<(), SessionError> {
-        if let Ok(msg) = message.as_mut()
-            && msg.get_slim_header().get_identity().is_empty()
-        {
-            let identity = self.identity_provider.get_token()?;
-            msg.get_slim_header_mut().set_identity(identity);
-        }
-
-        self.slim_tx
-            .send(message)
-            .await
-            .map_err(|_e| SessionError::SlimMessageSendFailed)
-    }
-}
-
-#[derive(Clone)]
-pub struct AppTransmitter<P>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-{
-    pub slim_tx: SlimChannelSender,
-    pub app_tx: tokio::sync::mpsc::Sender<Result<Notification, SessionError>>,
-    pub identity_provider: P,
-}
-
-impl<P> AppTransmitter<P>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-{
-    pub fn new(
-        slim_tx: SlimChannelSender,
-        app_tx: tokio::sync::mpsc::Sender<Result<Notification, SessionError>>,
-        identity_provider: P,
-    ) -> Self {
-        AppTransmitter {
-            slim_tx,
-            app_tx,
-            identity_provider,
-        }
-    }
-}
-
-impl<P> Transmitter for AppTransmitter<P>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-{
-    async fn send_to_app(
+    pub async fn send_to_slim(
         &self,
         mut message: Result<Message, Status>,
     ) -> Result<(), SessionError> {
-        self.app_tx
-            .send(message.map(|msg| Notification::NewMessage(Box::new(msg))))
-            .await
-            .map_err(|_e| SessionError::ApplicationMessageSendFailed)
-    }
-
-    async fn send_to_slim(&self, mut message: Result<Message, Status>) -> Result<(), SessionError> {
         if let Ok(msg) = message.as_mut()
             && msg.get_slim_header().get_identity().is_empty()
         {
