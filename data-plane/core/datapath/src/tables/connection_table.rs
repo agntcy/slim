@@ -3,17 +3,32 @@
 
 use std::sync::Arc;
 
-use parking_lot::RwLock;
+use arc_swap::ArcSwap;
+use parking_lot::Mutex;
 
 use super::pool::Pool;
 
+/// A connection table that provides lock-free reads via `ArcSwap`.
+///
+/// Concurrency design:
+///   - Hot read path (`get`, `for_each`, `len`, `is_empty`): lock-free via
+///     `ArcSwap::load()`.  A single atomic pointer load gives callers an
+///     immutable snapshot of the pool.
+///   - Write path (`insert`, `insert_at`, `remove`): serialised by
+///     `write_lock`.  Writers load the current snapshot, clone the pool,
+///     apply the change, then atomically store the new `Arc`.  No write
+///     lock is ever held during reads.
+///
+/// Connections are stored as `Arc<T>` so that pool clones (made on every
+/// write) only bump refcounts rather than deep-copying each connection.
+/// `get()` returns `Option<Arc<T>>`; callers can auto-deref into `T`.
 #[derive(Debug)]
 pub struct ConnectionTable<T>
 where
     T: Clone,
 {
-    /// Connection pool
-    pool: RwLock<Pool<Arc<T>>>,
+    pool: ArcSwap<Pool<Arc<T>>>,
+    write_lock: Mutex<()>,
 }
 
 impl<T> ConnectionTable<T>
@@ -23,53 +38,58 @@ where
     /// Create a new connection table with a given capacity
     pub fn with_capacity(capacity: usize) -> Self {
         ConnectionTable {
-            pool: RwLock::new(Pool::with_capacity(capacity)),
+            pool: ArcSwap::from_pointee(Pool::with_capacity(capacity)),
+            write_lock: Mutex::new(()),
         }
     }
 
     /// Add a connection to the table, returning its stable ID.
     pub fn insert(&self, connection: T) -> u64 {
-        let mut pool = self.pool.write();
-        pool.insert(Arc::new(connection))
+        let _guard = self.write_lock.lock();
+        let mut pool = (**self.pool.load()).clone();
+        let id = pool.insert(Arc::new(connection));
+        self.pool.store(Arc::new(pool));
+        id
     }
 
     /// Add a connection at a specific ID.
     pub fn insert_at(&self, connection: T, id: u64) {
-        let mut pool = self.pool.write();
-        pool.insert_at(Arc::new(connection), id)
+        let _guard = self.write_lock.lock();
+        let mut pool = (**self.pool.load()).clone();
+        pool.insert_at(Arc::new(connection), id);
+        self.pool.store(Arc::new(pool));
     }
 
     /// Remove the connection with the given ID.
     pub fn remove(&self, id: u64) -> bool {
-        let mut pool = self.pool.write();
-        pool.remove(id)
+        let _guard = self.write_lock.lock();
+        let mut pool = (**self.pool.load()).clone();
+        let existed = pool.remove(id);
+        self.pool.store(Arc::new(pool));
+        existed
     }
 
     /// Number of connections in the table.
     #[allow(dead_code)]
     pub fn len(&self) -> usize {
-        let pool = self.pool.read();
-        pool.len()
+        self.pool.load().len()
     }
 
     /// Current allocated capacity.
     #[allow(dead_code)]
     pub fn capacity(&self) -> usize {
-        let pool = self.pool.read();
-        pool.capacity()
+        self.pool.load().capacity()
     }
 
     /// Returns `true` if the table contains no connections.
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
-        let pool = self.pool.read();
-        pool.is_empty()
+        self.pool.load().is_empty()
     }
 
     /// Look up a connection by its stable ID.
     pub fn get(&self, id: u64) -> Option<Arc<T>> {
-        let pool = self.pool.read();
-        pool.get(id).cloned()
+        self.pool.load().get(id).cloned()
     }
 
     /// Call `f(id, connection)` for every live connection.
@@ -77,9 +97,9 @@ where
     where
         F: FnMut(u64, Arc<T>),
     {
-        let pool = self.pool.read();
-        for (id, conn_arc) in pool.iter_with_ids() {
-            f(id, Arc::clone(conn_arc));
+        let pool = self.pool.load();
+        for (id, conn) in pool.iter_with_ids() {
+            f(id, conn.clone());
         }
     }
 }
