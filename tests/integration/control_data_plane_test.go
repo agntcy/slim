@@ -115,7 +115,7 @@ var _ = Describe("Routing", func() {
 		// The route list output format is: "org/ns/agent id=<id> local=[...] remote=[...]"
 		getRouteWithID := func(controllerPort int, routePrefix string) string {
 			var routeName string
-			re := regexp.MustCompile(fmt.Sprintf(`(%s)\s+id=(\d+)`, regexp.QuoteMeta(routePrefix)))
+			re := regexp.MustCompile(fmt.Sprintf(`(%s/[0-9a-f-]+)`, regexp.QuoteMeta(routePrefix)))
 			Eventually(func() string {
 				out, err := exec.Command(
 					slimctlPath, "n",
@@ -126,8 +126,8 @@ var _ = Describe("Routing", func() {
 					return ""
 				}
 				matches := re.FindStringSubmatch(string(out))
-				if len(matches) >= 3 && matches[2] != "0" {
-					routeName = fmt.Sprintf("%s/%s", matches[1], matches[2])
+				if len(matches) >= 2 {
+					routeName = matches[1]
 					return routeName
 				}
 				return ""
