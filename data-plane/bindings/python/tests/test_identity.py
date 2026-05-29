@@ -143,7 +143,7 @@ async def test_identity_verification(server, audience):
     # Create PointToPoint session
     session_config = slim_bindings.SessionConfig(
         session_type=slim_bindings.SessionType.POINT_TO_POINT,
-        enable_mls=False,
+        mls_settings=None,
         max_retries=3,
         interval=datetime.timedelta(milliseconds=333),
         metadata={},

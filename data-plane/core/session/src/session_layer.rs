@@ -763,7 +763,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };
@@ -784,7 +784,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };
@@ -814,7 +814,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };
@@ -845,7 +845,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };
@@ -886,7 +886,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };
@@ -1027,7 +1027,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };

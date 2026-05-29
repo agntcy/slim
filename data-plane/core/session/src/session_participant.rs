@@ -1,7 +1,9 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
+
+use parking_lot::Mutex;
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
@@ -16,20 +18,20 @@ use slim_mls::mls::Mls;
 use tracing::debug;
 
 use crate::{
-    common::SessionMessage,
+    common::{MessageDirection, SessionMessage},
     errors::SessionError,
     mls_state::MlsState,
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
-    traits::{MessageHandler, ProcessingState},
+    traits::{MessageHandler, MlsStateSelector, ProcessingState},
 };
 
 pub struct SessionParticipant<P, V, I, M = SubscriptionManager>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     /// name of the moderator, used to send mls proposal messages
@@ -39,7 +41,7 @@ where
     group_list: HashMap<ProtoName, ParticipantSettings>,
 
     /// mls state
-    mls_state: Option<MlsState<P, V>>,
+    mls_state: Option<Arc<Mutex<MlsState<P, V>>>>,
 
     /// common session state
     common: SessionControllerCommon<P, V, M>,
@@ -57,7 +59,7 @@ impl<P, V, I, M> SessionParticipant<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     pub(crate) fn new(inner: I, settings: SessionSettings<P, V, M>) -> Self {
@@ -81,19 +83,23 @@ impl<P, V, I, M> MessageHandler for SessionParticipant<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     async fn init(&mut self) -> Result<(), SessionError> {
         // Initialize MLS
-        self.mls_state = if self.common.settings.config.mls_enabled {
-            let mls_state = MlsState::new(Mls::new(
-                self.common.settings.identity_provider.clone(),
-                self.common.settings.identity_verifier.clone(),
-            ))
+        self.mls_state = if let Some(mls_settings) = &self.common.settings.config.mls_settings {
+            let mls_state = MlsState::new(
+                Mls::new(
+                    self.common.settings.identity_provider.clone(),
+                    self.common.settings.identity_verifier.clone(),
+                ),
+                mls_settings.header_integrity_validation_percent,
+            )
             .expect("failed to create MLS state");
-
-            Some(mls_state)
+            let shared = Arc::new(Mutex::new(mls_state));
+            self.inner.set_mls_state(shared.clone());
+            Some(shared)
         } else {
             None
         };
@@ -116,9 +122,19 @@ where
                     );
                     self.process_control_message(message).await
                 } else {
-                    // Apply MLS encryption/decryption if enabled
-                    if let Some(mls_state) = &mut self.mls_state {
-                        mls_state.process_message(&mut message, direction)?;
+                    if direction == MessageDirection::South
+                        && self.common.settings.config.session_type
+                            == ProtoSessionType::PointToPoint
+                    {
+                        message
+                            .get_slim_header_mut()
+                            .set_destination(self.common.settings.destination.clone());
+                    }
+
+                    if direction == MessageDirection::North
+                        && let Some(mls_state) = &self.mls_state
+                    {
+                        mls_state.lock().process_message(&mut message, direction)?;
                     }
 
                     self.inner
@@ -263,7 +279,7 @@ impl<P, V, I, M> SessionParticipant<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     /// Helper method to handle MessageError
@@ -350,7 +366,7 @@ where
 
         let key_package = if let Some(mls_state) = &mut self.mls_state {
             debug!("mls enabled, create the package key");
-            let key = mls_state.generate_key_package()?;
+            let key = mls_state.lock().generate_key_package()?;
             Some(key)
         } else {
             None
@@ -384,8 +400,8 @@ where
             "received welcome message",
         );
 
-        if let Some(mls_state) = &mut self.mls_state {
-            mls_state.process_welcome_message(&msg)?;
+        if let Some(mls_state) = &self.mls_state {
+            mls_state.lock().process_welcome_message(&msg)?;
         }
 
         self.join(&msg).await?;
@@ -435,10 +451,12 @@ where
             "received update",
         );
 
-        if let Some(mls_state) = &mut self.mls_state {
+        if let Some(mls_state) = &self.mls_state {
             debug!("process mls control update");
             let source_proto = self.common.settings.source.clone();
-            let ret = mls_state.process_control_message(msg.clone(), &source_proto)?;
+            let ret = mls_state
+                .lock()
+                .process_control_message(msg.clone(), &source_proto)?;
 
             if !ret {
                 debug!(
@@ -724,7 +742,7 @@ mod tests {
             session_type,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: false,
             metadata: Default::default(),
         };
@@ -793,12 +811,7 @@ mod tests {
             .message_id(100)
             .payload(
                 CommandPayload::builder()
-                    .join_request(
-                        false,
-                        Some(3),
-                        Some(std::time::Duration::from_secs(1)),
-                        None,
-                    )
+                    .join_request(Some(3), Some(std::time::Duration::from_secs(1)), None, None)
                     .as_content(),
             )
             .build_publish()
@@ -1089,12 +1102,7 @@ mod tests {
             .message_id(100)
             .payload(
                 CommandPayload::builder()
-                    .join_request(
-                        false,
-                        Some(3),
-                        Some(std::time::Duration::from_secs(1)),
-                        None,
-                    )
+                    .join_request(Some(3), Some(std::time::Duration::from_secs(1)), None, None)
                     .as_content(),
             )
             .build_publish()

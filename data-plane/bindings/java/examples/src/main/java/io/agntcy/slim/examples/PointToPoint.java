@@ -86,11 +86,10 @@ public class PointToPoint {
         // Create session configuration
         SessionConfig sessionConfig = new SessionConfig(
                 SessionType.POINT_TO_POINT,
-                config.enableMls,
                 null, // maxRetries
                 null, // interval
-                Map.of() // metadata - use empty map instead of null
-        );
+                Map.of(), // metadata
+                config.enableMls ? new MlsSettings(100) : null);
 
         System.out.println(Colors.instancePrefix(instanceId) +
                 "🔍 Creating session to " + config.remote + "...");

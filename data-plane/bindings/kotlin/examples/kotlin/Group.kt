@@ -249,10 +249,10 @@ suspend fun runClient(config: GroupConfig) = coroutineScope {
         // Create group session configuration
         val sessionConfig = SessionConfig(
             sessionType = SessionType.GROUP,
-            enableMls = config.enableMls,
             maxRetries = 5u,
             interval = Duration.ofSeconds(5),
-            metadata = emptyMap()
+            metadata = emptyMap(),
+            mlsSettings = if (config.enableMls) MlsSettings(100u) else null
         )
         
         // Create session - returns a context with completion and session

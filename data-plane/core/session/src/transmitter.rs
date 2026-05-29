@@ -39,12 +39,7 @@ where
             identity_provider,
         }
     }
-}
 
-impl<P> SessionTransmitter<P>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-{
     pub async fn send_to_app(
         &self,
         message: Result<Message, SessionError>,
@@ -58,7 +53,9 @@ where
         &self,
         mut message: Result<Message, Status>,
     ) -> Result<(), SessionError> {
-        if let Ok(msg) = message.as_mut() {
+        if let Ok(msg) = message.as_mut()
+            && msg.get_slim_header().get_identity().is_empty()
+        {
             let identity = self.identity_provider.get_token()?;
             msg.get_slim_header_mut().set_identity(identity);
         }

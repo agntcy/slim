@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use slim_auth::traits::TokenProvider;
+use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{
     EncodedName, Participant, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
 };
@@ -20,19 +20,21 @@ use crate::{
     transmitter::SessionTransmitter,
 };
 
-pub(crate) struct Session<P>
+pub(crate) struct Session<P, V = slim_auth::shared_secret::SharedSecret>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
 {
     local_name: ProtoName,
-    sender: Option<SessionSender<P>>,
-    receiver: Option<SessionReceiver<P>>,
+    pub(crate) sender: Option<SessionSender<P, V>>,
+    pub(crate) receiver: Option<SessionReceiver<P>>,
     processing_state: ProcessingState,
 }
 
-impl<P> Session<P>
+impl<P, V> Session<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
 {
     pub(crate) fn new(
         session_id: u32,
@@ -84,6 +86,15 @@ where
             sender,
             receiver,
             processing_state: ProcessingState::Active,
+        }
+    }
+
+    pub(crate) fn set_mls_state(
+        &mut self,
+        mls_state: std::sync::Arc<parking_lot::Mutex<crate::mls_state::MlsState<P, V>>>,
+    ) {
+        if let Some(sender) = &mut self.sender {
+            sender.set_mls_state(mls_state);
         }
     }
 
@@ -178,7 +189,7 @@ where
     ) -> Result<(), SessionError>
     where
         F: FnOnce(
-            &'a mut SessionSender<P>,
+            &'a mut SessionSender<P, V>,
             Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
         ) -> Fut,
         Fut: std::future::Future<Output = Result<(), SessionError>> + 'a,
@@ -198,7 +209,7 @@ where
     /// Helper to call sender methods without ack_tx
     fn with_sender_without_ack<F, R>(&mut self, f: F) -> Result<R, SessionError>
     where
-        F: FnOnce(&mut SessionSender<P>) -> Result<R, SessionError>,
+        F: FnOnce(&mut SessionSender<P, V>) -> Result<R, SessionError>,
     {
         match self.sender {
             Some(ref mut sender) => f(sender),
@@ -303,9 +314,10 @@ where
 
 /// Implementation of MessageHandler trait for Session
 /// This allows Session to be used as a layer in the generic layer system
-impl<P> MessageHandler for Session<P>
+impl<P, V> MessageHandler for Session<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
 {
     async fn init(&mut self) -> Result<(), SessionError> {
         // Session is the innermost layer, no initialization needed
@@ -342,8 +354,23 @@ where
     }
 }
 
+impl<P, V> crate::traits::MlsStateSelector<P, V> for Session<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    fn set_mls_state(
+        &mut self,
+        mls_state: std::sync::Arc<parking_lot::Mutex<crate::mls_state::MlsState<P, V>>>,
+    ) {
+        self.set_mls_state(mls_state);
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    type Session<P> = super::Session<P, crate::test_utils::MockVerifier>;
+
     use crate::test_utils::MockTokenProvider;
     use crate::transmitter::SessionTransmitter;
 
@@ -370,7 +397,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: false,
             metadata: HashMap::new(),
         };
@@ -512,7 +539,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: false,
             metadata: HashMap::new(),
         };
@@ -728,7 +755,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: HashMap::new(),
         };
@@ -766,7 +793,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: false,
             metadata: HashMap::new(),
         };

@@ -11,8 +11,8 @@ use display_error_chain::ErrorChainExt;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, MlsPayload, NameId, Participant, ProtoMessage as Message, ProtoName,
-        ProtoSessionMessageType, ProtoSessionType,
+        CommandPayload, MlsPayload, NameId, Participant, ProtoMessage as Message, ProtoMlsSettings,
+        ProtoName, ProtoSessionMessageType, ProtoSessionType,
     },
     messages::utils::{DELETE_GROUP, DISCONNECTION_DETECTED, LEAVING_SESSION, TRUE_VAL},
 };
@@ -20,6 +20,10 @@ use tokio::sync::oneshot;
 
 use slim_mls::mls::Mls;
 use tracing::debug;
+
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use crate::{
     common::{MessageDirection, SessionMessage},
@@ -31,14 +35,14 @@ use crate::{
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
-    traits::{MessageHandler, ProcessingState},
+    traits::{MessageHandler, MlsStateSelector, ProcessingState},
 };
 
 pub struct SessionModerator<P, V, I, M = SubscriptionManager>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     /// Queue of tasks to be performed by the moderator
@@ -76,7 +80,7 @@ impl<P, V, I, M> SessionModerator<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     pub(crate) fn new(inner: I, settings: SessionSettings<P, V, M>) -> Self {
@@ -102,19 +106,23 @@ impl<P, V, I, M> MessageHandler for SessionModerator<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     async fn init(&mut self) -> Result<(), SessionError> {
         // Initialize MLS
-        self.mls_state = if self.common.settings.config.mls_enabled {
-            let mls_state = MlsState::new(Mls::new(
-                self.common.settings.identity_provider.clone(),
-                self.common.settings.identity_verifier.clone(),
-            ))
+        self.mls_state = if let Some(mls_settings) = &self.common.settings.config.mls_settings {
+            let mls_state = MlsState::new(
+                Mls::new(
+                    self.common.settings.identity_provider.clone(),
+                    self.common.settings.identity_verifier.clone(),
+                ),
+                mls_settings.header_integrity_validation_percent,
+            )
             .expect("failed to create MLS state");
-
-            Some(MlsModeratorState::new(mls_state))
+            let shared = Arc::new(Mutex::new(mls_state));
+            self.inner.set_mls_state(shared.clone());
+            Some(MlsModeratorState::new(shared))
         } else {
             None
         };
@@ -149,9 +157,14 @@ where
                             .set_destination(self.common.settings.destination.clone());
                     }
 
-                    // Apply MLS encryption/decryption if enabled
-                    if let Some(mls_state) = &mut self.mls_state {
-                        mls_state.common.process_message(&mut message, direction)?;
+                    // Decrypt inbound application messages.
+                    if direction == MessageDirection::North
+                        && let Some(mls_state) = &self.mls_state
+                    {
+                        mls_state
+                            .common
+                            .lock()
+                            .process_message(&mut message, direction)?;
                     }
 
                     self.inner
@@ -325,7 +338,7 @@ impl<P, V, I, M> SessionModerator<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     /// Helper method to handle MessageError
@@ -635,12 +648,22 @@ where
             None
         };
 
+        let mls_settings =
+            self.common
+                .settings
+                .config
+                .mls_settings
+                .as_ref()
+                .map(|s| ProtoMlsSettings {
+                    header_integrity_validation_percent: s.header_integrity_validation_percent,
+                });
+
         let payload = CommandPayload::builder()
             .join_request(
-                self.mls_state.is_some(),
                 self.common.settings.config.max_retries,
                 self.common.settings.config.interval,
                 channel,
+                mls_settings,
             )
             .as_content();
 
@@ -1280,7 +1303,7 @@ mod tests {
             session_type: ProtoSessionType::Multicast,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };
@@ -1423,12 +1446,7 @@ mod tests {
             .message_id(100)
             .payload(
                 CommandPayload::builder()
-                    .join_request(
-                        false,
-                        Some(3),
-                        Some(std::time::Duration::from_secs(1)),
-                        None,
-                    )
+                    .join_request(Some(3), Some(std::time::Duration::from_secs(1)), None, None)
                     .as_content(),
             )
             .build_publish()
@@ -1646,7 +1664,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };
@@ -1727,7 +1745,7 @@ mod tests {
             session_type: ProtoSessionType::Multicast,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };
@@ -1871,7 +1889,7 @@ mod tests {
             session_type: ProtoSessionType::Multicast,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };

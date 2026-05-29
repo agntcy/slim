@@ -8,6 +8,11 @@ use slim_datapath::api::{CommandPayload, ProtoSessionType};
 use crate::{SessionError, timer_factory::TimerSettings};
 
 #[derive(Default, Clone, Debug, PartialEq)]
+pub struct MlsSettings {
+    pub header_integrity_validation_percent: u32,
+}
+
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct SessionConfig {
     /// session type
     pub session_type: ProtoSessionType,
@@ -18,8 +23,8 @@ pub struct SessionConfig {
     /// interval between retries
     pub interval: Option<std::time::Duration>,
 
-    /// true is mls is enabled
-    pub mls_enabled: bool,
+    /// MLS related settings
+    pub mls_settings: Option<MlsSettings>,
 
     /// true is the local endpoint is initiator of the session
     pub initiator: bool,
@@ -29,14 +34,32 @@ pub struct SessionConfig {
 }
 
 impl SessionConfig {
+    #[allow(deprecated)]
+    fn mls_settings_from_join(
+        join: &slim_datapath::api::JoinRequestPayload,
+    ) -> Option<MlsSettings> {
+        if join.mls_settings.is_some() || join.enable_mls {
+            let header_integrity_validation_percent = join
+                .mls_settings
+                .as_ref()
+                .map(|wire| wire.header_integrity_validation_percent.min(100))
+                .unwrap_or(100);
+            Some(MlsSettings {
+                header_integrity_validation_percent,
+            })
+        } else {
+            None
+        }
+    }
+
     pub fn with_session_type(self, session_type: ProtoSessionType) -> Self {
         Self {
             session_type,
             max_retries: self.max_retries,
             interval: self.interval,
-            mls_enabled: self.mls_enabled,
             initiator: self.initiator,
             metadata: self.metadata,
+            mls_settings: self.mls_settings,
         }
     }
 
@@ -65,7 +88,7 @@ impl SessionConfig {
             session_type,
             max_retries,
             interval: duration,
-            mls_enabled: join.enable_mls,
+            mls_settings: Self::mls_settings_from_join(join),
             initiator,
             metadata,
         })
@@ -86,7 +109,7 @@ mod tests {
         assert_eq!(config.session_type, ProtoSessionType::Unspecified);
         assert_eq!(config.max_retries, None);
         assert_eq!(config.interval, None);
-        assert!(!config.mls_enabled);
+        assert!(config.mls_settings.is_none());
         assert!(!config.initiator);
         assert!(config.metadata.is_empty());
     }
@@ -100,9 +123,9 @@ mod tests {
             session_type: ProtoSessionType::Unspecified,
             max_retries: Some(5),
             interval: Some(Duration::from_secs(10)),
-            mls_enabled: true,
             initiator: true,
             metadata: metadata.clone(),
+            mls_settings: Some(MlsSettings::default()),
         };
 
         let new_config = config.with_session_type(ProtoSessionType::Multicast);
@@ -110,7 +133,7 @@ mod tests {
         assert_eq!(new_config.session_type, ProtoSessionType::Multicast);
         assert_eq!(new_config.max_retries, Some(5));
         assert_eq!(new_config.interval, Some(Duration::from_secs(10)));
-        assert!(new_config.mls_enabled);
+        assert!(new_config.mls_settings.is_some());
         assert!(new_config.initiator);
         assert_eq!(new_config.metadata.len(), 1);
         assert_eq!(new_config.metadata.get("key1"), Some(&"value1".to_string()));
@@ -127,10 +150,12 @@ mod tests {
     fn test_from_join_request_with_timer_settings() {
         let dest = Name::from_strings(["dest", "", ""]);
         let payload = CommandPayload::builder().join_request(
-            true,
             Some(3),
             Some(Duration::from_millis(500)),
             Some(dest),
+            Some(slim_datapath::api::ProtoMlsSettings {
+                header_integrity_validation_percent: 100,
+            }),
         );
 
         let mut metadata = HashMap::new();
@@ -147,7 +172,7 @@ mod tests {
         assert_eq!(config.session_type, ProtoSessionType::Multicast);
         assert_eq!(config.max_retries, Some(3));
         assert_eq!(config.interval, Some(Duration::from_millis(500)));
-        assert!(config.mls_enabled);
+        assert!(config.mls_settings.is_some());
         assert!(config.initiator);
         assert_eq!(config.metadata.len(), 1);
         assert_eq!(
@@ -159,7 +184,7 @@ mod tests {
     #[test]
     fn test_from_join_request_without_timer_settings() {
         let dest = Name::from_strings(["dest", "", ""]);
-        let payload = CommandPayload::builder().join_request(false, None, None, Some(dest));
+        let payload = CommandPayload::builder().join_request(None, None, Some(dest), None);
 
         let metadata = HashMap::new();
 
@@ -174,7 +199,7 @@ mod tests {
         assert_eq!(config.session_type, ProtoSessionType::PointToPoint);
         assert_eq!(config.max_retries, None);
         assert_eq!(config.interval, None);
-        assert!(!config.mls_enabled);
+        assert!(config.mls_settings.is_none());
         assert!(!config.initiator);
         assert!(config.metadata.is_empty());
     }
@@ -183,10 +208,12 @@ mod tests {
     fn test_from_join_request_with_mls_enabled() {
         let dest = Name::from_strings(["dest", "", ""]);
         let payload = CommandPayload::builder().join_request(
-            true,
             Some(10),
             Some(Duration::from_secs(5)),
             Some(dest),
+            Some(slim_datapath::api::ProtoMlsSettings {
+                header_integrity_validation_percent: 100,
+            }),
         );
 
         let config = SessionConfig::from_join_request(
@@ -197,7 +224,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(config.mls_enabled);
+        assert!(config.mls_settings.is_some());
     }
 
     #[test]
@@ -230,9 +257,9 @@ mod tests {
             session_type: ProtoSessionType::Multicast,
             max_retries: Some(7),
             interval: Some(Duration::from_millis(1000)),
-            mls_enabled: true,
             initiator: false,
             metadata: metadata.clone(),
+            mls_settings: Some(MlsSettings::default()),
         };
 
         let cloned = config.clone();
@@ -240,7 +267,7 @@ mod tests {
         assert_eq!(cloned.session_type, config.session_type);
         assert_eq!(cloned.max_retries, config.max_retries);
         assert_eq!(cloned.interval, config.interval);
-        assert_eq!(cloned.mls_enabled, config.mls_enabled);
+        assert_eq!(cloned.mls_settings, config.mls_settings);
         assert_eq!(cloned.initiator, config.initiator);
         assert_eq!(cloned.metadata, config.metadata);
     }
@@ -249,10 +276,10 @@ mod tests {
     fn test_from_join_request_with_large_timeout() {
         let dest = Name::from_strings(["dest", "", ""]);
         let payload = CommandPayload::builder().join_request(
-            true,
             Some(100),
             Some(Duration::from_secs(3600)), // 1 hour
             Some(dest),
+            None,
         );
 
         let config = SessionConfig::from_join_request(
@@ -278,9 +305,9 @@ mod tests {
             session_type: ProtoSessionType::Unspecified,
             max_retries: None,
             interval: None,
-            mls_enabled: false,
             initiator: false,
             metadata: metadata.clone(),
+            mls_settings: None,
         };
 
         let new_config = config.with_session_type(ProtoSessionType::Multicast);

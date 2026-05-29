@@ -1,10 +1,13 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use arc_swap::ArcSwapOption;
+use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use rand::Rng;
-use slim_auth::traits::TokenProvider;
+use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{EncodedName, Participant, ProtoSessionType};
 use slim_datapath::messages::utils::{MAX_PUBLISH_ID, PUBLISH_TO};
 use slim_datapath::{api::ProtoMessage as Message, api::ProtoName};
@@ -12,6 +15,8 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 use tracing::debug;
 
+use crate::common::MessageDirection;
+use crate::mls_state::MlsState;
 use crate::transmitter::SessionTransmitter;
 use crate::{
     SessionError,
@@ -39,9 +44,10 @@ struct GroupTimer {
 }
 
 #[allow(dead_code)]
-pub struct SessionSender<P>
+pub struct SessionSender<P, V = slim_auth::shared_secret::SharedSecret>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
 {
     /// buffer storing messages coming from the application
     buffer: ProducerBuffer,
@@ -87,12 +93,16 @@ where
 
     /// oneshot senders to signal when network acks are received for each message
     ack_notifiers: HashMap<u32, oneshot::Sender<Result<(), SessionError>>>,
+
+    /// MLS state for E2E encryption and header integrity verification
+    mls_state: ArcSwapOption<Mutex<MlsState<P, V>>>,
 }
 
 #[allow(dead_code)]
-impl<P> SessionSender<P>
+impl<P, V> SessionSender<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
 {
     const MAX_FANOUT: u32 = 256;
 
@@ -124,7 +134,12 @@ where
             to_flush: false,
             draining_state: SenderDrainStatus::NotDraining,
             ack_notifiers: HashMap::new(),
+            mls_state: ArcSwapOption::empty(),
         }
+    }
+
+    pub(crate) fn set_mls_state(&mut self, mls_state: Arc<Mutex<MlsState<P, V>>>) {
+        self.mls_state.store(Some(mls_state));
     }
 
     /// Send a message with optional acknowledgment notification
@@ -214,6 +229,22 @@ where
         session_header.set_session_id(self.session_id);
         session_header.set_session_type(self.session_type);
         message.get_slim_header_mut().set_fanout(fanout);
+
+        // Retrieve and set the identity token before building AAD / encrypting
+        let identity = self.tx.identity_provider.get_token()?;
+        message.get_slim_header_mut().set_identity(identity);
+
+        // Encrypt the message using MLS if MLS is enabled
+        if let Some(mls_state) = self.mls_state.load_full() {
+            mls_state
+                .lock()
+                .process_message(&mut message, MessageDirection::South)?;
+        }
+
+        // Buffer the message after setting the ID (only for non-publish_to messages)
+        if !is_publish_to {
+            self.buffer.push(message.clone());
+        }
 
         // Store the ack notifier if provided
         if let Some(tx) = ack_tx {
@@ -602,6 +633,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    type SessionSender<P> = super::SessionSender<P, crate::test_utils::MockVerifier>;
+
     use crate::test_utils::MockTokenProvider;
     use crate::transmitter::SessionTransmitter;
 

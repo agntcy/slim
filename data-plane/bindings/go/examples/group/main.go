@@ -82,12 +82,17 @@ func runModerator(app *slim.App, connID uint64, remote string, invites []string,
 
 	// Create multicast session
 	interval := time.Second * 5
+	var mlsSettings *slim.MlsSettings
+	if enableMLS {
+		mlsSettings = &slim.MlsSettings{HeaderIntegrityValidationPercent: 100}
+	}
+
 	config := slim.SessionConfig{
 		SessionType: slim.SessionTypeGroup,
-		EnableMls:   enableMLS,
 		MaxRetries:  &[]uint32{5}[0], // 5 retries
 		Interval:    &interval,
 		Metadata:    make(map[string]string),
+		MlsSettings: mlsSettings,
 	}
 
 	session, err := app.CreateSessionAndWaitAsync(config, channelName)

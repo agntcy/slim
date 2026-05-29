@@ -18,7 +18,7 @@ use agntcy_slim_channel_manager::sessions::SessionsList;
 use clap::Parser;
 use slim_bindings::ClientConfig as BindingsClientConfig;
 use slim_bindings::{
-    IdentityProviderConfig, IdentityVerifierConfig, Name, SessionConfig, SessionType,
+    IdentityProviderConfig, IdentityVerifierConfig, MlsSettings, Name, SessionConfig, SessionType,
     get_global_service, initialize_with_defaults, shutdown,
 };
 use slim_tracing::TracingConfiguration;
@@ -47,7 +47,11 @@ async fn create_channels_from_config(
 
         let session_config = SessionConfig {
             session_type: SessionType::Group,
-            enable_mls: channel_cfg.mls_enabled,
+            mls_settings: if channel_cfg.mls_enabled {
+                Some(MlsSettings::default())
+            } else {
+                None
+            },
             max_retries: Some(10),
             interval: Some(Duration::from_millis(1000)),
             metadata: std::collections::HashMap::new(),

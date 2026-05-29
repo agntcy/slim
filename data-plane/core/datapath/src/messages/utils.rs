@@ -9,9 +9,9 @@ use crate::api::proto::dataplane::v1::{
 };
 use crate::api::{
     Content, LinkNegotiationPayload, MessageType, ProtoLink, ProtoLinkMessageType, ProtoLinkType,
-    ProtoMessage, ProtoName, ProtoPublish, ProtoPublishType, ProtoSessionType, ProtoSubscribe,
-    ProtoSubscribeType, ProtoSubscriptionAck, ProtoSubscriptionAckType, ProtoUnsubscribe,
-    ProtoUnsubscribeType, SessionHeader, SlimHeader,
+    ProtoMessage, ProtoMlsSettings as MlsSettings, ProtoName, ProtoPublish, ProtoPublishType,
+    ProtoSessionType, ProtoSubscribe, ProtoSubscribeType, ProtoSubscriptionAck,
+    ProtoSubscriptionAckType, ProtoUnsubscribe, ProtoUnsubscribeType, SessionHeader, SlimHeader,
     proto::dataplane::v1::{
         ApplicationPayload, CommandPayload, DiscoveryReplyPayload, DiscoveryRequestPayload,
         EncodedName, GroupAckPayload, GroupAddPayload, GroupProposalPayload, GroupRemovePayload,
@@ -1086,10 +1086,10 @@ impl AsRef<ProtoPublish> for ProtoMessage {
 ///
 /// let channel = ProtoName::from_strings(["org", "namespace", "channel"]);
 /// let payload = CommandPayload::builder().join_request(
-///     true,  // enable_mls
 ///     Some(5),  // max_retries
 ///     Some(Duration::from_secs(10)),  // timeout
 ///     Some(channel),
+///     None, // mls_settings
 /// );
 /// ```
 ///
@@ -1136,12 +1136,13 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a join request payload
+    #[allow(deprecated)]
     pub fn join_request(
         self,
-        enable_mls: bool,
         max_retries: Option<u32>,
         timer_duration: Option<Duration>,
         channel: Option<ProtoName>,
+        mls_settings: Option<MlsSettings>,
     ) -> CommandPayload {
         let proto_channel = channel;
 
@@ -1157,9 +1158,10 @@ impl CommandPayloadBuilder {
         };
 
         let payload = JoinRequestPayload {
-            enable_mls,
+            enable_mls: mls_settings.is_some(),
             timer_settings,
             channel: proto_channel,
+            mls_settings,
         };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::JoinRequest(payload)),
@@ -2181,13 +2183,13 @@ mod tests {
 
         // Test join request
         let payload = CommandPayload::builder().join_request(
-            true,
             Some(5),
             Some(Duration::from_secs(10)),
             Some(dest.clone()),
+            Some(MlsSettings::default()),
         );
         let extracted = payload.as_join_request_payload().unwrap();
-        assert!(extracted.enable_mls);
+        assert!(extracted.mls_settings.is_some());
         assert!(extracted.timer_settings.is_some());
 
         // Test join reply

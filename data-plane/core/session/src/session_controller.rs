@@ -805,6 +805,7 @@ mod tests {
     // Removed broken test_internal_draining_via_leave_request (incompatible mock trait implementation)
 
     use crate::Direction;
+    use crate::session_config::MlsSettings;
     use crate::subscription_manager::{SpySubscriptionManager, SubscriptionCall};
     use crate::transmitter::SessionTransmitter;
     use slim_auth::shared_secret::SharedSecret;
@@ -830,7 +831,7 @@ mod tests {
         source: ProtoName,
         destination: ProtoName,
         session_type: ProtoSessionType,
-        mls_enabled: bool,
+        mls_settings: Option<MlsSettings>,
         initiator: bool,
         max_retries: Option<u32>,
         interval: Option<Duration>,
@@ -846,7 +847,7 @@ mod tests {
                 source: ProtoName::from_strings(["org", "ns", "source"]).with_id(1),
                 destination: ProtoName::from_strings(["org", "ns", "dest"]).with_id(2),
                 session_type: ProtoSessionType::PointToPoint,
-                mls_enabled: false,
+                mls_settings: None,
                 initiator: true,
                 max_retries: Some(5),
                 interval: Some(Duration::from_millis(200)),
@@ -878,7 +879,11 @@ mod tests {
         }
 
         fn with_mls_enabled(mut self, enabled: bool) -> Self {
-            self.mls_enabled = enabled;
+            self.mls_settings = if enabled {
+                Some(MlsSettings::default())
+            } else {
+                None
+            };
             self
         }
 
@@ -908,7 +913,7 @@ mod tests {
                 session_type: self.session_type,
                 max_retries: self.max_retries,
                 interval: self.interval,
-                mls_enabled: self.mls_enabled,
+                mls_settings: self.mls_settings,
                 initiator: self.initiator,
                 metadata: self.metadata,
             };
@@ -1311,7 +1316,7 @@ mod tests {
             session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(1000)),
-            mls_enabled: true,
+            mls_settings: Some(MlsSettings::default()),
             initiator: true,
             metadata: std::collections::HashMap::new(),
         };
@@ -1348,7 +1353,7 @@ mod tests {
             session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
-            mls_enabled: true,
+            mls_settings: Some(MlsSettings::default()),
             initiator: false,
             metadata: std::collections::HashMap::new(),
         };
@@ -1822,7 +1827,7 @@ mod tests {
                 session_type: ProtoSessionType::PointToPoint,
                 max_retries: Some(3),
                 interval: Some(Duration::from_millis(150)),
-                mls_enabled: false,
+                mls_settings: None,
                 initiator: true,
                 metadata: HashMap::new(),
             },
@@ -1998,7 +2003,7 @@ mod tests {
                 session_type: ProtoSessionType::PointToPoint,
                 max_retries: Some(5),
                 interval: Some(Duration::from_millis(200)),
-                mls_enabled: false,
+                mls_settings: None,
                 initiator: true,
                 metadata: HashMap::new(),
             },
