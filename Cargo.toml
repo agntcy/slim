@@ -1,24 +1,24 @@
 [workspace]
 
 members = [
+    "crates/auth",
     "crates/bindings",
     "crates/channel-manager",
-    "crates/control-plane",
-    "crates/auth",
     "crates/config",
+    "crates/control-plane",
     "crates/controller",
     "crates/datapath",
+    "crates/examples",
     "crates/mls",
     "crates/service",
     "crates/session",
     "crates/signal",
     "crates/slim",
-    "crates/tracing",
-    "crates/version",
-    "crates/examples",
     "crates/slimctl",
     "crates/slimrpc-compiler",
     "crates/testing",
+    "crates/tracing",
+    "crates/version",
 ]
 
 default-members = [

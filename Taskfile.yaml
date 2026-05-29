@@ -8,14 +8,34 @@ set: [pipefail]
 shopt: [globstar]
 
 includes:
-  rust:
-    taskfile: ./tasks/rust.yaml
-    flatten: true
-    vars:
-      GLOBAL_ARGS: "--workspace"
+  tools:
+    taskfile: ./tasks/tools.yaml
+    internal: true
 
 vars:
+  GLOBAL_ARGS: '{{.GLOBAL_ARGS | default "--workspace"}}'
   CARGO_COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete cargo-deny typos-cli"
+
+  PROFILE: '{{.PROFILE | default "debug"}}'
+  RELEASE:
+    sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
+  CURRENT_TARGET:
+    sh: 'rustc -vV | sed -n "s|host: ||p"'
+  TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
+  TARGET_ARGS:
+    sh: '[[ -z "{{.TARGET}}" ]] && echo '''' || echo ''--target {{.TARGET}}'''
+  TARGET_ARCH:
+    sh: 'echo {{.TARGET}} | cut -d"-" -f1'
+  TARGET_OS:
+    sh: 'echo {{.TARGET}} | cut -d"-" -f3'
+  TARGET_ABI:
+    sh: 'echo {{.TARGET}} | cut -d"-" -f4 || echo ""'
+
+  LLVM_VERSION: '{{ .LLVM_VERSION | default "19" }}'
+  OBJCOPY: 'llvm-objcopy-{{.LLVM_VERSION}}'
+
+  GNU_CLIB_VERSION: '{{.GNU_CLIB_VERSION | default "2.28"}}'
+  TOOLS_INSTALL_DIR: '{{.TOOLS_INSTALL_DIR | default ""}}'
 
 tasks:
   default:
@@ -27,24 +47,16 @@ tasks:
     cmds:
       - git describe --tags --match "v*" | cut -c 2-
 
-  bindings:python:lint:
-    desc: "Python linter"
-    dir: ./crates/bindings/python
-    cmds:
-      - task python:bindings:lint
+  # ─── Build & run ──────────────────────────────────────────────────────
 
-  bindings:dotnet:lint:
-    desc: ".NET linter"
-    dir: ./crates/bindings/dotnet
+  build:
+    desc: "Build the project"
+    deps:
+      - task: install-target
     cmds:
-      - task lint
-
-  lint:
-    desc: "Run the linter"
-    cmds:
-      - task: lintall
-      - task: bindings:python:lint
-      - task: bindings:dotnet:lint
+      - cargo build {{.RELEASE}} {{.TARGET_ARGS}} {{.ARGS}}
+    vars:
+      ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
   build:strip:
     desc: "Build the project and strip the debug symbols"
@@ -53,6 +65,15 @@ tasks:
       - task: strip
         vars:
           TARGET_BIN: "target/{{.TARGET}}/{{.PROFILE}}/slim"
+
+  run:
+    desc: "Run a binary"
+    cmds:
+      - "cargo run {{.RELEASE}} --bin {{.BIN}} {{.ARGS}} -- {{.BIN_ARGS}}"
+    vars:
+      BIN: '{{.BIN | default "slim"}}'
+      ARGS: '{{ .ARGS | default "" }}'
+      BIN_ARGS: '{{ .BIN_ARGS | default "" }}'
 
   run:server:
     desc: "Run the server"
@@ -102,27 +123,201 @@ tasks:
       - mkdir -p .dist/bin
       - cp target/debug/slim-control-plane .dist/bin/control-plane
 
-  telemetry:start:
-    desc: "Start telemetry stack"
+  crossbuild:
+    desc: "Cross-compile the project using cargo-zigbuild"
+    deps:
+      - task: install-target
+      - task: install-cargo-components
+        vars:
+          COMPONENTS: "cargo-zigbuild"
+      - task: tools:zig
+      - task: tools:dlltool-wrapper
     cmds:
-      - docker compose -f ./config/telemetry/docker-compose.yml up
+      - |
+        TARGET_ABI="{{.TARGET_ABI}}"
+        TARGET_OS="{{.TARGET_OS}}"
 
-  python:packaging:
-    desc: "Generate python packages"
-    dir: ./crates/bindings/python
-    cmds:
-      - task python:bindings:packaging PROFILE={{.PROFILE}} TARGET={{.TARGET}}
-    vars:
-      PROFILE: '{{.PROFILE | default "debug"}}'
-      TARGET: '{{.TARGET | default ""}}'
+        ARGS=()
 
-  bindings:test:
-    desc: "Test the Python bindings"
-    dir: ./crates/bindings/python
-    cmds:
-      - task python:bindings:test TESTS={{.TESTS}}
+        if [[ "$TARGET_OS" == "linux" || "$TARGET_ABI" == "gnu" ]]; then
+          LIBC_VERSION=""
+          if [[ "$TARGET_ABI" == "gnu" ]]; then
+            LIBC_VERSION=".{{.GNU_CLIB_VERSION}}"
+          fi
+
+          ARGS=(
+            "zigbuild"
+            "--target"
+            "{{.TARGET}}$LIBC_VERSION"
+            {{.RELEASE}}
+            {{.ARGS}}
+          )
+        else
+          ARGS=(
+            "build"
+            "--target"
+            "{{.TARGET}}"
+            {{.RELEASE}}
+            {{.ARGS}}
+          )
+        fi
+
+        echo cargo ${ARGS[*]}
+        PATH="{{.TOOLS_INSTALL_DIR}}:$PATH" cargo "${ARGS[@]}"
     vars:
-      TESTS: '{{.TESTS | default ""}}'
+      ARGS: '{{ .ARGS | default "" }}'
+
+  strip:
+    desc: "Strip the binary"
+    cmds:
+      - "{{.OBJCOPY}} --only-keep-debug {{.TARGET_BIN}} {{.TARGET_BIN}}.dbg"
+      - "{{.OBJCOPY}} --strip-unneeded {{.TARGET_BIN}}"
+      - "{{.OBJCOPY}} --add-gnu-debuglink={{.TARGET_BIN}} {{.TARGET_BIN}}.dbg"
+    vars:
+      TARGET_BIN: '{{.TARGET_BIN | default ""}}'
+
+  # ─── Lint & check ─────────────────────────────────────────────────────
+
+  fmt:
+    desc: "Format the code"
+    cmds:
+      - cargo fmt {{.ARGS}}
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  fmt:check:
+    desc: "Check the code formatting"
+    cmds:
+      - task: fmt
+        vars:
+          ARGS: "-- --check"
+
+  check:
+    desc: "Check the project"
+    deps:
+      - task: install-target
+    cmds:
+      - cargo check {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
+    vars:
+      ARGS: '{{.ARGS | default "--all-targets --locked"}}'
+
+  clippy:
+    desc: "Run clippy"
+    deps:
+      - task: check
+    cmds:
+      - cargo clippy {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}} -- -D warnings
+    vars:
+      ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
+
+  sort:
+    desc: "Sort the dependencies"
+    deps:
+      - task: install-cargo-components
+        vars:
+          COMPONENTS: "cargo-sort"
+    cmds:
+      - cargo sort {{.GLOBAL_ARGS}} {{.ARGS}}
+    vars:
+      ARGS: '{{.ARGS | default ""}}'
+
+  sort:check:
+    desc: "Check the dependencies are sorted"
+    cmds:
+      - task: sort
+        vars:
+          ARGS: "--check"
+
+  unused:check:
+    desc: "Check for unused dependencies"
+    deps:
+      - task: install-cargo-components
+        vars:
+          COMPONENTS: "cargo-machete"
+    cmds:
+      - cargo machete {{.ARGS}}
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  licenses:
+    desc: "Check for licenses"
+    deps:
+      - task: install-cargo-components
+        vars:
+          COMPONENTS: "cargo-deny"
+    cmds:
+      - cargo deny check {{.ARGS}}
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  typos:
+    desc: "Check for typos"
+    deps:
+      - task: install-cargo-components
+        vars:
+          COMPONENTS: "typos-cli"
+    cmds:
+      - typos
+
+  vuln:
+    desc: "Check for vulnerabilities"
+    deps:
+      - task: install-cargo-components
+        vars:
+          COMPONENTS: "cargo-audit"
+    cmds:
+      - cargo audit {{.ARGS}}
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  lint:
+    desc: "Run the linter"
+    cmds:
+      - task: fmt:check
+      - task: clippy
+      - task: vuln
+      - task: sort:check
+      - task: unused:check
+      - task: licenses
+      - task: typos
+
+  # ─── Test & coverage ──────────────────────────────────────────────────
+
+  test:
+    desc: "Run the tests"
+    cmds:
+      - ulimit -n 4096 2>/dev/null || true; cargo test {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
+      - task: core:test
+    vars:
+      ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
+
+  test:build:
+    desc: "Build the tests"
+    deps:
+      - task: install-target
+    cmds:
+      - ulimit -n 4096 2>/dev/null || true; cargo test --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
+    vars:
+      ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
+
+  test:coverage:
+    desc: "Run tests coverage"
+    deps:
+      - task: install-cargo-components
+        vars:
+          COMPONENTS: "cargo-llvm-cov"
+    cmds:
+      - ulimit -n 4096 2>/dev/null || true; cargo llvm-cov --lcov --output-path lcov.info {{.GLOBAL_ARGS}} {{.ARGS}}
+    vars:
+      ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
+
+  coverage-full:
+    desc: "Run full tests coverage"
+    cmds:
+      - task: test:coverage
+        vars:
+          ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"
+      - task: core:test
 
   core:test:
     desc: "Run core end to end tests"
@@ -131,6 +326,55 @@ tasks:
       - |
         task test:group-session
         task test:point-to-point-session
+
+  # ─── Misc ─────────────────────────────────────────────────────────────
+
+  clean:
+    desc: "Clean the project"
+    cmds:
+      - cargo clean {{.ARGS}}
+    vars:
+      ARGS: '{{ .ARGS | default "" }}'
+
+  doc:
+    desc: "Generate the documentation"
+    cmds:
+      - cargo doc {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
+    vars:
+      ARGS: '{{.ARGS | default "--no-deps --locked --all-features"}}'
+
+  fetch:
+    desc: "Fetch the dependencies"
+    deps:
+      - task: install-target
+    cmds:
+      - cargo fetch {{.TARGET_ARGS}} {{.ARGS}}
+    vars:
+      ARGS: '{{.ARGS | default "--locked"}}'
+
+  run-command:
+    desc: "Run a command"
+    dir: '{{.DIR | default ""}}'
+    deps:
+      - task: install-target
+    cmds:
+      - "{{.COMMAND}}"
+    vars:
+      COMMAND: '{{.COMMAND | default ""}}'
+
+  print-vars:
+    desc: "Print the variables"
+    cmds:
+      - |
+        echo "Variables:"
+        echo "  PROFILE: {{.PROFILE}}"
+        echo "  RELEASE: {{.RELEASE}}"
+        echo "  TARGET: {{.TARGET}}"
+        echo "  TARGET_ARGS: {{.TARGET_ARGS}}"
+        echo "  TARGET_ARCH: {{.TARGET_ARCH}}"
+        echo "  LLVM_VERSION: {{.LLVM_VERSION}}"
+        echo "  OBJCOPY: {{.OBJCOPY}}"
+        echo ""
 
   slim:version:
     desc: "Get version from corresponding git tag"
@@ -142,10 +386,54 @@ tasks:
     cmds:
       - cargo run --bin generate-schema
 
-  coverage-full:
-    desc: "Run full tests coverage including Python bindings"
+  telemetry:start:
+    desc: "Start telemetry stack"
     cmds:
-      - task: test:coverage
+      - docker compose -f ./config/telemetry/docker-compose.yml up
+
+  # ─── Cargo component install ──────────────────────────────────────────
+
+  tools:fetch:
+    desc: "Fetch tool dependencies"
+    cmds:
+      - task: install-cargo-components
         vars:
-          ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"
-      - task: core:test
+          COMPONENTS: "{{.CARGO_COMPONENTS}}"
+
+  tools:hash:
+    desc: "Compute the SHA-256 hash of the CARGO_COMPONENTS string"
+    cmds:
+      - cmd: sh -c "echo -n '{{.CARGO_COMPONENTS}}' | sha256sum | cut -d ' ' -f1"
+
+  install-uniffi-bindgen:
+    desc: "Install uniffi-bindgen CLI tool"
+    status:
+      - which uniffi-bindgen-cli
+    cmds:
+      - echo "📦 Installing uniffi-bindgen-cli..."
+      - cargo install uniffi-bindgen-cli --git https://github.com/mozilla/uniffi-rs.git --tag v0.31.1
+      - echo "✅ uniffi-bindgen-cli installed"
+
+  install-target:
+    desc: "Install the target"
+    internal: true
+    cmds:
+      - rustup target add {{.TARGET}}
+
+  install-cargo-components:
+    desc: "Install cargo components"
+    internal: true
+    deps:
+      - task: install-cargo-binstall
+    cmds:
+      - cargo binstall --no-confirm {{.COMPONENTS}}
+    vars:
+      COMPONENTS: '{{ .COMPONENTS | default "" }}'
+
+  install-cargo-binstall:
+    desc: "Install cargo-binstall"
+    internal: true
+    status:
+      - cargo binstall --help >/dev/null 2>&1
+    cmds:
+      - cargo install cargo-binstall --locked

@@ -4,10 +4,10 @@ version: "3"
 
 includes:
   rust:
-    taskfile: ../../tasks/rust.yaml
+    taskfile: ../../Taskfile.yaml
     internal: true
   tools:
-    taskfile: ../../tasks/tools.yaml
+    taskfile: ../../Taskfile.yaml
     internal: true
     flatten: true
 
