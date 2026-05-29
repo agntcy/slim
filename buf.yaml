@@ -13,3 +13,9 @@ deps:
 modules:
   - path: proto
     name: buf.build/agntcy/slim
+breaking:
+  use:
+    - FILE
+  ignore_only:
+    FIELD_NO_DELETE:
+      - proto/data-plane/v1/data_plane.proto
