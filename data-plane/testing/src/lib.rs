@@ -3,6 +3,7 @@
 
 pub mod common;
 pub mod stress;
+pub mod stress_session;
 pub mod utils;
 
 use std::{num::ParseIntError, str::SplitWhitespace};

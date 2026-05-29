@@ -24,6 +24,10 @@ path = "src/bin/test_p2p.rs"
 name = "stress-publish"
 path = "src/bin/stress_publish.rs"
 
+[[bin]]
+name = "stress-session"
+path = "src/bin/stress_session.rs"
+
 [dependencies]
 agntcy-slim = { workspace = true }
 agntcy-slim-auth = { workspace = true }
