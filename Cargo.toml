@@ -1,7 +1,7 @@
 [workspace]
 
 members = [
-    "crates/bindings/rust",
+    "crates/bindings",
     "crates/channel-manager",
     "crates/control-plane",
     "crates/auth",
@@ -22,7 +22,7 @@ members = [
 ]
 
 default-members = [
-    "crates/bindings/rust",
+    "crates/bindings",
     "crates/control-plane",
     "crates/channel-manager",
     "crates/config",
@@ -44,7 +44,7 @@ resolver = "2"
 # Local dependencies
 agntcy-slim = { path = "crates/slim", version = "1.4.0" }
 agntcy-slim-auth = { path = "crates/auth", version = "0.8.0" }
-agntcy-slim-bindings = { path = "crates/bindings/rust", version = "1.4.0" }
+agntcy-slim-bindings = { path = "crates/bindings", version = "1.4.0" }
 agntcy-slim-config = { path = "crates/config", version = "0.9.3" }
 agntcy-slim-controller = { path = "crates/controller", version = "0.6.2" }
 agntcy-slim-datapath = { path = "crates/datapath", version = "0.13.2" }
