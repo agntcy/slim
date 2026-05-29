@@ -10,7 +10,6 @@ on:
       - '.github/workflows/ci.yaml'
       - '.github/workflows/reusable-rust-build-and-test.yaml'
       - '.github/workflows/reusable-docker-build-push.yaml'
-      - '.github/workflows/reusable-bindings-build-and-test.yaml'
       - '.github/actions/setup-rust/action.yaml'
       - 'crates/**'
       - 'Cargo.toml'
@@ -22,7 +21,6 @@ on:
       - '.github/workflows/ci.yaml'
       - '.github/workflows/reusable-rust-build-and-test.yaml'
       - '.github/workflows/reusable-docker-build-push.yaml'
-      - '.github/workflows/reusable-bindings-build-and-test.yaml'
       - '.github/actions/setup-rust/action.yaml'
       - 'crates/**'
       - 'Cargo.toml'
@@ -46,7 +44,3 @@ jobs:
     with:
       bake-targets: slim
       image-tag: ${{ github.sha }}
-
-  bindings-test:
-    name: Bindings test
-    uses: ./.github/workflows/reusable-bindings-build-and-test.yaml
