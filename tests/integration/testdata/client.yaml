@@ -1,0 +1,23 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Unified SLIM data-plane client configuration for integration tests.
+# Endpoints are replaced at runtime with dynamically allocated values.
+
+tracing:
+  log_level: debug
+  display_thread_names: true
+  display_thread_ids: true
+
+runtime:
+  n_cores: 0
+  thread_name: "slim-test"
+  drain_timeout: 10s
+
+services:
+  slim/0:
+    dataplane:
+      clients:
+        - endpoint: "http://localhost:46357"
+          tls:
+            insecure: true
