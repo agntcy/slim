@@ -10,6 +10,7 @@
 pub mod config;
 pub mod service;
 pub mod sessions;
+pub mod slim_adapter;
 
 pub mod proto {
     include!("gen/channel_manager.proto.v1.rs");

@@ -4,17 +4,20 @@
 //! Thread-safe session list for managing active SLIM channels.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
-use slim_bindings::{App, Session};
-use slim_session::SessionError;
+use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+use slim_service::app::App;
+use slim_session::context::SessionContext;
+use slim_session::session_controller::SessionController;
+use slim_session::{AppChannelReceiver, SessionError};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
-/// Per-channel state: the SLIM session and its event monitor task.
+/// Per-channel state: the SLIM session handle and its event monitor task.
 struct Channel {
-    session: Arc<Session>,
+    session: Weak<SessionController>,
     monitor: JoinHandle<()>,
 }
 
@@ -35,12 +38,13 @@ impl SessionsList {
     /// Try to insert a session atomically: checks existence and inserts under a single write lock.
     /// Spawns a background event monitor for the session.
     /// Returns `true` if inserted, `false` if the channel already exists.
-    pub async fn try_insert_session(&self, channel_name: String, session: Arc<Session>) -> bool {
+    pub async fn try_insert_session(&self, channel_name: String, ctx: SessionContext) -> bool {
         let mut channels = self.channels.write().await;
         if channels.contains_key(&channel_name) {
             return false;
         }
-        let monitor = spawn_session_event_monitor(channel_name.clone(), session.clone());
+        let (session, rx) = ctx.into_parts();
+        let monitor = spawn_session_event_monitor(channel_name.clone(), rx);
         channels.insert(channel_name, Channel { session, monitor });
         true
     }
@@ -49,26 +53,27 @@ impl SessionsList {
     pub async fn add_session(
         &self,
         channel_name: String,
-        session: Arc<Session>,
+        ctx: SessionContext,
     ) -> anyhow::Result<()> {
         let mut channels = self.channels.write().await;
         if channels.contains_key(&channel_name) {
             anyhow::bail!("channel {} already exists", channel_name);
         }
-        let monitor = spawn_session_event_monitor(channel_name.clone(), session.clone());
+        let (session, rx) = ctx.into_parts();
+        let monitor = spawn_session_event_monitor(channel_name.clone(), rx);
         channels.insert(channel_name, Channel { session, monitor });
         Ok(())
     }
 
-    /// Get a session by channel name
-    pub async fn get_session(&self, channel_name: &str) -> Option<Arc<Session>> {
+    /// Get the session controller by channel name
+    pub async fn get_session(&self, channel_name: &str) -> Option<Arc<SessionController>> {
         let channels = self.channels.read().await;
-        channels.get(channel_name).map(|c| c.session.clone())
+        channels.get(channel_name).and_then(|c| c.session.upgrade())
     }
 
     /// Remove and delete a session by channel name: aborts the monitor,
     /// deletes the SLIM session, and removes it from the map.
-    pub async fn remove_session(&self, channel_name: &str, app: &App) -> anyhow::Result<()> {
+    pub async fn remove_session(&self, channel_name: &str, app: &App<AuthProvider, AuthVerifier>) -> anyhow::Result<()> {
         // Remove from map and release the lock before the potentially slow SLIM call
         let session = {
             let mut channels = self.channels.write().await;
@@ -80,20 +85,24 @@ impl SessionsList {
         };
 
         // Delete the SLIM session with a timeout to avoid hanging
+        let s = session.upgrade().ok_or_else(|| anyhow::anyhow!("session already closed"))?;
         let completion = app
-            .delete_session_async(session)
-            .await
+            .delete_session(&s)
             .map_err(|e| anyhow::anyhow!("failed to delete session for {channel_name}: {e}"))?;
 
-        match completion
-            .wait_for_async(std::time::Duration::from_secs(5))
-            .await
-        {
-            Ok(()) => Ok(()),
-            Err(e) => {
+        match tokio::time::timeout(std::time::Duration::from_secs(5), completion).await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(e)) => {
                 warn!(
                     channel = %channel_name,
-                    "Session deletion did not complete in time: {e}"
+                    "Session deletion completed with error: {e}"
+                );
+                Ok(()) // Session was already removed from the map
+            }
+            Err(_) => {
+                warn!(
+                    channel = %channel_name,
+                    "Session deletion did not complete in time"
                 );
                 Ok(()) // Session was already removed from the map
             }
@@ -107,7 +116,7 @@ impl SessionsList {
     }
 
     /// Delete all sessions (used during shutdown)
-    pub async fn delete_all(&self, app: &App) {
+    pub async fn delete_all(&self, app: &App<AuthProvider, AuthVerifier>) {
         let names: Vec<String> = self.list_channel_names().await;
         for name in names {
             match self.remove_session(&name, app).await {
@@ -120,21 +129,26 @@ impl SessionsList {
 
 /// Spawn a background task that monitors a session for events.
 ///
-/// The task calls `get_session_message` in a loop, dispatching each event
+/// The task reads from the `AppChannelReceiver` in a loop, dispatching each event
 /// to the appropriate handler.
-fn spawn_session_event_monitor(channel_name: String, session: Arc<Session>) -> JoinHandle<()> {
+fn spawn_session_event_monitor(channel_name: String, mut rx: AppChannelReceiver) -> JoinHandle<()> {
     tokio::spawn(async move {
         loop {
-            match session.get_session_message(None).await {
-                Ok(_msg) => {
+            match rx.recv().await {
+                Some(Ok(_msg)) => {
                     // Application-level data message received on the channel.
                     // The channel manager does not process data messages.
                     debug!(channel = %channel_name, "Received data message (ignored)");
                 }
-                Err(e) => {
+                Some(Err(e)) => {
                     if !handle_session_error(&channel_name, &e) {
                         break;
                     }
+                }
+                None => {
+                    // Channel closed — session was dropped
+                    info!(channel = %channel_name, "Session channel closed");
+                    break;
                 }
             }
         }
@@ -191,23 +205,23 @@ mod tests {
         ));
     }
 
-    // ── Helper: create a dummy Session for testing ─────────────────────
+    // ── Helper: create a dummy SessionContext for testing ────────────────
 
-    /// Build an `Arc<Session>` backed by a dead `Weak` and a real channel.
-    fn dummy_session() -> Arc<Session> {
+    /// Build a `SessionContext` backed by a dead `Weak` and a real channel.
+    fn dummy_session() -> SessionContext {
         let (_tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        Arc::new(Session {
+        SessionContext {
             session: std::sync::Weak::new(),
-            rx: tokio::sync::RwLock::new(rx),
-        })
+            rx,
+        }
     }
 
     #[tokio::test]
     async fn test_try_insert_session_success() {
         let sessions = SessionsList::new();
-        let s = dummy_session();
-        assert!(sessions.try_insert_session("a/b/c".into(), s).await);
-        assert!(sessions.get_session("a/b/c").await.is_some());
+        assert!(sessions.try_insert_session("a/b/c".into(), dummy_session()).await);
+        // get_session returns None because the Weak can't upgrade (no strong ref)
+        assert!(sessions.get_session("a/b/c").await.is_none());
     }
 
     #[tokio::test]
@@ -236,7 +250,6 @@ mod tests {
                 .await
                 .is_ok()
         );
-        assert!(sessions.get_session("a/b/c").await.is_some());
     }
 
     #[tokio::test]

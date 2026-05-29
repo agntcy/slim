@@ -124,7 +124,7 @@ impl SpireConfig {
 
     /// Create a spire verifier (identity manager used only for verification).
     /// The target SPIFFE ID (if configured) is intentionally not set.
-    fn create_verifier(&self) -> Result<SpireIdentityManager, ConfigAuthError> {
+    pub fn create_verifier(&self) -> Result<SpireIdentityManager, ConfigAuthError> {
         self.build_identity_manager()
     }
 }

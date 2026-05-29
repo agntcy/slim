@@ -212,6 +212,19 @@ impl ProtoName {
         let s = self.str_name.as_ref().unwrap();
         (&s.str_component_0, &s.str_component_1, &s.str_component_2)
     }
+
+    /// Parse a name string in "org/namespace/app" format into a `ProtoName`.
+    pub fn parse_name(s: &str) -> Result<ProtoName, DataPathError> {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            return Err(DataPathError::InvalidNameFormat(s.to_string()));
+        }
+        let parts: Vec<&str> = trimmed.split('/').map(str::trim).collect();
+        if parts.len() != 3 || parts.iter().any(|p| p.is_empty()) {
+            return Err(DataPathError::InvalidNameFormat(s.to_string()));
+        }
+        Ok(ProtoName::from_strings([parts[0], parts[1], parts[2]]))
+    }
 }
 
 impl std::fmt::Display for ProtoName {
