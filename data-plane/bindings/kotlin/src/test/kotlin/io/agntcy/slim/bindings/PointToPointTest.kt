@@ -239,34 +239,16 @@ class PointToPointTest {
                     for (i in 0 until nReceivers) {
                         tasks.add(launch { runReceiver(i) })
                     }
-                tasks.add(task)
-            }
-
-            // Give receivers a moment to start listening
-            delay(1000)
-
-            // Create a new session
-            val sessionConfig =
-                SessionConfig(
-                    sessionType = SessionType.POINT_TO_POINT,
-                    maxRetries = 5u,
-                    interval = Duration.ofMillis(100),
-                    metadata = emptyMap(),
-                    mlsSettings = if (mlsEnabled) MlsSettings(100u) else null,
-                )
-            val senderSessionContext = sender.createSession(sessionConfig, receiverName)
-            senderSessionContext.completion.waitAsync()
-            val senderSession = senderSessionContext.session
 
                     delay(2500)
 
                     val sessionConfig =
                         SessionConfig(
                             sessionType = SessionType.POINT_TO_POINT,
-                            enableMls = mlsEnabled,
                             maxRetries = 80u,
                             interval = Duration.ofMillis(400),
                             metadata = emptyMap(),
+                            mlsSettings = if (mlsEnabled) MlsSettings(100u) else null,
                         )
                     val senderSessionContext = sender.createSession(sessionConfig, receiverName)
                     senderSessionContext.completion.waitAsync()
