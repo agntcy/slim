@@ -16,6 +16,7 @@ extend-exclude = [
     "**/*.yaml",
     "**/*.pbxproj",
     "**/*.pbxproj.bak",
+    "charts/**",
     "crates/bindings/java/examples/**/types/**",
     "crates/bindings/kotlin/examples/**/types/**",
 ]
