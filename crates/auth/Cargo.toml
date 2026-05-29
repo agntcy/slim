@@ -46,7 +46,7 @@ spiffe = { workspace = true }
 
 [dev-dependencies]
 agntcy-slim-config = { path = "../config" }
-agntcy-slim-testing = { path = "../../testing" }
+agntcy-slim-testing = { path = "../testing" }
 criterion = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "fs"] }
 tokio-test = { workspace = true }

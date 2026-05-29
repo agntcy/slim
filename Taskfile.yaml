@@ -62,7 +62,7 @@ tasks:
         vars:
           ARGS: ""
           BIN: "slim"
-          BIN_ARGS: "--config ./crates/config/base/server-config.yaml"
+          BIN_ARGS: "--config ./config/base/server-config.yaml"
 
   run:server-with-otel:
     desc: "Run the server with OpenTelemetry enabled"
@@ -72,7 +72,7 @@ tasks:
         vars:
           ARGS: ""
           BIN: "slim"
-          BIN_ARGS: "--config ./crates/config/telemetry/server-config.yaml"
+          BIN_ARGS: "--config ./config/telemetry/server-config.yaml"
 
   slimctl:run:
     desc: "Run the Rust slimctl binary"
@@ -105,7 +105,7 @@ tasks:
   telemetry:start:
     desc: "Start telemetry stack"
     cmds:
-      - docker compose -f ./crates/config/telemetry/docker-compose.yml up
+      - docker compose -f ./config/telemetry/docker-compose.yml up
 
   python:packaging:
     desc: "Generate python packages"

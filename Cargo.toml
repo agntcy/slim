@@ -4,17 +4,17 @@ members = [
     "crates/bindings/rust",
     "crates/channel-manager",
     "crates/control-plane",
-    "crates/core/auth",
-    "crates/core/config",
-    "crates/core/controller",
-    "crates/core/datapath",
-    "crates/core/mls",
-    "crates/core/service",
-    "crates/core/session",
-    "crates/core/signal",
-    "crates/core/slim",
-    "crates/core/tracing",
-    "crates/core/version",
+    "crates/auth",
+    "crates/config",
+    "crates/controller",
+    "crates/datapath",
+    "crates/mls",
+    "crates/service",
+    "crates/session",
+    "crates/signal",
+    "crates/slim",
+    "crates/tracing",
+    "crates/version",
     "crates/examples",
     "crates/slimctl",
     "crates/slimrpc-compiler",
@@ -25,13 +25,13 @@ default-members = [
     "crates/bindings/rust",
     "crates/control-plane",
     "crates/channel-manager",
-    "crates/core/config",
-    "crates/core/datapath",
-    "crates/core/service",
-    "crates/core/signal",
-    "crates/core/slim",
-    "crates/core/tracing",
-    "crates/core/version",
+    "crates/config",
+    "crates/datapath",
+    "crates/service",
+    "crates/signal",
+    "crates/slim",
+    "crates/tracing",
+    "crates/version",
     "crates/examples",
     "crates/slimctl",
     "crates/slimrpc-compiler",
@@ -42,19 +42,19 @@ resolver = "2"
 
 [workspace.dependencies]
 # Local dependencies
-agntcy-slim = { path = "crates/core/slim", version = "1.4.0" }
-agntcy-slim-auth = { path = "crates/core/auth", version = "0.8.0" }
+agntcy-slim = { path = "crates/slim", version = "1.4.0" }
+agntcy-slim-auth = { path = "crates/auth", version = "0.8.0" }
 agntcy-slim-bindings = { path = "crates/bindings/rust", version = "1.4.0" }
-agntcy-slim-config = { path = "crates/core/config", version = "0.9.3" }
-agntcy-slim-controller = { path = "crates/core/controller", version = "0.6.2" }
-agntcy-slim-datapath = { path = "crates/core/datapath", version = "0.13.2" }
-agntcy-slim-mls = { path = "crates/core/mls", version = "0.1.18" }
-agntcy-slim-service = { path = "crates/core/service", version = "0.8.15", default-features = false }
-agntcy-slim-session = { path = "crates/core/session", version = "0.1.15" }
-agntcy-slim-signal = { path = "crates/core/signal", version = "0.1.9" }
+agntcy-slim-config = { path = "crates/config", version = "0.9.3" }
+agntcy-slim-controller = { path = "crates/controller", version = "0.6.2" }
+agntcy-slim-datapath = { path = "crates/datapath", version = "0.13.2" }
+agntcy-slim-mls = { path = "crates/mls", version = "0.1.18" }
+agntcy-slim-service = { path = "crates/service", version = "0.8.15", default-features = false }
+agntcy-slim-session = { path = "crates/session", version = "0.1.15" }
+agntcy-slim-signal = { path = "crates/signal", version = "0.1.9" }
 agntcy-slim-testing = { path = "crates/testing" }
-agntcy-slim-tracing = { path = "crates/core/tracing", version = "0.3.12" }
-agntcy-slim-version = { path = "crates/core/version", version = "1.4.0" }
+agntcy-slim-tracing = { path = "crates/tracing", version = "0.3.12" }
+agntcy-slim-version = { path = "crates/version", version = "1.4.0" }
 agntcy-slimctl = { path = "crates/slimctl", version = "1.4.0" }
 
 anyhow = "1.0.98"

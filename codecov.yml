@@ -4,6 +4,6 @@ ignore:
   - crates/testing/src/bin/test_group.rs
   - crates/testing/src/bin/stress_session.rs
   - crates/channel-manager/src/gen/channel_manager.proto.v1.rs
-  - crates/core/controller/src/api/gen/controller.proto.v1.rs
-  - crates/core/datapath/src/api/gen/dataplane.proto.v1.rs
+  - crates/controller/src/api/gen/controller.proto.v1.rs
+  - crates/datapath/src/api/gen/dataplane.proto.v1.rs
   - crates/slimctl/src/commands/bench.rs
