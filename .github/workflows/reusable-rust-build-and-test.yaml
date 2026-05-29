@@ -77,14 +77,6 @@ jobs:
         with:
           workspace: ${{ inputs.working-directory }}
 
-      - name: Setup Python
-        uses: ./.github/actions/setup-python
-        with:
-          py-install: false
-          py-version: 3.x
-          uv-install: true
-          poetry-install: false
-
       - name: lint
         env:
           TASK_PREFIX: ${{ inputs.task-prefix }}
@@ -138,14 +130,6 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ${{ inputs.working-directory }}
-
-      - name: Setup Python
-        uses: ./.github/actions/setup-python
-        with:
-          py-install: true
-          py-version: 3.x
-          uv-install: true
-          poetry-install: false
 
       - name: Run Unit Tests
         env:
