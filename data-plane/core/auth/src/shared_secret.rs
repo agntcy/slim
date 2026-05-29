@@ -73,12 +73,27 @@ use crate::{
 const MIN_SECRET_LEN: usize = 32;
 /// Raw nonce byte length before base64url encoding.
 const NONCE_LEN: usize = 12;
+/// Expected base64url-no-pad encoded length of the nonce.
+const NONCE_B64_LEN: usize = base64url_nopad_encoded_len(NONCE_LEN);
+/// HMAC-SHA256 tag length in bytes.
+const HMAC_TAG_LEN: usize = 32;
+/// Expected base64url-no-pad encoded length of the HMAC tag.
+const HMAC_TAG_B64_LEN: usize = base64url_nopad_encoded_len(HMAC_TAG_LEN);
+/// Maximum digits in a u64 timestamp.
+const MAX_TIMESTAMP_DIGITS: usize = 20;
+/// Number of colon separators in the token format.
+const TOKEN_SEPARATOR_COUNT: usize = 4;
 /// Default validity window (seconds).
 const DEFAULT_VALIDITY_WINDOW: u64 = 3600;
 /// Default tolerated forward clock skew (seconds).
 const DEFAULT_CLOCK_SKEW: u64 = 5;
 /// Default maximum replay cache entries (used if enabled without override).
 const DEFAULT_REPLAY_CACHE_MAX: usize = 4096;
+
+/// Computes the encoded length of base64url-no-pad for a given byte length.
+const fn base64url_nopad_encoded_len(byte_len: usize) -> usize {
+    (byte_len * 4).div_ceil(3)
+}
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct ReplayEntry {
@@ -149,15 +164,28 @@ impl ReplayCache {
     }
 }
 
-#[derive(Debug)]
 struct SharedSecretInternal {
     base_id: String,
     id: String,
     shared_secret: String,
+    /// Precomputed HMAC key derived once from `shared_secret`.
+    hmac_key: hmac::Key,
     validity_window: std::time::Duration,
     clock_skew: std::time::Duration,
     replay_cache_enabled: bool,
     replay_cache: Mutex<ReplayCache>,
+}
+
+impl std::fmt::Debug for SharedSecretInternal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SharedSecretInternal")
+            .field("base_id", &self.base_id)
+            .field("id", &self.id)
+            .field("validity_window", &self.validity_window)
+            .field("clock_skew", &self.clock_skew)
+            .field("replay_cache_enabled", &self.replay_cache_enabled)
+            .finish()
+    }
 }
 
 /// Public wrapper holding an Arc to internal implementation.
@@ -169,6 +197,9 @@ pub struct SharedSecret {
     /// MLS Ed25519 signature key pair: (secret_key_bytes, public_key_bytes).
     /// Plain field so each clone owns an independent copy.
     signature_keys: (Vec<u8>, Vec<u8>),
+    /// Precomputed URL_SAFE_NO_PAD(base64) of the claims JSON embedding the MLS public key.
+    /// Only changes when the signature keys are rotated.
+    claims_b64: String,
 }
 
 impl std::fmt::Debug for SharedSecret {
@@ -189,6 +220,13 @@ impl std::fmt::Debug for SharedSecret {
 }
 
 impl SharedSecret {
+    /// Build the URL_SAFE_NO_PAD(base64) of the claims JSON embedding the MLS pubkey.
+    fn compute_claims_b64(pub_key: &[u8]) -> String {
+        let pub_key_b64 = STANDARD_BASE64.encode(pub_key);
+        let claims_json = serde_json::json!({ "pubkey": pub_key_b64 }).to_string();
+        URL_SAFE_NO_PAD.encode(claims_json.as_bytes())
+    }
+
     /// Construct a new shared secret instance with randomized `id` suffix.
     /// Replay protection starts DISABLED.
     pub fn new(id: &str, shared_secret: &str) -> Result<Self, AuthError> {
@@ -203,10 +241,13 @@ impl SharedSecret {
         let full_id = format!("{}_{}", id, random_suffix);
 
         let signature_keys = generate_mls_signature_keys()?;
+        let claims_b64 = Self::compute_claims_b64(&signature_keys.1);
+        let hmac_key = hmac::Key::new(hmac::HMAC_SHA256, shared_secret.as_bytes());
         let internal = SharedSecretInternal {
             base_id: id.to_owned(),
             id: full_id,
             shared_secret: shared_secret.to_owned(),
+            hmac_key,
             validity_window: std::time::Duration::from_secs(DEFAULT_VALIDITY_WINDOW),
             clock_skew: std::time::Duration::from_secs(DEFAULT_CLOCK_SKEW),
             replay_cache_enabled: false,
@@ -215,6 +256,7 @@ impl SharedSecret {
         Ok(SharedSecret {
             inner: Arc::new(internal),
             signature_keys,
+            claims_b64,
         })
     }
 
@@ -291,6 +333,7 @@ impl SharedSecret {
             base_id: current.base_id.clone(),
             id: current.id.clone(),
             shared_secret: current.shared_secret.clone(),
+            hmac_key: hmac::Key::new(hmac::HMAC_SHA256, current.shared_secret.as_bytes()),
             validity_window: validity_window.unwrap_or(current.validity_window),
             clock_skew: clock_skew.unwrap_or(current.clock_skew),
             replay_cache_enabled: enable_flag,
@@ -299,7 +342,57 @@ impl SharedSecret {
         SharedSecret {
             inner: Arc::new(internal),
             signature_keys: self.signature_keys.clone(),
+            claims_b64: self.claims_b64.clone(),
         }
+    }
+
+    /// Returns the expected token byte length for this instance, suitable for
+    /// preallocating a `String` buffer.
+    fn token_capacity(&self) -> usize {
+        self.inner.id.len()
+            + TOKEN_SEPARATOR_COUNT
+            + MAX_TIMESTAMP_DIGITS
+            + NONCE_B64_LEN
+            + self.claims_b64.len()
+            + HMAC_TAG_B64_LEN
+    }
+
+    /// Issue a token into a caller-owned buffer, avoiding the per-call allocation
+    /// of `get_token`. The buffer is cleared first and grown to fit.
+    ///
+    /// Useful in tight token-issuance loops where the same buffer can be reused.
+    pub fn get_token_into(&self, out: &mut String) -> Result<(), AuthError> {
+        if self.inner.shared_secret.is_empty() {
+            return Err(AuthError::HmacKeyMissing);
+        }
+
+        let ts = self.get_current_timestamp();
+
+        // Generate nonce directly on the stack (no intermediate String).
+        let mut nonce_bytes = [0u8; NONCE_LEN];
+        rand::rng().fill(&mut nonce_bytes);
+
+        let id = self.id();
+        let claims_b64 = self.claims_b64.as_str();
+
+        let cap = self.token_capacity();
+        out.clear();
+        out.reserve(cap.saturating_sub(out.capacity()));
+        out.push_str(id);
+        out.push(':');
+        let mut itoa_buf = itoa::Buffer::new();
+        out.push_str(itoa_buf.format(ts));
+        out.push(':');
+        URL_SAFE_NO_PAD.encode_string(nonce_bytes, out);
+        out.push(':');
+        out.push_str(claims_b64);
+
+        // Sign the canonical message "id:ts:nonce:claims_b64" which is the current buffer.
+        let tag = hmac::sign(&self.inner.hmac_key, out.as_bytes());
+        out.push(':');
+        URL_SAFE_NO_PAD.encode_string(tag.as_ref(), out);
+
+        Ok(())
     }
 
     /// Get the randomized unique identifier.
@@ -372,36 +465,6 @@ impl SharedSecret {
             .as_secs()
     }
 
-    fn create_hmac_raw(&self, message: &[u8]) -> Result<Vec<u8>, AuthError> {
-        let key = hmac::Key::new(hmac::HMAC_SHA256, self.inner.shared_secret.as_bytes());
-        let tag = hmac::sign(&key, message);
-        Ok(tag.as_ref().to_vec())
-    }
-
-    fn create_hmac_b64(&self, message: &str) -> Result<String, AuthError> {
-        let raw = self.create_hmac_raw(message.as_bytes())?;
-        Ok(URL_SAFE_NO_PAD.encode(raw))
-    }
-
-    fn verify_hmac(&self, message: &str, expected_b64: &str) -> Result<(), AuthError> {
-        let expected = URL_SAFE_NO_PAD.decode(expected_b64.as_bytes())?;
-        if expected.len() != 32 {
-            return Err(AuthError::TokenMalformed);
-        }
-        let key = hmac::Key::new(hmac::HMAC_SHA256, self.inner.shared_secret.as_bytes());
-        hmac::verify(&key, message.as_bytes(), &expected).map_err(|_e| AuthError::TokenInvalid)
-    }
-
-    fn build_message(&self, id: &str, timestamp: u64, nonce: &str, claims_b64: &str) -> String {
-        format!("{}:{}:{}:{}", id, timestamp, nonce, claims_b64)
-    }
-
-    fn gen_nonce(&self) -> String {
-        let mut bytes = [0u8; NONCE_LEN];
-        rand::rng().fill(&mut bytes);
-        URL_SAFE_NO_PAD.encode(bytes)
-    }
-
     fn parse_token(&self, token: &str) -> Result<(String, u64, String, String, String), AuthError> {
         let parts: Vec<&str> = token.split(':').collect();
         if parts.len() != 5 {
@@ -455,24 +518,9 @@ impl TokenProvider for SharedSecret {
     }
 
     fn get_token(&self) -> Result<String, AuthError> {
-        if self.inner.shared_secret.is_empty() {
-            return Err(AuthError::HmacKeyMissing);
-        }
-        let ts = self.get_current_timestamp();
-        let nonce = self.gen_nonce();
-        let pub_key_b64 = STANDARD_BASE64.encode(&self.signature_keys.1);
-        let claims_json = serde_json::json!({"pubkey": pub_key_b64}).to_string();
-        let claims_b64 = URL_SAFE_NO_PAD.encode(claims_json.as_bytes());
-        let message = self.build_message(self.id(), ts, &nonce, &claims_b64);
-        let mac = self.create_hmac_b64(&message)?;
-        Ok(format!(
-            "{}:{}:{}:{}:{}",
-            self.id(),
-            ts,
-            nonce,
-            claims_b64,
-            mac
-        ))
+        let mut buf = String::with_capacity(self.token_capacity());
+        self.get_token_into(&mut buf)?;
+        Ok(buf)
     }
 
     fn get_id(&self) -> Result<String, AuthError> {
@@ -489,6 +537,7 @@ impl TokenProvider for SharedSecret {
 
     fn rotate_signature_keys(&mut self) -> Result<(), AuthError> {
         self.signature_keys = generate_mls_signature_keys()?;
+        self.claims_b64 = Self::compute_claims_b64(&self.signature_keys.1);
         Ok(())
     }
 }
@@ -499,34 +548,67 @@ impl Verifier for SharedSecret {
         Ok(())
     }
 
-    async fn verify(&self, token: impl Into<String> + Send) -> Result<(), AuthError> {
+    async fn verify(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError> {
         self.try_verify(token)
     }
 
-    fn try_verify(&self, token: impl Into<String>) -> Result<(), AuthError> {
-        let token_str = token.into();
+    fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
+        let token_str = token.as_ref();
         let now = self.get_current_timestamp();
-        let (token_id, ts, nonce, claims_b64, mac_b64) = self.parse_token(&token_str)?;
+
+        // The canonical signed message is exactly the token prefix up to the last ':'.
+        // Splitting here avoids parsing into owned Strings and reconstructing the message.
+        let last_colon = token_str.rfind(':').ok_or(AuthError::TokenMalformed)?;
+        let message = &token_str[..last_colon];
+        let mac_b64 = &token_str[last_colon + 1..];
+
+        // Validate the 5-field shape and extract ts + nonce as &str slices.
+        let mut it = message.splitn(4, ':');
+        let _id = it.next().ok_or(AuthError::TokenMalformed)?;
+        let ts_s = it.next().ok_or(AuthError::TokenMalformed)?;
+        let nonce = it.next().ok_or(AuthError::TokenMalformed)?;
+        let claims_b64 = it.next().ok_or(AuthError::TokenMalformed)?;
+        if claims_b64.contains(':') {
+            return Err(AuthError::TokenMalformed);
+        }
+        let ts: u64 = ts_s.parse().map_err(|_e| AuthError::TokenMalformed)?;
+
         self.validate_timestamp(now, ts)?;
-        let message = self.build_message(&token_id, ts, &nonce, &claims_b64);
-        self.verify_hmac(&message, &mac_b64)?;
-        self.record_replay(&nonce, ts, now)
+
+        // HMAC-SHA256 tag is always HMAC_TAG_LEN bytes, which encodes to exactly
+        // HMAC_TAG_B64_LEN base64url-no-pad chars. Reject anything else immediately.
+        let mac_bytes = mac_b64.as_bytes();
+        if mac_bytes.len() != HMAC_TAG_B64_LEN {
+            return Err(AuthError::TokenMalformed);
+        }
+        let mut mac_buf = [0u8; HMAC_TAG_LEN];
+        URL_SAFE_NO_PAD
+            .decode_slice(mac_bytes, &mut mac_buf)
+            .map_err(|e| match e {
+                base64::DecodeSliceError::DecodeError(de) => AuthError::Base64DecodeError(de),
+                base64::DecodeSliceError::OutputSliceTooSmall => AuthError::TokenMalformed,
+            })?;
+        let expected: &[u8] = &mac_buf;
+        hmac::verify(&self.inner.hmac_key, message.as_bytes(), expected)
+            .map_err(|_e| AuthError::TokenInvalid)?;
+
+        self.record_replay(nonce, ts, now)
     }
 
-    async fn get_claims<Claims>(&self, token: impl Into<String> + Send) -> Result<Claims, AuthError>
+    async fn get_claims<Claims>(&self, token: impl AsRef<str> + Send) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
         self.try_get_claims(token)
     }
 
-    fn try_get_claims<Claims>(&self, token: impl Into<String>) -> Result<Claims, AuthError>
+    fn try_get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
-        let token_str = token.into();
-        self.try_verify(token_str.clone())?;
-        let (token_id, ts, _, claims_b64, _) = self.parse_token(&token_str)?;
+        let token_str = token.as_ref();
+        self.try_verify(token_str)?;
+        let (token_id, ts, _, claims_b64, _) = self.parse_token(token_str)?;
         let exp = ts + self.inner.validity_window.as_secs();
 
         // Decode custom claims if present
@@ -554,6 +636,7 @@ impl Verifier for SharedSecret {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::traits::{TokenProvider, Verifier};
     use serde::Deserialize;
     use std::thread;
     use std::time::Duration;
@@ -567,6 +650,22 @@ mod tests {
 
     fn valid_secret() -> String {
         "abcdefghijklmnopqrstuvwxyz012345".to_string()
+    }
+
+    /// Test-only helpers for forging tokens to exercise negative paths.
+    fn gen_nonce() -> String {
+        let mut bytes = [0u8; NONCE_LEN];
+        rand::rng().fill(&mut bytes);
+        URL_SAFE_NO_PAD.encode(bytes)
+    }
+
+    fn build_message(id: &str, timestamp: u64, nonce: &str, claims_b64: &str) -> String {
+        format!("{}:{}:{}:{}", id, timestamp, nonce, claims_b64)
+    }
+
+    fn forge_mac(s: &SharedSecret, message: &str) -> String {
+        let tag = hmac::sign(&s.inner.hmac_key, message.as_bytes());
+        URL_SAFE_NO_PAD.encode(tag.as_ref())
     }
 
     #[test]
@@ -617,9 +716,9 @@ mod tests {
             .unwrap()
             .with_clock_skew(Duration::from_secs(2));
         let future_ts = s.get_current_timestamp() + 10;
-        let nonce = s.gen_nonce();
-        let message = s.build_message(s.id(), future_ts, &nonce, "");
-        let mac = s.create_hmac_b64(&message).unwrap();
+        let nonce = gen_nonce();
+        let message = build_message(s.id(), future_ts, &nonce, "");
+        let mac = forge_mac(&s, &message);
         let token = format!("{}:{}:{}::{}", s.id(), future_ts, nonce, mac);
         assert!(s.try_verify(token).is_err());
     }
@@ -630,9 +729,9 @@ mod tests {
             .unwrap()
             .with_clock_skew(Duration::from_secs(10));
         let future_ts = s.get_current_timestamp() + 5;
-        let nonce = s.gen_nonce();
-        let message = s.build_message(s.id(), future_ts, &nonce, "");
-        let mac = s.create_hmac_b64(&message).unwrap();
+        let nonce = gen_nonce();
+        let message = build_message(s.id(), future_ts, &nonce, "");
+        let mac = forge_mac(&s, &message);
         let token = format!("{}:{}:{}::{}", s.id(), future_ts, nonce, mac);
         assert!(s.try_verify(token).is_ok());
     }
@@ -643,9 +742,9 @@ mod tests {
             .unwrap()
             .with_validity_window(Duration::from_secs(1));
         let past_ts = s.get_current_timestamp().saturating_sub(10);
-        let nonce = s.gen_nonce();
-        let message = s.build_message(s.id(), past_ts, &nonce, "");
-        let mac = s.create_hmac_b64(&message).unwrap();
+        let nonce = gen_nonce();
+        let message = build_message(s.id(), past_ts, &nonce, "");
+        let mac = forge_mac(&s, &message);
         let token = format!("{}:{}:{}::{}", s.id(), past_ts, nonce, mac);
         let res = s.try_verify(token);
         assert!(res.is_err_and(|e| matches!(e, AuthError::TokenInvalid)));
@@ -675,7 +774,7 @@ mod tests {
     fn test_wrong_mac() {
         let s = SharedSecret::new("svc", &valid_secret()).unwrap();
         let ts = s.get_current_timestamp();
-        let nonce = s.gen_nonce();
+        let nonce = gen_nonce();
         let bad_mac = "!!notbase64";
         let token = format!("{}:{}:{}:{}", s.id(), ts, nonce, bad_mac);
         assert!(s.try_verify(token).is_err());
@@ -691,10 +790,11 @@ mod tests {
     #[test]
     fn test_invalid_timestamp_parse() {
         let s = SharedSecret::new("svc", &valid_secret()).unwrap();
-        let nonce = s.gen_nonce();
-        let mac = s
-            .create_hmac_b64(&s.build_message(s.id(), s.get_current_timestamp(), &nonce, ""))
-            .unwrap();
+        let nonce = gen_nonce();
+        let mac = forge_mac(
+            &s,
+            &build_message(s.id(), s.get_current_timestamp(), &nonce, ""),
+        );
         let token = format!("{}:{}:{}::{}", s.id(), "notanumber", nonce, mac);
         assert!(s.try_verify(token).is_err());
     }
@@ -703,13 +803,14 @@ mod tests {
     fn test_hmac_verification_failure() {
         let s = SharedSecret::new("svc", &valid_secret()).unwrap();
         let ts = s.get_current_timestamp();
-        let nonce = s.gen_nonce();
-        let message = s.build_message(s.id(), ts, &nonce, "");
-        let mac = s.create_hmac_b64(&message).unwrap();
+        let nonce = gen_nonce();
+        let message = build_message(s.id(), ts, &nonce, "");
+        let mac = forge_mac(&s, &message);
+        // Truncated MAC has wrong length → rejected as malformed before decoding.
         let truncated = &mac[..mac.len() / 2];
         let token = format!("{}:{}:{}::{}", s.id(), ts, nonce, truncated);
         let res = s.try_verify(token);
-        assert!(res.is_err_and(|e| matches!(e, AuthError::Base64DecodeError(_))));
+        assert!(res.is_err_and(|e| matches!(e, AuthError::TokenMalformed)));
     }
 
     #[test]
@@ -747,11 +848,12 @@ mod tests {
     fn test_mac_encoding_error() {
         let s = SharedSecret::new("svc", &valid_secret()).unwrap();
         let ts = s.get_current_timestamp();
-        let nonce = s.gen_nonce();
+        let nonce = gen_nonce();
+        // Wrong-length MAC is rejected as malformed before base64 decoding.
         let bad_mac = "*invalid*mac*";
         let token = format!("{}:{}:{}::{}", s.id(), ts, nonce, bad_mac);
         let res = s.try_verify(token);
-        assert!(res.is_err_and(|e| matches!(e, AuthError::Base64DecodeError(_))));
+        assert!(res.is_err_and(|e| matches!(e, AuthError::TokenMalformed)));
     }
 
     #[test]
@@ -851,5 +953,181 @@ mod tests {
         let s2 = s.with_replay_cache_max(original_max * 2);
         assert_eq!(original_max, s2.replay_cache_max());
         assert!(!s2.replay_cache_enabled());
+    }
+
+    #[test]
+    fn test_debug_shared_secret_internal() {
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        // Directly format the private inner struct to exercise Debug for SharedSecretInternal.
+        let debug_str = format!("{:?}", *s.inner);
+        assert!(debug_str.contains("SharedSecretInternal"));
+        assert!(debug_str.contains("svc"));
+    }
+
+    #[test]
+    fn test_with_replay_cache_max_when_enabled() {
+        let s = SharedSecret::new("svc", &valid_secret())
+            .unwrap()
+            .with_replay_cache_enabled(128);
+        let s2 = s.with_replay_cache_max(64);
+        assert_eq!(64, s2.replay_cache_max());
+        assert!(s2.replay_cache_enabled());
+    }
+
+    #[test]
+    fn test_rebuild_evicts_when_shrinking() {
+        let s = SharedSecret::new("svc", &valid_secret())
+            .unwrap()
+            .with_replay_cache_enabled(128);
+        // Fill the replay cache with 3 entries.
+        let t1 = s.get_token().unwrap();
+        let t2 = s.get_token().unwrap();
+        let t3 = s.get_token().unwrap();
+        assert!(s.try_verify(t1).is_ok());
+        assert!(s.try_verify(t2).is_ok());
+        assert!(s.try_verify(t3).is_ok());
+        // Shrink capacity to 1 — rebuild must evict the two oldest entries.
+        let s_small = s.with_replay_cache_max(1);
+        assert_eq!(1, s_small.replay_cache_max());
+    }
+
+    #[test]
+    fn test_replay_cache_purges_expired_entries() {
+        // Short validity window so entries expire quickly.
+        let s = SharedSecret::new("svc", &valid_secret())
+            .unwrap()
+            .with_validity_window(Duration::from_secs(1))
+            .with_replay_cache_enabled(128);
+        let t1 = s.get_token().unwrap();
+        assert!(s.try_verify(t1).is_ok());
+        // Sleep until t1's timestamp is older than the validity window.
+        thread::sleep(Duration::from_secs(2));
+        // A fresh token triggers the expiry-cleanup loop inside ReplayCache::insert.
+        let t2 = s.get_token().unwrap();
+        assert!(s.try_verify(t2).is_ok());
+    }
+
+    #[test]
+    fn test_accessors() {
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        assert_eq!(s.base_id(), "svc");
+        assert_eq!(
+            s.validity_window(),
+            Duration::from_secs(DEFAULT_VALIDITY_WINDOW)
+        );
+        assert_eq!(s.clock_skew(), Duration::from_secs(DEFAULT_CLOCK_SKEW));
+        assert!(!s.shared_secret().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_token_provider_trait_methods() {
+        let mut s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        // TokenProvider::initialize (no-op, explicit disambiguation).
+        <SharedSecret as TokenProvider>::initialize(&mut s)
+            .await
+            .unwrap();
+        // get_id
+        let id = s.get_id().unwrap();
+        assert!(id.starts_with("svc_"));
+        // get_signature_secret_key / get_signature_public_key
+        let sk = s.get_signature_secret_key().unwrap();
+        assert!(!sk.is_empty());
+        let pk_before = s.get_signature_public_key().unwrap();
+        assert!(!pk_before.is_empty());
+        // rotate_signature_keys: public key must change after rotation.
+        s.rotate_signature_keys().unwrap();
+        let pk_after = s.get_signature_public_key().unwrap();
+        assert_ne!(pk_before, pk_after);
+        // Token issued after rotation must still verify with the same shared secret.
+        let token = s.get_token().unwrap();
+        assert!(s.try_verify(token).is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_verifier_trait_methods() {
+        let mut s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        // Verifier::initialize (no-op, explicit disambiguation).
+        <SharedSecret as Verifier>::initialize(&mut s)
+            .await
+            .unwrap();
+        // Verifier::verify (async wrapper around try_verify).
+        let token = s.get_token().unwrap();
+        s.verify(&token).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_claims_async() {
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        let token = s.get_token().unwrap();
+        let claims: BasicClaims = s.get_claims(&token).await.unwrap();
+        assert!(claims.sub.starts_with("svc_"));
+        assert_eq!(claims.exp, claims.iat + s.validity_window_secs());
+    }
+
+    #[test]
+    fn test_token_with_colon_in_claims_field() {
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        let ts = s.get_current_timestamp();
+        let nonce = gen_nonce();
+        // claims_b64 field containing ':' must be rejected before HMAC verification.
+        let token = format!("{}:{}:{}:claims:with:colon:bad_mac", s.id(), ts, nonce);
+        let res = s.try_verify(&token);
+        assert!(res.is_err_and(|e| matches!(e, AuthError::TokenMalformed)));
+    }
+
+    #[test]
+    fn test_mac_43_chars_invalid_base64() {
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        let ts = s.get_current_timestamp();
+        let nonce = gen_nonce();
+        // Exactly 43 chars (fast path) but '!' is not valid URL-safe base64.
+        let invalid_43_mac = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA!";
+        assert_eq!(invalid_43_mac.len(), 43);
+        let token = format!("{}:{}:{}::{}", s.id(), ts, nonce, invalid_43_mac);
+        let res = s.try_verify(&token);
+        assert!(res.is_err_and(|e| matches!(e, AuthError::Base64DecodeError(_))));
+    }
+
+    #[test]
+    fn test_mac_valid_base64_wrong_byte_length() {
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        let ts = s.get_current_timestamp();
+        let nonce = gen_nonce();
+        // 33 bytes → 44 base64url chars (not 43), decodes to 33 bytes (not 32).
+        let wrong_len_mac = URL_SAFE_NO_PAD.encode([0u8; 33]);
+        assert_eq!(wrong_len_mac.len(), 44);
+        let token = format!("{}:{}:{}::{}", s.id(), ts, nonce, wrong_len_mac);
+        let res = s.try_verify(&token);
+        assert!(res.is_err_and(|e| matches!(e, AuthError::TokenMalformed)));
+    }
+
+    #[test]
+    fn test_get_claims_empty_claims_field() {
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        let ts = s.get_current_timestamp();
+        let nonce = gen_nonce();
+        // Forge a valid token with an empty claims_b64 field ("id:ts:nonce::mac").
+        let message = build_message(s.id(), ts, &nonce, "");
+        let mac = forge_mac(&s, &message);
+        let token = format!("{}:{}", message, mac);
+        // try_get_claims must fall through to the empty-claims branch (json!({})).
+        let claims: BasicClaims = s.try_get_claims(&token).unwrap();
+        assert!(claims.sub.starts_with("svc_"));
+        assert_eq!(claims.exp, ts + s.validity_window_secs());
+    }
+
+    #[test]
+    fn test_get_token_into_buffer_reuse() {
+        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        let mut buf = String::with_capacity(4); // intentionally small initial capacity
+        s.get_token_into(&mut buf).unwrap();
+        assert!(!buf.is_empty());
+        let first_token = buf.clone();
+        // A second call must clear the buffer and write a fresh token.
+        s.get_token_into(&mut buf).unwrap();
+        assert!(!buf.is_empty());
+        assert_ne!(first_token, buf); // different nonces
+        assert!(s.try_verify(&first_token).is_ok());
+        assert!(s.try_verify(&buf).is_ok());
     }
 }
