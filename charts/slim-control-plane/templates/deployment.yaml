@@ -54,9 +54,9 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           command:
-            - "/control-plane"
+            - "/slim-control-plane"
           args:
-            - "-config"
+            - "--config"
             - "/config.yaml"
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
