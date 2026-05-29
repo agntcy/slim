@@ -19,11 +19,7 @@
       "package-name": "helm-slim-spire",
       "release-type": "helm"
     },
-    "control-plane/control-plane": {
-      "package-name": "control-plane",
-      "release-type": "go"
-    },
-    "data-plane/testing": {
+    "crates/testing": {
       "package-name": "slim-testutils",
       "release-type": "simple"
     }

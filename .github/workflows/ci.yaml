@@ -1,0 +1,46 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+name: ci-build-and-test
+
+on:
+  push:
+    paths:
+      - '.github/workflows/ci.yaml'
+      - '.github/workflows/reusable-rust-build-and-test.yaml'
+      - '.github/workflows/reusable-docker-build-push.yaml'
+      - '.github/actions/setup-rust/action.yaml'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+    branches:
+      - main
+  pull_request:
+    paths:
+      - '.github/workflows/ci.yaml'
+      - '.github/workflows/reusable-rust-build-and-test.yaml'
+      - '.github/workflows/reusable-docker-build-push.yaml'
+      - '.github/actions/setup-rust/action.yaml'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build-and-test:
+    name: Build & test
+    uses: ./.github/workflows/reusable-rust-build-and-test.yaml
+
+  docker-build:
+    name: Build SLIM docker image
+    uses: ./.github/workflows/reusable-docker-build-push.yaml
+    with:
+      bake-targets: slim
+      image-tag: ${{ github.sha }}

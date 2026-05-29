@@ -26,7 +26,7 @@
 # No external SLIM node is required. However, if you want to benchmark
 # against a running SLIM node over gRPC instead, start one with:
 #
-#   slimctl slim start -c data-plane/config/base/server-config.yaml
+#   slimctl slim start -c config/base/server-config.yaml
 #
 # Output:
 #   - Prints a summary table to stdout
@@ -35,7 +35,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DP_DIR="$REPO_ROOT/data-plane"
+DP_DIR="$REPO_ROOT"
 
 # Defaults
 SENDER_LIST="1,2,4,8"

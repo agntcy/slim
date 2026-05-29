@@ -1,0 +1,22 @@
+[default.extend-words]
+# "doub" is an intentional partial match for "double" used in SQLite type checks
+doub = "doub"
+
+[default]
+extend-ignore-re = [
+    "(?Rm)^.*(#|//)\\s*spellchecker:disable-line$",
+    "(?s)(#|//)\\s*spellchecker:off.*?\\n\\s*(#|//)\\s*spellchecker:on",
+]
+
+[files]
+# Ignore all changelogs and generated bindings files
+extend-exclude = [
+    "**/CHANGELOG.md",
+    "**/*.pem",
+    "**/*.yaml",
+    "**/*.pbxproj",
+    "**/*.pbxproj.bak",
+    "charts/**",
+    "crates/bindings/java/examples/**/types/**",
+    "crates/bindings/kotlin/examples/**/types/**",
+]

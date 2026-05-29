@@ -35,7 +35,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: ./data-plane/slimrpc-compiler
+        working-directory: ./crates/slimrpc-compiler
     strategy:
       fail-fast: true
       matrix:
@@ -72,8 +72,6 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
-        with:
-          workspace: ./data-plane
 
       - uses: taiki-e/upload-rust-binary-action@0e34102c043ded9f2ca39f7af5cd99a540c61aff # v1.29.1
         with:
@@ -83,7 +81,7 @@ jobs:
           tar: unix
           zip: windows
           token: ${{ secrets.GITHUB_TOKEN }}
-          manifest-path: ./data-plane/slimrpc-compiler/Cargo.toml
+          manifest-path: ./crates/slimrpc-compiler/Cargo.toml
 
       - uses: taiki-e/upload-rust-binary-action@0e34102c043ded9f2ca39f7af5cd99a540c61aff # v1.29.1
         with:
@@ -93,7 +91,7 @@ jobs:
           tar: unix
           zip: windows
           token: ${{ secrets.GITHUB_TOKEN }}
-          manifest-path: ./data-plane/slimrpc-compiler/Cargo.toml
+          manifest-path: ./crates/slimrpc-compiler/Cargo.toml
 
       - uses: taiki-e/upload-rust-binary-action@0e34102c043ded9f2ca39f7af5cd99a540c61aff # v1.29.1
         with:
@@ -103,4 +101,4 @@ jobs:
           tar: unix
           zip: windows
           token: ${{ secrets.GITHUB_TOKEN }}
-          manifest-path: ./data-plane/slimrpc-compiler/Cargo.toml
+          manifest-path: ./crates/slimrpc-compiler/Cargo.toml

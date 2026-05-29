@@ -24,12 +24,6 @@ group "default" {
   ]
 }
 
-group "data-plane" {
-  targets = [
-    "slim",
-  ]
-}
-
 group "control-plane" {
   targets = [
     "control-plane",
@@ -54,7 +48,7 @@ target "docker-metadata-action" {
 
 target "slim" {
   context = "."
-  dockerfile = "./data-plane/Dockerfile"
+  dockerfile = "./Dockerfile"
   target = "slim-release"
   inherits = [
     "_common",
@@ -65,7 +59,7 @@ target "slim" {
 
 target "slim-debug" {
   context = "."
-  dockerfile = "./data-plane/Dockerfile"
+  dockerfile = "./Dockerfile"
   target = "slim-debug"
   inherits = [
     "_common",
@@ -76,7 +70,7 @@ target "slim-debug" {
 
 target "control-plane" {
   context    = "."
-  dockerfile = "./data-plane/Dockerfile"
+  dockerfile = "./Dockerfile"
   target     = "control-plane-release"
   inherits = [
     "_common",
@@ -87,7 +81,7 @@ target "control-plane" {
 
 target "control-plane-debug" {
   context    = "."
-  dockerfile = "./data-plane/Dockerfile"
+  dockerfile = "./Dockerfile"
   target     = "control-plane-debug"
   inherits = [
     "_common",
