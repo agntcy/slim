@@ -234,13 +234,6 @@ where
         let identity = self.tx.identity_provider.get_token()?;
         message.get_slim_header_mut().set_identity(identity);
 
-        // Encrypt the message using MLS if MLS is enabled
-        if let Some(mls_state) = self.mls_state.load_full() {
-            mls_state
-                .lock()
-                .process_message(&mut message, MessageDirection::South)?;
-        }
-
         // Buffer the message after setting the ID (only for non-publish_to messages)
         if !is_publish_to {
             self.buffer.push(message.clone());
@@ -276,7 +269,7 @@ where
             self.buffer.push(message.clone());
         }
 
-        self.set_timer_and_send(message).await
+        self.encrypt_set_timer_and_send(message).await
     }
 
     fn id_and_fanout(&mut self, is_publish_to: bool) -> (u32, u32) {
@@ -301,10 +294,25 @@ where
         (id, fanout)
     }
 
-    async fn set_timer_and_send(&mut self, message: Message) -> Result<(), SessionError> {
+    fn encrypt_message(&self, message: &mut Message) -> Result<(), SessionError> {
+        if let Some(mls_state) = self.mls_state.load_full() {
+            mls_state
+                .lock()
+                .process_message(message, MessageDirection::South)?;
+        }
+        Ok(())
+    }
+
+    async fn encrypt_set_timer_and_send(
+        &mut self,
+        mut message: Message,
+    ) -> Result<(), SessionError> {
         let message_id = message.get_id();
         let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
         debug!(%message_id, "send new message");
+
+        debug!("encrypting message");
+        self.encrypt_message(&mut message)?;
 
         if let Some(timer_factory) = &self.timer_factory {
             debug!("reliable sender, set all timers");
@@ -421,6 +429,9 @@ where
             msg.get_session_header_mut()
                 .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
 
+            // Encrypt RTX reply under current epoch keys
+            self.encrypt_message(&mut msg)?;
+
             // send the message
             self.tx.send_to_slim(Ok(msg)).await
         } else {
@@ -468,6 +479,10 @@ where
                         debug!(%id, dst = %name, "resend message");
                         let mut m = message.clone();
                         m.get_slim_header_mut().set_destination(name.clone());
+
+                        // Encrypt retransmission under current epoch keys
+                        self.encrypt_message(&mut m)?;
+
                         self.tx.send_to_slim(Ok(m)).await?;
                     }
                     // else: endpoint removed since original send — skip retransmit
@@ -552,7 +567,7 @@ where
             self.to_flush = false;
             let messages: Vec<_> = self.buffer.iter().cloned().collect();
             for p in messages {
-                let _ = self.set_timer_and_send(p).await;
+                let _ = self.encrypt_set_timer_and_send(p).await;
             }
         }
 
