@@ -3,13 +3,19 @@
 
 version: "3"
 
-includes:
-  data-plane:
-    taskfile: data-plane/Taskfile.yaml
-    flatten: true
-    dir: ./data-plane
-
 silent: true
+set: [pipefail]
+shopt: [globstar]
+
+includes:
+  rust:
+    taskfile: ./tasks/rust.yaml
+    flatten: true
+    vars:
+      GLOBAL_ARGS: "--workspace"
+
+vars:
+  CARGO_COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete cargo-deny typos-cli"
 
 tasks:
   default:
@@ -20,3 +26,126 @@ tasks:
     desc: Get version
     cmds:
       - git describe --tags --match "v*" | cut -c 2-
+
+  bindings:python:lint:
+    desc: "Python linter"
+    dir: ./crates/bindings/python
+    cmds:
+      - task python:bindings:lint
+
+  bindings:dotnet:lint:
+    desc: ".NET linter"
+    dir: ./crates/bindings/dotnet
+    cmds:
+      - task lint
+
+  lint:
+    desc: "Run the linter"
+    cmds:
+      - task: lintall
+      - task: bindings:python:lint
+      - task: bindings:dotnet:lint
+
+  build:strip:
+    desc: "Build the project and strip the debug symbols"
+    cmds:
+      - task: build
+      - task: strip
+        vars:
+          TARGET_BIN: "target/{{.TARGET}}/{{.PROFILE}}/slim"
+
+  run:server:
+    desc: "Run the server"
+    cmds:
+      - task: build
+      - task: run
+        vars:
+          ARGS: ""
+          BIN: "slim"
+          BIN_ARGS: "--config ./crates/config/base/server-config.yaml"
+
+  run:server-with-otel:
+    desc: "Run the server with OpenTelemetry enabled"
+    cmds:
+      - task: build
+      - task: run
+        vars:
+          ARGS: ""
+          BIN: "slim"
+          BIN_ARGS: "--config ./crates/config/telemetry/server-config.yaml"
+
+  slimctl:run:
+    desc: "Run the Rust slimctl binary"
+    cmds:
+      - task: run
+        vars:
+          BIN: "slimctl"
+          ARGS: "--package agntcy-slimctl"
+          BIN_ARGS: "{{.BIN_ARGS}}"
+    vars:
+      BIN_ARGS: '{{.BIN_ARGS | default "--help"}}'
+
+  slimctl:build:
+    desc: "Build Rust slimctl and stage it in .dist/bin"
+    cmds:
+      - cargo build --package agntcy-slimctl --profile {{.PROFILE}} --target {{.TARGET}}
+      - mkdir -p .dist/bin
+      - cp target/{{.PROFILE}}/slimctl .dist/bin/slimctl
+    vars:
+      PROFILE: '{{.PROFILE | default "debug"}}'
+      TARGET: '{{.TARGET | default ""}}'
+
+  control-plane:build:
+    desc: "Build Rust control-plane binary and stage it in .dist/bin"
+    cmds:
+      - cargo build --package agntcy-slim-control-plane
+      - mkdir -p .dist/bin
+      - cp target/debug/slim-control-plane .dist/bin/control-plane
+
+  telemetry:start:
+    desc: "Start telemetry stack"
+    cmds:
+      - docker compose -f ./crates/config/telemetry/docker-compose.yml up
+
+  python:packaging:
+    desc: "Generate python packages"
+    dir: ./crates/bindings/python
+    cmds:
+      - task python:bindings:packaging PROFILE={{.PROFILE}} TARGET={{.TARGET}}
+    vars:
+      PROFILE: '{{.PROFILE | default "debug"}}'
+      TARGET: '{{.TARGET | default ""}}'
+
+  bindings:test:
+    desc: "Test the Python bindings"
+    dir: ./crates/bindings/python
+    cmds:
+      - task python:bindings:test TESTS={{.TESTS}}
+    vars:
+      TESTS: '{{.TESTS | default ""}}'
+
+  core:test:
+    desc: "Run core end to end tests"
+    dir: ./crates/testing
+    cmds:
+      - |
+        task test:group-session
+        task test:point-to-point-session
+
+  slim:version:
+    desc: "Get version from corresponding git tag"
+    cmds:
+      - git describe --tags --match "slim-v*" | cut -d 'v' -f 2
+
+  generate:grpc-json-schema:
+    desc: "Generate the gRPC schema"
+    cmds:
+      - cargo run --bin generate-schema
+
+  coverage-full:
+    desc: "Run full tests coverage including Python bindings"
+    cmds:
+      - task: test:coverage
+        vars:
+          ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"
+      - task: core:test

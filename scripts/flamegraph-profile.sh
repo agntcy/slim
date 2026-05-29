@@ -31,7 +31,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DP_DIR="$REPO_ROOT/data-plane"
+DP_DIR="$REPO_ROOT"
 
 # Defaults
 SENDERS=16

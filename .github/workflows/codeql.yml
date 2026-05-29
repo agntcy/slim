@@ -37,8 +37,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - language: go
-          build-mode: autobuild
         - language: rust
           build-mode: none
         - language: python
@@ -66,26 +64,9 @@ jobs:
         echo "Build mode: ${{ matrix.build-mode }}"
 
     # Setup language environments BEFORE CodeQL initialization
-    - name: Set up Go
-      if: matrix.language == 'go'
-      uses: ./.github/actions/setup-go
-      with:
-        go-version: '1.25.5'
-
-    - name: Install buf CLI
-      if: matrix.language == 'go'
-      shell: bash
-      run: |
-        # Install buf for protobuf generation
-        curl -sSL "https://github.com/bufbuild/buf/releases/latest/download/buf-$(uname -s)-$(uname -m)" -o /tmp/buf
-        sudo mv /tmp/buf /usr/local/bin/buf
-        sudo chmod +x /usr/local/bin/buf
-
     - name: Set up Rust
       if: matrix.language == 'rust'
       uses: ./.github/actions/setup-rust
-      with:
-        workspace: ./data-plane
 
     - name: Set up Python
       if: matrix.language == 'python'
@@ -110,17 +91,12 @@ jobs:
                 # Helm values files use empty strings as defaults
                 id: js/empty-password-in-configuration-file
           paths-ignore:
-            - "**/*.pb.go"
-            - "**/mock_*.go"
-            - "**/*_pb2.py"
-            - "**/*_pb2_grpc.py"
             - "**/testdata/**"
             - "**/vendor/**"
             - "**/target/**"
             - "**/examples/**"
             - "**/testing/**"
             - "**/tests/**"
-            - "**/*_test.go"
             - "**/test_*.py"
 
     - name: Install Python dependencies
@@ -129,40 +105,18 @@ jobs:
       run: |
         echo "📦 Installing Python dependencies..."
         # Install dependencies for Python bindings
-        if [ -f "data-plane/python/bindings/pyproject.toml" ]; then
-          cd data-plane/python/bindings
+        if [ -f "crates/bindings/python/pyproject.toml" ]; then
+          cd crates/bindings/python
           uv sync || echo "Failed to sync Python bindings dependencies"
           cd ../../..
         fi
         echo "✅ Python dependencies installed"
-
-    - name: Prepare Go environment for autobuild
-      if: matrix.language == 'go'
-      shell: bash
-      run: |
-        echo "Preparing Go environment for CodeQL autobuild..."
-        echo "Go version: $(go version)"
-        echo "GOPATH: $GOPATH"
-        echo "GOROOT: $GOROOT"
-        echo "Working directory: $(pwd)"
-
-        # Download Go module dependencies for remaining Go modules
-        echo "Pre-downloading Go module dependencies..."
-        for module_dir in tests; do
-          if [ -f "$module_dir/go.mod" ]; then
-            echo "Downloading deps for $module_dir"
-            (cd "$module_dir" && go mod download) || echo "Failed to download deps for $module_dir"
-          fi
-        done
-
-        echo "Go environment prepared for autobuild"
 
     - name: Run manual build steps
       if: matrix.build-mode == 'manual'
       shell: bash
       run: |
         echo "❌ Manual build mode not configured for language: ${{ matrix.language }}"
-        echo "ℹ️  SLIM project uses autobuild for Go and Rust"
         exit 1
 
     - name: Perform CodeQL Analysis

@@ -21,7 +21,7 @@ on:
         description: Working directory for .NET bindings
         required: false
         type: string
-        default: ./data-plane/bindings/dotnet
+        default: ./crates/bindings/dotnet
       nuget-package-name:
         description: NuGet package name
         required: false

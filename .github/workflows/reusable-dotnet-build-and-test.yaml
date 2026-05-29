@@ -20,12 +20,12 @@ on:
         description: Rust workspace directory for caching
         required: false
         type: string
-        default: ./data-plane
+        default: .
       dotnet-bindings-dir:
         description: Directory containing .NET bindings and tests
         required: false
         type: string
-        default: ./data-plane/bindings/dotnet
+        default: ./crates/bindings/dotnet
       dotnet-version:
         description: .NET SDK version
         required: false
@@ -82,12 +82,12 @@ jobs:
           for artifact_dir in "$GITHUB_WORKSPACE/target-artifacts/bindings-"*; do
             [ -d "$artifact_dir" ] || continue
             target=$(basename "$artifact_dir" | sed 's/^bindings-//')
-            mkdir -p "$GITHUB_WORKSPACE/data-plane/target/$target/release/"
-            find "$artifact_dir" -maxdepth 1 -type f -exec cp {} "$GITHUB_WORKSPACE/data-plane/target/$target/release/" \;
+            mkdir -p "$GITHUB_WORKSPACE/target/$target/release/"
+            find "$artifact_dir" -maxdepth 1 -type f -exec cp {} "$GITHUB_WORKSPACE/target/$target/release/" \;
             echo "  Restored $target"
           done
           echo "📁 Restored libraries:"
-          find "$GITHUB_WORKSPACE/data-plane/target" -name "*slim_bindings*" -type f | sort
+          find "$GITHUB_WORKSPACE/target" -name "*slim_bindings*" -type f | sort
           rm -rf "$GITHUB_WORKSPACE/target-artifacts"
 
       - name: Generate C# bindings

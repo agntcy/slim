@@ -21,7 +21,7 @@ on:
         description: Working directory for Kotlin bindings
         required: false
         type: string
-        default: ./data-plane/bindings/kotlin
+        default: ./crates/bindings/kotlin
       maven-group-id:
         description: Maven groupId
         required: false

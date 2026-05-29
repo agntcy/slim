@@ -1,9 +1,9 @@
 ignore:
-  - data-plane/testing/src/common.rs
-  - data-plane/testing/src/bin/test_p2p.rs
-  - data-plane/testing/src/bin/test_group.rs
-  - data-plane/testing/src/bin/stress_session.rs
-  - data-plane/channel-manager/src/gen/channel_manager.proto.v1.rs
-  - data-plane/core/controller/src/api/gen/controller.proto.v1.rs
-  - data-plane/core/datapath/src/api/gen/dataplane.proto.v1.rs
-  - data-plane/slimctl/src/commands/bench.rs
+  - crates/testing/src/common.rs
+  - crates/testing/src/bin/test_p2p.rs
+  - crates/testing/src/bin/test_group.rs
+  - crates/testing/src/bin/stress_session.rs
+  - crates/channel-manager/src/gen/channel_manager.proto.v1.rs
+  - crates/core/controller/src/api/gen/controller.proto.v1.rs
+  - crates/core/datapath/src/api/gen/dataplane.proto.v1.rs
+  - crates/slimctl/src/commands/bench.rs

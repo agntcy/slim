@@ -3,7 +3,7 @@
 
 FROM python:3.12-slim
 
-# Pin to match released bindings (bump with data-plane/bindings/rust/Cargo.toml)
+# Pin to match released bindings (bump with crates/bindings/rust/Cargo.toml)
 ARG SLIM_BINDINGS_VERSION=1.3.0rc0
 RUN pip install --no-cache-dir "slim-bindings[examples]==${SLIM_BINDINGS_VERSION}"
 

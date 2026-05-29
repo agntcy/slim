@@ -21,7 +21,7 @@ on:
         description: Working directory for Java bindings
         required: false
         type: string
-        default: ./data-plane/bindings/java
+        default: ./crates/bindings/java
       maven-group-id:
         description: Maven groupId
         required: false

@@ -1,0 +1,542 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+---
+version: "3"
+
+silent: true
+set: [pipefail]
+shopt: [globstar]
+
+includes:
+  adapter:
+    taskfile: ../rust/Taskfile.yaml
+    internal: false
+  rust:
+    taskfile: ../../../tasks/rust.yaml
+    internal: true
+
+env:
+  SHARED_SECRET: "my_shared_secret_for_testing_purposes_only"
+
+vars:
+  # ROOT_DIR: directory of the invoked Taskfile (java/). TASKFILE_DIR can point at an included taskfile during var eval.
+  MVNW: '{{.ROOT_DIR}}/mvnw'
+  BINDINGS_VERSION:
+    sh: '{{.MVNW}} -f "{{.ROOT_DIR}}/pom.xml" help:evaluate
+      -Dexpression=project.version -q -DforceStdout'
+  BINDINGS_DIR: "{{.ROOT_DIR}}/../rust"
+  PROFILE: '{{.PROFILE | default "debug"}}'
+  CURRENT_TARGET:
+    sh: 'rustc -vV | sed -n "s/^host: //p" | tr -d "\r" | xargs'
+  TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
+  TARGET_DIR: "{{.ROOT_DIR}}/../../target"
+  LIB_NAME: slim_bindings
+  _DEFAULT_LIB_PATH:
+    sh: |
+      # UniFFI bindgen reads the cdylib (.dylib / .so / .dll), not staticlib (.a / .lib).
+      # Anchor paths from this Taskfile dir: var sh may run before deps, but when
+      # TARGET==host, `cargo build` (no --target) already placed the cdylib under
+      # target/<profile>/ from an earlier task (e.g. build).
+      # Prefer that over target/<triple>/<profile>/ from zigbuild: on Linux GNU the
+      # latter can lack UNIFFI_META* in the dynamic symbol table (.cargo STRIP_**).
+      set -eu
+      cd "{{.ROOT_DIR}}"
+      TD="$(pwd)/../../target"
+      OS=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
+      HOST=$(rustc -vV | sed -n 's/^host: //p' | tr -d '\r' | xargs)
+      TARGET=$(printf '%s' '{{.TARGET}}' | tr -d '\r' | xargs)
+      PF="{{.PROFILE}}"
+      if [[ "$TARGET" == "$HOST" ]]; then
+        case "$OS" in
+          darwin*)
+            N="$TD/$PF/lib{{.LIB_NAME}}.dylib"
+            if [[ -f "$N" ]]; then echo "$N"; exit 0; fi
+            ;;
+          mingw*|msys*|cygwin*)
+            N="$TD/$PF/{{.LIB_NAME}}.dll"
+            if [[ -f "$N" ]]; then echo "$N"; exit 0; fi
+            ;;
+          *)
+            N="$TD/$PF/lib{{.LIB_NAME}}.so"
+            if [[ -f "$N" ]]; then echo "$N"; exit 0; fi
+            ;;
+        esac
+      fi
+      case "$OS" in
+        darwin*)
+          echo "$TD/$TARGET/$PF/lib{{.LIB_NAME}}.dylib"
+          ;;
+        mingw*|msys*|cygwin*)
+          echo "$TD/$TARGET/$PF/{{.LIB_NAME}}.dll"
+          ;;
+        *)
+          echo "$TD/$TARGET/$PF/lib{{.LIB_NAME}}.so"
+          ;;
+      esac
+  LIB_PATH: "{{.LIB_PATH | default ._DEFAULT_LIB_PATH}}"
+  # Platform mapping: rust-target|java-native-path|extension (JNA format: hyphens, win32 for Windows)
+  PLATFORMS: |
+    x86_64-unknown-linux-gnu|linux-x86-64|so
+    x86_64-unknown-linux-musl|linux-x86-64|so
+    aarch64-unknown-linux-gnu|linux-aarch64|so
+    aarch64-unknown-linux-musl|linux-aarch64|so
+    x86_64-apple-darwin|darwin-x86-64|dylib
+    aarch64-apple-darwin|darwin-aarch64|dylib
+    x86_64-pc-windows-msvc|win32-x86-64|dll
+    aarch64-pc-windows-msvc|win32-aarch64|dll
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  # Maven compiles with release 21 and --enable-preview (Panama); JDK 17 fails with "invalid target release: 21".
+  # Apache Maven uses JAVA_HOME when set (not necessarily the same java as PATH).
+  assert-jdk-21:
+    internal: true
+    cmds:
+      - |
+        if [ -n "${JAVA_HOME:-}" ] && [ -x "${JAVA_HOME}/bin/java" ]; then
+          _java="${JAVA_HOME}/bin/java"
+        else
+          _java=java
+        fi
+        if ! "$_java" -version 2>&1 | grep -qE 'version "(2[1-9]|[3-9][0-9])\.'; then
+          echo "error: Java bindings require JDK 21 or newer (pom.xml uses source/target 21 and --enable-preview)." >&2
+          echo "hint: Maven uses JAVA_HOME when set. Point it at JDK 21, e.g. export JAVA_HOME=\"\$(/usr/libexec/java_home -v 21)\" (macOS) or export JAVA_HOME=\"/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home\"." >&2
+          echo "      (PATH-only openjdk@21 is not enough if JAVA_HOME still references an older JDK.)" >&2
+          echo "Using: $_java" >&2
+          "$_java" -version >&2 || true
+          exit 1
+        fi
+
+  install-uniffi-bindgen-java:
+    desc: Install uniffi-bindgen-java CLI tool
+    # Do not skip when ~/.cargo/bin caches an unrelated binary (CI restores ~/.cargo/bin).
+    status:
+      - 'command -v uniffi-bindgen-java >/dev/null && uniffi-bindgen-java
+        --version 2>/dev/null | grep -Fq "0.4.2"'
+    cmds:
+      - echo "Installing uniffi-bindgen-java..."
+      - cargo install uniffi-bindgen-java --git
+        https://github.com/IronCoreLabs/uniffi-bindgen-java --tag 0.4.2 --config
+        net.git-fetch-with-cli=true --force
+      - echo "uniffi-bindgen-java installed"
+
+  generate:
+    desc: Generate Java bindings from compiled Rust library
+    # Always run from this Taskfile's directory (paths and uniffi.toml are relative).
+    dir: "{{.ROOT_DIR}}"
+    deps:
+      - task: adapter:bindings:build:all
+        vars:
+          PROFILE: "{{.PROFILE}}"
+      - install-uniffi-bindgen-java
+    cmds:
+      - echo "Generating Java bindings from compiled library..."
+      - task: copy-libraries
+      - |
+        set -eu
+        cd "{{.ROOT_DIR}}"
+        if [ ! -f uniffi.toml ]; then
+          echo "error: java bindings generate must run with cwd=crates/bindings/java (uniffi.toml missing); cwd=$(pwd)" >&2
+          exit 1
+        fi
+        TD="$(pwd)/../../target"
+        PROFILE="{{.PROFILE}}"
+        HOST=$(rustc -vV | sed -n 's/^host: //p' | tr -d '\r' | xargs)
+        TARGET=$(printf '%s' '{{.TARGET}}' | tr -d '\r' | xargs)
+        os=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
+        case "$os" in
+          darwin*)
+            LIB="$TD/$TARGET/$PROFILE/lib{{.LIB_NAME}}.dylib"
+            native="$TD/$PROFILE/lib{{.LIB_NAME}}.dylib"
+            ;;
+          mingw*|msys*|cygwin*)
+            LIB="$TD/$TARGET/$PROFILE/{{.LIB_NAME}}.dll"
+            native="$TD/$PROFILE/{{.LIB_NAME}}.dll"
+            ;;
+          *)
+            LIB="$TD/$TARGET/$PROFILE/lib{{.LIB_NAME}}.so"
+            native="$TD/$PROFILE/lib{{.LIB_NAME}}.so"
+            ;;
+        esac
+        if [[ "$TARGET" == "$HOST" && -f "$native" ]]; then
+          LIB="$native"
+        fi
+        echo "Using cdylib for UniFFI bindgen: $LIB"
+        ls -lah "$LIB"
+        rm -rf generated/uniffi
+        mkdir -p generated/uniffi
+        # UniFFI crate_name in metadata is the lib crate name (slim_bindings), not the Cargo package name.
+        uniffi-bindgen-java generate "$LIB" \
+          --out-dir generated/uniffi \
+          --config uniffi.toml \
+          --crate slim_bindings
+        n=$(find generated/uniffi -type f -name '*.java' 2>/dev/null | wc -l | tr -d ' ')
+        if [ "${n:-0}" -lt 1 ]; then
+          echo "error: uniffi-bindgen-java produced no Java files under generated/uniffi (count=${n:-0}). cwd=$(pwd) lib=$LIB" >&2
+          ls -laR generated/uniffi 2>&1 | head -80 >&2 || true
+          exit 1
+        fi
+      - task: patch-bindings
+      - |
+        set -eu
+        if [ ! -f uniffi.toml ]; then
+          echo "error: java bindings generate must run with cwd=crates/bindings/java (uniffi.toml missing); cwd=$(pwd)" >&2
+          exit 1
+        fi
+        n=$(find generated/uniffi -type f -name '*.java' 2>/dev/null | wc -l | tr -d ' ')
+        rs=$(find generated/uniffi -type f -name 'ResponseSink.java' 2>/dev/null | wc -l | tr -d ' ')
+        sm=$(find generated/uniffi -type f -name 'StreamMessage.java' 2>/dev/null | wc -l | tr -d ' ')
+        if [ "$rs" -lt 1 ] || [ "$sm" -lt 1 ]; then
+          echo "error: missing UniFFI stream types (ResponseSink.java count=$rs StreamMessage.java count=$sm total_java=$n cwd=$(pwd))" >&2
+          find generated/uniffi -type f 2>/dev/null | head -50 >&2 || true
+          exit 1
+        fi
+      - echo "Bindings generated in generated/"
+
+  copy-libraries:
+    desc: Copy native libraries from target folder to generated/native structure
+    internal: true
+    dir: "{{.ROOT_DIR}}"
+    cmds:
+      - rm -rf generated/native
+      - mkdir -p generated/native
+      - |
+        library_count=0
+
+        # Scan all target/*/profile/ directories for shared libraries
+        for target_release_dir in "{{.TARGET_DIR}}"/*/{{.PROFILE}}; do
+          [[ -d "$target_release_dir" ]] || continue
+
+          target=$(basename "$(dirname "$target_release_dir")")
+
+          java_path=""
+          ext=""
+          while IFS='|' read -r platform_target platform_java platform_ext; do
+            if [[ "$platform_target" == "$target" ]]; then
+              java_path="$platform_java"
+              ext="$platform_ext"
+              break
+            fi
+          done <<< "{{.PLATFORMS}}"
+
+          if [[ -z "$java_path" || -z "$ext" ]]; then
+            echo "  Skipping $target (not in PLATFORMS list)"
+            continue
+          fi
+
+          case "$ext" in
+            so|dylib)
+              src="$target_release_dir/lib{{.LIB_NAME}}.$ext"
+              lib_name="lib{{.LIB_NAME}}.$ext"
+              ;;
+            dll)
+              src="$target_release_dir/{{.LIB_NAME}}.$ext"
+              lib_name="{{.LIB_NAME}}.$ext"
+              ;;
+          esac
+
+          # Prefer host-layout cdylib (target/<profile>/) when this row is the host triple
+          # so packaged natives match what UniFFI bindgen read (see _DEFAULT_LIB_PATH).
+          host=$(rustc -vV | sed -n 's/^host: //p' | tr -d '\r' | xargs)
+          if [[ "$target" == "$host" ]]; then
+            case "$ext" in
+              so|dylib)
+                nsrc="{{.TARGET_DIR}}/{{.PROFILE}}/lib{{.LIB_NAME}}.$ext"
+                ;;
+              dll)
+                nsrc="{{.TARGET_DIR}}/{{.PROFILE}}/{{.LIB_NAME}}.$ext"
+                ;;
+            esac
+            if [[ -f "$nsrc" ]]; then src="$nsrc"; fi
+          fi
+
+          if [[ ! -f "$src" ]]; then
+            echo "  $target: library not found ($src)"
+            continue
+          fi
+
+          native_dir="generated/native/$java_path"
+          mkdir -p "$native_dir"
+          cp "$src" "$native_dir/$lib_name"
+          echo "  $target → $java_path/$lib_name"
+          library_count=$((library_count + 1))
+        done
+
+        if [[ $library_count -eq 0 ]]; then
+          echo "No libraries found under {{.TARGET_DIR}}"
+          exit 1
+        fi
+
+        echo "Total libraries copied: $library_count"
+
+  patch-bindings:
+    desc: Patch generated Java bindings to fix compatibility issues
+    internal: true
+    dir: "{{.ROOT_DIR}}"
+    cmds:
+      - ./patch-bindings.sh
+
+  build:
+    desc: Build Java bindings and all examples
+    deps:
+      - assert-jdk-21
+      - generate
+    cmds:
+      - echo "Building Java bindings..."
+      - '{{.MVNW}} clean package -DskipTests'
+      - echo "Installing bindings to local Maven repository..."
+      - '{{.MVNW}} install -DskipTests -q'
+      - echo "Compiling examples..."
+      - 'cd examples && {{.MVNW}} clean compile -q && {{.MVNW}} install
+        -DskipTests -q'
+      - 'cd examples/slimrpc/simple && {{.MVNW}} clean compile -q'
+      - echo "Build complete"
+
+  test:
+    desc: Run Java bindings tests
+    deps:
+      - assert-jdk-21
+      - generate
+    cmds:
+      - echo "Running Java bindings tests..."
+      - |
+        set -eu
+        cd "{{.ROOT_DIR}}"
+        TD="$(pwd)/../../target"
+        PROFILE="{{.PROFILE}}"
+        HOST=$(rustc -vV | sed -n 's/^host: //p' | tr -d '\r' | xargs)
+        TARGET=$(printf '%s' '{{.TARGET}}' | tr -d '\r' | xargs)
+        os=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
+        case "$os" in
+          darwin*)
+            LIB="$TD/$TARGET/$PROFILE/lib{{.LIB_NAME}}.dylib"
+            native="$TD/$PROFILE/lib{{.LIB_NAME}}.dylib"
+            ;;
+          mingw*|msys*|cygwin*)
+            LIB="$TD/$TARGET/$PROFILE/{{.LIB_NAME}}.dll"
+            native="$TD/$PROFILE/{{.LIB_NAME}}.dll"
+            ;;
+          *)
+            LIB="$TD/$TARGET/$PROFILE/lib{{.LIB_NAME}}.so"
+            native="$TD/$PROFILE/lib{{.LIB_NAME}}.so"
+            ;;
+        esac
+        if [[ "$TARGET" == "$HOST" && -f "$native" ]]; then
+          LIB="$native"
+        fi
+        case "$LIB" in
+          /*) ABS_LIB="$LIB" ;;
+          *) ABS_LIB="$(pwd)/$LIB" ;;
+        esac
+        {{.MVNW}} test -Duniffi.component.slim_bindings.libraryOverride="$ABS_LIB"
+      - echo "Tests complete"
+
+  install:
+    desc: Install Java bindings JAR to local Maven repository
+    deps:
+      - build
+    cmds:
+      - echo "Installing Java bindings to local Maven repository..."
+      - '{{.MVNW}} install -DskipTests'
+      - echo "Installed to local Maven repository"
+
+  publish:maven-central:
+    desc: Publish Java bindings to Maven Central (requires MVN_TOKEN_NAME,
+      MVN_TOKEN_PASSWORD, GPG_SIGNING_KEY, GPG_PASSPHRASE, PUBLISH_VERSION)
+    deps:
+      - build
+    vars:
+      PUBLISH_VERSION: '{{.PUBLISH_VERSION | default "1.0.0"}}'
+    cmds:
+      - '[ -n "$MVN_TOKEN_NAME" ] && [ -n "$MVN_TOKEN_PASSWORD" ] && [ -n
+        "$GPG_SIGNING_KEY" ] && [ -n "$GPG_PASSPHRASE" ] || (echo "Error:
+        MVN_TOKEN_NAME, MVN_TOKEN_PASSWORD, GPG_SIGNING_KEY, GPG_PASSPHRASE must
+        be set"; exit 1)'
+      - echo "Publishing Java bindings to Maven Central (OSSRH Staging API)..."
+      - '{{.MVNW}} deploy -Drevision="{{.PUBLISH_VERSION}}" -DskipTests
+        -DaltDeploymentRepository=central::default::https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/'
+      - echo "Transferring deployment to Central Portal..."
+      - |
+        AUTH=$(echo -n "$MVN_TOKEN_NAME:$MVN_TOKEN_PASSWORD" | base64 | tr -d '\n')
+        curl -sS -X POST -H "Authorization: Bearer $AUTH" \
+          "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/io.agntcy?publishing_type=automatic"
+      - echo "Successfully published."
+
+  clean:
+    desc: Clean build artifacts and generated code
+    cmds:
+      - echo "Cleaning build artifacts..."
+      - rm -rf generated/
+      - rm -rf target/
+      - '{{.MVNW}} clean 2>/dev/null || true'
+      - 'cd examples && {{.MVNW}} clean 2>/dev/null || true'
+      - echo "Clean complete"
+
+  lint:
+    desc: Run Maven PMD static analysis
+    deps:
+      - assert-jdk-21
+    cmds:
+      - '{{.MVNW}} pmd:check'
+
+  # ==========================================================================
+  # Examples Tasks
+  # ==========================================================================
+
+  examples:install:bindings:
+    desc: Install Java bindings JAR to local Maven repository
+    cmds:
+      - echo "Installing Java bindings to Maven local repository..."
+      - |
+        if [ ! -f target/slim-bindings-java-{{.BINDINGS_VERSION}}.jar ]; then
+          echo "Java bindings JAR not found, building first..."
+          task build
+        fi
+      - |
+        {{.MVNW}} install:install-file \
+          -Dfile=target/slim-bindings-java-{{.BINDINGS_VERSION}}.jar \
+          -DgroupId=io.agntcy.slim \
+          -DartifactId=slim-bindings-java \
+          -Dversion={{.BINDINGS_VERSION}} \
+          -Dpackaging=jar \
+          -DgeneratePom=true
+      - echo "Java bindings installed to
+        ~/.m2/repository/io/agntcy/slim/slim-bindings-java/{{.BINDINGS_VERSION}}/"
+
+  examples:compile:
+    desc: Compile Java examples
+    deps:
+      - examples:install:bindings
+    cmds:
+      - echo "Compiling Java examples..."
+      - 'cd examples && {{.MVNW}} clean compile'
+      - echo "Java compilation complete"
+
+  examples:server:
+    desc: Run the SLIM server example
+    deps:
+      - build
+    cmds:
+      - echo "Starting SLIM server..."
+      - 'cd examples && {{.MVNW}} exec:java@server -Dexec.args="{{.CLI_ARGS}}"'
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+
+  examples:p2p:alice:
+    desc: "Point to Point example - Alice listens for messages and echoes them"
+    deps:
+      - build
+    cmds:
+      - |
+        cd examples && {{.MVNW}} exec:java@p2p \
+          -Dexec.args="--local agntcy/ns/alice --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:p2p:no-mls:bob:
+    desc: "Point to Point example - Bob sends unencrypted messages to Alice"
+    deps:
+      - build
+    cmds:
+      - |
+        cd examples && {{.MVNW}} exec:java@p2p \
+          -Dexec.args="--local agntcy/ns/bob --shared-secret $SHARED_SECRET --remote agntcy/ns/alice --message 'hello from Java' --iterations 5 {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:p2p:mls:bob:
+    desc: "Point to Point example - Bob sends encrypted messages to Alice"
+    deps:
+      - build
+    cmds:
+      - |
+        cd examples && {{.MVNW}} exec:java@p2p \
+          -Dexec.args="--local agntcy/ns/bob --shared-secret $SHARED_SECRET --remote agntcy/ns/alice --message 'hello from Java (MLS)' --iterations 5 --enable-mls {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:group:moderator:
+    desc: "Group moderator - Creates channel, invites participants"
+    deps:
+      - build
+    cmds:
+      - |
+        cd examples && {{.MVNW}} exec:java@group \
+          -Dexec.args="--local agntcy/ns/moderator --shared-secret $SHARED_SECRET --remote agntcy/ns/chat --invites agntcy/ns/client-1 --invites agntcy/ns/client-2 {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:group:client-1:
+    desc: "Group participant - Waits for invitation"
+    deps:
+      - build
+    cmds:
+      - |
+        cd examples && {{.MVNW}} exec:java@group \
+          -Dexec.args="--local agntcy/ns/client-1 --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:group:client-2:
+    desc: "Group participant - Waits for invitation"
+    deps:
+      - build
+    cmds:
+      - |
+        cd examples && {{.MVNW}} exec:java@group \
+          -Dexec.args="--local agntcy/ns/client-2 --shared-secret $SHARED_SECRET {{.EXTRA_ARGS}}"
+    vars:
+      EXTRA_ARGS: '{{.EXTRA_ARGS | default ""}}'
+
+  examples:rpc:compile:
+    desc: Compile SlimRPC Java examples
+    deps:
+      - examples:compile
+    cmds:
+      - echo "Installing examples project to local Maven repo..."
+      - 'cd examples && {{.MVNW}} install -DskipTests -q'
+      - echo "Compiling SlimRPC Java examples..."
+      - 'cd examples/slimrpc/simple && {{.MVNW}} clean compile'
+      - echo "SlimRPC compilation complete"
+
+  examples:rpc:server:
+    desc: Run the SlimRPC server example
+    deps:
+      - build
+    cmds:
+      - echo "Starting SlimRPC server (instance={{.INSTANCE}})..."
+      - 'cd examples/slimrpc/simple && {{.MVNW}} exec:java@server
+        -Dexec.args="--instance {{.INSTANCE}}"'
+    vars:
+      INSTANCE: '{{.INSTANCE | default "server"}}'
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+
+  examples:rpc:client:
+    desc: Run the SlimRPC client example
+    deps:
+      - build
+    cmds:
+      - echo "Starting SlimRPC client..."
+      - 'cd examples/slimrpc/simple && {{.MVNW}} exec:java@client'
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+
+  examples:rpc:group-client:
+    desc: Run the SlimRPC group (multicast) client example
+    deps:
+      - build
+    cmds:
+      - echo "Starting SlimRPC group client..."
+      - 'cd examples/slimrpc/simple && {{.MVNW}} exec:java@group-client'
+    vars:
+      CLI_ARGS: '{{.CLI_ARGS | default ""}}'
+
+  examples:clean:
+    desc: Clean Maven build artifacts for examples
+    cmds:
+      - echo "Cleaning Java example build artifacts..."
+      - 'cd examples && {{.MVNW}} clean'
+      - echo "Clean complete"
