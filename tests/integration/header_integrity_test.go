@@ -109,7 +109,7 @@ var _ = Describe("Header integrity across federated dataplane nodes", func() {
 
 		getRouteWithID := func(controllerPort int, routePrefix string) string {
 			var routeName string
-			re := regexp.MustCompile(fmt.Sprintf(`(%s/\S+)\s+connections=`, regexp.QuoteMeta(routePrefix)))
+			re := regexp.MustCompile(fmt.Sprintf(`(%s)\s+id=(\d+)`, regexp.QuoteMeta(routePrefix)))
 			Eventually(func() string {
 				out, err := exec.Command(
 					slimctlPath, "n",
@@ -120,8 +120,8 @@ var _ = Describe("Header integrity across federated dataplane nodes", func() {
 					return ""
 				}
 				matches := re.FindStringSubmatch(string(out))
-				if len(matches) >= 2 {
-					routeName = matches[1]
+				if len(matches) >= 3 && matches[2] != "0" {
+					routeName = fmt.Sprintf("%s/%s", matches[1], matches[2])
 					return routeName
 				}
 				return ""
@@ -230,7 +230,7 @@ var _ = Describe("Header integrity across federated dataplane nodes", func() {
 
 		getRouteWithID := func(controllerPort int, routePrefix string) string {
 			var routeName string
-			re := regexp.MustCompile(fmt.Sprintf(`(%s/\S+)\s+connections=`, regexp.QuoteMeta(routePrefix)))
+			re := regexp.MustCompile(fmt.Sprintf(`(%s)\s+id=(\d+)`, regexp.QuoteMeta(routePrefix)))
 			Eventually(func() string {
 				out, err := exec.Command(
 					slimctlPath, "n",
@@ -241,8 +241,8 @@ var _ = Describe("Header integrity across federated dataplane nodes", func() {
 					return ""
 				}
 				matches := re.FindStringSubmatch(string(out))
-				if len(matches) >= 2 {
-					routeName = matches[1]
+				if len(matches) >= 3 && matches[2] != "0" {
+					routeName = fmt.Sprintf("%s/%s", matches[1], matches[2])
 					return routeName
 				}
 				return ""
