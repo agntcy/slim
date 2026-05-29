@@ -44,25 +44,22 @@ impl Verifier for MockVerifier {
         Ok(())
     }
 
-    async fn verify(&self, _token: impl Into<String> + Send) -> Result<(), AuthError> {
+    async fn verify(&self, _token: impl AsRef<str> + Send) -> Result<(), AuthError> {
         Ok(())
     }
 
-    fn try_verify(&self, _token: impl Into<String>) -> Result<(), AuthError> {
+    fn try_verify(&self, _token: impl AsRef<str>) -> Result<(), AuthError> {
         Ok(())
     }
 
-    async fn get_claims<Claims>(
-        &self,
-        _token: impl Into<String> + Send,
-    ) -> Result<Claims, AuthError>
+    async fn get_claims<Claims>(&self, _token: impl AsRef<str> + Send) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned,
     {
         Err(AuthError::TokenInvalid)
     }
 
-    fn try_get_claims<Claims>(&self, _token: impl Into<String>) -> Result<Claims, AuthError>
+    fn try_get_claims<Claims>(&self, _token: impl AsRef<str>) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned,
     {

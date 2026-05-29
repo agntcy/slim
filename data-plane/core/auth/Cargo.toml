@@ -17,6 +17,7 @@ display-error-chain = { workspace = true }
 futures = { workspace = true }
 headers = { workspace = true }
 http = { workspace = true }
+itoa = "1"
 jsonwebtoken = { workspace = true }
 mls-rs-core = { workspace = true }
 mls-rs-crypto-awslc = { workspace = true }
@@ -46,7 +47,12 @@ spiffe = { workspace = true }
 [dev-dependencies]
 agntcy-slim-config = { path = "../config" }
 agntcy-slim-testing = { path = "../../testing" }
+criterion = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "fs"] }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true }
 # uuid moved to optional dependency under [dependencies] for feature = "testutils"
+
+[[bench]]
+name = "shared_secret_benchmark"
+harness = false

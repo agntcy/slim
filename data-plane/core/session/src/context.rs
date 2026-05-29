@@ -81,63 +81,13 @@ mod tests {
     use crate::common::AppChannelSender;
     use crate::session_config::SessionConfig;
     use crate::session_controller::SessionController;
+    use crate::test_utils::{MockTokenProvider, MockVerifier};
     use crate::transmitter::SessionTransmitter;
     use crate::{SessionError, SessionMessage};
-    use async_trait::async_trait;
-    use slim_auth::errors::AuthError;
-    use slim_auth::traits::{TokenProvider, Verifier};
     use slim_datapath::api::ProtoName as Name;
     use slim_datapath::api::ProtoSessionType;
     use tokio::sync::mpsc;
     use tokio::sync::oneshot;
-
-    // --- Test doubles -----------------------------------------------------------------------
-    // Lightweight provider / verifier used to satisfy generic bounds of sessions.
-    #[derive(Clone, Default)]
-    struct DummyProvider;
-
-    #[async_trait]
-    impl TokenProvider for DummyProvider {
-        async fn initialize(&mut self) -> Result<(), AuthError> {
-            Ok(())
-        }
-        fn get_token(&self) -> Result<String, AuthError> {
-            Ok("t".into())
-        }
-
-        fn get_id(&self) -> Result<String, AuthError> {
-            Ok("id".into())
-        }
-    }
-    #[derive(Clone, Default)]
-    struct DummyVerifier;
-    #[async_trait]
-    impl Verifier for DummyVerifier {
-        async fn initialize(&mut self) -> Result<(), AuthError> {
-            Ok(())
-        }
-        async fn verify(&self, _t: impl Into<String> + Send) -> Result<(), AuthError> {
-            Ok(())
-        }
-        fn try_verify(&self, _t: impl Into<String>) -> Result<(), AuthError> {
-            Ok(())
-        }
-        async fn get_claims<Claims>(
-            &self,
-            _t: impl Into<String> + Send,
-        ) -> Result<Claims, AuthError>
-        where
-            Claims: serde::de::DeserializeOwned + Send,
-        {
-            Err(AuthError::TokenInvalid)
-        }
-        fn try_get_claims<Claims>(&self, _t: impl Into<String>) -> Result<Claims, AuthError>
-        where
-            Claims: serde::de::DeserializeOwned + Send,
-        {
-            Err(AuthError::TokenInvalid)
-        }
-    }
 
     fn make_name(parts: [&str; 3]) -> Name {
         Name::from_strings(parts).with_id(0)
@@ -164,7 +114,7 @@ mod tests {
         let (slim_tx, _slim_rx): (SlimChannelSender, _) = mpsc::channel(32);
 
         // Create a SessionTransmitter
-        let session_tx = SessionTransmitter::new(slim_tx, app_tx.clone(), DummyProvider);
+        let session_tx = SessionTransmitter::new(slim_tx, app_tx.clone(), MockTokenProvider);
 
         // Create channel for session layer communication
         let (tx_session, _rx_session): (mpsc::Sender<Result<SessionMessage, SessionError>>, _) =
@@ -177,8 +127,8 @@ mod tests {
                 .with_source(source)
                 .with_destination(destination.clone())
                 .with_config(cfg)
-                .with_identity_provider(DummyProvider)
-                .with_identity_verifier(DummyVerifier)
+                .with_identity_provider(MockTokenProvider)
+                .with_identity_verifier(MockVerifier)
                 .with_tx(session_tx)
                 .with_tx_to_session_layer(tx_session)
                 .ready()
@@ -258,5 +208,17 @@ mod tests {
             .expect("receiver task did not finish after channel close")
             .ok();
         assert!(weak.upgrade().is_none(), "session Arc should be gone");
+    }
+
+    #[tokio::test]
+    // Exercises the DummyVerifier trait methods
+    async fn dummy_verifier_trait_methods_coverage() {
+        use slim_auth::traits::Verifier;
+
+        let verifier = MockVerifier;
+        verifier.verify("some-token").await.unwrap();
+        verifier.try_verify("some-token").unwrap();
+        let _: Result<String, _> = verifier.get_claims("some-token").await;
+        let _: Result<String, _> = verifier.try_get_claims("some-token");
     }
 }
