@@ -1,1 +1,148 @@
-../../../../../proto/controlplane/v1/controlplane.proto
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+package controlplane.proto.v1;
+
+import "controller/v1/controller.proto";
+import "data-plane/v1/data_plane.proto";
+
+service ControlPlaneService {
+  rpc AddRoute(AddRouteRequest) returns (AddRouteResponse) {}
+  rpc DeleteRoute(DeleteRouteRequest) returns (DeleteRouteResponse) {}
+  rpc ListNodeRoutes(Node) returns (controller.proto.v1.RouteListResponse) {}
+  rpc ListConnections(Node) returns (controller.proto.v1.ConnectionListResponse) {}
+  rpc ListNodes(NodeListRequest) returns (stream NodeEntry) {}
+
+  // Route management
+
+  // List routes registered at the controller with optional filtering by source and destination node IDs
+  rpc ListRoutes(RouteListRequest) returns (stream RouteEntry) {}
+  // List links stored in the controller DB with optional filtering by source and destination node IDs
+  rpc ListLinks(LinkListRequest) returns (stream LinkEntry) {}
+}
+
+message ConfigurationCommand {
+  controller.proto.v1.ConfigurationCommand configuration_command = 1;
+  string nodeId = 2;
+}
+
+message Node {
+  string id = 1;
+}
+
+message NodeListRequest {}
+
+enum NodeStatus {
+  NODE_STATUS_UNSPECIFIED = 0;
+  CONNECTED = 1;
+  NOT_CONNECTED = 2;
+}
+
+message NodeEntry {
+  string id = 1;
+  repeated controller.proto.v1.ConnectionDetails connections = 2;
+  NodeStatus status = 4;
+}
+
+message NodeListResponse {
+  repeated NodeEntry entries = 1;
+}
+
+message AddRouteRequest {
+  controller.proto.v1.Connection connection = 1;
+  controller.proto.v1.Route route = 2;
+  string nodeId = 3;
+  string destNodeId = 4; // optional
+}
+
+message AddRouteResponse {
+  bool success = 1;
+  string routeId = 2;
+}
+
+message DeleteRouteRequest {
+  controller.proto.v1.Route route = 1;
+  string nodeId = 2;
+  string destNodeId = 3; // optional
+}
+
+message DeleteRouteResponse {
+  bool success = 1;
+}
+
+// Request to list routes, filtered by optional nodeId and destNodeId
+message RouteListRequest {
+  // the identifier of the source node to filter routes
+  string srcNodeId = 1; // optional
+
+  string destNodeId = 2; // optional
+}
+
+// Route status enum
+enum RouteStatus {
+  ROUTE_STATUS_UNSPECIFIED = 0;
+  ROUTE_STATUS_APPLIED = 1;
+  ROUTE_STATUS_FAILED = 2;
+  ROUTE_STATUS_DELETED = 3;
+  ROUTE_STATUS_PENDING = 4;
+}
+
+// Route message representing a single route
+message RouteEntry {
+  string id = 1;
+  string source_node_id = 2;
+  string dest_node_id = 3;
+  // deprecated
+  string dest_endpoint = 4;
+  // deprecated
+  string conn_config_data = 5;
+  dataplane.proto.v1.Name name = 6;
+  RouteStatus status = 7;
+  string status_msg = 8;
+  reserved 9;
+  int64 last_updated = 10; // Unix timestamp
+  string link_id = 11;
+}
+
+// Response containing a list of route representations
+message RouteListResponse {
+  // list of routes
+  repeated RouteEntry routes = 1;
+}
+
+// Request to list links, filtered by optional source and destination node IDs
+message LinkListRequest {
+  // the identifier of the source node to filter links
+  string srcNodeId = 1; // optional
+
+  // the identifier of the destination node to filter links
+  string destNodeId = 2; // optional
+}
+
+// Link status enum
+enum LinkStatus {
+  LINK_STATUS_UNSPECIFIED = 0;
+  LINK_STATUS_PENDING = 1;
+  LINK_STATUS_APPLIED = 2;
+  LINK_STATUS_FAILED = 3;
+}
+
+// Link message representing a single controller DB link
+message LinkEntry {
+  string id = 1;
+  string link_id = 2;
+  string source_node_id = 3;
+  string dest_node_id = 4;
+  string dest_endpoint = 5;
+  string conn_config_data = 6;
+  LinkStatus status = 7;
+  string status_msg = 8;
+  bool deleted = 9;
+  int64 last_updated = 10; // Unix timestamp
+}
+
+// Response containing a list of links
+message LinkListResponse {
+  repeated LinkEntry links = 1;
+}

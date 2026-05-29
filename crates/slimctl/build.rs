@@ -12,17 +12,16 @@ fn main() {
     }
 
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    let proto_dir = std::path::Path::new(&manifest_dir).join("proto");
+    let base = std::path::Path::new(&manifest_dir);
 
-    let controlplane_proto = proto_dir.join("controlplane/v1/controlplane.proto");
-    let controller_proto = proto_dir.join("controller/v1/controller.proto");
-    let channel_manager_proto = proto_dir.join("channel_manager/v1/commands.proto");
+    // Proto files live in their owning sibling crates
+    let controlplane_proto = base.join("../control-plane/proto/controlplane/v1/controlplane.proto");
+    let controller_proto = base.join("../controller/proto/controller/v1/controller.proto");
+    let channel_manager_proto = base.join("../channel-manager/proto/v1/commands.proto");
 
     println!("cargo:rerun-if-changed={}", controlplane_proto.display());
     println!("cargo:rerun-if-changed={}", controller_proto.display());
     println!("cargo:rerun-if-changed={}", channel_manager_proto.display());
-
-    let datapath_proto_dir = std::path::Path::new(&manifest_dir).join("../../proto");
 
     tonic_prost_build::configure()
         .extern_path(
@@ -36,8 +35,10 @@ fn main() {
                 channel_manager_proto.to_str().unwrap(),
             ],
             &[
-                proto_dir.to_str().unwrap(),
-                datapath_proto_dir.to_str().unwrap(),
+                base.join("../control-plane/proto").to_str().unwrap(),
+                base.join("../controller/proto").to_str().unwrap(),
+                base.join("../channel-manager/proto").to_str().unwrap(),
+                base.join("../datapath/proto").to_str().unwrap(),
             ],
         )
         .unwrap();
