@@ -168,9 +168,11 @@ fn encoded_name_upper_bound(name_opt: &Option<Name>) -> usize {
             /// * 1 byte for the flag showing if name.name is present.
             /// * 1 byte for `str_name` present/absent.
             const PRESENCE_FLAGS_SIZE: usize = 3;
-            /// Byte size of 4 `u64` components of EncodedName:
-            /// * 4*8 bytes for component 0..3 serialized by [`to_le_bytes`].
-            const ENCODED_NAME_SIZE: usize = 32;
+            /// Byte size of 3 `u64` components + name_id (1 presence byte + 2 `u64`):
+            /// * 3*8 bytes for component 0..2 serialized by [`to_le_bytes`].
+            /// * 1 byte for name_id presence flag
+            /// * 2*8 bytes for name_id.id_0 and id_1 (when present)
+            const ENCODED_NAME_SIZE: usize = 24 + 1 + 16;
 
             // Byte sizs of 3 `u32` prefixes:
             // * 3*4 byte length size prefix before each component
@@ -229,13 +231,16 @@ fn push_encoded_name(buf: &mut Vec<u8>, n: &Option<Name>) {
             buf.push(1);
             if let Some(enc) = name.name.as_ref() {
                 buf.push(1);
-                for v in [
-                    enc.component_0,
-                    enc.component_1,
-                    enc.component_2,
-                    enc.component_3,
-                ] {
+                for v in [enc.component_0, enc.component_1, enc.component_2] {
                     buf.extend_from_slice(&v.to_le_bytes());
+                }
+                match enc.name_id.as_ref() {
+                    Some(nid) => {
+                        buf.push(1);
+                        buf.extend_from_slice(&nid.id_0.to_le_bytes());
+                        buf.extend_from_slice(&nid.id_1.to_le_bytes());
+                    }
+                    None => buf.push(0),
                 }
             } else {
                 buf.push(0);
@@ -268,7 +273,7 @@ fn write_preimage(buf: &mut Vec<u8>, hdr: &SlimHeader, link_uuid: &[u8; 16]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::proto::dataplane::v1::{EncodedName, Name, StringName};
+    use crate::api::proto::dataplane::v1::{EncodedName, Name, NameId, StringName};
 
     fn test_key() -> Vec<u8> {
         b"01234567890123456789012345678901".to_vec()
@@ -281,7 +286,7 @@ mod tests {
                     component_0: 1,
                     component_1: 2,
                     component_2: 3,
-                    component_3: 4,
+                    name_id: Some(NameId { id_0: 0, id_1: 4 }),
                 }),
                 str_name: Some(StringName {
                     str_component_0: "a".into(),
@@ -294,7 +299,7 @@ mod tests {
                     component_0: 5,
                     component_1: 6,
                     component_2: 7,
-                    component_3: 8,
+                    name_id: Some(NameId { id_0: 0, id_1: 8 }),
                 }),
                 str_name: Some(StringName {
                     str_component_0: "x".into(),
@@ -372,5 +377,28 @@ mod tests {
         // because the link_id is part of the MAC preimage.
         let err = mac.verify_slim_header(&hdr, &lid2).unwrap_err();
         assert!(matches!(err, HeaderMacError::VerificationFailed));
+    }
+
+    #[test]
+    fn name_id_none_sign_verify() {
+        let lid = Uuid::new_v4().to_string();
+        let mac = HeaderMacSession::new(&test_key()).unwrap();
+        let mut hdr = sample_header();
+        // Remove name_id from source
+        hdr.source.as_mut().unwrap().name.as_mut().unwrap().name_id = None;
+        mac.sign_slim_header(&mut hdr, &lid).unwrap();
+        mac.verify_slim_header(&hdr, &lid).unwrap();
+    }
+
+    #[test]
+    fn tampered_name_id_fail() {
+        let lid = Uuid::new_v4().to_string();
+        let mac = HeaderMacSession::new(&test_key()).unwrap();
+        let mut hdr = sample_header();
+        mac.sign_slim_header(&mut hdr, &lid).unwrap();
+        // Tamper with source name_id
+        hdr.source.as_mut().unwrap().name.as_mut().unwrap().name_id =
+            Some(NameId { id_0: 99, id_1: 99 });
+        assert!(mac.verify_slim_header(&hdr, &lid).is_err());
     }
 }

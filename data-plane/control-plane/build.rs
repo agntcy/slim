@@ -16,6 +16,7 @@ fn main() {
 
     let controller_proto = base.join("proto/controller/v1/controller.proto");
     let controlplane_proto = base.join("proto/controlplane/v1/controlplane.proto");
+    let datapath_proto_dir = base.join("../../proto");
 
     if controller_proto.exists() && controlplane_proto.exists() {
         println!("cargo:rerun-if-changed={}", controller_proto.display());
@@ -23,12 +24,19 @@ fn main() {
 
         tonic_prost_build::configure()
             .out_dir("src/api/gen")
+            .extern_path(
+                ".dataplane.proto.v1",
+                "::slim_datapath::api::proto::dataplane::v1",
+            )
             .compile_protos(
                 &[
                     controller_proto.to_str().unwrap(),
                     controlplane_proto.to_str().unwrap(),
                 ],
-                &[base.join("proto").to_str().unwrap()],
+                &[
+                    base.join("proto").to_str().unwrap(),
+                    datapath_proto_dir.to_str().unwrap(),
+                ],
             )
             .unwrap();
     }

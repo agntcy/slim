@@ -1,6 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::string;
+
 use crate::api::ProtoName;
 use crate::api::ProtoSessionMessageType;
 use crate::api::proto::dataplane::v1::Message;
@@ -26,16 +28,18 @@ pub enum DataPathError {
     UnknownMsgType,
     #[error("invalid message: {0}")]
     InvalidMessage(MessageError),
+    #[error("invalid name id format: {0}")]
+    InvalidNameIdFormat(String),
 
     // Subscription / matching
-    #[error("no matching found for [{:x}, {:x}, {:x}, {:x}]", .0[0], .0[1], .0[2], .0[3])]
-    NoMatchEncoded([u64; 4]),
+    #[error("no matching found for [{:x}, {:x}, {:x}, {}]", .0, .1, .2, .3)]
+    NoMatchEncoded(u64, u64, u64, String),
     #[error("subscription not found")]
     SubscriptionNotFound(ProtoName),
     #[error("subscription id not found: {0}")]
     SubscriptionIdNotFound(u64),
     #[error("id not found: {0}")]
-    IdNotFound(u64),
+    IdNotFound(string::String),
 
     // Connection lookup
     #[error("connection not found: {0}")]

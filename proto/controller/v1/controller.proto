@@ -4,7 +4,11 @@
 syntax = "proto3";
 package controller.proto.v1;
 
+import "data-plane/v1/data_plane.proto";
 import "google/protobuf/struct.proto";
+import "google/protobuf/wrappers.proto";
+
+option go_package = "github.com/agntcy/slim/control-plane/common/proto/controller/v1;controllerv1";
 
 service ControllerService {
   rpc OpenControlChannel(stream ControlMessage) returns (stream ControlMessage) {}
@@ -40,12 +44,9 @@ message ConnectionAck {
 }
 
 message Route {
-  string component_0 = 1;
-  string component_1 = 2;
-  string component_2 = 3;
-  optional uint64 id = 4;
-  optional string link_id = 5;
-  optional ConnectionDirection direction = 6;
+  dataplane.proto.v1.Name name = 1;
+  optional string link_id = 2;
+  optional ConnectionDirection direction = 3;
 }
 
 message RouteAck {
@@ -83,11 +84,8 @@ message RouteListResponse {
 }
 
 message RouteEntry {
-  string component_0 = 1;
-  string component_1 = 2;
-  string component_2 = 3;
-  optional uint64 id = 4;
-  repeated ConnectionEntry connections = 5;
+  dataplane.proto.v1.Name name = 1;
+  repeated ConnectionEntry connections = 2;
 }
 
 enum ConnectionType {

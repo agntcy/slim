@@ -37,7 +37,7 @@ pub trait DataAccess: Send + Sync {
         component0: &str,
         component1: &str,
         component2: &str,
-        component_id: Option<i64>,
+        component_id: Option<&str>,
     ) -> Result<Vec<Route>>;
     async fn get_route_for_src_dest_name(
         &self,
@@ -56,7 +56,7 @@ pub trait DataAccess: Send + Sync {
         component0: &str,
         component1: &str,
         component2: &str,
-        component_id: Option<i64>,
+        component_id: Option<&str>,
     ) -> Result<Option<String>>;
     async fn get_routes_by_link_id(&self, link_id: &str) -> Result<Vec<Route>>;
     async fn delete_route(&self, route_id: &str) -> Result<()>;

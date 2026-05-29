@@ -33,12 +33,22 @@ fn main() {
 
     tonic_prost_build::configure()
         .out_dir("src/api/gen")
+        .extern_path(
+            ".dataplane.proto.v1",
+            "::slim_datapath::api::proto::dataplane::v1",
+        )
         .compile_protos(
             &[proto_file.to_str().unwrap()],
-            &[std::path::Path::new(&manifest_dir)
-                .join("proto/v1")
-                .to_str()
-                .unwrap()],
+            &[
+                std::path::Path::new(&manifest_dir)
+                    .join("proto/v1")
+                    .to_str()
+                    .unwrap(),
+                std::path::Path::new(&manifest_dir)
+                    .join("../../../proto")
+                    .to_str()
+                    .unwrap(),
+            ],
         )
         .unwrap();
 }

@@ -33,7 +33,7 @@ public class Colors {
      * @param instanceId Instance ID number
      * @return Formatted prefix like "[123] " in cyan
      */
-    public static String instancePrefix(long instanceId) {
+    public static String instancePrefix(String instanceId) {
         return colored(CYAN, "[" + instanceId + "]") + " ";
     }
 }

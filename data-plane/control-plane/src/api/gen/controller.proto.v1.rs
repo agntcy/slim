@@ -55,17 +55,11 @@ pub struct ConnectionAck {
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Route {
-    #[prost(string, tag = "1")]
-    pub component_0: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
-    pub component_1: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
-    pub component_2: ::prost::alloc::string::String,
-    #[prost(uint64, optional, tag = "4")]
-    pub id: ::core::option::Option<u64>,
-    #[prost(string, optional, tag = "5")]
+    #[prost(message, optional, tag = "1")]
+    pub name: ::core::option::Option<::slim_datapath::api::proto::dataplane::v1::Name>,
+    #[prost(string, optional, tag = "2")]
     pub link_id: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(enumeration = "ConnectionDirection", optional, tag = "6")]
+    #[prost(enumeration = "ConnectionDirection", optional, tag = "3")]
     pub direction: ::core::option::Option<i32>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -121,15 +115,9 @@ pub struct RouteListResponse {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RouteEntry {
-    #[prost(string, tag = "1")]
-    pub component_0: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
-    pub component_1: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
-    pub component_2: ::prost::alloc::string::String,
-    #[prost(uint64, optional, tag = "4")]
-    pub id: ::core::option::Option<u64>,
-    #[prost(message, repeated, tag = "5")]
+    #[prost(message, optional, tag = "1")]
+    pub name: ::core::option::Option<::slim_datapath::api::proto::dataplane::v1::Name>,
+    #[prost(message, repeated, tag = "2")]
     pub connections: ::prost::alloc::vec::Vec<ConnectionEntry>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

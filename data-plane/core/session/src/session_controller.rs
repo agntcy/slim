@@ -14,8 +14,8 @@ use tracing::{Instrument, debug};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, Content, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
-        ProtoSessionType, SlimHeader,
+        CommandPayload, Content, NameId, ProtoMessage as Message, ProtoName,
+        ProtoSessionMessageType, ProtoSessionType, SlimHeader,
     },
     messages::utils::SlimHeaderFlags,
 };
@@ -485,7 +485,7 @@ impl SessionController {
                 }
                 let msg = Message::builder()
                     .source(self.source().clone())
-                    .destination(destination.clone().with_id(ProtoName::NULL_COMPONENT))
+                    .destination(destination.clone().with_id(NameId::NULL_COMPONENT))
                     .identity("")
                     .session_type(ProtoSessionType::Multicast)
                     .session_message_type(ProtoSessionMessageType::LeaveRequest)
@@ -961,7 +961,7 @@ mod tests {
         // For multicast sessions, destination uses DATA_CHANNEL_ID
         assert_eq!(
             controller.dst(),
-            &ProtoName::from_strings(["org", "ns", "dest"]).with_id(ProtoName::DATA_CHANNEL_ID)
+            &ProtoName::from_strings(["org", "ns", "dest"]).with_id(NameId::DATA_CHANNEL_ID)
         );
         assert_eq!(controller.session_type(), ProtoSessionType::Multicast);
         assert!(controller.is_initiator());

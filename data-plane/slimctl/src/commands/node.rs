@@ -12,6 +12,7 @@ use crate::proto::controller::proto::v1::{
 };
 use crate::utils::{VIA_KEYWORD, parse_config_file_with_link_id, parse_route};
 use slim_config::grpc::client::ClientConfig;
+use slim_datapath::api::ProtoName;
 
 #[derive(Args)]
 pub struct NodeArgs {
@@ -145,14 +146,7 @@ async fn route_list(opts: &ClientConfig) -> Result<()> {
                                 )
                             })
                             .collect();
-                        println!(
-                            "{}/{}/{} id={} connections={:?}",
-                            e.component_0,
-                            e.component_1,
-                            e.component_2,
-                            e.id.map_or_else(|| "None".to_string(), |id| id.to_string()),
-                            conn_names
-                        );
+                        println!("{} connections={:?}", e.name.as_ref().unwrap(), conn_names);
                     }
                     break;
                 }
@@ -169,10 +163,7 @@ async fn route_add(route: &str, via: &str, config_file: &str, opts: &ClientConfi
     let (org, ns, agent_type, agent_id) = parse_route(route)?;
     let (conn, link_id) = parse_config_file_with_link_id(config_file)?;
     let route = Route {
-        component_0: org,
-        component_1: ns,
-        component_2: agent_type,
-        id: Some(agent_id),
+        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id)),
         link_id: Some(link_id),
         direction: None,
     };
@@ -232,10 +223,7 @@ async fn route_del(route: &str, via: &str, destination: &str, opts: &ClientConfi
         destination.to_string()
     };
     let route = Route {
-        component_0: org,
-        component_1: ns,
-        component_2: agent_type,
-        id: Some(agent_id),
+        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id)),
         link_id: Some(link_id),
         direction: None,
     };
@@ -455,17 +443,27 @@ mod tests {
         let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         write!(f, r#"{{"endpoint": "http://127.0.0.1:8080"}}"#).unwrap();
         let path = f.path().to_str().unwrap().to_string();
-        route_add("a/b/c/0", "via", &path, &make_opts(&addr))
-            .await
-            .unwrap();
+        route_add(
+            "a/b/c/00000000-0000-0000-0000-000000000000",
+            "via",
+            &path,
+            &make_opts(&addr),
+        )
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
     async fn route_del_via_mock_server() {
         let addr = spawn_mock_node_server().await;
-        route_del("a/b/c/0", "via", "http://127.0.0.1:8080", &make_opts(&addr))
-            .await
-            .unwrap();
+        route_del(
+            "a/b/c/00000000-0000-0000-0000-000000000000",
+            "via",
+            "http://127.0.0.1:8080",
+            &make_opts(&addr),
+        )
+        .await
+        .unwrap();
     }
 
     // ── error-handling mock services ─────────────────────────────────────────
@@ -675,9 +673,14 @@ mod tests {
         let path = f.path().to_str().unwrap().to_string();
         // The client prints the failure but still returns Ok
         assert!(
-            route_add("a/b/c/0", "via", &path, &make_opts(&addr))
-                .await
-                .is_ok()
+            route_add(
+                "a/b/c/00000000-0000-0000-0000-000000000000",
+                "via",
+                &path,
+                &make_opts(&addr)
+            )
+            .await
+            .is_ok()
         );
     }
 
@@ -686,9 +689,14 @@ mod tests {
         let addr = spawn_svc(NackControllerSvc).await;
         // The client prints the failure but still returns Ok
         assert!(
-            route_del("a/b/c/0", "via", "http://127.0.0.1:8080", &make_opts(&addr))
-                .await
-                .is_ok()
+            route_del(
+                "a/b/c/00000000-0000-0000-0000-000000000000",
+                "via",
+                "http://127.0.0.1:8080",
+                &make_opts(&addr)
+            )
+            .await
+            .is_ok()
         );
     }
 
@@ -700,18 +708,28 @@ mod tests {
         let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         write!(f, r#"{{"endpoint": "http://127.0.0.1:8080"}}"#).unwrap();
         let path = f.path().to_str().unwrap().to_string();
-        let err = route_add("a/b/c/0", "via", &path, &make_opts(&addr))
-            .await
-            .unwrap_err();
+        let err = route_add(
+            "a/b/c/00000000-0000-0000-0000-000000000000",
+            "via",
+            &path,
+            &make_opts(&addr),
+        )
+        .await
+        .unwrap_err();
         assert!(err.to_string().contains("unexpected response type"));
     }
 
     #[tokio::test]
     async fn route_del_unexpected_payload_fails() {
         let addr = spawn_svc(UnexpectedPayloadControllerSvc).await;
-        let err = route_del("a/b/c/0", "via", "http://127.0.0.1:8080", &make_opts(&addr))
-            .await
-            .unwrap_err();
+        let err = route_del(
+            "a/b/c/00000000-0000-0000-0000-000000000000",
+            "via",
+            "http://127.0.0.1:8080",
+            &make_opts(&addr),
+        )
+        .await
+        .unwrap_err();
         assert!(err.to_string().contains("unexpected response type"));
     }
 }

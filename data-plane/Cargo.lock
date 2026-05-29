@@ -350,6 +350,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-test",
+ "twox-hash",
 ]
 
 [[package]]

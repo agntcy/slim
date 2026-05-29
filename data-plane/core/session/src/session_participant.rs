@@ -652,7 +652,7 @@ mod tests {
     use crate::session_settings::SessionSettings;
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
     use slim_datapath::Status;
-    use slim_datapath::api::{CommandPayload, ProtoSessionType};
+    use slim_datapath::api::{CommandPayload, NameId, ProtoSessionType};
     use tokio::sync::mpsc;
 
     // --- Test Helpers -----------------------------------------------------------------------
@@ -699,8 +699,8 @@ mod tests {
         let source = make_name(&["local", "participant", "v1"]);
         let (destination, control) = match session_type {
             ProtoSessionType::Multicast => (
-                make_name(&["channel", "name", "v1"]).with_id(ProtoName::DATA_CHANNEL_ID),
-                make_name(&["channel", "name", "v1"]).with_id(ProtoName::CONTROL_CHANNEL_ID),
+                make_name(&["channel", "name", "v1"]).with_id(NameId::DATA_CHANNEL_ID),
+                make_name(&["channel", "name", "v1"]).with_id(NameId::CONTROL_CHANNEL_ID),
             ),
             ProtoSessionType::PointToPoint => (
                 make_name(&["remote", "participant", "v1"]).with_id(100),

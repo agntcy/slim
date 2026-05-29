@@ -94,22 +94,16 @@ pub struct RouteEntry {
     /// deprecated
     #[prost(string, tag = "5")]
     pub conn_config_data: ::prost::alloc::string::String,
-    #[prost(string, tag = "6")]
-    pub component_0: ::prost::alloc::string::String,
-    #[prost(string, tag = "7")]
-    pub component_1: ::prost::alloc::string::String,
-    #[prost(string, tag = "8")]
-    pub component_2: ::prost::alloc::string::String,
-    #[prost(uint64, optional, tag = "9")]
-    pub component_id: ::core::option::Option<u64>,
-    #[prost(enumeration = "RouteStatus", tag = "10")]
+    #[prost(message, optional, tag = "6")]
+    pub name: ::core::option::Option<::slim_datapath::api::proto::dataplane::v1::Name>,
+    #[prost(enumeration = "RouteStatus", tag = "7")]
     pub status: i32,
-    #[prost(string, tag = "11")]
+    #[prost(string, tag = "8")]
     pub status_msg: ::prost::alloc::string::String,
     /// Unix timestamp
-    #[prost(int64, tag = "13")]
+    #[prost(int64, tag = "10")]
     pub last_updated: i64,
-    #[prost(string, tag = "14")]
+    #[prost(string, tag = "11")]
     pub link_id: ::prost::alloc::string::String,
 }
 /// Response containing a list of route representations

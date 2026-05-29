@@ -376,7 +376,7 @@ public sealed class SlimApp : IDisposable
     }
 
     /// <summary>Get the application ID.</summary>
-    public ulong Id => _inner.Id();
+    public string Id => _inner.Id();
 
     /// <summary>Get the application name.</summary>
     public SlimName Name => _cachedName ??= new(_inner.Name());

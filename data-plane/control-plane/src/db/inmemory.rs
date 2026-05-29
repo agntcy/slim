@@ -304,7 +304,7 @@ impl DataAccess for InMemoryDb {
         component0: &str,
         component1: &str,
         component2: &str,
-        component_id: Option<i64>,
+        component_id: Option<&str>,
     ) -> Result<Vec<Route>> {
         let store = self.routes.read();
         Ok(store
@@ -317,7 +317,7 @@ impl DataAccess for InMemoryDb {
                         r.component0 == component0
                             && r.component1 == component1
                             && r.component2 == component2
-                            && r.component_id == component_id
+                            && r.component_id.as_deref() == component_id
                     })
                     .cloned()
                     .collect()
@@ -342,7 +342,7 @@ impl DataAccess for InMemoryDb {
                         && r.component0 == name.component0
                         && r.component1 == name.component1
                         && r.component2 == name.component2
-                        && r.component_id == name.component_id
+                        && r.component_id.as_deref() == name.component_id
                 })
                 .cloned()
         }))
@@ -408,7 +408,7 @@ impl DataAccess for InMemoryDb {
         component0: &str,
         component1: &str,
         component2: &str,
-        component_id: Option<i64>,
+        component_id: Option<&str>,
     ) -> Result<Option<String>> {
         let store = self.routes.read();
         Ok(store.by_src.get(ALL_NODES_ID).and_then(|ids| {
@@ -418,7 +418,7 @@ impl DataAccess for InMemoryDb {
                     r.component0 == component0
                         && r.component1 == component1
                         && r.component2 == component2
-                        && r.component_id == component_id
+                        && r.component_id.as_deref() == component_id
                 })
                 .max_by_key(|r| r.last_updated)
                 .map(|r| r.dest_node_id.clone())
@@ -784,7 +784,7 @@ mod tests {
             component0: "org".to_string(),
             component1: "ns".to_string(),
             component2: "svc".to_string(),
-            component_id: Some(1),
+            component_id: Some("00000000-0000-0000-0000-000000000001".to_string()),
             status: RouteStatus::Pending,
             status_msg: String::new(),
             created_at: SystemTime::now(),
@@ -917,7 +917,13 @@ mod tests {
         let db = db();
         db.add_route(make_route("src", "dst", "lnk")).await.unwrap();
         let found = db
-            .get_routes_for_dest_node_id_and_name("dst", "org", "ns", "svc", Some(1))
+            .get_routes_for_dest_node_id_and_name(
+                "dst",
+                "org",
+                "ns",
+                "svc",
+                Some("00000000-0000-0000-0000-000000000001"),
+            )
             .await
             .unwrap();
         assert_eq!(found.len(), 1);
@@ -936,7 +942,7 @@ mod tests {
             component0: "org",
             component1: "ns",
             component2: "svc",
-            component_id: Some(1),
+            component_id: Some("00000000-0000-0000-0000-000000000001"),
         };
         let found = db
             .get_route_for_src_dest_name("src", &name, "dst", Some("lnk"))
@@ -954,7 +960,7 @@ mod tests {
             component0: "org",
             component1: "ns",
             component2: "svc",
-            component_id: Some(1),
+            component_id: Some("00000000-0000-0000-0000-000000000001"),
         };
         let found = db
             .get_route_for_src_dest_name("src", &name, "", None)
@@ -984,7 +990,12 @@ mod tests {
         let r = make_route(ALL_NODES_ID, "dst_node", "lnk");
         db.add_route(r).await.unwrap();
         let result = db
-            .get_destination_node_id_for_name("org", "ns", "svc", Some(1))
+            .get_destination_node_id_for_name(
+                "org",
+                "ns",
+                "svc",
+                Some("00000000-0000-0000-0000-000000000001"),
+            )
             .await
             .unwrap();
         assert_eq!(result.as_deref(), Some("dst_node"));

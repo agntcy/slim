@@ -22,14 +22,23 @@ fn main() {
     println!("cargo:rerun-if-changed={}", controller_proto.display());
     println!("cargo:rerun-if-changed={}", channel_manager_proto.display());
 
+    let datapath_proto_dir = std::path::Path::new(&manifest_dir).join("../../proto");
+
     tonic_prost_build::configure()
+        .extern_path(
+            ".dataplane.proto.v1",
+            "::slim_datapath::api::proto::dataplane::v1",
+        )
         .compile_protos(
             &[
                 controlplane_proto.to_str().unwrap(),
                 controller_proto.to_str().unwrap(),
                 channel_manager_proto.to_str().unwrap(),
             ],
-            &[proto_dir.to_str().unwrap()],
+            &[
+                proto_dir.to_str().unwrap(),
+                datapath_proto_dir.to_str().unwrap(),
+            ],
         )
         .unwrap();
 }

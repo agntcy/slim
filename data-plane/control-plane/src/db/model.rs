@@ -240,7 +240,7 @@ pub struct RouteName<'a> {
     pub component0: &'a str,
     pub component1: &'a str,
     pub component2: &'a str,
-    pub component_id: Option<i64>,
+    pub component_id: Option<&'a str>,
 }
 
 impl<'a> From<&'a Route> for RouteName<'a> {
@@ -249,7 +249,7 @@ impl<'a> From<&'a Route> for RouteName<'a> {
             component0: &r.component0,
             component1: &r.component1,
             component2: &r.component2,
-            component_id: r.component_id,
+            component_id: r.component_id.as_deref(),
         }
     }
 }
@@ -289,7 +289,7 @@ pub struct Route {
     pub component0: String,
     pub component1: String,
     pub component2: String,
-    pub component_id: Option<i64>,
+    pub component_id: Option<String>,
     pub status: RouteStatus,
     pub status_msg: String,
     #[diesel(deserialize_as = DbTimestamp, serialize_as = DbTimestamp)]
@@ -304,12 +304,12 @@ impl Route {
         component0: &str,
         component1: &str,
         component2: &str,
-        component_id: Option<i64>,
+        component_id: Option<&str>,
         dest_node_id: &str,
         link_id: Option<&str>,
     ) -> String {
         let sep = '\x00';
-        let comp_id = component_id.map(|v| v.to_string()).unwrap_or_default();
+        let comp_id = component_id.unwrap_or_default();
         let lid = link_id.unwrap_or_default();
         let combined = format!(
             "{source_node_id}{sep}{component0}{sep}{component1}{sep}{component2}{sep}{comp_id}{sep}{dest_node_id}{sep}{lid}"
@@ -323,7 +323,7 @@ impl Route {
             &self.component0,
             &self.component1,
             &self.component2,
-            self.component_id,
+            self.component_id.as_deref(),
             &self.dest_node_id,
             self.link_id.as_deref(),
         )
@@ -428,7 +428,7 @@ mod tests {
             component0: "org".to_string(),
             component1: "ns".to_string(),
             component2: "type".to_string(),
-            component_id: Some(1),
+            component_id: Some("00000000-0000-0000-0000-000000000001".to_string()),
             status: RouteStatus::Pending,
             status_msg: String::new(),
             created_at: std::time::SystemTime::now(),
@@ -440,21 +440,61 @@ mod tests {
 
     #[test]
     fn unique_id_is_deterministic() {
-        let a = Route::unique_id("src", "c0", "c1", "c2", Some(7), "dst", Some("link1"));
-        let b = Route::unique_id("src", "c0", "c1", "c2", Some(7), "dst", Some("link1"));
+        let a = Route::unique_id(
+            "src",
+            "c0",
+            "c1",
+            "c2",
+            Some("00000000-0000-0000-0000-000000000007"),
+            "dst",
+            Some("link1"),
+        );
+        let b = Route::unique_id(
+            "src",
+            "c0",
+            "c1",
+            "c2",
+            Some("00000000-0000-0000-0000-000000000007"),
+            "dst",
+            Some("link1"),
+        );
         assert_eq!(a, b);
     }
 
     #[test]
     fn unique_id_differs_for_different_inputs() {
-        let a = Route::unique_id("src", "c0", "c1", "c2", Some(1), "dst", Some("link1"));
-        let b = Route::unique_id("src", "c0", "c1", "c2", Some(2), "dst", Some("link1"));
+        let a = Route::unique_id(
+            "src",
+            "c0",
+            "c1",
+            "c2",
+            Some("00000000-0000-0000-0000-000000000001"),
+            "dst",
+            Some("link1"),
+        );
+        let b = Route::unique_id(
+            "src",
+            "c0",
+            "c1",
+            "c2",
+            Some("00000000-0000-0000-0000-000000000002"),
+            "dst",
+            Some("link1"),
+        );
         assert_ne!(a, b);
 
         let c = Route::unique_id("src", "c0", "c1", "c2", None, "dst", Some("link1"));
         assert_ne!(a, c);
 
-        let d = Route::unique_id("OTHER", "c0", "c1", "c2", Some(1), "dst", Some("link1"));
+        let d = Route::unique_id(
+            "OTHER",
+            "c0",
+            "c1",
+            "c2",
+            Some("00000000-0000-0000-0000-000000000001"),
+            "dst",
+            Some("link1"),
+        );
         assert_ne!(a, d);
     }
 
@@ -474,7 +514,7 @@ mod tests {
             &r.component0,
             &r.component1,
             &r.component2,
-            r.component_id,
+            r.component_id.as_deref(),
             &r.dest_node_id,
             r.link_id.as_deref(),
         );
@@ -540,7 +580,10 @@ mod tests {
         assert_eq!(sn.component0, "org");
         assert_eq!(sn.component1, "ns");
         assert_eq!(sn.component2, "type");
-        assert_eq!(sn.component_id, Some(1));
+        assert_eq!(
+            sn.component_id,
+            Some("00000000-0000-0000-0000-000000000001")
+        );
     }
 
     // ── has_connection_details_changed ─────────────────────────────────────

@@ -115,7 +115,7 @@ fn parse_string_name(name: String) -> Name {
     .with_id(
         strs.next()
             .expect("error parsing local_name string")
-            .parse::<u64>()
+            .parse::<u128>()
             .expect("error parsing local_name string"),
     )
 }

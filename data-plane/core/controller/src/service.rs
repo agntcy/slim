@@ -32,11 +32,11 @@ use crate::api::proto::api::v1::{
 use crate::errors::ControllerError;
 use prost_types::Struct;
 use slim_config::client::{ClientConfig, TransportChannel};
-use slim_datapath::api::ProtoName;
 use slim_datapath::api::{
     MessageType::Subscribe, MessageType::SubscriptionAck as SubscriptionAckType,
     MessageType::Unsubscribe, ProtoMessage as DataPlaneMessage,
 };
+use slim_datapath::api::{NameId, ProtoName};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_datapath::tables::SubscriptionTable;
@@ -733,12 +733,7 @@ impl ControllerService {
         for sub in desired_routes {
             match self.resolve_route_connection(sub) {
                 Ok(Some(conn_id)) => {
-                    let name = ProtoName::from_strings([
-                        sub.component_0.as_str(),
-                        sub.component_1.as_str(),
-                        sub.component_2.as_str(),
-                    ])
-                    .with_id(sub.id.unwrap_or(ProtoName::NULL_COMPONENT));
+                    let name = sub.name.clone().unwrap();
                     desired_subs.insert((name, conn_id), sub);
                 }
                 Ok(None) => {
@@ -826,13 +821,9 @@ impl ControllerService {
                     .remove(&(name.clone(), conn_id));
             }
 
-            let (c0, c1, c2) = name.str_components();
             routes_status.push(v1::RouteAck {
                 route: Some(v1::Route {
-                    component_0: c0.to_string(),
-                    component_1: c1.to_string(),
-                    component_2: c2.to_string(),
-                    id: Some(name.id()),
+                    name: Some(name.clone()),
                     link_id: None,
                     direction: None,
                 }),
@@ -1055,18 +1046,8 @@ impl ControllerService {
                                 let conn = self.resolve_route_connection(route);
 
                                 if let Ok(Some(conn)) = conn {
-                                    let source = ProtoName::from_strings([
-                                        route.component_0.as_str(),
-                                        route.component_1.as_str(),
-                                        route.component_2.as_str(),
-                                    ])
-                                    .with_id(0);
-                                    let name = ProtoName::from_strings([
-                                        route.component_0.as_str(),
-                                        route.component_1.as_str(),
-                                        route.component_2.as_str(),
-                                    ])
-                                    .with_id(route.id.unwrap_or(ProtoName::NULL_COMPONENT));
+                                    let name = route.name.clone().unwrap();
+                                    let source = name.clone().with_id(NameId::NULL_COMPONENT);
 
                                     let msg = DataPlaneMessage::builder()
                                         .source(source.clone())
@@ -1121,18 +1102,8 @@ impl ControllerService {
                                 let conn = self.resolve_route_connection(route);
 
                                 if let Ok(Some(conn)) = conn {
-                                    let source = ProtoName::from_strings([
-                                        route.component_0.as_str(),
-                                        route.component_1.as_str(),
-                                        route.component_2.as_str(),
-                                    ])
-                                    .with_id(0);
-                                    let name = ProtoName::from_strings([
-                                        route.component_0.as_str(),
-                                        route.component_1.as_str(),
-                                        route.component_2.as_str(),
-                                    ])
-                                    .with_id(route.id.unwrap_or(ProtoName::NULL_COMPONENT));
+                                    let name = route.name.clone().unwrap();
+                                    let source = name.clone().with_id(NameId::NULL_COMPONENT);
 
                                     let msg = DataPlaneMessage::builder()
                                         .source(source.clone())
@@ -1256,12 +1227,8 @@ impl ControllerService {
 
                         self.inner.message_processor.subscription_table().for_each(
                             |name, id, local, remote| {
-                                let (c0, c1, c2) = name.str_components();
                                 let mut entry = RouteEntry {
-                                    component_0: c0.to_string(),
-                                    component_1: c1.to_string(),
-                                    component_2: c2.to_string(),
-                                    id: Some(id),
+                                    name: Some(name.clone().with_id(id)),
                                     ..Default::default()
                                 };
 
@@ -1424,12 +1391,8 @@ impl ControllerService {
     async fn handle_subscribe_message(&self, dst: ProtoName, clients: &[ClientConfig]) {
         let mut sub_vec = vec![];
 
-        let (c0, c1, c2) = dst.str_components();
         let cmd = v1::Route {
-            component_0: c0.to_string(),
-            component_1: c1.to_string(),
-            component_2: c2.to_string(),
-            id: Some(dst.id()),
+            name: Some(dst),
             link_id: None,
             direction: None,
         };
@@ -1453,12 +1416,8 @@ impl ControllerService {
     async fn handle_unsubscribe_message(&self, dst: ProtoName, clients: &[ClientConfig]) {
         let mut unsub_vec = vec![];
 
-        let (c0, c1, c2) = dst.str_components();
         let cmd = v1::Route {
-            component_0: c0.to_string(),
-            component_1: c1.to_string(),
-            component_2: c2.to_string(),
-            id: Some(dst.id()),
+            name: Some(dst),
             link_id: None,
             direction: None,
         };
@@ -1695,21 +1654,10 @@ impl ControllerService {
                     .route_subscription_ids
                     .lock()
                     .iter()
-                    .map(|((name, conn_id), _sub_id)| {
-                        let (c0, c1, c2) = name.str_components();
-                        let id = name.id();
-                        v1::Route {
-                            component_0: c0.to_string(),
-                            component_1: c1.to_string(),
-                            component_2: c2.to_string(),
-                            id: if id != ProtoName::NULL_COMPONENT {
-                                Some(id)
-                            } else {
-                                None
-                            },
-                            link_id: conn_id_to_link_id.get(conn_id).cloned(),
-                            direction: None,
-                        }
+                    .map(|((name, conn_id), _sub_id)| v1::Route {
+                        name: Some(name.clone()),
+                        link_id: conn_id_to_link_id.get(conn_id).cloned(),
+                        direction: None,
                     })
                     .collect::<Vec<_>>()
             };
@@ -2090,10 +2038,10 @@ mod tests {
                     connections_to_create: vec![],
                     connections_to_delete: vec![],
                     routes_to_set: vec![v1::Route {
-                        component_0: "queued".to_string(),
-                        component_1: "sub".to_string(),
-                        component_2: format!("name-{i}"),
-                        id: Some(i as u64),
+                        name: Some(
+                            ProtoName::from_strings(["queued", "sub", &format!("name-{i}")])
+                                .with_id(i as u128),
+                        ),
                         link_id: None,
                         direction: None,
                     }],
@@ -2344,10 +2292,7 @@ mod tests {
                 connections_to_create: vec![],
                 connections_to_delete: vec![],
                 routes_to_set: vec![v1::Route {
-                    component_0: "org".to_string(),
-                    component_1: "ns".to_string(),
-                    component_2: "agent".to_string(),
-                    id: Some(1),
+                    name: Some(ProtoName::from_strings(["org", "ns", "agent"]).with_id(1u128)),
                     link_id: Some("missing-link-id".to_string()),
                     direction: None,
                 }],
@@ -2448,10 +2393,7 @@ mod tests {
                 connections_to_delete: vec![],
                 routes_to_set: vec![],
                 routes_to_delete: vec![v1::Route {
-                    component_0: "org".to_string(),
-                    component_1: "ns".to_string(),
-                    component_2: "agent".to_string(),
-                    id: Some(1),
+                    name: Some(ProtoName::from_strings(["org", "ns", "agent"]).with_id(1u128)),
                     link_id: Some("missing-link-id-delete".to_string()),
                     direction: None,
                 }],

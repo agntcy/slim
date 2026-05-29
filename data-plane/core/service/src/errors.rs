@@ -91,7 +91,7 @@ pub enum ServiceError {
     SessionMustBeMulticast(String),
     #[cfg(feature = "session")]
     #[error("error in session")]
-    SessionError(#[from] SessionErrorType),
+    SessionError(Box<SessionErrorType>),
 
     // Controller / datapath typed propagation
     #[error("controller error")]
@@ -116,4 +116,11 @@ pub enum ServiceError {
     // Catch-all
     #[error("unknown error")]
     Unknown,
+}
+
+#[cfg(feature = "session")]
+impl From<SessionErrorType> for ServiceError {
+    fn from(err: SessionErrorType) -> Self {
+        ServiceError::SessionError(Box::new(err))
+    }
 }

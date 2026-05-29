@@ -816,7 +816,7 @@ mod tests {
 
         assert!(result.is_ok(), "Should create adapter successfully");
         let adapter = result.unwrap();
-        assert!(adapter.id() > 0, "Adapter should have non-zero ID");
+        assert!(!adapter.id().is_empty(), "Adapter should have non-empty ID");
     }
 
     #[tokio::test]
@@ -872,9 +872,9 @@ mod tests {
         // (tokens include timestamps, so they're unique per creation)
         assert_ne!(adapter1.id(), adapter2.id());
 
-        // Both IDs should be non-zero
-        assert!(adapter1.id() > 0);
-        assert!(adapter2.id() > 0);
+        // Both IDs should be non-empty
+        assert!(!adapter1.id().is_empty());
+        assert!(!adapter2.id().is_empty());
     }
 
     #[tokio::test]
@@ -893,7 +893,7 @@ mod tests {
 
         assert!(result.is_ok(), "Should create app with secret successfully");
         let app = result.unwrap();
-        assert!(app.id() > 0, "App should have non-zero ID");
+        assert!(!app.id().is_empty(), "App should have non-empty ID");
     }
 
     #[tokio::test]
@@ -938,7 +938,7 @@ mod tests {
 
         assert!(result.is_ok(), "Should create app in blocking mode");
         let app = result.unwrap();
-        assert!(app.id() > 0, "App should have non-zero ID");
+        assert!(!app.id().is_empty(), "App should have non-empty ID");
     }
 
     #[test]
@@ -955,7 +955,7 @@ mod tests {
 
         assert!(result.is_ok(), "Should create secret app in blocking mode");
         let app = result.unwrap();
-        assert!(app.id() > 0, "App should have non-zero ID");
+        assert!(!app.id().is_empty(), "App should have non-empty ID");
     }
 
     #[tokio::test]
@@ -975,7 +975,7 @@ mod tests {
 
         assert!(result.is_ok(), "Should create app via internal function");
         let app = result.unwrap();
-        assert!(app.id() > 0, "App should have non-zero ID");
+        assert!(!app.id().is_empty(), "App should have non-empty ID");
     }
 
     #[tokio::test]
@@ -1001,8 +1001,8 @@ mod tests {
 
         // IDs should be different due to timestamp in token generation
         assert_ne!(app1.id(), app2.id());
-        assert!(app1.id() > 0);
-        assert!(app2.id() > 0);
+        assert!(!app1.id().is_empty());
+        assert!(!app2.id().is_empty());
     }
 
     // ========================================================================
@@ -1230,10 +1230,10 @@ mod tests {
         assert_ne!(app1.id(), app3.id());
         assert_ne!(app2.id(), app3.id());
 
-        // All IDs should be non-zero
-        assert!(app1.id() > 0);
-        assert!(app2.id() > 0);
-        assert!(app3.id() > 0);
+        // All IDs should be non-empty
+        assert!(!app1.id().is_empty());
+        assert!(!app2.id().is_empty());
+        assert!(!app3.id().is_empty());
     }
 
     #[test]

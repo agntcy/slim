@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 // Third-party crates
 use display_error_chain::ErrorChainExt;
+use slim_datapath::api::NameId;
 use slim_datapath::errors::ErrorPayload;
 use slim_session::Direction;
 use tokio::sync::mpsc;
@@ -114,13 +115,11 @@ where
         // Always generate the ID from identity token, ignoring any ID in the provided name
         let app_name_with_id = match identity_provider.get_id() {
             Ok(token_id) => {
-                // Use a hash of the token ID to convert to u64 for name generation
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
-
-                let mut hasher = DefaultHasher::new();
-                token_id.hash(&mut hasher);
-                let id_hash = hasher.finish();
+                // Use XXH3-128 for a native 128-bit hash of the token ID
+                let mut id_hash = twox_hash::XxHash3_128::oneshot(token_id.as_bytes());
+                if NameId::is_reserved_id(id_hash) {
+                    id_hash %= u128::MAX - NameId::RESERVED_IDS;
+                }
 
                 app_name.clone().with_id(id_hash)
             }
@@ -174,6 +173,7 @@ where
     }
 
     /// Delete a session and return a completion handle to await on
+    #[allow(clippy::result_large_err)]
     pub fn delete_session(
         &self,
         session: &SessionController,
@@ -451,8 +451,8 @@ mod tests {
     use crate::SubscriptionAckError;
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::api::{
-        CommandPayload, Participant, ParticipantSettings, ProtoMessage, ProtoSessionMessageType,
-        ProtoSessionType,
+        CommandPayload, NameId, Participant, ParticipantSettings, ProtoMessage,
+        ProtoSessionMessageType, ProtoSessionType,
     };
     use slim_datapath::messages::utils::SlimHeaderFlags;
     use slim_testing::utils::TEST_VALID_SECRET;
@@ -1220,7 +1220,7 @@ mod tests {
 
             // For multicast sessions, the destination is the channel name with DATA_CHANNEL_ID
             let dst = session_arc.dst();
-            let expected_dst = channel_name.clone().with_id(ProtoName::DATA_CHANNEL_ID);
+            let expected_dst = channel_name.clone().with_id(NameId::DATA_CHANNEL_ID);
             assert_eq!(dst, &expected_dst);
 
             total_received_sessions += participant_sessions.len();

@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use parking_lot::Mutex;
+use slim_datapath::api::{NameId, ProtoName};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -258,11 +259,18 @@ async fn build_node_routes(db: &SharedDb, node_id: &str) -> Vec<ProtoRoute> {
         if route.status == RouteStatus::Deleted || route.link_id.is_none() {
             continue;
         }
+        let name =
+            ProtoName::from_strings([&route.component0, &route.component1, &route.component2])
+                .with_id(
+                    route
+                        .component_id
+                        .as_deref()
+                        .and_then(|s| uuid::Uuid::parse_str(s).ok())
+                        .map(|u| u.as_u128())
+                        .unwrap_or(NameId::NULL_COMPONENT),
+                );
         routes.push(ProtoRoute {
-            component_0: route.component0.clone(),
-            component_1: route.component1.clone(),
-            component_2: route.component2.clone(),
-            id: route.component_id.map(|v| v as u64),
+            name: Some(name),
             link_id: route.link_id.clone(),
             ..Default::default()
         });

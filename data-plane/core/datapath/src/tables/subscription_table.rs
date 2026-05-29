@@ -11,6 +11,7 @@ use parking_lot::Mutex;
 use tracing::{debug, warn};
 
 use super::SubscriptionTable;
+use crate::api::proto::dataplane::v1::NameId;
 use crate::api::{EncodedName, ProtoName};
 use crate::errors::DataPathError;
 
@@ -110,8 +111,8 @@ impl Clone for ConnList {
 
 #[derive(Debug)]
 struct PrefixEntry {
-    /// Dense u64 array — 8 IDs per cache line.
-    ids: Vec<u64>,
+    /// Dense u128 array.
+    ids: Vec<u128>,
     local: Vec<ConnList>,
     remote: Vec<ConnList>,
     /// Deduplicated union of all per-slot local connections.
@@ -138,7 +139,7 @@ impl PrefixEntry {
     }
 
     /// Append a new ID slot. Called only when `id` is not already present.
-    fn push_id(&mut self, id: u64) {
+    fn push_id(&mut self, id: u128) {
         self.ids.push(id);
         self.local.push(ConnList::new());
         self.remote.push(ConnList::new());
@@ -233,12 +234,12 @@ impl PrefixEntry {
     }
 
     /// True when a slot for `id` exists.
-    fn has_id(&self, id: u64) -> bool {
+    fn has_id(&self, id: u128) -> bool {
         self.ids.contains(&id)
     }
 
     /// Ensure a slot for `id` exists, then insert `conn` (deduped).
-    fn insert_conn_for_id(&mut self, id: u64, conn: u64, is_local: bool) {
+    fn insert_conn_for_id(&mut self, id: u128, conn: u64, is_local: bool) {
         let idx = match self.ids.iter().position(|&i| i == id) {
             Some(i) => i,
             None => {
@@ -250,7 +251,7 @@ impl PrefixEntry {
     }
 
     /// Remove `conn` from the slot for `id` (no-op if slot absent).
-    fn remove_conn_for_id(&mut self, id: u64, conn: u64, is_local: bool) {
+    fn remove_conn_for_id(&mut self, id: u128, conn: u64, is_local: bool) {
         if let Some(idx) = self.ids.iter().position(|&i| i == id) {
             self.remove_conn(idx, conn, is_local);
         }
@@ -258,7 +259,7 @@ impl PrefixEntry {
 
     /// Return one connection for `id`, preferring local, round-robin, excluding `skip`.
     /// Returns `None` if `id` has no slot or all connections equal `skip`.
-    fn get_one(&self, id: u64, skip: u64) -> Option<u64> {
+    fn get_one(&self, id: u128, skip: u64) -> Option<u64> {
         let idx = self.ids.iter().position(|&i| i == id)?;
         self.local[idx]
             .next(skip)
@@ -268,7 +269,7 @@ impl PrefixEntry {
     /// Return all connections for `id` (local + remote) excluding `skip`.
     /// `None` means the slot for `id` does not exist;
     /// `Some(empty)` means the slot exists but all connections equal `skip`.
-    fn get_all(&self, id: u64, skip: u64) -> Option<Vec<u64>> {
+    fn get_all(&self, id: u128, skip: u64) -> Option<Vec<u64>> {
         let idx = self.ids.iter().position(|&i| i == id)?;
         let mut out = Vec::with_capacity(self.local[idx].len() + self.remote[idx].len());
         out.extend(
@@ -316,20 +317,20 @@ impl PrefixEntry {
     }
 
     /// Iterate all slots, yielding `(id, local, remote)` — used by `for_each`.
-    fn for_each_slot<F: FnMut(u64, &[u64], &[u64])>(&self, mut f: F) {
+    fn for_each_slot<F: FnMut(u128, &[u64], &[u64])>(&self, mut f: F) {
         for (i, &id) in self.ids.iter().enumerate() {
             f(id, self.local[i].as_slice(), self.remote[i].as_slice());
         }
     }
 
     /// Build a `ProtoName` from the stored strings and a component_3 value.
-    fn to_proto_name(&self, id: u64) -> ProtoName {
+    fn to_proto_name(&self, id: u128) -> ProtoName {
         let base = ProtoName::from_strings([
             self.strings[0].as_str(),
             self.strings[1].as_str(),
             self.strings[2].as_str(),
         ]);
-        if id != ProtoName::NULL_COMPONENT {
+        if id != NameId::NULL_COMPONENT {
             base.with_id(id)
         } else {
             base
@@ -482,7 +483,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
     fn for_each<F>(&self, mut f: F)
     where
-        F: FnMut(&ProtoName, u64, &[u64], &[u64]),
+        F: FnMut(&ProtoName, u128, &[u64], &[u64]),
     {
         let rs = self.routing.load();
         for prefix_entry in rs.values() {
@@ -506,7 +507,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
     ) -> Result<(), Self::Error> {
         let enc = name.name.as_ref().unwrap();
         let prefix = [enc.component_0, enc.component_1, enc.component_2];
-        let id = enc.component_3;
+        let id = enc.id();
         let encoded = *enc;
 
         // subscription_state locked first; routing updated via clone-modify-store.
@@ -550,7 +551,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
     ) -> Result<(), Self::Error> {
         let enc = name.name.as_ref().unwrap();
         let prefix = [enc.component_0, enc.component_1, enc.component_2];
-        let id = enc.component_3;
+        let id = enc.id();
         let encoded = *enc;
 
         // subscription_state locked first; routing validated then updated via clone-modify-store.
@@ -565,7 +566,9 @@ impl SubscriptionTable for SubscriptionTableImpl {
             }
             if !current[&prefix].has_id(id) {
                 warn!(%id, "not found");
-                return Err(DataPathError::IdNotFound(id));
+                let nid: NameId = id.into();
+                let str_nid: String = nid.into();
+                return Err(DataPathError::IdNotFound(str_nid));
             }
         }
 
@@ -638,7 +641,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 ];
                 let proto_name = current
                     .get(&prefix)
-                    .map(|pe| pe.to_proto_name(record.encoded.component_3))
+                    .map(|pe| pe.to_proto_name(record.encoded.id()))
                     .unwrap_or(ProtoName {
                         name: Some(record.encoded),
                         str_name: None,
@@ -661,7 +664,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 encoded.component_1,
                 encoded.component_2,
             ];
-            let id = encoded.component_3;
+            let id = encoded.id();
 
             let should_remove_prefix = if let Some(entry) = rs.get_mut(&prefix) {
                 let pe = Arc::make_mut(entry);
@@ -687,7 +690,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             encoded.component_1,
             encoded.component_2,
         ];
-        let id = encoded.component_3;
+        let id = encoded.id();
         let rs = self.routing.load();
 
         // ONE HashMap lookup — the same for any c3 value.
@@ -700,38 +703,38 @@ impl SubscriptionTable for SubscriptionTableImpl {
                     component_3 = id,
                     "match not found for name"
                 );
-                return Err(DataPathError::NoMatchEncoded([
+                return Err(DataPathError::NoMatchEncoded(
                     encoded.component_0,
                     encoded.component_1,
                     encoded.component_2,
-                    id,
-                ]));
+                    encoded.string_id(),
+                ));
             }
             Some(pe) => pe,
         };
 
-        if id != ProtoName::NULL_COMPONENT {
+        if id != NameId::NULL_COMPONENT {
             // Specific ID: linear scan over ids (8 per cache line).
             prefix_entry.get_one(id, incoming_conn).ok_or_else(|| {
                 debug!(component_3 = id, "match not found for name");
-                DataPathError::NoMatchEncoded([
+                DataPathError::NoMatchEncoded(
                     encoded.component_0,
                     encoded.component_1,
                     encoded.component_2,
-                    id,
-                ])
+                    encoded.string_id(),
+                )
             })
         } else {
             // NULL_COMPONENT: pick one connection across all registered IDs,
             // locals preferred.  Data is already hot from the single lookup above.
             prefix_entry.pick_one_any(incoming_conn).ok_or_else(|| {
                 debug!("no output connection available");
-                DataPathError::NoMatchEncoded([
+                DataPathError::NoMatchEncoded(
                     encoded.component_0,
                     encoded.component_1,
                     encoded.component_2,
-                    id,
-                ])
+                    encoded.string_id(),
+                )
             })
         }
     }
@@ -746,7 +749,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             encoded.component_1,
             encoded.component_2,
         ];
-        let id = encoded.component_3;
+        let id = encoded.id();
         let rs = self.routing.load();
 
         // ONE HashMap lookup — the same for any c3 value.
@@ -759,36 +762,36 @@ impl SubscriptionTable for SubscriptionTableImpl {
                     component_3 = id,
                     "match not found for name"
                 );
-                return Err(DataPathError::NoMatchEncoded([
+                return Err(DataPathError::NoMatchEncoded(
                     encoded.component_0,
                     encoded.component_1,
                     encoded.component_2,
-                    id,
-                ]));
+                    encoded.string_id(),
+                ));
             }
             Some(pe) => pe,
         };
 
-        if id != ProtoName::NULL_COMPONENT {
+        if id != NameId::NULL_COMPONENT {
             // Specific ID: linear scan over ids (8 per cache line).
             match prefix_entry.get_all(id, incoming_conn) {
                 None => {
                     debug!(component_3 = id, "match not found for name");
-                    Err(DataPathError::NoMatchEncoded([
+                    Err(DataPathError::NoMatchEncoded(
                         encoded.component_0,
                         encoded.component_1,
                         encoded.component_2,
-                        id,
-                    ]))
+                        encoded.string_id(),
+                    ))
                 }
                 Some(out) if out.is_empty() => {
                     debug!("no connection available (local/remote)");
-                    Err(DataPathError::NoMatchEncoded([
+                    Err(DataPathError::NoMatchEncoded(
                         encoded.component_0,
                         encoded.component_1,
                         encoded.component_2,
-                        id,
-                    ]))
+                        encoded.string_id(),
+                    ))
                 }
                 Some(out) => {
                     debug!(?out, "found connections");
@@ -801,12 +804,12 @@ impl SubscriptionTable for SubscriptionTableImpl {
             let out = prefix_entry.get_all_any(incoming_conn);
             if out.is_empty() {
                 debug!("no connection available");
-                Err(DataPathError::NoMatchEncoded([
+                Err(DataPathError::NoMatchEncoded(
                     encoded.component_0,
                     encoded.component_1,
                     encoded.component_2,
-                    id,
-                ]))
+                    encoded.string_id(),
+                ))
             } else {
                 debug!(?out, "found connections");
                 Ok(out)
@@ -872,7 +875,7 @@ mod tests {
 
         // return no match
         let err = t.match_all(&enc(&name1), 1);
-        assert!(matches!(err, Err(DataPathError::NoMatchEncoded(_))));
+        assert!(matches!(err, Err(DataPathError::NoMatchEncoded(..))));
 
         // add subscription again
         assert!(t.add_subscription(name1_1.clone(), 2, false, 5).is_ok());
@@ -958,7 +961,7 @@ mod tests {
         // Test that specific ID (name1_1) does NOT match NULL_COMPONENT subscriptions
         // At this point only name1 (NULL_COMPONENT) subscriptions exist on conn 1 and 2
         let err = t.match_one(&enc(&name1_1), 100);
-        assert!(matches!(err, Err(DataPathError::NoMatchEncoded(_))));
+        assert!(matches!(err, Err(DataPathError::NoMatchEncoded(..))));
 
         assert!(
             // this generates a warning
@@ -1108,7 +1111,7 @@ mod tests {
         assert!(t.remove_subscription(&name1, 1, false, 100).is_ok());
         let err = t.match_one(&enc(&name1), 100_u64);
         assert!(
-            matches!(err, Err(DataPathError::NoMatchEncoded(_))),
+            matches!(err, Err(DataPathError::NoMatchEncoded(..))),
             "Subscription should be fully removed after removing its subscription_id"
         );
 
@@ -1163,7 +1166,7 @@ mod tests {
         assert!(t.remove_subscription(&name2, 3, false, 206).is_ok());
         let err = t.match_one(&enc(&name2), 100_u64);
         assert!(
-            matches!(err, Err(DataPathError::NoMatchEncoded(_))),
+            matches!(err, Err(DataPathError::NoMatchEncoded(..))),
             "No connections should remain"
         );
     }
@@ -1248,7 +1251,7 @@ mod tests {
         assert!(t.remove_subscription(&name1, 2, false, 405).is_ok());
         let err = t.match_one(&enc(&name1), 100);
         assert!(
-            matches!(err, Err(DataPathError::NoMatchEncoded(_))),
+            matches!(err, Err(DataPathError::NoMatchEncoded(..))),
             "No connections should remain"
         );
     }
@@ -1312,7 +1315,7 @@ mod tests {
         assert!(t.remove_subscription(&name_id1, 3, false, 3).is_ok());
         let err = t.match_one(&enc(&name_id1), 100);
         assert!(
-            matches!(err, Err(DataPathError::NoMatchEncoded(_))),
+            matches!(err, Err(DataPathError::NoMatchEncoded(..))),
             "Specific ID message should NOT match NULL_COMPONENT subscriptions"
         );
 
@@ -1338,6 +1341,6 @@ mod tests {
 
         // But specific ID 1 should still fail (was removed earlier)
         let err = t.match_one(&enc(&name_id1), 100);
-        assert!(matches!(err, Err(DataPathError::NoMatchEncoded(_))));
+        assert!(matches!(err, Err(DataPathError::NoMatchEncoded(..))));
     }
 }

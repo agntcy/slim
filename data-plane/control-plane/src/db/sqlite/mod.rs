@@ -316,7 +316,7 @@ impl DataAccess for SqliteDb {
         component0: &str,
         component1: &str,
         component2: &str,
-        component_id: Option<i64>,
+        component_id: Option<&str>,
     ) -> Result<Vec<Route>> {
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
             context: "get_routes_for_dest_node_id_and_name pool",
@@ -408,7 +408,7 @@ impl DataAccess for SqliteDb {
         component0: &str,
         component1: &str,
         component2: &str,
-        component_id: Option<i64>,
+        component_id: Option<&str>,
     ) -> Result<Option<String>> {
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
             context: "get_destination_node_id_for_name pool",
@@ -1000,7 +1000,7 @@ mod tests {
             component0: "org".to_string(),
             component1: "ns".to_string(),
             component2: "svc".to_string(),
-            component_id: Some(1),
+            component_id: Some("00000000-0000-0000-0000-000000000001".to_string()),
             status: RouteStatus::Pending,
             status_msg: String::new(),
             created_at: SystemTime::now(),
@@ -1157,7 +1157,7 @@ mod tests {
             component0: "org",
             component1: "ns",
             component2: "svc",
-            component_id: Some(1),
+            component_id: Some("00000000-0000-0000-0000-000000000001"),
         };
         let found = db
             .get_route_for_src_dest_name("src", &name, "dst", Some("lnk"))
@@ -1202,7 +1202,12 @@ mod tests {
             .await
             .unwrap();
         let result = db
-            .get_destination_node_id_for_name("org", "ns", "svc", Some(1))
+            .get_destination_node_id_for_name(
+                "org",
+                "ns",
+                "svc",
+                Some("00000000-0000-0000-0000-000000000001"),
+            )
             .await
             .unwrap();
         assert_eq!(result.as_deref(), Some("dst_node"));

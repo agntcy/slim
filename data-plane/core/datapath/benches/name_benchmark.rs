@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use slim_datapath::api::{EncodedName, ProtoName, SlimHeader, StringName};
+use slim_datapath::api::{EncodedName, NameId, ProtoName, SlimHeader, StringName};
 use slim_datapath::tables::SubscriptionTable;
 use slim_datapath::tables::subscription_table::SubscriptionTableImpl;
 
@@ -12,7 +12,7 @@ fn make_proto_name() -> ProtoName {
             component_0: 0x1234_5678_9abc_def0,
             component_1: 0xfeed_cafe_dead_beef,
             component_2: 0x0101_0101_0101_0101,
-            component_3: u64::MAX,
+            name_id: Some(NameId::from(u128::MAX)),
         }),
         str_name: Some(StringName {
             str_component_0: "org".to_string(),

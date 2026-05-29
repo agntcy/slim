@@ -338,10 +338,7 @@ async fn add_route(
             node_id: src_node_id.to_string(),
             dest_node_id: dest_node_id.to_string(),
             route: Some(Route {
-                component_0: component0.to_string(),
-                component_1: component1.to_string(),
-                component_2: component2.to_string(),
-                id: None,
+                name: Some(Name::from_strings([component0, component1, component2])),
                 link_id: None,
                 direction: None,
             }),
@@ -381,8 +378,10 @@ async fn print_state(client: &mut NbClient, label: &str) {
         };
         let deleted = if r.status == 3 { " DELETED" } else { "" };
         println!(
-            "    - {} -> {} [{status}{deleted}] sub={}/{}/{}",
-            r.source_node_id, r.dest_node_id, r.component_0, r.component_1, r.component_2
+            "    - {} -> {} [{status}{deleted}] sub={}",
+            r.source_node_id,
+            r.dest_node_id,
+            r.name.as_ref().unwrap()
         );
     }
 
@@ -405,10 +404,7 @@ async fn print_state(client: &mut NbClient, label: &str) {
     println!();
 }
 
-async fn get_node_subscriptions(
-    client: &mut NbClient,
-    node_id: &str,
-) -> Vec<(String, String, String)> {
+async fn get_node_subscriptions(client: &mut NbClient, node_id: &str) -> Vec<Name> {
     let resp = client
         .list_node_routes(CpNode {
             id: node_id.to_string(),
@@ -418,13 +414,7 @@ async fn get_node_subscriptions(
         .into_inner();
     resp.entries
         .iter()
-        .map(|e| {
-            (
-                e.component_0.clone(),
-                e.component_1.clone(),
-                e.component_2.clone(),
-            )
-        })
+        .map(|e| e.name.as_ref().unwrap().clone())
         .collect()
 }
 
@@ -449,12 +439,16 @@ async fn wait_for_node_subscriptions(
     timeout: Duration,
 ) {
     let deadline = tokio::time::Instant::now() + timeout;
+    let expected_names: Vec<Name> = expected
+        .iter()
+        .map(|(c0, c1, c2)| Name::from_strings([*c0, *c1, *c2]))
+        .collect();
     loop {
         let subs = get_node_subscriptions(client, node_id).await;
-        let all_present = expected
+        if expected_names
             .iter()
-            .all(|(c0, c1, c2)| subs.contains(&(c0.to_string(), c1.to_string(), c2.to_string())));
-        if all_present {
+            .all(|n| subs.iter().any(|s| s.match_prefix(n)))
+        {
             return;
         }
         if tokio::time::Instant::now() >= deadline {
@@ -474,12 +468,16 @@ async fn wait_for_node_subscriptions_absent(
     timeout: Duration,
 ) {
     let deadline = tokio::time::Instant::now() + timeout;
+    let absent_names: Vec<Name> = absent
+        .iter()
+        .map(|(c0, c1, c2)| Name::from_strings([*c0, *c1, *c2]))
+        .collect();
     loop {
         let subs = get_node_subscriptions(client, node_id).await;
-        let all_absent = absent
+        if absent_names
             .iter()
-            .all(|(c0, c1, c2)| !subs.contains(&(c0.to_string(), c1.to_string(), c2.to_string())));
-        if all_absent {
+            .all(|n| !subs.iter().any(|s| s.match_prefix(n)))
+        {
             return;
         }
         if tokio::time::Instant::now() >= deadline {
@@ -503,8 +501,8 @@ async fn print_node_state(client: &mut NbClient, node_id: &str) {
         .into_inner();
     println!("  Node {node_id} dataplane state:");
     println!("    Routes ({}):", subs.len());
-    for (c0, c1, c2) in &subs {
-        println!("      - {c0}/{c1}/{c2}");
+    for n in &subs {
+        println!("      - {n}");
     }
     println!("    Connections ({}):", resp.entries.len());
     for entry in &resp.entries {
@@ -843,16 +841,18 @@ async fn test_scale_many_nodes() {
     // Spot-check: verify subscriptions are actually on the nodes' dataplanes
     // node-0 is source of route node-0->node-1 with sub org/ns/svc-0
     let subs_0 = get_node_subscriptions(&mut client, &node_id("node-0")).await;
+    let n = Name::from_strings(["org", "ns", "svc-0"]);
     assert!(
-        subs_0.contains(&("org".to_string(), "ns".to_string(), "svc-0".to_string())),
+        subs_0.contains(&n),
         "node-0 should have subscription org/ns/svc-0, got: {:?}",
         subs_0
     );
     // node-50 is source of route node-50->node-51 with sub org/ns/svc-50
     let mid = NUM_NODES / 2;
+    let n_mid = Name::from_strings(["org", "ns", &format!("svc-{mid}")]);
     let subs_mid = get_node_subscriptions(&mut client, &node_id(&format!("node-{mid}"))).await;
     assert!(
-        subs_mid.contains(&("org".to_string(), "ns".to_string(), format!("svc-{mid}"))),
+        subs_mid.contains(&n_mid),
         "node-{mid} should have subscription org/ns/svc-{mid}, got: {:?}",
         subs_mid
     );
@@ -1919,10 +1919,9 @@ async fn test_wildcard_expansion_on_new_node() {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     loop {
         let routes = collect_routes(&mut client, "", "").await;
-        if routes
-            .iter()
-            .any(|r| r.dest_node_id == id_a && r.component_2 == "svc-wild")
-        {
+        if routes.iter().any(|r| {
+            r.dest_node_id == id_a && r.name.as_ref().unwrap().str_components().2 == "svc-wild"
+        }) {
             break;
         }
         if tokio::time::Instant::now() >= deadline {

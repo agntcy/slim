@@ -62,7 +62,7 @@ public class UnitTests
         using var app = service.CreateApp(appName, SharedSecret);
 
         Assert.NotNull(app);
-        Assert.True(app.Id > 0);
+        Assert.False(string.IsNullOrEmpty(app.Id));
 
         // Test app properties
         var returnedName = app.Name;
@@ -221,7 +221,7 @@ public class IntegrationTests
         using var app = service.CreateApp("test-org", "create-app-test", "v1", SharedSecret);
 
         Assert.NotNull(app);
-        Assert.True(app.Id > 0);
+        Assert.False(string.IsNullOrEmpty(app.Id));
 
         // Verify Name property caching works (should return same instance)
         using var name1 = app.Name;
@@ -239,7 +239,7 @@ public class IntegrationTests
         using var app = service.CreateApp(name, SharedSecret);
 
         Assert.NotNull(app);
-        Assert.True(app.Id > 0);
+        Assert.False(string.IsNullOrEmpty(app.Id));
 
         app.Destroy();
     }
