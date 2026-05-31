@@ -57,7 +57,6 @@
 //! This unified design replaced the previous split between
 //! `SpiffeProvider` and `SpiffeJwtVerifier`.
 
-use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use display_error_chain::ErrorChainExt;
@@ -578,7 +577,6 @@ impl SpireIdentityManager {
     }
 }
 
-#[async_trait]
 impl TokenProvider for SpireIdentityManager {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         self.initialize().await
@@ -726,7 +724,6 @@ fn calculate_refresh_interval<T: JwtLike>(jwt: &T) -> Result<Duration, AuthError
     Ok(default)
 }
 
-#[async_trait]
 impl Verifier for SpireIdentityManager {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         self.initialize().await

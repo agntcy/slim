@@ -19,7 +19,6 @@ use crate::traits::MessageHandler;
 #[derive(Clone, Default)]
 pub struct MockTokenProvider;
 
-#[async_trait::async_trait]
 impl TokenProvider for MockTokenProvider {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         Ok(())
@@ -38,7 +37,6 @@ impl TokenProvider for MockTokenProvider {
 #[derive(Clone, Default)]
 pub struct MockVerifier;
 
-#[async_trait::async_trait]
 impl Verifier for MockVerifier {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         Ok(())

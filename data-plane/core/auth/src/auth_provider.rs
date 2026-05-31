@@ -65,7 +65,6 @@
 
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::errors::AuthError;
@@ -208,7 +207,6 @@ impl std::fmt::Debug for AuthVerifier {
     }
 }
 
-#[async_trait]
 impl TokenProvider for AuthProvider {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         match self {
@@ -271,7 +269,6 @@ impl TokenProvider for AuthProvider {
     }
 }
 
-#[async_trait]
 impl Verifier for AuthVerifier {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         match self {

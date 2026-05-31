@@ -3,7 +3,6 @@
 
 //! Common traits for authentication mechanisms.
 
-use async_trait::async_trait;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -63,7 +62,7 @@ impl StandardClaims {
 }
 
 /// Trait for verifying JWT tokens
-#[async_trait]
+#[trait_variant::make(Send)]
 pub trait Verifier {
     /// Initializes the verifier asynchronously.
     async fn initialize(&mut self) -> Result<(), AuthError>;
@@ -101,7 +100,7 @@ pub trait Signer {
 }
 
 /// Trait for providing JWT claims
-#[async_trait]
+#[trait_variant::make(Send)]
 pub trait TokenProvider {
     /// Initializes the token provider asynchronously.
     /// Usage notes:
