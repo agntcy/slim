@@ -326,8 +326,6 @@ impl Service {
 
     /// Start the peer sync manager in a background task.
     fn start_peer_sync(&self, peer_config: &PeerConfig) {
-        use slim_datapath::peer_discovery::config::PeerTopology;
-
         // Determine our own identity for peer tie-breaking.
         // Match our server endpoints against the static_peers list to find "self".
         let own_server_hosts: Vec<&str> = self
