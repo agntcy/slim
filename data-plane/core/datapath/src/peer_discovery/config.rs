@@ -6,6 +6,20 @@
 use serde::Deserialize;
 use slim_config::client::ClientConfig;
 
+/// Topology for peer-to-peer connections within a replica set.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PeerTopology {
+    /// Every replica connects to every other replica (N*(N-1)/2 connections).
+    /// Subscriptions are forwarded 1 hop.
+    #[default]
+    FullMesh,
+    /// One replica (the hub, determined by smallest lexicographic node_id)
+    /// connects to all others (spokes). The hub relays subscriptions and
+    /// data messages between spokes.
+    HubAndSpoke,
+}
+
 /// Top-level peer configuration.
 ///
 /// When present in the service configuration, enables peer-to-peer route
@@ -34,6 +48,10 @@ pub struct PeerConfig {
     /// Shared group identity for mutual peer authentication during link negotiation.
     /// Peers must have the same `peer_group` to accept each other.
     pub peer_group: String,
+
+    /// Topology for peer connections. Defaults to `FullMesh`.
+    #[serde(default)]
+    pub topology: PeerTopology,
 
     /// Static list of peer connections. Each entry is a full `ClientConfig`,
     /// allowing per-peer TLS, auth, keepalive, etc.
@@ -127,5 +145,41 @@ mod tests {
 
         let result: Result<PeerConfig, _> = serde_yaml::from_str(yaml);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_topology_defaults_to_full_mesh() {
+        let yaml = r#"
+            peer_group: "my-deployment"
+        "#;
+
+        let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.topology, PeerTopology::FullMesh);
+    }
+
+    #[test]
+    fn test_deserialize_hub_and_spoke_topology() {
+        let yaml = r#"
+            peer_group: "my-deployment"
+            topology: hub_and_spoke
+            static_peers:
+              - endpoint: "http://slim-1:8080"
+              - endpoint: "http://slim-2:8080"
+        "#;
+
+        let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.topology, PeerTopology::HubAndSpoke);
+        assert_eq!(config.static_peers.len(), 2);
+    }
+
+    #[test]
+    fn test_deserialize_full_mesh_topology_explicit() {
+        let yaml = r#"
+            peer_group: "my-deployment"
+            topology: full_mesh
+        "#;
+
+        let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.topology, PeerTopology::FullMesh);
     }
 }

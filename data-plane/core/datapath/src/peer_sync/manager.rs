@@ -10,6 +10,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::message_processing::MessageProcessor;
+use crate::peer_discovery::config::PeerTopology;
 use crate::peer_discovery::{PeerDiscovery, PeerEvent, PeerInfo};
 
 use super::SubscriptionEvent;
@@ -23,6 +24,10 @@ pub struct PeerSyncConfig {
     pub self_id: String,
     /// Shared group identifier for peer authentication.
     pub peer_group: String,
+    /// Topology for peer connections.
+    pub topology: PeerTopology,
+    /// Whether this node is the hub (smallest ID). Only meaningful for HubAndSpoke.
+    pub is_hub: bool,
 }
 
 /// Manages peer-to-peer subscription synchronization between replicas.
@@ -48,6 +53,9 @@ pub struct PeerSyncManager<D: PeerDiscovery + Send> {
     /// Receiver for incoming peer connections detected during negotiation.
     incoming_peer_rx:
         tokio::sync::mpsc::UnboundedReceiver<crate::message_processing::IncomingPeerEvent>,
+    /// Receiver for peer relay events (subscription received on peer connections).
+    peer_relay_rx:
+        tokio::sync::mpsc::UnboundedReceiver<crate::peer_sync::PeerRelayEvent>,
 }
 
 impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
@@ -55,6 +63,7 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
     ///
     /// `subscription_rx` should be obtained from `MessageProcessor::subscribe_events()`.
     /// `incoming_peer_rx` should be obtained from `MessageProcessor::set_incoming_peer_channel()`.
+    /// `peer_relay_rx` should be obtained from `MessageProcessor::set_peer_relay_channel()`.
     pub fn new(
         config: PeerSyncConfig,
         message_processor: MessageProcessor,
@@ -63,7 +72,15 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
         incoming_peer_rx: tokio::sync::mpsc::UnboundedReceiver<
             crate::message_processing::IncomingPeerEvent,
         >,
+        peer_relay_rx: tokio::sync::mpsc::UnboundedReceiver<
+            crate::peer_sync::PeerRelayEvent,
+        >,
     ) -> Self {
+        // If hub in hub-and-spoke, configure the message processor for publish relay.
+        if config.is_hub && config.topology == PeerTopology::HubAndSpoke {
+            message_processor.set_peer_hub(true);
+        }
+
         Self {
             config,
             message_processor,
@@ -71,6 +88,7 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
             state: Arc::new(RwLock::new(PeerState::new())),
             subscription_rx,
             incoming_peer_rx,
+            peer_relay_rx,
         }
     }
 
@@ -133,16 +151,20 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
                 Some(event) = self.incoming_peer_rx.recv() => {
                     self.handle_incoming_peer(event).await;
                 }
+                Some(relay) = self.peer_relay_rx.recv() => {
+                    self.handle_peer_relay(relay).await;
+                }
             }
         }
     }
 
     /// Handle a newly discovered peer.
     ///
-    /// Only the node with the lexicographically smaller self_id initiates the
-    /// outbound connection. The other side waits for the incoming connection
-    /// which is detected during server-side link negotiation and registered
-    /// via `handle_incoming_peer`.
+    /// Connection behavior depends on topology:
+    /// - **FullMesh**: only the node with the lexicographically smaller self_id
+    ///   initiates the outbound connection (tie-breaking for deduplication).
+    /// - **HubAndSpoke**: only the hub (smallest ID) initiates connections.
+    ///   Spokes never dial out.
     async fn handle_peer_joined(&self, peer: PeerInfo) {
         // Skip self
         if peer.id == self.config.self_id {
@@ -150,13 +172,24 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
             return;
         }
 
-        // Tie-breaking: only the smaller ID dials out.
-        // The larger ID waits for the incoming connection detected via negotiation.
-        if self.config.self_id > peer.id {
+        // Determine whether to dial based on topology.
+        let should_dial = match self.config.topology {
+            PeerTopology::FullMesh => {
+                // Tie-breaking: only the smaller ID dials out.
+                self.config.self_id < peer.id
+            }
+            PeerTopology::HubAndSpoke => {
+                // Only the hub (smallest ID) dials. Spokes wait for incoming.
+                self.config.is_hub
+            }
+        };
+
+        if !should_dial {
             debug!(
                 peer_id = %peer.id,
                 self_id = %self.config.self_id,
-                "skipping outbound connection (larger ID waits for incoming)"
+                topology = ?self.config.topology,
+                "skipping outbound connection (waiting for incoming)"
             );
             return;
         }
@@ -192,8 +225,16 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
                     },
                 );
 
-                // Perform full sync: send all local subscriptions to the new peer
-                if let Err(e) = sync::send_full_sync(&self.message_processor, conn_id).await {
+                // Perform full sync: send subscriptions to the new peer.
+                // Hub sends local + other peers' subscriptions; non-hub sends only local.
+                let sync_result = if self.config.is_hub
+                    && self.config.topology == PeerTopology::HubAndSpoke
+                {
+                    sync::send_full_sync_as_hub(&self.message_processor, conn_id).await
+                } else {
+                    sync::send_full_sync(&self.message_processor, conn_id).await
+                };
+                if let Err(e) = sync_result {
                     warn!(
                         peer_id = %peer.id,
                         error = %e,
@@ -268,8 +309,15 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
             },
         );
 
-        // Perform full sync: send all local subscriptions to the incoming peer
-        if let Err(e) = sync::send_full_sync(&self.message_processor, conn_id).await {
+        // Perform full sync: send subscriptions to the incoming peer.
+        let sync_result = if self.config.is_hub
+            && self.config.topology == PeerTopology::HubAndSpoke
+        {
+            sync::send_full_sync_as_hub(&self.message_processor, conn_id).await
+        } else {
+            sync::send_full_sync(&self.message_processor, conn_id).await
+        };
+        if let Err(e) = sync_result {
             warn!(
                 %peer_id,
                 error = %e,
@@ -326,6 +374,60 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
                     "full resync failed for peer"
                 );
             }
+        }
+    }
+
+    /// Handle a peer relay event (hub-and-spoke only).
+    ///
+    /// When the hub receives a subscription from one spoke, it relays it to all
+    /// other spokes so they know to route messages through the hub.
+    async fn handle_peer_relay(&self, relay: crate::peer_sync::PeerRelayEvent) {
+        // Only the hub in hub-and-spoke relays peer subscriptions.
+        if self.config.topology != PeerTopology::HubAndSpoke || !self.config.is_hub {
+            return;
+        }
+
+        // Forward to all peers except the source.
+        let peer_conns: Vec<u64> = self
+            .state
+            .read()
+            .all_conn_ids()
+            .into_iter()
+            .filter(|&c| c != relay.source_conn)
+            .collect();
+
+        if peer_conns.is_empty() {
+            return;
+        }
+
+        if relay.is_subscribe {
+            debug!(
+                name = %relay.name,
+                source_conn = relay.source_conn,
+                targets = peer_conns.len(),
+                "hub relaying subscription to other spokes"
+            );
+            sync::broadcast_subscribe(
+                &self.message_processor,
+                &relay.name,
+                relay.subscription_id,
+                &peer_conns,
+            )
+            .await;
+        } else {
+            debug!(
+                name = %relay.name,
+                source_conn = relay.source_conn,
+                targets = peer_conns.len(),
+                "hub relaying unsubscription to other spokes"
+            );
+            sync::broadcast_unsubscribe(
+                &self.message_processor,
+                &relay.name,
+                relay.subscription_id,
+                &peer_conns,
+            )
+            .await;
         }
     }
 

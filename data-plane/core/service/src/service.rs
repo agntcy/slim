@@ -326,6 +326,8 @@ impl Service {
 
     /// Start the peer sync manager in a background task.
     fn start_peer_sync(&self, peer_config: &PeerConfig) {
+        use slim_datapath::peer_discovery::config::PeerTopology;
+
         // Determine our own identity for peer tie-breaking.
         // Match our server endpoints against the static_peers list to find "self".
         let own_server_hosts: Vec<&str> = self
@@ -345,8 +347,17 @@ impl Service {
             .map(|c| c.endpoint.clone())
             .unwrap_or_else(|| self.id.to_string());
 
+        // Determine if we are the hub (smallest ID among all peers including self).
+        let is_hub = peer_config
+            .static_peers
+            .iter()
+            .map(|c| c.endpoint.as_str())
+            .all(|peer_endpoint| self_id.as_str() <= peer_endpoint);
+
         info!(
             %self_id,
+            %is_hub,
+            topology = ?peer_config.topology,
             peer_group = %peer_config.peer_group,
             num_static_peers = peer_config.static_peers.len(),
             "starting peer sync manager"
@@ -369,10 +380,13 @@ impl Service {
         let sync_config = PeerSyncConfig {
             self_id,
             peer_group: peer_config.peer_group.clone(),
+            topology: peer_config.topology.clone(),
+            is_hub,
         };
 
         let subscription_rx = self.message_processor.subscribe_events();
         let incoming_peer_rx = self.message_processor.set_incoming_peer_channel();
+        let peer_relay_rx = self.message_processor.set_peer_relay_channel();
         let mp = (*self.message_processor).clone();
 
         let mut manager = PeerSyncManager::new(
@@ -381,6 +395,7 @@ impl Service {
             discovery,
             subscription_rx,
             incoming_peer_rx,
+            peer_relay_rx,
         );
 
         tokio::spawn(async move {
