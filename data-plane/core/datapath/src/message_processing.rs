@@ -93,6 +93,11 @@ struct MessageProcessorInternal {
     /// Service ID for tracing
     service_id: String,
 
+    /// Peer group this node belongs to. Used during link negotiation to verify
+    /// that both sides of a peer connection belong to the same deployment.
+    /// Empty when no peer config is set.
+    peer_group: String,
+
     /// Default strict header MAC policy for server-accepted inter-node connections (see [`ServerConfig::require_header_mac`]).
     server_require_header_mac: bool,
 
@@ -125,7 +130,7 @@ struct MessageProcessorInternal {
     peer_relay_rx:
         parking_lot::Mutex<Option<tokio::sync::mpsc::Receiver<crate::peer_sync::PeerRelayEvent>>>,
 
-    /// Whether this node acts as a hub in hub-and-spoke topology.
+    /// Whether this node acts as a hub in hub-and-spoke topology (write-once at startup).
     /// When true, publishes arriving from peer connections are forwarded to other peers.
     is_peer_hub: std::sync::atomic::AtomicBool,
 
@@ -153,6 +158,7 @@ impl MessageProcessor {
     pub fn new_with_options(service_id: String, recovery_ttl: Option<std::time::Duration>) -> Self {
         Self::new_internal(
             service_id,
+            String::new(),
             recovery_ttl,
             false,
             std::time::Duration::from_secs(5),
@@ -163,11 +169,13 @@ impl MessageProcessor {
     /// Create a processor with the server strict header MAC policy from `server_config`.
     pub fn new_with_server_config(
         service_id: String,
+        peer_group: String,
         server_config: &ServerConfig,
         recovery_ttl: Option<std::time::Duration>,
     ) -> Self {
         Self::new_internal(
             service_id,
+            peer_group,
             recovery_ttl,
             server_config.require_header_mac,
             std::time::Duration::from_secs(server_config.link_hmac_timeout_secs),
@@ -177,6 +185,7 @@ impl MessageProcessor {
 
     fn new_internal(
         service_id: String,
+        peer_group: String,
         recovery_ttl: Option<std::time::Duration>,
         server_require_header_mac: bool,
         link_hmac_timeout: std::time::Duration,
@@ -198,6 +207,7 @@ impl MessageProcessor {
             recovery_table,
             sub_ack_manager: crate::subscription_ack::RemoteSubAckManager::new(),
             service_id,
+            peer_group,
             server_require_header_mac,
             link_hmac_timeout,
             link_hmac_poll_interval,
@@ -545,6 +555,7 @@ impl MessageProcessor {
             ecdh_public_key,
             conn_type_wire,
             &self.internal.service_id,
+            &self.internal.peer_group,
         );
         if let Err(e) = self.send_msg(negotiation_msg, conn_index).await {
             debug!(
@@ -1101,6 +1112,7 @@ impl MessageProcessor {
                 server_reply_ecdh,
                 reply_conn_type,
                 &self.internal.service_id,
+                &self.internal.peer_group,
             );
             if let Err(e) = self.send_msg(reply, in_connection).await {
                 debug!(
@@ -1111,8 +1123,21 @@ impl MessageProcessor {
             }
 
             // If the client indicated it is a peer (connection_type == 1), upgrade this
-            // server-side connection from Remote to Peer.
+            // server-side connection from Remote to Peer — but only if peer_group matches.
             if payload.connection_type == 1 {
+                // Verify peer_group: if we have a peer_group configured, the remote must match.
+                if !self.internal.peer_group.is_empty()
+                    && payload.peer_group != self.internal.peer_group
+                {
+                    warn!(
+                        %in_connection, %link_id,
+                        local_group = %self.internal.peer_group,
+                        remote_group = %payload.peer_group,
+                        "rejecting peer upgrade: peer_group mismatch"
+                    );
+                    return Ok(());
+                }
+
                 let remote_node_id = payload.node_id.clone();
                 info!(
                     %in_connection, %link_id, %remote_node_id,
@@ -2126,6 +2151,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: 0,
             node_id: String::new(),
+            peer_group: String::new(),
         };
         assert!(
             processor
@@ -2146,6 +2172,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: 0,
             node_id: String::new(),
+            peer_group: String::new(),
         };
         assert!(
             processor
@@ -2174,6 +2201,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: 0,
             node_id: String::new(),
+            peer_group: String::new(),
         };
         assert!(
             processor
@@ -2202,6 +2230,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: 0,
             node_id: String::new(),
+            peer_group: String::new(),
         };
         assert!(
             processor
@@ -2230,6 +2259,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: 0,
             node_id: String::new(),
+            peer_group: String::new(),
         };
         assert!(
             processor
@@ -2252,7 +2282,7 @@ mod tests {
         let mut server_config = ServerConfig::with_endpoint("127.0.0.1:0");
         server_config.require_header_mac = true;
         let processor =
-            MessageProcessor::new_with_server_config("test".into(), &server_config, None);
+            MessageProcessor::new_with_server_config("test".into(), String::new(), &server_config, None);
         let (conn_id, _rx) = make_server_conn(&processor);
         let payload = LinkNegotiationPayload {
             link_id: uuid::Uuid::new_v4().to_string(),
@@ -2261,6 +2291,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: 0,
             node_id: String::new(),
+            peer_group: String::new(),
         };
         let err = processor
             .handle_link_negotiation(&payload, conn_id)
@@ -2283,6 +2314,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: 0,
             node_id: String::new(),
+            peer_group: String::new(),
         };
         assert!(
             processor
@@ -2313,6 +2345,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: 0,
             node_id: String::new(),
+            peer_group: String::new(),
         };
         // First request: accepted, reply sent.
         assert!(
@@ -2346,6 +2379,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: 0,
             node_id: String::new(),
+            peer_group: String::new(),
         };
         assert!(
             processor
@@ -2372,6 +2406,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: 0,
             node_id: String::new(),
+            peer_group: String::new(),
         };
         assert!(
             processor
@@ -2396,6 +2431,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: 0,
             node_id: String::new(),
+            peer_group: String::new(),
         };
         // First reply: accepted.
         assert!(
@@ -2441,6 +2477,7 @@ mod tests {
         };
         let processor = MessageProcessor::new_with_server_config(
             "test_service".to_string(),
+            String::new(),
             &server_config,
             None,
         );
@@ -3125,6 +3162,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: 0,
             node_id: String::new(),
+            peer_group: String::new(),
         };
         processor
             .handle_link_negotiation(&payload, conn_id)
@@ -3168,6 +3206,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: 0,
             node_id: String::new(),
+            peer_group: String::new(),
         };
         processor
             .handle_link_negotiation(&payload, conn_id)
@@ -3195,6 +3234,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: 0,
             node_id: String::new(),
+            peer_group: String::new(),
         };
         processor
             .handle_link_negotiation(&payload, conn_id)

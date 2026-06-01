@@ -1739,6 +1739,7 @@ impl ProtoMessageBuilder {
             link_ecdh_public_key,
             0,
             "",
+            "",
         )
     }
 
@@ -1750,6 +1751,7 @@ impl ProtoMessageBuilder {
         link_ecdh_public_key: Option<Vec<u8>>,
         connection_type: u32,
         node_id: impl Into<String>,
+        peer_group: impl Into<String>,
     ) -> ProtoMessage {
         let link_ecdh_public_key = link_ecdh_public_key.unwrap_or_default();
         let link = ProtoLink {
@@ -1760,6 +1762,7 @@ impl ProtoMessageBuilder {
                 link_ecdh_public_key,
                 connection_type,
                 node_id: node_id.into(),
+                peer_group: peer_group.into(),
             })),
         };
         ProtoMessage::new(self.metadata, ProtoLinkMessageType(link))
@@ -2352,6 +2355,7 @@ mod tests {
                 link_ecdh_public_key: vec![],
                 connection_type: 0,
                 node_id: String::new(),
+                peer_group: String::new(),
             })),
         };
         let msg = ProtoMessage::new(HashMap::new(), ProtoLinkMessageType(link));

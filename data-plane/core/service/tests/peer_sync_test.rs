@@ -371,7 +371,7 @@ async fn test_subscription_not_propagated_to_remote() {
 
     // Subscribe on node 0 using create_app
     let topic = Name::from_strings(["org", "ns", "peer-only"]);
-    let (app, _app_notif_rx) = nodes[0]
+    let (_app, _app_notif_rx) = nodes[0]
         .service
         .create_app(
             &topic,
@@ -380,17 +380,15 @@ async fn test_subscription_not_propagated_to_remote() {
         )
         .expect("failed to create app on node 0");
 
-    app.subscribe(&topic, None).await.unwrap();
-
     // Wait for propagation
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Verify peer node 1 HAS the subscription (under peer conns)
-    let prefix = Name::from_strings(["org", "ns", "peer-only"]);
+    let prefix = &topic;
     let sub_table = nodes[1].service.message_processor().subscription_table();
     let mut found_on_peer = false;
     sub_table.for_each(|name, _id, _local, _remote, peer_conns| {
-        if name == &prefix && !peer_conns.is_empty() {
+        if name == prefix && !peer_conns.is_empty() {
             found_on_peer = true;
         }
     });
@@ -403,7 +401,7 @@ async fn test_subscription_not_propagated_to_remote() {
     let remote_sub_table = remote_service.message_processor().subscription_table();
     let mut found_on_remote = false;
     remote_sub_table.for_each(|name, _id, _local, _remote, _peer| {
-        if name == &prefix {
+        if name == prefix {
             found_on_remote = true;
         }
     });

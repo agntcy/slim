@@ -330,4 +330,8 @@ message LinkNegotiationPayload {
   // Used by peer replicas to identify which node is on the other end of a connection.
   // Empty for legacy peers that don't send this field.
   string node_id = 6;
+  // Peer group identifier. When non-empty and connection_type == 1 (peer),
+  // the server verifies both sides belong to the same peer group before
+  // upgrading the connection. Empty for non-peer connections.
+  string peer_group = 7;
 }
