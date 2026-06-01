@@ -215,6 +215,7 @@ pub struct DeregisterNodeResponse {
 pub enum ConnectionType {
     Local = 0,
     Remote = 1,
+    Peer = 2,
 }
 impl ConnectionType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -225,6 +226,7 @@ impl ConnectionType {
         match self {
             Self::Local => "CONNECTION_TYPE_LOCAL",
             Self::Remote => "CONNECTION_TYPE_REMOTE",
+            Self::Peer => "CONNECTION_TYPE_PEER",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -232,6 +234,7 @@ impl ConnectionType {
         match value {
             "CONNECTION_TYPE_LOCAL" => Some(Self::Local),
             "CONNECTION_TYPE_REMOTE" => Some(Self::Remote),
+            "CONNECTION_TYPE_PEER" => Some(Self::Peer),
             _ => None,
         }
     }

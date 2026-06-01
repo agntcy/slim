@@ -11,22 +11,24 @@
 pub mod config;
 mod static_list;
 
-pub use config::{PeerConfig, PeerDiscoveryConfig, PeerTopology};
+pub use config::{PeerConfig, PeerDiscoveryConfig, PeerTopology, StaticPeerEntry};
 pub use static_list::StaticPeerDiscovery;
 
 use std::fmt;
 
+use slim_config::client::ClientConfig;
+
 /// Information about a discovered peer replica.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct PeerInfo {
     /// Unique peer identifier (e.g., pod name or configured ID).
     pub id: String,
-    /// Network endpoint to reach the peer (e.g., "10.0.0.2:8080").
-    pub endpoint: String,
+    /// Full client configuration for connecting to the peer.
+    pub config: ClientConfig,
 }
 
 /// Events emitted by a peer discovery implementation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum PeerEvent {
     /// A new peer has been discovered and is available for connection.
     Joined(PeerInfo),

@@ -1,14 +1,15 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use slim_config::client::{ClientConfig, ConnType};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
+use crate::api::ProtoName;
 use crate::message_processing::MessageProcessor;
 use crate::peer_discovery::config::PeerTopology;
 use crate::peer_discovery::{PeerDiscovery, PeerEvent, PeerInfo};
@@ -54,6 +55,8 @@ pub struct PeerSyncManager<D: PeerDiscovery + Send> {
     incoming_peer_rx: mpsc::Receiver<crate::message_processing::IncomingPeerEvent>,
     /// Receiver for peer relay events (subscription received on peer connections).
     peer_relay_rx: mpsc::Receiver<crate::peer_sync::PeerRelayEvent>,
+    /// Tracks the subscription_id forwarded to peers for each name.
+    forwarded_subs: HashMap<ProtoName, u64>,
 }
 
 impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
@@ -72,7 +75,7 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
     ) -> Self {
         // If hub in hub-and-spoke, configure the message processor for publish relay.
         if config.is_hub && config.topology == PeerTopology::HubAndSpoke {
-            message_processor.set_peer_hub(true);
+            message_processor.set_forward_to_peer(true);
         }
 
         Self {
@@ -83,6 +86,7 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
             subscription_rx,
             incoming_peer_rx,
             peer_relay_rx,
+            forwarded_subs: HashMap::new(),
         }
     }
 
@@ -187,15 +191,13 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
             return;
         }
 
-        info!(peer_id = %peer.id, endpoint = %peer.endpoint, "connecting to peer");
+        info!(peer_id = %peer.id, endpoint = %peer.config.endpoint, "connecting to peer");
 
-        let config = ClientConfig {
-            endpoint: peer.endpoint.clone(),
-            connection_type: ConnType::Peer,
-            ..Default::default()
-        };
-
-        match self.message_processor.connect(config, None, None).await {
+        match self
+            .message_processor
+            .connect(peer.config.clone(), None, None)
+            .await
+        {
             Ok((_handle, conn_id)) => {
                 info!(
                     peer_id = %peer.id,
@@ -207,7 +209,7 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
                     peer.id.clone(),
                     PeerEntry {
                         conn_id,
-                        endpoint: peer.endpoint,
+                        endpoint: peer.config.endpoint.clone(),
                         is_outgoing: true,
                     },
                 );
@@ -231,7 +233,7 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
             Err(e) => {
                 error!(
                     peer_id = %peer.id,
-                    endpoint = %peer.endpoint,
+                    endpoint = %peer.config.endpoint,
                     error = %e,
                     "failed to connect to peer"
                 );
@@ -312,9 +314,10 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
     }
 
     /// Handle an aggregate subscription transition event.
-    async fn handle_subscription_event(&self, event: SubscriptionEvent) {
+    async fn handle_subscription_event(&mut self, event: SubscriptionEvent) {
         let peer_conns = self.state.read().all_conn_ids();
         if peer_conns.is_empty() {
+            debug!("no peer connections, skipping subscription event");
             return;
         }
 
@@ -323,7 +326,8 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
                 name,
                 subscription_id,
             } => {
-                debug!(%name, "forwarding subscription to peers");
+                debug!(%name, ?peer_conns, "forwarding subscription to peers");
+                self.forwarded_subs.insert(name.clone(), subscription_id);
                 sync::broadcast_subscribe(
                     &self.message_processor,
                     &name,
@@ -334,16 +338,12 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
             }
             SubscriptionEvent::Removed {
                 name,
-                subscription_id,
+                subscription_id: _,
             } => {
-                debug!(%name, "forwarding unsubscription to peers");
-                sync::broadcast_unsubscribe(
-                    &self.message_processor,
-                    &name,
-                    subscription_id,
-                    &peer_conns,
-                )
-                .await;
+                let sub_id = self.forwarded_subs.remove(&name).unwrap_or(0);
+                debug!(%name, sub_id, ?peer_conns, "forwarding unsubscription to peers");
+                sync::broadcast_unsubscribe(&self.message_processor, &name, sub_id, &peer_conns)
+                    .await;
             }
         }
     }

@@ -11,6 +11,7 @@
 use std::net::TcpListener;
 use std::time::Duration;
 
+use rstest::rstest;
 use slim_auth::shared_secret::SharedSecret;
 use slim_config::client::ClientConfig;
 use slim_config::component::id::ID;
@@ -18,7 +19,7 @@ use slim_config::server::ServerConfig;
 use slim_config::tls::client::TlsClientConfig;
 use slim_config::tls::server::TlsServerConfig;
 use slim_datapath::api::{ApplicationPayload, ProtoMessage as Message, ProtoName as Name};
-use slim_datapath::peer_discovery::{PeerConfig, PeerTopology};
+use slim_datapath::peer_discovery::{PeerConfig, PeerTopology, StaticPeerEntry};
 use slim_datapath::tables::{ConnType, SubscriptionTable};
 use slim_service::{Service, ServiceConfiguration};
 use slim_testing::utils::TEST_VALID_SECRET;
@@ -56,25 +57,34 @@ struct PeerNode {
     self_id: String,
 }
 
-/// Build a set of peer nodes that form a full mesh.
+/// Build a set of peer nodes with the given topology.
 /// Each node gets a server on a unique port, and static_peers listing all other nodes.
 fn build_peer_configs(count: usize) -> Vec<(u16, String, PeerConfig)> {
+    build_peer_configs_with_topology(count, PeerTopology::FullMesh)
+}
+
+fn build_peer_configs_with_topology(
+    count: usize,
+    topology: PeerTopology,
+) -> Vec<(u16, String, PeerConfig)> {
     let ports: Vec<u16> = (0..count).map(|_| reserve_port()).collect();
     // Use port-based node IDs for deterministic tie-breaking in tests
     let node_ids: Vec<String> = (0..count).map(|i| format!("peer-{}", ports[i])).collect();
 
     // Static peers: all endpoints (including self — will be filtered by node_id)
-    let static_peers: Vec<ClientConfig> = ports
+    let static_peers: Vec<StaticPeerEntry> = ports
         .iter()
-        .map(|&port| {
-            ClientConfig::with_endpoint(&format!("http://127.0.0.1:{port}"))
-                .with_tls_setting(TlsClientConfig::default().with_insecure(true))
+        .zip(node_ids.iter())
+        .map(|(&port, node_id)| StaticPeerEntry {
+            node_id: node_id.clone(),
+            config: ClientConfig::with_endpoint(&format!("http://127.0.0.1:{port}"))
+                .with_tls_setting(TlsClientConfig::default().with_insecure(true)),
         })
         .collect();
 
     let peer_config = PeerConfig {
         peer_group: "test-group".to_string(),
-        topology: PeerTopology::default(),
+        topology,
         static_peers,
         discovery: None,
     };
@@ -421,52 +431,18 @@ async fn test_subscription_not_propagated_to_remote() {
 // Hub-and-Spoke Topology Tests
 // ============================================================================
 
-/// Build peer configs with hub_and_spoke topology.
-fn build_hub_spoke_configs(count: usize) -> Vec<(u16, String, PeerConfig)> {
-    let ports: Vec<u16> = (0..count).map(|_| reserve_port()).collect();
-    let node_ids: Vec<String> = (0..count).map(|i| format!("peer-{}", ports[i])).collect();
-
-    let mut configs = Vec::new();
-    for i in 0..count {
-        let static_peers: Vec<ClientConfig> = ports
-            .iter()
-            .map(|&port| {
-                ClientConfig::with_endpoint(&format!("http://127.0.0.1:{port}"))
-                    .with_tls_setting(TlsClientConfig::default().with_insecure(true))
-            })
-            .collect();
-
-        let peer_config = PeerConfig {
-            peer_group: "test-hub-spoke".to_string(),
-            topology: PeerTopology::HubAndSpoke,
-            static_peers,
-            discovery: None,
-        };
-
-        configs.push((ports[i], node_ids[i].clone(), peer_config));
-    }
-
-    configs
-}
-
 /// Test that hub-and-spoke topology creates only hub-to-spoke connections.
 /// With 3 nodes, the hub connects to 2 spokes (2 connections total per spoke perspective,
 /// but only 1 on each spoke since they only connect to the hub).
 #[tokio::test(flavor = "multi_thread")]
 async fn test_hub_spoke_topology_connections() {
-    let configs = build_hub_spoke_configs(3);
+    let configs = build_peer_configs_with_topology(3, PeerTopology::HubAndSpoke);
 
-    // Determine which node will be the hub (smallest self_id endpoint)
+    // Determine which node will be the hub (smallest node_id)
     let hub_idx = configs
         .iter()
         .enumerate()
-        .min_by_key(|(_, (_, _, pc))| {
-            // The self_id will be derived from the matching static_peer endpoint
-            pc.static_peers
-                .iter()
-                .map(|p| p.endpoint.clone())
-                .collect::<Vec<_>>()
-        })
+        .min_by_key(|(_, (_, self_id, _))| self_id.clone())
         .map(|(i, _)| i)
         .unwrap();
 
@@ -511,17 +487,13 @@ async fn test_hub_spoke_topology_connections() {
 /// Spoke A subscribes → hub relays to spoke B.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_hub_spoke_subscription_relay() {
-    let configs = build_hub_spoke_configs(3);
+    let configs = build_peer_configs_with_topology(3, PeerTopology::HubAndSpoke);
 
-    // Determine hub index (smallest endpoint string after filtering self)
-    let all_endpoints: Vec<String> = configs
-        .iter()
-        .map(|(port, _, _)| format!("http://127.0.0.1:{port}"))
-        .collect();
-    let hub_idx = all_endpoints
+    // Determine hub index (smallest node_id)
+    let hub_idx = configs
         .iter()
         .enumerate()
-        .min_by_key(|(_, e)| e.as_str())
+        .min_by_key(|(_, (_, self_id, _))| self_id.clone())
         .map(|(i, _)| i)
         .unwrap();
 
@@ -603,16 +575,12 @@ async fn test_hub_spoke_subscription_relay() {
 /// App on spoke A publishes → hub relays → subscriber on spoke B receives.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_hub_spoke_message_delivery() {
-    let configs = build_hub_spoke_configs(3);
+    let configs = build_peer_configs_with_topology(3, PeerTopology::HubAndSpoke);
 
-    let all_endpoints: Vec<String> = configs
-        .iter()
-        .map(|(port, _, _)| format!("http://127.0.0.1:{port}"))
-        .collect();
-    let hub_idx = all_endpoints
+    let hub_idx = configs
         .iter()
         .enumerate()
-        .min_by_key(|(_, e)| e.as_str())
+        .min_by_key(|(_, (_, self_id, _))| self_id.clone())
         .map(|(i, _)| i)
         .unwrap();
 
@@ -683,4 +651,325 @@ async fn test_hub_spoke_message_delivery() {
     for node in &nodes {
         node.service.shutdown().await.ok();
     }
+}
+
+// ============================================================================
+// Topology-Parametrized Unsubscribe-on-Disconnect Tests
+// ============================================================================
+
+/// Starts `count` peer nodes with the given topology and waits for connections.
+/// Returns the nodes ready for testing.
+async fn start_topology(count: usize, topology: PeerTopology) -> Vec<PeerNode> {
+    let configs = build_peer_configs_with_topology(count, topology.clone());
+
+    let mut nodes = Vec::new();
+    for (port, self_id, peer_config) in configs {
+        let node = start_peer_node(port, self_id, peer_config).await;
+        wait_for_server(&format!("127.0.0.1:{}", node.port), 40).await;
+        nodes.push(node);
+    }
+
+    // Wait for the expected number of peer connections per topology
+    match topology {
+        PeerTopology::FullMesh => {
+            let expected_per_node = count - 1;
+            for node in &nodes {
+                wait_for_peer_connections(
+                    &node.service,
+                    expected_per_node,
+                    Duration::from_secs(10),
+                )
+                .await;
+            }
+        }
+        PeerTopology::HubAndSpoke => {
+            // Hub = smallest node_id, gets (count-1) connections; spokes get 1
+            let hub_idx = nodes
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, n)| &n.self_id)
+                .map(|(i, _)| i)
+                .unwrap();
+            wait_for_peer_connections(&nodes[hub_idx].service, count - 1, Duration::from_secs(10))
+                .await;
+            for (i, node) in nodes.iter().enumerate() {
+                if i != hub_idx {
+                    wait_for_peer_connections(&node.service, 1, Duration::from_secs(10)).await;
+                }
+            }
+        }
+    }
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    nodes
+}
+
+/// Verify that a subscription for `prefix` exists on the peer connections of all nodes
+/// except the one at `origin_idx`.
+fn assert_subscription_on_peers(nodes: &[PeerNode], origin_idx: usize, prefix: &Name) {
+    for (i, node) in nodes.iter().enumerate() {
+        if i == origin_idx {
+            continue;
+        }
+        let sub_table = node.service.message_processor().subscription_table();
+        let mut found = false;
+        sub_table.for_each(|name, _id, _local, _remote, peer_conns| {
+            if name == prefix && !peer_conns.is_empty() {
+                found = true;
+            }
+        });
+        assert!(
+            found,
+            "node {} should have the subscription from node {} under peer connections",
+            node.self_id, nodes[origin_idx].self_id,
+        );
+    }
+}
+
+/// Verify that a subscription for `prefix` does NOT exist on the peer connections of
+/// any node except the one at `origin_idx`.
+fn assert_no_subscription_on_peers(nodes: &[PeerNode], origin_idx: usize, prefix: &Name) {
+    for (i, node) in nodes.iter().enumerate() {
+        if i == origin_idx {
+            continue;
+        }
+        let sub_table = node.service.message_processor().subscription_table();
+        let mut found = false;
+        sub_table.for_each(|name, _id, _local, _remote, peer_conns| {
+            if name == prefix && !peer_conns.is_empty() {
+                found = true;
+            }
+        });
+        assert!(
+            !found,
+            "node {} should NOT have the subscription after unsubscribe from node {}",
+            node.self_id, nodes[origin_idx].self_id,
+        );
+    }
+}
+
+async fn shutdown_nodes(nodes: &[PeerNode]) {
+    for node in nodes {
+        node.service.shutdown().await.ok();
+    }
+}
+
+/// Test that when a local connection drops, the subscription is removed from peer nodes.
+/// Verifies unsubscribe forwarding on connection close across topologies.
+#[rstest]
+#[case::full_mesh(PeerTopology::FullMesh)]
+#[case::hub_and_spoke(PeerTopology::HubAndSpoke)]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_unsubscribe_propagated_on_connection_drop(#[case] topology: PeerTopology) {
+    let nodes = start_topology(3, topology).await;
+
+    let topic = Name::from_strings(["org", "ns", "drop-test"]).with_id(77);
+
+    // Register a local connection on node 0 and subscribe
+    let (conn_id, sub_tx, _sub_rx) = nodes[0]
+        .service
+        .message_processor()
+        .register_local_connection(false)
+        .expect("failed to register local connection");
+
+    let sub_msg = Message::builder()
+        .source(topic.clone())
+        .destination(topic.clone())
+        .subscription_id(300001)
+        .build_subscribe()
+        .unwrap();
+    sub_tx.send(Ok(sub_msg)).await.unwrap();
+
+    // Wait for subscription to propagate to peers
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let prefix = Name::from_strings(["org", "ns", "drop-test"]);
+    assert_subscription_on_peers(&nodes, 0, &prefix);
+
+    // Drop the sender to simulate client disconnect
+    drop(sub_tx);
+
+    // Wait for the unsubscribe to propagate through peer sync
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    assert_no_subscription_on_peers(&nodes, 0, &prefix);
+
+    // Also verify node 0 itself has no subscription
+    let sub_table = nodes[0].service.message_processor().subscription_table();
+    let mut found_on_origin = false;
+    sub_table.for_each(|name, _id, local_conns, _remote, _peer| {
+        if name == &prefix && !local_conns.is_empty() {
+            found_on_origin = true;
+        }
+    });
+    assert!(
+        !found_on_origin,
+        "node 0 should have removed the subscription locally after disconnect (conn_id={conn_id})"
+    );
+
+    shutdown_nodes(&nodes).await;
+}
+
+/// Test that batch subscribes (multiple sub_ids for the same name) still result in
+/// correct unsubscribe forwarding to peers when the connection drops.
+/// Verifies the forwarded_subs map in PeerSyncManager handles the sub_id correctly.
+#[rstest]
+#[case::full_mesh(PeerTopology::FullMesh)]
+#[case::hub_and_spoke(PeerTopology::HubAndSpoke)]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_batch_subscribe_unsubscribe_on_disconnect(#[case] topology: PeerTopology) {
+    let nodes = start_topology(2, topology).await;
+
+    let topic = Name::from_strings(["org", "ns", "batch-test"]).with_id(42);
+
+    // Register a local connection on node 0
+    let (_conn_id, sub_tx, _sub_rx) = nodes[0]
+        .service
+        .message_processor()
+        .register_local_connection(false)
+        .expect("failed to register local connection");
+
+    // Send multiple subscribe messages for the same name (simulates SDK batch behavior)
+    for i in 0..3u64 {
+        let sub_msg = Message::builder()
+            .source(topic.clone())
+            .destination(topic.clone())
+            .subscription_id(200001 + i)
+            .build_subscribe()
+            .unwrap();
+        sub_tx.send(Ok(sub_msg)).await.unwrap();
+    }
+
+    // Wait for subscription to propagate
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let prefix = Name::from_strings(["org", "ns", "batch-test"]);
+    assert_subscription_on_peers(&nodes, 0, &prefix);
+
+    // Drop the sender to simulate client disconnect
+    drop(sub_tx);
+
+    // Wait for unsubscribe propagation
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    assert_no_subscription_on_peers(&nodes, 0, &prefix);
+
+    shutdown_nodes(&nodes).await;
+}
+
+/// Test that explicit unsubscribe (not connection drop) also propagates to peers.
+#[rstest]
+#[case::full_mesh(PeerTopology::FullMesh)]
+#[case::hub_and_spoke(PeerTopology::HubAndSpoke)]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_explicit_unsubscribe_propagated_to_peers(#[case] topology: PeerTopology) {
+    let nodes = start_topology(2, topology).await;
+
+    let topic = Name::from_strings(["org", "ns", "unsub-test"]).with_id(99);
+    let sub_id: u64 = 400001;
+
+    // Register a raw local connection on node 0
+    let (_conn_id, sub_tx, _rx) = nodes[0]
+        .service
+        .message_processor()
+        .register_local_connection(false)
+        .expect("failed to register local connection");
+
+    // Subscribe
+    let sub_msg = Message::builder()
+        .source(topic.clone())
+        .destination(topic.clone())
+        .subscription_id(sub_id)
+        .build_subscribe()
+        .unwrap();
+    sub_tx.send(Ok(sub_msg)).await.unwrap();
+
+    // Wait for subscription to propagate
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let prefix = Name::from_strings(["org", "ns", "unsub-test"]);
+    assert_subscription_on_peers(&nodes, 0, &prefix);
+
+    // Explicitly unsubscribe (while connection stays open)
+    let unsub_msg = Message::builder()
+        .source(topic.clone())
+        .destination(topic.clone())
+        .subscription_id(sub_id)
+        .build_unsubscribe()
+        .unwrap();
+    sub_tx.send(Ok(unsub_msg)).await.unwrap();
+
+    // Wait for unsubscribe propagation
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    assert_no_subscription_on_peers(&nodes, 0, &prefix);
+
+    shutdown_nodes(&nodes).await;
+}
+
+/// Test that if two local connections subscribe to the same name on one node,
+/// dropping one connection does NOT remove the subscription from peers (still reachable).
+#[rstest]
+#[case::full_mesh(PeerTopology::FullMesh)]
+#[case::hub_and_spoke(PeerTopology::HubAndSpoke)]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_partial_disconnect_does_not_remove_from_peers(#[case] topology: PeerTopology) {
+    let nodes = start_topology(2, topology).await;
+
+    let topic = Name::from_strings(["org", "ns", "multi-conn"]).with_id(55);
+
+    // Register TWO local connections on node 0, both subscribing to the same name
+    let (_conn1_id, sub_tx1, _rx1) = nodes[0]
+        .service
+        .message_processor()
+        .register_local_connection(false)
+        .expect("failed to register connection 1");
+
+    let (_conn2_id, sub_tx2, _rx2) = nodes[0]
+        .service
+        .message_processor()
+        .register_local_connection(false)
+        .expect("failed to register connection 2");
+
+    let sub_msg1 = Message::builder()
+        .source(topic.clone())
+        .destination(topic.clone())
+        .subscription_id(100001)
+        .build_subscribe()
+        .unwrap();
+    sub_tx1.send(Ok(sub_msg1)).await.unwrap();
+
+    let sub_msg2 = Message::builder()
+        .source(topic.clone())
+        .destination(topic.clone())
+        .subscription_id(100002)
+        .build_subscribe()
+        .unwrap();
+    sub_tx2.send(Ok(sub_msg2)).await.unwrap();
+
+    // Wait for subscription to propagate
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let prefix = Name::from_strings(["org", "ns", "multi-conn"]);
+    assert_subscription_on_peers(&nodes, 0, &prefix);
+
+    // Drop only ONE connection — the name should still be reachable
+    drop(sub_tx1);
+    drop(_rx1);
+
+    // Wait for any potential unsubscribe propagation
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    // Verify peers STILL have the subscription (second connection keeps it alive)
+    assert_subscription_on_peers(&nodes, 0, &prefix);
+
+    // Now drop the second connection — the name becomes fully unreachable
+    drop(sub_tx2);
+    drop(_rx2);
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    // NOW the subscription should be gone from peers
+    assert_no_subscription_on_peers(&nodes, 0, &prefix);
+
+    shutdown_nodes(&nodes).await;
 }

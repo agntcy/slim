@@ -303,15 +303,21 @@ message LinkNegotiationPayload {
   // Empty when absent (legacy peers); both sides must send a valid key to enable header HMAC.
   bytes link_ecdh_public_key = 4;
   // Connection type advertised by the initiator.
-  // 0 = remote (default, backward compatible with peers that don't send this field).
-  // 1 = peer (intra-deployment replica connection).
-  uint32 connection_type = 5;
+  LinkConnectionType connection_type = 5;
   // Unique node identifier of the sender.
   // Used by peer replicas to identify which node is on the other end of a connection.
   // Empty for legacy peers that don't send this field.
   string node_id = 6;
-  // Peer group identifier. When non-empty and connection_type == 1 (peer),
+  // Peer group identifier. When non-empty and connection_type is LINK_CONNECTION_TYPE_PEER,
   // the server verifies both sides belong to the same peer group before
   // upgrading the connection. Empty for non-peer connections.
   string peer_group = 7;
+}
+
+// Connection type for link negotiation.
+enum LinkConnectionType {
+  // Remote connection (default, backward compatible with peers that don't send this field).
+  LINK_CONNECTION_TYPE_REMOTE = 0;
+  // Peer connection (intra-deployment replica).
+  LINK_CONNECTION_TYPE_PEER = 1;
 }

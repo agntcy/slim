@@ -38,6 +38,7 @@ services:
   # Configuration for the clim service.
   # This is the main service that will handle the incoming requests.
   slim/0:
+    node_id: "slim-0"
     # DataPlane configuration
     dataplane:
       # GRPC Server configuration

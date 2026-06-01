@@ -1226,7 +1226,7 @@ impl ControllerService {
                         let mut entries = Vec::new();
 
                         self.inner.message_processor.subscription_table().for_each(
-                            |name, id, local, remote, _peer| {
+                            |name, id, local, remote, peer| {
                                 let mut entry = RouteEntry {
                                     name: Some(name.clone().with_id(id)),
                                     ..Default::default()
@@ -1261,6 +1261,24 @@ impl ControllerService {
                                         });
                                     } else {
                                         error!(%cid, "no connection entry for id");
+                                    }
+                                }
+
+                                for &cid in peer {
+                                    if let Some(conn) = conn_table.get(cid) {
+                                        entry.connections.push(ConnectionEntry {
+                                            id: cid,
+                                            connection_type: ConnectionType::Peer as i32,
+                                            config_data: "{}".to_string(),
+                                            link_id: conn.link_id(),
+                                            direction: if conn.is_outgoing() {
+                                                ConnectionDirection::Outgoing as i32
+                                            } else {
+                                                ConnectionDirection::Incoming as i32
+                                            },
+                                        });
+                                    } else {
+                                        error!(%cid, "no connection entry for id (peer)");
                                     }
                                 }
                                 entries.push(entry);

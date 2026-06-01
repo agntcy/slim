@@ -20,25 +20,36 @@ pub enum PeerTopology {
     HubAndSpoke,
 }
 
+/// A single static peer entry pairing a node identity with connection config.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct StaticPeerEntry {
+    /// Unique node identifier of the remote peer.
+    pub node_id: String,
+
+    /// Client connection configuration (endpoint, TLS, auth, etc.).
+    #[serde(flatten)]
+    pub config: ClientConfig,
+}
+
 /// Top-level peer configuration.
 ///
 /// When present in the service configuration, enables peer-to-peer route
 /// synchronization between SLIM replicas.
 ///
-/// Static peers are listed directly in this config section (each with a full
-/// `ClientConfig`). For dynamic discovery (e.g., Kubernetes), set the
-/// `discovery` field.
-///
-/// The peer's unique identity is derived from the service's `node_id`
-/// (which defaults to a UUID when not configured).
+/// Static peers are listed directly in this config section. Each entry
+/// requires a `node_id` (the remote peer's unique identity) alongside the
+/// usual connection settings (`endpoint`, TLS, auth, etc.).
 ///
 /// # Example (static peers)
 /// ```yaml
 /// peers:
 ///   peer_group: "my-deployment"
 ///   static_peers:
-///     - endpoint: "slim-1:8080"
-///     - endpoint: "slim-2:8080"
+///     - node_id: "slim-1"
+///       endpoint: "slim-1:8080"
+///     - node_id: "slim-2"
+///       endpoint: "slim-2:8080"
 ///       tls_setting:
 ///         insecure: true
 /// ```
@@ -53,11 +64,11 @@ pub struct PeerConfig {
     #[serde(default)]
     pub topology: PeerTopology,
 
-    /// Static list of peer connections. Each entry is a full `ClientConfig`,
-    /// allowing per-peer TLS, auth, keepalive, etc.
+    /// Static list of peer connections. Each entry requires a `node_id` plus
+    /// the connection configuration fields (flattened from `ClientConfig`).
     /// The `connection_type` field is forced to `Peer` regardless of what is set.
     #[serde(default)]
-    pub static_peers: Vec<ClientConfig>,
+    pub static_peers: Vec<StaticPeerEntry>,
 
     /// Optional dynamic discovery backend (e.g., Kubernetes).
     /// When absent and `static_peers` is non-empty, only static discovery is used.
@@ -88,15 +99,19 @@ mod tests {
         let yaml = r#"
             peer_group: "my-deployment"
             static_peers:
-              - endpoint: "http://slim-1:8080"
-              - endpoint: "http://slim-2:8080"
+              - node_id: "slim-1"
+                endpoint: "http://slim-1:8080"
+              - node_id: "slim-2"
+                endpoint: "http://slim-2:8080"
         "#;
 
         let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.peer_group, "my-deployment");
         assert_eq!(config.static_peers.len(), 2);
-        assert_eq!(config.static_peers[0].endpoint, "http://slim-1:8080");
-        assert_eq!(config.static_peers[1].endpoint, "http://slim-2:8080");
+        assert_eq!(config.static_peers[0].node_id, "slim-1");
+        assert_eq!(config.static_peers[0].config.endpoint, "http://slim-1:8080");
+        assert_eq!(config.static_peers[1].node_id, "slim-2");
+        assert_eq!(config.static_peers[1].config.endpoint, "http://slim-2:8080");
         assert!(config.discovery.is_none());
     }
 
@@ -163,8 +178,10 @@ mod tests {
             peer_group: "my-deployment"
             topology: hub_and_spoke
             static_peers:
-              - endpoint: "http://slim-1:8080"
-              - endpoint: "http://slim-2:8080"
+              - node_id: "slim-1"
+                endpoint: "http://slim-1:8080"
+              - node_id: "slim-2"
+                endpoint: "http://slim-2:8080"
         "#;
 
         let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();

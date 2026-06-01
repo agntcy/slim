@@ -191,10 +191,7 @@ impl ConfigLoader {
                 ID::new_with_str(id_string).map_err(|e| ConfigError::InvalidKey(e.to_string()))?;
 
             // Parse the ServiceConfiguration directly from YAML
-            let mut config: ServiceConfiguration = serde_yaml::from_value(value.clone())?;
-
-            // Use the config map key as the node_id (overrides the UUID default).
-            config.node_id = id.name().to_string();
+            let config: ServiceConfiguration = serde_yaml::from_value(value.clone())?;
 
             configs.insert(id, config);
         }
