@@ -4,11 +4,13 @@
 //! Static peer discovery implementation.
 //!
 //! Discovers peers from a pre-built list of [`PeerInfo`] entries (typically
-//! derived from `dataplane.clients` with `connection_type: peer`).
+//! derived from `PeerConfig.static_peers`).
 //! Emits `Joined` events for all entries on startup. Never emits `Left`
 //! events since static peers are assumed to be always available.
 
 use std::collections::VecDeque;
+
+use slim_config::client::ClientConfig;
 
 use super::{PeerDiscovery, PeerDiscoveryError, PeerEvent, PeerInfo};
 
@@ -32,6 +34,22 @@ impl StaticPeerDiscovery {
             pending: VecDeque::new(),
             started: false,
         }
+    }
+
+    /// Create from a list of `ClientConfig` entries (from `PeerConfig.static_peers`).
+    ///
+    /// Each client config's endpoint is used as both the peer ID and endpoint.
+    /// The `self_id` is used to filter out our own entry if present.
+    pub fn from_client_configs(configs: &[ClientConfig], self_id: &str) -> Self {
+        let peers = configs
+            .iter()
+            .map(|c| PeerInfo {
+                id: c.endpoint.clone(),
+                endpoint: c.endpoint.clone(),
+            })
+            .filter(|p| p.id != self_id)
+            .collect();
+        Self::new(peers)
     }
 }
 
@@ -124,5 +142,50 @@ mod tests {
         let result =
             tokio::time::timeout(std::time::Duration::from_millis(50), discovery.recv()).await;
         assert!(result.is_err()); // no events
+    }
+
+    #[tokio::test]
+    async fn test_from_client_configs() {
+        let configs = vec![
+            ClientConfig {
+                endpoint: "http://slim-0:8080".to_string(),
+                ..Default::default()
+            },
+            ClientConfig {
+                endpoint: "http://slim-1:8080".to_string(),
+                ..Default::default()
+            },
+            ClientConfig {
+                endpoint: "http://slim-2:8080".to_string(),
+                ..Default::default()
+            },
+        ];
+
+        // "slim-0:8080" is self, should be filtered out
+        let mut discovery = StaticPeerDiscovery::from_client_configs(&configs, "http://slim-0:8080");
+        discovery.start().await.unwrap();
+
+        let event1 = discovery.recv().await.unwrap();
+        let event2 = discovery.recv().await.unwrap();
+
+        assert_eq!(
+            event1,
+            PeerEvent::Joined(PeerInfo {
+                id: "http://slim-1:8080".to_string(),
+                endpoint: "http://slim-1:8080".to_string(),
+            })
+        );
+        assert_eq!(
+            event2,
+            PeerEvent::Joined(PeerInfo {
+                id: "http://slim-2:8080".to_string(),
+                endpoint: "http://slim-2:8080".to_string(),
+            })
+        );
+
+        // No more events
+        let result =
+            tokio::time::timeout(std::time::Duration::from_millis(50), discovery.recv()).await;
+        assert!(result.is_err());
     }
 }
