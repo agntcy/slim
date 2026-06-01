@@ -361,12 +361,12 @@ where
         Ok(commit_msg)
     }
 
-    pub fn encrypt_message(&mut self, message: &[u8], aad: Vec<u8>) -> Result<Vec<u8>, MlsError> {
+    pub fn encrypt_message(&mut self, message: &[u8], aad: &[u8]) -> Result<Vec<u8>, MlsError> {
         debug!("Encrypting MLS message");
 
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
-        let encrypted_msg = group.encrypt_application_message(message, aad)?;
+        let encrypted_msg = group.encrypt_application_message(message, aad.to_vec())?;
 
         let msg = encrypted_msg.to_bytes()?;
         Ok(msg)

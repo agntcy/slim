@@ -2,8 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Standard library imports
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, btree_map::Entry};
 use std::sync::Arc;
+
+thread_local! {
+    static AAD_ENCODE_BUF: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(256));
+}
 
 // Third-party crates
 use parking_lot::Mutex;
@@ -299,8 +304,11 @@ where
         let payload = msg.get_payload().unwrap().as_application_payload()?;
 
         debug!("Encrypting message for group member");
-        let aad = self.build_aad(msg);
-        let encrypted_payload = self.mls.encrypt_message(&payload.blob, aad)?;
+        let encrypted_payload = AAD_ENCODE_BUF.with(|cell| {
+            let mut buf = cell.borrow_mut();
+            self.build_aad_into(msg, &mut buf);
+            self.mls.encrypt_message(&payload.blob, buf.as_slice())
+        })?;
 
         msg.set_payload(
             ApplicationPayload::new(&payload.payload_type, encrypted_payload.to_vec()).as_content(),
@@ -336,10 +344,16 @@ where
             };
 
             if should_validate {
-                let expected_aad = self.build_aad(msg);
-                if expected_aad != auth_data {
-                    let expected_decoded = HeaderIntegrityAad::decode(&expected_aad[..]);
-                    let got_decoded = HeaderIntegrityAad::decode(&auth_data[..]);
+                let aad_ok = AAD_ENCODE_BUF.with(|cell| {
+                    let mut buf = cell.borrow_mut();
+                    self.build_aad_into(msg, &mut buf);
+                    buf.as_slice() == auth_data.as_slice()
+                });
+                if !aad_ok {
+                    let expected_decoded = AAD_ENCODE_BUF.with(|cell| {
+                        HeaderIntegrityAad::decode(&cell.borrow()[..]).ok()
+                    });
+                    let got_decoded = HeaderIntegrityAad::decode(&auth_data[..]).ok();
                     error!(
                         "Header integrity validation failed! Expected AAD: {:?}, Got AAD: {:?}",
                         expected_decoded, got_decoded
@@ -355,8 +369,8 @@ where
         Ok(())
     }
 
-    /// Builds the Authenticated Data (AAD) for header integrity checks
-    fn build_aad(&self, msg: &Message) -> Vec<u8> {
+    /// Builds the Authenticated Data (AAD) for header integrity checks into `buf`.
+    fn build_aad_into(&self, msg: &Message, buf: &mut Vec<u8>) {
         let slim_header = msg.get_slim_header();
         let session_header = msg.get_session_header();
 
@@ -381,8 +395,8 @@ where
             message_id: session_header.get_message_id(),
             payload_type,
         };
-
-        aad.encode_to_vec()
+        buf.clear();
+        aad.encode(buf).expect("HeaderIntegrityAad encode");
     }
 }
 
