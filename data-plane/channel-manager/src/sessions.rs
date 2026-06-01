@@ -35,10 +35,9 @@ impl SessionsList {
         }
     }
 
-    /// Try to insert a session atomically: checks existence and inserts under a single write lock.
+    /// add a session. checks existence and inserts under a single write lock.
     /// Spawns a background event monitor for the session.
-    /// Returns `true` if inserted, `false` if the channel already exists.
-    /// Add a session to the list
+    /// Returns `Ok(())` if inserted, `Err` if the channel already exists.
     pub async fn add_session(
         &self,
         channel_name: String,
