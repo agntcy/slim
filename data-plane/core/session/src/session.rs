@@ -89,7 +89,9 @@ where
 
     pub(crate) fn set_mls_state<V>(
         &mut self,
-        mls_state: std::sync::Arc<crate::single_threaded_cell::SingleThreadedCell<crate::mls_state::MlsState<P, V>>>,
+        mls_state: std::sync::Arc<
+            crate::single_threaded_cell::SingleThreadedCell<crate::mls_state::MlsState<P, V>>,
+        >,
     ) where
         V: Verifier + Send + Sync + Clone + 'static,
     {
@@ -363,7 +365,9 @@ where
 {
     fn set_mls_state(
         &mut self,
-        mls_state: std::sync::Arc<crate::single_threaded_cell::SingleThreadedCell<crate::mls_state::MlsState<P, V>>>,
+        mls_state: std::sync::Arc<
+            crate::single_threaded_cell::SingleThreadedCell<crate::mls_state::MlsState<P, V>>,
+        >,
     ) {
         self.set_mls_state(mls_state);
     }

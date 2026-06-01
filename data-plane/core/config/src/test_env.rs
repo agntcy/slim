@@ -3,7 +3,5 @@
 
 //! Test-only synchronization for process environment mutations.
 
-use std::sync::Mutex;
-
 /// Serializes tests that set or clear `http_proxy` / related env vars.
-pub(crate) static PROXY_ENV_LOCK: Mutex<()> = Mutex::new(());
+pub(crate) static PROXY_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());

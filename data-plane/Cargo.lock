@@ -364,7 +364,6 @@ dependencies = [
  "agntcy-slim-mls",
  "agntcy-slim-testing",
  "agntcy-slim-version",
- "arc-swap",
  "async-trait",
  "criterion",
  "display-error-chain",

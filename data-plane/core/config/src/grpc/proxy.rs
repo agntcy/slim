@@ -231,9 +231,11 @@ mod test {
 
     #[test]
     fn run_all_tests() {
-        let _env_guard = crate::test_env::PROXY_ENV_LOCK
-            .lock()
-            .expect("proxy env lock");
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime");
+        let _env_guard = rt.block_on(crate::test_env::PROXY_ENV_LOCK.lock());
         // Run tests consecutively as we are using the set/unset env variables,
         // which may influence concurrent test execution
         test_proxy_config();

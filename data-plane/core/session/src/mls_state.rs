@@ -349,9 +349,8 @@ where
                     buf.as_slice() == auth_data.as_slice()
                 });
                 if !aad_ok {
-                    let expected_decoded = AAD_ENCODE_BUF.with(|cell| {
-                        HeaderIntegrityAad::decode(&cell.borrow()[..]).ok()
-                    });
+                    let expected_decoded = AAD_ENCODE_BUF
+                        .with(|cell| HeaderIntegrityAad::decode(&cell.borrow()[..]).ok());
                     let got_decoded = HeaderIntegrityAad::decode(&auth_data[..]).ok();
                     error!(
                         "Header integrity validation failed! Expected AAD: {:?}, Got AAD: {:?}",
@@ -421,7 +420,9 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub(crate) fn new(mls: Arc<crate::single_threaded_cell::SingleThreadedCell<MlsState<P, V>>>) -> Self {
+    pub(crate) fn new(
+        mls: Arc<crate::single_threaded_cell::SingleThreadedCell<MlsState<P, V>>>,
+    ) -> Self {
         MlsModeratorState {
             common: mls,
             participants: HashMap::new(),
@@ -441,7 +442,11 @@ where
         let payload = msg.extract_join_reply()?;
 
         // Propagate MlsError directly (will become SessionError::MlsOp via #[from])
-        let ret = self.common.borrow_mut().mls.add_member(payload.key_package())?;
+        let ret = self
+            .common
+            .borrow_mut()
+            .mls
+            .add_member(payload.key_package())?;
 
         // add participant to the list
         self.participants
@@ -474,14 +479,22 @@ where
         &mut self,
         proposal: &ProposalMsg,
     ) -> Result<CommitMsg, SessionError> {
-        let commit = self.common.borrow_mut().mls.process_proposal(proposal, true)?;
+        let commit = self
+            .common
+            .borrow_mut()
+            .mls
+            .process_proposal(proposal, true)?;
 
         Ok(commit)
     }
 
     #[allow(dead_code)]
     pub(crate) fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, SessionError> {
-        let commit = self.common.borrow_mut().mls.process_local_pending_proposal()?;
+        let commit = self
+            .common
+            .borrow_mut()
+            .mls
+            .process_local_pending_proposal()?;
 
         Ok(commit)
     }

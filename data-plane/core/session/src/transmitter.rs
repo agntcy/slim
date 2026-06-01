@@ -24,13 +24,15 @@ pub trait MessageEncryptor: Send + Sync {
     fn encrypt_message(&self, message: &mut Message) -> Result<(), SessionError>;
 }
 
-impl<P, V> MessageEncryptor for crate::single_threaded_cell::SingleThreadedCell<crate::mls_state::MlsState<P, V>>
+impl<P, V> MessageEncryptor
+    for crate::single_threaded_cell::SingleThreadedCell<crate::mls_state::MlsState<P, V>>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
     fn encrypt_message(&self, message: &mut Message) -> Result<(), SessionError> {
-        self.borrow_mut().process_message(message, crate::common::MessageDirection::South)
+        self.borrow_mut()
+            .process_message(message, crate::common::MessageDirection::South)
     }
 }
 
@@ -42,7 +44,8 @@ where
     pub(crate) slim_tx: SlimChannelSender,
     pub(crate) app_tx: AppChannelSender,
     pub(crate) identity_provider: P,
-    pub(crate) encryptor: Arc<crate::single_threaded_cell::SingleThreadedCell<Option<Arc<dyn MessageEncryptor>>>>,
+    pub(crate) encryptor:
+        Arc<crate::single_threaded_cell::SingleThreadedCell<Option<Arc<dyn MessageEncryptor>>>>,
 }
 
 impl<P> SessionTransmitter<P>

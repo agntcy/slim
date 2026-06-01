@@ -118,7 +118,9 @@ where
                 mls_settings.header_integrity_validation_percent,
             )
             .expect("failed to create MLS state");
-            let shared = Arc::new(crate::single_threaded_cell::SingleThreadedCell::new(mls_state));
+            let shared = Arc::new(crate::single_threaded_cell::SingleThreadedCell::new(
+                mls_state,
+            ));
             self.inner.set_mls_state(shared.clone());
             Some(MlsModeratorState::new(shared))
         } else {

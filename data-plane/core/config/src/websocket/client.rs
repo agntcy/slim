@@ -452,13 +452,11 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::disallowed_methods)]
     async fn test_websocket_client_connect_timeout() {
-        let _env_guard = crate::test_env::PROXY_ENV_LOCK
-            .lock()
-            .expect("proxy env lock");
+        let _env_guard = crate::test_env::PROXY_ENV_LOCK.lock().await;
 
         // Isolate from shell/parallel tests that set HTTP_PROXY (see grpc::proxy tests).
-        #[allow(clippy::disallowed_methods)]
         let saved_proxy_env = [
             ("http_proxy", std::env::var("http_proxy").ok()),
             ("HTTP_PROXY", std::env::var("HTTP_PROXY").ok()),

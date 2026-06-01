@@ -126,8 +126,6 @@ where
         }
     }
 
-
-
     /// Send a message with optional acknowledgment notification
     pub async fn on_message(
         &mut self,
@@ -276,10 +274,7 @@ where
         (id, fanout)
     }
 
-    async fn set_timer_and_send(
-        &mut self,
-        message: Message,
-    ) -> Result<(), SessionError> {
+    async fn set_timer_and_send(&mut self, message: Message) -> Result<(), SessionError> {
         let message_id = message.get_id();
         let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
         debug!(%message_id, "send new message");
