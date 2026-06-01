@@ -23,8 +23,6 @@ use tracing::debug;
 
 use std::sync::Arc;
 
-use parking_lot::Mutex;
-
 use crate::{
     common::{MessageDirection, SessionMessage},
     errors::SessionError,
@@ -120,7 +118,7 @@ where
                 mls_settings.header_integrity_validation_percent,
             )
             .expect("failed to create MLS state");
-            let shared = Arc::new(Mutex::new(mls_state));
+            let shared = Arc::new(crate::single_threaded_cell::SingleThreadedCell::new(mls_state));
             self.inner.set_mls_state(shared.clone());
             Some(MlsModeratorState::new(shared))
         } else {
@@ -163,7 +161,7 @@ where
                     {
                         mls_state
                             .common
-                            .lock()
+                            .borrow_mut()
                             .process_message(&mut message, direction)?;
                     }
 

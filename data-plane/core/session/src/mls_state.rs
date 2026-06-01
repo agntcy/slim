@@ -11,7 +11,6 @@ thread_local! {
 }
 
 // Third-party crates
-use parking_lot::Mutex;
 use tracing::{debug, error, trace};
 
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -407,7 +406,7 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     /// mls state in common between moderator and participants
-    pub(crate) common: Arc<Mutex<MlsState<P, V>>>,
+    pub(crate) common: Arc<crate::single_threaded_cell::SingleThreadedCell<MlsState<P, V>>>,
 
     /// map of the participants (with real ids) with package keys
     /// used to remove participants from the channel
@@ -422,7 +421,7 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub(crate) fn new(mls: Arc<Mutex<MlsState<P, V>>>) -> Self {
+    pub(crate) fn new(mls: Arc<crate::single_threaded_cell::SingleThreadedCell<MlsState<P, V>>>) -> Self {
         MlsModeratorState {
             common: mls,
             participants: HashMap::new(),
@@ -431,7 +430,7 @@ where
     }
 
     pub(crate) async fn init_moderator(&mut self) -> Result<(), SessionError> {
-        self.common.lock().mls.create_group()?;
+        self.common.borrow_mut().mls.create_group()?;
         Ok(())
     }
 
@@ -442,7 +441,7 @@ where
         let payload = msg.extract_join_reply()?;
 
         // Propagate MlsError directly (will become SessionError::MlsOp via #[from])
-        let ret = self.common.lock().mls.add_member(payload.key_package())?;
+        let ret = self.common.borrow_mut().mls.add_member(payload.key_package())?;
 
         // add participant to the list
         self.participants
@@ -462,7 +461,7 @@ where
             }
         };
 
-        let ret = self.common.lock().mls.remove_member(id)?;
+        let ret = self.common.borrow_mut().mls.remove_member(id)?;
 
         // remove the participant from the list
         self.participants.remove(&name);
@@ -475,14 +474,14 @@ where
         &mut self,
         proposal: &ProposalMsg,
     ) -> Result<CommitMsg, SessionError> {
-        let commit = self.common.lock().mls.process_proposal(proposal, true)?;
+        let commit = self.common.borrow_mut().mls.process_proposal(proposal, true)?;
 
         Ok(commit)
     }
 
     #[allow(dead_code)]
     pub(crate) fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, SessionError> {
-        let commit = self.common.lock().mls.process_local_pending_proposal()?;
+        let commit = self.common.borrow_mut().mls.process_local_pending_proposal()?;
 
         Ok(commit)
     }

@@ -20,21 +20,19 @@ use crate::{
     transmitter::SessionTransmitter,
 };
 
-pub(crate) struct Session<P, V = slim_auth::shared_secret::SharedSecret>
+pub(crate) struct Session<P>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
 {
     local_name: ProtoName,
-    pub(crate) sender: Option<SessionSender<P, V>>,
+    pub(crate) sender: Option<SessionSender<P>>,
     pub(crate) receiver: Option<SessionReceiver<P>>,
     processing_state: ProcessingState,
 }
 
-impl<P, V> Session<P, V>
+impl<P> Session<P>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
 {
     pub(crate) fn new(
         session_id: u32,
@@ -59,7 +57,7 @@ where
         let sender = if shutdown_send {
             None
         } else {
-            Some(SessionSender::new(
+            Some(SessionSender::<P>::new(
                 timer_settings.clone(),
                 session_id,
                 session_config.session_type,
@@ -89,12 +87,17 @@ where
         }
     }
 
-    pub(crate) fn set_mls_state(
+    pub(crate) fn set_mls_state<V>(
         &mut self,
-        mls_state: std::sync::Arc<parking_lot::Mutex<crate::mls_state::MlsState<P, V>>>,
-    ) {
+        mls_state: std::sync::Arc<crate::single_threaded_cell::SingleThreadedCell<crate::mls_state::MlsState<P, V>>>,
+    ) where
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         if let Some(sender) = &mut self.sender {
-            sender.set_mls_state(mls_state);
+            sender.tx.set_encryptor(mls_state.clone());
+        }
+        if let Some(receiver) = &mut self.receiver {
+            receiver.tx.set_encryptor(mls_state.clone());
         }
     }
 
@@ -189,7 +192,7 @@ where
     ) -> Result<(), SessionError>
     where
         F: FnOnce(
-            &'a mut SessionSender<P, V>,
+            &'a mut SessionSender<P>,
             Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
         ) -> Fut,
         Fut: std::future::Future<Output = Result<(), SessionError>> + 'a,
@@ -209,7 +212,7 @@ where
     /// Helper to call sender methods without ack_tx
     fn with_sender_without_ack<F, R>(&mut self, f: F) -> Result<R, SessionError>
     where
-        F: FnOnce(&mut SessionSender<P, V>) -> Result<R, SessionError>,
+        F: FnOnce(&mut SessionSender<P>) -> Result<R, SessionError>,
     {
         match self.sender {
             Some(ref mut sender) => f(sender),
@@ -314,10 +317,9 @@ where
 
 /// Implementation of MessageHandler trait for Session
 /// This allows Session to be used as a layer in the generic layer system
-impl<P, V> MessageHandler for Session<P, V>
+impl<P> MessageHandler for Session<P>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
 {
     async fn init(&mut self) -> Result<(), SessionError> {
         // Session is the innermost layer, no initialization needed
@@ -354,14 +356,14 @@ where
     }
 }
 
-impl<P, V> crate::traits::MlsStateSelector<P, V> for Session<P, V>
+impl<P, V> crate::traits::MlsStateSelector<P, V> for Session<P>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
     fn set_mls_state(
         &mut self,
-        mls_state: std::sync::Arc<parking_lot::Mutex<crate::mls_state::MlsState<P, V>>>,
+        mls_state: std::sync::Arc<crate::single_threaded_cell::SingleThreadedCell<crate::mls_state::MlsState<P, V>>>,
     ) {
         self.set_mls_state(mls_state);
     }
@@ -369,7 +371,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    type Session<P> = super::Session<P, crate::test_utils::MockVerifier>;
+    type Session<P> = super::Session<P>;
 
     use crate::test_utils::MockTokenProvider;
     use crate::transmitter::SessionTransmitter;

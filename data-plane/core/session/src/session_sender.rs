@@ -1,13 +1,9 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
-
-use arc_swap::ArcSwapOption;
-use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use rand::Rng;
-use slim_auth::traits::{TokenProvider, Verifier};
+use slim_auth::traits::TokenProvider;
 use slim_datapath::api::{EncodedName, Participant, ProtoSessionType};
 use slim_datapath::messages::utils::{MAX_PUBLISH_ID, PUBLISH_TO};
 use slim_datapath::{api::ProtoMessage as Message, api::ProtoName};
@@ -15,8 +11,6 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 use tracing::debug;
 
-use crate::common::MessageDirection;
-use crate::mls_state::MlsState;
 use crate::transmitter::SessionTransmitter;
 use crate::{
     SessionError,
@@ -44,10 +38,9 @@ struct GroupTimer {
 }
 
 #[allow(dead_code)]
-pub struct SessionSender<P, V = slim_auth::shared_secret::SharedSecret>
+pub struct SessionSender<P>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
 {
     /// buffer storing messages coming from the application
     buffer: ProducerBuffer,
@@ -82,7 +75,7 @@ where
     session_type: ProtoSessionType,
 
     /// send packets to slim or the app
-    tx: SessionTransmitter<P>,
+    pub(crate) tx: SessionTransmitter<P>,
 
     /// set to true if the sender is receiving packets
     /// to send but no one is connected to the session yet
@@ -93,16 +86,12 @@ where
 
     /// oneshot senders to signal when network acks are received for each message
     ack_notifiers: HashMap<u32, oneshot::Sender<Result<(), SessionError>>>,
-
-    /// MLS state for E2E encryption and header integrity verification
-    mls_state: ArcSwapOption<Mutex<MlsState<P, V>>>,
 }
 
 #[allow(dead_code)]
-impl<P, V> SessionSender<P, V>
+impl<P> SessionSender<P>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
 {
     const MAX_FANOUT: u32 = 256;
 
@@ -121,7 +110,7 @@ where
             None
         };
 
-        SessionSender {
+        SessionSender::<P> {
             buffer: ProducerBuffer::with_capacity(512),
             timer_factory: factory,
             pending_acks: HashMap::new(),
@@ -134,13 +123,10 @@ where
             to_flush: false,
             draining_state: SenderDrainStatus::NotDraining,
             ack_notifiers: HashMap::new(),
-            mls_state: ArcSwapOption::empty(),
         }
     }
 
-    pub(crate) fn set_mls_state(&mut self, mls_state: Arc<Mutex<MlsState<P, V>>>) {
-        self.mls_state.store(Some(mls_state));
-    }
+
 
     /// Send a message with optional acknowledgment notification
     pub async fn on_message(
@@ -230,10 +216,6 @@ where
         session_header.set_session_type(self.session_type);
         message.get_slim_header_mut().set_fanout(fanout);
 
-        // Retrieve and set the identity token before building AAD / encrypting
-        let identity = self.tx.identity_provider.get_token()?;
-        message.get_slim_header_mut().set_identity(identity);
-
         // Buffer the message after setting the ID (only for non-publish_to messages)
         if !is_publish_to {
             self.buffer.push(message.clone());
@@ -269,7 +251,7 @@ where
             self.buffer.push(message.clone());
         }
 
-        self.encrypt_set_timer_and_send(message).await
+        self.set_timer_and_send(message).await
     }
 
     fn id_and_fanout(&mut self, is_publish_to: bool) -> (u32, u32) {
@@ -294,25 +276,13 @@ where
         (id, fanout)
     }
 
-    fn encrypt_message(&self, message: &mut Message) -> Result<(), SessionError> {
-        if let Some(mls_state) = self.mls_state.load_full() {
-            mls_state
-                .lock()
-                .process_message(message, MessageDirection::South)?;
-        }
-        Ok(())
-    }
-
-    async fn encrypt_set_timer_and_send(
+    async fn set_timer_and_send(
         &mut self,
-        mut message: Message,
+        message: Message,
     ) -> Result<(), SessionError> {
         let message_id = message.get_id();
         let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
         debug!(%message_id, "send new message");
-
-        debug!("encrypting message");
-        self.encrypt_message(&mut message)?;
 
         if let Some(timer_factory) = &self.timer_factory {
             debug!("reliable sender, set all timers");
@@ -429,9 +399,6 @@ where
             msg.get_session_header_mut()
                 .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
 
-            // Encrypt RTX reply under current epoch keys
-            self.encrypt_message(&mut msg)?;
-
             // send the message
             self.tx.send_to_slim(Ok(msg)).await
         } else {
@@ -479,9 +446,6 @@ where
                         debug!(%id, dst = %name, "resend message");
                         let mut m = message.clone();
                         m.get_slim_header_mut().set_destination(name.clone());
-
-                        // Encrypt retransmission under current epoch keys
-                        self.encrypt_message(&mut m)?;
 
                         self.tx.send_to_slim(Ok(m)).await?;
                     }
@@ -567,7 +531,7 @@ where
             self.to_flush = false;
             let messages: Vec<_> = self.buffer.iter().cloned().collect();
             for p in messages {
-                let _ = self.encrypt_set_timer_and_send(p).await;
+                let _ = self.set_timer_and_send(p).await;
             }
         }
 
@@ -648,7 +612,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    type SessionSender<P> = super::SessionSender<P, crate::test_utils::MockVerifier>;
+    type SessionSender<P> = super::SessionSender<P>;
 
     use crate::test_utils::MockTokenProvider;
     use crate::transmitter::SessionTransmitter;

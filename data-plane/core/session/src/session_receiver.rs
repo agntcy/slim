@@ -82,7 +82,7 @@ where
     session_type: ProtoSessionType,
 
     /// send to slim/app
-    tx: SessionTransmitter<P>,
+    pub(crate) tx: SessionTransmitter<P>,
 
     /// drain state - when true, no new messages from app are accepted
     draining_state: ReceiverDrainStatus,

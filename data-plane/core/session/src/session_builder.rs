@@ -382,7 +382,7 @@ where
     /// between moderator and participant stack building.
     fn build_session_stack<W>(
         self,
-        wrapper_constructor: impl FnOnce(crate::session::Session<P, V>, SessionSettings<P, V, M>) -> W,
+        wrapper_constructor: impl FnOnce(crate::session::Session<P>, SessionSettings<P, V, M>) -> W,
     ) -> Result<
         (
             W,
@@ -398,7 +398,7 @@ where
         let (tx_session, rx_session) = tokio::sync::mpsc::channel(256);
 
         // Create the base Session layer
-        let inner = crate::session::Session::new(
+        let inner = crate::session::Session::<P>::new(
             self.id.unwrap(),
             self.config.clone().unwrap(),
             &self.source.clone().unwrap(),

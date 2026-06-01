@@ -3,8 +3,6 @@
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use parking_lot::Mutex;
-
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -41,7 +39,7 @@ where
     group_list: HashMap<ProtoName, ParticipantSettings>,
 
     /// mls state
-    mls_state: Option<Arc<Mutex<MlsState<P, V>>>>,
+    mls_state: Option<Arc<crate::single_threaded_cell::SingleThreadedCell<MlsState<P, V>>>>,
 
     /// common session state
     common: SessionControllerCommon<P, V, M>,
@@ -97,7 +95,7 @@ where
                 mls_settings.header_integrity_validation_percent,
             )
             .expect("failed to create MLS state");
-            let shared = Arc::new(Mutex::new(mls_state));
+            let shared = Arc::new(crate::single_threaded_cell::SingleThreadedCell::new(mls_state));
             self.inner.set_mls_state(shared.clone());
             Some(shared)
         } else {
@@ -134,7 +132,7 @@ where
                     if direction == MessageDirection::North
                         && let Some(mls_state) = &self.mls_state
                     {
-                        mls_state.lock().process_message(&mut message, direction)?;
+                        mls_state.borrow_mut().process_message(&mut message, direction)?;
                     }
 
                     self.inner
@@ -366,7 +364,7 @@ where
 
         let key_package = if let Some(mls_state) = &mut self.mls_state {
             debug!("mls enabled, create the package key");
-            let key = mls_state.lock().generate_key_package()?;
+            let key = mls_state.borrow_mut().generate_key_package()?;
             Some(key)
         } else {
             None
@@ -401,7 +399,7 @@ where
         );
 
         if let Some(mls_state) = &self.mls_state {
-            mls_state.lock().process_welcome_message(&msg)?;
+            mls_state.borrow_mut().process_welcome_message(&msg)?;
         }
 
         self.join(&msg).await?;
@@ -455,7 +453,7 @@ where
             debug!("process mls control update");
             let source_proto = self.common.settings.source.clone();
             let ret = mls_state
-                .lock()
+                .borrow_mut()
                 .process_control_message(msg.clone(), &source_proto)?;
 
             if !ret {

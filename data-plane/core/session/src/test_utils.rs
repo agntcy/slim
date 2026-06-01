@@ -139,7 +139,7 @@ where
 {
     fn set_mls_state(
         &mut self,
-        _mls_state: std::sync::Arc<parking_lot::Mutex<crate::mls_state::MlsState<P, V>>>,
+        _mls_state: std::sync::Arc<crate::single_threaded_cell::SingleThreadedCell<crate::mls_state::MlsState<P, V>>>,
     ) {
     }
 }
