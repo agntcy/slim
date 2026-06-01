@@ -51,27 +51,24 @@ pub struct PeerSyncManager<D: PeerDiscovery + Send> {
     /// Receiver for subscription events (aggregate transitions).
     subscription_rx: broadcast::Receiver<SubscriptionEvent>,
     /// Receiver for incoming peer connections detected during negotiation.
-    incoming_peer_rx:
-        tokio::sync::mpsc::UnboundedReceiver<crate::message_processing::IncomingPeerEvent>,
+    incoming_peer_rx: tokio::sync::mpsc::Receiver<crate::message_processing::IncomingPeerEvent>,
     /// Receiver for peer relay events (subscription received on peer connections).
-    peer_relay_rx: tokio::sync::mpsc::UnboundedReceiver<crate::peer_sync::PeerRelayEvent>,
+    peer_relay_rx: tokio::sync::mpsc::Receiver<crate::peer_sync::PeerRelayEvent>,
 }
 
 impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
     /// Create a new PeerSyncManager.
     ///
     /// `subscription_rx` should be obtained from `MessageProcessor::subscribe_events()`.
-    /// `incoming_peer_rx` should be obtained from `MessageProcessor::set_incoming_peer_channel()`.
-    /// `peer_relay_rx` should be obtained from `MessageProcessor::set_peer_relay_channel()`.
+    /// `incoming_peer_rx` should be obtained from `MessageProcessor::take_incoming_peer_rx()`.
+    /// `peer_relay_rx` should be obtained from `MessageProcessor::take_peer_relay_rx()`.
     pub fn new(
         config: PeerSyncConfig,
         message_processor: MessageProcessor,
         discovery: D,
         subscription_rx: broadcast::Receiver<SubscriptionEvent>,
-        incoming_peer_rx: tokio::sync::mpsc::UnboundedReceiver<
-            crate::message_processing::IncomingPeerEvent,
-        >,
-        peer_relay_rx: tokio::sync::mpsc::UnboundedReceiver<crate::peer_sync::PeerRelayEvent>,
+        incoming_peer_rx: tokio::sync::mpsc::Receiver<crate::message_processing::IncomingPeerEvent>,
+        peer_relay_rx: tokio::sync::mpsc::Receiver<crate::peer_sync::PeerRelayEvent>,
     ) -> Self {
         // If hub in hub-and-spoke, configure the message processor for publish relay.
         if config.is_hub && config.topology == PeerTopology::HubAndSpoke {
