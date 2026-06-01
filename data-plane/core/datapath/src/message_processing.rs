@@ -112,8 +112,9 @@ struct MessageProcessorInternal {
 
     /// Channel to relay subscription events arriving on peer connections to the
     /// PeerSyncManager (for hub-and-spoke relay). Lazily initialized.
-    peer_relay_tx:
-        parking_lot::Mutex<Option<tokio::sync::mpsc::UnboundedSender<crate::peer_sync::PeerRelayEvent>>>,
+    peer_relay_tx: parking_lot::Mutex<
+        Option<tokio::sync::mpsc::UnboundedSender<crate::peer_sync::PeerRelayEvent>>,
+    >,
 
     /// Whether this node acts as a hub in hub-and-spoke topology.
     /// When true, publishes arriving from peer connections are forwarded to other peers.
