@@ -1930,6 +1930,35 @@ impl MessageProcessor {
                     }
                 }
 
+                // Notify peer sync about names that are no longer reachable.
+                // Only for non-peer connections (1-hop rule prevents loops).
+                if !matches!(category, ConnType::Peer) {
+                    for name in local_subs.keys() {
+                        let still_reachable = name.name.is_some_and(|enc| {
+                            self_clone
+                                .forwarder()
+                                .on_publish_msg_match(enc, u64::MAX, u32::MAX, MatchFilter::ALL)
+                                .is_ok()
+                        });
+                        if !still_reachable {
+                            debug!(
+                                %name,
+                                %conn_index,
+                                ?category,
+                                "emitting subscription removed event for peer sync"
+                            );
+                            self_clone.send_subscription_event(name, false, 0);
+                        } else {
+                            debug!(
+                                %name,
+                                %conn_index,
+                                ?category,
+                                "name still reachable, not emitting removal"
+                            );
+                        }
+                    }
+                }
+
                 let recovery_enabled =
                     !self_clone.remote_sync().recovery.ttl().is_zero();
 
