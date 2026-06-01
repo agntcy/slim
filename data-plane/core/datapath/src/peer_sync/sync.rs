@@ -59,6 +59,30 @@ pub fn collect_local_subscriptions(mp: &MessageProcessor) -> Vec<(ProtoName, u64
     entries
 }
 
+/// Collect all names that have local OR peer subscribers (for hub full sync).
+/// Peer subscriptions from `exclude_conn` are ignored (don't send a spoke its own subs back).
+pub fn collect_local_and_peer_subscriptions(
+    mp: &MessageProcessor,
+    exclude_conn: u64,
+) -> Vec<(ProtoName, u64)> {
+    let mut entries = Vec::new();
+    mp.subscription_table()
+        .for_each(|name, id, local_conns, _remote, peer_conns| {
+            let has_local = !local_conns.is_empty();
+            let has_other_peer = peer_conns.iter().any(|&c| c != exclude_conn);
+            if has_local || has_other_peer {
+                let full_name = if id != NameId::NULL_COMPONENT {
+                    name.clone().with_id(id)
+                } else {
+                    name.clone()
+                };
+                let sub_id = next_subscription_id();
+                entries.push((full_name, sub_id));
+            }
+        });
+    entries
+}
+
 /// Send full subscription sync to a peer connection.
 /// Collects all local subscriptions and sends them as Subscribe messages.
 /// Returns the number of subscriptions sent.
@@ -66,8 +90,25 @@ pub async fn send_full_sync(
     mp: &MessageProcessor,
     peer_conn_id: u64,
 ) -> Result<usize, DataPathError> {
-    // Collect outside the closure (for_each is sync, send_msg is async).
-    let subscriptions = collect_local_subscriptions(mp);
+    send_subscriptions(mp, peer_conn_id, &collect_local_subscriptions(mp)).await
+}
+
+/// Send full subscription sync as hub (hub-and-spoke).
+/// Includes local subscriptions AND subscriptions from other spokes (excluding the target).
+pub async fn send_full_sync_as_hub(
+    mp: &MessageProcessor,
+    peer_conn_id: u64,
+) -> Result<usize, DataPathError> {
+    let subscriptions = collect_local_and_peer_subscriptions(mp, peer_conn_id);
+    send_subscriptions(mp, peer_conn_id, &subscriptions).await
+}
+
+/// Send a list of subscriptions to a peer connection.
+async fn send_subscriptions(
+    mp: &MessageProcessor,
+    peer_conn_id: u64,
+    subscriptions: &[(ProtoName, u64)],
+) -> Result<usize, DataPathError> {
     let count = subscriptions.len();
 
     debug!(
@@ -77,7 +118,7 @@ pub async fn send_full_sync(
     );
 
     for (name, sub_id) in subscriptions {
-        let msg = match build_subscribe_msg(&name, sub_id) {
+        let msg = match build_subscribe_msg(name, *sub_id) {
             Ok(m) => m,
             Err(e) => {
                 warn!(%peer_conn_id, error = %e, "failed to build sync subscribe message");

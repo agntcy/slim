@@ -46,3 +46,17 @@ pub enum SubscriptionEvent {
         subscription_id: u64,
     },
 }
+
+/// Event emitted when a subscription/unsubscription arrives on a peer connection.
+/// Used by hub-and-spoke topology to relay subscriptions between spokes.
+#[derive(Debug, Clone)]
+pub struct PeerRelayEvent {
+    /// The peer connection that originated this subscription.
+    pub source_conn: u64,
+    /// The subscription name.
+    pub name: ProtoName,
+    /// The subscription ID.
+    pub subscription_id: u64,
+    /// `true` for subscribe, `false` for unsubscribe.
+    pub is_subscribe: bool,
+}

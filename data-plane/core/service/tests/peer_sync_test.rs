@@ -76,6 +76,7 @@ fn build_peer_configs(count: usize) -> Vec<(u16, String, PeerConfig)> {
 
         let peer_config = PeerConfig {
             peer_group: "test-group".to_string(),
+            topology: Default::default(),
             static_peers,
             discovery: None,
         };

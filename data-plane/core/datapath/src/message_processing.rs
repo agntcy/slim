@@ -110,6 +110,15 @@ struct MessageProcessorInternal {
     incoming_peer_tx:
         parking_lot::Mutex<Option<tokio::sync::mpsc::UnboundedSender<IncomingPeerEvent>>>,
 
+    /// Channel to relay subscription events arriving on peer connections to the
+    /// PeerSyncManager (for hub-and-spoke relay). Lazily initialized.
+    peer_relay_tx:
+        parking_lot::Mutex<Option<tokio::sync::mpsc::UnboundedSender<crate::peer_sync::PeerRelayEvent>>>,
+
+    /// Whether this node acts as a hub in hub-and-spoke topology.
+    /// When true, publishes arriving from peer connections are forwarded to other peers.
+    is_peer_hub: std::sync::atomic::AtomicBool,
+
     /// Reference count of local subscribers per name (for aggregate transition detection).
     /// Key is the encoded name string; value is the current local subscriber count.
     local_sub_counts: parking_lot::Mutex<HashMap<ProtoName, usize>>,
@@ -182,6 +191,8 @@ impl MessageProcessor {
             link_hmac_poll_interval,
             subscription_event_tx,
             incoming_peer_tx: parking_lot::Mutex::new(None),
+            peer_relay_tx: parking_lot::Mutex::new(None),
+            is_peer_hub: std::sync::atomic::AtomicBool::new(false),
             local_sub_counts: parking_lot::Mutex::new(HashMap::new()),
         };
         Self {
@@ -1194,6 +1205,11 @@ impl MessageProcessor {
             self.emit_local_subscription_event(&dst, add, subscription_id);
         }
 
+        // Emit relay event for peer subscriptions (used by hub-and-spoke relay).
+        if connection.is_peer_connection() {
+            self.emit_peer_relay_event(&dst, add, subscription_id, conn);
+        }
+
         match forward {
             None => Ok(()),
             Some(out_conn) => {
@@ -1347,7 +1363,18 @@ impl MessageProcessor {
             Some(UnsubscribeType(_)) => self.process_subscription(msg, in_connection, false).await,
             Some(PublishType(_)) => {
                 let filter = match category {
-                    ConnType::Peer => MatchFilter::EXCLUDE_PEER,
+                    ConnType::Peer => {
+                        // In hub-and-spoke, the hub relays publishes to other peers.
+                        if self
+                            .internal
+                            .is_peer_hub
+                            .load(std::sync::atomic::Ordering::Relaxed)
+                        {
+                            MatchFilter::ALL
+                        } else {
+                            MatchFilter::EXCLUDE_PEER
+                        }
+                    }
                     _ => MatchFilter::ALL,
                 };
                 self.process_publish(msg, in_connection, filter).await
@@ -1821,6 +1848,15 @@ impl MessageProcessor {
         rx
     }
 
+    /// Mark this message processor as the hub in a hub-and-spoke peer topology.
+    /// When set, publishes arriving from peer connections use ALL filter (relay to other peers)
+    /// instead of EXCLUDE_PEER.
+    pub fn set_peer_hub(&self, is_hub: bool) {
+        self.internal
+            .is_peer_hub
+            .store(is_hub, std::sync::atomic::Ordering::Relaxed);
+    }
+
     /// Track local subscription aggregate transitions and emit events on 0→1 / 1→0.
     fn emit_local_subscription_event(&self, name: &ProtoName, add: bool, subscription_id: u64) {
         use crate::peer_sync::SubscriptionEvent;
@@ -1853,6 +1889,28 @@ impl MessageProcessor {
                         subscription_id,
                     });
             }
+        }
+    }
+
+    /// Set up the peer relay channel and return the receiver.
+    /// The PeerSyncManager calls this to receive relay events for hub-and-spoke forwarding.
+    pub fn set_peer_relay_channel(
+        &self,
+    ) -> tokio::sync::mpsc::UnboundedReceiver<crate::peer_sync::PeerRelayEvent> {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        *self.internal.peer_relay_tx.lock() = Some(tx);
+        rx
+    }
+
+    /// Emit a relay event when a subscription arrives on a peer connection.
+    fn emit_peer_relay_event(&self, name: &ProtoName, add: bool, subscription_id: u64, conn: u64) {
+        if let Some(tx) = self.internal.peer_relay_tx.lock().as_ref() {
+            let _ = tx.send(crate::peer_sync::PeerRelayEvent {
+                source_conn: conn,
+                name: name.clone(),
+                subscription_id,
+                is_subscribe: add,
+            });
         }
     }
 }

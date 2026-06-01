@@ -8,10 +8,10 @@
 //! - [`StaticPeerDiscovery`]: Configuration-defined list of peer endpoints
 //! - (Future) Kubernetes API-based discovery
 
-mod config;
+pub mod config;
 mod static_list;
 
-pub use config::{PeerConfig, PeerDiscoveryConfig};
+pub use config::{PeerConfig, PeerDiscoveryConfig, PeerTopology};
 pub use static_list::StaticPeerDiscovery;
 
 use std::fmt;
