@@ -415,4 +415,46 @@ mod tests {
         assert_eq!(enc.id(), NameId::NULL_COMPONENT);
         assert_eq!(enc.string_id(), "NULL_COMPONENT");
     }
+
+    #[test]
+    fn test_parse_name_valid() {
+        let n = ProtoName::parse_name("org/ns/app").unwrap();
+        let (a, b, c) = n.str_components();
+        assert_eq!(a, "org");
+        assert_eq!(b, "ns");
+        assert_eq!(c, "app");
+    }
+
+    #[test]
+    fn test_parse_name_trims_whitespace() {
+        let n = ProtoName::parse_name(" org / ns / app ").unwrap();
+        let (a, b, c) = n.str_components();
+        assert_eq!(a, "org");
+        assert_eq!(b, "ns");
+        assert_eq!(c, "app");
+    }
+
+    #[test]
+    fn test_parse_name_empty_string() {
+        assert!(ProtoName::parse_name("").is_err());
+        assert!(ProtoName::parse_name("   ").is_err());
+    }
+
+    #[test]
+    fn test_parse_name_too_few_parts() {
+        assert!(ProtoName::parse_name("org/ns").is_err());
+        assert!(ProtoName::parse_name("org").is_err());
+    }
+
+    #[test]
+    fn test_parse_name_too_many_parts() {
+        assert!(ProtoName::parse_name("a/b/c/d").is_err());
+    }
+
+    #[test]
+    fn test_parse_name_empty_component() {
+        assert!(ProtoName::parse_name("org//app").is_err());
+        assert!(ProtoName::parse_name("/ns/app").is_err());
+        assert!(ProtoName::parse_name("org/ns/").is_err());
+    }
 }

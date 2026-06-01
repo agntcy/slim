@@ -9,9 +9,8 @@ use std::time::Duration;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_datapath::api::{ProtoName, ProtoSessionType};
 use slim_service::app::App;
-use slim_session::SessionConfig;
-use slim_session::context::SessionContext;
-use thiserror::Error;
+use slim_session::completion_handle::CompletionHandle;
+use slim_session::{SessionConfig, SessionError};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
 
@@ -28,12 +27,6 @@ pub struct ChannelManagerServer {
     app: Arc<App<AuthProvider, AuthVerifier>>,
     conn_id: u64,
     sessions: Arc<SessionsList>,
-}
-
-#[derive(Error, Debug)]
-pub enum ServiceError {
-    #[error("session creation failed: {0}")]
-    SessionCreationFailed(String),
 }
 
 impl ChannelManagerServer {
@@ -64,20 +57,17 @@ impl ChannelManagerServer {
         }
     }
 
-    async fn create_session_and_wait(
-        &self,
-        config: SessionConfig,
-        destination: ProtoName,
-    ) -> Result<SessionContext, ServiceError> {
-        let (ctx, completion) = self
-            .app
-            .create_session(config, destination, None)
-            .await
-            .map_err(|e| ServiceError::SessionCreationFailed(e.to_string()))?;
-        completion
-            .await
-            .map_err(|e| ServiceError::SessionCreationFailed(e.to_string()))?;
-        Ok(ctx)
+    /// Await a two-step session operation (call + completion).
+    async fn await_session_op(
+        op: Result<CompletionHandle, SessionError>,
+        error_context: &str,
+    ) -> Result<(), String> {
+        match op {
+            Ok(completion) => completion
+                .await
+                .map_err(|e| format!("{error_context}: {e}")),
+            Err(e) => Err(format!("{error_context}: {e}")),
+        }
     }
 
     async fn handle_create_channel(&self, req: CreateChannelRequest) -> CommandResponse {
@@ -106,13 +96,19 @@ impl ChannelManagerServer {
             metadata: std::collections::HashMap::new(),
         };
 
-        let session = match self.create_session_and_wait(session_config, name).await {
+        let (session, completion) = match self.app.create_session(session_config, name, None).await
+        {
             Ok(s) => s,
             Err(e) => {
                 error!("Failed to create channel {channel_name}: {e}");
                 return self.error_response(format!("failed to create channel {channel_name}"));
             }
         };
+
+        if let Err(e) = completion.await {
+            error!("Failed to create channel {channel_name}: {e}");
+            return self.error_response(format!("failed to create channel {channel_name}"));
+        }
 
         // Keep a handle for cleanup in case of race condition
         let session_handle = session.session_arc();
@@ -175,19 +171,16 @@ impl ChannelManagerServer {
         }
 
         // Invite the participant
-        match session.invite_participant(&participant_name).await {
-            Ok(completion) => {
-                if let Err(e) = completion.await {
-                    return self.error_response(format!(
-                        "failed to invite participant {participant_name_str} to channel {channel_name}: {e}"
-                    ));
-                }
-            }
-            Err(e) => {
-                return self.error_response(format!(
-                    "failed to invite participant {participant_name_str} to channel {channel_name}: {e}"
-                ));
-            }
+        let op = session.invite_participant(&participant_name).await;
+        if let Err(msg) = Self::await_session_op(
+            op,
+            &format!(
+                "failed to invite participant {participant_name_str} to channel {channel_name}"
+            ),
+        )
+        .await
+        {
+            return self.error_response(msg);
         }
 
         info!("Added participant {participant_name_str} to channel {channel_name}");
@@ -212,23 +205,16 @@ impl ChannelManagerServer {
             }
         };
 
-        match session.remove_participant(&participant_name).await {
-            Ok(completion) => {
-                if let Err(e) = completion.await {
-                    return self.error_response(
-                        format!(
-                            "failed to remove participant {participant_name_str} from channel {channel_name}: {e}"
-                        ),
-                    );
-                }
-            }
-            Err(e) => {
-                return self.error_response(
-                    format!(
-                        "failed to remove participant {participant_name_str} from channel {channel_name}: {e}"
-                    ),
-                );
-            }
+        let op = session.remove_participant(&participant_name).await;
+        if let Err(msg) = Self::await_session_op(
+            op,
+            &format!(
+                "failed to remove participant {participant_name_str} from channel {channel_name}"
+            ),
+        )
+        .await
+        {
+            return self.error_response(msg);
         }
 
         info!("Removed participant {participant_name_str} from channel {channel_name}");

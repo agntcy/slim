@@ -27,7 +27,6 @@ clap = { workspace = true }
 prost = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_yaml = { workspace = true }
-thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }

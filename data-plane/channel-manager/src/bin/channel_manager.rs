@@ -67,6 +67,11 @@ async fn create_channels_from_config(
             anyhow::anyhow!("session creation failed for {}: {e}", channel_cfg.name)
         })?;
 
+        // Get the session controller for participant invitations
+        let controller = session
+            .session_arc()
+            .ok_or_else(|| anyhow::anyhow!("session already closed for {}", channel_cfg.name))?;
+
         for participant in &channel_cfg.participants {
             let participant_name =
                 ProtoName::parse_name(participant).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -80,11 +85,6 @@ async fn create_channels_from_config(
                         channel_cfg.name
                     )
                 })?;
-
-            // Get the session controller for participant invitations
-            let controller = session.session_arc().ok_or_else(|| {
-                anyhow::anyhow!("session already closed for {}", channel_cfg.name)
-            })?;
 
             controller
                 .invite_participant(&participant_name)
@@ -190,7 +190,7 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("failed to subscribe: {e}"))?;
 
     info!(
-        local_name = %&app.app_name().to_string(),
+        local_name = %app.app_name(),
         "SLIM app created"
     );
 
