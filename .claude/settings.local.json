@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(task install-uniffi-bindgen-node *)",
+      "Bash(task generate *)",
+      "Bash(git add *)",
+      "Bash(cargo check *)",
+      "Bash(cargo metadata *)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('\\\\n'.join\\(p['name'] for p in d['packages']\\)\\)\")",
+      "Bash(grep -rn *)",
+      "Bash(grep *)",
+      "Bash(cargo fmt *)",
+      "Bash(cargo update *)",
+      "Bash(cargo build *)",
+      "Bash(git worktree *)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(curl -sL \"https://raw.githubusercontent.com/NordSecurity/uniffi-bindgen-go/v0.7.1+v0.31.0/bindgen/src/gen_go/mod.rs\")",
+      "Bash(uniffi-bindgen-go --version)",
+      "Bash(cargo install *)",
+      "Bash(cargo test *)",
+      "Bash(python3 -c \"import json,sys;d=json.load\\(sys.stdin\\); print\\('\\\\n'.join\\(p['name'] for p in d['packages'] if 'datapath' in p['name'].lower\\(\\)\\)\\)\")",
+      "Bash(gh api *)"
+    ]
+  }
+}

@@ -15,10 +15,12 @@ use slim_config::client::ClientConfig;
 /// `ClientConfig`). For dynamic discovery (e.g., Kubernetes), set the
 /// `discovery` field.
 ///
+/// The peer's unique identity is derived from the service's `node_id`
+/// (which defaults to a UUID when not configured).
+///
 /// # Example (static peers)
 /// ```yaml
 /// peers:
-///   self_id: "slim-0"
 ///   peer_group: "my-deployment"
 ///   static_peers:
 ///     - endpoint: "slim-1:8080"
@@ -29,10 +31,6 @@ use slim_config::client::ClientConfig;
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct PeerConfig {
-    /// Unique identifier for this replica within the peer group.
-    /// Used for self-filtering in dynamic discovery and leader election.
-    pub self_id: String,
-
     /// Shared group identity for mutual peer authentication during link negotiation.
     /// Peers must have the same `peer_group` to accept each other.
     pub peer_group: String,
@@ -70,7 +68,6 @@ mod tests {
     #[test]
     fn test_deserialize_peer_config_static_peers() {
         let yaml = r#"
-            self_id: "slim-0"
             peer_group: "my-deployment"
             static_peers:
               - endpoint: "http://slim-1:8080"
@@ -78,7 +75,6 @@ mod tests {
         "#;
 
         let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.self_id, "slim-0");
         assert_eq!(config.peer_group, "my-deployment");
         assert_eq!(config.static_peers.len(), 2);
         assert_eq!(config.static_peers[0].endpoint, "http://slim-1:8080");
@@ -89,7 +85,6 @@ mod tests {
     #[test]
     fn test_deserialize_peer_config_no_peers() {
         let yaml = r#"
-            self_id: "slim-0"
             peer_group: "my-deployment"
         "#;
 
@@ -101,7 +96,6 @@ mod tests {
     #[test]
     fn test_deserialize_kubernetes_config() {
         let yaml = r#"
-            self_id: "slim-pod-abc"
             peer_group: "slim-deployment"
             discovery:
               type: kubernetes
@@ -110,7 +104,6 @@ mod tests {
         "#;
 
         let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.self_id, "slim-pod-abc");
         assert_eq!(config.peer_group, "slim-deployment");
 
         match &config.discovery {
@@ -128,7 +121,6 @@ mod tests {
     #[test]
     fn test_reject_unknown_fields() {
         let yaml = r#"
-            self_id: "slim-0"
             peer_group: "group"
             unknown_field: "oops"
         "#;

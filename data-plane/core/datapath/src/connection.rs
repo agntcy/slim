@@ -159,6 +159,16 @@ impl Connection {
         self.config_data.as_ref()
     }
 
+    /// Get the connection type
+    pub fn connection_type(&self) -> ConnType {
+        self.connection_type
+    }
+
+    /// Upgrade the connection type (e.g., from Remote to Peer after negotiation).
+    pub(crate) fn set_connection_type(&mut self, conn_type: ConnType) {
+        self.connection_type = conn_type;
+    }
+
     /// Return true if is a local connection
     pub(crate) fn is_local_connection(&self) -> bool {
         matches!(self.connection_type, ConnType::Local)
@@ -168,11 +178,6 @@ impl Connection {
     #[allow(dead_code)]
     pub(crate) fn is_peer_connection(&self) -> bool {
         matches!(self.connection_type, ConnType::Peer)
-    }
-
-    /// Return the connection category for subscription table operations.
-    pub(crate) fn category(&self) -> ConnType {
-        self.connection_type
     }
 
     /// Return true if this node initiated the connection (outbound dial).

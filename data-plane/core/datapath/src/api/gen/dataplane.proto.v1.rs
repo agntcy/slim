@@ -385,6 +385,11 @@ pub struct LinkNegotiationPayload {
     /// Empty when absent (legacy peers); both sides must send a valid key to enable header HMAC.
     #[prost(bytes = "vec", tag = "4")]
     pub link_ecdh_public_key: ::prost::alloc::vec::Vec<u8>,
+    /// Connection type advertised by the initiator.
+    /// 0 = remote (default, backward compatible with peers that don't send this field).
+    /// 1 = peer (intra-deployment replica connection).
+    #[prost(uint32, tag = "5")]
+    pub connection_type: u32,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

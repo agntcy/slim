@@ -356,6 +356,7 @@ dependencies = [
  "tracing",
  "tracing-test",
  "twox-hash",
+ "uuid",
 ]
 
 [[package]]

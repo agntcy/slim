@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm view *)",
+      "Bash(cargo test *)",
+      "Bash(cargo build *)",
+      "Bash(cargo bench *)",
+      "Bash(mkdir -p /tmp/auth-bak)",
+      "Bash(cp core/auth/benches/shared_secret_benchmark.rs core/auth/src/auth_provider.rs core/auth/src/jwt.rs core/auth/src/oidc.rs core/auth/src/shared_secret.rs core/auth/src/spire.rs core/auth/src/traits.rs /tmp/auth-bak/)",
+      "Read(//tmp/**)",
+      "Bash(git checkout *)",
+      "Bash(cp /tmp/auth-bak/shared_secret_benchmark.rs core/auth/benches/shared_secret_benchmark.rs)",
+      "Bash(cargo check *)",
+      "Bash(git -C /Users/msardara/repos/slim/data-plane show HEAD:data-plane/core/service/src/app.rs)"
+    ]
+  }
+}

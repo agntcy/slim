@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use slim_config::client::{ClientConfig, ConnectionType};
+use slim_config::client::{ClientConfig, ConnType};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
@@ -12,9 +12,9 @@ use tracing::{debug, error, info, warn};
 use crate::message_processing::MessageProcessor;
 use crate::peer_discovery::{PeerDiscovery, PeerEvent, PeerInfo};
 
+use super::SubscriptionEvent;
 use super::state::{PeerEntry, PeerState};
 use super::sync;
-use super::SubscriptionEvent;
 
 /// Configuration for the PeerSyncManager.
 #[derive(Debug, Clone)]
@@ -28,15 +28,16 @@ pub struct PeerSyncConfig {
 /// Manages peer-to-peer subscription synchronization between replicas.
 ///
 /// # Responsibilities
-/// - Connects to discovered peers (deterministic initiator: lower ID dials)
+/// - Connects to discovered peers (each node connects to all others)
 /// - Performs full subscription sync on peer join
 /// - Forwards incremental aggregate subscription transitions to all peers
 /// - Cleans up peer state on disconnection
 ///
-/// # Connection Deduplication
-/// Only the peer with the lexicographically smaller `self_id` initiates the
-/// connection. The peer with the larger ID waits for the incoming connection.
-/// This guarantees exactly one bidirectional link per peer pair.
+/// # Connection Model
+/// Each node initiates an outbound connection to every peer. The server side
+/// of each node accepts incoming connections as `ConnType::Peer`. Both
+/// directions form independent streams; subscriptions flow via the outbound
+/// connections managed by this manager.
 pub struct PeerSyncManager<D: PeerDiscovery + Send> {
     config: PeerSyncConfig,
     message_processor: MessageProcessor,
@@ -44,17 +45,24 @@ pub struct PeerSyncManager<D: PeerDiscovery + Send> {
     state: Arc<RwLock<PeerState>>,
     /// Receiver for subscription events (aggregate transitions).
     subscription_rx: broadcast::Receiver<SubscriptionEvent>,
+    /// Receiver for incoming peer connections detected during negotiation.
+    incoming_peer_rx:
+        tokio::sync::mpsc::UnboundedReceiver<crate::message_processing::IncomingPeerEvent>,
 }
 
 impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
     /// Create a new PeerSyncManager.
     ///
     /// `subscription_rx` should be obtained from `MessageProcessor::subscribe_events()`.
+    /// `incoming_peer_rx` should be obtained from `MessageProcessor::set_incoming_peer_channel()`.
     pub fn new(
         config: PeerSyncConfig,
         message_processor: MessageProcessor,
         discovery: D,
         subscription_rx: broadcast::Receiver<SubscriptionEvent>,
+        incoming_peer_rx: tokio::sync::mpsc::UnboundedReceiver<
+            crate::message_processing::IncomingPeerEvent,
+        >,
     ) -> Self {
         Self {
             config,
@@ -62,6 +70,7 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
             discovery,
             state: Arc::new(RwLock::new(PeerState::new())),
             subscription_rx,
+            incoming_peer_rx,
         }
     }
 
@@ -121,18 +130,34 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
                         }
                     }
                 }
+                Some(event) = self.incoming_peer_rx.recv() => {
+                    self.handle_incoming_peer(event).await;
+                }
             }
         }
     }
 
     /// Handle a newly discovered peer.
     ///
-    /// Connection initiation follows deterministic tie-breaking:
-    /// only the peer with the smaller ID dials the larger.
+    /// Only the node with the lexicographically smaller self_id initiates the
+    /// outbound connection. The other side waits for the incoming connection
+    /// which is detected during server-side link negotiation and registered
+    /// via `handle_incoming_peer`.
     async fn handle_peer_joined(&self, peer: PeerInfo) {
         // Skip self
         if peer.id == self.config.self_id {
             debug!(peer_id = %peer.id, "skipping self in peer discovery");
+            return;
+        }
+
+        // Tie-breaking: only the smaller ID dials out.
+        // The larger ID waits for the incoming connection detected via negotiation.
+        if self.config.self_id > peer.id {
+            debug!(
+                peer_id = %peer.id,
+                self_id = %self.config.self_id,
+                "skipping outbound connection (larger ID waits for incoming)"
+            );
             return;
         }
 
@@ -142,21 +167,11 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
             return;
         }
 
-        // Deterministic tie-breaking: only the smaller ID initiates
-        if self.config.self_id > peer.id {
-            debug!(
-                peer_id = %peer.id,
-                self_id = %self.config.self_id,
-                "we have larger ID, waiting for peer to connect to us"
-            );
-            return;
-        }
-
         info!(peer_id = %peer.id, endpoint = %peer.endpoint, "connecting to peer");
 
         let config = ClientConfig {
             endpoint: peer.endpoint.clone(),
-            connection_type: ConnectionType::Peer,
+            connection_type: ConnType::Peer,
             ..Default::default()
         };
 
@@ -217,6 +232,49 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
                     "error disconnecting from peer"
                 );
             }
+        }
+    }
+
+    /// Handle an incoming peer connection detected during server-side negotiation.
+    ///
+    /// When a remote peer dials us, the server-side link negotiation detects the
+    /// peer connection_type and upgrades it. This handler registers that connection
+    /// in peer state and performs a full sync.
+    async fn handle_incoming_peer(&self, event: crate::message_processing::IncomingPeerEvent) {
+        let peer_id = event.link_id.clone();
+        let conn_id = event.conn_id;
+
+        if self.state.read().contains(&peer_id) {
+            debug!(
+                %peer_id,
+                %conn_id,
+                "incoming peer already registered, skipping"
+            );
+            return;
+        }
+
+        info!(
+            %peer_id,
+            %conn_id,
+            "registering incoming peer connection"
+        );
+
+        self.state.write().insert(
+            peer_id.clone(),
+            PeerEntry {
+                conn_id,
+                endpoint: String::new(), // server doesn't know the peer's listen endpoint
+                is_outgoing: false,
+            },
+        );
+
+        // Perform full sync: send all local subscriptions to the incoming peer
+        if let Err(e) = sync::send_full_sync(&self.message_processor, conn_id).await {
+            warn!(
+                %peer_id,
+                error = %e,
+                "full sync failed for incoming peer"
+            );
         }
     }
 
