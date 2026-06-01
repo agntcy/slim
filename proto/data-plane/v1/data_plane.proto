@@ -322,4 +322,8 @@ message LinkNegotiationPayload {
   // X25519 ephemeral public key (32 bytes) for per-link HMAC key agreement between nodes.
   // Empty when absent (legacy peers); both sides must send a valid key to enable header HMAC.
   bytes link_ecdh_public_key = 4;
+  // Connection type advertised by the initiator.
+  // 0 = remote (default, backward compatible with peers that don't send this field).
+  // 1 = peer (intra-deployment replica connection).
+  uint32 connection_type = 5;
 }

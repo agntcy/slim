@@ -39,18 +39,34 @@ impl StaticPeerDiscovery {
     /// Create from a list of `ClientConfig` entries (from `PeerConfig.static_peers`).
     ///
     /// Each client config's endpoint is used as both the peer ID and endpoint.
-    /// The `self_id` is used to filter out our own entry if present.
-    pub fn from_client_configs(configs: &[ClientConfig], self_id: &str) -> Self {
+    /// Entries whose endpoint matches any of `own_endpoints` are filtered out
+    /// (self-filtering when all replicas share the same config).
+    /// Comparison strips the scheme prefix (e.g., `http://`) for matching
+    /// since server endpoints may omit the scheme.
+    pub fn from_client_configs(configs: &[ClientConfig], own_endpoints: &[String]) -> Self {
         let peers = configs
             .iter()
+            .filter(|c| {
+                let client_host = strip_scheme(&c.endpoint);
+                !own_endpoints
+                    .iter()
+                    .any(|own| strip_scheme(own) == client_host)
+            })
             .map(|c| PeerInfo {
                 id: c.endpoint.clone(),
                 endpoint: c.endpoint.clone(),
             })
-            .filter(|p| p.id != self_id)
             .collect();
         Self::new(peers)
     }
+}
+
+/// Strip the scheme (http:// or https://) from an endpoint for comparison.
+fn strip_scheme(endpoint: &str) -> &str {
+    endpoint
+        .strip_prefix("http://")
+        .or_else(|| endpoint.strip_prefix("https://"))
+        .unwrap_or(endpoint)
 }
 
 impl PeerDiscovery for StaticPeerDiscovery {
@@ -161,8 +177,9 @@ mod tests {
             },
         ];
 
-        // "slim-0:8080" is self, should be filtered out
-        let mut discovery = StaticPeerDiscovery::from_client_configs(&configs, "http://slim-0:8080");
+        // "http://slim-0:8080" is our own endpoint, should be filtered out
+        let own = vec!["http://slim-0:8080".to_string()];
+        let mut discovery = StaticPeerDiscovery::from_client_configs(&configs, &own);
         discovery.start().await.unwrap();
 
         let event1 = discovery.recv().await.unwrap();

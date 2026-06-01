@@ -44,17 +44,18 @@ pub fn build_unsubscribe_msg(name: &ProtoName, subscription_id: u64) -> Result<M
 /// Returns a list of (ProtoName with ID, subscription_id) for full sync.
 pub fn collect_local_subscriptions(mp: &MessageProcessor) -> Vec<(ProtoName, u64)> {
     let mut entries = Vec::new();
-    mp.subscription_table().for_each(|name, id, local_conns, _remote, _peer| {
-        if !local_conns.is_empty() {
-            let full_name = if id != NameId::NULL_COMPONENT {
-                name.clone().with_id(id)
-            } else {
-                name.clone()
-            };
-            let sub_id = next_subscription_id();
-            entries.push((full_name, sub_id));
-        }
-    });
+    mp.subscription_table()
+        .for_each(|name, id, local_conns, _remote, _peer| {
+            if !local_conns.is_empty() {
+                let full_name = if id != NameId::NULL_COMPONENT {
+                    name.clone().with_id(id)
+                } else {
+                    name.clone()
+                };
+                let sub_id = next_subscription_id();
+                entries.push((full_name, sub_id));
+            }
+        });
     entries
 }
 

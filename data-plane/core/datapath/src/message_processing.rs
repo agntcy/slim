@@ -53,6 +53,15 @@ use crate::tables::{ConnType, MatchFilter};
 use crate::websocket;
 use semver;
 
+/// Event emitted by the server-side link negotiation when a peer connection is detected.
+#[derive(Debug, Clone)]
+pub struct IncomingPeerEvent {
+    /// The link_id exchanged during negotiation (used as peer identifier).
+    pub link_id: String,
+    /// The connection index in the connection table.
+    pub conn_id: u64,
+}
+
 fn local_version() -> &'static str {
     slim_version::version()
 }
@@ -95,6 +104,11 @@ struct MessageProcessorInternal {
 
     /// Broadcast channel for local subscription aggregate transitions (peer sync).
     subscription_event_tx: tokio::sync::broadcast::Sender<crate::peer_sync::SubscriptionEvent>,
+
+    /// Channel to notify PeerSyncManager about incoming peer connections detected
+    /// during link negotiation (server-side). Lazily initialized via `set_incoming_peer_tx`.
+    incoming_peer_tx:
+        parking_lot::Mutex<Option<tokio::sync::mpsc::UnboundedSender<IncomingPeerEvent>>>,
 
     /// Reference count of local subscribers per name (for aggregate transition detection).
     /// Key is the encoded name string; value is the current local subscriber count.
@@ -167,6 +181,7 @@ impl MessageProcessor {
             link_hmac_timeout,
             link_hmac_poll_interval,
             subscription_event_tx,
+            incoming_peer_tx: parking_lot::Mutex::new(None),
             local_sub_counts: parking_lot::Mutex::new(HashMap::new()),
         };
         Self {
@@ -295,7 +310,7 @@ impl MessageProcessor {
             .forwarder()
             .get_connection(conn_index)
             .ok_or(DataPathError::ConnectionNotFound(conn_index))?;
-        if !matches!(conn.category(), ConnType::Remote) {
+        if !matches!(conn.connection_type(), ConnType::Remote) {
             return Ok(());
         }
         let header = message
@@ -436,8 +451,13 @@ impl MessageProcessor {
                     Some(ecdh_sk),
                 )?;
 
-                self.send_client_link_negotiation(&link_id, conn_index, Some(ecdh_pk))
-                    .await;
+                self.send_client_link_negotiation(
+                    &link_id,
+                    conn_index,
+                    Some(ecdh_pk),
+                    client_config.connection_type,
+                )
+                .await;
                 self.await_link_hmac_ready(conn_index, client_config.require_header_mac)
                     .await?;
 
@@ -465,8 +485,13 @@ impl MessageProcessor {
                     Some(ecdh_sk),
                 )?;
 
-                self.send_client_link_negotiation(&link_id, conn_index, Some(ecdh_pk))
-                    .await;
+                self.send_client_link_negotiation(
+                    &link_id,
+                    conn_index,
+                    Some(ecdh_pk),
+                    client_config.connection_type,
+                )
+                .await;
                 self.await_link_hmac_ready(conn_index, client_config.require_header_mac)
                     .await?;
 
@@ -481,12 +506,18 @@ impl MessageProcessor {
         link_id: &str,
         conn_index: u64,
         ecdh_public_key: Option<Vec<u8>>,
+        connection_type: ConnType,
     ) {
-        let negotiation_msg = ProtoMessage::builder().build_link_negotiation(
+        let conn_type_wire: u32 = match connection_type {
+            ConnType::Peer => 1,
+            _ => 0,
+        };
+        let negotiation_msg = ProtoMessage::builder().build_link_negotiation_with_conn_type(
             link_id,
             local_version(),
             false,
             ecdh_public_key,
+            conn_type_wire,
         );
         if let Err(e) = self.send_msg(negotiation_msg, conn_index).await {
             debug!(
@@ -545,12 +576,7 @@ impl MessageProcessor {
     where
         S: Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
     {
-        let conn_type = match client_config.connection_type {
-            slim_config::client::ConnectionType::Peer => ConnType::Peer,
-            slim_config::client::ConnectionType::Remote => ConnType::Remote,
-        };
-
-        let mut connection = Connection::new(conn_type, outbound)
+        let mut connection = Connection::new(client_config.connection_type, outbound)
             .with_local_addr(local)
             .with_remote_addr(remote)
             .with_config_data(Some(client_config.clone()))
@@ -567,7 +593,7 @@ impl MessageProcessor {
         debug!(
             remote = ?connection.remote_addr(),
             local = ?connection.local_addr(),
-            ?conn_type,
+            ?client_config.connection_type,
             "new connection initiated locally",
         );
 
@@ -583,7 +609,7 @@ impl MessageProcessor {
             conn_index,
             Some(client_config.clone()),
             cancellation_token,
-            conn_type,
+            client_config.connection_type,
             false,
         )?;
 
@@ -708,7 +734,7 @@ impl MessageProcessor {
 
                 if !msg.is_link()
                     && !msg.is_subscription_ack()
-                    && matches!(conn.category(), ConnType::Remote)
+                    && matches!(conn.connection_type(), ConnType::Remote)
                     && conn.require_header_mac()
                     && conn.header_hmac().is_none()
                 {
@@ -720,7 +746,7 @@ impl MessageProcessor {
 
                 if !msg.is_link()
                     && !msg.is_subscription_ack()
-                    && matches!(conn.category(), ConnType::Remote)
+                    && matches!(conn.connection_type(), ConnType::Remote)
                     && let Some(mac) = conn.header_hmac()
                 {
                     let link_id = conn
@@ -750,7 +776,7 @@ impl MessageProcessor {
                 if !msg.is_link()
                     && !msg.is_subscription_ack()
                     && matches!(conn.channel(), Channel::Server(_))
-                    && matches!(conn.category(), ConnType::Local)
+                    && matches!(conn.connection_type(), ConnType::Local)
                 {
                     msg.get_slim_header_mut().header_mac = None;
                 }
@@ -1039,11 +1065,14 @@ impl MessageProcessor {
             }
 
             // Send reply only after state is committed.
-            let reply = ProtoMessage::builder().build_link_negotiation(
+            // Echo back the connection type so the client confirms peer status.
+            let reply_conn_type = payload.connection_type;
+            let reply = ProtoMessage::builder().build_link_negotiation_with_conn_type(
                 link_id,
                 local_version(),
                 true,
                 server_reply_ecdh,
+                reply_conn_type,
             );
             if let Err(e) = self.send_msg(reply, in_connection).await {
                 debug!(
@@ -1051,6 +1080,26 @@ impl MessageProcessor {
                     error = %e.chain(),
                     "failed to send link negotiation reply",
                 );
+            }
+
+            // If the client indicated it is a peer (connection_type == 1), upgrade this
+            // server-side connection from Remote to Peer.
+            if payload.connection_type == 1 {
+                info!(
+                    %in_connection, %link_id,
+                    "upgrading server-side connection to Peer (negotiation)"
+                );
+                self.connection_table().update(in_connection, |conn| {
+                    conn.set_connection_type(ConnType::Peer)
+                });
+
+                // Notify PeerSyncManager about the incoming peer connection.
+                if let Some(tx) = self.internal.incoming_peer_tx.lock().as_ref() {
+                    let _ = tx.send(IncomingPeerEvent {
+                        link_id: link_id.to_string(),
+                        conn_id: in_connection,
+                    });
+                }
             }
         }
 
@@ -1135,7 +1184,7 @@ impl MessageProcessor {
         self.forwarder().on_subscription_msg(
             dst.clone(),
             conn,
-            connection.category(),
+            connection.connection_type(),
             add,
             subscription_id,
         )?;
@@ -1762,13 +1811,18 @@ impl MessageProcessor {
         self.internal.subscription_event_tx.subscribe()
     }
 
-    /// Track local subscription aggregate transitions and emit events on 0→1 / 1→0.
-    fn emit_local_subscription_event(
+    /// Set the channel for incoming peer events detected during server-side negotiation.
+    /// Returns the receiving half for the PeerSyncManager to consume.
+    pub fn set_incoming_peer_channel(
         &self,
-        name: &ProtoName,
-        add: bool,
-        subscription_id: u64,
-    ) {
+    ) -> tokio::sync::mpsc::UnboundedReceiver<IncomingPeerEvent> {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        *self.internal.incoming_peer_tx.lock() = Some(tx);
+        rx
+    }
+
+    /// Track local subscription aggregate transitions and emit events on 0→1 / 1→0.
+    fn emit_local_subscription_event(&self, name: &ProtoName, add: bool, subscription_id: u64) {
         use crate::peer_sync::SubscriptionEvent;
 
         let mut counts = self.internal.local_sub_counts.lock();
@@ -2001,6 +2055,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
+            connection_type: 0,
         };
         assert!(
             processor
@@ -2019,6 +2074,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: false, // request on outgoing connection → ignored
             link_ecdh_public_key: vec![],
+            connection_type: 0,
         };
         assert!(
             processor
@@ -2045,6 +2101,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: true, // reply on incoming connection → ignored
             link_ecdh_public_key: vec![],
+            connection_type: 0,
         };
         assert!(
             processor
@@ -2071,6 +2128,7 @@ mod tests {
             slim_version: "not-semver".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
+            connection_type: 0,
         };
         assert!(
             processor
@@ -2097,6 +2155,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
+            connection_type: 0,
         };
         assert!(
             processor
@@ -2126,6 +2185,7 @@ mod tests {
             slim_version: "1.2.3".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
+            connection_type: 0,
         };
         let err = processor
             .handle_link_negotiation(&payload, conn_id)
@@ -2146,6 +2206,7 @@ mod tests {
             slim_version: "1.2.3".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
+            connection_type: 0,
         };
         assert!(
             processor
@@ -2174,6 +2235,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
+            connection_type: 0,
         };
         // First request: accepted, reply sent.
         assert!(
@@ -2205,6 +2267,7 @@ mod tests {
             slim_version: "2.0.0".into(),
             is_reply: true,
             link_ecdh_public_key: vec![],
+            connection_type: 0,
         };
         assert!(
             processor
@@ -2229,6 +2292,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: true,
             link_ecdh_public_key: vec![],
+            connection_type: 0,
         };
         assert!(
             processor
@@ -2251,6 +2315,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: true,
             link_ecdh_public_key: vec![],
+            connection_type: 0,
         };
         // First reply: accepted.
         assert!(
@@ -2978,6 +3043,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
+            connection_type: 0,
         };
         processor
             .handle_link_negotiation(&payload, conn_id)
@@ -3019,6 +3085,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
+            connection_type: 0,
         };
         processor
             .handle_link_negotiation(&payload, conn_id)
@@ -3044,6 +3111,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
+            connection_type: 0,
         };
         processor
             .handle_link_negotiation(&payload, conn_id)

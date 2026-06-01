@@ -193,10 +193,8 @@ impl ConfigLoader {
             // Parse the ServiceConfiguration directly from YAML
             let mut config: ServiceConfiguration = serde_yaml::from_value(value.clone())?;
 
-            // If condif.node_id is none, set it to the ID's name
-            if config.node_id.is_none() {
-                config.node_id = Some(id.name().to_string());
-            }
+            // Use the config map key as the node_id (overrides the UUID default).
+            config.node_id = id.name().to_string();
 
             configs.insert(id, config);
         }
@@ -307,10 +305,7 @@ mod tests {
             .expect("should have slim/0 service");
 
         // Verify the configuration was successfully parsed
-        assert!(
-            config.node_id.is_none() || config.node_id.is_some(),
-            "node_id field exists"
-        );
+        assert!(!config.node_id.is_empty(), "node_id field should be set");
         assert!(
             config.group_name.is_none() || config.group_name.is_some(),
             "group_name field exists"
