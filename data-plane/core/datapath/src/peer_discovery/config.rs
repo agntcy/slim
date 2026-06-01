@@ -4,17 +4,29 @@
 //! Configuration types for peer discovery.
 
 use serde::Deserialize;
+use slim_config::client::ClientConfig;
 
 /// Top-level peer configuration.
 ///
 /// When present in the service configuration, enables peer-to-peer route
 /// synchronization between SLIM replicas.
 ///
-/// For static peer discovery, peers are defined as `dataplane.clients` with
-/// `connection_type: peer`. No additional configuration is needed here.
+/// Static peers are listed directly in this config section (each with a full
+/// `ClientConfig`). For dynamic discovery (e.g., Kubernetes), set the
+/// `discovery` field.
 ///
-/// For dynamic discovery (e.g., Kubernetes), set the `discovery` field.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+/// # Example (static peers)
+/// ```yaml
+/// peers:
+///   self_id: "slim-0"
+///   peer_group: "my-deployment"
+///   static_peers:
+///     - endpoint: "slim-1:8080"
+///     - endpoint: "slim-2:8080"
+///       tls_setting:
+///         insecure: true
+/// ```
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct PeerConfig {
     /// Unique identifier for this replica within the peer group.
@@ -25,9 +37,14 @@ pub struct PeerConfig {
     /// Peers must have the same `peer_group` to accept each other.
     pub peer_group: String,
 
+    /// Static list of peer connections. Each entry is a full `ClientConfig`,
+    /// allowing per-peer TLS, auth, keepalive, etc.
+    /// The `connection_type` field is forced to `Peer` regardless of what is set.
+    #[serde(default)]
+    pub static_peers: Vec<ClientConfig>,
+
     /// Optional dynamic discovery backend (e.g., Kubernetes).
-    /// When absent, peers are discovered statically from `dataplane.clients`
-    /// that have `connection_type: peer`.
+    /// When absent and `static_peers` is non-empty, only static discovery is used.
     #[serde(default)]
     pub discovery: Option<PeerDiscoveryConfig>,
 }
@@ -51,15 +68,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_deserialize_peer_config_no_discovery() {
+    fn test_deserialize_peer_config_static_peers() {
+        let yaml = r#"
+            self_id: "slim-0"
+            peer_group: "my-deployment"
+            static_peers:
+              - endpoint: "http://slim-1:8080"
+              - endpoint: "http://slim-2:8080"
+        "#;
+
+        let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.self_id, "slim-0");
+        assert_eq!(config.peer_group, "my-deployment");
+        assert_eq!(config.static_peers.len(), 2);
+        assert_eq!(config.static_peers[0].endpoint, "http://slim-1:8080");
+        assert_eq!(config.static_peers[1].endpoint, "http://slim-2:8080");
+        assert!(config.discovery.is_none());
+    }
+
+    #[test]
+    fn test_deserialize_peer_config_no_peers() {
         let yaml = r#"
             self_id: "slim-0"
             peer_group: "my-deployment"
         "#;
 
         let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.self_id, "slim-0");
-        assert_eq!(config.peer_group, "my-deployment");
+        assert!(config.static_peers.is_empty());
         assert!(config.discovery.is_none());
     }
 
