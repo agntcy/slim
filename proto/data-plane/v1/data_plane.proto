@@ -326,4 +326,8 @@ message LinkNegotiationPayload {
   // 0 = remote (default, backward compatible with peers that don't send this field).
   // 1 = peer (intra-deployment replica connection).
   uint32 connection_type = 5;
+  // Unique node identifier of the sender.
+  // Used by peer replicas to identify which node is on the other end of a connection.
+  // Empty for legacy peers that don't send this field.
+  string node_id = 6;
 }

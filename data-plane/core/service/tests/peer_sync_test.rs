@@ -17,7 +17,7 @@ use slim_config::component::id::ID;
 use slim_config::server::ServerConfig;
 use slim_config::tls::client::TlsClientConfig;
 use slim_config::tls::server::TlsServerConfig;
-use slim_datapath::api::{ApplicationPayload, ProtoName as Name, ProtoMessage as Message};
+use slim_datapath::api::{ApplicationPayload, ProtoMessage as Message, ProtoName as Name};
 use slim_datapath::peer_discovery::{PeerConfig, PeerTopology};
 use slim_datapath::tables::{ConnType, SubscriptionTable};
 use slim_service::{Service, ServiceConfiguration};
