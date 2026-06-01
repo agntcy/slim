@@ -56,8 +56,8 @@ use semver;
 /// Event emitted by the server-side link negotiation when a peer connection is detected.
 #[derive(Debug, Clone)]
 pub struct IncomingPeerEvent {
-    /// The link_id exchanged during negotiation (used as peer identifier).
-    pub link_id: String,
+    /// The node_id of the remote peer, exchanged during negotiation.
+    pub node_id: String,
     /// The connection index in the connection table.
     pub conn_id: u64,
 }
@@ -530,6 +530,7 @@ impl MessageProcessor {
             false,
             ecdh_public_key,
             conn_type_wire,
+            &self.internal.service_id,
         );
         if let Err(e) = self.send_msg(negotiation_msg, conn_index).await {
             debug!(
@@ -1085,6 +1086,7 @@ impl MessageProcessor {
                 true,
                 server_reply_ecdh,
                 reply_conn_type,
+                &self.internal.service_id,
             );
             if let Err(e) = self.send_msg(reply, in_connection).await {
                 debug!(
@@ -1097,8 +1099,9 @@ impl MessageProcessor {
             // If the client indicated it is a peer (connection_type == 1), upgrade this
             // server-side connection from Remote to Peer.
             if payload.connection_type == 1 {
+                let remote_node_id = payload.node_id.clone();
                 info!(
-                    %in_connection, %link_id,
+                    %in_connection, %link_id, %remote_node_id,
                     "upgrading server-side connection to Peer (negotiation)"
                 );
                 self.connection_table().update(in_connection, |conn| {
@@ -1108,7 +1111,7 @@ impl MessageProcessor {
                 // Notify PeerSyncManager about the incoming peer connection.
                 if let Some(tx) = self.internal.incoming_peer_tx.lock().as_ref() {
                     let _ = tx.send(IncomingPeerEvent {
-                        link_id: link_id.to_string(),
+                        node_id: remote_node_id,
                         conn_id: in_connection,
                     });
                 }
@@ -2115,6 +2118,7 @@ mod tests {
             is_reply: false,
             link_ecdh_public_key: vec![],
             connection_type: 0,
+            node_id: String::new(),
         };
         assert!(
             processor
@@ -2134,6 +2138,7 @@ mod tests {
             is_reply: false, // request on outgoing connection → ignored
             link_ecdh_public_key: vec![],
             connection_type: 0,
+            node_id: String::new(),
         };
         assert!(
             processor
@@ -2161,6 +2166,7 @@ mod tests {
             is_reply: true, // reply on incoming connection → ignored
             link_ecdh_public_key: vec![],
             connection_type: 0,
+            node_id: String::new(),
         };
         assert!(
             processor
@@ -2188,6 +2194,7 @@ mod tests {
             is_reply: false,
             link_ecdh_public_key: vec![],
             connection_type: 0,
+            node_id: String::new(),
         };
         assert!(
             processor
@@ -2215,6 +2222,7 @@ mod tests {
             is_reply: false,
             link_ecdh_public_key: vec![],
             connection_type: 0,
+            node_id: String::new(),
         };
         assert!(
             processor
@@ -2245,6 +2253,7 @@ mod tests {
             is_reply: false,
             link_ecdh_public_key: vec![],
             connection_type: 0,
+            node_id: String::new(),
         };
         let err = processor
             .handle_link_negotiation(&payload, conn_id)
@@ -2266,6 +2275,7 @@ mod tests {
             is_reply: false,
             link_ecdh_public_key: vec![],
             connection_type: 0,
+            node_id: String::new(),
         };
         assert!(
             processor
@@ -2295,6 +2305,7 @@ mod tests {
             is_reply: false,
             link_ecdh_public_key: vec![],
             connection_type: 0,
+            node_id: String::new(),
         };
         // First request: accepted, reply sent.
         assert!(
@@ -2327,6 +2338,7 @@ mod tests {
             is_reply: true,
             link_ecdh_public_key: vec![],
             connection_type: 0,
+            node_id: String::new(),
         };
         assert!(
             processor
@@ -2352,6 +2364,7 @@ mod tests {
             is_reply: true,
             link_ecdh_public_key: vec![],
             connection_type: 0,
+            node_id: String::new(),
         };
         assert!(
             processor
@@ -2375,6 +2388,7 @@ mod tests {
             is_reply: true,
             link_ecdh_public_key: vec![],
             connection_type: 0,
+            node_id: String::new(),
         };
         // First reply: accepted.
         assert!(
@@ -3103,6 +3117,7 @@ mod tests {
             is_reply: false,
             link_ecdh_public_key: vec![],
             connection_type: 0,
+            node_id: String::new(),
         };
         processor
             .handle_link_negotiation(&payload, conn_id)
@@ -3145,6 +3160,7 @@ mod tests {
             is_reply: false,
             link_ecdh_public_key: vec![],
             connection_type: 0,
+            node_id: String::new(),
         };
         processor
             .handle_link_negotiation(&payload, conn_id)
@@ -3171,6 +3187,7 @@ mod tests {
             is_reply: false,
             link_ecdh_public_key: vec![],
             connection_type: 0,
+            node_id: String::new(),
         };
         processor
             .handle_link_negotiation(&payload, conn_id)

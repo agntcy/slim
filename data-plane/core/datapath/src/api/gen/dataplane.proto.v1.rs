@@ -390,6 +390,11 @@ pub struct LinkNegotiationPayload {
     /// 1 = peer (intra-deployment replica connection).
     #[prost(uint32, tag = "5")]
     pub connection_type: u32,
+    /// Unique node identifier of the sender.
+    /// Used by peer replicas to identify which node is on the other end of a connection.
+    /// Empty for legacy peers that don't send this field.
+    #[prost(string, tag = "6")]
+    pub node_id: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

@@ -96,7 +96,7 @@ pub struct ServiceConfiguration {
 impl Default for ServiceConfiguration {
     fn default() -> Self {
         Self {
-            node_id: uuid::Uuid::new_v4().to_string(),
+            node_id: format!("node-{}", uuid::Uuid::new_v4()),
             group_name: None,
             dataplane: DataplaneConfig::default(),
             controller: ControllerConfig::default(),

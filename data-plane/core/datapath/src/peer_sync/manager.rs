@@ -278,7 +278,7 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
     /// peer connection_type and upgrades it. This handler registers that connection
     /// in peer state and performs a full sync.
     async fn handle_incoming_peer(&self, event: crate::message_processing::IncomingPeerEvent) {
-        let peer_id = event.link_id.clone();
+        let peer_id = event.node_id.clone();
         let conn_id = event.conn_id;
 
         if self.state.read().contains(&peer_id) {
