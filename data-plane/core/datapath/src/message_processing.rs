@@ -133,10 +133,6 @@ struct MessageProcessorInternal {
     /// Whether this node acts as a hub in hub-and-spoke topology (write-once at startup).
     /// When true, publishes arriving from peer connections are forwarded to other peers.
     is_peer_hub: std::sync::atomic::AtomicBool,
-
-    /// Reference count of local subscribers per name (for aggregate transition detection).
-    /// Key is the encoded name string; value is the current local subscriber count.
-    local_sub_counts: parking_lot::Mutex<HashMap<ProtoName, usize>>,
 }
 
 #[derive(Debug, Clone)]
@@ -218,7 +214,6 @@ impl MessageProcessor {
             peer_relay_tx,
             peer_relay_rx: parking_lot::Mutex::new(Some(peer_relay_rx)),
             is_peer_hub: std::sync::atomic::AtomicBool::new(false),
-            local_sub_counts: parking_lot::Mutex::new(HashMap::new()),
         };
         Self {
             internal: Arc::new(internal),
@@ -1233,7 +1228,7 @@ impl MessageProcessor {
             if add { "" } else { "un" }
         );
 
-        self.forwarder().on_subscription_msg(
+        let transition = self.forwarder().on_subscription_msg(
             dst.clone(),
             conn,
             connection.connection_type(),
@@ -1242,8 +1237,8 @@ impl MessageProcessor {
         )?;
 
         // Emit aggregate transition events for local subscriptions (used by peer sync).
-        if connection.is_local_connection() {
-            self.emit_local_subscription_event(&dst, add, subscription_id);
+        if connection.is_local_connection() && transition {
+            self.send_subscription_event(&dst, add, subscription_id);
         }
 
         // Emit relay event for peer subscriptions (used by hub-and-spoke relay).
@@ -1894,39 +1889,23 @@ impl MessageProcessor {
             .store(is_hub, std::sync::atomic::Ordering::Relaxed);
     }
 
-    /// Track local subscription aggregate transitions and emit events on 0→1 / 1→0.
-    fn emit_local_subscription_event(&self, name: &ProtoName, add: bool, subscription_id: u64) {
+    /// Send a subscription transition event to the peer sync channel.
+    /// Called only when the subscription table reports a 0→1 or 1→0 transition.
+    fn send_subscription_event(&self, name: &ProtoName, add: bool, subscription_id: u64) {
         use crate::peer_sync::SubscriptionEvent;
 
-        let mut counts = self.internal.local_sub_counts.lock();
-        let count = counts.entry(name.clone()).or_insert(0);
-
-        if add {
-            *count += 1;
-            if *count == 1 {
-                // 0 → 1 transition: first local subscriber
-                let _ = self
-                    .internal
-                    .subscription_event_tx
-                    .try_send(SubscriptionEvent::Added {
-                        name: name.clone(),
-                        subscription_id,
-                    });
+        let event = if add {
+            SubscriptionEvent::Added {
+                name: name.clone(),
+                subscription_id,
             }
         } else {
-            *count = count.saturating_sub(1);
-            if *count == 0 {
-                // 1 → 0 transition: last local subscriber gone
-                counts.remove(name);
-                let _ = self
-                    .internal
-                    .subscription_event_tx
-                    .try_send(SubscriptionEvent::Removed {
-                        name: name.clone(),
-                        subscription_id,
-                    });
+            SubscriptionEvent::Removed {
+                name: name.clone(),
+                subscription_id,
             }
-        }
+        };
+        let _ = self.internal.subscription_event_tx.try_send(event);
     }
 
     /// Take the receiver for peer relay events.

@@ -86,7 +86,7 @@ where
         category: ConnType,
         add: bool,
         subscription_id: u64,
-    ) -> Result<(), DataPathError> {
+    ) -> Result<bool, DataPathError> {
         if add {
             self.subscription_table
                 .add_subscription(name, conn_index, category, subscription_id)
