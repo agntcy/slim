@@ -9,6 +9,7 @@ use crate::api::proto::dataplane::v1::Message;
 use crate::api::{NameId, ProtoMessage, ProtoName};
 use crate::errors::DataPathError;
 use crate::message_processing::MessageProcessor;
+use crate::messages::utils::MessageError;
 use crate::tables::SubscriptionTable;
 
 /// Monotonically increasing counter for generating unique peer-sync subscription IDs.
@@ -21,23 +22,27 @@ pub fn next_subscription_id() -> u64 {
 }
 
 /// Build a Subscribe message for a given name.
-pub fn build_subscribe_msg(name: &ProtoName, subscription_id: u64) -> Result<Message, String> {
+pub fn build_subscribe_msg(
+    name: &ProtoName,
+    subscription_id: u64,
+) -> Result<Message, MessageError> {
     ProtoMessage::builder()
         .source(name.clone())
         .destination(name.clone())
         .subscription_id(subscription_id)
         .build_subscribe()
-        .map_err(|e| format!("failed to build subscribe message: {:?}", e))
 }
 
 /// Build an Unsubscribe message for a given name.
-pub fn build_unsubscribe_msg(name: &ProtoName, subscription_id: u64) -> Result<Message, String> {
+pub fn build_unsubscribe_msg(
+    name: &ProtoName,
+    subscription_id: u64,
+) -> Result<Message, MessageError> {
     ProtoMessage::builder()
         .source(name.clone())
         .destination(name.clone())
         .subscription_id(subscription_id)
         .build_unsubscribe()
-        .map_err(|e| format!("failed to build unsubscribe message: {:?}", e))
 }
 
 /// Collect all names that have at least one local subscriber.

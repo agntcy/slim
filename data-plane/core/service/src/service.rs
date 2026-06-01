@@ -383,8 +383,14 @@ impl Service {
         };
 
         let subscription_rx = self.message_processor.subscribe_events();
-        let incoming_peer_rx = self.message_processor.set_incoming_peer_channel();
-        let peer_relay_rx = self.message_processor.set_peer_relay_channel();
+        let incoming_peer_rx = self
+            .message_processor
+            .take_incoming_peer_rx()
+            .expect("incoming_peer_rx already taken");
+        let peer_relay_rx = self
+            .message_processor
+            .take_peer_relay_rx()
+            .expect("peer_relay_rx already taken");
         let mp = (*self.message_processor).clone();
 
         let mut manager = PeerSyncManager::new(

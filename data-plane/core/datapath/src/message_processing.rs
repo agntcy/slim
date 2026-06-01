@@ -106,15 +106,19 @@ struct MessageProcessorInternal {
     subscription_event_tx: tokio::sync::broadcast::Sender<crate::peer_sync::SubscriptionEvent>,
 
     /// Channel to notify PeerSyncManager about incoming peer connections detected
-    /// during link negotiation (server-side). Lazily initialized via `set_incoming_peer_tx`.
-    incoming_peer_tx:
-        parking_lot::Mutex<Option<tokio::sync::mpsc::UnboundedSender<IncomingPeerEvent>>>,
+    /// during link negotiation (server-side).
+    incoming_peer_tx: tokio::sync::mpsc::Sender<IncomingPeerEvent>,
+
+    /// Receiver for incoming peer events — taken once by PeerSyncManager.
+    incoming_peer_rx: parking_lot::Mutex<Option<tokio::sync::mpsc::Receiver<IncomingPeerEvent>>>,
 
     /// Channel to relay subscription events arriving on peer connections to the
-    /// PeerSyncManager (for hub-and-spoke relay). Lazily initialized.
-    peer_relay_tx: parking_lot::Mutex<
-        Option<tokio::sync::mpsc::UnboundedSender<crate::peer_sync::PeerRelayEvent>>,
-    >,
+    /// PeerSyncManager (for hub-and-spoke relay).
+    peer_relay_tx: tokio::sync::mpsc::Sender<crate::peer_sync::PeerRelayEvent>,
+
+    /// Receiver for peer relay events — taken once by PeerSyncManager.
+    peer_relay_rx:
+        parking_lot::Mutex<Option<tokio::sync::mpsc::Receiver<crate::peer_sync::PeerRelayEvent>>>,
 
     /// Whether this node acts as a hub in hub-and-spoke topology.
     /// When true, publishes arriving from peer connections are forwarded to other peers.
@@ -179,6 +183,8 @@ impl MessageProcessor {
             None => RecoveryTable::default(),
         };
         let (subscription_event_tx, _) = tokio::sync::broadcast::channel(1024);
+        let (incoming_peer_tx, incoming_peer_rx) = tokio::sync::mpsc::channel(64);
+        let (peer_relay_tx, peer_relay_rx) = tokio::sync::mpsc::channel(64);
         let internal = MessageProcessorInternal {
             forwarder: Forwarder::new(),
             drain_signal: RwLock::new(Some(signal)),
@@ -191,8 +197,10 @@ impl MessageProcessor {
             link_hmac_timeout,
             link_hmac_poll_interval,
             subscription_event_tx,
-            incoming_peer_tx: parking_lot::Mutex::new(None),
-            peer_relay_tx: parking_lot::Mutex::new(None),
+            incoming_peer_tx,
+            incoming_peer_rx: parking_lot::Mutex::new(Some(incoming_peer_rx)),
+            peer_relay_tx,
+            peer_relay_rx: parking_lot::Mutex::new(Some(peer_relay_rx)),
             is_peer_hub: std::sync::atomic::AtomicBool::new(false),
             local_sub_counts: parking_lot::Mutex::new(HashMap::new()),
         };
@@ -1109,12 +1117,10 @@ impl MessageProcessor {
                 });
 
                 // Notify PeerSyncManager about the incoming peer connection.
-                if let Some(tx) = self.internal.incoming_peer_tx.lock().as_ref() {
-                    let _ = tx.send(IncomingPeerEvent {
-                        node_id: remote_node_id,
-                        conn_id: in_connection,
-                    });
-                }
+                let _ = self.internal.incoming_peer_tx.try_send(IncomingPeerEvent {
+                    node_id: remote_node_id,
+                    conn_id: in_connection,
+                });
             }
         }
 
@@ -1842,14 +1848,10 @@ impl MessageProcessor {
         self.internal.subscription_event_tx.subscribe()
     }
 
-    /// Set the channel for incoming peer events detected during server-side negotiation.
-    /// Returns the receiving half for the PeerSyncManager to consume.
-    pub fn set_incoming_peer_channel(
-        &self,
-    ) -> tokio::sync::mpsc::UnboundedReceiver<IncomingPeerEvent> {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        *self.internal.incoming_peer_tx.lock() = Some(tx);
-        rx
+    /// Take the receiver for incoming peer events detected during server-side negotiation.
+    /// Can only be called once (the receiver is moved out).
+    pub fn take_incoming_peer_rx(&self) -> Option<tokio::sync::mpsc::Receiver<IncomingPeerEvent>> {
+        self.internal.incoming_peer_rx.lock().take()
     }
 
     /// Mark this message processor as the hub in a hub-and-spoke peer topology.
@@ -1896,26 +1898,25 @@ impl MessageProcessor {
         }
     }
 
-    /// Set up the peer relay channel and return the receiver.
-    /// The PeerSyncManager calls this to receive relay events for hub-and-spoke forwarding.
-    pub fn set_peer_relay_channel(
+    /// Take the receiver for peer relay events.
+    /// Can only be called once (the receiver is moved out).
+    pub fn take_peer_relay_rx(
         &self,
-    ) -> tokio::sync::mpsc::UnboundedReceiver<crate::peer_sync::PeerRelayEvent> {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        *self.internal.peer_relay_tx.lock() = Some(tx);
-        rx
+    ) -> Option<tokio::sync::mpsc::Receiver<crate::peer_sync::PeerRelayEvent>> {
+        self.internal.peer_relay_rx.lock().take()
     }
 
     /// Emit a relay event when a subscription arrives on a peer connection.
     fn emit_peer_relay_event(&self, name: &ProtoName, add: bool, subscription_id: u64, conn: u64) {
-        if let Some(tx) = self.internal.peer_relay_tx.lock().as_ref() {
-            let _ = tx.send(crate::peer_sync::PeerRelayEvent {
+        let _ = self
+            .internal
+            .peer_relay_tx
+            .try_send(crate::peer_sync::PeerRelayEvent {
                 source_conn: conn,
                 name: name.clone(),
                 subscription_id,
                 is_subscribe: add,
             });
-        }
     }
 }
 
