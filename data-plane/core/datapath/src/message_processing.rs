@@ -103,7 +103,12 @@ struct MessageProcessorInternal {
     link_hmac_poll_interval: std::time::Duration,
 
     /// Broadcast channel for local subscription aggregate transitions (peer sync).
-    subscription_event_tx: tokio::sync::broadcast::Sender<crate::peer_sync::SubscriptionEvent>,
+    subscription_event_tx: tokio::sync::mpsc::Sender<crate::peer_sync::SubscriptionEvent>,
+
+    /// Receiver for subscription events — taken once by PeerSyncManager.
+    subscription_event_rx: parking_lot::Mutex<
+        Option<tokio::sync::mpsc::Receiver<crate::peer_sync::SubscriptionEvent>>,
+    >,
 
     /// Channel to notify PeerSyncManager about incoming peer connections detected
     /// during link negotiation (server-side).
@@ -182,7 +187,7 @@ impl MessageProcessor {
             Some(ttl) => RecoveryTable::new(ttl),
             None => RecoveryTable::default(),
         };
-        let (subscription_event_tx, _) = tokio::sync::broadcast::channel(1024);
+        let (subscription_event_tx, subscription_event_rx) = tokio::sync::mpsc::channel(1024);
         let (incoming_peer_tx, incoming_peer_rx) = tokio::sync::mpsc::channel(64);
         let (peer_relay_tx, peer_relay_rx) = tokio::sync::mpsc::channel(64);
         let internal = MessageProcessorInternal {
@@ -197,6 +202,7 @@ impl MessageProcessor {
             link_hmac_timeout,
             link_hmac_poll_interval,
             subscription_event_tx,
+            subscription_event_rx: parking_lot::Mutex::new(Some(subscription_event_rx)),
             incoming_peer_tx,
             incoming_peer_rx: parking_lot::Mutex::new(Some(incoming_peer_rx)),
             peer_relay_tx,
@@ -1837,15 +1843,15 @@ impl MessageProcessor {
         &self.internal.forwarder.connection_table
     }
 
-    /// Subscribe to local subscription aggregate transition events.
+    /// Take the receiver for local subscription aggregate transition events.
+    /// Can only be called once (the receiver is moved out).
     ///
-    /// Returns a broadcast receiver that emits [`SubscriptionEvent`] whenever
-    /// a name gains its first local subscriber or loses its last.
-    /// Used by `PeerSyncManager` to forward incremental updates to peers.
-    pub fn subscribe_events(
+    /// Emits [`SubscriptionEvent`] whenever a name gains its first local subscriber
+    /// or loses its last. Used by `PeerSyncManager` to forward incremental updates to peers.
+    pub fn take_subscription_event_rx(
         &self,
-    ) -> tokio::sync::broadcast::Receiver<crate::peer_sync::SubscriptionEvent> {
-        self.internal.subscription_event_tx.subscribe()
+    ) -> Option<tokio::sync::mpsc::Receiver<crate::peer_sync::SubscriptionEvent>> {
+        self.internal.subscription_event_rx.lock().take()
     }
 
     /// Take the receiver for incoming peer events detected during server-side negotiation.
@@ -1877,7 +1883,7 @@ impl MessageProcessor {
                 let _ = self
                     .internal
                     .subscription_event_tx
-                    .send(SubscriptionEvent::Added {
+                    .try_send(SubscriptionEvent::Added {
                         name: name.clone(),
                         subscription_id,
                     });
@@ -1890,7 +1896,7 @@ impl MessageProcessor {
                 let _ = self
                     .internal
                     .subscription_event_tx
-                    .send(SubscriptionEvent::Removed {
+                    .try_send(SubscriptionEvent::Removed {
                         name: name.clone(),
                         subscription_id,
                     });

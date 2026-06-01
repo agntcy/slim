@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 use slim_config::client::{ClientConfig, ConnType};
-use tokio::sync::broadcast;
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
@@ -49,26 +49,26 @@ pub struct PeerSyncManager<D: PeerDiscovery + Send> {
     discovery: D,
     state: Arc<RwLock<PeerState>>,
     /// Receiver for subscription events (aggregate transitions).
-    subscription_rx: broadcast::Receiver<SubscriptionEvent>,
+    subscription_rx: mpsc::Receiver<SubscriptionEvent>,
     /// Receiver for incoming peer connections detected during negotiation.
-    incoming_peer_rx: tokio::sync::mpsc::Receiver<crate::message_processing::IncomingPeerEvent>,
+    incoming_peer_rx: mpsc::Receiver<crate::message_processing::IncomingPeerEvent>,
     /// Receiver for peer relay events (subscription received on peer connections).
-    peer_relay_rx: tokio::sync::mpsc::Receiver<crate::peer_sync::PeerRelayEvent>,
+    peer_relay_rx: mpsc::Receiver<crate::peer_sync::PeerRelayEvent>,
 }
 
 impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
     /// Create a new PeerSyncManager.
     ///
-    /// `subscription_rx` should be obtained from `MessageProcessor::subscribe_events()`.
+    /// `subscription_rx` should be obtained from `MessageProcessor::take_subscription_event_rx()`.
     /// `incoming_peer_rx` should be obtained from `MessageProcessor::take_incoming_peer_rx()`.
     /// `peer_relay_rx` should be obtained from `MessageProcessor::take_peer_relay_rx()`.
     pub fn new(
         config: PeerSyncConfig,
         message_processor: MessageProcessor,
         discovery: D,
-        subscription_rx: broadcast::Receiver<SubscriptionEvent>,
-        incoming_peer_rx: tokio::sync::mpsc::Receiver<crate::message_processing::IncomingPeerEvent>,
-        peer_relay_rx: tokio::sync::mpsc::Receiver<crate::peer_sync::PeerRelayEvent>,
+        subscription_rx: mpsc::Receiver<SubscriptionEvent>,
+        incoming_peer_rx: mpsc::Receiver<crate::message_processing::IncomingPeerEvent>,
+        peer_relay_rx: mpsc::Receiver<crate::peer_sync::PeerRelayEvent>,
     ) -> Self {
         // If hub in hub-and-spoke, configure the message processor for publish relay.
         if config.is_hub && config.topology == PeerTopology::HubAndSpoke {
@@ -126,17 +126,10 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
                 }
                 event = self.subscription_rx.recv() => {
                     match event {
-                        Ok(sub_event) => {
+                        Some(sub_event) => {
                             self.handle_subscription_event(sub_event).await;
                         }
-                        Err(broadcast::error::RecvError::Lagged(n)) => {
-                            warn!(
-                                missed = n,
-                                "subscription event channel lagged, triggering full resync"
-                            );
-                            self.full_resync_all_peers().await;
-                        }
-                        Err(broadcast::error::RecvError::Closed) => {
+                        None => {
                             info!("subscription event channel closed, shutting down");
                             break;
                         }
@@ -351,20 +344,6 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
                     &peer_conns,
                 )
                 .await;
-            }
-        }
-    }
-
-    /// Trigger a full resync to all connected peers (e.g., after event lag).
-    async fn full_resync_all_peers(&self) {
-        let peer_conns = self.state.read().all_conn_ids();
-        for conn_id in peer_conns {
-            if let Err(e) = sync::send_full_sync(&self.message_processor, conn_id).await {
-                warn!(
-                    %conn_id,
-                    error = %e,
-                    "full resync failed for peer"
-                );
             }
         }
     }
