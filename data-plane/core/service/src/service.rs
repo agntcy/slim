@@ -382,7 +382,10 @@ impl Service {
             is_hub,
         };
 
-        let subscription_rx = self.message_processor.subscribe_events();
+        let subscription_rx = self
+            .message_processor
+            .take_subscription_event_rx()
+            .expect("subscription_event_rx already taken");
         let incoming_peer_rx = self
             .message_processor
             .take_incoming_peer_rx()
