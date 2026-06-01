@@ -395,6 +395,11 @@ pub struct LinkNegotiationPayload {
     /// Empty for legacy peers that don't send this field.
     #[prost(string, tag = "6")]
     pub node_id: ::prost::alloc::string::String,
+    /// Peer group identifier. When non-empty and connection_type == 1 (peer),
+    /// the server verifies both sides belong to the same peer group before
+    /// upgrading the connection. Empty for non-peer connections.
+    #[prost(string, tag = "7")]
+    pub peer_group: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
