@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as STANDARD_BASE64;
 use jsonwebtoken::jwk::KeyAlgorithm;
@@ -565,7 +564,6 @@ impl Signer for SignerJwt {
     }
 }
 
-#[async_trait]
 impl TokenProvider for SignerJwt {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         // SignerJwt has no asynchronous initialization requirements.
@@ -600,7 +598,6 @@ impl TokenProvider for SignerJwt {
     }
 }
 
-#[async_trait]
 impl TokenProvider for StaticTokenProvider {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         // StaticTokenProvider exposes a statically loaded token; nothing async to perform.
@@ -620,7 +617,6 @@ impl TokenProvider for StaticTokenProvider {
     }
 }
 
-#[async_trait]
 impl Verifier for VerifierJwt {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         Ok(()) // no-op

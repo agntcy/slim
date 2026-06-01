@@ -44,7 +44,6 @@ dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-testing",
  "agntcy-slim-version",
- "async-trait",
  "aws-lc-rs",
  "base64 0.22.1",
  "criterion",
@@ -76,6 +75,7 @@ dependencies = [
  "tower-service",
  "tracing",
  "tracing-test",
+ "trait-variant",
  "url",
  "wiremock",
 ]
