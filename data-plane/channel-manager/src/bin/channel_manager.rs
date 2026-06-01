@@ -14,7 +14,6 @@ use agntcy_slim_channel_manager::config::Config;
 use agntcy_slim_channel_manager::proto::channel_manager_service_server::ChannelManagerServiceServer;
 use agntcy_slim_channel_manager::service::ChannelManagerServer;
 use agntcy_slim_channel_manager::sessions::SessionsList;
-use agntcy_slim_channel_manager::slim_adapter;
 
 use anyhow::Context;
 use clap::Parser;
@@ -68,11 +67,6 @@ async fn create_channels_from_config(
             anyhow::anyhow!("session creation failed for {}: {e}", channel_cfg.name)
         })?;
 
-        // Get the session controller for participant invitations
-        let controller = session.session_arc().ok_or_else(|| {
-            anyhow::anyhow!("session already closed for {}", channel_cfg.name)
-        })?;
-
         for participant in &channel_cfg.participants {
             let participant_name =
                 ProtoName::parse_name(participant).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -86,6 +80,11 @@ async fn create_channels_from_config(
                         channel_cfg.name
                     )
                 })?;
+
+            // Get the session controller for participant invitations
+            let controller = session.session_arc().ok_or_else(|| {
+                anyhow::anyhow!("session already closed for {}", channel_cfg.name)
+            })?;
 
             controller
                 .invite_participant(&participant_name)
@@ -146,11 +145,11 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("failed to create SLIM service: {e}"))?;
 
     // Connect to the SLIM node
-    let conn_id  = service
+    let conn_id = service
         .connect(&config.manager.slim_connection)
         .await
         .map_err(|e| anyhow::anyhow!("failed to connect to SLIM node: {e}"))?;
-    
+
     info!(
         endpoint = %config.manager.slim_connection.endpoint,
         conn_id,
@@ -164,17 +163,8 @@ async fn main() -> anyhow::Result<()> {
         .manager
         .auth
         .to_identity_configs(&config.manager.local_name);
-    /*let app = slim_adapter::create_app(
-        &service,
-        &app_name,
-        core_provider,
-        core_verifier,
-        Direction::None,
-    )
-    .await
-    .map_err(|e| anyhow::anyhow!("failed to create SLIM app: {e}"))?;*/
 
-    let mut provider =  core_provider
+    let mut provider = core_provider
         .build_auth_provider()
         .context("failed to build auth provider")?;
     let mut verifier = core_verifier
@@ -191,7 +181,8 @@ async fn main() -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("failed to initialize identity verifier: {e}"))?;
 
-    let (app, _rx) = service.create_app_with_direction(&app_name, provider, verifier, Direction::None)?;
+    let (app, _rx) =
+        service.create_app_with_direction(&app_name, provider, verifier, Direction::None)?;
 
     // Subscribe to the local name
     app.subscribe(app.app_name(), Some(conn_id))
@@ -246,7 +237,7 @@ async fn main() -> anyhow::Result<()> {
         Ok(()) => info!("All sessions cleaned up"),
         Err(_) => warn!("Session cleanup timed out, forcing shutdown"),
     }
-       service
+    service
         .shutdown()
         .await
         .map_err(|e| anyhow::anyhow!("service shutdown failed: {e}"))?;

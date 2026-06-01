@@ -4,11 +4,11 @@
 use serde::Deserialize;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 
+use crate::auth::ConfigAuthError;
 use crate::auth::jwt::Config as JwtConfig;
 #[cfg(not(target_family = "windows"))]
 use crate::auth::spire::SpireConfig;
 use crate::auth::static_jwt::Config as StaticJwtConfig;
-use crate::auth::ConfigAuthError;
 
 #[derive(Default, Debug, Clone, Deserialize, PartialEq, serde::Serialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
@@ -43,9 +43,7 @@ impl IdentityProviderConfig {
     /// Build an [`AuthProvider`] from this configuration.
     pub fn build_auth_provider(&self) -> Result<AuthProvider, ConfigAuthError> {
         match self {
-            Self::SharedSecret { id, data } => {
-                Ok(AuthProvider::shared_secret_from_str(id, data)?)
-            }
+            Self::SharedSecret { id, data } => Ok(AuthProvider::shared_secret_from_str(id, data)?),
             Self::StaticJwt(jwt_config) => {
                 let provider = jwt_config.build_static_token_provider()?;
                 Ok(AuthProvider::static_token(provider))
@@ -68,9 +66,7 @@ impl IdentityVerifierConfig {
     /// Build an [`AuthVerifier`] from this configuration.
     pub fn build_auth_verifier(&self) -> Result<AuthVerifier, ConfigAuthError> {
         match self {
-            Self::SharedSecret { id, data } => {
-                Ok(AuthVerifier::shared_secret_from_str(id, data)?)
-            }
+            Self::SharedSecret { id, data } => Ok(AuthVerifier::shared_secret_from_str(id, data)?),
             Self::Jwt(jwt_config) => {
                 let verifier = jwt_config.get_verifier()?;
                 Ok(AuthVerifier::jwt_verifier(verifier))

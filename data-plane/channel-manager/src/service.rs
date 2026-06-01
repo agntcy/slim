@@ -11,9 +11,9 @@ use slim_datapath::api::{ProtoName, ProtoSessionType};
 use slim_service::app::App;
 use slim_session::SessionConfig;
 use slim_session::context::SessionContext;
+use thiserror::Error;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
-use thiserror::Error;
 
 use crate::proto::channel_manager_service_server::ChannelManagerService;
 use crate::proto::{
@@ -38,7 +38,11 @@ pub enum ServiceError {
 
 impl ChannelManagerServer {
     /// Create a new server instance
-    pub fn new(app: Arc<App<AuthProvider, AuthVerifier>>, conn_id: u64, sessions: Arc<SessionsList>) -> Self {
+    pub fn new(
+        app: Arc<App<AuthProvider, AuthVerifier>>,
+        conn_id: u64,
+        sessions: Arc<SessionsList>,
+    ) -> Self {
         Self {
             app,
             conn_id,
@@ -65,8 +69,14 @@ impl ChannelManagerServer {
         config: SessionConfig,
         destination: ProtoName,
     ) -> Result<SessionContext, ServiceError> {
-        let (ctx, completion) = self.app.create_session(config, destination, None).await.map_err(|e| ServiceError::SessionCreationFailed(e.to_string()))?;
-        completion.await.map_err(|e| ServiceError::SessionCreationFailed(e.to_string()))?;
+        let (ctx, completion) = self
+            .app
+            .create_session(config, destination, None)
+            .await
+            .map_err(|e| ServiceError::SessionCreationFailed(e.to_string()))?;
+        completion
+            .await
+            .map_err(|e| ServiceError::SessionCreationFailed(e.to_string()))?;
         Ok(ctx)
     }
 
@@ -96,8 +106,6 @@ impl ChannelManagerServer {
             metadata: std::collections::HashMap::new(),
         };
 
-
-
         let session = match self.create_session_and_wait(session_config, name).await {
             Ok(s) => s,
             Err(e) => {
@@ -110,16 +118,17 @@ impl ChannelManagerServer {
         let session_handle = session.session_arc();
 
         // Atomically check-and-insert to avoid race conditions
-        if !self
+        if self
             .sessions
-            .try_insert_session(channel_name.clone(), session)
+            .add_session(channel_name.clone(), session)
             .await
+            .is_err()
         {
             // Channel was created by another concurrent request — clean up
-            if let Some(s) = session_handle {
-                if let Err(e) = self.app.delete_session(&s) {
-                    error!("Failed to clean up duplicate session for {channel_name}: {e}");
-                }
+            if let Some(s) = session_handle
+                && let Err(e) = self.app.delete_session(&s)
+            {
+                error!("Failed to clean up duplicate session for {channel_name}: {e}");
             }
             return self.error_response(format!("channel {channel_name} already exists"));
         }
@@ -159,11 +168,7 @@ impl ChannelManagerServer {
         };
 
         // Set route for the participant
-        if let Err(e) = self
-            .app
-            .set_route(&participant_name, self.conn_id)
-            .await
-        {
+        if let Err(e) = self.app.set_route(&participant_name, self.conn_id).await {
             return self.error_response(format!(
                 "failed to set route for participant {participant_name_str}: {e}"
             ));
@@ -271,8 +276,7 @@ impl ChannelManagerServer {
             }
         };
 
-        let participant_names: Vec<String> =
-            participants.iter().map(|p| p.to_string()).collect();
+        let participant_names: Vec<String> = participants.iter().map(|p| p.to_string()).collect();
 
         info!(
             "Listing participants for channel {channel_name}, count: {}",

@@ -38,17 +38,6 @@ impl SessionsList {
     /// Try to insert a session atomically: checks existence and inserts under a single write lock.
     /// Spawns a background event monitor for the session.
     /// Returns `true` if inserted, `false` if the channel already exists.
-    pub async fn try_insert_session(&self, channel_name: String, ctx: SessionContext) -> bool {
-        let mut channels = self.channels.write().await;
-        if channels.contains_key(&channel_name) {
-            return false;
-        }
-        let (session, rx) = ctx.into_parts();
-        let monitor = spawn_session_event_monitor(channel_name.clone(), rx);
-        channels.insert(channel_name, Channel { session, monitor });
-        true
-    }
-
     /// Add a session to the list
     pub async fn add_session(
         &self,
@@ -73,7 +62,11 @@ impl SessionsList {
 
     /// Remove and delete a session by channel name: aborts the monitor,
     /// deletes the SLIM session, and removes it from the map.
-    pub async fn remove_session(&self, channel_name: &str, app: &App<AuthProvider, AuthVerifier>) -> anyhow::Result<()> {
+    pub async fn remove_session(
+        &self,
+        channel_name: &str,
+        app: &App<AuthProvider, AuthVerifier>,
+    ) -> anyhow::Result<()> {
         // Remove from map and release the lock before the potentially slow SLIM call
         let session = {
             let mut channels = self.channels.write().await;
@@ -85,7 +78,9 @@ impl SessionsList {
         };
 
         // Delete the SLIM session with a timeout to avoid hanging
-        let s = session.upgrade().ok_or_else(|| anyhow::anyhow!("session already closed"))?;
+        let s = session
+            .upgrade()
+            .ok_or_else(|| anyhow::anyhow!("session already closed"))?;
         let completion = app
             .delete_session(&s)
             .map_err(|e| anyhow::anyhow!("failed to delete session for {channel_name}: {e}"))?;
@@ -217,31 +212,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_try_insert_session_success() {
-        let sessions = SessionsList::new();
-        assert!(sessions.try_insert_session("a/b/c".into(), dummy_session()).await);
-        // get_session returns None because the Weak can't upgrade (no strong ref)
-        assert!(sessions.get_session("a/b/c").await.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_try_insert_session_duplicate_returns_false() {
-        let sessions = SessionsList::new();
-        assert!(
-            sessions
-                .try_insert_session("a/b/c".into(), dummy_session())
-                .await
-        );
-        assert!(
-            !sessions
-                .try_insert_session("a/b/c".into(), dummy_session())
-                .await
-        );
-        // Only one channel should exist
-        assert_eq!(sessions.list_channel_names().await.len(), 1);
-    }
-
-    #[tokio::test]
     async fn test_add_session_success() {
         let sessions = SessionsList::new();
         assert!(
@@ -250,6 +220,8 @@ mod tests {
                 .await
                 .is_ok()
         );
+        // get_session returns None because the Weak can't upgrade (no strong ref)
+        assert!(sessions.get_session("a/b/c").await.is_none());
     }
 
     #[tokio::test]
@@ -262,20 +234,25 @@ mod tests {
         let err = sessions.add_session("a/b/c".into(), dummy_session()).await;
         assert!(err.is_err());
         assert!(err.unwrap_err().to_string().contains("already exists"));
+        // Only one channel should exist
+        assert_eq!(sessions.list_channel_names().await.len(), 1);
     }
 
     #[tokio::test]
     async fn test_insert_multiple_channels() {
         let sessions = SessionsList::new();
         sessions
-            .try_insert_session("ch/1/a".into(), dummy_session())
-            .await;
+            .add_session("ch/1/a".into(), dummy_session())
+            .await
+            .unwrap();
         sessions
-            .try_insert_session("ch/2/b".into(), dummy_session())
-            .await;
+            .add_session("ch/2/b".into(), dummy_session())
+            .await
+            .unwrap();
         sessions
-            .try_insert_session("ch/3/c".into(), dummy_session())
-            .await;
+            .add_session("ch/3/c".into(), dummy_session())
+            .await
+            .unwrap();
         assert_eq!(sessions.list_channel_names().await.len(), 3);
     }
 

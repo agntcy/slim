@@ -110,9 +110,8 @@ async fn create_service_and_connect(slim_port: u16) -> (Arc<Service>, u64) {
         .expect("failed to build service");
     let service = Arc::new(service);
 
-    let client_config =
-        ClientConfig::with_endpoint(&format!("http://127.0.0.1:{slim_port}"))
-            .with_tls_setting(TlsClientConfig::insecure());
+    let client_config = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{slim_port}"))
+        .with_tls_setting(TlsClientConfig::insecure());
 
     let conn_id = service
         .connect(&client_config)
@@ -126,7 +125,10 @@ async fn create_service_and_connect(slim_port: u16) -> (Arc<Service>, u64) {
 async fn create_app_with_shared_secret(
     service: &Service,
     name: &str,
-) -> (App<AuthProvider, AuthVerifier>, tokio::sync::mpsc::Receiver<Result<slim_session::Notification, slim_session::SessionError>>) {
+) -> (
+    App<AuthProvider, AuthVerifier>,
+    tokio::sync::mpsc::Receiver<Result<slim_session::Notification, slim_session::SessionError>>,
+) {
     let app_name = ProtoName::parse_name(name).expect("invalid app name");
 
     let mut provider =
