@@ -19,7 +19,7 @@ use slim_config::tls::server::TlsServerConfig;
 use slim_datapath::api::ApplicationPayload;
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::api::ProtoName as Name;
-use slim_datapath::peer_discovery::PeerConfig;
+use slim_datapath::peer_discovery::{PeerConfig, PeerTopology};
 use slim_datapath::tables::{ConnType, SubscriptionTable};
 use slim_service::{Service, ServiceConfiguration};
 
@@ -427,4 +427,262 @@ async fn test_subscription_not_propagated_to_remote() {
         node.service.shutdown().await.ok();
     }
     remote_service.shutdown().await.ok();
+}
+
+// ============================================================================
+// Hub-and-Spoke Topology Tests
+// ============================================================================
+
+/// Build peer configs with hub_and_spoke topology.
+fn build_hub_spoke_configs(count: usize) -> Vec<(u16, String, PeerConfig)> {
+    let ports: Vec<u16> = (0..count).map(|_| reserve_port()).collect();
+    let node_ids: Vec<String> = (0..count).map(|i| format!("peer-{}", ports[i])).collect();
+
+    let mut configs = Vec::new();
+    for i in 0..count {
+        let static_peers: Vec<ClientConfig> = ports
+            .iter()
+            .map(|&port| {
+                ClientConfig::with_endpoint(&format!("http://127.0.0.1:{port}"))
+                    .with_tls_setting(TlsClientConfig::default().with_insecure(true))
+            })
+            .collect();
+
+        let peer_config = PeerConfig {
+            peer_group: "test-hub-spoke".to_string(),
+            topology: PeerTopology::HubAndSpoke,
+            static_peers,
+            discovery: None,
+        };
+
+        configs.push((ports[i], node_ids[i].clone(), peer_config));
+    }
+
+    configs
+}
+
+/// Test that hub-and-spoke topology creates only hub-to-spoke connections.
+/// With 3 nodes, the hub connects to 2 spokes (2 connections total per spoke perspective,
+/// but only 1 on each spoke since they only connect to the hub).
+#[tokio::test(flavor = "multi_thread")]
+async fn test_hub_spoke_topology_connections() {
+    let configs = build_hub_spoke_configs(3);
+
+    // Determine which node will be the hub (smallest self_id endpoint)
+    let hub_idx = configs
+        .iter()
+        .enumerate()
+        .min_by_key(|(_, (_, _, pc))| {
+            // The self_id will be derived from the matching static_peer endpoint
+            pc.static_peers.iter().map(|p| p.endpoint.clone()).collect::<Vec<_>>()
+        })
+        .map(|(i, _)| i)
+        .unwrap();
+
+    let mut nodes = Vec::new();
+    for (port, self_id, peer_config) in configs {
+        let node = start_peer_node(port, self_id, peer_config).await;
+        wait_for_server(&format!("127.0.0.1:{}", node.port), 40).await;
+        nodes.push(node);
+    }
+
+    // Wait for connections to establish.
+    // Hub should have 2 peer connections (one to each spoke).
+    // Each spoke should have 1 peer connection (to the hub only).
+    wait_for_peer_connections(&nodes[hub_idx].service, 2, Duration::from_secs(10)).await;
+    for (i, node) in nodes.iter().enumerate() {
+        if i != hub_idx {
+            wait_for_peer_connections(&node.service, 1, Duration::from_secs(10)).await;
+        }
+    }
+
+    // Verify connection counts
+    let hub_conns = count_peer_connections(&nodes[hub_idx].service);
+    assert_eq!(hub_conns, 2, "hub should have 2 peer connections");
+
+    for (i, node) in nodes.iter().enumerate() {
+        if i != hub_idx {
+            let spoke_conns = count_peer_connections(&node.service);
+            assert_eq!(
+                spoke_conns, 1,
+                "spoke {} should have 1 peer connection (hub only), got {}",
+                node.self_id, spoke_conns
+            );
+        }
+    }
+
+    for node in &nodes {
+        node.service.shutdown().await.ok();
+    }
+}
+
+/// Test that subscriptions propagate through the hub to all spokes.
+/// Spoke A subscribes → hub relays to spoke B.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_hub_spoke_subscription_relay() {
+    let configs = build_hub_spoke_configs(3);
+
+    // Determine hub index (smallest endpoint string after filtering self)
+    let all_endpoints: Vec<String> = configs
+        .iter()
+        .map(|(port, _, _)| format!("http://127.0.0.1:{port}"))
+        .collect();
+    let hub_idx = all_endpoints
+        .iter()
+        .enumerate()
+        .min_by_key(|(_, e)| e.as_str())
+        .map(|(i, _)| i)
+        .unwrap();
+
+    let mut nodes = Vec::new();
+    for (port, self_id, peer_config) in configs {
+        let node = start_peer_node(port, self_id, peer_config).await;
+        wait_for_server(&format!("127.0.0.1:{}", node.port), 40).await;
+        nodes.push(node);
+    }
+
+    // Wait for hub to connect to all spokes
+    wait_for_peer_connections(&nodes[hub_idx].service, 2, Duration::from_secs(10)).await;
+    for (i, node) in nodes.iter().enumerate() {
+        if i != hub_idx {
+            wait_for_peer_connections(&node.service, 1, Duration::from_secs(10)).await;
+        }
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Pick a spoke to subscribe on (not the hub)
+    let spoke_a = if hub_idx == 0 { 1 } else { 0 };
+    let spoke_b = (0..3).find(|&i| i != hub_idx && i != spoke_a).unwrap();
+
+    // Register local app on spoke_a and subscribe
+    let topic = Name::from_strings(["org", "ns", "hub-test"]).with_id(1);
+    let (_conn_id, tx, _rx) = nodes[spoke_a]
+        .service
+        .message_processor()
+        .register_local_connection(false)
+        .expect("failed to register local connection");
+
+    let sub_msg = Message::builder()
+        .source(topic.clone())
+        .destination(topic.clone())
+        .build_subscribe()
+        .unwrap();
+    tx.send(Ok(sub_msg)).await.unwrap();
+
+    // Wait for subscription to propagate: spoke_a → hub → spoke_b
+    tokio::time::sleep(Duration::from_millis(800)).await;
+
+    // Verify hub has the subscription (from spoke_a via peer conn)
+    let prefix = Name::from_strings(["org", "ns", "hub-test"]);
+    let hub_table = nodes[hub_idx].service.message_processor().subscription_table();
+    let mut found_on_hub = false;
+    hub_table.for_each(|name, _id, _local, _remote, peer_conns| {
+        if name == &prefix && !peer_conns.is_empty() {
+            found_on_hub = true;
+        }
+    });
+    assert!(found_on_hub, "hub should have the subscription from spoke_a");
+
+    // Verify spoke_b also has the subscription (relayed by hub)
+    let spoke_b_table = nodes[spoke_b].service.message_processor().subscription_table();
+    let mut found_on_spoke_b = false;
+    spoke_b_table.for_each(|name, _id, _local, _remote, peer_conns| {
+        if name == &prefix && !peer_conns.is_empty() {
+            found_on_spoke_b = true;
+        }
+    });
+    assert!(
+        found_on_spoke_b,
+        "spoke_b should have the subscription relayed by hub from spoke_a"
+    );
+
+    for node in &nodes {
+        node.service.shutdown().await.ok();
+    }
+}
+
+/// Test that messages route correctly through the hub in hub-and-spoke topology.
+/// App on spoke A publishes → hub relays → subscriber on spoke B receives.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_hub_spoke_message_delivery() {
+    let configs = build_hub_spoke_configs(3);
+
+    let all_endpoints: Vec<String> = configs
+        .iter()
+        .map(|(port, _, _)| format!("http://127.0.0.1:{port}"))
+        .collect();
+    let hub_idx = all_endpoints
+        .iter()
+        .enumerate()
+        .min_by_key(|(_, e)| e.as_str())
+        .map(|(i, _)| i)
+        .unwrap();
+
+    let mut nodes = Vec::new();
+    for (port, self_id, peer_config) in configs {
+        let node = start_peer_node(port, self_id, peer_config).await;
+        wait_for_server(&format!("127.0.0.1:{}", node.port), 40).await;
+        nodes.push(node);
+    }
+
+    // Wait for topology
+    wait_for_peer_connections(&nodes[hub_idx].service, 2, Duration::from_secs(10)).await;
+    for (i, node) in nodes.iter().enumerate() {
+        if i != hub_idx {
+            wait_for_peer_connections(&node.service, 1, Duration::from_secs(10)).await;
+        }
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let spoke_a = if hub_idx == 0 { 1 } else { 0 };
+    let spoke_b = (0..3).find(|&i| i != hub_idx && i != spoke_a).unwrap();
+
+    let topic = Name::from_strings(["org", "ns", "spoke-msg"]).with_id(10);
+
+    // Register subscriber on spoke_b
+    let (_sub_conn, sub_tx, mut sub_rx) = nodes[spoke_b]
+        .service
+        .message_processor()
+        .register_local_connection(false)
+        .expect("failed to register subscriber");
+
+    let sub_msg = Message::builder()
+        .source(topic.clone())
+        .destination(topic.clone())
+        .build_subscribe()
+        .unwrap();
+    sub_tx.send(Ok(sub_msg)).await.unwrap();
+
+    // Wait for subscription to propagate: spoke_b → hub → spoke_a
+    tokio::time::sleep(Duration::from_millis(800)).await;
+
+    // Register publisher on spoke_a
+    let (_pub_conn, pub_tx, _pub_rx) = nodes[spoke_a]
+        .service
+        .message_processor()
+        .register_local_connection(false)
+        .expect("failed to register publisher");
+
+    // Publish
+    let payload = ApplicationPayload::new("test", b"hello via hub".to_vec()).as_content();
+    let pub_msg = Message::builder()
+        .source(Name::from_strings(["org", "ns", "sender"]).with_id(1))
+        .destination(topic.clone())
+        .payload(payload)
+        .build_publish()
+        .unwrap();
+    pub_tx.send(Ok(pub_msg)).await.unwrap();
+
+    // Verify message arrives on spoke_b
+    let received = tokio::time::timeout(Duration::from_secs(5), sub_rx.recv())
+        .await
+        .expect("timeout waiting for message on spoke_b subscriber")
+        .expect("subscriber channel closed");
+
+    let msg = received.expect("received error instead of message");
+    assert!(msg.is_publish(), "expected publish message on spoke_b");
+
+    for node in &nodes {
+        node.service.shutdown().await.ok();
+    }
 }
