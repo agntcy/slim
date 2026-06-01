@@ -92,6 +92,13 @@ struct MessageProcessorInternal {
 
     /// Polling interval (in milliseconds) to wait between HMAC existence checks.
     link_hmac_poll_interval: std::time::Duration,
+
+    /// Broadcast channel for local subscription aggregate transitions (peer sync).
+    subscription_event_tx: tokio::sync::broadcast::Sender<crate::peer_sync::SubscriptionEvent>,
+
+    /// Reference count of local subscribers per name (for aggregate transition detection).
+    /// Key is the encoded name string; value is the current local subscriber count.
+    local_sub_counts: parking_lot::Mutex<HashMap<ProtoName, usize>>,
 }
 
 #[derive(Debug, Clone)]
@@ -147,6 +154,7 @@ impl MessageProcessor {
             Some(ttl) => RecoveryTable::new(ttl),
             None => RecoveryTable::default(),
         };
+        let (subscription_event_tx, _) = tokio::sync::broadcast::channel(1024);
         let internal = MessageProcessorInternal {
             forwarder: Forwarder::new(),
             drain_signal: RwLock::new(Some(signal)),
@@ -158,6 +166,8 @@ impl MessageProcessor {
             server_require_header_mac,
             link_hmac_timeout,
             link_hmac_poll_interval,
+            subscription_event_tx,
+            local_sub_counts: parking_lot::Mutex::new(HashMap::new()),
         };
         Self {
             internal: Arc::new(internal),
@@ -535,7 +545,12 @@ impl MessageProcessor {
     where
         S: Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
     {
-        let mut connection = Connection::new(ConnType::Remote, outbound)
+        let conn_type = match client_config.connection_type {
+            slim_config::client::ConnectionType::Peer => ConnType::Peer,
+            slim_config::client::ConnectionType::Remote => ConnType::Remote,
+        };
+
+        let mut connection = Connection::new(conn_type, outbound)
             .with_local_addr(local)
             .with_remote_addr(remote)
             .with_config_data(Some(client_config.clone()))
@@ -552,6 +567,7 @@ impl MessageProcessor {
         debug!(
             remote = ?connection.remote_addr(),
             local = ?connection.local_addr(),
+            ?conn_type,
             "new connection initiated locally",
         );
 
@@ -567,7 +583,7 @@ impl MessageProcessor {
             conn_index,
             Some(client_config.clone()),
             cancellation_token,
-            ConnType::Remote,
+            conn_type,
             false,
         )?;
 
@@ -1123,6 +1139,11 @@ impl MessageProcessor {
             add,
             subscription_id,
         )?;
+
+        // Emit aggregate transition events for local subscriptions (used by peer sync).
+        if connection.is_local_connection() {
+            self.emit_local_subscription_event(&dst, add, subscription_id);
+        }
 
         match forward {
             None => Ok(()),
@@ -1728,6 +1749,57 @@ impl MessageProcessor {
 
     pub fn connection_table(&self) -> &ConnectionTable<Connection> {
         &self.internal.forwarder.connection_table
+    }
+
+    /// Subscribe to local subscription aggregate transition events.
+    ///
+    /// Returns a broadcast receiver that emits [`SubscriptionEvent`] whenever
+    /// a name gains its first local subscriber or loses its last.
+    /// Used by `PeerSyncManager` to forward incremental updates to peers.
+    pub fn subscribe_events(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<crate::peer_sync::SubscriptionEvent> {
+        self.internal.subscription_event_tx.subscribe()
+    }
+
+    /// Track local subscription aggregate transitions and emit events on 0→1 / 1→0.
+    fn emit_local_subscription_event(
+        &self,
+        name: &ProtoName,
+        add: bool,
+        subscription_id: u64,
+    ) {
+        use crate::peer_sync::SubscriptionEvent;
+
+        let mut counts = self.internal.local_sub_counts.lock();
+        let count = counts.entry(name.clone()).or_insert(0);
+
+        if add {
+            *count += 1;
+            if *count == 1 {
+                // 0 → 1 transition: first local subscriber
+                let _ = self
+                    .internal
+                    .subscription_event_tx
+                    .send(SubscriptionEvent::Added {
+                        name: name.clone(),
+                        subscription_id,
+                    });
+            }
+        } else {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                // 1 → 0 transition: last local subscriber gone
+                counts.remove(name);
+                let _ = self
+                    .internal
+                    .subscription_event_tx
+                    .send(SubscriptionEvent::Removed {
+                        name: name.clone(),
+                        subscription_id,
+                    });
+            }
+        }
     }
 }
 
