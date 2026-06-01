@@ -11,17 +11,17 @@
 use std::net::TcpListener;
 use std::time::Duration;
 
+use slim_auth::shared_secret::SharedSecret;
 use slim_config::client::ClientConfig;
 use slim_config::component::id::ID;
 use slim_config::server::ServerConfig;
 use slim_config::tls::client::TlsClientConfig;
 use slim_config::tls::server::TlsServerConfig;
-use slim_datapath::api::ApplicationPayload;
-use slim_datapath::api::ProtoMessage as Message;
-use slim_datapath::api::ProtoName as Name;
+use slim_datapath::api::{ApplicationPayload, ProtoName as Name, ProtoMessage as Message};
 use slim_datapath::peer_discovery::{PeerConfig, PeerTopology};
 use slim_datapath::tables::{ConnType, SubscriptionTable};
 use slim_service::{Service, ServiceConfiguration};
+use slim_testing::utils::TEST_VALID_SECRET;
 
 // ============================================================================
 // Helpers
@@ -63,25 +63,25 @@ fn build_peer_configs(count: usize) -> Vec<(u16, String, PeerConfig)> {
     // Use port-based node IDs for deterministic tie-breaking in tests
     let node_ids: Vec<String> = (0..count).map(|i| format!("peer-{}", ports[i])).collect();
 
+    // Static peers: all endpoints (including self — will be filtered by node_id)
+    let static_peers: Vec<ClientConfig> = ports
+        .iter()
+        .map(|&port| {
+            ClientConfig::with_endpoint(&format!("http://127.0.0.1:{port}"))
+                .with_tls_setting(TlsClientConfig::default().with_insecure(true))
+        })
+        .collect();
+
+    let peer_config = PeerConfig {
+        peer_group: "test-group".to_string(),
+        topology: PeerTopology::default(),
+        static_peers,
+        discovery: None,
+    };
+
     let mut configs = Vec::new();
     for i in 0..count {
-        // Static peers: all endpoints (including self — will be filtered by node_id)
-        let static_peers: Vec<ClientConfig> = ports
-            .iter()
-            .map(|&port| {
-                ClientConfig::with_endpoint(&format!("http://127.0.0.1:{port}"))
-                    .with_tls_setting(TlsClientConfig::default().with_insecure(true))
-            })
-            .collect();
-
-        let peer_config = PeerConfig {
-            peer_group: "test-group".to_string(),
-            topology: Default::default(),
-            static_peers,
-            discovery: None,
-        };
-
-        configs.push((ports[i], node_ids[i].clone(), peer_config));
+        configs.push((ports[i], node_ids[i].clone(), peer_config.clone()));
     }
 
     configs
@@ -210,21 +210,16 @@ async fn test_subscription_propagation_to_peers() {
     // Allow peer sync to fully initialize
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // Register a local app on node 0 and subscribe
-    let topic = Name::from_strings(["org", "ns", "my-service"]).with_id(1);
-    let (app_conn_id, app_tx, _app_rx) = nodes[0]
+    // Create an app on node 0 (auto-subscribes to its name)
+    let app_name = Name::from_strings(["org", "ns", "my-service"]).with_id(1);
+    let (_app, _app_rx) = nodes[0]
         .service
-        .message_processor()
-        .register_local_connection(false)
-        .expect("failed to register local connection on node 0");
-
-    // Send subscribe message
-    let sub_msg = Message::builder()
-        .source(topic.clone())
-        .destination(topic.clone())
-        .build_subscribe()
-        .unwrap();
-    app_tx.send(Ok(sub_msg)).await.unwrap();
+        .create_app(
+            &app_name,
+            SharedSecret::new("app", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("app", TEST_VALID_SECRET).unwrap(),
+        )
+        .expect("failed to create app on node 0");
 
     // Wait for subscription to propagate to peers
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -236,11 +231,8 @@ async fn test_subscription_propagation_to_peers() {
         let sub_table = node.service.message_processor().subscription_table();
         let mut found = false;
         sub_table.for_each(|name, _id, _local_conns, _remote_conns, peer_conns| {
-            if name == &prefix {
-                // On remote nodes, the subscription should appear under peer connections
-                if !peer_conns.is_empty() {
-                    found = true;
-                }
+            if name == &prefix && !peer_conns.is_empty() {
+                found = true;
             }
         });
         assert!(
@@ -253,7 +245,7 @@ async fn test_subscription_propagation_to_peers() {
     let sub_table = nodes[0].service.message_processor().subscription_table();
     let mut found_local = false;
     sub_table.for_each(|name, _id, local_conns, _remote_conns, _peer_conns| {
-        if name == &prefix && local_conns.contains(&app_conn_id) {
+        if name == &prefix && !local_conns.is_empty() {
             found_local = true;
         }
     });
@@ -288,7 +280,7 @@ async fn test_message_delivery_across_peers() {
 
     let topic = Name::from_strings(["org", "ns", "chat"]).with_id(42);
 
-    // Register subscriber app on node 1
+    // Register subscriber on node 1 (raw connection to verify message receipt)
     let (_sub_conn_id, sub_tx, mut sub_rx) = nodes[1]
         .service
         .message_processor()
@@ -305,7 +297,7 @@ async fn test_message_delivery_across_peers() {
     // Wait for subscription to propagate to node 0 via peer sync
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Register publisher app on node 0
+    // Register publisher on node 0 (raw connection for sending)
     let (_pub_conn_id, pub_tx, _pub_rx) = nodes[0]
         .service
         .message_processor()
@@ -377,20 +369,18 @@ async fn test_subscription_not_propagated_to_remote() {
     }
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    // Subscribe on node 0
-    let topic = Name::from_strings(["org", "ns", "peer-only"]).with_id(7);
-    let (_conn_id, tx, _rx) = nodes[0]
+    // Subscribe on node 0 using create_app
+    let topic = Name::from_strings(["org", "ns", "peer-only"]);
+    let (app, _app_notif_rx) = nodes[0]
         .service
-        .message_processor()
-        .register_local_connection(false)
-        .expect("failed to register local connection");
+        .create_app(
+            &topic,
+            SharedSecret::new("app", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("app", TEST_VALID_SECRET).unwrap(),
+        )
+        .expect("failed to create app on node 0");
 
-    let sub_msg = Message::builder()
-        .source(topic.clone())
-        .destination(topic.clone())
-        .build_subscribe()
-        .unwrap();
-    tx.send(Ok(sub_msg)).await.unwrap();
+    app.subscribe(&topic, None).await.unwrap();
 
     // Wait for propagation
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -474,7 +464,10 @@ async fn test_hub_spoke_topology_connections() {
         .enumerate()
         .min_by_key(|(_, (_, _, pc))| {
             // The self_id will be derived from the matching static_peer endpoint
-            pc.static_peers.iter().map(|p| p.endpoint.clone()).collect::<Vec<_>>()
+            pc.static_peers
+                .iter()
+                .map(|p| p.endpoint.clone())
+                .collect::<Vec<_>>()
         })
         .map(|(i, _)| i)
         .unwrap();
@@ -554,37 +547,44 @@ async fn test_hub_spoke_subscription_relay() {
     let spoke_a = if hub_idx == 0 { 1 } else { 0 };
     let spoke_b = (0..3).find(|&i| i != hub_idx && i != spoke_a).unwrap();
 
-    // Register local app on spoke_a and subscribe
-    let topic = Name::from_strings(["org", "ns", "hub-test"]).with_id(1);
-    let (_conn_id, tx, _rx) = nodes[spoke_a]
+    // Create app on spoke_a and subscribe
+    let topic = Name::from_strings(["org", "ns", "hub-test"]);
+    let (app, _app_notif_rx) = nodes[spoke_a]
         .service
-        .message_processor()
-        .register_local_connection(false)
-        .expect("failed to register local connection");
+        .create_app(
+            &topic,
+            SharedSecret::new("app", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("app", TEST_VALID_SECRET).unwrap(),
+        )
+        .expect("failed to create app on spoke_a");
 
-    let sub_msg = Message::builder()
-        .source(topic.clone())
-        .destination(topic.clone())
-        .build_subscribe()
-        .unwrap();
-    tx.send(Ok(sub_msg)).await.unwrap();
+    app.subscribe(&topic, None).await.unwrap();
 
     // Wait for subscription to propagate: spoke_a → hub → spoke_b
     tokio::time::sleep(Duration::from_millis(800)).await;
 
     // Verify hub has the subscription (from spoke_a via peer conn)
     let prefix = Name::from_strings(["org", "ns", "hub-test"]);
-    let hub_table = nodes[hub_idx].service.message_processor().subscription_table();
+    let hub_table = nodes[hub_idx]
+        .service
+        .message_processor()
+        .subscription_table();
     let mut found_on_hub = false;
     hub_table.for_each(|name, _id, _local, _remote, peer_conns| {
         if name == &prefix && !peer_conns.is_empty() {
             found_on_hub = true;
         }
     });
-    assert!(found_on_hub, "hub should have the subscription from spoke_a");
+    assert!(
+        found_on_hub,
+        "hub should have the subscription from spoke_a"
+    );
 
     // Verify spoke_b also has the subscription (relayed by hub)
-    let spoke_b_table = nodes[spoke_b].service.message_processor().subscription_table();
+    let spoke_b_table = nodes[spoke_b]
+        .service
+        .message_processor()
+        .subscription_table();
     let mut found_on_spoke_b = false;
     spoke_b_table.for_each(|name, _id, _local, _remote, peer_conns| {
         if name == &prefix && !peer_conns.is_empty() {
@@ -639,7 +639,7 @@ async fn test_hub_spoke_message_delivery() {
 
     let topic = Name::from_strings(["org", "ns", "spoke-msg"]).with_id(10);
 
-    // Register subscriber on spoke_b
+    // Register subscriber on spoke_b (raw connection to verify message receipt)
     let (_sub_conn, sub_tx, mut sub_rx) = nodes[spoke_b]
         .service
         .message_processor()
@@ -656,7 +656,7 @@ async fn test_hub_spoke_message_delivery() {
     // Wait for subscription to propagate: spoke_b → hub → spoke_a
     tokio::time::sleep(Duration::from_millis(800)).await;
 
-    // Register publisher on spoke_a
+    // Register publisher on spoke_a (raw connection for sending)
     let (_pub_conn, pub_tx, _pub_rx) = nodes[spoke_a]
         .service
         .message_processor()

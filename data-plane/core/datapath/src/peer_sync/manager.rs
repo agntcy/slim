@@ -54,8 +54,7 @@ pub struct PeerSyncManager<D: PeerDiscovery + Send> {
     incoming_peer_rx:
         tokio::sync::mpsc::UnboundedReceiver<crate::message_processing::IncomingPeerEvent>,
     /// Receiver for peer relay events (subscription received on peer connections).
-    peer_relay_rx:
-        tokio::sync::mpsc::UnboundedReceiver<crate::peer_sync::PeerRelayEvent>,
+    peer_relay_rx: tokio::sync::mpsc::UnboundedReceiver<crate::peer_sync::PeerRelayEvent>,
 }
 
 impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
@@ -72,9 +71,7 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
         incoming_peer_rx: tokio::sync::mpsc::UnboundedReceiver<
             crate::message_processing::IncomingPeerEvent,
         >,
-        peer_relay_rx: tokio::sync::mpsc::UnboundedReceiver<
-            crate::peer_sync::PeerRelayEvent,
-        >,
+        peer_relay_rx: tokio::sync::mpsc::UnboundedReceiver<crate::peer_sync::PeerRelayEvent>,
     ) -> Self {
         // If hub in hub-and-spoke, configure the message processor for publish relay.
         if config.is_hub && config.topology == PeerTopology::HubAndSpoke {
@@ -227,13 +224,12 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
 
                 // Perform full sync: send subscriptions to the new peer.
                 // Hub sends local + other peers' subscriptions; non-hub sends only local.
-                let sync_result = if self.config.is_hub
-                    && self.config.topology == PeerTopology::HubAndSpoke
-                {
-                    sync::send_full_sync_as_hub(&self.message_processor, conn_id).await
-                } else {
-                    sync::send_full_sync(&self.message_processor, conn_id).await
-                };
+                let sync_result =
+                    if self.config.is_hub && self.config.topology == PeerTopology::HubAndSpoke {
+                        sync::send_full_sync_as_hub(&self.message_processor, conn_id).await
+                    } else {
+                        sync::send_full_sync(&self.message_processor, conn_id).await
+                    };
                 if let Err(e) = sync_result {
                     warn!(
                         peer_id = %peer.id,
@@ -310,8 +306,7 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
         );
 
         // Perform full sync: send subscriptions to the incoming peer.
-        let sync_result = if self.config.is_hub
-            && self.config.topology == PeerTopology::HubAndSpoke
+        let sync_result = if self.config.is_hub && self.config.topology == PeerTopology::HubAndSpoke
         {
             sync::send_full_sync_as_hub(&self.message_processor, conn_id).await
         } else {
