@@ -5,7 +5,8 @@ use std::fmt::Display;
 use std::{collections::HashMap, time::Duration};
 
 use crate::api::proto::dataplane::v1::{
-    GroupClosePayload, GroupNackPayload, Participant, ParticipantSettings, PingPayload,
+    GroupClosePayload, GroupNackPayload, LinkConnectionType, Participant, ParticipantSettings,
+    PingPayload,
 };
 use crate::api::{
     Content, LinkNegotiationPayload, MessageType, ProtoLink, ProtoLinkMessageType, ProtoLinkType,
@@ -23,6 +24,17 @@ use crate::api::{
 
 use slim_version::version;
 use thiserror::Error;
+
+use crate::tables::ConnType;
+
+impl From<ConnType> for LinkConnectionType {
+    fn from(ct: ConnType) -> Self {
+        match ct {
+            ConnType::Peer => LinkConnectionType::Peer,
+            _ => LinkConnectionType::Remote,
+        }
+    }
+}
 
 /// DELETE_GROUP indicates that the entire group is being closed.
 /// The moderator sets this metadata on the leave message sent to all participants
@@ -1725,31 +1737,14 @@ impl ProtoMessageBuilder {
 
     /// Builds a link negotiation message.
     /// Link messages are link-local and never routed; they carry no SLIM header.
+    #[allow(clippy::too_many_arguments)]
     pub fn build_link_negotiation(
         self,
         link_id: impl Into<String>,
         slim_version: impl Into<String>,
         is_reply: bool,
         link_ecdh_public_key: Option<Vec<u8>>,
-    ) -> ProtoMessage {
-        self.build_link_negotiation_with_conn_type(
-            link_id,
-            slim_version,
-            is_reply,
-            link_ecdh_public_key,
-            0,
-            "",
-            "",
-        )
-    }
-
-    pub fn build_link_negotiation_with_conn_type(
-        self,
-        link_id: impl Into<String>,
-        slim_version: impl Into<String>,
-        is_reply: bool,
-        link_ecdh_public_key: Option<Vec<u8>>,
-        connection_type: u32,
+        connection_type: LinkConnectionType,
         node_id: impl Into<String>,
         peer_group: impl Into<String>,
     ) -> ProtoMessage {
@@ -1760,7 +1755,7 @@ impl ProtoMessageBuilder {
                 slim_version: slim_version.into(),
                 is_reply,
                 link_ecdh_public_key,
-                connection_type,
+                connection_type: connection_type.into(),
                 node_id: node_id.into(),
                 peer_group: peer_group.into(),
             })),
@@ -2364,7 +2359,15 @@ mod tests {
 
     #[test]
     fn test_build_link_negotiation_request() {
-        let msg = ProtoMessage::builder().build_link_negotiation("my-id", "1.2.3", false, None);
+        let msg = ProtoMessage::builder().build_link_negotiation(
+            "my-id",
+            "1.2.3",
+            false,
+            None,
+            LinkConnectionType::Remote,
+            "",
+            "",
+        );
         assert!(msg.is_link());
         assert!(!msg.is_publish());
         assert!(!msg.is_subscribe());
@@ -2373,7 +2376,15 @@ mod tests {
 
     #[test]
     fn test_build_link_negotiation_reply() {
-        let msg = ProtoMessage::builder().build_link_negotiation("my-id", "1.2.3", true, None);
+        let msg = ProtoMessage::builder().build_link_negotiation(
+            "my-id",
+            "1.2.3",
+            true,
+            None,
+            LinkConnectionType::Remote,
+            "",
+            "",
+        );
         assert!(msg.is_link());
         assert!(msg.validate().is_ok());
     }

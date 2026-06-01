@@ -160,6 +160,7 @@ pub async fn broadcast_subscribe(
     };
 
     for &conn_id in peer_conn_ids {
+        debug!(%conn_id, "forwarding subscription to peer connection");
         if let Err(e) = mp.send_msg(msg.clone(), conn_id).await {
             warn!(%conn_id, error = %e, "failed to send subscribe to peer");
         }

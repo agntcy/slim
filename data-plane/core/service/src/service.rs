@@ -30,13 +30,6 @@ use slim_datapath::tables::ConnType;
 use crate::errors::ServiceError;
 
 /// Strip URL scheme prefix for endpoint comparison.
-fn strip_scheme(endpoint: &str) -> &str {
-    endpoint
-        .strip_prefix("http://")
-        .or_else(|| endpoint.strip_prefix("https://"))
-        .unwrap_or(endpoint)
-}
-
 // Session feature imports
 #[cfg(feature = "session")]
 use {
@@ -252,16 +245,17 @@ impl Service {
             .as_ref()
             .map(|p| p.peer_group.clone())
             .unwrap_or_default();
+        let service_id = config.node_id.clone();
         let message_processor =
             Arc::new(if let Some(server) = config.dataplane_servers().first() {
                 MessageProcessor::new_with_server_config(
-                    id.to_string(),
+                    service_id,
                     peer_group,
                     server,
                     recovery_ttl,
                 )
             } else {
-                MessageProcessor::new_with_options(id.to_string(), recovery_ttl)
+                MessageProcessor::new_with_options(service_id, recovery_ttl)
             });
 
         Service {
@@ -336,31 +330,14 @@ impl Service {
 
     /// Start the peer sync manager in a background task.
     fn start_peer_sync(&self, peer_config: &PeerConfig) {
-        // Determine our own identity for peer tie-breaking.
-        // Match our server endpoints against the static_peers list to find "self".
-        let own_server_hosts: Vec<&str> = self
-            .config
-            .dataplane_servers()
-            .iter()
-            .map(|s| s.endpoint.as_str())
-            .collect();
+        let self_id = self.config.node_id.clone();
 
-        let self_id = peer_config
-            .static_peers
-            .iter()
-            .find(|c| {
-                let host = strip_scheme(&c.endpoint);
-                own_server_hosts.iter().any(|own| strip_scheme(own) == host)
-            })
-            .map(|c| c.endpoint.clone())
-            .unwrap_or_else(|| self.id.to_string());
-
-        // Determine if we are the hub (smallest ID among all peers including self).
+        // Determine if we are the hub (smallest node_id among all peers including self).
         let is_hub = peer_config
             .static_peers
             .iter()
-            .map(|c| c.endpoint.as_str())
-            .all(|peer_endpoint| self_id.as_str() <= peer_endpoint);
+            .map(|entry| entry.node_id.as_str())
+            .all(|peer_id| self_id.as_str() <= peer_id);
 
         info!(
             %self_id,
@@ -374,16 +351,7 @@ impl Service {
         let cancel = CancellationToken::new();
         *self.peer_sync_cancel.lock() = Some(cancel.clone());
 
-        // Collect own server endpoints for self-filtering in static discovery.
-        let own_endpoints: Vec<String> = self
-            .config
-            .dataplane_servers()
-            .iter()
-            .map(|s| s.endpoint.clone())
-            .collect();
-
-        let discovery =
-            StaticPeerDiscovery::from_client_configs(&peer_config.static_peers, &own_endpoints);
+        let discovery = StaticPeerDiscovery::from_static_peers(&peer_config.static_peers, &self_id);
 
         let sync_config = PeerSyncConfig {
             self_id,

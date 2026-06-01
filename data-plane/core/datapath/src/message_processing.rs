@@ -35,6 +35,7 @@ use crate::api::ProtoSubscriptionAckType as SubscriptionAckType;
 use crate::api::ProtoUnsubscribeType as UnsubscribeType;
 use crate::api::proto::dataplane::v1::Message;
 
+use crate::api::proto::dataplane::v1::LinkConnectionType;
 use crate::api::proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
 use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneService;
 use crate::api::{
@@ -132,7 +133,7 @@ struct MessageProcessorInternal {
 
     /// Whether this node acts as a hub in hub-and-spoke topology (write-once at startup).
     /// When true, publishes arriving from peer connections are forwarded to other peers.
-    is_peer_hub: std::sync::atomic::AtomicBool,
+    forward_to_peer: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Debug, Clone)]
@@ -213,7 +214,7 @@ impl MessageProcessor {
             incoming_peer_rx: parking_lot::Mutex::new(Some(incoming_peer_rx)),
             peer_relay_tx,
             peer_relay_rx: parking_lot::Mutex::new(Some(peer_relay_rx)),
-            is_peer_hub: std::sync::atomic::AtomicBool::new(false),
+            forward_to_peer: std::sync::atomic::AtomicBool::new(false),
         };
         Self {
             internal: Arc::new(internal),
@@ -539,16 +540,12 @@ impl MessageProcessor {
         ecdh_public_key: Option<Vec<u8>>,
         connection_type: ConnType,
     ) {
-        let conn_type_wire: u32 = match connection_type {
-            ConnType::Peer => 1,
-            _ => 0,
-        };
-        let negotiation_msg = ProtoMessage::builder().build_link_negotiation_with_conn_type(
+        let negotiation_msg = ProtoMessage::builder().build_link_negotiation(
             link_id,
             local_version(),
             false,
             ecdh_public_key,
-            conn_type_wire,
+            connection_type.into(),
             &self.internal.service_id,
             &self.internal.peer_group,
         );
@@ -837,6 +834,16 @@ impl MessageProcessor {
         }
     }
 
+    /// Send a gRPC status error on a server-side connection.
+    /// This causes the client's stream to yield `Err(status)`.
+    async fn send_status(&self, conn_index: u64, status: Status) {
+        if let Some(conn) = self.forwarder().get_connection(conn_index)
+            && let Channel::Server(tx) = conn.channel()
+        {
+            let _ = tx.send(Err(status)).await;
+        }
+    }
+
     async fn match_and_forward_msg(
         &self,
         #[cfg(feature = "otel_tracing")] mut msg: Message,
@@ -1099,8 +1106,9 @@ impl MessageProcessor {
 
             // Send reply only after state is committed.
             // Echo back the connection type so the client confirms peer status.
-            let reply_conn_type = payload.connection_type;
-            let reply = ProtoMessage::builder().build_link_negotiation_with_conn_type(
+            let reply_conn_type = LinkConnectionType::try_from(payload.connection_type)
+                .unwrap_or(LinkConnectionType::Remote);
+            let reply = ProtoMessage::builder().build_link_negotiation(
                 link_id,
                 local_version(),
                 true,
@@ -1119,7 +1127,22 @@ impl MessageProcessor {
 
             // If the client indicated it is a peer (connection_type == 1), upgrade this
             // server-side connection from Remote to Peer — but only if peer_group matches.
-            if payload.connection_type == 1 {
+            if payload.connection_type == LinkConnectionType::Peer as i32 {
+                // Reject self-connections (can happen when all replicas share the same config).
+                if payload.node_id == self.internal.service_id {
+                    warn!(
+                        %in_connection, %link_id,
+                        "rejecting peer connection from self (same node_id)"
+                    );
+                    self.send_status(
+                        in_connection,
+                        Status::permission_denied("self-connection rejected: same node_id"),
+                    )
+                    .await;
+                    let _ = self.disconnect(in_connection);
+                    return Ok(());
+                }
+
                 // Verify peer_group: if we have a peer_group configured, the remote must match.
                 if !self.internal.peer_group.is_empty()
                     && payload.peer_group != self.internal.peer_group
@@ -1130,6 +1153,12 @@ impl MessageProcessor {
                         remote_group = %payload.peer_group,
                         "rejecting peer upgrade: peer_group mismatch"
                     );
+                    self.send_status(
+                        in_connection,
+                        Status::permission_denied("peer_group mismatch"),
+                    )
+                    .await;
+                    let _ = self.disconnect(in_connection);
                     return Ok(());
                 }
 
@@ -1236,8 +1265,10 @@ impl MessageProcessor {
             subscription_id,
         )?;
 
-        // Emit aggregate transition events for local subscriptions (used by peer sync).
-        if connection.is_local_connection() && transition {
+        // Emit aggregate transition events for non-peer subscriptions (used by peer sync).
+        // Local (SDK) and remote (controller/other SLIM) subscriptions are forwarded to peers.
+        // Peer subscriptions are NOT forwarded to avoid loops (1-hop rule).
+        if !connection.is_peer_connection() && transition {
             self.send_subscription_event(&dst, add, subscription_id);
         }
 
@@ -1403,7 +1434,7 @@ impl MessageProcessor {
                         // In hub-and-spoke, the hub relays publishes to other peers.
                         if self
                             .internal
-                            .is_peer_hub
+                            .forward_to_peer
                             .load(std::sync::atomic::Ordering::Relaxed)
                         {
                             MatchFilter::ALL
@@ -1689,6 +1720,7 @@ impl MessageProcessor {
                                             // Checking if NegotiationError occurred
                                             if matches!(e, DataPathError::NegotiationError(_)) {
                                                 error!(%conn_index, "fatal link negotiation error, closing connection");
+                                                try_to_reconnect = false;
                                                 break;
                                             }
                                             debug!(%conn_index, error = %e.chain(), "error processing incoming message");
@@ -1700,7 +1732,14 @@ impl MessageProcessor {
                                         }
                                     }
                                     Err(e) => {
-                                        if let Some(io_err) = MessageProcessor::match_for_io_error(&e) {
+                                        if e.code() == tonic::Code::PermissionDenied {
+                                            warn!(
+                                                %conn_index,
+                                                message = %e.message(),
+                                                "connection rejected by remote, will not reconnect"
+                                            );
+                                            try_to_reconnect = false;
+                                        } else if let Some(io_err) = MessageProcessor::match_for_io_error(&e) {
                                             if io_err.kind() == std::io::ErrorKind::BrokenPipe {
                                                 info!(%conn_index, "connection closed by peer");
                                             }
@@ -1767,6 +1806,35 @@ impl MessageProcessor {
                 let (local_subs, remote_subs) = self_clone
                     .forwarder()
                     .on_connection_drop(conn_index, category);
+
+                // Notify peer sync about names that are no longer reachable.
+                // Only for non-peer connections (1-hop rule prevents loops).
+                if !matches!(category, ConnType::Peer) {
+                    for name in local_subs.keys() {
+                        let still_reachable = name.name.is_some_and(|enc| {
+                            self_clone
+                                .forwarder()
+                                .on_publish_msg_match(enc, u64::MAX, u32::MAX, MatchFilter::ALL)
+                                .is_ok()
+                        });
+                        if !still_reachable {
+                            debug!(
+                                %name,
+                                %conn_index,
+                                ?category,
+                                "emitting subscription removed event for peer sync"
+                            );
+                            self_clone.send_subscription_event(name, false, 0);
+                        } else {
+                            debug!(
+                                %name,
+                                %conn_index,
+                                ?category,
+                                "name still reachable, not emitting removal"
+                            );
+                        }
+                    }
+                }
 
                 let recovery_enabled =
                     !self_clone.internal.recovery_table.ttl().is_zero();
@@ -1883,10 +1951,10 @@ impl MessageProcessor {
     /// Mark this message processor as the hub in a hub-and-spoke peer topology.
     /// When set, publishes arriving from peer connections use ALL filter (relay to other peers)
     /// instead of EXCLUDE_PEER.
-    pub fn set_peer_hub(&self, is_hub: bool) {
+    pub fn set_forward_to_peer(&self, forward: bool) {
         self.internal
-            .is_peer_hub
-            .store(is_hub, std::sync::atomic::Ordering::Relaxed);
+            .forward_to_peer
+            .store(forward, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Send a subscription transition event to the peer sync channel.
@@ -2128,7 +2196,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
-            connection_type: 0,
+            connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
             peer_group: String::new(),
         };
@@ -2149,7 +2217,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: false, // request on outgoing connection → ignored
             link_ecdh_public_key: vec![],
-            connection_type: 0,
+            connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
             peer_group: String::new(),
         };
@@ -2178,7 +2246,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: true, // reply on incoming connection → ignored
             link_ecdh_public_key: vec![],
-            connection_type: 0,
+            connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
             peer_group: String::new(),
         };
@@ -2207,7 +2275,7 @@ mod tests {
             slim_version: "not-semver".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
-            connection_type: 0,
+            connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
             peer_group: String::new(),
         };
@@ -2236,7 +2304,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
-            connection_type: 0,
+            connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
             peer_group: String::new(),
         };
@@ -2260,15 +2328,19 @@ mod tests {
     async fn test_handle_link_negotiation_server_strict_rejects_missing_ecdh() {
         let mut server_config = ServerConfig::with_endpoint("127.0.0.1:0");
         server_config.require_header_mac = true;
-        let processor =
-            MessageProcessor::new_with_server_config("test".into(), String::new(), &server_config, None);
+        let processor = MessageProcessor::new_with_server_config(
+            "test".into(),
+            String::new(),
+            &server_config,
+            None,
+        );
         let (conn_id, _rx) = make_server_conn(&processor);
         let payload = LinkNegotiationPayload {
             link_id: uuid::Uuid::new_v4().to_string(),
             slim_version: "1.2.3".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
-            connection_type: 0,
+            connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
             peer_group: String::new(),
         };
@@ -2291,7 +2363,7 @@ mod tests {
             slim_version: "1.2.3".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
-            connection_type: 0,
+            connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
             peer_group: String::new(),
         };
@@ -2322,7 +2394,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
-            connection_type: 0,
+            connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
             peer_group: String::new(),
         };
@@ -2356,7 +2428,7 @@ mod tests {
             slim_version: "2.0.0".into(),
             is_reply: true,
             link_ecdh_public_key: vec![],
-            connection_type: 0,
+            connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
             peer_group: String::new(),
         };
@@ -2383,7 +2455,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: true,
             link_ecdh_public_key: vec![],
-            connection_type: 0,
+            connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
             peer_group: String::new(),
         };
@@ -2408,7 +2480,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: true,
             link_ecdh_public_key: vec![],
-            connection_type: 0,
+            connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
             peer_group: String::new(),
         };
@@ -3139,7 +3211,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
-            connection_type: 0,
+            connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
             peer_group: String::new(),
         };
@@ -3183,7 +3255,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
-            connection_type: 0,
+            connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
             peer_group: String::new(),
         };
@@ -3211,7 +3283,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
-            connection_type: 0,
+            connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
             peer_group: String::new(),
         };

@@ -91,6 +91,7 @@ message RouteEntry {
 enum ConnectionType {
   CONNECTION_TYPE_LOCAL = 0;
   CONNECTION_TYPE_REMOTE = 1;
+  CONNECTION_TYPE_PEER = 2;
 }
 
 enum ConnectionDirection {

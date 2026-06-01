@@ -416,16 +416,14 @@ pub struct LinkNegotiationPayload {
     #[prost(bytes = "vec", tag = "4")]
     pub link_ecdh_public_key: ::prost::alloc::vec::Vec<u8>,
     /// Connection type advertised by the initiator.
-    /// 0 = remote (default, backward compatible with peers that don't send this field).
-    /// 1 = peer (intra-deployment replica connection).
-    #[prost(uint32, tag = "5")]
-    pub connection_type: u32,
+    #[prost(enumeration = "LinkConnectionType", tag = "5")]
+    pub connection_type: i32,
     /// Unique node identifier of the sender.
     /// Used by peer replicas to identify which node is on the other end of a connection.
     /// Empty for legacy peers that don't send this field.
     #[prost(string, tag = "6")]
     pub node_id: ::prost::alloc::string::String,
-    /// Peer group identifier. When non-empty and connection_type == 1 (peer),
+    /// Peer group identifier. When non-empty and connection_type is LINK_CONNECTION_TYPE_PEER,
     /// the server verifies both sides belong to the same peer group before
     /// upgrading the connection. Empty for non-peer connections.
     #[prost(string, tag = "7")]
@@ -533,6 +531,35 @@ impl SessionMessageType {
             "SESSION_MESSAGE_TYPE_GROUP_ACK" => Some(Self::GroupAck),
             "SESSION_MESSAGE_TYPE_GROUP_NACK" => Some(Self::GroupNack),
             "SESSION_MESSAGE_TYPE_PING" => Some(Self::Ping),
+            _ => None,
+        }
+    }
+}
+/// Connection type for link negotiation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum LinkConnectionType {
+    /// Remote connection (default, backward compatible with peers that don't send this field).
+    Remote = 0,
+    /// Peer connection (intra-deployment replica).
+    Peer = 1,
+}
+impl LinkConnectionType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Remote => "LINK_CONNECTION_TYPE_REMOTE",
+            Self::Peer => "LINK_CONNECTION_TYPE_PEER",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "LINK_CONNECTION_TYPE_REMOTE" => Some(Self::Remote),
+            "LINK_CONNECTION_TYPE_PEER" => Some(Self::Peer),
             _ => None,
         }
     }

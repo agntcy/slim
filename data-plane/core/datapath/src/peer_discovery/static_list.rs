@@ -10,8 +10,9 @@
 
 use std::collections::VecDeque;
 
-use slim_config::client::ClientConfig;
+use slim_config::client::ConnType;
 
+use super::config::StaticPeerEntry;
 use super::{PeerDiscovery, PeerDiscoveryError, PeerEvent, PeerInfo};
 
 /// Static peer discovery: all peers are known at configuration time.
@@ -36,37 +37,26 @@ impl StaticPeerDiscovery {
         }
     }
 
-    /// Create from a list of `ClientConfig` entries (from `PeerConfig.static_peers`).
+    /// Create from a list of `StaticPeerEntry` entries (from `PeerConfig.static_peers`).
     ///
-    /// Each client config's endpoint is used as both the peer ID and endpoint.
-    /// Entries whose endpoint matches any of `own_endpoints` are filtered out
-    /// (self-filtering when all replicas share the same config).
-    /// Comparison strips the scheme prefix (e.g., `http://`) for matching
-    /// since server endpoints may omit the scheme.
-    pub fn from_client_configs(configs: &[ClientConfig], own_endpoints: &[String]) -> Self {
-        let peers = configs
+    /// Each entry's `node_id` is used as the peer ID.
+    /// Entries matching `self_node_id` are excluded (skip self).
+    /// The `connection_type` is forced to `Peer` regardless of what's configured.
+    pub fn from_static_peers(entries: &[StaticPeerEntry], self_node_id: &str) -> Self {
+        let peers = entries
             .iter()
-            .filter(|c| {
-                let client_host = strip_scheme(&c.endpoint);
-                !own_endpoints
-                    .iter()
-                    .any(|own| strip_scheme(own) == client_host)
-            })
-            .map(|c| PeerInfo {
-                id: c.endpoint.clone(),
-                endpoint: c.endpoint.clone(),
+            .filter(|entry| entry.node_id != self_node_id)
+            .map(|entry| {
+                let mut config = entry.config.clone();
+                config.connection_type = ConnType::Peer;
+                PeerInfo {
+                    id: entry.node_id.clone(),
+                    config,
+                }
             })
             .collect();
         Self::new(peers)
     }
-}
-
-/// Strip the scheme (http:// or https://) from an endpoint for comparison.
-fn strip_scheme(endpoint: &str) -> &str {
-    endpoint
-        .strip_prefix("http://")
-        .or_else(|| endpoint.strip_prefix("https://"))
-        .unwrap_or(endpoint)
 }
 
 impl PeerDiscovery for StaticPeerDiscovery {
@@ -96,18 +86,34 @@ impl PeerDiscovery for StaticPeerDiscovery {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slim_config::client::ClientConfig;
 
     fn test_peers() -> Vec<PeerInfo> {
         vec![
             PeerInfo {
                 id: "slim-1".to_string(),
-                endpoint: "slim-1:8080".to_string(),
+                config: ClientConfig {
+                    endpoint: "slim-1:8080".to_string(),
+                    connection_type: ConnType::Peer,
+                    ..Default::default()
+                },
             },
             PeerInfo {
                 id: "slim-2".to_string(),
-                endpoint: "slim-2:8080".to_string(),
+                config: ClientConfig {
+                    endpoint: "slim-2:8080".to_string(),
+                    connection_type: ConnType::Peer,
+                    ..Default::default()
+                },
             },
         ]
+    }
+
+    fn assert_joined_with_id(event: &PeerEvent, expected_id: &str) {
+        match event {
+            PeerEvent::Joined(info) => assert_eq!(info.id, expected_id),
+            PeerEvent::Left(_) => panic!("expected Joined, got Left"),
+        }
     }
 
     #[tokio::test]
@@ -118,20 +124,8 @@ mod tests {
         let event1 = discovery.recv().await.unwrap();
         let event2 = discovery.recv().await.unwrap();
 
-        assert_eq!(
-            event1,
-            PeerEvent::Joined(PeerInfo {
-                id: "slim-1".to_string(),
-                endpoint: "slim-1:8080".to_string(),
-            })
-        );
-        assert_eq!(
-            event2,
-            PeerEvent::Joined(PeerInfo {
-                id: "slim-2".to_string(),
-                endpoint: "slim-2:8080".to_string(),
-            })
-        );
+        assert_joined_with_id(&event1, "slim-1");
+        assert_joined_with_id(&event2, "slim-2");
     }
 
     #[tokio::test]
@@ -161,44 +155,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_from_client_configs() {
-        let configs = vec![
-            ClientConfig {
-                endpoint: "http://slim-0:8080".to_string(),
-                ..Default::default()
+    async fn test_from_static_peers() {
+        let entries = vec![
+            StaticPeerEntry {
+                node_id: "node-0".to_string(),
+                config: ClientConfig {
+                    endpoint: "http://slim-0:8080".to_string(),
+                    ..Default::default()
+                },
             },
-            ClientConfig {
-                endpoint: "http://slim-1:8080".to_string(),
-                ..Default::default()
+            StaticPeerEntry {
+                node_id: "node-1".to_string(),
+                config: ClientConfig {
+                    endpoint: "http://slim-1:8080".to_string(),
+                    ..Default::default()
+                },
             },
-            ClientConfig {
-                endpoint: "http://slim-2:8080".to_string(),
-                ..Default::default()
+            StaticPeerEntry {
+                node_id: "node-2".to_string(),
+                config: ClientConfig {
+                    endpoint: "http://slim-2:8080".to_string(),
+                    ..Default::default()
+                },
             },
         ];
 
-        // "http://slim-0:8080" is our own endpoint, should be filtered out
-        let own = vec!["http://slim-0:8080".to_string()];
-        let mut discovery = StaticPeerDiscovery::from_client_configs(&configs, &own);
+        // Self (node-1) is excluded
+        let mut discovery = StaticPeerDiscovery::from_static_peers(&entries, "node-1");
         discovery.start().await.unwrap();
 
         let event1 = discovery.recv().await.unwrap();
         let event2 = discovery.recv().await.unwrap();
 
-        assert_eq!(
-            event1,
-            PeerEvent::Joined(PeerInfo {
-                id: "http://slim-1:8080".to_string(),
-                endpoint: "http://slim-1:8080".to_string(),
-            })
-        );
-        assert_eq!(
-            event2,
-            PeerEvent::Joined(PeerInfo {
-                id: "http://slim-2:8080".to_string(),
-                endpoint: "http://slim-2:8080".to_string(),
-            })
-        );
+        assert_joined_with_id(&event1, "node-0");
+        assert_joined_with_id(&event2, "node-2");
+
+        // Verify connection_type is forced to Peer
+        if let PeerEvent::Joined(info) = &event1 {
+            assert_eq!(info.config.connection_type, ConnType::Peer);
+        }
 
         // No more events
         let result =
