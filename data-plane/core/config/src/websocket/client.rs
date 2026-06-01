@@ -453,13 +453,33 @@ mod tests {
 
     #[tokio::test]
     async fn test_websocket_client_connect_timeout() {
+        let _env_guard = crate::test_env::PROXY_ENV_LOCK
+            .lock()
+            .expect("proxy env lock");
+
+        // Isolate from shell/parallel tests that set HTTP_PROXY (see grpc::proxy tests).
+        #[allow(clippy::disallowed_methods)]
+        let saved_proxy_env = [
+            ("http_proxy", std::env::var("http_proxy").ok()),
+            ("HTTP_PROXY", std::env::var("HTTP_PROXY").ok()),
+            ("https_proxy", std::env::var("https_proxy").ok()),
+            ("HTTPS_PROXY", std::env::var("HTTPS_PROXY").ok()),
+            ("all_proxy", std::env::var("all_proxy").ok()),
+            ("ALL_PROXY", std::env::var("ALL_PROXY").ok()),
+        ];
+        for (key, _) in &saved_proxy_env {
+            unsafe {
+                std::env::remove_var(key);
+            }
+        }
+
         // RFC 5737 TEST-NET-1: guaranteed unroutable.
         let cfg = ClientConfig::with_endpoint("ws://192.0.2.1:9")
             .with_tls_setting(TlsClientConfig::insecure())
             .with_connect_timeout(Duration::from_millis(200))
             .with_backoff(crate::client::BackoffConfig::new_fixed_interval(
                 Duration::from_millis(0),
-                1,
+                0,
             ));
 
         let start = std::time::Instant::now();
@@ -472,6 +492,15 @@ mod tests {
             elapsed < Duration::from_secs(1),
             "connect_timeout was not honored (took {elapsed:?})"
         );
+
+        for (key, original) in saved_proxy_env {
+            unsafe {
+                match original {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
     }
 
     #[test]
