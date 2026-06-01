@@ -6,6 +6,7 @@ pub mod errors;
 pub mod message_processing;
 pub mod messages;
 pub mod peer_discovery;
+pub mod peer_sync;
 pub mod tables;
 
 mod connection;
