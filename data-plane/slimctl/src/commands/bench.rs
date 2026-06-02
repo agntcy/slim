@@ -592,7 +592,7 @@ async fn create_app_with_secret(
         .await
         .map_err(|e| anyhow!("verifier init failed: {e}"))?;
     let (app, rx) = service
-        .create_app_with_direction(name, provider, verifier, Direction::None)
+        .create_app_with_direction(name, provider, verifier, Direction::Bidirectional)
         .context("failed to create app")?;
     Ok((app, rx))
 }
