@@ -118,13 +118,13 @@ impl SpireConfig {
 
     /// Create a spire provider from this configuration using the builder.
     /// Returns an initialized SpireIdentityManager that will rotate X.509 & JWT SVIDs.
-    pub fn create_provider(&self) -> Result<SpireIdentityManager, ConfigAuthError> {
+    pub(crate) fn create_provider(&self) -> Result<SpireIdentityManager, ConfigAuthError> {
         self.build_identity_manager()
     }
 
     /// Create a spire verifier (identity manager used only for verification).
     /// The target SPIFFE ID (if configured) is intentionally not set.
-    fn create_verifier(&self) -> Result<SpireIdentityManager, ConfigAuthError> {
+    pub(crate) fn create_verifier(&self) -> Result<SpireIdentityManager, ConfigAuthError> {
         self.build_identity_manager()
     }
 }

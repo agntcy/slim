@@ -122,9 +122,10 @@ name = "agntcy-slim-channel-manager"
 version = "0.1.0"
 dependencies = [
  "agntcy-slim",
- "agntcy-slim-bindings",
+ "agntcy-slim-auth",
  "agntcy-slim-config",
  "agntcy-slim-datapath",
+ "agntcy-slim-service",
  "agntcy-slim-session",
  "agntcy-slim-signal",
  "agntcy-slim-tracing",

@@ -30,6 +30,8 @@ pub enum DataPathError {
     InvalidMessage(MessageError),
     #[error("invalid name id format: {0}")]
     InvalidNameIdFormat(String),
+    #[error("invalid name format: {0}")]
+    InvalidNameFormat(String),
 
     // Subscription / matching
     #[error("no matching found for [{:x}, {:x}, {:x}, {}]", .0, .1, .2, .3)]
