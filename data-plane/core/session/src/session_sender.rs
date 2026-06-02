@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use rand::Rng;
-use slim_auth::traits::TokenProvider;
+use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{EncodedName, Participant, ProtoSessionType};
 use slim_datapath::messages::utils::{MAX_PUBLISH_ID, PUBLISH_TO};
 use slim_datapath::{api::ProtoMessage as Message, api::ProtoName};
@@ -15,6 +15,7 @@ use crate::transmitter::SessionTransmitter;
 use crate::{
     SessionError,
     common::SessionMessage,
+    mls_state::MlsState,
     producer_buffer::ProducerBuffer,
     timer::Timer,
     timer_factory::{TimerFactory, TimerSettings},
@@ -127,11 +128,16 @@ where
     }
 
     /// Send a message with optional acknowledgment notification
-    pub async fn on_message(
+    pub async fn on_message<Prov, V>(
         &mut self,
+        mls: Option<&mut MlsState<Prov, V>>,
         mut message: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<(), SessionError>
+    where
+        Prov: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         if self.draining_state == SenderDrainStatus::Completed {
             if let Some(tx) = ack_tx {
                 let _ = tx.send(Err(SessionError::SessionDrainingDrop));
@@ -153,7 +159,7 @@ where
                     // to the standard publish function
                     message.remove_metadata(PUBLISH_TO);
                 }
-                self.on_publish_message(message, ack_tx).await?;
+                self.on_publish_message(mls, message, ack_tx).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::MsgAck => {
                 debug!("received ack message");
@@ -174,7 +180,7 @@ where
                     return Ok(());
                 }
                 self.on_ack_message(&message);
-                self.on_rtx_message(message).await?;
+                self.on_rtx_message(mls, message).await?;
             }
             _ => {
                 debug!("unexpected message type");
@@ -187,11 +193,16 @@ where
         Ok(())
     }
 
-    async fn on_publish_message(
+    async fn on_publish_message<Prov, V>(
         &mut self,
+        mls: Option<&mut MlsState<Prov, V>>,
         mut message: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<(), SessionError>
+    where
+        Prov: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
 
         // if is_publish_to and the message destination is not
@@ -249,7 +260,7 @@ where
             self.buffer.push(message.clone());
         }
 
-        self.set_timer_and_send(message).await
+        self.set_timer_and_send(mls, message).await
     }
 
     fn id_and_fanout(&mut self, is_publish_to: bool) -> (u32, u32) {
@@ -274,7 +285,15 @@ where
         (id, fanout)
     }
 
-    async fn set_timer_and_send(&mut self, message: Message) -> Result<(), SessionError> {
+    async fn set_timer_and_send<Prov, V>(
+        &mut self,
+        mls: Option<&mut MlsState<Prov, V>>,
+        message: Message,
+    ) -> Result<(), SessionError>
+    where
+        Prov: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         let message_id = message.get_id();
         let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
         debug!(%message_id, "send new message");
@@ -323,7 +342,7 @@ where
 
         debug!("send message");
         // send the message
-        self.tx.send_to_slim(Ok(message)).await
+        self.tx.send_to_slim(mls, Ok(message)).await
     }
 
     fn on_ack_message(&mut self, message: &Message) {
@@ -373,7 +392,15 @@ where
         }
     }
 
-    async fn on_rtx_message(&mut self, message: Message) -> Result<(), SessionError> {
+    async fn on_rtx_message<Prov, V>(
+        &mut self,
+        mls: Option<&mut MlsState<Prov, V>>,
+        message: Message,
+    ) -> Result<(), SessionError>
+    where
+        Prov: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         let source_proto = message.get_slim_header().source.clone();
         let message_id = message.get_id();
         let incoming_conn = message.get_incoming_conn();
@@ -395,7 +422,7 @@ where
                 .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
 
             // send the message
-            self.tx.send_to_slim(Ok(msg)).await
+            self.tx.send_to_slim(mls, Ok(msg)).await
         } else {
             debug!("the message does not exists anymore, send and error");
             let dest_proto = message.get_slim_header().destination.clone().unwrap();
@@ -413,17 +440,28 @@ where
                 .build_publish()?;
 
             // send the message
-            self.tx.send_to_slim(Ok(msg)).await
+            self.tx.send_to_slim(mls, Ok(msg)).await
         }
     }
 
-    pub async fn on_timer_timeout(&mut self, id: u32) -> Result<(), SessionError> {
+    pub async fn on_timer_timeout<Prov, V>(
+        &mut self,
+        mut mls: Option<&mut MlsState<Prov, V>>,
+        id: u32,
+    ) -> Result<(), SessionError>
+    where
+        Prov: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         debug!(%id, "message timeout");
 
         if id > MAX_PUBLISH_ID {
             // this must be a message sent with publish_to, so get the message from the pending acks map
             if let Some((_gt, Some(msg))) = self.pending_acks.get_mut(&id) {
-                return self.tx.send_to_slim(Ok(msg.clone())).await;
+                return self
+                    .tx
+                    .send_to_slim(mls.as_deref_mut(), Ok(msg.clone()))
+                    .await;
             } else {
                 return self.on_timer_failure(id);
             }
@@ -442,7 +480,7 @@ where
                         let mut m = message.clone();
                         m.get_slim_header_mut().set_destination(name.clone());
 
-                        self.tx.send_to_slim(Ok(m)).await?;
+                        self.tx.send_to_slim(mls.as_deref_mut(), Ok(m)).await?;
                     }
                     // else: endpoint removed since original send — skip retransmit
                 }
@@ -496,7 +534,15 @@ where
         self.on_failure(message_id, error)
     }
 
-    pub async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
+    pub async fn add_endpoint<Prov, V>(
+        &mut self,
+        mut mls: Option<&mut MlsState<Prov, V>>,
+        endpoint: &Participant,
+    ) -> Result<(), SessionError>
+    where
+        Prov: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         let settings = endpoint
             .settings
             .as_ref()
@@ -526,7 +572,7 @@ where
             self.to_flush = false;
             let messages: Vec<_> = self.buffer.iter().cloned().collect();
             for p in messages {
-                let _ = self.set_timer_and_send(p).await;
+                let _ = self.set_timer_and_send(mls.as_deref_mut(), p).await;
             }
         }
 
@@ -609,7 +655,7 @@ where
 mod tests {
     type SessionSender<P> = super::SessionSender<P>;
 
-    use crate::test_utils::MockTokenProvider;
+    use crate::test_utils::{MockTokenProvider, MockVerifier};
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
@@ -641,7 +687,7 @@ mod tests {
         let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote)
             .await
             .expect("error adding participant");
 
@@ -659,7 +705,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(message.clone(), None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message.clone(), None)
             .await
             .expect("error sending message");
 
@@ -679,7 +725,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(message.clone(), None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message.clone(), None)
             .await
             .expect("error sending message");
 
@@ -721,7 +767,7 @@ mod tests {
         let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote)
             .await
             .expect("error adding participant");
 
@@ -739,7 +785,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(message.clone(), None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message.clone(), None)
             .await
             .expect("error sending message");
 
@@ -766,7 +812,7 @@ mod tests {
         match signal {
             crate::common::SessionMessage::TimerTimeout { message_id, .. } => {
                 sender
-                    .on_timer_timeout(message_id)
+                    .on_timer_timeout::<MockTokenProvider, MockVerifier>(None, message_id)
                     .await
                     .expect("error handling timeout");
             }
@@ -792,7 +838,7 @@ mod tests {
         match signal {
             crate::common::SessionMessage::TimerTimeout { message_id, .. } => {
                 sender
-                    .on_timer_timeout(message_id)
+                    .on_timer_timeout::<MockTokenProvider, MockVerifier>(None, message_id)
                     .await
                     .expect("error handling timeout");
             }
@@ -860,7 +906,7 @@ mod tests {
         let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote)
             .await
             .expect("error adding participant");
 
@@ -878,7 +924,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(message.clone(), None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message.clone(), None)
             .await
             .expect("error sending message");
 
@@ -909,7 +955,7 @@ mod tests {
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
         sender
-            .on_message(ack, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, ack, None)
             .await
             .expect("error sending message");
 
@@ -946,15 +992,15 @@ mod tests {
         let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::bidirectional());
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote1)
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote2)
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote3)
             .await
             .expect("error adding participant");
 
@@ -972,7 +1018,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(message.clone(), None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message.clone(), None)
             .await
             .expect("error sending message");
 
@@ -1023,15 +1069,15 @@ mod tests {
 
         // Send all 3 acks
         sender
-            .on_message(ack1, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, ack1, None)
             .await
             .expect("error sending ack1");
         sender
-            .on_message(ack2, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, ack2, None)
             .await
             .expect("error sending ack2");
         sender
-            .on_message(ack3, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, ack3, None)
             .await
             .expect("error sending ack3");
 
@@ -1068,15 +1114,15 @@ mod tests {
         let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::bidirectional());
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote1)
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote2)
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote3)
             .await
             .expect("error adding participant");
 
@@ -1094,7 +1140,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(message.clone(), None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message.clone(), None)
             .await
             .expect("error sending message");
 
@@ -1135,11 +1181,11 @@ mod tests {
 
         // Send only 2 out of 3 acks (missing ack2)
         sender
-            .on_message(ack1, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, ack1, None)
             .await
             .expect("error sending ack1");
         sender
-            .on_message(ack3, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, ack3, None)
             .await
             .expect("error sending ack3");
 
@@ -1152,7 +1198,7 @@ mod tests {
         match signal {
             crate::common::SessionMessage::TimerTimeout { message_id, .. } => {
                 sender
-                    .on_timer_timeout(message_id)
+                    .on_timer_timeout::<MockTokenProvider, MockVerifier>(None, message_id)
                     .await
                     .expect("error handling timeout");
             }
@@ -1184,7 +1230,7 @@ mod tests {
         match signal {
             crate::common::SessionMessage::TimerTimeout { message_id, .. } => {
                 sender
-                    .on_timer_timeout(message_id)
+                    .on_timer_timeout::<MockTokenProvider, MockVerifier>(None, message_id)
                     .await
                     .expect("error handling timeout");
             }
@@ -1253,15 +1299,15 @@ mod tests {
         let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::bidirectional());
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote1)
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote2)
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote3)
             .await
             .expect("error adding participant");
 
@@ -1279,7 +1325,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(message.clone(), None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message.clone(), None)
             .await
             .expect("error sending message");
 
@@ -1320,11 +1366,11 @@ mod tests {
 
         // Send only 2 out of 3 acks (missing ack2)
         sender
-            .on_message(ack1, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, ack1, None)
             .await
             .expect("error sending ack1");
         sender
-            .on_message(ack3, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, ack3, None)
             .await
             .expect("error sending ack3");
 
@@ -1365,15 +1411,15 @@ mod tests {
         let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::bidirectional());
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote1)
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote2)
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote3)
             .await
             .expect("error adding participant");
 
@@ -1391,7 +1437,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(message.clone(), None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message.clone(), None)
             .await
             .expect("error sending message");
 
@@ -1432,11 +1478,11 @@ mod tests {
 
         // Send only 2 out of 3 acks (missing ack from remote2)
         sender
-            .on_message(ack1, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, ack1, None)
             .await
             .expect("error sending ack1");
         sender
-            .on_message(ack3, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, ack3, None)
             .await
             .expect("error sending ack3");
 
@@ -1454,7 +1500,7 @@ mod tests {
         rtx_request.get_slim_header_mut().set_incoming_conn(Some(1));
 
         sender
-            .on_message(rtx_request, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, rtx_request, None)
             .await
             .expect("error sending rtx_request");
 
@@ -1500,7 +1546,7 @@ mod tests {
         let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote)
             .await
             .expect("error adding participant");
 
@@ -1518,7 +1564,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(message.clone(), None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message.clone(), None)
             .await
             .expect("error sending message");
 
@@ -1545,7 +1591,7 @@ mod tests {
         match signal {
             crate::common::SessionMessage::TimerTimeout { message_id, .. } => {
                 sender
-                    .on_timer_timeout(message_id)
+                    .on_timer_timeout::<MockTokenProvider, MockVerifier>(None, message_id)
                     .await
                     .expect("error handling timeout");
             }
@@ -1583,7 +1629,7 @@ mod tests {
 
         // Send the RTX request
         sender
-            .on_message(rtx_request, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, rtx_request, None)
             .await
             .expect("error sending rtx_request");
 
@@ -1615,7 +1661,7 @@ mod tests {
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
 
         sender
-            .on_message(ack, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, ack, None)
             .await
             .expect("error sending ack");
 
@@ -1661,7 +1707,9 @@ mod tests {
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
 
         // Send the message using on_message function - this should succeed but buffer the message
-        let result = sender.on_message(message.clone(), None).await;
+        let result = sender
+            .on_message::<MockTokenProvider, MockVerifier>(None, message.clone(), None)
+            .await;
 
         // result should be ok
         assert!(result.is_ok(), "Expected Ok result, got: {:?}", result);
@@ -1676,7 +1724,7 @@ mod tests {
 
         // add the remote participant
         sender
-            .add_endpoint(&remote)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote)
             .await
             .expect("error adding participant");
 
@@ -1722,15 +1770,15 @@ mod tests {
         let remote3 = Participant::new(remote3_name.clone(), ParticipantSettings::bidirectional());
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote1)
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote2)
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote3)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote3)
             .await
             .expect("error adding participant");
 
@@ -1750,7 +1798,7 @@ mod tests {
 
         // Send the message
         sender
-            .on_message(message.clone(), None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message.clone(), None)
             .await
             .expect("error sending message");
 
@@ -1798,7 +1846,7 @@ mod tests {
         let remote1 = Participant::new(remote1_name.clone(), ParticipantSettings::bidirectional());
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote1)
             .await
             .expect("error adding participant");
 
@@ -1817,7 +1865,9 @@ mod tests {
             .insert(PUBLISH_TO.to_string(), String::new());
 
         // Send the message - should fail
-        let result = sender.on_message(message, None).await;
+        let result = sender
+            .on_message::<MockTokenProvider, MockVerifier>(None, message, None)
+            .await;
 
         assert!(
             result.is_err_and(|e| { matches!(e, SessionError::UnknownDestination(_)) }),
@@ -1848,7 +1898,7 @@ mod tests {
         let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote)
             .await
             .expect("error adding participant");
 
@@ -1868,7 +1918,7 @@ mod tests {
 
         // Send the message
         sender
-            .on_message(message, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message, None)
             .await
             .expect("error sending message");
 
@@ -1909,11 +1959,11 @@ mod tests {
         let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote1)
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote2)
             .await
             .expect("error adding participant");
 
@@ -1932,7 +1982,7 @@ mod tests {
             .insert(PUBLISH_TO.to_string(), String::new());
 
         sender
-            .on_message(message, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message, None)
             .await
             .expect("error sending message");
 
@@ -1957,7 +2007,7 @@ mod tests {
         ack.metadata.insert(PUBLISH_TO.to_string(), String::new());
 
         sender
-            .on_message(ack, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, ack, None)
             .await
             .expect("error sending ack");
 
@@ -1994,11 +2044,11 @@ mod tests {
         let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote1)
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote2)
             .await
             .expect("error adding participant");
 
@@ -2017,7 +2067,7 @@ mod tests {
             .insert(PUBLISH_TO.to_string(), String::new());
 
         sender
-            .on_message(message, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message, None)
             .await
             .expect("error sending message");
 
@@ -2042,7 +2092,7 @@ mod tests {
             } => {
                 assert_eq!(timer_id, message_id);
                 sender
-                    .on_timer_timeout(timer_id)
+                    .on_timer_timeout::<MockTokenProvider, MockVerifier>(None, timer_id)
                     .await
                     .expect("error handling timeout");
             }
@@ -2085,11 +2135,11 @@ mod tests {
         let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote1)
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote2)
             .await
             .expect("error adding participant");
 
@@ -2108,7 +2158,7 @@ mod tests {
             .insert(PUBLISH_TO.to_string(), String::new());
 
         sender
-            .on_message(message, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message, None)
             .await
             .expect("error sending message");
 
@@ -2157,7 +2207,7 @@ mod tests {
         let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
 
         sender
-            .add_endpoint(&remote)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote)
             .await
             .expect("error adding participant");
 
@@ -2179,7 +2229,7 @@ mod tests {
         let (ack_tx, ack_rx) = oneshot::channel();
 
         sender
-            .on_message(message, Some(ack_tx))
+            .on_message::<MockTokenProvider, MockVerifier>(None, message, Some(ack_tx))
             .await
             .expect("error sending message");
 
@@ -2204,7 +2254,7 @@ mod tests {
         ack.metadata.insert(PUBLISH_TO.to_string(), String::new());
 
         sender
-            .on_message(ack, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, ack, None)
             .await
             .expect("error sending ack");
 
@@ -2243,11 +2293,11 @@ mod tests {
         let remote2 = Participant::new(remote2_name.clone(), ParticipantSettings::bidirectional());
 
         sender
-            .add_endpoint(&remote1)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote1)
             .await
             .expect("error adding participant");
         sender
-            .add_endpoint(&remote2)
+            .add_endpoint::<MockTokenProvider, MockVerifier>(None, &remote2)
             .await
             .expect("error adding participant");
 
@@ -2263,7 +2313,7 @@ mod tests {
         normal_msg.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
 
         sender
-            .on_message(normal_msg, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, normal_msg, None)
             .await
             .expect("error sending normal message");
 
@@ -2292,7 +2342,7 @@ mod tests {
             .insert(PUBLISH_TO.to_string(), String::new());
 
         sender
-            .on_message(publish_to_msg, None)
+            .on_message::<MockTokenProvider, MockVerifier>(None, publish_to_msg, None)
             .await
             .expect("error sending publish_to message");
 

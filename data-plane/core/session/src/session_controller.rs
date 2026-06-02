@@ -603,8 +603,12 @@ where
     }
 
     /// internal and helper functions
-    pub(crate) async fn send_to_slim(&self, message: Message) -> Result<(), SessionError> {
-        self.settings.tx.send_to_slim(Ok(message)).await
+    pub(crate) async fn send_to_slim(
+        &mut self,
+        mls: Option<&mut crate::mls_state::MlsState<P, V>>,
+        message: Message,
+    ) -> Result<(), SessionError> {
+        self.settings.tx.send_to_slim(mls, Ok(message)).await
     }
 
     /// Send error message to the application
@@ -613,8 +617,12 @@ where
     }
 
     /// Send control message without creating ack channel (for internal use by moderator)
-    pub(crate) async fn send_with_timer(&mut self, message: Message) -> Result<(), SessionError> {
-        self.sender.on_message(&message).await
+    pub(crate) async fn send_with_timer(
+        &mut self,
+        mls: Option<&mut crate::mls_state::MlsState<P, V>>,
+        message: Message,
+    ) -> Result<(), SessionError> {
+        self.sender.on_message(mls, &message).await
     }
 
     async fn await_subscription_ack(
@@ -776,8 +784,10 @@ where
     }
 
     /// Send control message without creating ack channel (for internal use by moderator)
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn send_control_message(
         &mut self,
+        mls: Option<&mut crate::mls_state::MlsState<P, V>>,
         dst: &ProtoName,
         message_type: ProtoSessionMessageType,
         message_id: u32,
@@ -790,7 +800,7 @@ where
         if let Some(m) = metadata {
             msg.set_metadata_map(m);
         }
-        self.send_with_timer(msg).await
+        self.send_with_timer(mls, msg).await
     }
 }
 

@@ -7,7 +7,7 @@ use std::{
 };
 
 use display_error_chain::ErrorChainExt;
-use slim_auth::traits::TokenProvider;
+use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{
     CommandPayload, NameId, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
     ProtoSessionType,
@@ -18,6 +18,7 @@ use tracing::debug;
 use crate::{
     SessionError,
     common::SessionMessage,
+    mls_state::MlsState,
     timer::Timer,
     timer_factory::{TimerFactory, TimerSettings},
     transmitter::SessionTransmitter,
@@ -244,7 +245,14 @@ where
         Ok(())
     }
 
-    pub async fn on_message(&mut self, message: &Message) -> Result<(), SessionError> {
+    pub async fn on_message<V>(
+        &mut self,
+        mls: Option<&mut MlsState<P, V>>,
+        message: &Message,
+    ) -> Result<(), SessionError>
+    where
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         if self.draining_state == ControllerSenderDrainStatus::Completed {
             return Err(SessionError::SessionDrainingDrop);
         }
@@ -276,7 +284,7 @@ where
                 self.update_local_state(message)?;
 
                 // send the message and setup the required timers
-                self.on_send_message(message, missing_replies).await?;
+                self.on_send_message(mls, message, missing_replies).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::DiscoveryReply
             | slim_datapath::api::ProtoSessionMessageType::JoinReply
@@ -301,7 +309,7 @@ where
                     .cloned()
                     .collect::<HashSet<_>>();
 
-                self.on_send_message(message, missing_replies).await?;
+                self.on_send_message(mls, message, missing_replies).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::GroupRemove => {
                 // compute the list of participants that needs to send an ack
@@ -325,7 +333,7 @@ where
 
                 self.group_list.remove(&to_remove);
 
-                self.on_send_message(message, missing_replies).await?;
+                self.on_send_message(mls, message, missing_replies).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::GroupClose => {
                 // compute the list of participants that needs to send an ack
@@ -336,7 +344,7 @@ where
                     .cloned()
                     .collect::<HashSet<_>>();
 
-                self.on_send_message(message, missing_replies).await?;
+                self.on_send_message(mls, message, missing_replies).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::GroupProposal => todo!(),
             _ => {
@@ -347,11 +355,15 @@ where
         Ok(())
     }
 
-    async fn on_send_message(
+    async fn on_send_message<V>(
         &mut self,
+        mls: Option<&mut MlsState<P, V>>,
         message: &Message,
         missing_replies: HashSet<ProtoName>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<(), SessionError>
+    where
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         let id = message.get_id();
 
         debug!(
@@ -369,7 +381,7 @@ where
         };
 
         self.pending_replies.insert(id, pending);
-        self.tx.send_to_slim(Ok(message.clone())).await
+        self.tx.send_to_slim(mls, Ok(message.clone())).await
     }
 
     fn on_reply_message(&mut self, message: &Message) {
@@ -432,27 +444,38 @@ where
         self.pending_replies.contains_key(&message_id)
     }
 
-    pub(crate) async fn on_timer_timeout(
+    pub(crate) async fn on_timer_timeout<V>(
         &mut self,
+        mls: Option<&mut MlsState<P, V>>,
         id: u32,
         msg_type: ProtoSessionMessageType,
-    ) -> Result<(), SessionError> {
+    ) -> Result<(), SessionError>
+    where
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         debug!(%id, ?msg_type, "timeout for message");
 
         // check if the timeout is related to a ping
         if self.ping_state.is_some() && msg_type == ProtoSessionMessageType::Ping {
-            return self.handle_ping_timeout(id).await;
+            return self.handle_ping_timeout(mls, id).await;
         }
 
         // the timer is not related to a ping, resent the message if possible
         if let Some(pending) = self.pending_replies.get(&id) {
-            return self.tx.send_to_slim(Ok(pending.message.clone())).await;
+            return self.tx.send_to_slim(mls, Ok(pending.message.clone())).await;
         };
 
         Err(SessionError::TimerNotFound(id))
     }
 
-    async fn handle_ping_timeout(&mut self, id: u32) -> Result<(), SessionError> {
+    async fn handle_ping_timeout<V>(
+        &mut self,
+        mls: Option<&mut MlsState<P, V>>,
+        id: u32,
+    ) -> Result<(), SessionError>
+    where
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         // If this is a participant check if a message was received
         // during the last ping time
         if !self.initiator
@@ -534,7 +557,7 @@ where
                     .collect::<HashSet<_>>();
 
                 // Send the ping message to slim
-                self.tx.send_to_slim(Ok(ping.clone())).await?;
+                self.tx.send_to_slim(mls, Ok(ping.clone())).await?;
 
                 if let Some(ping_state) = self.ping_state.as_mut() {
                     ping_state.ping = Some(PendingReply {
@@ -563,7 +586,7 @@ where
             if let Some(ping_message) = message_to_send {
                 debug!(%id, "ping message timeout, send it again");
                 // simply resend the message
-                return self.tx.send_to_slim(Ok(ping_message)).await;
+                return self.tx.send_to_slim(mls, Ok(ping_message)).await;
             }
         }
 
@@ -692,7 +715,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::MockTokenProvider;
+    use crate::test_utils::{MockTokenProvider, MockVerifier};
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
@@ -747,7 +770,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(&request)
+            .on_message::<MockVerifier>(None, &request)
             .await
             .expect("error sending message");
 
@@ -782,7 +805,7 @@ mod tests {
 
         // notify the timeout to the sender
         sender
-            .on_timer_timeout(1, ProtoSessionMessageType::DiscoveryRequest)
+            .on_timer_timeout::<MockVerifier>(None, 1, ProtoSessionMessageType::DiscoveryRequest)
             .await
             .expect("error re-sending the request");
 
@@ -813,7 +836,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(&reply)
+            .on_message::<MockVerifier>(None, &reply)
             .await
             .expect("error sending reply");
 
@@ -872,7 +895,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(&request)
+            .on_message::<MockVerifier>(None, &request)
             .await
             .expect("error sending message");
 
@@ -907,7 +930,7 @@ mod tests {
 
         // notify the timeout to the sender
         sender
-            .on_timer_timeout(1, ProtoSessionMessageType::JoinRequest)
+            .on_timer_timeout::<MockVerifier>(None, 1, ProtoSessionMessageType::JoinRequest)
             .await
             .expect("error re-sending the request");
 
@@ -941,7 +964,7 @@ mod tests {
 
         // Send the reply using on_message function
         sender
-            .on_message(&reply)
+            .on_message::<MockVerifier>(None, &reply)
             .await
             .expect("error sending reply");
 
@@ -994,7 +1017,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(&request)
+            .on_message::<MockVerifier>(None, &request)
             .await
             .expect("error sending message");
 
@@ -1029,7 +1052,7 @@ mod tests {
 
         // notify the timeout to the sender
         sender
-            .on_timer_timeout(1, ProtoSessionMessageType::LeaveRequest)
+            .on_timer_timeout::<MockVerifier>(None, 1, ProtoSessionMessageType::LeaveRequest)
             .await
             .expect("error re-sending the request");
 
@@ -1060,7 +1083,7 @@ mod tests {
 
         // Send the reply using on_message function
         sender
-            .on_message(&reply)
+            .on_message::<MockVerifier>(None, &reply)
             .await
             .expect("error sending reply");
 
@@ -1115,7 +1138,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(&welcome)
+            .on_message::<MockVerifier>(None, &welcome)
             .await
             .expect("error sending message");
 
@@ -1150,7 +1173,7 @@ mod tests {
 
         // notify the timeout to the sender
         sender
-            .on_timer_timeout(1, ProtoSessionMessageType::GroupWelcome)
+            .on_timer_timeout::<MockVerifier>(None, 1, ProtoSessionMessageType::GroupWelcome)
             .await
             .expect("error re-sending the welcome");
 
@@ -1180,7 +1203,10 @@ mod tests {
             .unwrap();
 
         // Send the ack using on_message function
-        sender.on_message(&ack).await.expect("error sending ack");
+        sender
+            .on_message::<MockVerifier>(None, &ack)
+            .await
+            .expect("error sending ack");
 
         // this should stop the timer so we should not get any other message in slim
         let res = timeout(Duration::from_millis(400), rx_slim.recv()).await;
@@ -1245,7 +1271,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(&update)
+            .on_message::<MockVerifier>(None, &update)
             .await
             .expect("error sending message");
 
@@ -1280,7 +1306,7 @@ mod tests {
 
         // notify the timeout to the sender
         sender
-            .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd)
+            .on_timer_timeout::<MockVerifier>(None, 1, ProtoSessionMessageType::GroupAdd)
             .await
             .expect("error re-sending the add");
 
@@ -1310,7 +1336,10 @@ mod tests {
             .unwrap();
 
         // Send the first ack using on_message function
-        sender.on_message(&ack1).await.expect("error sending ack");
+        sender
+            .on_message::<MockVerifier>(None, &ack1)
+            .await
+            .expect("error sending ack");
 
         // Verify the message is still pending (timer should NOT stop yet with only 1/2 acks)
         assert!(
@@ -1334,7 +1363,10 @@ mod tests {
             .unwrap();
 
         // Send the second ack using on_message function
-        sender.on_message(&ack2).await.expect("error sending ack");
+        sender
+            .on_message::<MockVerifier>(None, &ack2)
+            .await
+            .expect("error sending ack");
 
         // Now the timer should be stopped - verify no more messages in slim
         let res = timeout(Duration::from_millis(400), rx_slim.recv()).await;
@@ -1400,7 +1432,7 @@ mod tests {
 
         // Send the message using on_message function
         sender
-            .on_message(&update)
+            .on_message::<MockVerifier>(None, &update)
             .await
             .expect("error sending message");
 
@@ -1435,7 +1467,7 @@ mod tests {
 
         // notify the timeout to the sender
         sender
-            .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd)
+            .on_timer_timeout::<MockVerifier>(None, 1, ProtoSessionMessageType::GroupAdd)
             .await
             .expect("error re-sending the add");
 
@@ -1465,7 +1497,10 @@ mod tests {
             .unwrap();
 
         // Send the first ack using on_message function
-        sender.on_message(&ack1).await.expect("error sending ack");
+        sender
+            .on_message::<MockVerifier>(None, &ack1)
+            .await
+            .expect("error sending ack");
 
         // Verify the message is still pending (timer should NOT stop yet with only 1/2 acks)
         assert!(
@@ -1475,7 +1510,7 @@ mod tests {
 
         // Send the SAME ack again from participant1 (duplicate)
         sender
-            .on_message(&ack1)
+            .on_message::<MockVerifier>(None, &ack1)
             .await
             .expect("error sending duplicate ack");
 
@@ -1506,7 +1541,7 @@ mod tests {
 
         // notify the timeout to the sender (this will resend the message)
         sender
-            .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd)
+            .on_timer_timeout::<MockVerifier>(None, 1, ProtoSessionMessageType::GroupAdd)
             .await
             .expect("error re-sending the add");
 
@@ -1534,7 +1569,10 @@ mod tests {
             .unwrap();
 
         // Send the second ack from participant2
-        sender.on_message(&ack2).await.expect("error sending ack");
+        sender
+            .on_message::<MockVerifier>(None, &ack2)
+            .await
+            .expect("error sending ack");
 
         // NOW the timer should be stopped - verify no more messages in slim
         let res = timeout(Duration::from_millis(400), rx_slim.recv()).await;
@@ -1608,7 +1646,7 @@ mod tests {
 
         // Trigger the ping send
         sender
-            .on_timer_timeout(first_ping_id, ProtoSessionMessageType::Ping)
+            .on_timer_timeout::<MockVerifier>(None, first_ping_id, ProtoSessionMessageType::Ping)
             .await
             .expect("error sending first ping");
 
@@ -1668,7 +1706,7 @@ mod tests {
 
         // Trigger the ping send
         sender
-            .on_timer_timeout(second_ping_id, ProtoSessionMessageType::Ping)
+            .on_timer_timeout::<MockVerifier>(None, second_ping_id, ProtoSessionMessageType::Ping)
             .await
             .expect("error sending second ping");
 
@@ -1704,7 +1742,11 @@ mod tests {
 
         // Trigger retransmission
         sender
-            .on_timer_timeout(second_ping.get_id(), ProtoSessionMessageType::Ping)
+            .on_timer_timeout::<MockVerifier>(
+                None,
+                second_ping.get_id(),
+                ProtoSessionMessageType::Ping,
+            )
             .await
             .expect("error retransmitting ping");
 
@@ -1737,7 +1779,11 @@ mod tests {
 
         // Trigger second retransmission
         sender
-            .on_timer_timeout(second_ping.get_id(), ProtoSessionMessageType::Ping)
+            .on_timer_timeout::<MockVerifier>(
+                None,
+                second_ping.get_id(),
+                ProtoSessionMessageType::Ping,
+            )
             .await
             .expect("error retransmitting ping");
 
@@ -1772,7 +1818,7 @@ mod tests {
 
         // Trigger the ping send
         sender
-            .on_timer_timeout(third_ping_id, ProtoSessionMessageType::Ping)
+            .on_timer_timeout::<MockVerifier>(None, third_ping_id, ProtoSessionMessageType::Ping)
             .await
             .expect("error sending third ping");
 
@@ -1808,7 +1854,11 @@ mod tests {
             };
 
             sender
-                .on_timer_timeout(third_ping.get_id(), ProtoSessionMessageType::Ping)
+                .on_timer_timeout::<MockVerifier>(
+                    None,
+                    third_ping.get_id(),
+                    ProtoSessionMessageType::Ping,
+                )
                 .await
                 .expect("error retransmitting ping");
 
@@ -1841,7 +1891,7 @@ mod tests {
 
         // Trigger the ping send
         sender
-            .on_timer_timeout(fourth_ping_id, ProtoSessionMessageType::Ping)
+            .on_timer_timeout::<MockVerifier>(None, fourth_ping_id, ProtoSessionMessageType::Ping)
             .await
             .expect("error sending fourth ping");
 
@@ -1877,7 +1927,11 @@ mod tests {
             };
 
             sender
-                .on_timer_timeout(fourth_ping.get_id(), ProtoSessionMessageType::Ping)
+                .on_timer_timeout::<MockVerifier>(
+                    None,
+                    fourth_ping.get_id(),
+                    ProtoSessionMessageType::Ping,
+                )
                 .await
                 .expect("error retransmitting ping");
 
@@ -1914,7 +1968,7 @@ mod tests {
         // 3. Detect disconnection (counter >= MAX_PING_FAILURE)
         // 4. Send a new ping
         sender
-            .on_timer_timeout(fifth_ping_id, ProtoSessionMessageType::Ping)
+            .on_timer_timeout::<MockVerifier>(None, fifth_ping_id, ProtoSessionMessageType::Ping)
             .await
             .expect("error handling fifth ping interval");
 
@@ -2015,7 +2069,7 @@ mod tests {
 
         // Process the timeout - should reset state since ping was received
         sender
-            .on_timer_timeout(first_ping_id, ProtoSessionMessageType::Ping)
+            .on_timer_timeout::<MockVerifier>(None, first_ping_id, ProtoSessionMessageType::Ping)
             .await
             .expect("error handling first ping timeout");
 
@@ -2049,7 +2103,7 @@ mod tests {
 
         // Don't send a ping this time (moderator is down)
         sender
-            .on_timer_timeout(second_ping_id, ProtoSessionMessageType::Ping)
+            .on_timer_timeout::<MockVerifier>(None, second_ping_id, ProtoSessionMessageType::Ping)
             .await
             .expect("error handling second ping timeout");
 
@@ -2082,7 +2136,7 @@ mod tests {
         };
 
         sender
-            .on_timer_timeout(third_ping_id, ProtoSessionMessageType::Ping)
+            .on_timer_timeout::<MockVerifier>(None, third_ping_id, ProtoSessionMessageType::Ping)
             .await
             .expect("error handling third ping timeout");
 
@@ -2115,7 +2169,7 @@ mod tests {
         };
 
         sender
-            .on_timer_timeout(fourth_ping_id, ProtoSessionMessageType::Ping)
+            .on_timer_timeout::<MockVerifier>(None, fourth_ping_id, ProtoSessionMessageType::Ping)
             .await
             .expect("error handling fourth ping timeout");
 
@@ -2205,7 +2259,7 @@ mod tests {
 
         // Trigger ping send
         sender
-            .on_timer_timeout(first_ping_id, ProtoSessionMessageType::Ping)
+            .on_timer_timeout::<MockVerifier>(None, first_ping_id, ProtoSessionMessageType::Ping)
             .await
             .expect("error sending first ping");
 
@@ -2318,7 +2372,7 @@ mod tests {
 
         // Trigger the second ping interval
         sender
-            .on_timer_timeout(second_ping_id, ProtoSessionMessageType::Ping)
+            .on_timer_timeout::<MockVerifier>(None, second_ping_id, ProtoSessionMessageType::Ping)
             .await
             .expect("error handling second ping interval");
 
@@ -2428,7 +2482,7 @@ mod tests {
             .unwrap();
 
         sender
-            .on_message(&join_request)
+            .on_message::<MockVerifier>(None, &join_request)
             .await
             .expect("error sending join request");
 
@@ -2464,7 +2518,7 @@ mod tests {
             .unwrap();
 
         sender
-            .on_message(&join_reply)
+            .on_message::<MockVerifier>(None, &join_reply)
             .await
             .expect("error sending join reply");
 
@@ -2491,7 +2545,7 @@ mod tests {
 
         // Trigger the ping send
         sender
-            .on_timer_timeout(ping_id, ProtoSessionMessageType::Ping)
+            .on_timer_timeout::<MockVerifier>(None, ping_id, ProtoSessionMessageType::Ping)
             .await
             .expect("error sending ping");
 
@@ -2569,7 +2623,7 @@ mod tests {
             .unwrap();
 
         sender
-            .on_message(&join_request)
+            .on_message::<MockVerifier>(None, &join_request)
             .await
             .expect("error sending join request");
 
@@ -2606,7 +2660,7 @@ mod tests {
             .unwrap();
 
         sender
-            .on_message(&join_reply)
+            .on_message::<MockVerifier>(None, &join_reply)
             .await
             .expect("error sending join reply");
 
@@ -2633,7 +2687,7 @@ mod tests {
 
         // Trigger the ping send
         sender
-            .on_timer_timeout(ping_id, ProtoSessionMessageType::Ping)
+            .on_timer_timeout::<MockVerifier>(None, ping_id, ProtoSessionMessageType::Ping)
             .await
             .expect("error sending ping");
 

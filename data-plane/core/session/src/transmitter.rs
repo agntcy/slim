@@ -5,9 +5,10 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
 use slim_datapath::api::ProtoMessage as Message;
 
-use crate::{SessionError, SlimChannelSender, common::AppChannelSender};
-
-use std::sync::Arc;
+use crate::{
+    MessageDirection, SessionError, SlimChannelSender, common::AppChannelSender,
+    mls_state::MlsState,
+};
 
 pub(crate) async fn verify_identity<V>(msg: &Message, verifier: &V) -> Result<(), SessionError>
 where
@@ -20,22 +21,6 @@ where
     Ok(())
 }
 
-pub trait MessageEncryptor: Send + Sync {
-    fn encrypt_message(&self, message: &mut Message) -> Result<(), SessionError>;
-}
-
-impl<P, V> MessageEncryptor
-    for crate::single_threaded_cell::SingleThreadedCell<crate::mls_state::MlsState<P, V>>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-{
-    fn encrypt_message(&self, message: &mut Message) -> Result<(), SessionError> {
-        self.borrow_mut()
-            .process_message(message, crate::common::MessageDirection::South)
-    }
-}
-
 #[derive(Clone)]
 pub struct SessionTransmitter<P>
 where
@@ -44,8 +29,6 @@ where
     pub(crate) slim_tx: SlimChannelSender,
     pub(crate) app_tx: AppChannelSender,
     pub(crate) identity_provider: P,
-    pub(crate) encryptor:
-        Arc<crate::single_threaded_cell::SingleThreadedCell<Option<Arc<dyn MessageEncryptor>>>>,
 }
 
 impl<P> SessionTransmitter<P>
@@ -57,12 +40,7 @@ where
             slim_tx,
             app_tx,
             identity_provider,
-            encryptor: Arc::new(crate::single_threaded_cell::SingleThreadedCell::new(None)),
         }
-    }
-
-    pub fn set_encryptor(&self, encryptor: Arc<dyn MessageEncryptor>) {
-        *self.encryptor.borrow_mut() = Some(encryptor);
     }
 
     pub async fn send_to_app(
@@ -74,18 +52,24 @@ where
             .map_err(|_e| SessionError::ApplicationMessageSendFailed)
     }
 
-    pub async fn send_to_slim(
+    /// Sends a message to SLIM, applying identity and optional MLS encryption (South).
+    pub async fn send_to_slim<Prov, V>(
         &self,
+        mls: Option<&mut MlsState<Prov, V>>,
         mut message: Result<Message, Status>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<(), SessionError>
+    where
+        Prov: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         if let Ok(msg) = message.as_mut() {
             if msg.get_slim_header().get_identity().is_empty() {
                 let identity = self.identity_provider.get_token()?;
                 msg.get_slim_header_mut().set_identity(identity);
             }
 
-            if let Some(encryptor) = &*self.encryptor.borrow() {
-                encryptor.encrypt_message(msg)?;
+            if let Some(mls) = mls {
+                mls.process_message(msg, MessageDirection::South)?;
             }
         }
 
@@ -124,7 +108,9 @@ mod tests {
         let (app_tx, _app_rx) = mpsc::unbounded_channel::<Result<Message, SessionError>>();
         let tx = SessionTransmitter::new(slim_tx, app_tx, MockTokenProvider);
 
-        tx.send_to_slim(Ok(make_message())).await.unwrap();
+        tx.send_to_slim::<MockTokenProvider, MockVerifier>(None, Ok(make_message()))
+            .await
+            .unwrap();
         let sent = slim_rx.recv().await.unwrap().unwrap();
         assert_eq!(sent.get_slim_header().get_identity(), "");
     }

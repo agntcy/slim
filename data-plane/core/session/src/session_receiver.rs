@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
-use slim_auth::traits::TokenProvider;
+use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{EncodedName, ProtoMessage as Message, ProtoName, ProtoSessionType};
 use slim_datapath::messages::utils::{PUBLISH_TO, TRUE_VAL};
 use tokio::sync::mpsc::Sender;
@@ -14,6 +14,7 @@ use crate::transmitter::SessionTransmitter;
 use crate::{
     SessionError,
     common::SessionMessage,
+    mls_state::MlsState,
     receiver_buffer::ReceiverBuffer,
     timer::Timer,
     timer_factory::{TimerFactory, TimerSettings},
@@ -124,7 +125,15 @@ where
         }
     }
 
-    pub async fn on_message(&mut self, mut message: Message) -> Result<(), SessionError> {
+    pub async fn on_message<Prov, V>(
+        &mut self,
+        mut mls: Option<&mut MlsState<Prov, V>>,
+        mut message: Message,
+    ) -> Result<(), SessionError>
+    where
+        Prov: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         if self.draining_state == ReceiverDrainStatus::Completed {
             return Err(SessionError::SessionDrainingDrop);
         }
@@ -142,12 +151,12 @@ where
                     message.remove_metadata(PUBLISH_TO);
                 }
 
-                self.send_ack(&message).await?;
-                self.on_publish_message(message).await?;
+                self.send_ack(mls.as_deref_mut(), &message).await?;
+                self.on_publish_message(mls, message).await?;
             }
             slim_datapath::api::ProtoSessionMessageType::RtxReply => {
                 debug!("received rtx message");
-                self.on_rtx_message(message).await?;
+                self.on_rtx_message(mls, message).await?;
             }
             _ => {
                 // TODO: Add missing message types (e.g. Channel messages)
@@ -157,7 +166,15 @@ where
         Ok(())
     }
 
-    pub async fn on_publish_message(&mut self, message: Message) -> Result<(), SessionError> {
+    pub async fn on_publish_message<Prov, V>(
+        &mut self,
+        mls: Option<&mut MlsState<Prov, V>>,
+        message: Message,
+    ) -> Result<(), SessionError>
+    where
+        Prov: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         if self.timer_factory.is_none() || message.contains_metadata(PUBLISH_TO) {
             debug!(
                 id = %message.get_id(),
@@ -172,11 +189,19 @@ where
         let buffer = self.buffer.entry(source_proto.name.unwrap()).or_default();
 
         let (recv_vec, rtx_vec) = buffer.on_received_message(message);
-        self.handle_recv_and_rtx_vectors(&source_proto, in_conn, recv_vec, rtx_vec)
+        self.handle_recv_and_rtx_vectors(mls, &source_proto, in_conn, recv_vec, rtx_vec)
             .await
     }
 
-    pub async fn send_ack(&mut self, message: &Message) -> Result<(), SessionError> {
+    pub async fn send_ack<Prov, V>(
+        &mut self,
+        mls: Option<&mut MlsState<Prov, V>>,
+        message: &Message,
+    ) -> Result<(), SessionError>
+    where
+        Prov: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         // we need to send an ack message only if the factory is not none
         // in this case the session is reliable and the producer is expecting acks
         if self.timer_factory.is_none() {
@@ -205,10 +230,20 @@ where
             builder = builder.metadata_map(meta);
         }
 
-        self.tx.send_to_slim(Ok(builder.build_publish()?)).await
+        self.tx
+            .send_to_slim(mls, Ok(builder.build_publish()?))
+            .await
     }
 
-    pub async fn on_rtx_message(&mut self, message: Message) -> Result<(), SessionError> {
+    pub async fn on_rtx_message<Prov, V>(
+        &mut self,
+        mls: Option<&mut MlsState<Prov, V>>,
+        message: Message,
+    ) -> Result<(), SessionError>
+    where
+        Prov: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         // in case we get the and RTX reply the session must be reliable
         let source_proto = message.get_slim_header().source.as_ref().unwrap();
         let encoded_source = source_proto.name.unwrap();
@@ -231,7 +266,7 @@ where
         // if rtx is not an error pass to on_publish_message
         // otherwise manage the message loss
         if message.get_error().is_none() {
-            return self.on_publish_message(message).await;
+            return self.on_publish_message(mls, message).await;
         }
 
         let buffer =
@@ -241,17 +276,22 @@ where
                     context: "receiver_buffer_rtx_reply",
                 })?;
         let recv_vec = buffer.on_lost_message(id);
-        self.handle_recv_and_rtx_vectors(source_proto, in_conn, recv_vec, vec![])
+        self.handle_recv_and_rtx_vectors(mls, source_proto, in_conn, recv_vec, vec![])
             .await
     }
 
-    async fn handle_recv_and_rtx_vectors(
+    async fn handle_recv_and_rtx_vectors<Prov, V>(
         &mut self,
+        mut mls: Option<&mut MlsState<Prov, V>>,
         source: &ProtoName,
         in_conn: u64,
         recv_vec: Vec<Option<Message>>,
         rtx_vec: Vec<u32>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<(), SessionError>
+    where
+        Prov: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         for recv in recv_vec {
             match recv {
                 Some(r) => {
@@ -319,18 +359,23 @@ where
                 // send message
                 debug!(id = %rtx_id,
                 source = %source, "send rtx request for message");
-                self.tx.send_to_slim(Ok(rtx)).await?;
+                self.tx.send_to_slim(mls.as_deref_mut(), Ok(rtx)).await?;
             }
         }
 
         Ok(())
     }
 
-    pub async fn on_timer_timeout(
+    pub async fn on_timer_timeout<Prov, V>(
         &mut self,
+        mls: Option<&mut MlsState<Prov, V>>,
         id: u32,
         name: EncodedName,
-    ) -> Result<(), SessionError> {
+    ) -> Result<(), SessionError>
+    where
+        Prov: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         debug!(%id, "timeout for message");
         let key = PendingRtxKey { name, id };
         let pending = self
@@ -341,14 +386,19 @@ where
             })?;
 
         debug!(%id, "send rtx request again");
-        self.tx.send_to_slim(Ok(pending.message.clone())).await
+        self.tx.send_to_slim(mls, Ok(pending.message.clone())).await
     }
 
-    pub async fn on_timer_failure(
+    pub async fn on_timer_failure<Prov, V>(
         &mut self,
+        _mls: Option<&mut MlsState<Prov, V>>,
         id: u32,
         name: EncodedName,
-    ) -> Result<(), SessionError> {
+    ) -> Result<(), SessionError>
+    where
+        Prov: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
         debug!(
             %id,
             "timer failure for message, clear state",
@@ -405,7 +455,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::MockTokenProvider;
+    use crate::test_utils::{MockTokenProvider, MockVerifier};
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
@@ -450,7 +500,7 @@ mod tests {
 
         // Send message 1
         receiver
-            .on_message(message1)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message1)
             .await
             .expect("error sending message1");
 
@@ -494,7 +544,7 @@ mod tests {
 
         // Send message 2
         receiver
-            .on_message(message2)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message2)
             .await
             .expect("error sending message2");
 
@@ -562,7 +612,7 @@ mod tests {
 
         // Send message 1
         receiver
-            .on_message(message1)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message1)
             .await
             .expect("error sending message1");
 
@@ -604,7 +654,7 @@ mod tests {
 
         // Send message 3 (this should trigger RTX request for message 2)
         receiver
-            .on_message(message3)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message3)
             .await
             .expect("error sending message3");
 
@@ -637,7 +687,11 @@ mod tests {
                 timeouts: _,
             } => {
                 receiver
-                    .on_timer_timeout(message_id, name.unwrap())
+                    .on_timer_timeout::<MockTokenProvider, MockVerifier>(
+                        None,
+                        message_id,
+                        name.unwrap(),
+                    )
                     .await
                     .expect("error sending rtx");
             }
@@ -673,7 +727,11 @@ mod tests {
                 timeouts: _,
             } => {
                 receiver
-                    .on_timer_timeout(message_id, name.unwrap())
+                    .on_timer_timeout::<MockTokenProvider, MockVerifier>(
+                        None,
+                        message_id,
+                        name.unwrap(),
+                    )
                     .await
                     .expect("error sending rtx");
             }
@@ -708,7 +766,11 @@ mod tests {
                 timeouts: _,
             } => {
                 receiver
-                    .on_timer_failure(message_id, name.unwrap())
+                    .on_timer_failure::<MockTokenProvider, MockVerifier>(
+                        None,
+                        message_id,
+                        name.unwrap(),
+                    )
                     .await
                     .expect("error sending rtx");
             }
@@ -789,7 +851,7 @@ mod tests {
 
         // Send message 1
         receiver
-            .on_message(message1)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message1)
             .await
             .expect("error sending message1");
 
@@ -831,7 +893,7 @@ mod tests {
 
         // Send message 3 (this should trigger RTX request for message 2)
         receiver
-            .on_message(message3)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message3)
             .await
             .expect("error sending message3");
 
@@ -878,7 +940,7 @@ mod tests {
 
         // Send the RTX reply
         receiver
-            .on_message(rtx_reply)
+            .on_message::<MockTokenProvider, MockVerifier>(None, rtx_reply)
             .await
             .expect("error sending rtx reply");
 
@@ -947,7 +1009,7 @@ mod tests {
 
         // Send message 1
         receiver
-            .on_message(message1)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message1)
             .await
             .expect("error sending message1");
 
@@ -989,7 +1051,7 @@ mod tests {
 
         // Send message 3 (this should trigger RTX request for message 2)
         receiver
-            .on_message(message3)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message3)
             .await
             .expect("error sending message3");
 
@@ -1039,7 +1101,7 @@ mod tests {
 
         // Send the RTX reply with error
         receiver
-            .on_message(rtx_reply)
+            .on_message::<MockTokenProvider, MockVerifier>(None, rtx_reply)
             .await
             .expect("error sending rtx reply");
 
@@ -1115,7 +1177,7 @@ mod tests {
         message1_r1.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message1_r1)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message1_r1)
             .await
             .expect("error sending message1_r1");
 
@@ -1132,7 +1194,7 @@ mod tests {
         message1_r2.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message1_r2)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message1_r2)
             .await
             .expect("error sending message1_r2");
 
@@ -1149,7 +1211,7 @@ mod tests {
         message2_r1.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message2_r1)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message2_r1)
             .await
             .expect("error sending message2_r1");
 
@@ -1166,7 +1228,7 @@ mod tests {
         message2_r2.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message2_r2)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message2_r2)
             .await
             .expect("error sending message2_r2");
 
@@ -1250,7 +1312,7 @@ mod tests {
         message1_r1.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message1_r1)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message1_r1)
             .await
             .expect("error sending message1_r1");
 
@@ -1266,7 +1328,7 @@ mod tests {
         message2_r1.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message2_r1)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message2_r1)
             .await
             .expect("error sending message2_r1");
 
@@ -1282,7 +1344,7 @@ mod tests {
         message3_r1.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message3_r1)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message3_r1)
             .await
             .expect("error sending message3_r1");
 
@@ -1299,7 +1361,7 @@ mod tests {
         message1_r2.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message1_r2)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message1_r2)
             .await
             .expect("error sending message1_r2");
 
@@ -1315,7 +1377,7 @@ mod tests {
         message3_r2.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message3_r2)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message3_r2)
             .await
             .expect("error sending message3_r2");
 
@@ -1391,7 +1453,7 @@ mod tests {
         rtx_reply.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(rtx_reply)
+            .on_message::<MockTokenProvider, MockVerifier>(None, rtx_reply)
             .await
             .expect("error sending rtx reply");
 
@@ -1460,7 +1522,7 @@ mod tests {
             .insert(PUBLISH_TO.to_string(), TRUE_VAL.to_string());
 
         receiver
-            .on_message(message3)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message3)
             .await
             .expect("error sending message3");
 
@@ -1528,7 +1590,7 @@ mod tests {
             .insert(PUBLISH_TO.to_string(), TRUE_VAL.to_string());
 
         receiver
-            .on_message(message1)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message1)
             .await
             .expect("error sending message");
 
@@ -1588,7 +1650,7 @@ mod tests {
         message1.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message1)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message1)
             .await
             .expect("error sending message1");
 
@@ -1624,7 +1686,7 @@ mod tests {
             .insert(PUBLISH_TO.to_string(), TRUE_VAL.to_string());
 
         receiver
-            .on_message(message_pt)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message_pt)
             .await
             .expect("error sending publish_to message");
 
@@ -1657,7 +1719,7 @@ mod tests {
         message2.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message2)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message2)
             .await
             .expect("error sending message2");
 
@@ -1714,7 +1776,7 @@ mod tests {
             .insert(PUBLISH_TO.to_string(), TRUE_VAL.to_string());
 
         receiver
-            .on_message(message)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message)
             .await
             .expect("error sending message");
 
@@ -1772,7 +1834,7 @@ mod tests {
         message1.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message1)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message1)
             .await
             .expect("error sending message1");
 
@@ -1803,7 +1865,7 @@ mod tests {
             .insert(PUBLISH_TO.to_string(), TRUE_VAL.to_string());
 
         receiver
-            .on_message(message5_pt)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message5_pt)
             .await
             .expect("error sending message5_pt");
 
@@ -1831,7 +1893,7 @@ mod tests {
         message3.get_slim_header_mut().set_incoming_conn(Some(1));
 
         receiver
-            .on_message(message3)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message3)
             .await
             .expect("error sending message3");
 
@@ -1915,7 +1977,7 @@ mod tests {
             .insert(PUBLISH_TO.to_string(), TRUE_VAL.to_string());
 
         receiver
-            .on_message(message_r1)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message_r1)
             .await
             .expect("error sending message from remote1");
 
@@ -1935,7 +1997,7 @@ mod tests {
             .insert(PUBLISH_TO.to_string(), TRUE_VAL.to_string());
 
         receiver
-            .on_message(message_r2)
+            .on_message::<MockTokenProvider, MockVerifier>(None, message_r2)
             .await
             .expect("error sending message from remote2");
 

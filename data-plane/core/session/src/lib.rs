@@ -22,7 +22,6 @@ mod session_participant;
 pub mod session_receiver;
 pub mod session_sender;
 pub mod session_settings;
-pub(crate) mod single_threaded_cell;
 pub mod subscription_manager;
 pub mod timer;
 pub mod timer_factory;

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Local crate
-use crate::{common::SessionMessage, errors::SessionError};
+use crate::{common::SessionMessage, errors::SessionError, mls_state::MlsState};
+use slim_auth::traits::{TokenProvider, Verifier};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProcessingState {
@@ -30,6 +31,23 @@ pub trait MessageHandler {
     /// * `Err(SessionError)` - If processing failed
     async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError>;
 
+    /// Process a message with optional MLS state for outbound encryption at the transmitter.
+    ///
+    /// Layers that send to SLIM pass `mls` through to `SessionTransmitter::send_to_slim`.
+    /// The default implementation ignores MLS and delegates to [`MessageHandler::on_message`].
+    async fn on_message_with_mls<P, V>(
+        &mut self,
+        mls: Option<&mut MlsState<P, V>>,
+        message: SessionMessage,
+    ) -> Result<(), SessionError>
+    where
+        P: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
+        let _ = mls;
+        async { self.on_message(message).await }
+    }
+
     /// Add an endpoint to the session.
     /// Default implementation does nothing for layers that don't manage endpoints.
     async fn add_endpoint(
@@ -37,6 +55,19 @@ pub trait MessageHandler {
         _endpoint: &slim_datapath::api::Participant,
     ) -> Result<(), SessionError> {
         async { Ok(()) }
+    }
+
+    /// Add an endpoint, passing MLS state for outbound encryption on flush.
+    async fn add_endpoint_with_mls<P, V>(
+        &mut self,
+        _mls: Option<&mut MlsState<P, V>>,
+        endpoint: &slim_datapath::api::Participant,
+    ) -> Result<(), SessionError>
+    where
+        P: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
+        async { self.add_endpoint(endpoint).await }
     }
 
     /// Remove an endpoint from the session.
@@ -68,17 +99,4 @@ pub trait MessageHandler {
     fn participants_list(&self) -> Vec<slim_datapath::api::ProtoName> {
         vec![]
     }
-}
-
-pub trait MlsStateSelector<P, V>: Send + Sync
-where
-    P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
-    V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
-{
-    fn set_mls_state(
-        &mut self,
-        mls_state: std::sync::Arc<
-            crate::single_threaded_cell::SingleThreadedCell<crate::mls_state::MlsState<P, V>>,
-        >,
-    );
 }
