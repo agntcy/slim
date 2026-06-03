@@ -11,8 +11,8 @@ use parking_lot::Mutex;
 use tracing::{debug, warn};
 
 use super::SubscriptionTable;
-use crate::api::proto::dataplane::v1::NameId;
-use crate::api::{EncodedName, ProtoName};
+use super::{CONN_TYPE_COUNT, ConnType, MatchFilter};
+use crate::api::{EncodedName, NameId, ProtoName};
 use crate::errors::DataPathError;
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -53,6 +53,7 @@ impl ConnList {
         self.conns.is_empty()
     }
 
+    #[allow(dead_code)]
     fn len(&self) -> usize {
         self.conns.len()
     }
@@ -106,19 +107,17 @@ impl Clone for ConnList {
 // 72-byte AoS IdEntry objects.  Once the index is found the per-slot
 // ConnLists are accessed by that index.
 //
-// Invariant: all three Vecs always have the same length.
+// Invariant: `ids` and each element of `slots` always have the same length.
 // ──────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
 struct PrefixEntry {
-    /// Dense u128 array.
+    /// Dense u128 array for name IDs.
     ids: Vec<u128>,
-    local: Vec<ConnList>,
-    remote: Vec<ConnList>,
-    /// Deduplicated union of all per-slot local connections.
-    all_local_conns: Vec<u64>,
-    /// Deduplicated union of all per-slot remote connections.
-    all_remote_conns: Vec<u64>,
+    /// Per-slot connection lists, indexed by `ConnType::index()`.
+    slots: [Vec<ConnList>; CONN_TYPE_COUNT],
+    /// Deduplicated union of all per-slot connections, indexed by `ConnType::index()`.
+    aggregates: [Vec<u64>; CONN_TYPE_COUNT],
     /// Round-robin cursor for NULL_COMPONENT slot selection.
     slot_cursor: AtomicUsize,
     /// Human-readable prefix strings for for_each / Display / ProtoName.
@@ -129,94 +128,57 @@ impl PrefixEntry {
     fn new(strings: [String; 3]) -> Self {
         PrefixEntry {
             ids: Vec::new(),
-            local: Vec::new(),
-            remote: Vec::new(),
-            all_local_conns: Vec::new(),
-            all_remote_conns: Vec::new(),
+            slots: std::array::from_fn(|_| Vec::new()),
+            aggregates: std::array::from_fn(|_| Vec::new()),
             slot_cursor: AtomicUsize::new(0),
             strings,
         }
     }
 
+    /// Central accessor: returns the (slot list, aggregate list) pair for a category.
+    fn lists_mut(&mut self, category: ConnType) -> (&mut Vec<ConnList>, &mut Vec<u64>) {
+        let i = category.index();
+        (&mut self.slots[i], &mut self.aggregates[i])
+    }
+
     /// Append a new ID slot. Called only when `id` is not already present.
     fn push_id(&mut self, id: u128) {
         self.ids.push(id);
-        self.local.push(ConnList::new());
-        self.remote.push(ConnList::new());
+        for slot_vec in &mut self.slots {
+            slot_vec.push(ConnList::new());
+        }
     }
 
     fn is_empty(&self) -> bool {
         self.ids.is_empty()
     }
 
-    /// Add `conn` to the appropriate list for slot `idx` if not already present.
-    /// Also updates the aggregate deduped connection list.
-    fn insert_conn(&mut self, idx: usize, conn: u64, is_local: bool) {
-        if is_local {
-            self.local[idx].push(conn);
-            if !self.all_local_conns.contains(&conn) {
-                self.all_local_conns.push(conn);
-            }
-        } else {
-            self.remote[idx].push(conn);
-            if !self.all_remote_conns.contains(&conn) {
-                self.all_remote_conns.push(conn);
-            }
-        }
-    }
-
-    /// Remove `conn` from the appropriate list for slot `idx` (no-op if absent).
-    /// Evicts from the aggregate only when no other slot still holds the connection.
-    fn remove_conn(&mut self, idx: usize, conn: u64, is_local: bool) {
-        if is_local {
-            self.local[idx].remove(conn);
-            let still_present = self.local.iter().any(|l| l.conns.contains(&conn));
-            if !still_present
-                && let Some(pos) = self.all_local_conns.iter().position(|&c| c == conn)
-            {
-                self.all_local_conns.swap_remove(pos);
-            }
-        } else {
-            self.remote[idx].remove(conn);
-            let still_present = self.remote.iter().any(|r| r.conns.contains(&conn));
-            if !still_present
-                && let Some(pos) = self.all_remote_conns.iter().position(|&c| c == conn)
-            {
-                self.all_remote_conns.swap_remove(pos);
-            }
-        }
-    }
-
     /// Rebuild aggregate connection lists from scratch (called after a slot is removed).
     fn rebuild_aggregates(&mut self) {
-        self.all_local_conns.clear();
-        for list in &self.local {
-            for &c in &list.conns {
-                if !self.all_local_conns.contains(&c) {
-                    self.all_local_conns.push(c);
-                }
-            }
-        }
-        self.all_remote_conns.clear();
-        for list in &self.remote {
-            for &c in &list.conns {
-                if !self.all_remote_conns.contains(&c) {
-                    self.all_remote_conns.push(c);
+        for category in ConnType::ALL {
+            let (slots, aggregate) = self.lists_mut(category);
+            aggregate.clear();
+            for list in slots.iter() {
+                for &c in &list.conns {
+                    if !aggregate.contains(&c) {
+                        aggregate.push(c);
+                    }
                 }
             }
         }
     }
 
-    /// True when both local and remote lists for slot `idx` are empty.
+    /// True when all connection lists for slot `idx` are empty.
     fn is_slot_empty(&self, idx: usize) -> bool {
-        self.local[idx].is_empty() && self.remote[idx].is_empty()
+        self.slots.iter().all(|s| s[idx].is_empty())
     }
 
     /// Remove slot `idx` using swap_remove on every parallel Vec.
     fn remove_slot(&mut self, idx: usize) {
         self.ids.swap_remove(idx);
-        self.local.swap_remove(idx);
-        self.remote.swap_remove(idx);
+        for slot_vec in &mut self.slots {
+            slot_vec.swap_remove(idx);
+        }
         self.rebuild_aggregates();
     }
 
@@ -239,7 +201,7 @@ impl PrefixEntry {
     }
 
     /// Ensure a slot for `id` exists, then insert `conn` (deduped).
-    fn insert_conn_for_id(&mut self, id: u128, conn: u64, is_local: bool) {
+    fn insert_conn_for_id(&mut self, id: u128, conn: u64, category: ConnType) {
         let idx = match self.ids.iter().position(|&i| i == id) {
             Some(i) => i,
             None => {
@@ -247,79 +209,96 @@ impl PrefixEntry {
                 self.ids.len() - 1
             }
         };
-        self.insert_conn(idx, conn, is_local);
+        let (slots, aggregate) = self.lists_mut(category);
+        slots[idx].push(conn);
+        if !aggregate.contains(&conn) {
+            aggregate.push(conn);
+        }
     }
 
     /// Remove `conn` from the slot for `id` (no-op if slot absent).
-    fn remove_conn_for_id(&mut self, id: u128, conn: u64, is_local: bool) {
+    fn remove_conn_for_id(&mut self, id: u128, conn: u64, category: ConnType) {
         if let Some(idx) = self.ids.iter().position(|&i| i == id) {
-            self.remove_conn(idx, conn, is_local);
-        }
-    }
-
-    /// Return one connection for `id`, preferring local, round-robin, excluding `skip`.
-    /// Returns `None` if `id` has no slot or all connections equal `skip`.
-    fn get_one(&self, id: u128, skip: u64) -> Option<u64> {
-        let idx = self.ids.iter().position(|&i| i == id)?;
-        self.local[idx]
-            .next(skip)
-            .or_else(|| self.remote[idx].next(skip))
-    }
-
-    /// Return all connections for `id` (local + remote) excluding `skip`.
-    /// `None` means the slot for `id` does not exist;
-    /// `Some(empty)` means the slot exists but all connections equal `skip`.
-    fn get_all(&self, id: u128, skip: u64) -> Option<Vec<u64>> {
-        let idx = self.ids.iter().position(|&i| i == id)?;
-        let mut out = Vec::with_capacity(self.local[idx].len() + self.remote[idx].len());
-        out.extend(
-            self.local[idx]
-                .iter()
-                .chain(self.remote[idx].iter())
-                .filter(|&c| c != skip),
-        );
-        Some(out)
-    }
-
-    /// NULL_COMPONENT `match_one`: pick one connection, all locals before any remote,
-    /// round-robin across the pre-built aggregate lists, skipping `skip`.
-    fn pick_one_any(&self, skip: u64) -> Option<u64> {
-        let n = self.all_local_conns.len();
-        if n > 0 {
-            let start = self.slot_cursor.fetch_add(1, Ordering::Relaxed) % n;
-            for i in (start..n).chain(0..start) {
-                if self.all_local_conns[i] != skip {
-                    return Some(self.all_local_conns[i]);
-                }
+            let (slots, aggregate) = self.lists_mut(category);
+            slots[idx].remove(conn);
+            if !slots.iter().any(|l| l.conns.contains(&conn))
+                && let Some(pos) = aggregate.iter().position(|&c| c == conn)
+            {
+                aggregate.swap_remove(pos);
             }
         }
-        let n = self.all_remote_conns.len();
-        if n > 0 {
-            let start = self.slot_cursor.fetch_add(1, Ordering::Relaxed) % n;
-            for i in (start..n).chain(0..start) {
-                if self.all_remote_conns[i] != skip {
-                    return Some(self.all_remote_conns[i]);
+    }
+
+    /// Return the per-slot ConnLists in filter priority order: local, peer, remote.
+    fn filtered_slots(&self, idx: usize, filter: MatchFilter) -> impl Iterator<Item = &ConnList> {
+        ConnType::ALL
+            .into_iter()
+            .filter(move |&ct| filter.includes(ct))
+            .map(move |ct| &self.slots[ct.index()][idx])
+    }
+
+    /// Return the aggregate connection lists in filter priority order.
+    fn filtered_aggregates(&self, filter: MatchFilter) -> impl Iterator<Item = &Vec<u64>> {
+        ConnType::ALL
+            .into_iter()
+            .filter(move |&ct| filter.includes(ct))
+            .map(move |ct| &self.aggregates[ct.index()])
+    }
+
+    /// Return one connection for `id`, respecting the filter, round-robin, excluding `skip`.
+    /// Returns `None` if `id` has no slot or all connections equal `skip`.
+    fn get_one(&self, id: u128, skip: u64, filter: MatchFilter) -> Option<u64> {
+        let idx = self.ids.iter().position(|&i| i == id)?;
+        self.filtered_slots(idx, filter)
+            .find_map(|list| list.next(skip))
+    }
+
+    /// Return all connections for `id` respecting the filter, excluding `skip`.
+    /// `None` means the slot for `id` does not exist;
+    /// `Some(empty)` means the slot exists but all connections equal `skip`.
+    fn get_all(&self, id: u128, skip: u64, filter: MatchFilter) -> Option<Vec<u64>> {
+        let idx = self.ids.iter().position(|&i| i == id)?;
+        Some(
+            self.filtered_slots(idx, filter)
+                .flat_map(|list| list.iter().filter(move |&c| c != skip))
+                .collect(),
+        )
+    }
+
+    /// NULL_COMPONENT `match_one`: pick one connection respecting the filter,
+    /// round-robin across the pre-built aggregate lists, skipping `skip`.
+    fn pick_one_any(&self, skip: u64, filter: MatchFilter) -> Option<u64> {
+        for conns in self.filtered_aggregates(filter) {
+            let n = conns.len();
+            if n > 0 {
+                let start = self.slot_cursor.fetch_add(1, Ordering::Relaxed) % n;
+                for i in (start..n).chain(0..start) {
+                    if conns[i] != skip {
+                        return Some(conns[i]);
+                    }
                 }
             }
         }
         None
     }
 
-    /// NULL_COMPONENT `match_all`: collect all distinct connections, locals before
-    /// remotes, skipping `skip`. Uses the pre-built aggregate lists (already deduped).
-    fn get_all_any(&self, skip: u64) -> Vec<u64> {
-        self.all_local_conns
-            .iter()
-            .chain(self.all_remote_conns.iter())
-            .copied()
-            .filter(|&c| c != skip)
+    /// NULL_COMPONENT `match_all`: collect all distinct connections respecting the filter,
+    /// skipping `skip`. Uses the pre-built aggregate lists (already deduped).
+    fn get_all_any(&self, skip: u64, filter: MatchFilter) -> Vec<u64> {
+        self.filtered_aggregates(filter)
+            .flat_map(|conns| conns.iter().copied().filter(|&c| c != skip))
             .collect()
     }
 
-    /// Iterate all slots, yielding `(id, local, remote)` — used by `for_each`.
-    fn for_each_slot<F: FnMut(u128, &[u64], &[u64])>(&self, mut f: F) {
+    /// Iterate all slots, yielding `(id, local, remote, peer)` — used by `for_each`.
+    fn for_each_slot<F: FnMut(u128, &[u64], &[u64], &[u64])>(&self, mut f: F) {
         for (i, &id) in self.ids.iter().enumerate() {
-            f(id, self.local[i].as_slice(), self.remote[i].as_slice());
+            f(
+                id,
+                self.slots[ConnType::Local.index()][i].as_slice(),
+                self.slots[ConnType::Remote.index()][i].as_slice(),
+                self.slots[ConnType::Peer.index()][i].as_slice(),
+            );
         }
     }
 
@@ -342,10 +321,8 @@ impl Clone for PrefixEntry {
     fn clone(&self) -> Self {
         PrefixEntry {
             ids: self.ids.clone(),
-            local: self.local.clone(),
-            remote: self.remote.clone(),
-            all_local_conns: self.all_local_conns.clone(),
-            all_remote_conns: self.all_remote_conns.clone(),
+            slots: self.slots.clone(),
+            aggregates: self.aggregates.clone(),
             slot_cursor: AtomicUsize::new(self.slot_cursor.load(Ordering::Relaxed)),
             strings: self.strings.clone(),
         }
@@ -454,22 +431,20 @@ impl Display for SubscriptionTableImpl {
             writeln!(f, "  Names:")?;
             for (i, &id) in prefix_entry.ids.iter().enumerate() {
                 writeln!(f, "    Id: {}", id)?;
-                if prefix_entry.local[i].is_empty() {
-                    writeln!(f, "       Local Connections:")?;
-                    writeln!(f, "         None")?;
-                } else {
-                    writeln!(f, "       Local Connections:")?;
-                    for c in prefix_entry.local[i].iter() {
-                        writeln!(f, "         Connection: {}", c)?;
-                    }
-                }
-                if prefix_entry.remote[i].is_empty() {
-                    writeln!(f, "       Remote Connections:")?;
-                    writeln!(f, "         None")?;
-                } else {
-                    writeln!(f, "       Remote Connections:")?;
-                    for c in prefix_entry.remote[i].iter() {
-                        writeln!(f, "         Connection: {}", c)?;
+                for ct in ConnType::ALL {
+                    let label = match ct {
+                        ConnType::Local => "Local",
+                        ConnType::Remote => "Remote",
+                        ConnType::Peer => "Peer",
+                    };
+                    writeln!(f, "       {} Connections:", label)?;
+                    let slot = &prefix_entry.slots[ct.index()][i];
+                    if slot.is_empty() {
+                        writeln!(f, "         None")?;
+                    } else {
+                        for c in slot.iter() {
+                            writeln!(f, "         Connection: {}", c)?;
+                        }
                     }
                 }
             }
@@ -483,7 +458,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
     fn for_each<F>(&self, mut f: F)
     where
-        F: FnMut(&ProtoName, u128, &[u64], &[u64]),
+        F: FnMut(&ProtoName, u128, &[u64], &[u64], &[u64]),
     {
         let rs = self.routing.load();
         for prefix_entry in rs.values() {
@@ -492,8 +467,8 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 prefix_entry.strings[1].as_str(),
                 prefix_entry.strings[2].as_str(),
             ]);
-            prefix_entry.for_each_slot(|id, local, remote| {
-                f(&base_name, id, local, remote);
+            prefix_entry.for_each_slot(|id, local, remote, peer| {
+                f(&base_name, id, local, remote, peer);
             });
         }
     }
@@ -502,7 +477,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         &self,
         name: ProtoName,
         conn: u64,
-        is_local: bool,
+        category: ConnType,
         subscription_id: u64,
     ) -> Result<(), Self::Error> {
         let enc = name.name.as_ref().unwrap();
@@ -526,7 +501,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
         // 2 & 3. Ensure an ID slot exists and insert conn (deduped).
         // Arc::make_mut does COW: clones only this PrefixEntry if other refs exist.
-        Arc::make_mut(entry).insert_conn_for_id(id, conn, is_local);
+        Arc::make_mut(entry).insert_conn_for_id(id, conn, category);
         self.routing.store(Arc::new(rs));
 
         // 4 & 5. Record subscription and update the reverse conn→sub_ids map.
@@ -546,7 +521,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         &self,
         name: &ProtoName,
         conn: u64,
-        is_local: bool,
+        category: ConnType,
         subscription_id: u64,
     ) -> Result<(), Self::Error> {
         let enc = name.name.as_ref().unwrap();
@@ -597,7 +572,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             let mut rs = (**self.routing.load()).clone();
             let should_remove_prefix = if let Some(entry) = rs.get_mut(&prefix) {
                 let pe = Arc::make_mut(entry);
-                pe.remove_conn_for_id(id, conn, is_local);
+                pe.remove_conn_for_id(id, conn, category);
                 pe.retain_non_empty();
                 pe.is_empty()
             } else {
@@ -615,7 +590,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
     fn remove_connection(
         &self,
         conn: u64,
-        is_local: bool,
+        category: ConnType,
     ) -> Result<HashMap<ProtoName, HashSet<u64>>, Self::Error> {
         // subscription_state locked first; routing updated via clone-modify-store.
         let mut ss = self.subscription_state.lock();
@@ -668,7 +643,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
             let should_remove_prefix = if let Some(entry) = rs.get_mut(&prefix) {
                 let pe = Arc::make_mut(entry);
-                pe.remove_conn_for_id(id, conn, is_local);
+                pe.remove_conn_for_id(id, conn, category);
                 pe.retain_non_empty();
                 pe.is_empty()
             } else {
@@ -684,7 +659,12 @@ impl SubscriptionTable for SubscriptionTableImpl {
         Ok(result)
     }
 
-    fn match_one(&self, encoded: &EncodedName, incoming_conn: u64) -> Result<u64, Self::Error> {
+    fn match_one(
+        &self,
+        encoded: &EncodedName,
+        incoming_conn: u64,
+        filter: MatchFilter,
+    ) -> Result<u64, Self::Error> {
         let prefix = [
             encoded.component_0,
             encoded.component_1,
@@ -715,27 +695,31 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
         if id != NameId::NULL_COMPONENT {
             // Specific ID: linear scan over ids (8 per cache line).
-            prefix_entry.get_one(id, incoming_conn).ok_or_else(|| {
-                debug!(component_3 = id, "match not found for name");
-                DataPathError::NoMatchEncoded(
-                    encoded.component_0,
-                    encoded.component_1,
-                    encoded.component_2,
-                    encoded.string_id(),
-                )
-            })
+            prefix_entry
+                .get_one(id, incoming_conn, filter)
+                .ok_or_else(|| {
+                    debug!(component_3 = id, "match not found for name");
+                    DataPathError::NoMatchEncoded(
+                        encoded.component_0,
+                        encoded.component_1,
+                        encoded.component_2,
+                        encoded.string_id(),
+                    )
+                })
         } else {
             // NULL_COMPONENT: pick one connection across all registered IDs,
             // locals preferred.  Data is already hot from the single lookup above.
-            prefix_entry.pick_one_any(incoming_conn).ok_or_else(|| {
-                debug!("no output connection available");
-                DataPathError::NoMatchEncoded(
-                    encoded.component_0,
-                    encoded.component_1,
-                    encoded.component_2,
-                    encoded.string_id(),
-                )
-            })
+            prefix_entry
+                .pick_one_any(incoming_conn, filter)
+                .ok_or_else(|| {
+                    debug!("no output connection available");
+                    DataPathError::NoMatchEncoded(
+                        encoded.component_0,
+                        encoded.component_1,
+                        encoded.component_2,
+                        encoded.string_id(),
+                    )
+                })
         }
     }
 
@@ -743,6 +727,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         &self,
         encoded: &EncodedName,
         incoming_conn: u64,
+        filter: MatchFilter,
     ) -> Result<Vec<u64>, Self::Error> {
         let prefix = [
             encoded.component_0,
@@ -774,7 +759,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
         if id != NameId::NULL_COMPONENT {
             // Specific ID: linear scan over ids (8 per cache line).
-            match prefix_entry.get_all(id, incoming_conn) {
+            match prefix_entry.get_all(id, incoming_conn, filter) {
                 None => {
                     debug!(component_3 = id, "match not found for name");
                     Err(DataPathError::NoMatchEncoded(
@@ -785,7 +770,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                     ))
                 }
                 Some(out) if out.is_empty() => {
-                    debug!("no connection available (local/remote)");
+                    debug!("no connection available (local/remote/peer)");
                     Err(DataPathError::NoMatchEncoded(
                         encoded.component_0,
                         encoded.component_1,
@@ -799,9 +784,9 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 }
             }
         } else {
-            // NULL_COMPONENT: union of all connections, locals before remotes.
+            // NULL_COMPONENT: union of all connections respecting filter.
             // Data is already hot from the single lookup above.
-            let out = prefix_entry.get_all_any(incoming_conn);
+            let out = prefix_entry.get_all_any(incoming_conn, filter);
             if out.is_empty() {
                 debug!("no connection available");
                 Err(DataPathError::NoMatchEncoded(
@@ -840,55 +825,76 @@ mod tests {
 
         let t = SubscriptionTableImpl::default();
 
-        assert!(t.add_subscription(name1.clone(), 1, false, 1).is_ok());
-        assert!(t.add_subscription(name1.clone(), 2, false, 2).is_ok());
-        assert!(t.add_subscription(name1_1.clone(), 3, false, 3).is_ok());
-        assert!(t.add_subscription(name2_2.clone(), 3, false, 4).is_ok());
+        assert!(
+            t.add_subscription(name1.clone(), 1, ConnType::Remote, 1)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name1.clone(), 2, ConnType::Remote, 2)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name1_1.clone(), 3, ConnType::Remote, 3)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name2_2.clone(), 3, ConnType::Remote, 4)
+                .is_ok()
+        );
 
         // returns three matches on connection 1,2,3
-        let out = t.match_all(&enc(&name1), 100).unwrap();
+        let out = t.match_all(&enc(&name1), 100, MatchFilter::ALL).unwrap();
         assert_eq!(out.len(), 3);
         assert!(out.contains(&1));
         assert!(out.contains(&2));
         assert!(out.contains(&3));
 
         // return two matches on connection 2,3
-        let out = t.match_all(&enc(&name1), 1).unwrap();
+        let out = t.match_all(&enc(&name1), 1, MatchFilter::ALL).unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.contains(&2));
         assert!(out.contains(&3));
 
-        assert!(t.remove_subscription(&name1, 2, false, 2).is_ok());
+        assert!(
+            t.remove_subscription(&name1, 2, ConnType::Remote, 2)
+                .is_ok()
+        );
 
         // return two matches on connection 1,3
-        let out = t.match_all(&enc(&name1), 100).unwrap();
+        let out = t.match_all(&enc(&name1), 100, MatchFilter::ALL).unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.contains(&1));
         assert!(out.contains(&3));
 
-        assert!(t.remove_subscription(&name1_1, 3, false, 3).is_ok());
+        assert!(
+            t.remove_subscription(&name1_1, 3, ConnType::Remote, 3)
+                .is_ok()
+        );
 
         // return one matches on connection 1
-        let out = t.match_all(&enc(&name1), 100).unwrap();
+        let out = t.match_all(&enc(&name1), 100, MatchFilter::ALL).unwrap();
         assert_eq!(out.len(), 1);
         assert!(out.contains(&1));
 
         // return no match
-        let err = t.match_all(&enc(&name1), 1);
+        let err = t.match_all(&enc(&name1), 1, MatchFilter::ALL);
         assert!(matches!(err, Err(DataPathError::NoMatchEncoded(..))));
 
         // add subscription again
-        assert!(t.add_subscription(name1_1.clone(), 2, false, 5).is_ok());
+        assert!(
+            t.add_subscription(name1_1.clone(), 2, ConnType::Remote, 5)
+                .is_ok()
+        );
 
         // returns two matches on connection 1 and 2
-        let out = t.match_all(&enc(&name1), 100).unwrap();
+        let out = t.match_all(&enc(&name1), 100, MatchFilter::ALL).unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.contains(&1));
         assert!(out.contains(&2));
 
         // run multiple times for randomness
         for _ in 0..20 {
-            let out = t.match_one(&enc(&name1), 100).unwrap();
+            let out = t.match_one(&enc(&name1), 100, MatchFilter::ALL).unwrap();
             if out != 1 && out != 2 {
                 // the output must be 1 or 2
                 panic!("the output must be 1 or 2");
@@ -896,26 +902,29 @@ mod tests {
         }
 
         // return connection 2
-        let out = t.match_one(&enc(&name1_1), 100).unwrap();
+        let out = t.match_one(&enc(&name1_1), 100, MatchFilter::ALL).unwrap();
         assert_eq!(out, 2);
 
         // return connection 3
-        let out = t.match_one(&enc(&name2_2), 100).unwrap();
+        let out = t.match_one(&enc(&name2_2), 100, MatchFilter::ALL).unwrap();
         assert_eq!(out, 3);
-        let removed_subs = t.remove_connection(2, false).unwrap();
+        let removed_subs = t.remove_connection(2, ConnType::Remote).unwrap();
         assert_eq!(removed_subs.len(), 1);
         assert!(removed_subs.contains_key(&name1_1));
 
         // returns one match on connection 1
-        let out = t.match_all(&enc(&name1), 100).unwrap();
+        let out = t.match_all(&enc(&name1), 100, MatchFilter::ALL).unwrap();
         assert_eq!(out.len(), 1);
         assert!(out.contains(&1));
 
-        assert!(t.add_subscription(name2_2.clone(), 4, false, 6).is_ok());
+        assert!(
+            t.add_subscription(name2_2.clone(), 4, ConnType::Remote, 6)
+                .is_ok()
+        );
 
         // run multiple times for randomness
         for _ in 0..20 {
-            let out = t.match_one(&enc(&name2_2), 100).unwrap();
+            let out = t.match_one(&enc(&name2_2), 100, MatchFilter::ALL).unwrap();
             if out != 3 && out != 4 {
                 // the output must be 3 or 4
                 panic!("the output must be 3 or 4");
@@ -923,55 +932,62 @@ mod tests {
         }
 
         for _ in 0..20 {
-            let out = t.match_one(&enc(&name2_2), 4).unwrap();
+            let out = t.match_one(&enc(&name2_2), 4, MatchFilter::ALL).unwrap();
             if out != 3 {
                 // the output must be 3
                 panic!("the output must be 3");
             }
         }
 
-        assert!(t.remove_subscription(&name2_2, 4, false, 6).is_ok());
+        assert!(
+            t.remove_subscription(&name2_2, 4, ConnType::Remote, 6)
+                .is_ok()
+        );
 
         // test local vs remote
-        assert!(t.add_subscription(name1.clone(), 2, true, 7).is_ok());
+        assert!(
+            t.add_subscription(name1.clone(), 2, ConnType::Local, 7)
+                .is_ok()
+        );
 
         // returns both local (2) and remote (1) connections
-        let out = t.match_all(&enc(&name1), 100).unwrap();
+        let out = t.match_all(&enc(&name1), 100, MatchFilter::ALL).unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.contains(&2));
         assert!(out.contains(&1));
 
         // returns one match on connection 2
-        let out = t.match_one(&enc(&name1), 100).unwrap();
+        let out = t.match_one(&enc(&name1), 100, MatchFilter::ALL).unwrap();
         assert_eq!(out, 2);
 
         // returns both local (2) and remote (1) connections, excluding incoming connection (2)
-        let out = t.match_all(&enc(&name1), 2).unwrap();
+        let out = t.match_all(&enc(&name1), 2, MatchFilter::ALL).unwrap();
         assert_eq!(out.len(), 1);
         assert!(out.contains(&1));
 
         // same here
-        let out = t.match_one(&enc(&name1), 2).unwrap();
+        let out = t.match_one(&enc(&name1), 2, MatchFilter::ALL).unwrap();
         assert_eq!(out, 1);
 
         // test errors
-        let err = t.remove_connection(4, false);
+        let err = t.remove_connection(4, ConnType::Remote);
         assert!(matches!(err, Err(DataPathError::ConnectionIdNotFound(_))));
 
         // Test that specific ID (name1_1) does NOT match NULL_COMPONENT subscriptions
         // At this point only name1 (NULL_COMPONENT) subscriptions exist on conn 1 and 2
-        let err = t.match_one(&enc(&name1_1), 100);
+        let err = t.match_one(&enc(&name1_1), 100, MatchFilter::ALL);
         assert!(matches!(err, Err(DataPathError::NoMatchEncoded(..))));
 
         assert!(
             // this generates a warning
-            t.add_subscription(name2_2.clone(), 3, false, 8).is_ok()
+            t.add_subscription(name2_2.clone(), 3, ConnType::Remote, 8)
+                .is_ok()
         );
 
-        let err = t.remove_subscription(&name3, 2, false, 9);
+        let err = t.remove_subscription(&name3, 2, ConnType::Remote, 9);
         assert!(matches!(err, Err(DataPathError::SubscriptionNotFound(_))));
 
-        let err = t.remove_subscription(&name2, 2, false, 10);
+        let err = t.remove_subscription(&name2, 2, ConnType::Remote, 10);
         assert!(matches!(err, Err(DataPathError::IdNotFound(_))));
     }
 
@@ -982,16 +998,25 @@ mod tests {
 
         let t = SubscriptionTableImpl::default();
 
-        assert!(t.add_subscription(name1.clone(), 1, false, 1).is_ok());
-        assert!(t.add_subscription(name1.clone(), 2, false, 2).is_ok());
-        assert!(t.add_subscription(name2.clone(), 3, true, 3).is_ok());
+        assert!(
+            t.add_subscription(name1.clone(), 1, ConnType::Remote, 1)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name1.clone(), 2, ConnType::Remote, 2)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name2.clone(), 3, ConnType::Local, 3)
+                .is_ok()
+        );
 
         let mut h = HashMap::new();
 
-        t.for_each(|k, id, local, remote| {
+        t.for_each(|k, id, local, remote, peer| {
             println!(
-                "key: {}, id: {}, local: {:?}, remote: {:?}",
-                k, id, local, remote
+                "key: {}, id: {}, local: {:?}, remote: {:?}, peer: {:?}",
+                k, id, local, remote, peer
             );
 
             let mut local_sorted = local.to_vec();
@@ -1015,15 +1040,27 @@ mod tests {
         let t = SubscriptionTableImpl::default();
 
         // Add local connections
-        assert!(t.add_subscription(name.clone(), 1, true, 1).is_ok());
-        assert!(t.add_subscription(name.clone(), 2, true, 2).is_ok());
+        assert!(
+            t.add_subscription(name.clone(), 1, ConnType::Local, 1)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name.clone(), 2, ConnType::Local, 2)
+                .is_ok()
+        );
 
         // Add remote connections
-        assert!(t.add_subscription(name.clone(), 3, false, 3).is_ok());
-        assert!(t.add_subscription(name.clone(), 4, false, 4).is_ok());
+        assert!(
+            t.add_subscription(name.clone(), 3, ConnType::Remote, 3)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name.clone(), 4, ConnType::Remote, 4)
+                .is_ok()
+        );
 
         // Test match_all returns both local and remote connections
-        let result = t.match_all(&enc(&name), 100).unwrap();
+        let result = t.match_all(&enc(&name), 100, MatchFilter::ALL).unwrap();
         assert_eq!(
             result.len(),
             4,
@@ -1035,7 +1072,7 @@ mod tests {
         assert!(result.contains(&4), "Should contain remote connection 4");
 
         // Test excluding incoming connection works for local
-        let result = t.match_all(&enc(&name), 1).unwrap();
+        let result = t.match_all(&enc(&name), 1, MatchFilter::ALL).unwrap();
         assert_eq!(
             result.len(),
             3,
@@ -1050,7 +1087,7 @@ mod tests {
         assert!(result.contains(&4), "Should contain remote connection 4");
 
         // Test excluding incoming connection works for remote
-        let result = t.match_all(&enc(&name), 3).unwrap();
+        let result = t.match_all(&enc(&name), 3, MatchFilter::ALL).unwrap();
         assert_eq!(
             result.len(),
             3,
@@ -1066,7 +1103,7 @@ mod tests {
 
         // Test match_one prefers local over remote
         for _ in 0..20 {
-            let result = t.match_one(&enc(&name), 100).unwrap();
+            let result = t.match_one(&enc(&name), 100, MatchFilter::ALL).unwrap();
             assert!(
                 result == 1 || result == 2,
                 "match_one should always prefer local connections"
@@ -1074,18 +1111,18 @@ mod tests {
         }
 
         // Remove all local connections
-        assert!(t.remove_subscription(&name, 1, true, 1).is_ok());
-        assert!(t.remove_subscription(&name, 2, true, 2).is_ok());
+        assert!(t.remove_subscription(&name, 1, ConnType::Local, 1).is_ok());
+        assert!(t.remove_subscription(&name, 2, ConnType::Local, 2).is_ok());
 
         // Now match_all should only return remote connections
-        let result = t.match_all(&enc(&name), 100).unwrap();
+        let result = t.match_all(&enc(&name), 100, MatchFilter::ALL).unwrap();
         assert_eq!(result.len(), 2, "Should return only 2 remote connections");
         assert!(result.contains(&3), "Should contain remote connection 3");
         assert!(result.contains(&4), "Should contain remote connection 4");
 
         // And match_one should fall back to remote
         for _ in 0..20 {
-            let result = t.match_one(&enc(&name), 100).unwrap();
+            let result = t.match_one(&enc(&name), 100, MatchFilter::ALL).unwrap();
             assert!(
                 result == 3 || result == 4,
                 "Should return remote connections"
@@ -1100,16 +1137,30 @@ mod tests {
         let t = SubscriptionTableImpl::default();
 
         // Adding the same subscription_id multiple times is idempotent (dedup)
-        assert!(t.add_subscription(name1.clone(), 1, false, 100).is_ok());
-        assert!(t.add_subscription(name1.clone(), 1, false, 100).is_ok());
-        assert!(t.add_subscription(name1.clone(), 1, false, 100).is_ok());
+        assert!(
+            t.add_subscription(name1.clone(), 1, ConnType::Remote, 100)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name1.clone(), 1, ConnType::Remote, 100)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name1.clone(), 1, ConnType::Remote, 100)
+                .is_ok()
+        );
 
-        let result = t.match_one(&enc(&name1), 100_u64).unwrap();
+        let result = t
+            .match_one(&enc(&name1), 100_u64, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result, 1, "Should match to connection 1");
 
         // One remove is enough since it was deduped to a single entry
-        assert!(t.remove_subscription(&name1, 1, false, 100).is_ok());
-        let err = t.match_one(&enc(&name1), 100_u64);
+        assert!(
+            t.remove_subscription(&name1, 1, ConnType::Remote, 100)
+                .is_ok()
+        );
+        let err = t.match_one(&enc(&name1), 100_u64, MatchFilter::ALL);
         assert!(
             matches!(err, Err(DataPathError::NoMatchEncoded(..))),
             "Subscription should be fully removed after removing its subscription_id"
@@ -1119,27 +1170,52 @@ mod tests {
         let name2 = ProtoName::from_strings(["agntcy", "default", "multi"]);
 
         // Connection 1: 3 different subscription_ids = 3 refs
-        assert!(t.add_subscription(name2.clone(), 1, false, 201).is_ok());
-        assert!(t.add_subscription(name2.clone(), 1, false, 202).is_ok());
-        assert!(t.add_subscription(name2.clone(), 1, false, 203).is_ok());
+        assert!(
+            t.add_subscription(name2.clone(), 1, ConnType::Remote, 201)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name2.clone(), 1, ConnType::Remote, 202)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name2.clone(), 1, ConnType::Remote, 203)
+                .is_ok()
+        );
 
         // Connection 2: 1 subscription_id
-        assert!(t.add_subscription(name2.clone(), 2, false, 204).is_ok());
+        assert!(
+            t.add_subscription(name2.clone(), 2, ConnType::Remote, 204)
+                .is_ok()
+        );
 
         // Connection 3: 2 different subscription_ids
-        assert!(t.add_subscription(name2.clone(), 3, false, 205).is_ok());
-        assert!(t.add_subscription(name2.clone(), 3, false, 206).is_ok());
+        assert!(
+            t.add_subscription(name2.clone(), 3, ConnType::Remote, 205)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name2.clone(), 3, ConnType::Remote, 206)
+                .is_ok()
+        );
 
         // All three connections should be available
-        let result = t.match_all(&enc(&name2), 100_u64).unwrap();
+        let result = t
+            .match_all(&enc(&name2), 100_u64, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result.len(), 3, "Should have 3 connections");
         assert!(result.contains(&1));
         assert!(result.contains(&2));
         assert!(result.contains(&3));
 
         // Remove connection 2's subscription
-        assert!(t.remove_subscription(&name2, 2, false, 204).is_ok());
-        let result = t.match_all(&enc(&name2), 100_u64).unwrap();
+        assert!(
+            t.remove_subscription(&name2, 2, ConnType::Remote, 204)
+                .is_ok()
+        );
+        let result = t
+            .match_all(&enc(&name2), 100_u64, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(
             result.len(),
             2,
@@ -1148,23 +1224,42 @@ mod tests {
         assert!(!result.contains(&2));
 
         // Remove one subscription_id from connection 1
-        assert!(t.remove_subscription(&name2, 1, false, 201).is_ok());
+        assert!(
+            t.remove_subscription(&name2, 1, ConnType::Remote, 201)
+                .is_ok()
+        );
         // Connection 1 still has 2 more subscription_ids
-        let result = t.match_all(&enc(&name2), 100_u64).unwrap();
+        let result = t
+            .match_all(&enc(&name2), 100_u64, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result.len(), 2, "Should still have 2 connections");
         assert!(result.contains(&1));
 
         // Remove remaining subscription_ids from connection 1
-        assert!(t.remove_subscription(&name2, 1, false, 202).is_ok());
-        assert!(t.remove_subscription(&name2, 1, false, 203).is_ok());
-        let result = t.match_all(&enc(&name2), 100_u64).unwrap();
+        assert!(
+            t.remove_subscription(&name2, 1, ConnType::Remote, 202)
+                .is_ok()
+        );
+        assert!(
+            t.remove_subscription(&name2, 1, ConnType::Remote, 203)
+                .is_ok()
+        );
+        let result = t
+            .match_all(&enc(&name2), 100_u64, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result.len(), 1, "Should have 1 connection");
         assert!(result.contains(&3));
 
         // Remove connection 3's subscription_ids
-        assert!(t.remove_subscription(&name2, 3, false, 205).is_ok());
-        assert!(t.remove_subscription(&name2, 3, false, 206).is_ok());
-        let err = t.match_one(&enc(&name2), 100_u64);
+        assert!(
+            t.remove_subscription(&name2, 3, ConnType::Remote, 205)
+                .is_ok()
+        );
+        assert!(
+            t.remove_subscription(&name2, 3, ConnType::Remote, 206)
+                .is_ok()
+        );
+        let err = t.match_one(&enc(&name2), 100_u64, MatchFilter::ALL);
         assert!(
             matches!(err, Err(DataPathError::NoMatchEncoded(..))),
             "No connections should remain"
@@ -1178,32 +1273,44 @@ mod tests {
         let t = SubscriptionTableImpl::default();
 
         // Add subscription with different subscription_ids
-        assert!(t.add_subscription(name1.clone(), 1, false, 301).is_ok());
-        assert!(t.add_subscription(name1.clone(), 1, false, 302).is_ok());
-        assert!(t.add_subscription(name1.clone(), 1, false, 303).is_ok());
+        assert!(
+            t.add_subscription(name1.clone(), 1, ConnType::Remote, 301)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name1.clone(), 1, ConnType::Remote, 302)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name1.clone(), 1, ConnType::Remote, 303)
+                .is_ok()
+        );
 
         // Add another connection with single ref
-        assert!(t.add_subscription(name1.clone(), 2, false, 304).is_ok());
+        assert!(
+            t.add_subscription(name1.clone(), 2, ConnType::Remote, 304)
+                .is_ok()
+        );
 
         // Both connections should be available
-        let result = t.match_all(&enc(&name1), 100).unwrap();
+        let result = t.match_all(&enc(&name1), 100, MatchFilter::ALL).unwrap();
         assert_eq!(result.len(), 2, "Should have 2 connections");
 
         // Connection 1 dies - should be force-removed regardless of ref count
-        let removed = t.remove_connection(1, false).unwrap();
+        let removed = t.remove_connection(1, ConnType::Remote).unwrap();
         assert_eq!(removed.len(), 1, "Should have removed 1 subscription");
         assert!(removed.contains_key(&name1));
         // All three subscription IDs should have been preserved
         assert_eq!(removed[&name1], HashSet::from([301u64, 302, 303]));
 
         // Now only connection 2 should be available
-        let result = t.match_one(&enc(&name1), 100).unwrap();
+        let result = t.match_one(&enc(&name1), 100, MatchFilter::ALL).unwrap();
         assert_eq!(
             result, 2,
             "Should only match to connection 2 after conn 1 dies"
         );
 
-        let result = t.match_all(&enc(&name1), 100).unwrap();
+        let result = t.match_all(&enc(&name1), 100, MatchFilter::ALL).unwrap();
         assert_eq!(result.len(), 1, "Should only have 1 connection remaining");
         assert!(result.contains(&2));
     }
@@ -1215,41 +1322,71 @@ mod tests {
         let t = SubscriptionTableImpl::default();
 
         // Add local connection with different subscription_ids
-        assert!(t.add_subscription(name1.clone(), 1, true, 401).is_ok());
-        assert!(t.add_subscription(name1.clone(), 1, true, 402).is_ok());
+        assert!(
+            t.add_subscription(name1.clone(), 1, ConnType::Local, 401)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name1.clone(), 1, ConnType::Local, 402)
+                .is_ok()
+        );
 
         // Add remote connection with different subscription_ids
-        assert!(t.add_subscription(name1.clone(), 2, false, 403).is_ok());
-        assert!(t.add_subscription(name1.clone(), 2, false, 404).is_ok());
-        assert!(t.add_subscription(name1.clone(), 2, false, 405).is_ok());
+        assert!(
+            t.add_subscription(name1.clone(), 2, ConnType::Remote, 403)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name1.clone(), 2, ConnType::Remote, 404)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name1.clone(), 2, ConnType::Remote, 405)
+                .is_ok()
+        );
 
         // Should prefer local connection
         for _ in 0..10 {
-            let result = t.match_one(&enc(&name1), 100).unwrap();
+            let result = t.match_one(&enc(&name1), 100, MatchFilter::ALL).unwrap();
             assert_eq!(result, 1, "Should prefer local connection");
         }
 
         // Remove one local subscription_id - should still exist (has 402)
-        assert!(t.remove_subscription(&name1, 1, true, 401).is_ok());
-        let result = t.match_one(&enc(&name1), 100).unwrap();
+        assert!(
+            t.remove_subscription(&name1, 1, ConnType::Local, 401)
+                .is_ok()
+        );
+        let result = t.match_one(&enc(&name1), 100, MatchFilter::ALL).unwrap();
         assert_eq!(result, 1, "Local connection should still exist");
 
         // Remove last local subscription_id - should be gone, fall back to remote
-        assert!(t.remove_subscription(&name1, 1, true, 402).is_ok());
+        assert!(
+            t.remove_subscription(&name1, 1, ConnType::Local, 402)
+                .is_ok()
+        );
         for _ in 0..10 {
-            let result = t.match_one(&enc(&name1), 100).unwrap();
+            let result = t.match_one(&enc(&name1), 100, MatchFilter::ALL).unwrap();
             assert_eq!(result, 2, "Should fall back to remote connection");
         }
 
         // Remove remote subscription_ids one by one
-        assert!(t.remove_subscription(&name1, 2, false, 403).is_ok());
-        assert!(t.remove_subscription(&name1, 2, false, 404).is_ok());
+        assert!(
+            t.remove_subscription(&name1, 2, ConnType::Remote, 403)
+                .is_ok()
+        );
+        assert!(
+            t.remove_subscription(&name1, 2, ConnType::Remote, 404)
+                .is_ok()
+        );
         // Still has one remaining
-        let result = t.match_one(&enc(&name1), 100).unwrap();
+        let result = t.match_one(&enc(&name1), 100, MatchFilter::ALL).unwrap();
         assert_eq!(result, 2, "Remote should still exist with one sub");
 
-        assert!(t.remove_subscription(&name1, 2, false, 405).is_ok());
-        let err = t.match_one(&enc(&name1), 100);
+        assert!(
+            t.remove_subscription(&name1, 2, ConnType::Remote, 405)
+                .is_ok()
+        );
+        let err = t.match_one(&enc(&name1), 100, MatchFilter::ALL);
         assert!(
             matches!(err, Err(DataPathError::NoMatchEncoded(..))),
             "No connections should remain"
@@ -1274,14 +1411,26 @@ mod tests {
         // conn 2: NULL_COMPONENT (for discovery)
         // conn 3: specific ID 1
         // conn 4: specific ID 2
-        assert!(t.add_subscription(name.clone(), 1, false, 1).is_ok());
-        assert!(t.add_subscription(name.clone(), 2, false, 2).is_ok());
-        assert!(t.add_subscription(name_id1.clone(), 3, false, 3).is_ok());
-        assert!(t.add_subscription(name_id2.clone(), 4, false, 4).is_ok());
+        assert!(
+            t.add_subscription(name.clone(), 1, ConnType::Remote, 1)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name.clone(), 2, ConnType::Remote, 2)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name_id1.clone(), 3, ConnType::Remote, 3)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name_id2.clone(), 4, ConnType::Remote, 4)
+                .is_ok()
+        );
 
         // Test 1: Message with NULL_COMPONENT should match ALL subscriptions
         // (both NULL_COMPONENT and specific IDs)
-        let result = t.match_all(&enc(&name), 100).unwrap();
+        let result = t.match_all(&enc(&name), 100, MatchFilter::ALL).unwrap();
         assert_eq!(
             result.len(),
             4,
@@ -1294,7 +1443,7 @@ mod tests {
 
         // Test 2: Message with specific ID 1 should match ONLY ID 1 subscription
         // (excluding NULL_COMPONENT subscriptions)
-        let result = t.match_all(&enc(&name_id1), 100).unwrap();
+        let result = t.match_all(&enc(&name_id1), 100, MatchFilter::ALL).unwrap();
         assert_eq!(
             result.len(),
             1,
@@ -1303,44 +1452,97 @@ mod tests {
         assert!(result.contains(&3), "Should match only conn 3 (ID 1)");
 
         // Test 3: Message with specific ID 2 should match ONLY ID 2 subscription
-        let result = t.match_all(&enc(&name_id2), 100).unwrap();
+        let result = t.match_all(&enc(&name_id2), 100, MatchFilter::ALL).unwrap();
         assert_eq!(result.len(), 1);
         assert!(result.contains(&4), "Should match only conn 4 (ID 2)");
 
         // Test 4: match_one should also respect these rules
-        let result = t.match_one(&enc(&name_id1), 100).unwrap();
+        let result = t.match_one(&enc(&name_id1), 100, MatchFilter::ALL).unwrap();
         assert_eq!(result, 3, "Should return only the specific ID connection");
 
         // Test 5: Remove specific ID subscription, the match for message with that ID should fail
-        assert!(t.remove_subscription(&name_id1, 3, false, 3).is_ok());
-        let err = t.match_one(&enc(&name_id1), 100);
+        assert!(
+            t.remove_subscription(&name_id1, 3, ConnType::Remote, 3)
+                .is_ok()
+        );
+        let err = t.match_one(&enc(&name_id1), 100, MatchFilter::ALL);
         assert!(
             matches!(err, Err(DataPathError::NoMatchEncoded(..))),
             "Specific ID message should NOT match NULL_COMPONENT subscriptions"
         );
 
         // Test 6: But NULL_COMPONENT message should still match remaining subscriptions
-        let result = t.match_all(&enc(&name), 100).unwrap();
+        let result = t.match_all(&enc(&name), 100, MatchFilter::ALL).unwrap();
         assert_eq!(result.len(), 3, "Should match remaining subscriptions");
         assert!(result.contains(&1));
         assert!(result.contains(&2));
         assert!(result.contains(&4));
 
         // Test 7: Remove all NULL_COMPONENT subscriptions
-        assert!(t.remove_subscription(&name, 1, false, 1).is_ok());
-        assert!(t.remove_subscription(&name, 2, false, 2).is_ok());
+        assert!(t.remove_subscription(&name, 1, ConnType::Remote, 1).is_ok());
+        assert!(t.remove_subscription(&name, 2, ConnType::Remote, 2).is_ok());
 
         // NULL_COMPONENT message should still match the specific ID subscription
-        let result = t.match_all(&enc(&name), 100).unwrap();
+        let result = t.match_all(&enc(&name), 100, MatchFilter::ALL).unwrap();
         assert_eq!(result.len(), 1);
         assert!(result.contains(&4), "Should match ID 2 subscription");
 
         // Specific ID 2 message should still work
-        let result = t.match_one(&enc(&name_id2), 100).unwrap();
+        let result = t.match_one(&enc(&name_id2), 100, MatchFilter::ALL).unwrap();
         assert_eq!(result, 4);
 
         // But specific ID 1 should still fail (was removed earlier)
-        let err = t.match_one(&enc(&name_id1), 100);
+        let err = t.match_one(&enc(&name_id1), 100, MatchFilter::ALL);
         assert!(matches!(err, Err(DataPathError::NoMatchEncoded(..))));
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_match_filter_exclude_peer() {
+        let name = ProtoName::from_strings(["agntcy", "default", "svc"]);
+
+        let t = SubscriptionTableImpl::default();
+
+        // Subscribe on all three categories with distinct connections
+        assert!(
+            t.add_subscription(name.clone(), 10, ConnType::Local, 1)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name.clone(), 20, ConnType::Remote, 2)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name.clone(), 30, ConnType::Peer, 3)
+                .is_ok()
+        );
+
+        // MatchFilter::ALL returns all three connections
+        let out = t.match_all(&enc(&name), 100, MatchFilter::ALL).unwrap();
+        assert_eq!(out.len(), 3);
+        assert!(out.contains(&10));
+        assert!(out.contains(&20));
+        assert!(out.contains(&30));
+
+        // MatchFilter::EXCLUDE_PEER excludes the peer connection
+        let out = t
+            .match_all(&enc(&name), 100, MatchFilter::EXCLUDE_PEER)
+            .unwrap();
+        assert_eq!(out.len(), 2);
+        assert!(out.contains(&10));
+        assert!(out.contains(&20));
+        assert!(!out.contains(&30));
+
+        // match_one with EXCLUDE_PEER should never return the peer connection
+        let result = t
+            .match_one(&enc(&name), 100, MatchFilter::EXCLUDE_PEER)
+            .unwrap();
+        assert!(result == 10 || result == 20);
+
+        // match_one with EXCLUDE_PEER skipping the local conn should return remote
+        let result = t
+            .match_one(&enc(&name), 10, MatchFilter::EXCLUDE_PEER)
+            .unwrap();
+        assert_eq!(result, 20);
     }
 }

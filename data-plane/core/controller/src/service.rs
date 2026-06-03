@@ -1226,7 +1226,7 @@ impl ControllerService {
                         let mut entries = Vec::new();
 
                         self.inner.message_processor.subscription_table().for_each(
-                            |name, id, local, remote| {
+                            |name, id, local, remote, _peer| {
                                 let mut entry = RouteEntry {
                                     name: Some(name.clone().with_id(id)),
                                     ..Default::default()

@@ -448,10 +448,11 @@ name = "agntcy-slimctl"
 version = "2.0.0-alpha.0"
 dependencies = [
  "agntcy-slim",
- "agntcy-slim-bindings",
+ "agntcy-slim-auth",
  "agntcy-slim-config",
  "agntcy-slim-datapath",
  "agntcy-slim-service",
+ "agntcy-slim-session",
  "agntcy-slim-signal",
  "agntcy-slim-tracing",
  "agntcy-slim-version",
