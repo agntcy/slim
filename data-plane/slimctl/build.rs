@@ -37,6 +37,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", channel_manager_proto.display());
 
     tonic_prost_build::configure()
+        .out_dir("src/api/gen")
         .extern_path(
             ".dataplane.proto.v1",
             "::slim_datapath::api::proto::dataplane::v1",
