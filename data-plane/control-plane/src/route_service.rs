@@ -81,6 +81,7 @@ impl RouteService {
             cmd_handler.clone(),
             queue.clone(),
             reconciler_config.clone(),
+            topology.clone(),
         );
         let workers = reconciler_config.workers.max(1);
         for _ in 0..workers {
@@ -1071,11 +1072,27 @@ impl RouteService {
             let link_id = match link_by_peer.get(r.dest_node_id.as_str()) {
                 Some(id) => id.to_string(),
                 None => {
-                    tracing::debug!(
-                        "ensure_routes: no link found for {node_id}->{}, skipping",
-                        r.dest_node_id
-                    );
-                    continue;
+                    // No direct link to destination. In star topology, use the hub
+                    // as next-hop: the spoke sends to the hub, which already has a
+                    // route to the destination spoke and will forward the message.
+                    if self.0.topology.is_star() {
+                        match self.resolve_hub_transit_link(&link_by_peer, all_nodes) {
+                            Some(hub_link) => hub_link,
+                            None => {
+                                tracing::debug!(
+                                    "ensure_routes: star transit: no hub link found for {node_id}->{}, skipping",
+                                    r.dest_node_id
+                                );
+                                continue;
+                            }
+                        }
+                    } else {
+                        tracing::debug!(
+                            "ensure_routes: no link found for {node_id}->{}, skipping",
+                            r.dest_node_id
+                        );
+                        continue;
+                    }
                 }
             };
             let key: RouteKey = (
@@ -1138,11 +1155,26 @@ impl RouteService {
                 let link_id = match link_by_peer.get(other.id.as_str()) {
                     Some(id) => id.to_string(),
                     None => {
-                        tracing::debug!(
-                            "ensure_routes: no link found for {}→{node_id}, skipping",
-                            other.id
-                        );
-                        continue;
+                        // No direct link from the other node. In star topology, use
+                        // the hub as next-hop for the other node to reach this node.
+                        if self.0.topology.is_star() {
+                            match self.resolve_hub_transit_link(&link_by_peer, all_nodes) {
+                                Some(hub_link) => hub_link,
+                                None => {
+                                    tracing::debug!(
+                                        "ensure_routes: star transit: no hub link found for {}→{node_id}, skipping",
+                                        other.id
+                                    );
+                                    continue;
+                                }
+                            }
+                        } else {
+                            tracing::debug!(
+                                "ensure_routes: no link found for {}→{node_id}, skipping",
+                                other.id
+                            );
+                            continue;
+                        }
                     }
                 };
                 let key: RouteKey = (
@@ -1182,6 +1214,26 @@ impl RouteService {
                 }
             }
         }
+    }
+
+    /// In a star topology, resolves the link to the hub node as the next-hop
+    /// for transit routing between two spokes that have no direct link.
+    ///
+    /// Since each group contains exactly one node, this finds the single node
+    /// belonging to the hub group and returns the link_id connecting to it.
+    /// The hub will then forward the message to the destination spoke using
+    /// its own direct link.
+    fn resolve_hub_transit_link(
+        &self,
+        link_by_peer: &HashMap<&str, &str>,
+        all_nodes: &[crate::db::Node],
+    ) -> Option<String> {
+        let hub_group = self.0.topology.hub_group()?;
+        let hub_node_id = all_nodes
+            .iter()
+            .find(|n| n.group_name.as_deref() == Some(hub_group))
+            .map(|n| n.id.as_str())?;
+        link_by_peer.get(hub_node_id).map(|id| id.to_string())
     }
 
     async fn find_matching_link(&self, source: &str, dest: &str) -> Result<String> {

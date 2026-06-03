@@ -19,6 +19,11 @@ pub struct ControlPlane {
 
 impl ControlPlane {
     pub async fn start(cfg: Config) -> Result<Self> {
+        // Validate topology configuration before starting.
+        cfg.topology
+            .validate()
+            .context("invalid topology configuration")?;
+
         let db = crate::db::open(&cfg.database).await?;
 
         let cmd_handler = DefaultNodeCommandHandler::new();
