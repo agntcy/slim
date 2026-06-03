@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/agntcy/slim/compare/slim-auth-v0.8.0...slim-auth-v0.9.0) - 2026-06-03
+
+### Added
+
+- *(websocket)* add WebSocket transport for data-plane ([#1638](https://github.com/agntcy/slim/pull/1638))
+
+### Other
+
+- Replace async-trait with trait-variant in auth module ([#1684](https://github.com/agntcy/slim/pull/1684))
+- *(auth)* cache HMAC key and claims, drop per-call allocations in SharedSecret ([#1671](https://github.com/agntcy/slim/pull/1671))
+
 ## [0.8.0](https://github.com/agntcy/slim/compare/slim-auth-v0.7.0...slim-auth-v0.8.0) - 2026-05-11
 
 ### Other

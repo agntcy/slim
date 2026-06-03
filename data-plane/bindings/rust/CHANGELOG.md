@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.0](https://github.com/agntcy/slim/compare/slim-bindings-v1.4.0...slim-bindings-v2.0.0-alpha.0) - 2026-06-03
+
+### Added
+
+- increase Name ID from u64 to u128 ([#1680](https://github.com/agntcy/slim/pull/1680))
+- *(data-plane)* add node-to-node header integrity check ([#1609](https://github.com/agntcy/slim/pull/1609))
+- *(websocket)* add WebSocket transport for data-plane ([#1638](https://github.com/agntcy/slim/pull/1638))
+
+### Fixed
+
+- *(bindings)* deadlock when using single thread runtime ([#1657](https://github.com/agntcy/slim/pull/1657))
+
+### Other
+
+- publish alpha release 2.0.0-alpha.0 ([#1704](https://github.com/agntcy/slim/pull/1704))
+- drop transport field from the config ([#1662](https://github.com/agntcy/slim/pull/1662))
+- control plane in rust ([#1581](https://github.com/agntcy/slim/pull/1581))
+- *(data-plane)* replace encoder::Name with ProtoName throughout ([#1596](https://github.com/agntcy/slim/pull/1596))
+
 ## [1.4.0](https://github.com/agntcy/slim/compare/slim-bindings-v1.3.0...slim-bindings-v1.4.0) - 2026-04-21
 
 ### Added

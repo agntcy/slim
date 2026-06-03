@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0](https://github.com/agntcy/slim/compare/slim-config-v0.9.3...slim-config-v0.10.0) - 2026-06-03
+
+### Added
+
+- *(data-plane)* add node-to-node header integrity check ([#1609](https://github.com/agntcy/slim/pull/1609))
+- *(websocket)* add WebSocket transport for data-plane ([#1638](https://github.com/agntcy/slim/pull/1638))
+
+### Other
+
+- remove bindings dependecy from channel-manager ([#1697](https://github.com/agntcy/slim/pull/1697))
+- drop transport field from the config ([#1662](https://github.com/agntcy/slim/pull/1662))
+
 ## [0.9.3](https://github.com/agntcy/slim/compare/slim-config-v0.9.2...slim-config-v0.9.3) - 2026-05-13
 
 ### Other
