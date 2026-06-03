@@ -1854,4 +1854,295 @@ mod tests {
         assert!(!endpoint_matches("https://host:8080", "https://other:8080"));
         assert!(!endpoint_matches("host:9090", "host:8080"));
     }
+
+    // ── topology: ensure_links_for_node ───────────────────────────────────
+
+    use crate::config::{LinkPolicy, RoutingPolicy};
+
+    fn make_route_service_with_topology(
+        db: crate::db::SharedDb,
+        topology: TopologyConfig,
+    ) -> RouteService {
+        let handler = DefaultNodeCommandHandler::new();
+        RouteService::new(
+            db,
+            handler,
+            ReconcilerConfig {
+                max_requeues: 3,
+                ..Default::default()
+            },
+            topology,
+        )
+    }
+
+    fn star_topology() -> TopologyConfig {
+        TopologyConfig {
+            links: vec![
+                LinkPolicy {
+                    name: "platform".to_string(),
+                    peers: vec!["*".to_string()],
+                },
+                LinkPolicy {
+                    name: "*".to_string(),
+                    peers: vec!["platform".to_string()],
+                },
+            ],
+            routing_policy: vec![
+                RoutingPolicy {
+                    from: "*".to_string(),
+                    can_reach: vec!["platform".to_string()],
+                },
+                RoutingPolicy {
+                    from: "platform".to_string(),
+                    can_reach: vec!["*".to_string()],
+                },
+            ],
+        }
+    }
+
+    #[tokio::test]
+    async fn ensure_links_star_skips_spoke_to_spoke() {
+        let db = InMemoryDb::shared();
+        let hub = make_node(
+            "hub-node",
+            Some("platform"),
+            vec![make_conn_details("hub:8080", Some("hub-ext:9090"))],
+        );
+        let spoke_a = make_node(
+            "spoke-a",
+            Some("customer-a"),
+            vec![make_conn_details("a:8080", Some("a-ext:9090"))],
+        );
+        let spoke_b = make_node(
+            "spoke-b",
+            Some("customer-b"),
+            vec![make_conn_details("b:8080", Some("b-ext:9090"))],
+        );
+        db.save_node(hub.clone()).await.unwrap();
+        db.save_node(spoke_a.clone()).await.unwrap();
+        db.save_node(spoke_b.clone()).await.unwrap();
+
+        let svc = make_route_service_with_topology(db.clone(), star_topology());
+        let all_nodes = db.list_nodes().await.unwrap();
+        let (affected, new_links) = svc
+            .ensure_links_for_node("spoke-a", &[], &all_nodes, &[])
+            .await;
+
+        // spoke-a should link to hub but NOT to spoke-b
+        assert!(affected.contains(&"spoke-a".to_string()));
+        assert!(new_links.iter().any(|l| l.dest_node_id == "hub-node"
+            || l.source_node_id == "hub-node"));
+        assert!(!new_links
+            .iter()
+            .any(|l| l.dest_node_id == "spoke-b" || l.source_node_id == "spoke-b"));
+    }
+
+    #[tokio::test]
+    async fn ensure_links_full_mesh_connects_all() {
+        let db = InMemoryDb::shared();
+        let node_a = make_node(
+            "node-a",
+            Some("group-a"),
+            vec![make_conn_details("a:8080", Some("a-ext:9090"))],
+        );
+        let node_b = make_node(
+            "node-b",
+            Some("group-b"),
+            vec![make_conn_details("b:8080", Some("b-ext:9090"))],
+        );
+        let node_c = make_node(
+            "node-c",
+            Some("group-c"),
+            vec![make_conn_details("c:8080", Some("c-ext:9090"))],
+        );
+        db.save_node(node_a.clone()).await.unwrap();
+        db.save_node(node_b.clone()).await.unwrap();
+        db.save_node(node_c.clone()).await.unwrap();
+
+        // Default topology = full mesh
+        let svc = make_route_service(db.clone());
+        let all_nodes = db.list_nodes().await.unwrap();
+        let (_, new_links) = svc
+            .ensure_links_for_node("node-a", &[], &all_nodes, &[])
+            .await;
+
+        // node-a should link to both node-b and node-c
+        assert_eq!(new_links.len(), 2);
+    }
+
+    // ── topology: add_route wildcard expansion ────────────────────────────
+
+    #[tokio::test]
+    async fn add_route_wildcard_respects_routing_policy() {
+        let db = InMemoryDb::shared();
+        let hub = make_node("hub-node", Some("platform"), vec![]);
+        let spoke_a = make_node("spoke-a", Some("customer-a"), vec![]);
+        let spoke_b = make_node("spoke-b", Some("customer-b"), vec![]);
+        db.save_node(hub).await.unwrap();
+        db.save_node(spoke_a).await.unwrap();
+        db.save_node(spoke_b).await.unwrap();
+
+        let svc = make_route_service_with_topology(db.clone(), star_topology());
+        let route = ProtoRoute {
+            name: Some(ProtoName::from_strings(["org", "name", "type"])),
+            ..Default::default()
+        };
+
+        // Wildcard route: all nodes → spoke-b
+        // With star policy, only platform should get the route (spokes can't see each other)
+        svc.add_route(ALL_NODES_ID, "spoke-b", &route)
+            .await
+            .unwrap();
+
+        // Check routes in db: should have wildcard + hub-node→spoke-b, but NOT spoke-a→spoke-b
+        let hub_routes = db.get_routes_for_node("hub-node").await.unwrap();
+        let spoke_a_routes = db.get_routes_for_node("spoke-a").await.unwrap();
+
+        assert!(
+            hub_routes
+                .iter()
+                .any(|r| r.dest_node_id == "spoke-b" && r.source_node_id == "hub-node"),
+            "hub should have a route to spoke-b"
+        );
+        assert!(
+            !spoke_a_routes
+                .iter()
+                .any(|r| r.dest_node_id == "spoke-b"),
+            "spoke-a should NOT have a route to spoke-b"
+        );
+    }
+
+    // ── topology: resolve_hub_transit_link ─────────────────────────────────
+
+    #[tokio::test]
+    async fn resolve_hub_transit_link_finds_hub() {
+        let db = InMemoryDb::shared();
+        let hub = make_node("hub-node", Some("platform"), vec![]);
+        let spoke_a = make_node("spoke-a", Some("customer-a"), vec![]);
+        let spoke_b = make_node("spoke-b", Some("customer-b"), vec![]);
+        db.save_node(hub).await.unwrap();
+        db.save_node(spoke_a).await.unwrap();
+        db.save_node(spoke_b).await.unwrap();
+
+        let svc = make_route_service_with_topology(db.clone(), star_topology());
+        let all_nodes = db.list_nodes().await.unwrap();
+
+        // Simulate link_by_peer for spoke-a: it has a link to hub-node
+        let mut link_by_peer: HashMap<&str, &str> = HashMap::new();
+        link_by_peer.insert("hub-node", "link-to-hub");
+
+        let result = svc.resolve_hub_transit_link(&link_by_peer, &all_nodes);
+        assert_eq!(result, Some("link-to-hub".to_string()));
+    }
+
+    #[tokio::test]
+    async fn resolve_hub_transit_link_returns_none_without_star() {
+        let db = InMemoryDb::shared();
+        let node_a = make_node("node-a", Some("group-a"), vec![]);
+        db.save_node(node_a).await.unwrap();
+
+        // Full mesh topology (default) - no hub
+        let svc = make_route_service(db.clone());
+        let all_nodes = db.list_nodes().await.unwrap();
+        let link_by_peer: HashMap<&str, &str> = HashMap::new();
+
+        let result = svc.resolve_hub_transit_link(&link_by_peer, &all_nodes);
+        assert_eq!(result, None);
+    }
+
+    // ── topology: star transit route creation ──────────────────────────────
+
+    #[tokio::test]
+    async fn ensure_routes_star_transit_creates_route_via_hub() {
+        let db = InMemoryDb::shared();
+        let hub = make_node("hub-node", Some("platform"), vec![]);
+        let spoke_a = make_node("spoke-a", Some("customer-a"), vec![]);
+        let spoke_b = make_node("spoke-b", Some("customer-b"), vec![]);
+        db.save_node(hub).await.unwrap();
+        db.save_node(spoke_a).await.unwrap();
+        db.save_node(spoke_b).await.unwrap();
+
+        // Star topology WITH cross-spoke visibility: customer-a can reach customer-b
+        let topology = TopologyConfig {
+            links: vec![
+                LinkPolicy {
+                    name: "platform".to_string(),
+                    peers: vec!["*".to_string()],
+                },
+                LinkPolicy {
+                    name: "*".to_string(),
+                    peers: vec!["platform".to_string()],
+                },
+            ],
+            routing_policy: vec![
+                RoutingPolicy {
+                    from: "*".to_string(),
+                    can_reach: vec!["platform".to_string()],
+                },
+                RoutingPolicy {
+                    from: "platform".to_string(),
+                    can_reach: vec!["*".to_string()],
+                },
+                RoutingPolicy {
+                    from: "customer-a".to_string(),
+                    can_reach: vec!["customer-b".to_string()],
+                },
+            ],
+        };
+
+        let svc = make_route_service_with_topology(db.clone(), topology);
+
+        // Add a wildcard route targeting spoke-b
+        let wildcard_route = crate::db::Route {
+            id: "wildcard-1".to_string(),
+            source_node_id: ALL_NODES_ID.to_string(),
+            dest_node_id: "spoke-b".to_string(),
+            link_id: None,
+            component0: "org".to_string(),
+            component1: "name".to_string(),
+            component2: "type".to_string(),
+            component_id: None,
+            status: RouteStatus::Pending,
+            status_msg: String::new(),
+            created_at: SystemTime::now(),
+            last_updated: SystemTime::now(),
+        };
+        db.add_route(wildcard_route).await.unwrap();
+
+        // spoke-a has a link to hub-node only (star topology)
+        let link_to_hub = crate::db::Link {
+            link_id: "link-a-hub".to_string(),
+            source_node_id: "spoke-a".to_string(),
+            dest_node_id: "hub-node".to_string(),
+            dest_endpoint: "hub:8080".to_string(),
+            conn_config_data: ClientConfig::default(),
+            status: LinkStatus::Applied,
+            status_msg: String::new(),
+            created_at: SystemTime::now(),
+            last_updated: SystemTime::now(),
+        };
+        db.add_link(link_to_hub.clone()).await.unwrap();
+
+        let all_nodes = db.list_nodes().await.unwrap();
+        let node_links = vec![link_to_hub];
+
+        // Run ensure_routes_for_node for spoke-a
+        svc.ensure_routes_for_node("spoke-a", &node_links, &all_nodes)
+            .await;
+
+        // spoke-a should have a route to spoke-b via hub link (transit)
+        let spoke_a_routes = db.get_routes_for_node("spoke-a").await.unwrap();
+        let transit_route = spoke_a_routes
+            .iter()
+            .find(|r| r.dest_node_id == "spoke-b" && r.source_node_id == "spoke-a");
+        assert!(
+            transit_route.is_some(),
+            "spoke-a should have a transit route to spoke-b"
+        );
+        assert_eq!(
+            transit_route.unwrap().link_id.as_deref(),
+            Some("link-a-hub"),
+            "transit route should point to the hub link"
+        );
+    }
 }
