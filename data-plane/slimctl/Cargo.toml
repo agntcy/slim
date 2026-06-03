@@ -23,10 +23,11 @@ path = "src/main.rs"
 [dependencies]
 # Local workspace
 agntcy-slim = { workspace = true }
-agntcy-slim-bindings = { workspace = true }
+agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
-agntcy-slim-service = { workspace = true }
+agntcy-slim-service = { workspace = true, features = ["session"] }
+agntcy-slim-session = { workspace = true }
 agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 agntcy-slim-version = { workspace = true }
