@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(websocket)* add WebSocket transport for data-plane ([#1638](https://github.com/agntcy/slim/pull/1638))
 - *(dataplane)* remove group creation ([#1594](https://github.com/agntcy/slim/pull/1594))
 - *(slimctl)* use channel manager to create groups ([#1589](https://github.com/agntcy/slim/pull/1589))
-- *(slimctl)* add commands for channel manager ([#1586](https://github.com/agntcy/slim/pull/1586))
+- *(slimctl)* add commands for channel-manager ([#1586](https://github.com/agntcy/slim/pull/1586))
 
 ### Fixed
 
