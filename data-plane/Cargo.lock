@@ -276,7 +276,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-datapath"
-version = "0.14.0"
+version = "0.14.1"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-tracing",
@@ -314,7 +314,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-mls"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -358,7 +358,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-session"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
