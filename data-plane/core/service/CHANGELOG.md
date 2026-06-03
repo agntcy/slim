@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/agntcy/slim/compare/slim-service-v0.8.15...slim-service-v0.9.0) - 2026-06-03
+
+### Added
+
+- increase Name ID from u64 to u128 ([#1680](https://github.com/agntcy/slim/pull/1680))
+- *(data-plane)* add node-to-node header integrity check ([#1609](https://github.com/agntcy/slim/pull/1609))
+- *(websocket)* add WebSocket transport for data-plane ([#1638](https://github.com/agntcy/slim/pull/1638))
+- split data and control channel ([#1418](https://github.com/agntcy/slim/pull/1418))
+
+### Fixed
+
+- *(datapath)* update doctests to match current API ([#1686](https://github.com/agntcy/slim/pull/1686))
+
+### Other
+
+- *(session)* drop AppTransmitter, Transmitter trait, and MockTransmitter ([#1679](https://github.com/agntcy/slim/pull/1679))
+- *(session)* replace interceptor layer with direct identity handling ([#1676](https://github.com/agntcy/slim/pull/1676))
+- control plane in rust ([#1581](https://github.com/agntcy/slim/pull/1581))
+- *(data-plane)* replace encoder::Name with ProtoName throughout ([#1596](https://github.com/agntcy/slim/pull/1596))
+
 ## [0.8.15](https://github.com/agntcy/slim/compare/slim-service-v0.8.14...slim-service-v0.8.15) - 2026-05-13
 
 ### Other

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.0](https://github.com/agntcy/slim/compare/slimctl-v1.4.0...slimctl-v2.0.0-alpha.0) - 2026-06-03
+
+### Added
+
+- increase Name ID from u64 to u128 ([#1680](https://github.com/agntcy/slim/pull/1680))
+- *(slimctl)* add bench sub/pub and channel sub/pub commands ([#1602](https://github.com/agntcy/slim/pull/1602))
+- *(websocket)* add WebSocket transport for data-plane ([#1638](https://github.com/agntcy/slim/pull/1638))
+- *(dataplane)* remove group creation ([#1594](https://github.com/agntcy/slim/pull/1594))
+- *(slimctl)* use channel manager to create groups ([#1589](https://github.com/agntcy/slim/pull/1589))
+- *(slimctl)* add commands for channel manager ([#1586](https://github.com/agntcy/slim/pull/1586))
+
+### Fixed
+
+- *(bindings)* deadlock when using single thread runtime ([#1657](https://github.com/agntcy/slim/pull/1657))
+
+### Other
+
+- publish alpha release 2.0.0-alpha.0 ([#1704](https://github.com/agntcy/slim/pull/1704))
+- remove agntcy-slim-bindings dependency from slimctl ([#1700](https://github.com/agntcy/slim/pull/1700))
+- control plane in rust ([#1581](https://github.com/agntcy/slim/pull/1581))
+- *(data-plane)* replace encoder::Name with ProtoName throughout ([#1596](https://github.com/agntcy/slim/pull/1596))
+
 ## [1.4.0](https://github.com/agntcy/slim/compare/slimctl-v1.3.0...slimctl-v1.4.0) - 2026-04-21
 
 ### Added
