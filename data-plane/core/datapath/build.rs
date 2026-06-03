@@ -25,6 +25,9 @@ fn main() {
     let include_dir = std::path::Path::new(&manifest_dir).join("proto/v1");
     tonic_prost_build::configure()
         .out_dir("src/api/gen")
-        .compile_protos(&[proto_file.to_str().unwrap()], &[include_dir.to_str().unwrap()])
+        .compile_protos(
+            &[proto_file.to_str().unwrap()],
+            &[include_dir.to_str().unwrap()],
+        )
         .unwrap();
 }

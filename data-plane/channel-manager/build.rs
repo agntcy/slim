@@ -22,6 +22,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let include_dir = std::path::Path::new(&manifest_dir).join("proto/v1");
     tonic_prost_build::configure()
         .out_dir("src/gen")
-        .compile_protos(&[proto_file.to_str().unwrap()], &[include_dir.to_str().unwrap()])?;
+        .compile_protos(
+            &[proto_file.to_str().unwrap()],
+            &[include_dir.to_str().unwrap()],
+        )?;
     Ok(())
 }
