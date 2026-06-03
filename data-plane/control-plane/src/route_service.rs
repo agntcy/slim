@@ -155,11 +155,27 @@ impl RouteService {
         let db_route = route.to_db_route(source_node_id, dest_node_id);
         let route_id = self.add_single_route(db_route).await?;
 
-        // For wildcard source, create per-node routes for all existing nodes.
+        // For wildcard source, create per-node routes for all existing nodes
+        // whose group is allowed to see the destination's group by the topology policy.
         if source_node_id == ALL_NODES_ID {
             let all_nodes = self.0.db.list_nodes().await?;
-            for n in all_nodes {
+            // Look up the destination node's group for topology filtering.
+            let dest_group = all_nodes
+                .iter()
+                .find(|n| n.id == dest_node_id)
+                .and_then(|n| n.group_name.as_deref())
+                .unwrap_or("");
+            for n in all_nodes.iter() {
                 if n.id == dest_node_id {
+                    continue;
+                }
+                // Topology policy: skip route if src group cannot see dest group.
+                let src_group = n.group_name.as_deref().unwrap_or("");
+                if !self.0.topology.can_see(src_group, dest_group) {
+                    tracing::debug!(
+                        "topology policy: skipping route from {} ({src_group}) to {dest_node_id} ({dest_group})",
+                        n.id
+                    );
                     continue;
                 }
                 let per_node = Route {
@@ -737,7 +753,8 @@ impl RouteService {
         // _node_guard drops here naturally.
     }
 
-    /// Ensure direct or group links exist between `node_id` and every other node.
+    /// Ensure direct or group links exist between `node_id` and every other
+    /// node allowed by the topology link policy.
     /// Returns (affected_node_ids, newly_created_links).
     async fn ensure_links_for_node(
         &self,
@@ -955,13 +972,15 @@ impl RouteService {
     }
 
     /// For each wildcard route, create a per-node route for `node_id` if one
-    /// does not exist yet.
+    /// does not exist yet. Routes are only created between groups that the
+    /// topology routing policy allows.
     ///
     /// Two passes are made:
     /// 1. `node_id` as SOURCE — expand each wildcard `(*, dest_X)` into a
-    ///    concrete route `node_id → dest_X`.
+    ///    concrete route `node_id → dest_X`, if the topology allows visibility.
     /// 2. `node_id` as DEST — for each wildcard `(*, dest=node_id)`, expand
-    ///    into a route `peer → node_id` for every currently-registered peer.
+    ///    into a route `peer → node_id` for every currently-registered peer
+    ///    whose group is allowed to see this node's group.
     ///    This handles the case where `node_id` registers *after* the wildcard
     ///    was added and after some peer nodes were already registered.
     async fn ensure_routes_for_node(
@@ -970,6 +989,13 @@ impl RouteService {
         node_links: &[crate::db::Link],
         all_nodes: &[crate::db::Node],
     ) {
+        // Resolve the group of the current node for topology filtering.
+        let src_node_group = all_nodes
+            .iter()
+            .find(|n| n.id == node_id)
+            .and_then(|n| n.group_name.as_deref())
+            .unwrap_or("");
+
         // Map peer_node_id → link_id covering BOTH outgoing (source=node_id)
         // and incoming (dest=node_id) links.  With the one-link-per-pair design,
         // a node can subscribe via an incoming connection, so both directions must
@@ -1029,6 +1055,19 @@ impl RouteService {
             if r.dest_node_id == node_id {
                 continue;
             }
+            // Topology policy: check if src node can see the dest node's group.
+            let dest_group = all_nodes
+                .iter()
+                .find(|n| n.id == r.dest_node_id)
+                .and_then(|n| n.group_name.as_deref())
+                .unwrap_or("");
+            if !self.0.topology.can_see(src_node_group, dest_group) {
+                tracing::debug!(
+                    "topology policy: skipping route {node_id} ({src_node_group}) -> {} ({dest_group})",
+                    r.dest_node_id
+                );
+                continue;
+            }
             let link_id = match link_by_peer.get(r.dest_node_id.as_str()) {
                 Some(id) => id.to_string(),
                 None => {
@@ -1085,6 +1124,15 @@ impl RouteService {
         for r in wildcard_for_self {
             for other in all_nodes {
                 if other.id == node_id {
+                    continue;
+                }
+                // Topology policy: check if the other node can see this node's group.
+                let other_group = other.group_name.as_deref().unwrap_or("");
+                if !self.0.topology.can_see(other_group, src_node_group) {
+                    tracing::debug!(
+                        "topology policy: skipping route {} ({other_group}) -> {node_id} ({src_node_group})",
+                        other.id
+                    );
                     continue;
                 }
                 let link_id = match link_by_peer.get(other.id.as_str()) {
