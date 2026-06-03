@@ -42,20 +42,20 @@ resolver = "2"
 
 [workspace.dependencies]
 # Local dependencies
-agntcy-slim = { path = "core/slim", version = "2.0.0-alpha.0" }
-agntcy-slim-auth = { path = "core/auth", version = "0.9.0" }
-agntcy-slim-bindings = { path = "bindings/rust", version = "2.0.0-alpha.0" }
-agntcy-slim-config = { path = "core/config", version = "0.10.0" }
-agntcy-slim-controller = { path = "core/controller", version = "0.7.0" }
-agntcy-slim-datapath = { path = "core/datapath", version = "0.14.1" }
-agntcy-slim-mls = { path = "core/mls", version = "0.1.20" }
-agntcy-slim-service = { path = "core/service", version = "0.9.0", default-features = false }
-agntcy-slim-session = { path = "core/session", version = "0.2.1" }
-agntcy-slim-signal = { path = "core/signal", version = "0.1.9" }
+agntcy-slim = { path = "core/slim", version = "2.0.0-alpha.1" }
+agntcy-slim-auth = { path = "core/auth", version = "0.9.1" }
+agntcy-slim-bindings = { path = "bindings/rust", version = "2.0.0-alpha.1" }
+agntcy-slim-config = { path = "core/config", version = "0.10.1" }
+agntcy-slim-controller = { path = "core/controller", version = "0.7.1" }
+agntcy-slim-datapath = { path = "core/datapath", version = "0.14.2" }
+agntcy-slim-mls = { path = "core/mls", version = "0.1.21" }
+agntcy-slim-service = { path = "core/service", version = "0.9.1", default-features = false }
+agntcy-slim-session = { path = "core/session", version = "0.2.2" }
+agntcy-slim-signal = { path = "core/signal", version = "0.1.10" }
 agntcy-slim-testing = { path = "testing" }
-agntcy-slim-tracing = { path = "core/tracing", version = "0.3.13" }
-agntcy-slim-version = { path = "core/version", version = "2.0.0-alpha.0" }
-agntcy-slimctl = { path = "slimctl", version = "2.0.0-alpha.0" }
+agntcy-slim-tracing = { path = "core/tracing", version = "0.3.14" }
+agntcy-slim-version = { path = "core/version", version = "2.0.0-alpha.1" }
+agntcy-slimctl = { path = "slimctl", version = "2.0.0-alpha.1" }
 
 anyhow = "1.0.98"
 
@@ -163,7 +163,7 @@ uuid = { version = "1.15.1", features = ["v4"] }
 wiremock = "0.6"
 
 [workspace.package]
-version = "2.0.0-alpha.0"
+version = "2.0.0-alpha.1"
 license = "Apache-2.0"
 edition = "2024"
 repository = "https://github.com/agntcy/slim"
