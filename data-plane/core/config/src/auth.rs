@@ -33,6 +33,12 @@ pub enum ConfigAuthError {
     // Verifier errors
     #[error("audience required")]
     AuthJwtAudienceRequired,
+
+    // Identity config errors
+    #[error("no identity provider configured")]
+    IdentityProviderNotConfigured,
+    #[error("no identity verifier configured")]
+    IdentityVerifierNotConfigured,
 }
 
 pub trait ClientAuthenticator {

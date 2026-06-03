@@ -34,12 +34,19 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::{Args, Subcommand};
-use slim_bindings::{
-    Name, SessionConfig, SessionType, get_global_service, initialize_with_configs,
-    new_insecure_client_config, new_runtime_config, new_service_config, new_tracing_config_with,
-};
+use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+use slim_auth::traits::{TokenProvider, Verifier};
+use slim_config::client::ClientConfig;
+use slim_config::component::ComponentBuilder;
+use slim_config::tls::client::TlsClientConfig;
+use slim_datapath::api::{ProtoName, ProtoPublishType, ProtoSessionType};
+use slim_service::app::App;
+use slim_service::{Service, ServiceBuilder};
+use slim_session::context::SessionContext;
+use slim_session::{AppChannelReceiver, Direction, Notification, SessionConfig, SessionError};
+use slim_tracing::TracingConfiguration;
 use tokio::task::JoinSet;
 
 const DEFAULT_SERVER: &str = "http://localhost:46357";
@@ -242,14 +249,23 @@ pub struct BenchChannelPubArgs {
 // ── Dispatch ───────────────────────────────────────────────────────────────────
 
 pub async fn run(args: &BenchArgs) -> Result<()> {
-    let tracing = new_tracing_config_with(args.log_level.clone(), false, false, vec![]);
-    initialize_with_configs(new_runtime_config(), tracing, &[new_service_config()])
-        .context("failed to initialize SLIM")?;
+    let tracing = TracingConfiguration::default().with_log_level(args.log_level.clone());
+    let _guard = tracing
+        .setup_tracing_subscriber()
+        .context("failed to setup tracing")?;
+
+    slim_config::tls::provider::initialize_crypto_provider();
+
+    let service = Arc::new(
+        ServiceBuilder::new()
+            .build("bench-service".to_string())
+            .context("failed to create SLIM service")?,
+    );
 
     match &args.command {
-        BenchCommand::Sub(a) => run_sub(a).await,
-        BenchCommand::Pub(a) => run_pub(a).await,
-        BenchCommand::Channel(a) => run_channel(a).await,
+        BenchCommand::Sub(a) => run_sub(a, &service).await,
+        BenchCommand::Pub(a) => run_pub(a, &service).await,
+        BenchCommand::Channel(a) => run_channel(a, &service).await,
     }
 }
 
@@ -534,49 +550,129 @@ fn parse_prefix(prefix: &str) -> Result<(String, String)> {
     Ok((org.to_string(), ns.to_string()))
 }
 
-fn make_sub_name(org: &str, ns: &str, i: usize) -> Arc<Name> {
-    Arc::new(Name::new(
-        org.to_string(),
-        ns.to_string(),
-        format!("sub-{i}"),
-    ))
+fn make_sub_name(org: &str, ns: &str, i: usize) -> ProtoName {
+    ProtoName::from_strings([org, ns, &format!("sub-{i}")])
 }
 
-fn make_pub_name(org: &str, ns: &str, i: usize) -> Arc<Name> {
-    Arc::new(Name::new(
-        org.to_string(),
-        ns.to_string(),
-        format!("pub-{i}"),
-    ))
+fn make_pub_name(org: &str, ns: &str, i: usize) -> ProtoName {
+    ProtoName::from_strings([org, ns, &format!("pub-{i}")])
 }
 
-fn make_channel_name(org: &str, ns: &str) -> Arc<Name> {
-    Arc::new(Name::new(
-        org.to_string(),
-        ns.to_string(),
-        "channel".to_string(),
-    ))
+fn make_channel_name(org: &str, ns: &str) -> ProtoName {
+    ProtoName::from_strings([org, ns, "channel"])
 }
 
-fn make_channel_pub_name(org: &str, ns: &str) -> Arc<Name> {
-    Arc::new(Name::new(
-        org.to_string(),
-        ns.to_string(),
-        "channel-pub".to_string(),
-    ))
+fn make_channel_pub_name(org: &str, ns: &str) -> ProtoName {
+    ProtoName::from_strings([org, ns, "channel-pub"])
 }
 
-fn make_channel_sub_name(org: &str, ns: &str, i: usize) -> Arc<Name> {
-    Arc::new(Name::new(
-        org.to_string(),
-        ns.to_string(),
-        format!("channel-sub-{i}"),
-    ))
+fn make_channel_sub_name(org: &str, ns: &str, i: usize) -> ProtoName {
+    ProtoName::from_strings([org, ns, &format!("channel-sub-{i}")])
+}
+
+async fn create_app_with_secret(
+    service: &Service,
+    name: &ProtoName,
+    secret: &str,
+) -> Result<(
+    App<AuthProvider, AuthVerifier>,
+    tokio::sync::mpsc::Receiver<Result<Notification, SessionError>>,
+)> {
+    let name_str = name.to_string();
+    let mut provider = AuthProvider::shared_secret_from_str(&name_str, secret)
+        .context("failed to create auth provider")?;
+    let mut verifier = AuthVerifier::shared_secret_from_str(&name_str, secret)
+        .context("failed to create auth verifier")?;
+    provider
+        .initialize()
+        .await
+        .map_err(|e| anyhow!("provider init failed: {e}"))?;
+    verifier
+        .initialize()
+        .await
+        .map_err(|e| anyhow!("verifier init failed: {e}"))?;
+    let (app, rx) = service
+        .create_app_with_direction(name, provider, verifier, Direction::Bidirectional)
+        .context("failed to create app")?;
+    Ok((app, rx))
+}
+
+fn extract_payload(msg: &slim_datapath::api::ProtoMessage) -> Vec<u8> {
+    match msg.message_type.as_ref() {
+        Some(ProtoPublishType(publish)) => publish
+            .msg
+            .as_ref()
+            .and_then(|content| content.as_application_payload().ok())
+            .map(|payload| payload.blob.clone())
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+async fn recv_session_message(
+    session_rx: &mut AppChannelReceiver,
+    recv_timeout: Duration,
+) -> Option<slim_datapath::api::ProtoMessage> {
+    match tokio::time::timeout(recv_timeout, session_rx.recv()).await {
+        Ok(Some(Ok(msg))) => Some(msg),
+        _ => None,
+    }
+}
+
+/// Wait for an incoming session notification, retrying on timeouts and non-session events.
+async fn wait_for_incoming_session(
+    notification_rx: &mut tokio::sync::mpsc::Receiver<Result<Notification, SessionError>>,
+    label: &str,
+) -> Result<SessionContext> {
+    loop {
+        match tokio::time::timeout(Duration::from_secs(2), notification_rx.recv()).await {
+            Ok(Some(Ok(Notification::NewSession(ctx)))) => return Ok(ctx),
+            Ok(Some(Ok(Notification::NewMessage(_)))) => continue,
+            Ok(Some(Err(e))) => {
+                eprintln!("[{label}] notification error: {e} (retrying)");
+                continue;
+            }
+            Ok(None) => {
+                bail!("notification channel closed");
+            }
+            Err(_) => continue,
+        }
+    }
+}
+
+/// Create an outgoing session, wait for it to be established, and return the context.
+async fn create_and_wait_session(
+    app: &App<AuthProvider, AuthVerifier>,
+    session_type: ProtoSessionType,
+    destination: ProtoName,
+    timeout: Duration,
+    timeout_msg: &str,
+) -> Result<SessionContext> {
+    let session_config = SessionConfig {
+        session_type,
+        mls_enabled: false,
+        max_retries: Some(SESSION_MAX_RETRIES),
+        interval: Some(SESSION_RETRY_INTERVAL),
+        initiator: true,
+        metadata: HashMap::new(),
+    };
+
+    let (session_ctx, completion) = app
+        .create_session(session_config, destination, None)
+        .await
+        .context("failed to create session")?;
+
+    tokio::time::timeout(timeout, completion)
+        .await
+        .context(timeout_msg.to_string())?
+        .context("session establishment failed")?;
+
+    Ok(session_ctx)
 }
 
 // ── Sub command ────────────────────────────────────────────────────────────────
 
-async fn run_sub(args: &BenchSubArgs) -> Result<()> {
+async fn run_sub(args: &BenchSubArgs, service: &Arc<Service>) -> Result<()> {
     if args.count == 0 {
         bail!("--count must be > 0");
     }
@@ -619,8 +715,10 @@ async fn run_sub(args: &BenchSubArgs) -> Result<()> {
     }
     println!("  Waiting for publishers...\n");
 
-    let conn_id = get_global_service()
-        .connect_async(new_insecure_client_config(args.server.clone()))
+    let client_config =
+        ClientConfig::with_endpoint(&args.server).with_tls_setting(TlsClientConfig::insecure());
+    let conn_id = service
+        .connect(&client_config)
         .await
         .context("connect to server failed")?;
 
@@ -631,13 +729,17 @@ async fn run_sub(args: &BenchSubArgs) -> Result<()> {
         let secret = args.secret.clone();
         let reply = args.reply;
         let size = args.size;
+        let service = service.clone();
         // Give one extra message to the first `extra` workers.
         let job_cnt = msgs_per_worker + if (i as u64) < extra { 1 } else { 0 };
 
         join_set.spawn(async move {
             (
                 i,
-                run_sub_worker(i, &org, &ns, &secret, conn_id, job_cnt, size, reply).await,
+                run_sub_worker(
+                    &service, i, &org, &ns, &secret, conn_id, job_cnt, size, reply,
+                )
+                .await,
             )
         });
     }
@@ -670,6 +772,7 @@ async fn run_sub(args: &BenchSubArgs) -> Result<()> {
 
 #[allow(clippy::too_many_arguments)]
 async fn run_sub_worker(
+    service: &Service,
     i: usize,
     org: &str,
     ns: &str,
@@ -681,41 +784,20 @@ async fn run_sub_worker(
 ) -> Result<Sample> {
     let own_name = make_sub_name(org, ns, i);
 
-    let service = get_global_service();
-    let app = service
-        .create_app_with_secret_async(own_name.clone(), secret.to_string())
-        .await
-        .context("create app failed")?;
+    let (app, mut notification_rx) = create_app_with_secret(service, &own_name, secret).await?;
 
-    app.subscribe_async(own_name.clone(), Some(conn_id))
+    app.subscribe(&own_name, Some(conn_id))
         .await
         .context("subscribe failed")?;
 
     println!("[sub-{i}] ready at {own_name} — waiting for publisher session...");
 
-    // Wait for a session from a publisher.  Poll with a 2-second timeout so
-    // that if the channel returns any error we retry rather than giving up.
-    // Any non-session notification (e.g. NewMessage arriving out of order) is
-    // also retried: the notification is consumed from the channel and the loop
-    // calls listen_for_session_async again, which will block until the real
-    // NewSession notification arrives.
-    let session = loop {
-        match app
-            .listen_for_session_async(Some(Duration::from_secs(2)))
-            .await
-        {
-            Ok(s) => break s,
-            Err(e) => {
-                // Log non-timeout errors so the user can see unexpected issues,
-                // but always retry — the session INIT may still be in transit.
-                let msg = e.to_string().to_lowercase();
-                if !msg.contains("timed out") {
-                    eprintln!("[sub-{i}] listen_for_session: {e} (retrying)");
-                }
-                continue;
-            }
-        }
-    };
+    let session_ctx = wait_for_incoming_session(&mut notification_rx, &format!("sub-{i}")).await?;
+
+    let controller = session_ctx
+        .session_arc()
+        .ok_or_else(|| anyhow!("session closed"))?;
+    let mut session_rx = session_ctx.rx;
 
     println!("[sub-{i}] session established");
 
@@ -724,18 +806,20 @@ async fn run_sub_worker(
     let mut msg_cnt = 0u64;
     let mut msg_bytes = 0u64;
 
-    while let Ok(msg) = session.get_message_async(Some(recv_timeout)).await {
+    while let Some(msg) = recv_session_message(&mut session_rx, recv_timeout).await {
         if start.is_none() {
             start = Some(Instant::now());
         }
-        msg_bytes += msg.payload.len() as u64;
+        let payload = extract_payload(&msg);
+        msg_bytes += payload.len() as u64;
         msg_cnt += 1;
 
         if reply {
-            // Echo the payload back to the sender.
-            let payload = msg.payload.clone();
-            let _ = session
-                .publish_to_and_wait_async(msg.context, payload, None, None)
+            let source = msg.get_source();
+            let input_conn = msg.get_incoming_conn();
+            let _ = controller
+                .publish_to(&source, input_conn, payload, None, None)
+                .await?
                 .await;
         }
 
@@ -749,7 +833,7 @@ async fn run_sub_worker(
 
 // ── Pub command ────────────────────────────────────────────────────────────────
 
-async fn run_pub(args: &BenchPubArgs) -> Result<()> {
+async fn run_pub(args: &BenchPubArgs, service: &Arc<Service>) -> Result<()> {
     if args.count == 0 {
         bail!("--count must be > 0");
     }
@@ -775,8 +859,10 @@ async fn run_pub(args: &BenchPubArgs) -> Result<()> {
 
     let payload = vec![0u8; args.size];
 
-    let conn_id = get_global_service()
-        .connect_async(new_insecure_client_config(args.server.clone()))
+    let client_config =
+        ClientConfig::with_endpoint(&args.server).with_tls_setting(TlsClientConfig::insecure());
+    let conn_id = service
+        .connect(&client_config)
         .await
         .context("connect to server failed")?;
 
@@ -788,11 +874,12 @@ async fn run_pub(args: &BenchPubArgs) -> Result<()> {
         let request = args.request;
         let p = payload.clone();
         let msgs = base + if (i as u64) < extra { 1 } else { 0 };
+        let service = service.clone();
 
         join_set.spawn(async move {
             (
                 i,
-                run_pub_worker(i, &org, &ns, &secret, conn_id, msgs, p, request).await,
+                run_pub_worker(&service, i, &org, &ns, &secret, conn_id, msgs, p, request).await,
             )
         });
     }
@@ -834,6 +921,7 @@ async fn run_pub(args: &BenchPubArgs) -> Result<()> {
 
 #[allow(clippy::too_many_arguments)]
 async fn run_pub_worker(
+    service: &Service,
     i: usize,
     org: &str,
     ns: &str,
@@ -846,54 +934,34 @@ async fn run_pub_worker(
     let own_name = make_pub_name(org, ns, i);
     let target_name = make_sub_name(org, ns, i);
 
-    let service = get_global_service();
-    let app = service
-        .create_app_with_secret_async(own_name.clone(), secret.to_string())
-        .await
-        .context("create app failed")?;
+    let (app, _notification_rx) = create_app_with_secret(service, &own_name, secret).await?;
 
-    // Subscribe own name so replies can reach us in request-reply mode.
-    app.subscribe_async(own_name.clone(), Some(conn_id))
+    app.subscribe(&own_name, Some(conn_id))
         .await
         .context("subscribe failed")?;
 
-    // Advertise the route to the subscriber through the server connection.
-    app.set_route_async(target_name.clone(), conn_id)
+    app.set_route(&target_name, conn_id)
         .await
         .context("set route to subscriber failed")?;
 
     println!("[pub-{i}] subscribed {own_name} — creating session to {target_name}...");
 
-    // Create a session to the subscriber.  Use generous retries so the
-    // publisher can wait up to SESSION_ESTABLISH_TIMEOUT for the subscriber to come up.
-    let session_config = SessionConfig {
-        session_type: SessionType::PointToPoint,
-        enable_mls: false,
-        max_retries: Some(SESSION_MAX_RETRIES),
-        interval: Some(SESSION_RETRY_INTERVAL),
-        metadata: HashMap::new(),
-    };
+    let session_ctx = create_and_wait_session(
+        &app,
+        ProtoSessionType::PointToPoint,
+        target_name.clone(),
+        SESSION_ESTABLISH_TIMEOUT,
+        &format!(
+            "[pub-{i}] session to {target_name} not established within 35 s — \
+             is `slimctl bench sub` running with a matching --prefix and --count?"
+        ),
+    )
+    .await?;
 
-    // Use create_session_async + wait_for_async so the wall-clock timeout is
-    // enforced independently of the session-layer retry count.  If the
-    // session is not established within SESSION_ESTABLISH_TIMEOUT we return a
-    // clear error rather than hanging forever.
-    let swc = app
-        .create_session_async(session_config, target_name.clone())
-        .await
-        .context("failed to initiate session")?;
-
-    swc.completion
-        .wait_for_async(SESSION_ESTABLISH_TIMEOUT)
-        .await
-        .with_context(|| {
-            format!(
-                "[pub-{i}] session to {target_name} not established within 35 s — \
-                 is `slimctl bench sub` running with a matching --prefix and --count?"
-            )
-        })?;
-
-    let session = swc.session;
+    let (weak_session, mut session_rx) = session_ctx.into_parts();
+    let controller = weak_session
+        .upgrade()
+        .ok_or_else(|| anyhow!("session closed"))?;
 
     println!("[pub-{i}] session established — publishing {msg_count} messages");
 
@@ -910,14 +978,15 @@ async fn run_pub_worker(
     for _ in 0..msg_count {
         let t0 = Instant::now();
 
-        session
-            .publish_and_wait_async(payload.clone(), None, None)
+        controller
+            .publish(controller.dst(), payload.clone(), None, None)
             .await
-            .context("publish failed")?;
+            .context("publish failed")?
+            .await
+            .context("publish completion failed")?;
 
         if request {
-            session
-                .get_message_async(Some(reply_timeout))
+            recv_session_message(&mut session_rx, reply_timeout)
                 .await
                 .context("awaiting reply timed out")?;
             latencies.push(t0.elapsed());
@@ -940,14 +1009,14 @@ async fn run_pub_worker(
 
 // ── Channel command ────────────────────────────────────────────────────────────
 
-async fn run_channel(args: &BenchChannelArgs) -> Result<()> {
+async fn run_channel(args: &BenchChannelArgs, service: &Arc<Service>) -> Result<()> {
     match &args.command {
-        BenchChannelCommand::Sub(a) => run_channel_sub(a).await,
-        BenchChannelCommand::Pub(a) => run_channel_pub(a).await,
+        BenchChannelCommand::Sub(a) => run_channel_sub(a, service).await,
+        BenchChannelCommand::Pub(a) => run_channel_pub(a, service).await,
     }
 }
 
-async fn run_channel_sub(args: &BenchChannelSubArgs) -> Result<()> {
+async fn run_channel_sub(args: &BenchChannelSubArgs, service: &Arc<Service>) -> Result<()> {
     if args.count == 0 {
         bail!("--count must be > 0");
     }
@@ -975,8 +1044,10 @@ async fn run_channel_sub(args: &BenchChannelSubArgs) -> Result<()> {
     }
     println!("  Waiting for publisher to invite...\n");
 
-    let conn_id = get_global_service()
-        .connect_async(new_insecure_client_config(args.server.clone()))
+    let client_config =
+        ClientConfig::with_endpoint(&args.server).with_tls_setting(TlsClientConfig::insecure());
+    let conn_id = service
+        .connect(&client_config)
         .await
         .context("connect to server failed")?;
 
@@ -989,10 +1060,21 @@ async fn run_channel_sub(args: &BenchChannelSubArgs) -> Result<()> {
         let secret = args.secret.clone();
         let size = args.size;
         let msgs = args.msgs;
+        let service = service.clone();
         join_set.spawn(async move {
             (
                 actual_index,
-                run_channel_sub_worker(actual_index, &org, &ns, &secret, conn_id, msgs, size).await,
+                run_channel_sub_worker(
+                    &service,
+                    actual_index,
+                    &org,
+                    &ns,
+                    &secret,
+                    conn_id,
+                    msgs,
+                    size,
+                )
+                .await,
             )
         });
     }
@@ -1022,7 +1104,9 @@ async fn run_channel_sub(args: &BenchChannelSubArgs) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_channel_sub_worker(
+    service: &Service,
     i: usize,
     org: &str,
     ns: &str,
@@ -1033,35 +1117,21 @@ async fn run_channel_sub_worker(
 ) -> Result<Sample> {
     let own_name = make_channel_sub_name(org, ns, i);
 
-    let service = get_global_service();
-    let app = service
-        .create_app_with_secret_async(own_name.clone(), secret.to_string())
-        .await
-        .context("create app failed")?;
+    let (app, mut notification_rx) = create_app_with_secret(service, &own_name, secret).await?;
 
-    app.subscribe_async(own_name.clone(), Some(conn_id))
+    app.subscribe(&own_name, Some(conn_id))
         .await
         .context("subscribe failed")?;
 
     println!("[ch-sub-{i}] ready at {own_name} — waiting for channel invite...");
 
-    // Poll for the group session invite with a short timeout so we retry on
-    // any transient error rather than silently giving up.
-    let session = loop {
-        match app
-            .listen_for_session_async(Some(Duration::from_secs(2)))
-            .await
-        {
-            Ok(s) => break s,
-            Err(e) => {
-                let msg = e.to_string().to_lowercase();
-                if !msg.contains("timed out") {
-                    eprintln!("[ch-sub-{i}] listen_for_session: {e} (retrying)");
-                }
-                continue;
-            }
-        }
-    };
+    let session_ctx =
+        wait_for_incoming_session(&mut notification_rx, &format!("ch-sub-{i}")).await?;
+
+    let _controller = session_ctx
+        .session_arc()
+        .ok_or_else(|| anyhow!("session closed"))?;
+    let mut session_rx = session_ctx.rx;
 
     println!("[ch-sub-{i}] joined channel session");
 
@@ -1070,11 +1140,11 @@ async fn run_channel_sub_worker(
     let mut msg_cnt = 0u64;
     let mut msg_bytes = 0u64;
 
-    while let Ok(msg) = session.get_message_async(Some(recv_timeout)).await {
+    while let Some(msg) = recv_session_message(&mut session_rx, recv_timeout).await {
         if start.is_none() {
             start = Some(Instant::now());
         }
-        msg_bytes += msg.payload.len() as u64;
+        msg_bytes += extract_payload(&msg).len() as u64;
         msg_cnt += 1;
         if job_msg_cnt > 0 && msg_cnt >= job_msg_cnt {
             break;
@@ -1084,7 +1154,7 @@ async fn run_channel_sub_worker(
     Ok(build_sample(start, msg_cnt, msg_bytes, job_msg_cnt, size))
 }
 
-async fn run_channel_pub(args: &BenchChannelPubArgs) -> Result<()> {
+async fn run_channel_pub(args: &BenchChannelPubArgs, service: &Arc<Service>) -> Result<()> {
     if args.count == 0 {
         bail!("--count must be > 0");
     }
@@ -1105,12 +1175,15 @@ async fn run_channel_pub(args: &BenchChannelPubArgs) -> Result<()> {
 
     let payload = vec![0u8; args.size];
 
-    let conn_id = get_global_service()
-        .connect_async(new_insecure_client_config(args.server.clone()))
+    let client_config =
+        ClientConfig::with_endpoint(&args.server).with_tls_setting(TlsClientConfig::insecure());
+    let conn_id = service
+        .connect(&client_config)
         .await
         .context("connect to server failed")?;
 
     match run_channel_pub_worker(
+        service,
         &org,
         &ns,
         &args.secret,
@@ -1138,7 +1211,9 @@ async fn run_channel_pub(args: &BenchChannelPubArgs) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_channel_pub_worker(
+    service: &Service,
     org: &str,
     ns: &str,
     secret: &str,
@@ -1150,58 +1225,42 @@ async fn run_channel_pub_worker(
     let own_name = make_channel_pub_name(org, ns);
     let channel_name = make_channel_name(org, ns);
 
-    let service = get_global_service();
-    let app = service
-        .create_app_with_secret_async(own_name.clone(), secret.to_string())
-        .await
-        .context("create app failed")?;
+    let (app, _notification_rx) = create_app_with_secret(service, &own_name, secret).await?;
 
-    app.subscribe_async(own_name.clone(), Some(conn_id))
+    app.subscribe(&own_name, Some(conn_id))
         .await
         .context("subscribe failed")?;
 
-    // Advertise routes to each subscriber so SLIM can deliver invites.
     for i in 0..sub_count {
         let sub_name = make_channel_sub_name(org, ns, i);
-        app.set_route_async(sub_name, conn_id)
+        app.set_route(&sub_name, conn_id)
             .await
             .context("set route to subscriber failed")?;
     }
 
     println!("[ch-pub] subscribed {own_name} — creating group session on {channel_name}...");
 
-    let session_config = SessionConfig {
-        session_type: SessionType::Group,
-        enable_mls: false,
-        max_retries: Some(SESSION_MAX_RETRIES),
-        interval: Some(SESSION_RETRY_INTERVAL),
-        metadata: HashMap::new(),
-    };
+    let session_ctx = create_and_wait_session(
+        &app,
+        ProtoSessionType::Multicast,
+        channel_name.clone(),
+        Duration::from_secs(5),
+        "group session creation timed out unexpectedly",
+    )
+    .await?;
 
-    let swc = app
-        .create_session_async(session_config, channel_name.clone())
-        .await
-        .context("failed to create group session")?;
-
-    // Group session completion resolves immediately (no per-participant handshake at creation).
-    swc.completion
-        .wait_for_async(Duration::from_secs(5))
-        .await
-        .context("group session creation timed out unexpectedly")?;
-
-    let session = swc.session;
+    let (weak_session, _session_rx) = session_ctx.into_parts();
+    let controller = weak_session
+        .upgrade()
+        .ok_or_else(|| anyhow!("session closed"))?;
     println!("[ch-pub] group session created on {channel_name}");
 
-    // Invite each subscriber.  Each invite blocks until the subscriber completes
-    // the MLS-like handshake and joins the group.  Wrap with a wall-clock timeout
-    // so we don't hang forever if a subscriber never comes up.
     for i in 0..sub_count {
         let sub_name = make_channel_sub_name(org, ns, i);
         println!("[ch-pub] inviting {sub_name}...");
-        tokio::time::timeout(
-            SESSION_ESTABLISH_TIMEOUT,
-            session.invite_and_wait_async(sub_name.clone()),
-        )
+        tokio::time::timeout(SESSION_ESTABLISH_TIMEOUT, async {
+            controller.invite_participant(&sub_name).await?.await
+        })
         .await
         .with_context(|| {
             format!(
@@ -1219,10 +1278,12 @@ async fn run_channel_pub_worker(
     let msg_bytes = msg_count * payload.len() as u64;
 
     for _ in 0..msg_count {
-        session
-            .publish_and_wait_async(payload.clone(), None, None)
+        controller
+            .publish(controller.dst(), payload.clone(), None, None)
             .await
-            .context("publish failed")?;
+            .context("publish failed")?
+            .await
+            .context("publish completion failed")?;
     }
 
     let end = Instant::now();
@@ -1360,24 +1421,22 @@ mod tests {
     #[test]
     fn make_names_correct() {
         let sub = make_sub_name("bench", "test", 3);
-        let parts = sub.components();
-        assert_eq!(parts, vec!["bench", "test", "sub-3"]);
+        assert_eq!(sub.str_components(), ("bench", "test", "sub-3"));
 
         let pub_ = make_pub_name("bench", "test", 0);
-        let parts = pub_.components();
-        assert_eq!(parts, vec!["bench", "test", "pub-0"]);
+        assert_eq!(pub_.str_components(), ("bench", "test", "pub-0"));
     }
 
     #[test]
     fn make_channel_names_correct() {
         let ch = make_channel_name("bench", "test");
-        assert_eq!(ch.components(), vec!["bench", "test", "channel"]);
+        assert_eq!(ch.str_components(), ("bench", "test", "channel"));
 
         let pub_ = make_channel_pub_name("bench", "test");
-        assert_eq!(pub_.components(), vec!["bench", "test", "channel-pub"]);
+        assert_eq!(pub_.str_components(), ("bench", "test", "channel-pub"));
 
         let sub = make_channel_sub_name("bench", "test", 2);
-        assert_eq!(sub.components(), vec!["bench", "test", "channel-sub-2"]);
+        assert_eq!(sub.str_components(), ("bench", "test", "channel-sub-2"));
     }
 
     #[test]
