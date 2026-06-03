@@ -14,7 +14,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim"
-version = "1.4.0"
+version = "2.0.0-alpha.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-service",
@@ -82,7 +82,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-bindings"
-version = "1.4.0"
+version = "2.0.0-alpha.0"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
@@ -441,11 +441,11 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-version"
-version = "1.4.0"
+version = "2.0.0-alpha.0"
 
 [[package]]
 name = "agntcy-slimctl"
-version = "1.4.0"
+version = "2.0.0-alpha.0"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
