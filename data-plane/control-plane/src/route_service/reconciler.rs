@@ -287,6 +287,30 @@ async fn build_desired_routes<'a>(
             .or(db
                 .get_link(link_id, &route.dest_node_id, &route.source_node_id)
                 .await?);
+        // In star topology, the link may be between source and hub (transit),
+        // not between source and dest. Try that lookup as well.
+        let link_lookup = match link_lookup {
+            Some(l) => Some(l),
+            None if topology.is_star() => {
+                if let Some(hub_group) = topology.hub_group() {
+                    let all_nodes = db.list_nodes().await?;
+                    if let Some(hub_id) = all_nodes
+                        .iter()
+                        .find(|n| n.group_name.as_deref() == Some(hub_group))
+                        .map(|n| n.id.as_str())
+                    {
+                        db.get_link(link_id, &route.source_node_id, hub_id)
+                            .await?
+                            .or(db.get_link(link_id, hub_id, &route.source_node_id).await?)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            None => None,
+        };
         if let Some(l) = link_lookup {
             if l.status == LinkStatus::Failed {
                 let msg = if l.status_msg.is_empty() {
@@ -478,9 +502,9 @@ async fn process_route_acks(
 }
 
 /// In a star topology, finds the link from `source_node_id` to the hub node.
-/// Used by the reconciler to resolve the next-hop for transit routes where
-/// source and destination have no direct link.
-async fn resolve_hub_link(
+/// Used by the reconciler and route_service to resolve the next-hop for transit
+/// routes where source and destination have no direct link.
+pub(crate) async fn resolve_hub_link(
     db: &SharedDb,
     topology: &TopologyConfig,
     source_node_id: &str,

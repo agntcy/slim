@@ -202,6 +202,16 @@ impl RouteService {
                 .find_matching_link(&db_route.source_node_id, &db_route.dest_node_id)
                 .await
                 .ok();
+            // No direct link found. In a star topology, resolve the hub link
+            // as next-hop for transit (spoke→hub→spoke).
+            if db_route.link_id.is_none() && self.0.topology.is_star() {
+                db_route.link_id = reconciler::resolve_hub_link(
+                    &self.0.db,
+                    &self.0.topology,
+                    &db_route.source_node_id,
+                )
+                .await;
+            }
         }
 
         // Retry once if a stale soft-deleted route blocks insertion. The
