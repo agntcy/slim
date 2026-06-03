@@ -11,7 +11,7 @@ use slim_config::grpc::client::ClientConfig;
 use slim_datapath::api::NameId;
 use uuid::Uuid;
 
-use crate::config::ReconcilerConfig;
+use crate::config::{ReconcilerConfig, TopologyConfig};
 use crate::error::{Error, Result};
 use crate::workqueue::WorkQueue;
 
@@ -44,6 +44,8 @@ struct Inner {
     /// race: node_deregistered deletes links while node_registered is recreating
     /// them, leaving stale link records for a disconnected node.
     node_locks: tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// Topology configuration for link and route filtering.
+    topology: TopologyConfig,
 }
 
 #[derive(Clone)]
@@ -70,6 +72,7 @@ impl RouteService {
         db: SharedDb,
         cmd_handler: DefaultNodeCommandHandler,
         reconciler_config: ReconcilerConfig,
+        topology: TopologyConfig,
     ) -> Self {
         let queue: WorkQueue<String> = WorkQueue::new();
 
@@ -92,6 +95,7 @@ impl RouteService {
             queue,
             shutdown_tx,
             node_locks: tokio::sync::Mutex::new(HashMap::new()),
+            topology,
         }));
 
         // Periodic full-sweep reconciliation with clean shutdown support.
@@ -778,6 +782,16 @@ impl RouteService {
             if connected_peers.contains(&other.id) {
                 continue;
             }
+            // Topology policy: skip link creation if the groups are not allowed to link.
+            let src_group = src_node.group_name.as_deref().unwrap_or("");
+            let dst_group = other.group_name.as_deref().unwrap_or("");
+            if !self.0.topology.can_link(src_group, dst_group) {
+                tracing::debug!(
+                    "topology policy: skipping link between {node_id} ({src_group}) and {} ({dst_group})",
+                    other.id
+                );
+                continue;
+            }
             let same_group = src_node.group_name == other.group_name;
             if same_group {
                 if let Some((src, link)) = self.ensure_direct_link(&src_node, other, reported).await
@@ -1450,6 +1464,7 @@ mod tests {
                 max_requeues: 3,
                 ..Default::default()
             },
+            TopologyConfig::default(),
         )
     }
 
