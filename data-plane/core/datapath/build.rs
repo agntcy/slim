@@ -11,8 +11,20 @@ fn main() {
         std::env::set_var("PROTOC", protoc_path);
     }
 
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+    let proto_file = std::path::Path::new(&manifest_dir).join("proto/v1/data_plane.proto");
+    let repo_proto_dir = std::path::Path::new(&manifest_dir).join("../../../proto");
+
+    if !proto_file.exists() || !repo_proto_dir.exists() {
+        // Published package: rely on the pre-generated src/api/gen/ file.
+        return;
+    }
+
+    println!("cargo:rerun-if-changed={}", proto_file.display());
+
+    let include_dir = std::path::Path::new(&manifest_dir).join("proto/v1");
     tonic_prost_build::configure()
         .out_dir("src/api/gen")
-        .compile_protos(&["proto/v1/data_plane.proto"], &["proto/v1"])
+        .compile_protos(&[proto_file.to_str().unwrap()], &[include_dir.to_str().unwrap()])
         .unwrap();
 }
