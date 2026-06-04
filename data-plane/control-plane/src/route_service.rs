@@ -1867,7 +1867,7 @@ mod tests {
 
     // ── topology: ensure_links_for_node ───────────────────────────────────
 
-    use crate::config::{LinkPolicy, RoutingPolicy};
+    use crate::config::AdjacencyEntry;
 
     fn make_route_service_with_topology(
         db: crate::db::SharedDb,
@@ -1888,23 +1888,13 @@ mod tests {
     fn star_topology() -> TopologyConfig {
         TopologyConfig {
             links: vec![
-                LinkPolicy {
+                AdjacencyEntry {
                     name: "platform".to_string(),
                     peers: vec!["*".to_string()],
                 },
-                LinkPolicy {
+                AdjacencyEntry {
                     name: "*".to_string(),
                     peers: vec!["platform".to_string()],
-                },
-            ],
-            routing_policy: vec![
-                RoutingPolicy {
-                    from: "*".to_string(),
-                    can_reach: vec!["platform".to_string()],
-                },
-                RoutingPolicy {
-                    from: "platform".to_string(),
-                    can_reach: vec!["*".to_string()],
                 },
             ],
         }
@@ -2072,30 +2062,22 @@ mod tests {
         db.save_node(spoke_a).await.unwrap();
         db.save_node(spoke_b).await.unwrap();
 
-        // Star topology WITH cross-spoke visibility: customer-a can reach customer-b
+        // Star topology WITH cross-spoke visibility (in new model, can_see
+        // falls back to can_link — spokes can't link so they can't see each other,
+        // BUT we add an explicit link entry for customer-a↔customer-b to allow it)
         let topology = TopologyConfig {
             links: vec![
-                LinkPolicy {
+                AdjacencyEntry {
                     name: "platform".to_string(),
                     peers: vec!["*".to_string()],
                 },
-                LinkPolicy {
+                AdjacencyEntry {
                     name: "*".to_string(),
                     peers: vec!["platform".to_string()],
                 },
-            ],
-            routing_policy: vec![
-                RoutingPolicy {
-                    from: "*".to_string(),
-                    can_reach: vec!["platform".to_string()],
-                },
-                RoutingPolicy {
-                    from: "platform".to_string(),
-                    can_reach: vec!["*".to_string()],
-                },
-                RoutingPolicy {
-                    from: "customer-a".to_string(),
-                    can_reach: vec!["customer-b".to_string()],
+                AdjacencyEntry {
+                    name: "customer-a".to_string(),
+                    peers: vec!["customer-b".to_string()],
                 },
             ],
         };

@@ -105,143 +105,171 @@ impl Default for ReconcilerConfig {
     }
 }
 
-/// Topology configuration: controls physical connectivity (links) and
-/// logical visibility (routing policy) between node groups.
+/// Topology configuration: defines the physical link graph between node groups.
+///
+/// The topology is expressed as an adjacency list. Each entry declares
+/// a group name and the peers it connects to. All links are **bidirectional**:
+/// if group A lists B as a peer, then B↔A is implied.
+///
+/// The wildcard `"*"` matches all registered groups and is resolved dynamically
+/// at node registration time.
+///
+/// If no topology is configured (empty links), the controller defaults to
+/// **full mesh**: every group links to every other group.
+///
+/// # Example
+///
+/// ```yaml
+/// topology:
+///   links:
+///     - name: hub
+///       peers: ["*"]      # hub connects to all groups
+///     - name: node-b
+///       peers: [node-c]   # explicit link between node-b and node-c
+/// ```
 #[derive(Debug, Clone, Deserialize, Default, PartialEq)]
 #[serde(default)]
 pub struct TopologyConfig {
-    /// Link policy: defines which groups create links to each other.
+    /// Adjacency list: defines which groups create links to each other.
     /// If empty, all groups can link to all groups (full mesh).
-    pub links: Vec<LinkPolicy>,
-    /// Routing policy: defines which groups can discover each other's agents.
-    /// If empty, all groups can see all groups (full mesh).
-    /// If any rules are present, only explicitly listed visibility is allowed.
-    pub routing_policy: Vec<RoutingPolicy>,
+    pub links: Vec<AdjacencyEntry>,
 }
 
-/// A link policy entry: nodes in group `name` will create links to nodes
-/// in any of the groups listed in `peers`.
+/// An adjacency list entry: nodes in group `name` connect to nodes
+/// in any of the groups listed in `peers`. Links are bidirectional.
 #[derive(Debug, Clone, Deserialize, PartialEq)]
-pub struct LinkPolicy {
+pub struct AdjacencyEntry {
     /// Group name (or `"*"` to match any group).
     pub name: String,
-    /// Groups this group will create links to. `"*"` matches any group.
+    /// Groups this group connects to. `"*"` matches any group.
     pub peers: Vec<String>,
 }
 
-/// A routing policy entry: nodes in group `from` can discover agents on nodes
-/// in any of the groups listed in `can_reach`.
-#[derive(Debug, Clone, Deserialize, PartialEq)]
-pub struct RoutingPolicy {
-    /// Source group name (or `"*"` to match any group).
-    pub from: String,
-    /// Destination groups that `from` can reach. `"*"` matches any group.
-    pub can_reach: Vec<String>,
-}
-
 impl TopologyConfig {
-    /// Returns true if group `src` is allowed to create a link to group `dst`.
-    /// If no link policies are configured, defaults to allow (full mesh).
-    pub fn can_link(&self, src_group: &str, dst_group: &str) -> bool {
+    /// Returns true if group `a` is allowed to create a link to group `b`.
+    /// Links are bidirectional: if any entry allows a→b or b→a, both are linked.
+    /// If no entries are configured, defaults to allow (full mesh).
+    pub fn can_link(&self, a: &str, b: &str) -> bool {
         if self.links.is_empty() {
             return true;
         }
-        self.links.iter().any(|policy| {
-            matches_group(&policy.name, src_group)
-                && policy.peers.iter().any(|p| matches_group(p, dst_group))
-        }) || self.links.iter().any(|policy| {
-            matches_group(&policy.name, dst_group)
-                && policy.peers.iter().any(|p| matches_group(p, src_group))
+        self.links.iter().any(|entry| {
+            (matches_group(&entry.name, a)
+                && entry.peers.iter().any(|p| matches_group(p, b)))
+                || (matches_group(&entry.name, b)
+                    && entry.peers.iter().any(|p| matches_group(p, a)))
         })
     }
 
-    /// Returns true if group `src` is allowed to see routes from group `dst`.
-    /// Same-group visibility is always allowed.
-    /// If no routing policies are configured, defaults to allow (full mesh).
-    /// If any policies are present, only explicitly listed visibility is allowed.
-    pub fn can_see(&self, src_group: &str, dst_group: &str) -> bool {
-        if src_group == dst_group {
-            return true;
-        }
-        if self.routing_policy.is_empty() {
-            return true;
-        }
-        for policy in &self.routing_policy {
-            if matches_group(&policy.from, src_group)
-                && policy.can_reach.iter().any(|g| matches_group(g, dst_group))
-            {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Detects the hub group in a star topology.
-    /// The hub is a non-wildcard group that has `peers: ["*"]` in the link policy.
-    /// Returns `None` if no hub is found.
-    pub fn hub_group(&self) -> Option<&str> {
-        for policy in &self.links {
-            if policy.name != "*" && policy.peers.iter().any(|p| p == "*") {
-                return Some(&policy.name);
-            }
-        }
-        None
-    }
-
-    /// Returns true if the topology is a valid star (hub-and-spoke) configuration:
-    /// - Exactly one hub group that peers with everyone.
-    /// - All other (non-wildcard) link policies only peer with the hub.
-    pub fn is_star(&self) -> bool {
-        let hub = match self.hub_group() {
-            Some(h) => h,
-            None => return false,
-        };
-        self.links.iter().all(|policy| {
-            // The hub itself — valid
-            if policy.name == hub {
-                return true;
-            }
-            // All other groups (including "*") must only peer with the hub
-            policy.peers.iter().all(|p| p == hub)
-        })
-    }
-
-    /// Validates the topology configuration. Returns an error if a routing
-    /// policy allows visibility between two groups that have no direct link
-    /// and the topology is not star-shaped (no transit available).
+    /// Resolve the link graph for a set of known groups.
+    /// Returns a petgraph `UnGraph` with group names as node weights and
+    /// edge weight 1 (uniform cost for now, future-proofed for weighted links).
     ///
-    /// In a valid star topology, transit through the hub is implicitly allowed
-    /// for any spoke-to-spoke visibility rule since all spokes connect to the hub.
-    pub fn validate(&self) -> crate::error::Result<()> {
-        if self.links.is_empty() || self.routing_policy.is_empty() {
-            return Ok(());
+    /// Wildcard `"*"` in entries is expanded to all groups in `known_groups`.
+    pub fn build_graph(
+        &self,
+        known_groups: &[&str],
+    ) -> petgraph::graph::UnGraph<String, u32> {
+        use petgraph::graph::UnGraph;
+        use std::collections::HashMap;
+
+        let mut graph = UnGraph::<String, u32>::new_undirected();
+        let mut indices: HashMap<&str, petgraph::graph::NodeIndex> = HashMap::new();
+
+        // Add all known groups as nodes
+        for &group in known_groups {
+            let idx = graph.add_node(group.to_string());
+            indices.insert(group, idx);
         }
 
-        let is_star = self.is_star();
+        if self.links.is_empty() {
+            // Full mesh: connect everything to everything
+            for (i, &a) in known_groups.iter().enumerate() {
+                for &b in &known_groups[i + 1..] {
+                    graph.add_edge(indices[a], indices[b], 1);
+                }
+            }
+        } else {
+            // Apply adjacency entries with wildcard expansion
+            for entry in &self.links {
+                let sources: Vec<&str> = if entry.name == "*" {
+                    known_groups.to_vec()
+                } else {
+                    known_groups
+                        .iter()
+                        .filter(|&&g| g == entry.name)
+                        .copied()
+                        .collect()
+                };
 
-        for policy in &self.routing_policy {
-            for target in &policy.can_reach {
-                // Skip wildcards — validated against concrete groups at runtime
-                if policy.from == "*" || target == "*" {
-                    continue;
-                }
-                // Same group is always fine
-                if policy.from == *target {
-                    continue;
-                }
-                // Direct link exists — no issue
-                if self.can_link(&policy.from, target) {
-                    continue;
-                }
-                // No direct link — transit only available in star topology
-                if !is_star {
-                    return Err(crate::error::Error::NoLinkForVisibility {
-                        from: policy.from.clone(),
-                        to: target.clone(),
-                    });
+                for &src in &sources {
+                    for peer_pattern in &entry.peers {
+                        let targets: Vec<&str> = if peer_pattern == "*" {
+                            known_groups.to_vec()
+                        } else {
+                            known_groups
+                                .iter()
+                                .filter(|&&g| g == *peer_pattern)
+                                .copied()
+                                .collect()
+                        };
+
+                        for &dst in &targets {
+                            if src == dst {
+                                continue;
+                            }
+                            let src_idx = indices[src];
+                            let dst_idx = indices[dst];
+                            if graph.find_edge(src_idx, dst_idx).is_none() {
+                                graph.add_edge(src_idx, dst_idx, 1);
+                            }
+                        }
+                    }
                 }
             }
         }
+
+        graph
+    }
+}
+
+// ─── Deprecated stubs (to be removed in Step 1.6) ────────────────────────────
+// These methods maintain backward compatibility with route_service and reconciler
+// code that will be rewritten in Steps 1.2–1.7.
+
+impl TopologyConfig {
+    /// Deprecated: In the new SPT model, visibility is determined by the tree.
+    /// For now, returns true if can_link(a, b) (same as old full-mesh behavior).
+    #[deprecated(note = "will be removed in Step 1.6: SPT determines visibility")]
+    pub fn can_see(&self, from_group: &str, to_group: &str) -> bool {
+        if from_group == to_group {
+            return true;
+        }
+        self.can_link(from_group, to_group)
+    }
+
+    /// Deprecated: Detects a "star" topology (one node peers with "*", others peer with it only).
+    #[deprecated(note = "will be removed in Step 1.6: SPT handles all topologies")]
+    pub fn is_star(&self) -> bool {
+        self.hub_group().is_some()
+    }
+
+    /// Deprecated: Returns the hub group name if this is a star topology.
+    #[deprecated(note = "will be removed in Step 1.6: SPT handles all topologies")]
+    pub fn hub_group(&self) -> Option<&str> {
+        if self.links.is_empty() {
+            return None;
+        }
+        // Find the entry whose peers contain "*" and whose name is NOT "*"
+        self.links
+            .iter()
+            .find(|e| e.name != "*" && e.peers.iter().any(|p| p == "*"))
+            .map(|e| e.name.as_str())
+    }
+
+    /// Deprecated: Validation is no longer needed (SPT handles any topology).
+    #[deprecated(note = "will be removed in Step 1.6")]
+    pub fn validate(&self) -> std::result::Result<(), crate::error::Error> {
         Ok(())
     }
 }
@@ -280,24 +308,21 @@ mod tests {
         let t = TopologyConfig::default();
         assert!(t.can_link("a", "b"));
         assert!(t.can_link("x", "y"));
-        assert!(t.can_see("a", "b"));
-        assert!(t.can_see("x", "y"));
     }
 
     #[test]
     fn topology_can_link_star() {
         let t = TopologyConfig {
             links: vec![
-                LinkPolicy {
+                AdjacencyEntry {
                     name: "platform".to_string(),
                     peers: vec!["*".to_string()],
                 },
-                LinkPolicy {
+                AdjacencyEntry {
                     name: "*".to_string(),
                     peers: vec!["platform".to_string()],
                 },
             ],
-            routing_policy: vec![],
         };
         assert!(t.can_link("platform", "customer-a"));
         assert!(t.can_link("customer-a", "platform"));
@@ -305,186 +330,124 @@ mod tests {
     }
 
     #[test]
-    fn topology_can_see_full_mesh_when_empty() {
+    fn topology_can_link_explicit_pair() {
         let t = TopologyConfig {
-            links: vec![],
-            routing_policy: vec![],
-        };
-        assert!(t.can_see("customer-a", "customer-b"));
-        assert!(t.can_see("customer-b", "customer-a"));
-    }
-
-    #[test]
-    fn topology_can_see_star() {
-        let t = TopologyConfig {
-            links: vec![],
-            routing_policy: vec![
-                RoutingPolicy {
-                    from: "*".to_string(),
-                    can_reach: vec!["platform".to_string()],
-                },
-                RoutingPolicy {
-                    from: "platform".to_string(),
-                    can_reach: vec!["*".to_string()],
-                },
-            ],
-        };
-        assert!(t.can_see("customer-a", "platform"));
-        assert!(t.can_see("platform", "customer-a"));
-        assert!(t.can_see("platform", "customer-b"));
-        assert!(!t.can_see("customer-a", "customer-b"));
-        assert!(!t.can_see("customer-b", "customer-a"));
-    }
-
-    #[test]
-    fn topology_can_see_same_group_always() {
-        let t = TopologyConfig {
-            links: vec![],
-            routing_policy: vec![RoutingPolicy {
-                from: "platform".to_string(),
-                can_reach: vec!["*".to_string()],
+            links: vec![AdjacencyEntry {
+                name: "node-a".to_string(),
+                peers: vec!["node-b".to_string()],
             }],
         };
-        // Same group is always visible regardless of rules
-        assert!(t.can_see("customer-a", "customer-a"));
+        // Bidirectional
+        assert!(t.can_link("node-a", "node-b"));
+        assert!(t.can_link("node-b", "node-a"));
+        // No link to others
+        assert!(!t.can_link("node-a", "node-c"));
+        assert!(!t.can_link("node-b", "node-c"));
     }
 
     #[test]
-    fn topology_can_see_partial_mesh() {
+    fn build_graph_full_mesh() {
+        let t = TopologyConfig::default();
+        let groups = vec!["a", "b", "c", "d"];
+        let graph = t.build_graph(&groups);
+
+        assert_eq!(graph.node_count(), 4);
+        // Full mesh with 4 nodes = 6 edges
+        assert_eq!(graph.edge_count(), 6);
+    }
+
+    #[test]
+    fn build_graph_star() {
         let t = TopologyConfig {
-            links: vec![],
-            routing_policy: vec![
-                RoutingPolicy {
-                    from: "customer-a".to_string(),
-                    can_reach: vec!["platform".to_string(), "customer-b".to_string()],
-                },
-                RoutingPolicy {
-                    from: "customer-b".to_string(),
-                    can_reach: vec!["platform".to_string()],
-                },
-                RoutingPolicy {
-                    from: "platform".to_string(),
-                    can_reach: vec!["*".to_string()],
-                },
-            ],
+            links: vec![AdjacencyEntry {
+                name: "hub".to_string(),
+                peers: vec!["*".to_string()],
+            }],
         };
-        assert!(t.can_see("customer-a", "platform"));
-        assert!(t.can_see("customer-a", "customer-b"));
-        assert!(t.can_see("customer-b", "platform"));
-        assert!(!t.can_see("customer-b", "customer-a"));
-        assert!(t.can_see("platform", "customer-a"));
-        assert!(t.can_see("platform", "customer-b"));
+        let groups = vec!["hub", "a", "b", "c"];
+        let graph = t.build_graph(&groups);
+
+        assert_eq!(graph.node_count(), 4);
+        // Star: hub connects to a, b, c = 3 edges
+        assert_eq!(graph.edge_count(), 3);
     }
 
     #[test]
-    fn topology_hub_group_detection() {
+    fn build_graph_chain() {
         let t = TopologyConfig {
             links: vec![
-                LinkPolicy {
-                    name: "platform".to_string(),
-                    peers: vec!["*".to_string()],
+                AdjacencyEntry {
+                    name: "a".to_string(),
+                    peers: vec!["b".to_string()],
                 },
-                LinkPolicy {
-                    name: "*".to_string(),
-                    peers: vec!["platform".to_string()],
+                AdjacencyEntry {
+                    name: "b".to_string(),
+                    peers: vec!["c".to_string()],
+                },
+                AdjacencyEntry {
+                    name: "c".to_string(),
+                    peers: vec!["d".to_string()],
                 },
             ],
-            routing_policy: vec![],
         };
-        assert_eq!(t.hub_group(), Some("platform"));
+        let groups = vec!["a", "b", "c", "d"];
+        let graph = t.build_graph(&groups);
+
+        assert_eq!(graph.node_count(), 4);
+        // Chain: a-b, b-c, c-d = 3 edges
+        assert_eq!(graph.edge_count(), 3);
     }
 
     #[test]
-    fn topology_hub_group_none_in_mesh() {
+    fn build_graph_no_self_links() {
         let t = TopologyConfig {
-            links: vec![LinkPolicy {
+            links: vec![AdjacencyEntry {
                 name: "*".to_string(),
                 peers: vec!["*".to_string()],
             }],
-            routing_policy: vec![],
         };
-        assert_eq!(t.hub_group(), None);
+        let groups = vec!["a", "b"];
+        let graph = t.build_graph(&groups);
+
+        // 2 nodes, 1 edge (no self-links)
+        assert_eq!(graph.node_count(), 2);
+        assert_eq!(graph.edge_count(), 1);
     }
 
     #[test]
-    fn topology_is_star() {
+    fn build_graph_no_duplicate_edges() {
+        // Both entries create a↔b, but should only be 1 edge
         let t = TopologyConfig {
             links: vec![
-                LinkPolicy {
-                    name: "platform".to_string(),
-                    peers: vec!["*".to_string()],
+                AdjacencyEntry {
+                    name: "a".to_string(),
+                    peers: vec!["b".to_string()],
                 },
-                LinkPolicy {
-                    name: "*".to_string(),
-                    peers: vec!["platform".to_string()],
+                AdjacencyEntry {
+                    name: "b".to_string(),
+                    peers: vec!["a".to_string()],
                 },
             ],
-            routing_policy: vec![],
         };
-        assert!(t.is_star());
+        let groups = vec!["a", "b"];
+        let graph = t.build_graph(&groups);
+
+        assert_eq!(graph.edge_count(), 1);
     }
 
     #[test]
-    fn topology_is_not_star_when_spoke_has_extra_peers() {
+    fn build_graph_unknown_group_ignored() {
         let t = TopologyConfig {
-            links: vec![
-                LinkPolicy {
-                    name: "platform".to_string(),
-                    peers: vec!["*".to_string()],
-                },
-                LinkPolicy {
-                    name: "customer-a".to_string(),
-                    peers: vec!["platform".to_string(), "customer-b".to_string()],
-                },
-            ],
-            routing_policy: vec![],
-        };
-        assert!(!t.is_star());
-    }
-
-    #[test]
-    fn topology_validate_star_with_transit_ok() {
-        let t = TopologyConfig {
-            links: vec![
-                LinkPolicy {
-                    name: "platform".to_string(),
-                    peers: vec!["*".to_string()],
-                },
-                LinkPolicy {
-                    name: "*".to_string(),
-                    peers: vec!["platform".to_string()],
-                },
-            ],
-            routing_policy: vec![RoutingPolicy {
-                from: "customer-a".to_string(),
-                can_reach: vec!["customer-b".to_string()],
+            links: vec![AdjacencyEntry {
+                name: "a".to_string(),
+                peers: vec!["unknown".to_string()],
             }],
         };
-        assert!(t.validate().is_ok());
-    }
+        let groups = vec!["a", "b"];
+        let graph = t.build_graph(&groups);
 
-    #[test]
-    fn topology_validate_non_star_no_link_fails() {
-        let t = TopologyConfig {
-            links: vec![
-                LinkPolicy {
-                    name: "customer-a".to_string(),
-                    peers: vec!["platform".to_string()],
-                },
-                LinkPolicy {
-                    name: "customer-b".to_string(),
-                    peers: vec!["platform".to_string()],
-                },
-            ],
-            routing_policy: vec![RoutingPolicy {
-                from: "customer-a".to_string(),
-                can_reach: vec!["customer-b".to_string()],
-            }],
-        };
-        let err = t.validate().unwrap_err();
-        assert!(matches!(
-            err,
-            crate::error::Error::NoLinkForVisibility { .. }
-        ));
+        // "unknown" not in known_groups, so no edge created
+        assert_eq!(graph.node_count(), 2);
+        assert_eq!(graph.edge_count(), 0);
     }
 }
