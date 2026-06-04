@@ -2069,4 +2069,211 @@ mod tests {
             "hub route should point directly to spoke-b"
         );
     }
+
+    #[tokio::test]
+    async fn rebuild_link_graph_returns_false_when_groups_unchanged() {
+        let db = InMemoryDb::shared();
+        let node_a = make_node("node-a", Some("group-a"), vec![]);
+        let node_b = make_node("node-b", Some("group-b"), vec![]);
+        db.save_node(node_a).await.unwrap();
+        db.save_node(node_b).await.unwrap();
+
+        let svc = make_route_service(db.clone());
+        let all_nodes = db.list_nodes().await.unwrap();
+
+        // First call: groups change (empty → {group-a, group-b}).
+        assert!(svc.rebuild_link_graph(&all_nodes).await);
+
+        // Second call with same nodes: no change.
+        assert!(!svc.rebuild_link_graph(&all_nodes).await);
+    }
+
+    #[tokio::test]
+    async fn reexpand_is_idempotent() {
+        let db = InMemoryDb::shared();
+        let hub = make_node("hub-node", Some("platform"), vec![]);
+        let spoke = make_node("spoke-a", Some("customer-a"), vec![]);
+        db.save_node(hub).await.unwrap();
+        db.save_node(spoke).await.unwrap();
+
+        let svc = make_route_service_with_topology(db.clone(), star_topology());
+        let all_nodes = db.list_nodes().await.unwrap();
+        svc.rebuild_link_graph(&all_nodes).await;
+
+        // Create a link hub↔spoke.
+        let link = crate::db::Link {
+            link_id: "link-1".to_string(),
+            source_node_id: "hub-node".to_string(),
+            dest_node_id: "spoke-a".to_string(),
+            dest_endpoint: "spoke-a:8080".to_string(),
+            conn_config_data: ClientConfig::default(),
+            status: LinkStatus::Applied,
+            status_msg: String::new(),
+            created_at: SystemTime::now(),
+            last_updated: SystemTime::now(),
+        };
+        db.add_link(link).await.unwrap();
+
+        // Add a wildcard route.
+        let route = ProtoRoute {
+            name: Some(ProtoName::from_strings(["org", "name", "type"])),
+            ..Default::default()
+        };
+        svc.add_route(ALL_NODES_ID, "hub-node", &route)
+            .await
+            .unwrap();
+
+        let count_before = db.get_routes_for_node("spoke-a").await.unwrap().len();
+
+        // Re-expand again — should not create duplicates.
+        svc.reexpand_all_wildcard_routes(&all_nodes).await;
+
+        let count_after = db.get_routes_for_node("spoke-a").await.unwrap().len();
+        assert_eq!(count_before, count_after, "re-expansion should be idempotent");
+    }
+
+    #[tokio::test]
+    async fn spt_expansion_full_mesh_all_nodes_get_routes() {
+        let db = InMemoryDb::shared();
+        let node_a = make_node("node-a", Some("group-a"), vec![]);
+        let node_b = make_node("node-b", Some("group-b"), vec![]);
+        let node_c = make_node("node-c", Some("group-c"), vec![]);
+        db.save_node(node_a).await.unwrap();
+        db.save_node(node_b).await.unwrap();
+        db.save_node(node_c).await.unwrap();
+
+        // Default topology = full mesh.
+        let svc = make_route_service(db.clone());
+        let all_nodes = db.list_nodes().await.unwrap();
+        svc.rebuild_link_graph(&all_nodes).await;
+
+        // Create all inter-group links (full mesh).
+        for (src, dst, lid) in [
+            ("node-a", "node-b", "link-ab"),
+            ("node-a", "node-c", "link-ac"),
+            ("node-b", "node-c", "link-bc"),
+        ] {
+            let link = crate::db::Link {
+                link_id: lid.to_string(),
+                source_node_id: src.to_string(),
+                dest_node_id: dst.to_string(),
+                dest_endpoint: format!("{dst}:8080"),
+                conn_config_data: ClientConfig::default(),
+                status: LinkStatus::Applied,
+                status_msg: String::new(),
+                created_at: SystemTime::now(),
+                last_updated: SystemTime::now(),
+            };
+            db.add_link(link).await.unwrap();
+        }
+
+        // Add wildcard route to node-a (root = group-a).
+        let route = ProtoRoute {
+            name: Some(ProtoName::from_strings(["org", "svc", "type"])),
+            ..Default::default()
+        };
+        svc.add_route(ALL_NODES_ID, "node-a", &route)
+            .await
+            .unwrap();
+
+        // In full mesh SPT rooted at group-a, both group-b and group-c are
+        // direct children. So node-b and node-c should each get a route.
+        let routes_b = db.get_routes_for_node("node-b").await.unwrap();
+        let routes_c = db.get_routes_for_node("node-c").await.unwrap();
+
+        assert!(
+            routes_b.iter().any(|r| r.dest_node_id == "node-a"),
+            "node-b should have route to node-a"
+        );
+        assert!(
+            routes_c.iter().any(|r| r.dest_node_id == "node-a"),
+            "node-c should have route to node-a"
+        );
+    }
+
+    #[tokio::test]
+    async fn spt_expansion_chain_routes_through_intermediate() {
+        // Chain: group-a — group-b — group-c
+        // Route to node-a (root=group-a). node-c should route via node-b.
+        let db = InMemoryDb::shared();
+        let node_a = make_node("node-a", Some("group-a"), vec![]);
+        let node_b = make_node("node-b", Some("group-b"), vec![]);
+        let node_c = make_node("node-c", Some("group-c"), vec![]);
+        db.save_node(node_a).await.unwrap();
+        db.save_node(node_b).await.unwrap();
+        db.save_node(node_c).await.unwrap();
+
+        // Chain topology: a↔b, b↔c (no direct a↔c).
+        let topology = TopologyConfig {
+            links: vec![
+                AdjacencyEntry {
+                    name: "group-a".to_string(),
+                    peers: vec!["group-b".to_string()],
+                },
+                AdjacencyEntry {
+                    name: "group-b".to_string(),
+                    peers: vec!["group-a".to_string(), "group-c".to_string()],
+                },
+                AdjacencyEntry {
+                    name: "group-c".to_string(),
+                    peers: vec!["group-b".to_string()],
+                },
+            ],
+        };
+        let svc = make_route_service_with_topology(db.clone(), topology);
+        let all_nodes = db.list_nodes().await.unwrap();
+        svc.rebuild_link_graph(&all_nodes).await;
+
+        // Links: a↔b and b↔c.
+        let link_ab = crate::db::Link {
+            link_id: "link-ab".to_string(),
+            source_node_id: "node-a".to_string(),
+            dest_node_id: "node-b".to_string(),
+            dest_endpoint: "node-b:8080".to_string(),
+            conn_config_data: ClientConfig::default(),
+            status: LinkStatus::Applied,
+            status_msg: String::new(),
+            created_at: SystemTime::now(),
+            last_updated: SystemTime::now(),
+        };
+        let link_bc = crate::db::Link {
+            link_id: "link-bc".to_string(),
+            source_node_id: "node-b".to_string(),
+            dest_node_id: "node-c".to_string(),
+            dest_endpoint: "node-c:8080".to_string(),
+            conn_config_data: ClientConfig::default(),
+            status: LinkStatus::Applied,
+            status_msg: String::new(),
+            created_at: SystemTime::now(),
+            last_updated: SystemTime::now(),
+        };
+        db.add_link(link_ab).await.unwrap();
+        db.add_link(link_bc).await.unwrap();
+
+        // Add wildcard route to node-a.
+        let route = ProtoRoute {
+            name: Some(ProtoName::from_strings(["org", "svc", "type"])),
+            ..Default::default()
+        };
+        svc.add_route(ALL_NODES_ID, "node-a", &route)
+            .await
+            .unwrap();
+
+        // node-b (child of root group-a) should route via link-ab.
+        let routes_b = db.get_routes_for_node("node-b").await.unwrap();
+        let route_b = routes_b.iter().find(|r| r.dest_node_id == "node-a");
+        assert!(route_b.is_some(), "node-b should have route to node-a");
+        assert_eq!(route_b.unwrap().link_id.as_deref(), Some("link-ab"));
+
+        // node-c (child of group-b in the chain) should route via link-bc
+        // toward its parent (group-b), NOT directly to group-a.
+        let routes_c = db.get_routes_for_node("node-c").await.unwrap();
+        let route_c = routes_c.iter().find(|r| r.dest_node_id == "node-a");
+        assert!(route_c.is_some(), "node-c should have route to node-a");
+        assert_eq!(
+            route_c.unwrap().link_id.as_deref(),
+            Some("link-bc"),
+            "node-c should route toward group-b (its parent in the SPT)"
+        );
+    }
 }
