@@ -7,7 +7,6 @@ use std::{
 };
 
 use display_error_chain::ErrorChainExt;
-use slim_auth::traits::TokenProvider;
 use slim_datapath::api::{
     CommandPayload, NameId, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
     ProtoSessionType,
@@ -17,10 +16,9 @@ use tracing::debug;
 
 use crate::{
     SessionError,
-    common::SessionMessage,
+    common::{SessionMessage, SessionOutput},
     timer::Timer,
     timer_factory::{TimerFactory, TimerSettings},
-    transmitter::SessionTransmitter,
 };
 
 /// Ping interval.
@@ -83,10 +81,7 @@ struct PingState {
     ping_timer: Timer,
 }
 
-pub struct ControllerSender<P>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-{
+pub struct ControllerSender {
     /// timer factory to crate timers for acks
     timer_factory: TimerFactory,
 
@@ -118,9 +113,6 @@ where
     /// list of participants to the group
     group_list: HashSet<ProtoName>,
 
-    /// send packets to slim or the app
-    tx: SessionTransmitter<P>,
-
     /// send message to the session controller
     tx_session: Sender<SessionMessage>,
 
@@ -128,10 +120,7 @@ where
     draining_state: ControllerSenderDrainStatus,
 }
 
-impl<P> ControllerSender<P>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-{
+impl ControllerSender {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         timer_settings: TimerSettings,
@@ -140,7 +129,6 @@ where
         session_id: u32,
         ping_interval: Option<Duration>,
         initiator: bool,
-        tx: SessionTransmitter<P>,
         tx_signals: Sender<SessionMessage>,
     ) -> Self {
         let mut list = HashSet::new();
@@ -177,7 +165,6 @@ where
             ping_state,
             initiator,
             group_list: list,
-            tx,
             tx_session: tx_signals,
             draining_state: ControllerSenderDrainStatus::NotDraining,
         }
@@ -244,10 +231,12 @@ where
         Ok(())
     }
 
-    pub async fn on_message(&mut self, message: &Message) -> Result<(), SessionError> {
+    pub fn on_message(&mut self, message: &Message) -> Result<SessionOutput, SessionError> {
         if self.draining_state == ControllerSenderDrainStatus::Completed {
             return Err(SessionError::SessionDrainingDrop);
         }
+
+        let mut output = SessionOutput::new();
 
         match message.get_session_message_type() {
             slim_datapath::api::ProtoSessionMessageType::DiscoveryRequest
@@ -276,7 +265,7 @@ where
                 self.update_local_state(message)?;
 
                 // send the message and setup the required timers
-                self.on_send_message(message, missing_replies).await?;
+                output.extend(self.on_send_message(message, missing_replies)?);
             }
             slim_datapath::api::ProtoSessionMessageType::DiscoveryReply
             | slim_datapath::api::ProtoSessionMessageType::JoinReply
@@ -301,7 +290,7 @@ where
                     .cloned()
                     .collect::<HashSet<_>>();
 
-                self.on_send_message(message, missing_replies).await?;
+                output.extend(self.on_send_message(message, missing_replies)?);
             }
             slim_datapath::api::ProtoSessionMessageType::GroupRemove => {
                 // compute the list of participants that needs to send an ack
@@ -325,7 +314,7 @@ where
 
                 self.group_list.remove(&to_remove);
 
-                self.on_send_message(message, missing_replies).await?;
+                output.extend(self.on_send_message(message, missing_replies)?);
             }
             slim_datapath::api::ProtoSessionMessageType::GroupClose => {
                 // compute the list of participants that needs to send an ack
@@ -336,7 +325,7 @@ where
                     .cloned()
                     .collect::<HashSet<_>>();
 
-                self.on_send_message(message, missing_replies).await?;
+                output.extend(self.on_send_message(message, missing_replies)?);
             }
             slim_datapath::api::ProtoSessionMessageType::GroupProposal => todo!(),
             _ => {
@@ -344,14 +333,14 @@ where
             }
         }
 
-        Ok(())
+        Ok(output)
     }
 
-    async fn on_send_message(
+    fn on_send_message(
         &mut self,
         message: &Message,
         missing_replies: HashSet<ProtoName>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<SessionOutput, SessionError> {
         let id = message.get_id();
 
         debug!(
@@ -369,7 +358,10 @@ where
         };
 
         self.pending_replies.insert(id, pending);
-        self.tx.send_to_slim(Ok(message.clone())).await
+
+        let mut output = SessionOutput::new();
+        output.push_slim(message.clone());
+        Ok(output)
     }
 
     fn on_reply_message(&mut self, message: &Message) {
@@ -432,27 +424,29 @@ where
         self.pending_replies.contains_key(&message_id)
     }
 
-    pub(crate) async fn on_timer_timeout(
+    pub(crate) fn on_timer_timeout(
         &mut self,
         id: u32,
         msg_type: ProtoSessionMessageType,
-    ) -> Result<(), SessionError> {
+    ) -> Result<SessionOutput, SessionError> {
         debug!(%id, ?msg_type, "timeout for message");
 
         // check if the timeout is related to a ping
         if self.ping_state.is_some() && msg_type == ProtoSessionMessageType::Ping {
-            return self.handle_ping_timeout(id).await;
+            return self.handle_ping_timeout(id);
         }
 
         // the timer is not related to a ping, resent the message if possible
         if let Some(pending) = self.pending_replies.get(&id) {
-            return self.tx.send_to_slim(Ok(pending.message.clone())).await;
+            let mut output = SessionOutput::new();
+            output.push_slim(pending.message.clone());
+            return Ok(output);
         };
 
         Err(SessionError::TimerNotFound(id))
     }
 
-    async fn handle_ping_timeout(&mut self, id: u32) -> Result<(), SessionError> {
+    fn handle_ping_timeout(&mut self, id: u32) -> Result<SessionOutput, SessionError> {
         // If this is a participant check if a message was received
         // during the last ping time
         if !self.initiator
@@ -481,7 +475,7 @@ where
                     }
                 }
             }
-            return Ok(());
+            return Ok(SessionOutput::new());
         }
 
         // This is a initiator
@@ -533,8 +527,8 @@ where
                     .cloned()
                     .collect::<HashSet<_>>();
 
-                // Send the ping message to slim
-                self.tx.send_to_slim(Ok(ping.clone())).await?;
+                let mut output = SessionOutput::new();
+                output.push_slim(ping.clone());
 
                 if let Some(ping_state) = self.ping_state.as_mut() {
                     ping_state.ping = Some(PendingReply {
@@ -550,6 +544,8 @@ where
                         ),
                     });
                 }
+
+                return Ok(output);
             }
         } else {
             // most likely the timeout is related to the ping message itself so
@@ -563,11 +559,13 @@ where
             if let Some(ping_message) = message_to_send {
                 debug!(%id, "ping message timeout, send it again");
                 // simply resend the message
-                return self.tx.send_to_slim(Ok(ping_message)).await;
+                let mut output = SessionOutput::new();
+                output.push_slim(ping_message);
+                return Ok(output);
             }
         }
 
-        Ok(())
+        Ok(SessionOutput::new())
     }
 
     /// Handle ping state by updating missing_pings and checking for disconnections
@@ -692,10 +690,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::MockTokenProvider;
-    use crate::transmitter::SessionTransmitter;
-
     use super::*;
+    use crate::common::{OutboundMessage, SessionOutput};
     use slim_datapath::api::{
         CommandPayload, Participant, ParticipantSettings, ProtoSessionMessageType, ProtoSessionType,
     };
@@ -703,17 +699,47 @@ mod tests {
     use tokio::time::timeout;
     use tracing_test::traced_test;
 
+    fn single_slim_message(output: SessionOutput) -> Message {
+        let mut messages = output
+            .messages
+            .into_iter()
+            .map(|message| match message {
+                OutboundMessage::ToSlim(message) => message,
+                OutboundMessage::ToApp(_) => panic!("Expected ToSlim message"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(messages.len(), 1, "Expected exactly one outbound message");
+        messages.pop().unwrap()
+    }
+
+    fn assert_no_messages(output: SessionOutput) {
+        assert!(output.messages.is_empty(), "Expected no outbound messages");
+    }
+
+    async fn expect_timeout(
+        rx_signal: &mut tokio::sync::mpsc::Receiver<SessionMessage>,
+        wait: Duration,
+    ) -> (u32, ProtoSessionMessageType) {
+        let timeout_msg = timeout(wait, rx_signal.recv())
+            .await
+            .expect("timeout waiting for timer signal")
+            .expect("channel closed");
+
+        match timeout_msg {
+            SessionMessage::TimerTimeout {
+                message_id,
+                message_type,
+                ..
+            } => (message_id, message_type),
+            other => panic!("Expected TimerTimeout message, got {:?}", other),
+        }
+    }
+
     #[tokio::test]
     #[traced_test]
     async fn test_on_discovery_request() {
-        // send a discovery request, wait for a retransmission of the message and then get the discovery reply
         let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let remote = ProtoName::from_strings(["org", "ns", "remote"]);
@@ -726,12 +752,8 @@ mod tests {
             session_id,
             None,
             false,
-            tx,
             tx_signal,
         );
-
-        // Create a discovery request message
-        let payload = CommandPayload::builder().discovery_request();
 
         let request = Message::builder()
             .source(source.clone())
@@ -741,98 +763,50 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
             .session_id(session_id)
             .message_id(1)
-            .payload(payload.as_content())
+            .payload(CommandPayload::builder().discovery_request().as_content())
             .build_publish()
             .unwrap();
 
-        // Send the message using on_message function
-        sender
-            .on_message(&request)
-            .await
-            .expect("error sending message");
+        let sent = single_slim_message(sender.on_message(&request).expect("error sending message"));
+        assert_eq!(sent, request);
 
-        // Wait for the message to arrive at rx_slim
-        let received = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for message")
-            .expect("channel closed")
-            .expect("error message");
+        let (message_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(300)).await;
+        assert_eq!(message_id, 1);
+        assert_eq!(message_type, ProtoSessionMessageType::DiscoveryRequest);
 
-        // Verify the message received is the right one
-        assert_eq!(received, request);
-
-        // Wait longer than the timer duration to account for async task scheduling
-        let timeout_msg = timeout(Duration::from_millis(300), rx_signal.recv())
-            .await
-            .expect("timeout waiting for timer signal")
-            .expect("channel closed");
-
-        // Verify we got the right timeout
-        match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_id, 1);
-                assert_eq!(message_type, ProtoSessionMessageType::DiscoveryRequest);
-            }
-            _ => panic!("Expected TimerTimeout message"),
-        }
-
-        // notify the timeout to the sender
-        sender
-            .on_timer_timeout(1, ProtoSessionMessageType::DiscoveryRequest)
-            .await
-            .expect("error re-sending the request");
-
-        // Wait for the message to be sent again to slim
-        let received = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for message")
-            .expect("channel closed")
-            .expect("error message");
-
-        // Verify the message received is the right one
-        assert_eq!(received, request);
-
-        // Create the discovery reply
-        let payload = CommandPayload::builder().discovery_reply();
+        let resent = single_slim_message(
+            sender
+                .on_timer_timeout(1, ProtoSessionMessageType::DiscoveryRequest)
+                .expect("error re-sending the request"),
+        );
+        assert_eq!(resent, request);
 
         let reply = Message::builder()
-            .source(source.clone())
-            .destination(remote.clone())
+            .source(remote.clone())
+            .destination(source.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
             .session_message_type(ProtoSessionMessageType::DiscoveryReply)
             .session_id(session_id)
             .message_id(1)
-            .payload(payload.as_content())
+            .payload(CommandPayload::builder().discovery_reply().as_content())
             .build_publish()
             .unwrap();
 
-        // Send the message using on_message function
-        sender
-            .on_message(&reply)
-            .await
-            .expect("error sending reply");
-
-        // this should stop the timer so we should not get any other message in slim
-        let res = timeout(Duration::from_millis(400), rx_slim.recv()).await;
-        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+        assert_no_messages(sender.on_message(&reply).expect("error sending reply"));
+        assert!(
+            timeout(Duration::from_millis(400), rx_signal.recv())
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
     #[traced_test]
     async fn test_on_join_request() {
-        // send a join request, wait for a retransmission of the message and then get the join reply
         let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let remote = ProtoName::from_strings(["org", "ns", "remote"]);
@@ -846,16 +820,7 @@ mod tests {
             session_id,
             None,
             false,
-            tx,
             tx_signal,
-        );
-
-        // Create a join request message
-        let payload = CommandPayload::builder().join_request(
-            false,                 // enable_mls
-            None,                  // max_retries
-            None,                  // timer_duration
-            Some(channel.clone()), // channel
         );
 
         let request = Message::builder()
@@ -866,66 +831,28 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::JoinRequest)
             .session_id(session_id)
             .message_id(1)
-            .payload(payload.as_content())
+            .payload(
+                CommandPayload::builder()
+                    .join_request(false, None, None, Some(channel.clone()))
+                    .as_content(),
+            )
             .build_publish()
             .unwrap();
 
-        // Send the message using on_message function
-        sender
-            .on_message(&request)
-            .await
-            .expect("error sending message");
+        let sent = single_slim_message(sender.on_message(&request).expect("error sending message"));
+        assert_eq!(sent, request);
 
-        // Wait for the message to arrive at rx_slim
-        let received = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for message")
-            .expect("channel closed")
-            .expect("error message");
+        let (message_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(300)).await;
+        assert_eq!(message_id, 1);
+        assert_eq!(message_type, ProtoSessionMessageType::JoinRequest);
 
-        // Verify the message received is the right one
-        assert_eq!(received, request);
-
-        // Wait longer than the timer duration to account for async task scheduling
-        let timeout_msg = timeout(Duration::from_millis(300), rx_signal.recv())
-            .await
-            .expect("timeout waiting for timer signal")
-            .expect("channel closed");
-
-        // Verify we got the right timeout
-        match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_id, 1);
-                assert_eq!(message_type, ProtoSessionMessageType::JoinRequest);
-            }
-            _ => panic!("Expected TimerTimeout message"),
-        }
-
-        // notify the timeout to the sender
-        sender
-            .on_timer_timeout(1, ProtoSessionMessageType::JoinRequest)
-            .await
-            .expect("error re-sending the request");
-
-        // Wait for the message to be sent again to slim
-        let received = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for message")
-            .expect("channel closed")
-            .expect("error message");
-
-        // Verify the message received is the right one
-        assert_eq!(received, request);
-
-        // Create the join reply
-        let payload = CommandPayload::builder().join_reply(
-            None,
-            Participant::new(remote.clone(), ParticipantSettings::bidirectional()),
+        let resent = single_slim_message(
+            sender
+                .on_timer_timeout(1, ProtoSessionMessageType::JoinRequest)
+                .expect("error re-sending the request"),
         );
+        assert_eq!(resent, request);
 
         let reply = Message::builder()
             .source(remote.clone())
@@ -935,32 +862,30 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::JoinReply)
             .session_id(session_id)
             .message_id(1)
-            .payload(payload.as_content())
+            .payload(
+                CommandPayload::builder()
+                    .join_reply(
+                        None,
+                        Participant::new(remote.clone(), ParticipantSettings::bidirectional()),
+                    )
+                    .as_content(),
+            )
             .build_publish()
             .unwrap();
 
-        // Send the reply using on_message function
-        sender
-            .on_message(&reply)
-            .await
-            .expect("error sending reply");
-
-        // this should stop the timer so we should not get any other message in slim
-        let res = timeout(Duration::from_millis(400), rx_slim.recv()).await;
-        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+        assert_no_messages(sender.on_message(&reply).expect("error sending reply"));
+        assert!(
+            timeout(Duration::from_millis(400), rx_signal.recv())
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
     #[traced_test]
     async fn test_on_leave_request() {
-        // send a leave request, wait for a retransmission of the message and then get the leave reply
         let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let remote = ProtoName::from_strings(["org", "ns", "remote"]);
@@ -973,12 +898,8 @@ mod tests {
             session_id,
             None,
             false,
-            tx,
             tx_signal,
         );
-
-        // Create a leave request message
-        let payload = CommandPayload::builder().leave_request();
 
         let request = Message::builder()
             .source(source.clone())
@@ -988,63 +909,24 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::LeaveRequest)
             .session_id(session_id)
             .message_id(1)
-            .payload(payload.as_content())
+            .payload(CommandPayload::builder().leave_request().as_content())
             .build_publish()
             .unwrap();
 
-        // Send the message using on_message function
-        sender
-            .on_message(&request)
-            .await
-            .expect("error sending message");
+        let sent = single_slim_message(sender.on_message(&request).expect("error sending message"));
+        assert_eq!(sent, request);
 
-        // Wait for the message to arrive at rx_slim
-        let received = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for message")
-            .expect("channel closed")
-            .expect("error message");
+        let (message_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(300)).await;
+        assert_eq!(message_id, 1);
+        assert_eq!(message_type, ProtoSessionMessageType::LeaveRequest);
 
-        // Verify the message received is the right one
-        assert_eq!(received, request);
-
-        // Wait longer than the timer duration to account for async task scheduling
-        let timeout_msg = timeout(Duration::from_millis(300), rx_signal.recv())
-            .await
-            .expect("timeout waiting for timer signal")
-            .expect("channel closed");
-
-        // Verify we got the right timeout
-        match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_id, 1);
-                assert_eq!(message_type, ProtoSessionMessageType::LeaveRequest);
-            }
-            _ => panic!("Expected TimerTimeout message"),
-        }
-
-        // notify the timeout to the sender
-        sender
-            .on_timer_timeout(1, ProtoSessionMessageType::LeaveRequest)
-            .await
-            .expect("error re-sending the request");
-
-        // Wait for the message to be sent again to slim
-        let received = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for message")
-            .expect("channel closed")
-            .expect("error message");
-
-        // Verify the message received is the right one
-        assert_eq!(received, request);
-
-        // Create the leave reply
-        let payload = CommandPayload::builder().leave_reply();
+        let resent = single_slim_message(
+            sender
+                .on_timer_timeout(1, ProtoSessionMessageType::LeaveRequest)
+                .expect("error re-sending the request"),
+        );
+        assert_eq!(resent, request);
 
         let reply = Message::builder()
             .source(remote.clone())
@@ -1054,37 +936,28 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::LeaveReply)
             .session_id(session_id)
             .message_id(1)
-            .payload(payload.as_content())
+            .payload(CommandPayload::builder().leave_reply().as_content())
             .build_publish()
             .unwrap();
 
-        // Send the reply using on_message function
-        sender
-            .on_message(&reply)
-            .await
-            .expect("error sending reply");
-
-        // this should stop the timer so we should not get any other message in slim
-        let res = timeout(Duration::from_millis(400), rx_slim.recv()).await;
-        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+        assert_no_messages(sender.on_message(&reply).expect("error sending reply"));
+        assert!(
+            timeout(Duration::from_millis(400), rx_signal.recv())
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
     #[traced_test]
     async fn test_on_group_welcome() {
-        // send a group welcome, wait for a retransmission of the message and then get the group ack
         let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
-        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
         let source_name = ProtoName::from_strings(["org", "ns", "source"]);
         let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
         let source = Participant::new(source_name.clone(), ParticipantSettings::bidirectional());
         let remote = Participant::new(remote_name.clone(), ParticipantSettings::bidirectional());
-
         let session_id = 1;
 
         let mut sender = ControllerSender::new(
@@ -1094,12 +967,8 @@ mod tests {
             session_id,
             None,
             false,
-            tx,
             tx_signal,
         );
-
-        let payload =
-            CommandPayload::builder().group_welcome(vec![remote.clone(), source.clone()], None);
 
         let welcome = Message::builder()
             .source(source_name.clone())
@@ -1109,63 +978,28 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::GroupWelcome)
             .session_id(session_id)
             .message_id(1)
-            .payload(payload.as_content())
+            .payload(
+                CommandPayload::builder()
+                    .group_welcome(vec![remote.clone(), source.clone()], None)
+                    .as_content(),
+            )
             .build_publish()
             .unwrap();
 
-        // Send the message using on_message function
-        sender
-            .on_message(&welcome)
-            .await
-            .expect("error sending message");
+        let sent = single_slim_message(sender.on_message(&welcome).expect("error sending message"));
+        assert_eq!(sent, welcome);
 
-        // Wait for the message to arrive at rx_slim
-        let received = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for message")
-            .expect("channel closed")
-            .expect("error message");
+        let (message_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(300)).await;
+        assert_eq!(message_id, 1);
+        assert_eq!(message_type, ProtoSessionMessageType::GroupWelcome);
 
-        // Verify the message received is the right one
-        assert_eq!(received, welcome);
-
-        // Wait longer than the timer duration to account for async task scheduling
-        let timeout_msg = timeout(Duration::from_millis(300), rx_signal.recv())
-            .await
-            .expect("timeout waiting for timer signal")
-            .expect("channel closed");
-
-        // Verify we got the right timeout
-        match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_id, 1);
-                assert_eq!(message_type, ProtoSessionMessageType::GroupWelcome);
-            }
-            _ => panic!("Expected TimerTimeout message"),
-        }
-
-        // notify the timeout to the sender
-        sender
-            .on_timer_timeout(1, ProtoSessionMessageType::GroupWelcome)
-            .await
-            .expect("error re-sending the welcome");
-
-        // Wait for the message to be sent again to slim
-        let received = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for message")
-            .expect("channel closed")
-            .expect("error message");
-
-        // Verify the message received is the right one
-        assert_eq!(received, welcome);
-
-        // Create the group ack
-        let payload = CommandPayload::builder().group_ack();
+        let resent = single_slim_message(
+            sender
+                .on_timer_timeout(1, ProtoSessionMessageType::GroupWelcome)
+                .expect("error re-sending the welcome"),
+        );
+        assert_eq!(resent, welcome);
 
         let ack = Message::builder()
             .source(remote_name.clone())
@@ -1175,29 +1009,23 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::GroupAck)
             .session_id(session_id)
             .message_id(1)
-            .payload(payload.as_content())
+            .payload(CommandPayload::builder().group_ack().as_content())
             .build_publish()
             .unwrap();
 
-        // Send the ack using on_message function
-        sender.on_message(&ack).await.expect("error sending ack");
-
-        // this should stop the timer so we should not get any other message in slim
-        let res = timeout(Duration::from_millis(400), rx_slim.recv()).await;
-        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+        assert_no_messages(sender.on_message(&ack).expect("error sending ack"));
+        assert!(
+            timeout(Duration::from_millis(400), rx_signal.recv())
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
     #[traced_test]
     async fn test_on_group_add_message() {
-        // send a group add with 2 participants, wait for retransmission, then send 2 group acks
         let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let group = ProtoName::from_strings(["org", "ns", "group"]);
@@ -1210,27 +1038,13 @@ mod tests {
             session_id,
             None,
             false,
-            tx,
             tx_signal,
         );
 
-        // First add participant2 to establish a group with 2 members (source + participant2)
         let participant2 = ProtoName::from_strings(["org", "ns", "participant2"]);
         sender.group_list.insert(participant2.clone());
 
-        // Now create a group add message to add participant1
-        // This should wait for acks from both participant2 (already in group) and participant1 (being added)
         let participant1 = ProtoName::from_strings(["org", "ns", "participant1"]);
-        let payload = CommandPayload::builder().group_add(
-            Participant::new(participant1.clone(), ParticipantSettings::bidirectional()),
-            vec![
-                Participant::new(participant1.clone(), ParticipantSettings::bidirectional()),
-                Participant::new(participant2.clone(), ParticipantSettings::bidirectional()),
-                Participant::new(source.clone(), ParticipantSettings::bidirectional()),
-            ],
-            None, // mls_commit
-        );
-
         let update = Message::builder()
             .source(source.clone())
             .destination(group.clone())
@@ -1239,63 +1053,45 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::GroupAdd)
             .session_id(session_id)
             .message_id(1)
-            .payload(payload.as_content())
+            .payload(
+                CommandPayload::builder()
+                    .group_add(
+                        Participant::new(
+                            participant1.clone(),
+                            ParticipantSettings::bidirectional(),
+                        ),
+                        vec![
+                            Participant::new(
+                                participant1.clone(),
+                                ParticipantSettings::bidirectional(),
+                            ),
+                            Participant::new(
+                                participant2.clone(),
+                                ParticipantSettings::bidirectional(),
+                            ),
+                            Participant::new(source.clone(), ParticipantSettings::bidirectional()),
+                        ],
+                        None,
+                    )
+                    .as_content(),
+            )
             .build_publish()
             .unwrap();
 
-        // Send the message using on_message function
-        sender
-            .on_message(&update)
-            .await
-            .expect("error sending message");
+        let sent = single_slim_message(sender.on_message(&update).expect("error sending message"));
+        assert_eq!(sent, update);
 
-        // Wait for the message to arrive at rx_slim
-        let received = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for message")
-            .expect("channel closed")
-            .expect("error message");
+        let (message_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(300)).await;
+        assert_eq!(message_id, 1);
+        assert_eq!(message_type, ProtoSessionMessageType::GroupAdd);
 
-        // Verify the message received is the right one
-        assert_eq!(received, update);
-
-        // Wait longer than the timer duration to account for async task scheduling
-        let timeout_msg = timeout(Duration::from_millis(300), rx_signal.recv())
-            .await
-            .expect("timeout waiting for timer signal")
-            .expect("channel closed");
-
-        // Verify we got the right timeout
-        match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_id, 1);
-                assert_eq!(message_type, ProtoSessionMessageType::GroupAdd);
-            }
-            _ => panic!("Expected TimerTimeout message"),
-        }
-
-        // notify the timeout to the sender
-        sender
-            .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd)
-            .await
-            .expect("error re-sending the add");
-
-        // Wait for the message to be sent again to slim
-        let received = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for message")
-            .expect("channel closed")
-            .expect("error message");
-
-        // Verify the message received is the right one
-        assert_eq!(received, update);
-
-        // Create the first group ack from participant1
-        let payload = CommandPayload::builder().group_ack();
+        let resent = single_slim_message(
+            sender
+                .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd)
+                .expect("error re-sending the add"),
+        );
+        assert_eq!(resent, update);
 
         let ack1 = Message::builder()
             .source(participant1.clone())
@@ -1305,21 +1101,11 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::GroupAck)
             .session_id(session_id)
             .message_id(1)
-            .payload(payload.as_content())
+            .payload(CommandPayload::builder().group_ack().as_content())
             .build_publish()
             .unwrap();
-
-        // Send the first ack using on_message function
-        sender.on_message(&ack1).await.expect("error sending ack");
-
-        // Verify the message is still pending (timer should NOT stop yet with only 1/2 acks)
-        assert!(
-            sender.is_still_pending(1),
-            "Message should still be pending after first ack"
-        );
-
-        // Create the second group ack from participant2
-        let payload = CommandPayload::builder().group_ack();
+        assert_no_messages(sender.on_message(&ack1).expect("error sending ack"));
+        assert!(sender.is_still_pending(1));
 
         let ack2 = Message::builder()
             .source(participant2.clone())
@@ -1329,30 +1115,23 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::GroupAck)
             .session_id(session_id)
             .message_id(1)
-            .payload(payload.as_content())
+            .payload(CommandPayload::builder().group_ack().as_content())
             .build_publish()
             .unwrap();
-
-        // Send the second ack using on_message function
-        sender.on_message(&ack2).await.expect("error sending ack");
-
-        // Now the timer should be stopped - verify no more messages in slim
-        let res = timeout(Duration::from_millis(400), rx_slim.recv()).await;
-        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
+        assert_no_messages(sender.on_message(&ack2).expect("error sending ack"));
+        assert!(!sender.is_still_pending(1));
+        assert!(
+            timeout(Duration::from_millis(100), rx_signal.recv())
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
     #[traced_test]
     async fn test_on_group_update_duplicate_acks() {
-        // send a group add with 2 participants, receive duplicate acks from same participant
-        // verify timer doesn't stop until we get acks from BOTH different participants
         let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let remote = ProtoName::from_strings(["org", "ns", "remote"]);
@@ -1365,27 +1144,13 @@ mod tests {
             session_id,
             None,
             false,
-            tx,
             tx_signal,
         );
 
-        // First add participant2 to establish a group with 2 members (source + participant2)
         let participant2 = ProtoName::from_strings(["org", "ns", "participant2"]);
         sender.group_list.insert(participant2.clone());
 
-        // Now create a group add message to add participant1
-        // This should wait for acks from both participant2 (already in group) and participant1 (being added)
         let participant1 = ProtoName::from_strings(["org", "ns", "participant1"]);
-        let payload = CommandPayload::builder().group_add(
-            Participant::new(participant1.clone(), ParticipantSettings::bidirectional()),
-            vec![
-                Participant::new(participant1.clone(), ParticipantSettings::bidirectional()),
-                Participant::new(participant2.clone(), ParticipantSettings::bidirectional()),
-                Participant::new(source.clone(), ParticipantSettings::bidirectional()),
-            ],
-            None, // mls
-        );
-
         let update = Message::builder()
             .source(source.clone())
             .destination(remote.clone())
@@ -1394,63 +1159,45 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::GroupAdd)
             .session_id(session_id)
             .message_id(1)
-            .payload(payload.as_content())
+            .payload(
+                CommandPayload::builder()
+                    .group_add(
+                        Participant::new(
+                            participant1.clone(),
+                            ParticipantSettings::bidirectional(),
+                        ),
+                        vec![
+                            Participant::new(
+                                participant1.clone(),
+                                ParticipantSettings::bidirectional(),
+                            ),
+                            Participant::new(
+                                participant2.clone(),
+                                ParticipantSettings::bidirectional(),
+                            ),
+                            Participant::new(source.clone(), ParticipantSettings::bidirectional()),
+                        ],
+                        None,
+                    )
+                    .as_content(),
+            )
             .build_publish()
             .unwrap();
 
-        // Send the message using on_message function
-        sender
-            .on_message(&update)
-            .await
-            .expect("error sending message");
+        let sent = single_slim_message(sender.on_message(&update).expect("error sending message"));
+        assert_eq!(sent, update);
 
-        // Wait for the message to arrive at rx_slim
-        let received = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for message")
-            .expect("channel closed")
-            .expect("error message");
+        let (message_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(300)).await;
+        assert_eq!(message_id, 1);
+        assert_eq!(message_type, ProtoSessionMessageType::GroupAdd);
 
-        // Verify the message received is the right one
-        assert_eq!(received, update);
-
-        // Wait longer than the timer duration to account for async task scheduling
-        let timeout_msg = timeout(Duration::from_millis(300), rx_signal.recv())
-            .await
-            .expect("timeout waiting for timer signal")
-            .expect("channel closed");
-
-        // Verify we got the right timeout
-        match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_id, 1);
-                assert_eq!(message_type, ProtoSessionMessageType::GroupAdd);
-            }
-            _ => panic!("Expected TimerTimeout message"),
-        }
-
-        // notify the timeout to the sender
-        sender
-            .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd)
-            .await
-            .expect("error re-sending the add");
-
-        // Wait for the message to be sent again to slim
-        let received = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for message")
-            .expect("channel closed")
-            .expect("error message");
-
-        // Verify the message received is the right one
-        assert_eq!(received, update);
-
-        // Create the first group ack from participant1
-        let payload = CommandPayload::builder().group_ack();
+        let resent = single_slim_message(
+            sender
+                .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd)
+                .expect("error re-sending the add"),
+        );
+        assert_eq!(resent, update);
 
         let ack1 = Message::builder()
             .source(participant1.clone())
@@ -1460,66 +1207,30 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::GroupAck)
             .session_id(session_id)
             .message_id(1)
-            .payload(payload.as_content())
+            .payload(CommandPayload::builder().group_ack().as_content())
             .build_publish()
             .unwrap();
+        assert_no_messages(sender.on_message(&ack1).expect("error sending ack"));
+        assert!(sender.is_still_pending(1));
 
-        // Send the first ack using on_message function
-        sender.on_message(&ack1).await.expect("error sending ack");
-
-        // Verify the message is still pending (timer should NOT stop yet with only 1/2 acks)
-        assert!(
-            sender.is_still_pending(1),
-            "Message should still be pending after first ack"
+        assert_no_messages(
+            sender
+                .on_message(&ack1)
+                .expect("error sending duplicate ack"),
         );
+        assert!(sender.is_still_pending(1));
 
-        // Send the SAME ack again from participant1 (duplicate)
-        sender
-            .on_message(&ack1)
-            .await
-            .expect("error sending duplicate ack");
+        let (message_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(300)).await;
+        assert_eq!(message_id, 1);
+        assert_eq!(message_type, ProtoSessionMessageType::GroupAdd);
 
-        // Verify the message is STILL pending - duplicate ack should not count
-        assert!(
-            sender.is_still_pending(1),
-            "Message should still be pending after duplicate ack from same participant"
+        let retransmitted = single_slim_message(
+            sender
+                .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd)
+                .expect("error re-sending the add"),
         );
-
-        // Wait for another timeout since timer should still be running
-        let timeout_msg = timeout(Duration::from_millis(300), rx_signal.recv())
-            .await
-            .expect("timeout waiting for second timer signal - duplicate ack should not have stopped timer")
-            .expect("channel closed");
-
-        // Verify we got another timeout (timer didn't stop)
-        match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_id, 1);
-                assert_eq!(message_type, ProtoSessionMessageType::GroupAdd);
-            }
-            _ => panic!("Expected TimerTimeout message"),
-        }
-
-        // notify the timeout to the sender (this will resend the message)
-        sender
-            .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd)
-            .await
-            .expect("error re-sending the add");
-
-        // Consume the retransmitted message from the channel
-        let received = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for retransmitted message")
-            .expect("channel closed")
-            .expect("error message");
-        assert_eq!(received, update);
-
-        // Now send ack from participant2 (the second unique participant)
-        let payload = CommandPayload::builder().group_ack();
+        assert_eq!(retransmitted, update);
 
         let ack2 = Message::builder()
             .source(participant2.clone())
@@ -1529,43 +1240,24 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::GroupAck)
             .session_id(session_id)
             .message_id(1)
-            .payload(payload.as_content())
+            .payload(CommandPayload::builder().group_ack().as_content())
             .build_publish()
             .unwrap();
-
-        // Send the second ack from participant2
-        sender.on_message(&ack2).await.expect("error sending ack");
-
-        // NOW the timer should be stopped - verify no more messages in slim
-        let res = timeout(Duration::from_millis(400), rx_slim.recv()).await;
-        assert!(res.is_err(), "Expected timeout but got: {:?}", res);
-
-        // Verify no more timeout signals
-        let res = timeout(Duration::from_millis(100), rx_signal.recv()).await;
+        assert_no_messages(sender.on_message(&ack2).expect("error sending ack"));
+        assert!(!sender.is_still_pending(1));
         assert!(
-            res.is_err(),
-            "Expected no more timeout signals after all unique acks received"
+            timeout(Duration::from_millis(100), rx_signal.recv())
+                .await
+                .is_err()
         );
     }
 
     #[tokio::test]
     #[traced_test]
     async fn test_ping_with_retransmissions_and_disconnection() {
-        // Test ping functionality:
-        // - Ping sent every 1 second
-        // - Ping retry every 400ms
-        // - First ping gets reply
-        // - Subsequent pings get no reply (2 retransmissions per interval)
-        // - After 3 failed ping intervals, participant is considered disconnected
-
         let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
         let ping_interval = Duration::from_millis(1000);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(100);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
@@ -1578,53 +1270,25 @@ mod tests {
             session_id,
             Some(ping_interval),
             true,
-            tx,
             tx_signal,
         );
 
-        // Add participant to the group and set group name
         sender.group_list.insert(participant.clone());
         sender.group_name = Some(participant.clone());
 
-        // === PING INTERVAL 1: First ping gets a reply ===
-
-        // Wait for the first ping interval timeout
-        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
-            .await
-            .expect("timeout waiting for first ping interval")
-            .expect("channel closed");
-
-        let first_ping_id = match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_type, ProtoSessionMessageType::Ping);
-                message_id
-            }
-            _ => panic!("Expected TimerTimeout for ping interval"),
-        };
-
-        // Trigger the ping send
-        sender
-            .on_timer_timeout(first_ping_id, ProtoSessionMessageType::Ping)
-            .await
-            .expect("error sending first ping");
-
-        // Verify ping was sent to slim
-        let first_ping = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for first ping")
-            .expect("channel closed")
-            .expect("error message");
-
+        let (first_ping_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
+        assert_eq!(message_type, ProtoSessionMessageType::Ping);
+        let first_ping = single_slim_message(
+            sender
+                .on_timer_timeout(first_ping_id, ProtoSessionMessageType::Ping)
+                .expect("error sending first ping"),
+        );
         assert_eq!(
             first_ping.get_session_message_type(),
             ProtoSessionMessageType::Ping
         );
 
-        // Send a ping reply from the participant (ping with same message ID)
         let ping_reply = Message::builder()
             .source(participant.clone())
             .destination(source.clone())
@@ -1636,369 +1300,134 @@ mod tests {
             .payload(CommandPayload::builder().ping().as_content())
             .build_publish()
             .unwrap();
-
         sender.on_ping_message(&ping_reply);
-
-        // Verify no retransmission happens (participant replied)
-        let res = timeout(Duration::from_millis(500), rx_slim.recv()).await;
         assert!(
-            res.is_err(),
-            "Expected no retransmission after successful ping reply"
+            timeout(Duration::from_millis(500), rx_signal.recv())
+                .await
+                .is_err()
         );
 
-        // === PING INTERVAL 2: No reply, expect 2 retransmissions ===
-
-        // Wait for the second ping interval timeout
-        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
-            .await
-            .expect("timeout waiting for second ping interval")
-            .expect("channel closed");
-
-        let second_ping_id = match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_type, ProtoSessionMessageType::Ping);
-                message_id
-            }
-            _ => panic!("Expected TimerTimeout for ping interval"),
-        };
-
-        // Trigger the ping send
-        sender
-            .on_timer_timeout(second_ping_id, ProtoSessionMessageType::Ping)
-            .await
-            .expect("error sending second ping");
-
-        // Verify ping was sent
-        let second_ping = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for second ping")
-            .expect("channel closed")
-            .expect("error message");
-
+        let (second_ping_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
+        assert_eq!(message_type, ProtoSessionMessageType::Ping);
+        let second_ping = single_slim_message(
+            sender
+                .on_timer_timeout(second_ping_id, ProtoSessionMessageType::Ping)
+                .expect("error sending second ping"),
+        );
         assert_eq!(
             second_ping.get_session_message_type(),
             ProtoSessionMessageType::Ping
         );
 
-        // Wait for first retransmission timeout (400ms)
-        let timeout_msg = timeout(Duration::from_millis(500), rx_signal.recv())
-            .await
-            .expect("timeout waiting for first retransmission")
-            .expect("channel closed");
+        for _ in 0..2 {
+            let (message_id, message_type) =
+                expect_timeout(&mut rx_signal, Duration::from_millis(500)).await;
+            assert_eq!(message_id, second_ping.get_id());
+            assert_eq!(message_type, ProtoSessionMessageType::Ping);
+            let retransmitted = single_slim_message(
+                sender
+                    .on_timer_timeout(second_ping.get_id(), ProtoSessionMessageType::Ping)
+                    .expect("error retransmitting ping"),
+            );
+            assert_eq!(retransmitted.get_id(), second_ping.get_id());
+        }
 
-        match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_id, second_ping.get_id());
-                assert_eq!(message_type, ProtoSessionMessageType::Ping);
-            }
-            _ => panic!("Expected TimerTimeout for ping retransmission"),
-        };
-
-        // Trigger retransmission
-        sender
-            .on_timer_timeout(second_ping.get_id(), ProtoSessionMessageType::Ping)
-            .await
-            .expect("error retransmitting ping");
-
-        // Verify retransmission was sent
-        let retrans1 = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for retransmission")
-            .expect("channel closed")
-            .expect("error message");
-
-        assert_eq!(retrans1.get_id(), second_ping.get_id());
-
-        // Wait for second retransmission timeout (400ms)
-        let timeout_msg = timeout(Duration::from_millis(500), rx_signal.recv())
-            .await
-            .expect("timeout waiting for second retransmission")
-            .expect("channel closed");
-
-        match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_id, second_ping.get_id());
-                assert_eq!(message_type, ProtoSessionMessageType::Ping);
-            }
-            _ => panic!("Expected TimerTimeout for ping retransmission"),
-        };
-
-        // Trigger second retransmission
-        sender
-            .on_timer_timeout(second_ping.get_id(), ProtoSessionMessageType::Ping)
-            .await
-            .expect("error retransmitting ping");
-
-        // Verify second retransmission was sent
-        let retrans2 = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for second retransmission")
-            .expect("channel closed")
-            .expect("error message");
-
-        assert_eq!(retrans2.get_id(), second_ping.get_id());
-
-        // === PING INTERVAL 3: No reply, expect 2 retransmissions ===
-
-        // Wait for the third ping interval timeout
-        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
-            .await
-            .expect("timeout waiting for third ping interval")
-            .expect("channel closed");
-
-        let third_ping_id = match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_type, ProtoSessionMessageType::Ping);
-                message_id
-            }
-            _ => panic!("Expected TimerTimeout for ping interval"),
-        };
-
-        // Trigger the ping send
-        sender
-            .on_timer_timeout(third_ping_id, ProtoSessionMessageType::Ping)
-            .await
-            .expect("error sending third ping");
-
-        // Verify ping was sent
-        let third_ping = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for third ping")
-            .expect("channel closed")
-            .expect("error message");
-
+        let (third_ping_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
+        assert_eq!(message_type, ProtoSessionMessageType::Ping);
+        let third_ping = single_slim_message(
+            sender
+                .on_timer_timeout(third_ping_id, ProtoSessionMessageType::Ping)
+                .expect("error sending third ping"),
+        );
         assert_eq!(
             third_ping.get_session_message_type(),
             ProtoSessionMessageType::Ping
         );
 
-        // Wait for and process 2 retransmissions
-        for i in 0..2 {
-            let timeout_msg = timeout(Duration::from_millis(500), rx_signal.recv())
-                .await
-                .unwrap_or_else(|_| panic!("timeout waiting for retransmission {}", i + 1))
-                .expect("channel closed");
-
-            match timeout_msg {
-                SessionMessage::TimerTimeout {
-                    message_id,
-                    message_type,
-                    ..
-                } => {
-                    assert_eq!(message_id, third_ping.get_id());
-                    assert_eq!(message_type, ProtoSessionMessageType::Ping);
-                }
-                _ => panic!("Expected TimerTimeout for ping retransmission"),
-            };
-
-            sender
-                .on_timer_timeout(third_ping.get_id(), ProtoSessionMessageType::Ping)
-                .await
-                .expect("error retransmitting ping");
-
-            let _ = timeout(Duration::from_millis(100), rx_slim.recv())
-                .await
-                .expect("timeout waiting for retransmission")
-                .expect("channel closed")
-                .expect("error message");
+        for _ in 0..2 {
+            let (message_id, message_type) =
+                expect_timeout(&mut rx_signal, Duration::from_millis(500)).await;
+            assert_eq!(message_id, third_ping.get_id());
+            assert_eq!(message_type, ProtoSessionMessageType::Ping);
+            let retransmitted = single_slim_message(
+                sender
+                    .on_timer_timeout(third_ping.get_id(), ProtoSessionMessageType::Ping)
+                    .expect("error retransmitting ping"),
+            );
+            assert_eq!(retransmitted.get_id(), third_ping.get_id());
         }
 
-        // === PING INTERVAL 4: No reply, expect 2 retransmissions, then disconnection ===
-
-        // Wait for the fourth ping interval timeout
-        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
-            .await
-            .expect("timeout waiting for fourth ping interval")
-            .expect("channel closed");
-
-        let fourth_ping_id = match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_type, ProtoSessionMessageType::Ping);
-                message_id
-            }
-            _ => panic!("Expected TimerTimeout for ping interval"),
-        };
-
-        // Trigger the ping send
-        sender
-            .on_timer_timeout(fourth_ping_id, ProtoSessionMessageType::Ping)
-            .await
-            .expect("error sending fourth ping");
-
-        // Verify ping was sent
-        let fourth_ping = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for fourth ping")
-            .expect("channel closed")
-            .expect("error message");
-
+        let (fourth_ping_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
+        assert_eq!(message_type, ProtoSessionMessageType::Ping);
+        let fourth_ping = single_slim_message(
+            sender
+                .on_timer_timeout(fourth_ping_id, ProtoSessionMessageType::Ping)
+                .expect("error sending fourth ping"),
+        );
         assert_eq!(
             fourth_ping.get_session_message_type(),
             ProtoSessionMessageType::Ping
         );
 
-        // Wait for and process 2 retransmissions
-        for i in 0..2 {
-            let timeout_msg = timeout(Duration::from_millis(500), rx_signal.recv())
-                .await
-                .unwrap_or_else(|_| panic!("timeout waiting for retransmission {}", i + 1))
-                .expect("channel closed");
-
-            match timeout_msg {
-                SessionMessage::TimerTimeout {
-                    message_id,
-                    message_type,
-                    ..
-                } => {
-                    assert_eq!(message_id, fourth_ping.get_id());
-                    assert_eq!(message_type, ProtoSessionMessageType::Ping);
-                }
-                _ => panic!("Expected TimerTimeout for ping retransmission"),
-            };
-
-            sender
-                .on_timer_timeout(fourth_ping.get_id(), ProtoSessionMessageType::Ping)
-                .await
-                .expect("error retransmitting ping");
-
-            let _ = timeout(Duration::from_millis(100), rx_slim.recv())
-                .await
-                .expect("timeout waiting for retransmission")
-                .expect("channel closed")
-                .expect("error message");
+        for _ in 0..2 {
+            let (message_id, message_type) =
+                expect_timeout(&mut rx_signal, Duration::from_millis(500)).await;
+            assert_eq!(message_id, fourth_ping.get_id());
+            assert_eq!(message_type, ProtoSessionMessageType::Ping);
+            let retransmitted = single_slim_message(
+                sender
+                    .on_timer_timeout(fourth_ping.get_id(), ProtoSessionMessageType::Ping)
+                    .expect("error retransmitting ping"),
+            );
+            assert_eq!(retransmitted.get_id(), fourth_ping.get_id());
         }
 
-        // === PING INTERVAL 5: Wait for next interval to reach disconnection threshold ===
+        let (fifth_ping_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
+        assert_eq!(message_type, ProtoSessionMessageType::Ping);
+        assert_no_messages(
+            sender
+                .on_timer_timeout(fifth_ping_id, ProtoSessionMessageType::Ping)
+                .expect("error handling fifth ping interval"),
+        );
 
-        // Wait for the fifth ping interval timeout
-        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
-            .await
-            .expect("timeout waiting for fifth ping interval")
-            .expect("channel closed");
-
-        let fifth_ping_id = match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_type, ProtoSessionMessageType::Ping);
-                message_id
-            }
-            _ => panic!("Expected TimerTimeout for ping interval"),
-        };
-
-        // This interval timeout will:
-        // 1. See that fourth ping got no reply
-        // 2. Increment missing_pings counter for participant to 3
-        // 3. Detect disconnection (counter >= MAX_PING_FAILURE)
-        // 4. Send a new ping
-        sender
-            .on_timer_timeout(fifth_ping_id, ProtoSessionMessageType::Ping)
-            .await
-            .expect("error handling fifth ping interval");
-
-        // Verify the participant was detected as disconnected and removed
-        // Timeline:
-        // - Interval 1: ping sent, reply received, counter cleared to 0
-        // - Interval 2: previous ping got reply, counter stays 0, new ping sent
-        // - Interval 3: previous ping got NO reply, counter becomes 1, new ping sent
-        // - Interval 4: previous ping got NO reply, counter becomes 2, new ping sent
-        // - Interval 5: previous ping got NO reply, counter becomes 3, disconnection detected
         if let Some(ping_state) = &sender.ping_state {
-            // Participant should be removed from missing_pings after disconnection
-            assert_eq!(
-                ping_state.missing_pings.get(&participant),
-                None,
-                "Participant should be removed from missing_pings after disconnection"
-            );
+            assert_eq!(ping_state.missing_pings.get(&participant), None);
         } else {
             panic!("Ping state should be initialized");
         }
-
-        // Verify participant was removed from group_list
-        assert!(
-            !sender.group_list.contains(&participant),
-            "Participant should be removed from group_list after disconnection"
-        );
+        assert!(!sender.group_list.contains(&participant));
     }
 
     #[tokio::test]
     #[traced_test]
     async fn test_participant_detects_moderator_disconnection() {
-        // Test participant-side moderator disconnection detection:
-        // - Participant receives pings from moderator initially
-        // - Moderator stops sending pings (simulating crash/network failure)
-        // - After 3 ping intervals without receiving pings, participant detects disconnection
-        // - ParticipantDisconnected message is sent with name: None
-
         let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
         let ping_interval = Duration::from_millis(1000);
-
-        let (tx_slim, _rx_slim) = tokio::sync::mpsc::channel(100);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let participant_name = ProtoName::from_strings(["org", "ns", "participant"]);
         let moderator_name = ProtoName::from_strings(["org", "ns", "moderator"]);
         let channel_name = ProtoName::from_strings(["org", "ns", "channel"]);
         let session_id = 1;
 
-        // Create participant (initiator=false)
         let mut sender = ControllerSender::new(
             settings,
             participant_name.clone(),
             ProtoSessionType::Multicast,
             session_id,
             Some(ping_interval),
-            false, // participant, not initiator
-            tx,
+            false,
             tx_signal,
         );
 
-        // === PING INTERVAL 1: Moderator sends ping, participant receives it ===
+        let (first_ping_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
+        assert_eq!(message_type, ProtoSessionMessageType::Ping);
 
-        // Wait for first ping interval timeout
-        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
-            .await
-            .expect("timeout waiting for first ping interval")
-            .expect("channel closed");
-
-        let first_ping_id = match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_type, ProtoSessionMessageType::Ping);
-                message_id
-            }
-            _ => panic!("Expected TimerTimeout for ping interval"),
-        };
-
-        // Simulate receiving a ping from moderator
         let ping_from_moderator = Message::builder()
             .source(moderator_name.clone())
             .destination(channel_name.clone())
@@ -2010,126 +1439,58 @@ mod tests {
             .payload(CommandPayload::builder().ping().as_content())
             .build_publish()
             .unwrap();
-
         sender.on_ping_message(&ping_from_moderator);
+        assert_no_messages(
+            sender
+                .on_timer_timeout(first_ping_id, ProtoSessionMessageType::Ping)
+                .expect("error handling first ping timeout"),
+        );
 
-        // Process the timeout - should reset state since ping was received
-        sender
-            .on_timer_timeout(first_ping_id, ProtoSessionMessageType::Ping)
-            .await
-            .expect("error handling first ping timeout");
-
-        // Verify state was reset (no disconnection detected)
         if let Some(ping_state) = &sender.ping_state {
-            assert_eq!(
-                ping_state.missing_pings.len(),
-                0,
-                "Missing pings should be cleared after receiving ping"
-            );
+            assert_eq!(ping_state.missing_pings.len(), 0);
         }
 
-        // === PING INTERVAL 2: No ping received, counter increments to 1 ===
-
-        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
-            .await
-            .expect("timeout waiting for second ping interval")
-            .expect("channel closed");
-
-        let second_ping_id = match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_type, ProtoSessionMessageType::Ping);
-                message_id
-            }
-            _ => panic!("Expected TimerTimeout for ping interval"),
-        };
-
-        // Don't send a ping this time (moderator is down)
-        sender
-            .on_timer_timeout(second_ping_id, ProtoSessionMessageType::Ping)
-            .await
-            .expect("error handling second ping timeout");
-
-        // Verify counter incremented to 1
+        let (second_ping_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
+        assert_eq!(message_type, ProtoSessionMessageType::Ping);
+        assert_no_messages(
+            sender
+                .on_timer_timeout(second_ping_id, ProtoSessionMessageType::Ping)
+                .expect("error handling second ping timeout"),
+        );
         if let Some(ping_state) = &sender.ping_state {
             assert_eq!(
                 ping_state.missing_pings.get(&MODERATOR_NAME).copied(),
-                Some(1),
-                "Missing ping counter should be 1"
+                Some(1)
             );
         }
 
-        // === PING INTERVAL 3: No ping received, counter increments to 2 ===
-
-        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
-            .await
-            .expect("timeout waiting for third ping interval")
-            .expect("channel closed");
-
-        let third_ping_id = match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_type, ProtoSessionMessageType::Ping);
-                message_id
-            }
-            _ => panic!("Expected TimerTimeout for ping interval"),
-        };
-
-        sender
-            .on_timer_timeout(third_ping_id, ProtoSessionMessageType::Ping)
-            .await
-            .expect("error handling third ping timeout");
-
-        // Verify counter incremented to 2
+        let (third_ping_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
+        assert_eq!(message_type, ProtoSessionMessageType::Ping);
+        assert_no_messages(
+            sender
+                .on_timer_timeout(third_ping_id, ProtoSessionMessageType::Ping)
+                .expect("error handling third ping timeout"),
+        );
         if let Some(ping_state) = &sender.ping_state {
             assert_eq!(
                 ping_state.missing_pings.get(&MODERATOR_NAME).copied(),
-                Some(2),
-                "Missing ping counter should be 2"
+                Some(2)
             );
         }
 
-        // === PING INTERVAL 4: No ping received, counter reaches 3, disconnection detected ===
+        let (fourth_ping_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
+        assert_eq!(message_type, ProtoSessionMessageType::Ping);
+        assert_no_messages(
+            sender
+                .on_timer_timeout(fourth_ping_id, ProtoSessionMessageType::Ping)
+                .expect("error handling fourth ping timeout"),
+        );
 
-        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
-            .await
-            .expect("timeout waiting for fourth ping interval")
-            .expect("channel closed");
-
-        let fourth_ping_id = match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_type, ProtoSessionMessageType::Ping);
-                message_id
-            }
-            _ => panic!("Expected TimerTimeout for ping interval"),
-        };
-
-        sender
-            .on_timer_timeout(fourth_ping_id, ProtoSessionMessageType::Ping)
-            .await
-            .expect("error handling fourth ping timeout");
-
-        // Verify ParticipantDisconnected message was sent with name: None (indicating moderator)
-        // Note: The message is sent via try_send, so it should already be in the channel
-        let disconnect_msg = rx_signal.try_recv();
-
-        match disconnect_msg {
-            Ok(SessionMessage::ParticipantDisconnected { name }) => {
-                assert_eq!(
-                    name, None,
-                    "ParticipantDisconnected should have name: None for moderator disconnection"
-                );
-            }
+        match rx_signal.try_recv() {
+            Ok(SessionMessage::ParticipantDisconnected { name }) => assert_eq!(name, None),
             Ok(other) => panic!("Expected ParticipantDisconnected message, got {:?}", other),
             Err(e) => panic!(
                 "Expected ParticipantDisconnected message, channel error: {:?}",
@@ -2141,23 +1502,9 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_ping_with_two_participants_one_removed_before_reply() {
-        // Test that removing a participant before ping reply clears their missing ping state:
-        // - Start with moderator + 2 participants
-        // - Send a ping to both participants
-        // - Remove one participant before ping reply is received
-        // - Verify removed participant is not tracked in missing_pings
-        // - Receive reply from remaining participant
-        // - Verify ping state is properly cleared
-
-        // Use very high duration to avoid retransmission timeouts during test
         let settings = TimerSettings::constant(Duration::from_secs(1000)).with_max_retries(3);
         let ping_interval = Duration::from_millis(1000);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(100);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let moderator = ProtoName::from_strings(["org", "ns", "moderator"]);
         let participant1 = ProtoName::from_strings(["org", "ns", "participant1"]);
@@ -2165,80 +1512,40 @@ mod tests {
         let group_name = ProtoName::from_strings(["org", "ns", "group"]);
         let session_id = 1;
 
-        // Create moderator (initiator=true) with 2 participants
         let mut sender = ControllerSender::new(
             settings,
             moderator.clone(),
             ProtoSessionType::Multicast,
             session_id,
             Some(ping_interval),
-            true, // initiator (moderator)
-            tx,
+            true,
             tx_signal,
         );
 
-        // Set up group with 2 participants
         sender.group_name = Some(group_name.clone());
         sender.group_list.insert(moderator.clone());
         sender.group_list.insert(participant1.clone());
         sender.group_list.insert(participant2.clone());
 
-        // === PING INTERVAL 1: Send ping to both participants ===
-
-        // Wait for first ping interval timeout
-        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
-            .await
-            .expect("timeout waiting for first ping interval")
-            .expect("channel closed");
-
-        let first_ping_id = match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_type, ProtoSessionMessageType::Ping);
-                message_id
-            }
-            _ => panic!("Expected TimerTimeout for ping interval"),
-        };
-
-        // Trigger ping send
-        sender
-            .on_timer_timeout(first_ping_id, ProtoSessionMessageType::Ping)
-            .await
-            .expect("error sending first ping");
-
-        // Verify ping was sent
-        let ping_msg = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for ping")
-            .expect("channel closed")
-            .expect("error message");
-
+        let (first_ping_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
+        assert_eq!(message_type, ProtoSessionMessageType::Ping);
+        let ping_msg = single_slim_message(
+            sender
+                .on_timer_timeout(first_ping_id, ProtoSessionMessageType::Ping)
+                .expect("error sending first ping"),
+        );
         assert_eq!(
             ping_msg.get_session_message_type(),
             ProtoSessionMessageType::Ping
         );
-
         let ping_message_id = ping_msg.get_id();
 
-        // Verify both participants are in missing_replies
         if let Some(ping_state) = &sender.ping_state {
             if let Some(ping) = &ping_state.ping {
-                assert_eq!(
-                    ping.missing_replies.len(),
-                    2,
-                    "Should be waiting for replies from both participants"
-                );
-                assert!(
-                    ping.missing_replies.contains(&participant1),
-                    "Participant1 should be in missing_replies"
-                );
-                assert!(
-                    ping.missing_replies.contains(&participant2),
-                    "Participant2 should be in missing_replies"
-                );
+                assert_eq!(ping.missing_replies.len(), 2);
+                assert!(ping.missing_replies.contains(&participant1));
+                assert!(ping.missing_replies.contains(&participant2));
             } else {
                 panic!("Ping should be set");
             }
@@ -2246,20 +1553,10 @@ mod tests {
             panic!("Ping state should be initialized");
         }
 
-        // === Remove participant1 before ping reply is received ===
         sender.remove_participant(&participant1);
+        assert!(!sender.group_list.contains(&participant1));
+        assert!(sender.group_list.contains(&participant2));
 
-        // Verify participant1 was removed from group_list
-        assert!(
-            !sender.group_list.contains(&participant1),
-            "Participant1 should be removed from group_list"
-        );
-        assert!(
-            sender.group_list.contains(&participant2),
-            "Participant2 should still be in group_list"
-        );
-
-        // === Receive ping reply from participant2 (the remaining participant) ===
         let ping_reply = Message::builder()
             .source(participant2.clone())
             .destination(moderator.clone())
@@ -2271,26 +1568,13 @@ mod tests {
             .payload(CommandPayload::builder().ping().as_content())
             .build_publish()
             .unwrap();
-
         sender.on_ping_message(&ping_reply);
 
-        // Verify participant2 was removed from missing_replies after receiving the ping
-        // but participant1 is still there
         if let Some(ping_state) = &sender.ping_state {
             if let Some(ping) = &ping_state.ping {
-                assert_eq!(
-                    ping.missing_replies.len(),
-                    1,
-                    "Should still be waiting for reply from participant1"
-                );
-                assert!(
-                    ping.missing_replies.contains(&participant1),
-                    "Participant1 should still be in missing_replies since they haven't replied"
-                );
-                assert!(
-                    !ping.missing_replies.contains(&participant2),
-                    "Participant2 should be removed from missing_replies after replying"
-                );
+                assert_eq!(ping.missing_replies.len(), 1);
+                assert!(ping.missing_replies.contains(&participant1));
+                assert!(!ping.missing_replies.contains(&participant2));
             } else {
                 panic!("Ping should still be set");
             }
@@ -2298,121 +1582,54 @@ mod tests {
             panic!("Ping state should be initialized");
         }
 
-        // === Wait for next ping interval to trigger handle_ping_state ===
-        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
-            .await
-            .expect("timeout waiting for second ping interval")
-            .expect("channel closed");
-
-        let second_ping_id = match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_type, ProtoSessionMessageType::Ping);
-                message_id
-            }
-            _ => panic!("Expected TimerTimeout for ping interval"),
-        };
-
-        // Trigger the second ping interval
-        sender
-            .on_timer_timeout(second_ping_id, ProtoSessionMessageType::Ping)
-            .await
-            .expect("error handling second ping interval");
-
-        // Verify participant1 is NOT in missing_pings (because they were removed from group_list)
-        // Only participants still in group_list should be tracked in missing_pings
-        if let Some(ping_state) = &sender.ping_state {
-            assert_eq!(
-                ping_state.missing_pings.get(&participant1),
-                None,
-                "Removed participant1 should NOT be in missing_pings"
-            );
-            assert_eq!(
-                ping_state.missing_pings.len(),
-                0,
-                "No participants should be in missing_pings since participant2 replied and participant1 was removed"
-            );
-        } else {
-            panic!("Ping state should be initialized");
-        }
-
-        // Verify a new ping was sent to the remaining participant
-        let second_ping = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for second ping")
-            .expect("channel closed")
-            .expect("error message");
-
-        assert_eq!(
-            second_ping.get_session_message_type(),
-            ProtoSessionMessageType::Ping,
-            "Second ping should be sent"
+        let (second_ping_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
+        assert_eq!(message_type, ProtoSessionMessageType::Ping);
+        let second_ping = single_slim_message(
+            sender
+                .on_timer_timeout(second_ping_id, ProtoSessionMessageType::Ping)
+                .expect("error handling second ping interval"),
         );
 
-        // Verify the new ping only expects reply from participant2
         if let Some(ping_state) = &sender.ping_state {
+            assert_eq!(ping_state.missing_pings.get(&participant1), None);
+            assert_eq!(ping_state.missing_pings.len(), 0);
             if let Some(ping) = &ping_state.ping {
-                assert_eq!(
-                    ping.missing_replies.len(),
-                    1,
-                    "Should only be waiting for reply from participant2"
-                );
-                assert!(
-                    ping.missing_replies.contains(&participant2),
-                    "Participant2 should be in missing_replies"
-                );
-                assert!(
-                    !ping.missing_replies.contains(&participant1),
-                    "Participant1 should NOT be in missing_replies"
-                );
+                assert_eq!(ping.missing_replies.len(), 1);
+                assert!(ping.missing_replies.contains(&participant2));
+                assert!(!ping.missing_replies.contains(&participant1));
             } else {
                 panic!("Ping should be set");
             }
         } else {
             panic!("Ping state should be initialized");
         }
+
+        assert_eq!(
+            second_ping.get_session_message_type(),
+            ProtoSessionMessageType::Ping
+        );
     }
 
     #[tokio::test]
     #[traced_test]
     async fn test_ping_destination_p2p_session() {
-        // Test that ping messages in P2P sessions use the remote participant name as destination
-        // The group_name should be set to the remote participant's name from the JoinRequest
-
         let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
         let ping_interval = Duration::from_millis(1000);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(100);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let remote = ProtoName::from_strings(["org", "ns", "remote"]);
         let session_id = 1;
 
-        // Create P2P session with ping enabled
         let mut sender = ControllerSender::new(
             settings,
             source.clone(),
             ProtoSessionType::PointToPoint,
             session_id,
             Some(ping_interval),
-            true, // initiator
-            tx,
+            true,
             tx_signal,
-        );
-
-        // Simulate sending a join request to establish group_name
-        let payload = CommandPayload::builder().join_request(
-            false, // enable_mls
-            None,  // max_retries
-            None,  // timer_duration
-            None,  // channel (None for P2P)
         );
 
         let join_request = Message::builder()
@@ -2423,34 +1640,20 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::JoinRequest)
             .session_id(session_id)
             .message_id(1)
-            .payload(payload.as_content())
+            .payload(
+                CommandPayload::builder()
+                    .join_request(false, None, None, None)
+                    .as_content(),
+            )
             .build_publish()
             .unwrap();
-
-        sender
-            .on_message(&join_request)
-            .await
-            .expect("error sending join request");
-
-        // Consume the join request message
-        let join_msg = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for join request")
-            .expect("channel closed")
-            .expect("error message");
-
-        // Verify group_name was set to the remote participant's name
-        assert_eq!(
-            sender.group_name,
-            Some(remote.clone()),
-            "Group name should be set to remote participant name in P2P session"
+        let join_msg = single_slim_message(
+            sender
+                .on_message(&join_request)
+                .expect("error sending join request"),
         );
+        assert_eq!(sender.group_name, Some(remote.clone()));
 
-        // Send join reply to clear pending state
-        let reply_payload = CommandPayload::builder().join_reply(
-            None,
-            Participant::new(remote.clone(), ParticipantSettings::bidirectional()),
-        );
         let join_reply = Message::builder()
             .source(remote.clone())
             .destination(source.clone())
@@ -2459,75 +1662,45 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::JoinReply)
             .session_id(session_id)
             .message_id(join_msg.get_id())
-            .payload(reply_payload.as_content())
+            .payload(
+                CommandPayload::builder()
+                    .join_reply(
+                        None,
+                        Participant::new(remote.clone(), ParticipantSettings::bidirectional()),
+                    )
+                    .as_content(),
+            )
             .build_publish()
             .unwrap();
+        assert_no_messages(
+            sender
+                .on_message(&join_reply)
+                .expect("error sending join reply"),
+        );
 
-        sender
-            .on_message(&join_reply)
-            .await
-            .expect("error sending join reply");
-
-        // Add remote to group list (normally done on welcome)
         sender.group_list.insert(remote.clone());
 
-        // Wait for the first ping interval timeout
-        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
-            .await
-            .expect("timeout waiting for first ping interval")
-            .expect("channel closed");
-
-        let ping_id = match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_type, ProtoSessionMessageType::Ping);
-                message_id
-            }
-            _ => panic!("Expected TimerTimeout for ping interval"),
-        };
-
-        // Trigger the ping send
-        sender
-            .on_timer_timeout(ping_id, ProtoSessionMessageType::Ping)
-            .await
-            .expect("error sending ping");
-
-        // Verify ping was sent with correct destination
-        let ping = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for ping")
-            .expect("channel closed")
-            .expect("error message");
-
+        let (ping_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
+        assert_eq!(message_type, ProtoSessionMessageType::Ping);
+        let ping = single_slim_message(
+            sender
+                .on_timer_timeout(ping_id, ProtoSessionMessageType::Ping)
+                .expect("error sending ping"),
+        );
         assert_eq!(
             ping.get_session_message_type(),
-            ProtoSessionMessageType::Ping,
-            "Message should be a ping"
+            ProtoSessionMessageType::Ping
         );
-        assert_eq!(
-            ping.get_dst(),
-            remote,
-            "Ping destination should be the remote participant name in P2P session"
-        );
+        assert_eq!(ping.get_dst(), remote);
     }
 
     #[tokio::test]
     #[traced_test]
     async fn test_ping_destination_multicast_session() {
-        // Test that ping messages in multicast sessions use the channel/group name as destination
-        // The group_name should be set to the channel name from the JoinRequest payload
-
         let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
         let ping_interval = Duration::from_millis(1000);
-
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(100);
-        let (tx_app, _) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
-
-        let tx = SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let data_channel_name =
@@ -2537,24 +1710,14 @@ mod tests {
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
         let session_id = 1;
 
-        // Create multicast session with ping enabled
         let mut sender = ControllerSender::new(
             settings,
             source.clone(),
             ProtoSessionType::Multicast,
             session_id,
             Some(ping_interval),
-            true, // initiator
-            tx,
+            true,
             tx_signal,
-        );
-
-        // Simulate sending a join request with channel name in payload
-        let payload = CommandPayload::builder().join_request(
-            false,                           // enable_mls
-            None,                            // max_retries
-            None,                            // timer_duration
-            Some(data_channel_name.clone()), // channel name
         );
 
         let join_request = Message::builder()
@@ -2566,34 +1729,20 @@ mod tests {
             .session_id(session_id)
             .message_id(1)
             .fanout(256)
-            .payload(payload.as_content())
+            .payload(
+                CommandPayload::builder()
+                    .join_request(false, None, None, Some(data_channel_name.clone()))
+                    .as_content(),
+            )
             .build_publish()
             .unwrap();
-
-        sender
-            .on_message(&join_request)
-            .await
-            .expect("error sending join request");
-
-        // Consume the join request message
-        let join_msg = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for join request")
-            .expect("channel closed")
-            .expect("error message");
-
-        // Verify group_name was set to the channel name from payload
-        assert_eq!(
-            sender.group_name,
-            Some(control_channel_name.clone()),
-            "Group name should be set to channel name from JoinRequest payload in multicast session"
+        let join_msg = single_slim_message(
+            sender
+                .on_message(&join_request)
+                .expect("error sending join request"),
         );
+        assert_eq!(sender.group_name, Some(control_channel_name.clone()));
 
-        // Send join reply to clear pending state
-        let reply_payload = CommandPayload::builder().join_reply(
-            None,
-            Participant::new(participant.clone(), ParticipantSettings::bidirectional()),
-        );
         let join_reply = Message::builder()
             .source(participant.clone())
             .destination(source.clone())
@@ -2603,58 +1752,36 @@ mod tests {
             .session_id(session_id)
             .message_id(join_msg.get_id())
             .fanout(256)
-            .payload(reply_payload.as_content())
+            .payload(
+                CommandPayload::builder()
+                    .join_reply(
+                        None,
+                        Participant::new(participant.clone(), ParticipantSettings::bidirectional()),
+                    )
+                    .as_content(),
+            )
             .build_publish()
             .unwrap();
+        assert_no_messages(
+            sender
+                .on_message(&join_reply)
+                .expect("error sending join reply"),
+        );
 
-        sender
-            .on_message(&join_reply)
-            .await
-            .expect("error sending join reply");
-
-        // Add participant to group list (normally done on welcome)
         sender.group_list.insert(participant.clone());
 
-        // Wait for the first ping interval timeout
-        let timeout_msg = timeout(Duration::from_millis(1100), rx_signal.recv())
-            .await
-            .expect("timeout waiting for first ping interval")
-            .expect("channel closed");
-
-        let ping_id = match timeout_msg {
-            SessionMessage::TimerTimeout {
-                message_id,
-                message_type,
-                ..
-            } => {
-                assert_eq!(message_type, ProtoSessionMessageType::Ping);
-                message_id
-            }
-            _ => panic!("Expected TimerTimeout for ping interval"),
-        };
-
-        // Trigger the ping send
-        sender
-            .on_timer_timeout(ping_id, ProtoSessionMessageType::Ping)
-            .await
-            .expect("error sending ping");
-
-        // Verify ping was sent with correct destination
-        let ping = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for ping")
-            .expect("channel closed")
-            .expect("error message");
-
+        let (ping_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
+        assert_eq!(message_type, ProtoSessionMessageType::Ping);
+        let ping = single_slim_message(
+            sender
+                .on_timer_timeout(ping_id, ProtoSessionMessageType::Ping)
+                .expect("error sending ping"),
+        );
         assert_eq!(
             ping.get_session_message_type(),
-            ProtoSessionMessageType::Ping,
-            "Message should be a ping"
+            ProtoSessionMessageType::Ping
         );
-        assert_eq!(
-            ping.get_dst(),
-            control_channel_name,
-            "Ping destination should be the channel/group name in multicast session"
-        );
+        assert_eq!(ping.get_dst(), control_channel_name);
     }
 }

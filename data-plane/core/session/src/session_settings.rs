@@ -5,11 +5,10 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::ProtoName;
 
 use crate::{
-    Direction, SessionError,
-    common::SessionMessage,
+    Direction, SessionError, SlimChannelSender,
+    common::{AppChannelSender, SessionMessage},
     session_config::SessionConfig,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
-    transmitter::SessionTransmitter,
 };
 
 /// Settings struct for constructing session components.
@@ -50,8 +49,11 @@ where
     /// Direction for data message flow (send, receive, both, or none)
     pub(crate) direction: Direction,
 
-    /// Transmitter for sending messages to App and SLIM
-    pub(crate) tx: SessionTransmitter<P>,
+    /// Channel for sending messages to SLIM
+    pub(crate) slim_tx: SlimChannelSender,
+
+    /// Channel for sending messages to the application
+    pub(crate) app_tx: AppChannelSender,
 
     /// Tx channel for sending messages to session queue
     pub(crate) tx_session: tokio::sync::mpsc::Sender<SessionMessage>,

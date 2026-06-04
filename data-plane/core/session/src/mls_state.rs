@@ -13,7 +13,9 @@ use slim_datapath::api::{
 };
 
 // Local crate
-use crate::{SessionError, common::MessageDirection};
+use crate::{
+    SessionError, common::MessageDirection, common::OutboundMessage, common::SessionOutput,
+};
 use slim_datapath::api::ProtoName;
 use slim_mls::{
     errors::MlsError,
@@ -231,7 +233,7 @@ where
         // Only process actual application data messages (Msg type)
         // Skip all control/session management messages
         match msg.get_session_header().session_message_type() {
-            ProtoSessionMessageType::Msg => {
+            ProtoSessionMessageType::Msg | ProtoSessionMessageType::RtxReply => {
                 // This is an application data message, process it
                 true
             }
@@ -270,6 +272,16 @@ where
                 self.decrypt_message(msg)
             }
         }
+    }
+
+    /// Apply MLS encryption to all outbound ToSlim messages in the output.
+    pub fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
+        for msg in &mut output.messages {
+            if let OutboundMessage::ToSlim(m) = msg {
+                self.process_message(m, MessageDirection::South)?;
+            }
+        }
+        Ok(())
     }
 
     /// Encrypts a message payload using MLS

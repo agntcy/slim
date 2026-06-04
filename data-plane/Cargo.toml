@@ -132,6 +132,7 @@ serde = "1.0.217"
 serde-pyobject = "0.7"
 serde_json = "1.0"
 serde_yaml = "0.9.34"
+smallvec = "1"
 spiffe = { version = "0.12.0", features = ["x509-source", "jwt-source", "jwt-verify-aws-lc-rs"] }
 tempfile = "3"
 test-fork = "0.1.3"
