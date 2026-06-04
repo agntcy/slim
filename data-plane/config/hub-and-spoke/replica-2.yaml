@@ -1,0 +1,46 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+tracing:
+  log_level: debug
+  display_thread_names: true
+  display_thread_ids: true
+
+runtime:
+  n_cores: 0
+  thread_name: "slim-data-plane"
+  drain_timeout: 10s
+
+services:
+  slim/0:
+    node_id: slim-2
+    dataplane:
+      servers:
+        - endpoint: "0.0.0.0:46358"
+          tls:
+            insecure: true
+    controller:
+      servers:
+        - endpoint: "0.0.0.0:47358"
+          tls:
+            insecure: true
+    peers:
+      peer_group: "thegroup"
+      topology: "hub_and_spoke"
+      static_peers:
+        - node_id: "slim-1"
+          endpoint: "http://127.0.0.1:46357"
+          tls:
+            insecure: true
+        - node_id: "slim-2"
+          endpoint: "http://127.0.0.1:46358"
+          tls:
+            insecure: true
+        - node_id: "slim-3"
+          endpoint: "http://127.0.0.1:46359"
+          tls:
+            insecure: true
+        - node_id: "slim-4"
+          endpoint: "http://127.0.0.1:46360"
+          tls:
+            insecure: true

@@ -7,7 +7,6 @@
 use std::collections::{HashMap, HashSet};
 
 pub mod connection_table;
-pub mod remote_subscription_table;
 pub mod subscription_table;
 
 pub mod pool;

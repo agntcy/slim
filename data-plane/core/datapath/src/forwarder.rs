@@ -6,12 +6,10 @@ use std::sync::Arc;
 
 use super::tables::SubscriptionTable;
 use super::tables::connection_table::ConnectionTable;
-use super::tables::remote_subscription_table::RemoteSubscriptions;
 use super::tables::subscription_table::SubscriptionTableImpl;
 use super::tables::{ConnType, MatchFilter};
 use crate::api::{EncodedName, ProtoName};
 use crate::errors::DataPathError;
-use crate::tables::remote_subscription_table::SubscriptionInfo;
 
 use tracing::debug;
 
@@ -21,7 +19,6 @@ where
     T: Clone,
 {
     pub subscription_table: SubscriptionTableImpl,
-    remote_subscription_table: RemoteSubscriptions,
     pub connection_table: ConnectionTable<T>,
 }
 
@@ -32,7 +29,6 @@ where
     pub fn new() -> Self {
         Forwarder {
             subscription_table: SubscriptionTableImpl::default(),
-            remote_subscription_table: RemoteSubscriptions::default(),
             connection_table: ConnectionTable::with_capacity(100),
         }
     }
@@ -51,31 +47,20 @@ where
         &self,
         conn_index: u64,
         category: ConnType,
-    ) -> (HashMap<ProtoName, HashSet<u64>>, HashSet<SubscriptionInfo>) {
+    ) -> HashMap<ProtoName, HashSet<u64>> {
         self.connection_table.remove(conn_index);
-        let local_subs = self
-            .subscription_table
+        self.subscription_table
             .remove_connection(conn_index, category)
             .unwrap_or_else(|e| {
                 debug!(
                     %conn_index, ?category, %e, "failed to remove subscriptions for connection",
                 );
                 HashMap::new()
-            });
-        let remote_subs = self.remote_subscription_table.remove_connection(conn_index);
-        (local_subs, remote_subs)
+            })
     }
 
     pub fn get_connection(&self, conn_index: u64) -> Option<Arc<T>> {
         self.connection_table.get(conn_index)
-    }
-
-    pub fn get_subscriptions_forwarded_on_connection(
-        &self,
-        conn_index: u64,
-    ) -> HashSet<SubscriptionInfo> {
-        self.remote_subscription_table
-            .get_subscriptions_on_connection(conn_index)
     }
 
     /// Updates the subscription table for the given name/connection.
@@ -97,34 +82,6 @@ where
                 category,
                 subscription_id,
             )
-        }
-    }
-
-    pub fn on_forwarded_subscription(
-        &self,
-        source: ProtoName,
-        name: ProtoName,
-        source_identity: String,
-        conn_index: u64,
-        add: bool,
-        subscription_id: u64,
-    ) {
-        if add {
-            self.remote_subscription_table.add_subscription(
-                source,
-                name,
-                source_identity,
-                conn_index,
-                subscription_id,
-            );
-        } else {
-            self.remote_subscription_table.remove_subscription(
-                source,
-                name,
-                source_identity,
-                conn_index,
-                subscription_id,
-            );
         }
     }
 

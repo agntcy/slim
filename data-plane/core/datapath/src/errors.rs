@@ -71,7 +71,7 @@ pub enum DataPathError {
     #[error("remote subscription ack timed out after {0} retries")]
     RemoteSubscriptionAckTimeout(u32),
 
-    #[error("remote subscription ack returned error: {0}")]
+    #[error("remote subscription ack error")]
     RemoteSubscriptionAckError(String),
 
     // Shutdown errors

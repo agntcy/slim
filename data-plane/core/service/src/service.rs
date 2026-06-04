@@ -21,9 +21,9 @@ use slim_controller::config::Config as ControllerConfig;
 use slim_controller::config::Config as DataplaneConfig;
 use slim_controller::service::ControlPlane;
 use slim_datapath::message_processing::MessageProcessor;
-use slim_datapath::peer_discovery::{PeerConfig, StaticPeerDiscovery};
-use slim_datapath::peer_sync::PeerSyncConfig;
-use slim_datapath::peer_sync::PeerSyncManager;
+use slim_datapath::peer_discovery::{PeerConfig, PeerTopology, StaticPeerDiscovery};
+use slim_datapath::sync::PeerSyncConfig;
+use slim_datapath::sync::PeerSyncManager;
 use slim_datapath::tables::ConnType;
 
 // Local crate
@@ -73,11 +73,11 @@ pub struct ServiceConfiguration {
     /// This is the **global** identity used for peer sync and controller communication.
     pub node_id: String,
 
-    /// Optional local service name (e.g. the YAML map key like "slim/0").
-    /// Used as the service identifier within this process. When not set,
-    /// falls back to `node_id`.
+    /// Local service identifier (the YAML map key, e.g. "0" from "slim/0").
+    /// Used as the service identifier within this process.
+    /// Always set: from the config file key when loading YAML, or defaults to `node_id`.
     #[serde(skip)]
-    pub service_name: Option<String>,
+    pub service_id: String,
 
     /// Optional name of the group for the service.
     pub group_name: Option<String>,
@@ -95,9 +95,10 @@ pub struct ServiceConfiguration {
 
 impl Default for ServiceConfiguration {
     fn default() -> Self {
+        let node_id = format!("node-{}", uuid::Uuid::new_v4());
         Self {
-            node_id: format!("node-{}", uuid::Uuid::new_v4()),
-            service_name: None,
+            service_id: node_id.clone(),
+            node_id,
             group_name: None,
             dataplane: DataplaneConfig::default(),
             controller: ControllerConfig::default(),
@@ -152,9 +153,9 @@ impl ServiceConfiguration {
         self
     }
 
-    /// Returns the effective service name: `service_name` if set, otherwise `node_id`.
-    pub fn effective_name(&self) -> &str {
-        self.service_name.as_deref().unwrap_or(&self.node_id)
+    /// Returns the service ID (always set — from config key or defaults to node_id).
+    pub fn service_id(&self) -> &str {
+        &self.service_id
     }
 
     pub fn build_server(&self, id: ID) -> Result<Service, ServiceError> {
@@ -259,6 +260,17 @@ impl Service {
             .map(|p| p.peer_group.clone())
             .unwrap_or_default();
         let service_id = config.node_id.clone();
+
+        // Determine relay_peer_publishes at build time based on peer topology.
+        let relay_peer_publishes = match &config.peers {
+            Some(peer_config) => match peer_config.topology {
+                PeerTopology::FullMesh => false,
+                PeerTopology::HubAndSpoke => true,
+            },
+            // No peer config — standalone/generic topology needs relay.
+            None => true,
+        };
+
         let message_processor =
             Arc::new(if let Some(server) = config.dataplane_servers().first() {
                 MessageProcessor::new_with_server_config(
@@ -266,6 +278,7 @@ impl Service {
                     peer_group,
                     server,
                     recovery_ttl,
+                    relay_peer_publishes,
                 )
             } else {
                 MessageProcessor::new_with_options(service_id, recovery_ttl)

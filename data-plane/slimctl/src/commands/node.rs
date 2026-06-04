@@ -136,13 +136,15 @@ async fn route_list(opts: &ClientConfig) -> Result<()> {
                             .connections
                             .iter()
                             .map(|c| {
+                                let peer = c.peer_node_id.as_deref().unwrap_or("-");
                                 format!(
-                                    "{}:{}:{}:{:?}:{:?}",
+                                    "{}:{}:{}:{:?}:{:?}:peer={}",
                                     c.connection_type().as_str_name(),
                                     c.id,
                                     c.config_data,
                                     c.link_id,
-                                    c.direction()
+                                    c.direction(),
+                                    peer,
                                 )
                             })
                             .collect();
@@ -285,10 +287,11 @@ async fn connection_list(opts: &ClientConfig) -> Result<()> {
                     } else {
                         for e in &list_resp.entries {
                             println!(
-                                "id={} direction={:?} link_id={:?} {}",
+                                "id={} direction={:?} link_id={:?} peer={:?} {}",
                                 e.id,
                                 e.direction(),
                                 e.link_id,
+                                e.peer_node_id,
                                 e.config_data
                             );
                         }

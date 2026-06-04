@@ -1239,6 +1239,7 @@ impl ControllerService {
                                         config_data: "{}".to_string(),
                                         link_id: None,
                                         direction: ConnectionDirection::Outgoing as i32,
+                                        peer_node_id: None,
                                     });
                                 }
 
@@ -1258,6 +1259,7 @@ impl ControllerService {
                                             } else {
                                                 ConnectionDirection::Incoming as i32
                                             },
+                                            peer_node_id: conn.peer_node_id(),
                                         });
                                     } else {
                                         error!(%cid, "no connection entry for id");
@@ -1276,6 +1278,7 @@ impl ControllerService {
                                             } else {
                                                 ConnectionDirection::Incoming as i32
                                             },
+                                            peer_node_id: conn.peer_node_id(),
                                         });
                                     } else {
                                         error!(%cid, "no connection entry for id (peer)");
@@ -1344,6 +1347,7 @@ impl ControllerService {
                                     } else {
                                         ConnectionDirection::Incoming as i32
                                     },
+                                    peer_node_id: conn.peer_node_id(),
                                 });
                             });
 
@@ -1657,6 +1661,7 @@ impl ControllerService {
                         } else {
                             v1::ConnectionDirection::Incoming as i32
                         },
+                        peer_node_id: conn.peer_node_id(),
                     });
                 });
 

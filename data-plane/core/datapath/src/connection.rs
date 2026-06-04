@@ -23,6 +23,8 @@ struct NegotiationState {
     remote_slim_version: Option<Version>,
     pub(crate) header_hmac: Option<Arc<HeaderMacSession>>,
     outbound_ecdh_private: Option<EphemeralPrivateKey>,
+    /// Remote node identifier, set during link negotiation.
+    peer_node_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -229,6 +231,16 @@ impl Connection {
     /// Get the SLIM version of the remote peer.
     pub fn remote_slim_version(&self) -> Option<Version> {
         self.negotiation.read().remote_slim_version.clone()
+    }
+
+    /// Get the remote peer's node identifier (set during link negotiation).
+    pub fn peer_node_id(&self) -> Option<String> {
+        self.negotiation.read().peer_node_id.clone()
+    }
+
+    /// Set the remote peer's node identifier.
+    pub(crate) fn set_peer_node_id(&self, node_id: String) {
+        self.negotiation.write().peer_node_id = Some(node_id);
     }
 
     /// Atomically complete link negotiation on the server (incoming) path.
