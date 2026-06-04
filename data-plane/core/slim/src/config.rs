@@ -191,7 +191,12 @@ impl ConfigLoader {
                 ID::new_with_str(id_string).map_err(|e| ConfigError::InvalidKey(e.to_string()))?;
 
             // Parse the ServiceConfiguration directly from YAML
-            let config: ServiceConfiguration = serde_yaml::from_value(value.clone())?;
+            let mut config: ServiceConfiguration = serde_yaml::from_value(value.clone())?;
+
+            // Set the service_name from the name part of the YAML map key (local identifier).
+            // The key is "kind/name" (e.g. "slim/0"); we store just the name portion since
+            // the kind is provided by ServiceBuilder.
+            config.service_name = Some(id.name().to_string());
 
             configs.insert(id, config);
         }

@@ -144,51 +144,6 @@ async fn send_subscriptions(
     Ok(count)
 }
 
-/// Send an incremental subscription update to all connected peers.
-pub async fn broadcast_subscribe(
-    mp: &MessageProcessor,
-    name: &ProtoName,
-    subscription_id: u64,
-    peer_conn_ids: &[u64],
-) {
-    let msg = match build_subscribe_msg(name, subscription_id) {
-        Ok(m) => m,
-        Err(e) => {
-            warn!(error = %e, "failed to build incremental subscribe message");
-            return;
-        }
-    };
-
-    for &conn_id in peer_conn_ids {
-        debug!(%conn_id, "forwarding subscription to peer connection");
-        if let Err(e) = mp.send_msg(msg.clone(), conn_id).await {
-            warn!(%conn_id, error = %e, "failed to send subscribe to peer");
-        }
-    }
-}
-
-/// Send an incremental unsubscription update to all connected peers.
-pub async fn broadcast_unsubscribe(
-    mp: &MessageProcessor,
-    name: &ProtoName,
-    subscription_id: u64,
-    peer_conn_ids: &[u64],
-) {
-    let msg = match build_unsubscribe_msg(name, subscription_id) {
-        Ok(m) => m,
-        Err(e) => {
-            warn!(error = %e, "failed to build incremental unsubscribe message");
-            return;
-        }
-    };
-
-    for &conn_id in peer_conn_ids {
-        if let Err(e) = mp.send_msg(msg.clone(), conn_id).await {
-            warn!(%conn_id, error = %e, "failed to send unsubscribe to peer");
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
