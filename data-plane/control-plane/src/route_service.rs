@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use petgraph::graph::UnGraph;
+use petgraph::visit::EdgeRef;
 use slim_config::grpc::client::ClientConfig;
 use slim_datapath::api::NameId;
 use uuid::Uuid;
@@ -163,6 +164,224 @@ impl RouteService {
         *self.0.link_graph.write().await = graph;
     }
 
+    /// Find the inter-group link between two groups.
+    ///
+    /// Searches for an existing (non-deleted) link between any node in `group_a`
+    /// and any node in `group_b`. Returns the node_id in `group_a` (the gateway)
+    /// and the link_id connecting them.
+    async fn find_inter_group_link(
+        &self,
+        group_a: &str,
+        group_b: &str,
+        all_nodes: &[crate::db::Node],
+    ) -> Option<(String, String)> {
+        let nodes_a: Vec<&str> = all_nodes
+            .iter()
+            .filter(|n| n.group_name.as_deref() == Some(group_a))
+            .map(|n| n.id.as_str())
+            .collect();
+        let nodes_b: Vec<&str> = all_nodes
+            .iter()
+            .filter(|n| n.group_name.as_deref() == Some(group_b))
+            .map(|n| n.id.as_str())
+            .collect();
+
+        for &na in &nodes_a {
+            for &nb in &nodes_b {
+                if let Ok(link_id) = self.find_matching_link(na, nb).await {
+                    return Some((na.to_string(), link_id));
+                }
+            }
+        }
+        None
+    }
+
+    /// Expand a wildcard route using the Shortest Path Tree.
+    ///
+    /// Given a route announced by `dest_node_id`, computes the SPT rooted at
+    /// the destination's group. For each non-root group in the tree, selects
+    /// a gateway node and installs a route pointing toward the parent group.
+    ///
+    /// This replaces the old can_see/hub-transit expansion logic.
+    async fn expand_route_via_spt(
+        &self,
+        route: &ProtoRoute,
+        dest_node_id: &str,
+        all_nodes: &[crate::db::Node],
+    ) {
+        // Resolve the destination node's group — this is the root of the SPT.
+        let dest_group = all_nodes
+            .iter()
+            .find(|n| n.id == dest_node_id)
+            .and_then(|n| n.group_name.as_deref())
+            .unwrap_or("");
+
+        // Read the current link graph and find the root group's index.
+        let graph = self.0.link_graph.read().await;
+        let root_idx = match graph.node_indices().find(|&idx| graph[idx] == dest_group) {
+            Some(idx) => idx,
+            None => {
+                tracing::debug!(
+                    "expand_route_via_spt: dest group '{dest_group}' not in link graph"
+                );
+                return;
+            }
+        };
+
+        // Compute the SPT rooted at the destination group.
+        let spt = match spt::compute_spt(root_idx, &graph) {
+            Some(t) => t,
+            None => return,
+        };
+
+        // For each non-root group in the SPT, install a route on the gateway
+        // node pointing toward the parent group.
+        for (&orig_idx, &tree_idx) in &spt.index_map {
+            if orig_idx == root_idx {
+                continue;
+            }
+
+            let child_group = &graph[orig_idx];
+
+            // Find the parent group in the directed tree (incoming edge = from parent).
+            let parent_tree_idx = match spt
+                .tree
+                .edges_directed(tree_idx, petgraph::Direction::Incoming)
+                .next()
+            {
+                Some(edge) => edge.source(),
+                None => continue,
+            };
+            let parent_group = &spt.tree[parent_tree_idx];
+
+            // Find the link between the child group and parent group.
+            // The gateway node is the node in child_group that holds this link.
+            let (source_node_id, link_id) =
+                match self.find_inter_group_link(child_group, parent_group, all_nodes).await {
+                    Some((src, lid)) => (src, Some(lid)),
+                    None => {
+                        // No link yet between these groups. Pick any node in the
+                        // child group and store route with link_id=None — the
+                        // reconciler will resolve it once the link is created.
+                        let src = all_nodes
+                            .iter()
+                            .find(|n| n.group_name.as_deref() == Some(child_group.as_str()))
+                            .map(|n| n.id.clone());
+                        match src {
+                            Some(id) => (id, None),
+                            None => continue,
+                        }
+                    }
+                };
+
+            // Create the per-gateway route pointing toward the parent group.
+            let per_node = Route {
+                source_node_id: source_node_id.clone(),
+                link_id,
+                status: RouteStatus::Pending,
+                ..route.to_db_route(ALL_NODES_ID, dest_node_id)
+            };
+            if let Err(e) = self.add_single_route(per_node).await {
+                tracing::debug!(
+                    "expand_route_via_spt: route for {source_node_id} skipped: {e}"
+                );
+            }
+        }
+    }
+
+    /// Same as `expand_route_via_spt` but takes a DB Route template directly.
+    /// Used by `ensure_routes_for_node` which already has wildcard routes from DB.
+    async fn expand_route_via_spt_from_db(
+        &self,
+        template: &Route,
+        all_nodes: &[crate::db::Node],
+    ) {
+        let dest_node_id = &template.dest_node_id;
+
+        // Resolve the destination node's group — this is the root of the SPT.
+        let dest_group = all_nodes
+            .iter()
+            .find(|n| n.id == *dest_node_id)
+            .and_then(|n| n.group_name.as_deref())
+            .unwrap_or("");
+
+        // Read the current link graph and find the root group's index.
+        let graph = self.0.link_graph.read().await;
+        let root_idx = match graph.node_indices().find(|&idx| graph[idx] == dest_group) {
+            Some(idx) => idx,
+            None => {
+                tracing::debug!(
+                    "expand_route_via_spt: dest group '{dest_group}' not in link graph"
+                );
+                return;
+            }
+        };
+
+        // Compute the SPT rooted at the destination group.
+        let spt = match spt::compute_spt(root_idx, &graph) {
+            Some(t) => t,
+            None => return,
+        };
+
+        // For each non-root group in the SPT, install a route on the gateway
+        // node pointing toward the parent group.
+        for (&orig_idx, &tree_idx) in &spt.index_map {
+            if orig_idx == root_idx {
+                continue;
+            }
+
+            let child_group = &graph[orig_idx];
+
+            // Find the parent group in the directed tree (incoming edge = from parent).
+            let parent_tree_idx = match spt
+                .tree
+                .edges_directed(tree_idx, petgraph::Direction::Incoming)
+                .next()
+            {
+                Some(edge) => edge.source(),
+                None => continue,
+            };
+            let parent_group = &spt.tree[parent_tree_idx];
+
+            // Find the link between the child group and parent group.
+            let (source_node_id, link_id) =
+                match self.find_inter_group_link(child_group, parent_group, all_nodes).await {
+                    Some((src, lid)) => (src, Some(lid)),
+                    None => {
+                        let src = all_nodes
+                            .iter()
+                            .find(|n| n.group_name.as_deref() == Some(child_group.as_str()))
+                            .map(|n| n.id.clone());
+                        match src {
+                            Some(id) => (id, None),
+                            None => continue,
+                        }
+                    }
+                };
+
+            // Create the per-gateway route pointing toward the parent group.
+            let per_node = Route {
+                id: String::new(),
+                source_node_id: source_node_id.clone(),
+                dest_node_id: dest_node_id.clone(),
+                link_id,
+                component0: template.component0.clone(),
+                component1: template.component1.clone(),
+                component2: template.component2.clone(),
+                component_id: template.component_id.clone(),
+                status: RouteStatus::Pending,
+                status_msg: String::new(),
+                created_at: SystemTime::now(),
+                last_updated: SystemTime::now(),
+            };
+            if let Err(e) = self.add_single_route(per_node).await {
+                tracing::debug!(
+                    "expand_route_via_spt: route for {source_node_id} skipped: {e}"
+                );
+            }
+        }
+    }
+
     pub async fn add_route(
         &self,
         source_node_id: &str,
@@ -174,62 +393,27 @@ impl RouteService {
         let db_route = route.to_db_route(source_node_id, dest_node_id);
         let route_id = self.add_single_route(db_route).await?;
 
-        // For wildcard source, create per-node routes for all existing nodes
-        // whose group is allowed to see the destination's group by the topology policy.
+        // For wildcard source, expand the route using the SPT rooted at the
+        // destination node's group. Each non-root group gets a route on its
+        // gateway node pointing toward the parent group in the tree.
         if source_node_id == ALL_NODES_ID {
             let all_nodes = self.0.db.list_nodes().await?;
-            // Look up the destination node's group for topology filtering.
-            let dest_group = all_nodes
-                .iter()
-                .find(|n| n.id == dest_node_id)
-                .and_then(|n| n.group_name.as_deref())
-                .unwrap_or("");
-            for n in all_nodes.iter() {
-                if n.id == dest_node_id {
-                    continue;
-                }
-                // Topology policy: skip route if src group cannot see dest group.
-                let src_group = n.group_name.as_deref().unwrap_or("");
-                if !self.0.topology.can_see(src_group, dest_group) {
-                    tracing::debug!(
-                        "topology policy: skipping route from {} ({src_group}) to {dest_node_id} ({dest_group})",
-                        n.id
-                    );
-                    continue;
-                }
-                let per_node = Route {
-                    source_node_id: n.id.clone(),
-                    link_id: None,
-                    status: RouteStatus::Pending,
-                    ..route.to_db_route(source_node_id, dest_node_id)
-                };
-                if let Err(e) = self.add_single_route(per_node).await {
-                    tracing::debug!("route expansion for node {} skipped: {e}", n.id);
-                }
-            }
+            self.expand_route_via_spt(route, dest_node_id, &all_nodes)
+                .await;
         }
 
         Ok(route_id)
     }
 
     async fn add_single_route(&self, mut db_route: Route) -> Result<String> {
-        // Try to resolve the link_id now; if no link exists yet, store the
-        // route with link_id=None — the reconciler will resolve it later.
-        if db_route.source_node_id != ALL_NODES_ID {
+        // If link_id was not pre-resolved by the caller (e.g. expand_route_via_spt),
+        // try to find a direct link between source and dest. If none exists yet,
+        // store with link_id=None — the reconciler will resolve it later.
+        if db_route.source_node_id != ALL_NODES_ID && db_route.link_id.is_none() {
             db_route.link_id = self
                 .find_matching_link(&db_route.source_node_id, &db_route.dest_node_id)
                 .await
                 .ok();
-            // No direct link found. In a star topology, resolve the hub link
-            // as next-hop for transit (spoke→hub→spoke).
-            if db_route.link_id.is_none() && self.0.topology.is_star() {
-                db_route.link_id = reconciler::resolve_hub_link(
-                    &self.0.db,
-                    &self.0.topology,
-                    &db_route.source_node_id,
-                )
-                .await;
-            }
         }
 
         // Retry once if a stale soft-deleted route blocks insertion. The
@@ -1007,268 +1191,27 @@ impl RouteService {
         }
     }
 
-    /// For each wildcard route, create a per-node route for `node_id` if one
-    /// does not exist yet. Routes are only created between groups that the
-    /// topology routing policy allows.
+    /// Ensure routes exist for a newly-registered or reconnected node.
     ///
-    /// Two passes are made:
-    /// 1. `node_id` as SOURCE — expand each wildcard `(*, dest_X)` into a
-    ///    concrete route `node_id → dest_X`, if the topology allows visibility.
-    /// 2. `node_id` as DEST — for each wildcard `(*, dest=node_id)`, expand
-    ///    into a route `peer → node_id` for every currently-registered peer
-    ///    whose group is allowed to see this node's group.
-    ///    This handles the case where `node_id` registers *after* the wildcard
-    ///    was added and after some peer nodes were already registered.
+    /// Fetches all wildcard route templates and re-expands them via the SPT.
+    /// Since `add_single_route` rejects duplicates, this is idempotent.
     async fn ensure_routes_for_node(
         &self,
-        node_id: &str,
-        node_links: &[crate::db::Link],
+        _node_id: &str,
+        _node_links: &[crate::db::Link],
         all_nodes: &[crate::db::Node],
     ) {
-        // Resolve the group of the current node for topology filtering.
-        let src_node_group = all_nodes
-            .iter()
-            .find(|n| n.id == node_id)
-            .and_then(|n| n.group_name.as_deref())
-            .unwrap_or("");
-
-        // Map peer_node_id → link_id covering BOTH outgoing (source=node_id)
-        // and incoming (dest=node_id) links.  With the one-link-per-pair design,
-        // a node can subscribe via an incoming connection, so both directions must
-        // be included here.
-        let link_by_peer: HashMap<&str, &str> = node_links
-            .iter()
-            .filter(|l| l.status != LinkStatus::Deleted)
-            .map(|l| {
-                let peer = if l.source_node_id == node_id {
-                    l.dest_node_id.as_str()
-                } else {
-                    l.source_node_id.as_str()
-                };
-                (peer, l.link_id.as_str())
-            })
-            .collect();
-
-        let Ok(wildcard_routes) = self.0.db.get_routes_for_node(ALL_NODES_ID).await else {
-            return;
+        // Fetch all wildcard route templates.
+        let wildcard_routes = match self.0.db.get_routes_for_node(ALL_NODES_ID).await {
+            Ok(r) => r,
+            Err(_) => return,
         };
 
-        let (routes_as_src, routes_as_dest) = tokio::join!(
-            self.0.db.get_routes_for_node(node_id),
-            self.0.db.get_routes_for_dest_node_id(node_id),
-        );
-        let routes_as_src = routes_as_src.unwrap_or_default();
-        let routes_as_dest = routes_as_dest.unwrap_or_default();
-
-        type RouteKey = (
-            String,
-            String,
-            String,
-            String,
-            String,
-            Option<String>,
-            Option<String>,
-        );
-        let existing_routes: HashSet<RouteKey> = routes_as_src
-            .iter()
-            .chain(routes_as_dest.iter())
-            .filter(|r| r.status != RouteStatus::Deleted)
-            .map(|r| {
-                (
-                    r.source_node_id.clone(),
-                    r.dest_node_id.clone(),
-                    r.component0.clone(),
-                    r.component1.clone(),
-                    r.component2.clone(),
-                    r.component_id.clone(),
-                    r.link_id.clone(),
-                )
-            })
-            .collect();
-
-        // Pass 1: node_id as source.
+        // For each wildcard route, expand via SPT. The SPT determines which
+        // gateway nodes get routes and which links they point to.
         for r in &wildcard_routes {
-            if r.dest_node_id == node_id {
-                continue;
-            }
-            // Topology policy: check if src node can see the dest node's group.
-            let dest_group = all_nodes
-                .iter()
-                .find(|n| n.id == r.dest_node_id)
-                .and_then(|n| n.group_name.as_deref())
-                .unwrap_or("");
-            if !self.0.topology.can_see(src_node_group, dest_group) {
-                tracing::debug!(
-                    "topology policy: skipping route {node_id} ({src_node_group}) -> {} ({dest_group})",
-                    r.dest_node_id
-                );
-                continue;
-            }
-            let link_id = match link_by_peer.get(r.dest_node_id.as_str()) {
-                Some(id) => id.to_string(),
-                None => {
-                    // No direct link to destination. In star topology, use the hub
-                    // as next-hop: the spoke sends to the hub, which already has a
-                    // route to the destination spoke and will forward the message.
-                    if self.0.topology.is_star() {
-                        match self.resolve_hub_transit_link(&link_by_peer, all_nodes) {
-                            Some(hub_link) => hub_link,
-                            None => {
-                                tracing::debug!(
-                                    "ensure_routes: star transit: no hub link found for {node_id}->{}, skipping",
-                                    r.dest_node_id
-                                );
-                                continue;
-                            }
-                        }
-                    } else {
-                        tracing::debug!(
-                            "ensure_routes: no link found for {node_id}->{}, skipping",
-                            r.dest_node_id
-                        );
-                        continue;
-                    }
-                }
-            };
-            let key: RouteKey = (
-                node_id.to_string(),
-                r.dest_node_id.clone(),
-                r.component0.clone(),
-                r.component1.clone(),
-                r.component2.clone(),
-                r.component_id.clone(),
-                Some(link_id.clone()),
-            );
-            if existing_routes.contains(&key) {
-                continue;
-            }
-            let new_route = Route {
-                id: String::new(),
-                source_node_id: node_id.to_string(),
-                dest_node_id: r.dest_node_id.clone(),
-                link_id: Some(link_id),
-                component0: r.component0.clone(),
-                component1: r.component1.clone(),
-                component2: r.component2.clone(),
-                component_id: r.component_id.clone(),
-                status: RouteStatus::Pending,
-                status_msg: String::new(),
-                created_at: SystemTime::now(),
-                last_updated: SystemTime::now(),
-            };
-            match self.0.db.add_route(new_route).await {
-                Ok(added) => tracing::info!("generic route created: {added}"),
-                Err(e) => tracing::debug!("generic route already exists or cannot be added: {e}"),
-            }
+            self.expand_route_via_spt_from_db(r, all_nodes).await;
         }
-
-        // Pass 2: node_id as destination — expand wildcards targeting node_id for
-        // every peer that doesn't already have a route pointing here.
-        let wildcard_for_self: Vec<&Route> = wildcard_routes
-            .iter()
-            .filter(|r| r.dest_node_id == node_id)
-            .collect();
-
-        if wildcard_for_self.is_empty() {
-            return;
-        }
-
-        for r in wildcard_for_self {
-            for other in all_nodes {
-                if other.id == node_id {
-                    continue;
-                }
-                // Topology policy: check if the other node can see this node's group.
-                let other_group = other.group_name.as_deref().unwrap_or("");
-                if !self.0.topology.can_see(other_group, src_node_group) {
-                    tracing::debug!(
-                        "topology policy: skipping route {} ({other_group}) -> {node_id} ({src_node_group})",
-                        other.id
-                    );
-                    continue;
-                }
-                let link_id = match link_by_peer.get(other.id.as_str()) {
-                    Some(id) => id.to_string(),
-                    None => {
-                        // No direct link from the other node. In star topology, use
-                        // the hub as next-hop for the other node to reach this node.
-                        if self.0.topology.is_star() {
-                            match self.resolve_hub_transit_link(&link_by_peer, all_nodes) {
-                                Some(hub_link) => hub_link,
-                                None => {
-                                    tracing::debug!(
-                                        "ensure_routes: star transit: no hub link found for {}→{node_id}, skipping",
-                                        other.id
-                                    );
-                                    continue;
-                                }
-                            }
-                        } else {
-                            tracing::debug!(
-                                "ensure_routes: no link found for {}→{node_id}, skipping",
-                                other.id
-                            );
-                            continue;
-                        }
-                    }
-                };
-                let key: RouteKey = (
-                    other.id.clone(),
-                    node_id.to_string(),
-                    r.component0.clone(),
-                    r.component1.clone(),
-                    r.component2.clone(),
-                    r.component_id.clone(),
-                    Some(link_id.clone()),
-                );
-                if existing_routes.contains(&key) {
-                    continue;
-                }
-                let new_route = Route {
-                    id: String::new(),
-                    source_node_id: other.id.clone(),
-                    dest_node_id: node_id.to_string(),
-                    link_id: Some(link_id),
-                    component0: r.component0.clone(),
-                    component1: r.component1.clone(),
-                    component2: r.component2.clone(),
-                    component_id: r.component_id.clone(),
-                    status: RouteStatus::Pending,
-                    status_msg: String::new(),
-                    created_at: SystemTime::now(),
-                    last_updated: SystemTime::now(),
-                };
-                match self.0.db.add_route(new_route).await {
-                    Ok(added) => {
-                        tracing::info!("generic route created: {added}");
-                        self.0.queue.add(other.id.clone());
-                    }
-                    Err(e) => {
-                        tracing::debug!("generic route already exists or cannot be added: {e}");
-                    }
-                }
-            }
-        }
-    }
-
-    /// In a star topology, resolves the link to the hub node as the next-hop
-    /// for transit routing between two spokes that have no direct link.
-    ///
-    /// Since each group contains exactly one node, this finds the single node
-    /// belonging to the hub group and returns the link_id connecting to it.
-    /// The hub will then forward the message to the destination spoke using
-    /// its own direct link.
-    fn resolve_hub_transit_link(
-        &self,
-        link_by_peer: &HashMap<&str, &str>,
-        all_nodes: &[crate::db::Node],
-    ) -> Option<String> {
-        let hub_group = self.0.topology.hub_group()?;
-        let hub_node_id = all_nodes
-            .iter()
-            .find(|n| n.group_name.as_deref() == Some(hub_group))
-            .map(|n| n.id.as_str())?;
-        link_by_peer.get(hub_node_id).map(|id| id.to_string())
     }
 
     async fn find_matching_link(&self, source: &str, dest: &str) -> Result<String> {
@@ -2008,39 +1951,74 @@ mod tests {
         db.save_node(spoke_b).await.unwrap();
 
         let svc = make_route_service_with_topology(db.clone(), star_topology());
+
+        // Build the link graph (normally done in node_registered).
+        let all_nodes = db.list_nodes().await.unwrap();
+        svc.rebuild_link_graph(&all_nodes).await;
+
+        // Create inter-group links (star: hub↔spoke-a, hub↔spoke-b).
+        let link_hub_a = crate::db::Link {
+            link_id: "link-hub-a".to_string(),
+            source_node_id: "hub-node".to_string(),
+            dest_node_id: "spoke-a".to_string(),
+            dest_endpoint: "spoke-a:8080".to_string(),
+            conn_config_data: ClientConfig::default(),
+            status: LinkStatus::Applied,
+            status_msg: String::new(),
+            created_at: SystemTime::now(),
+            last_updated: SystemTime::now(),
+        };
+        let link_hub_b = crate::db::Link {
+            link_id: "link-hub-b".to_string(),
+            source_node_id: "hub-node".to_string(),
+            dest_node_id: "spoke-b".to_string(),
+            dest_endpoint: "spoke-b:8080".to_string(),
+            conn_config_data: ClientConfig::default(),
+            status: LinkStatus::Applied,
+            status_msg: String::new(),
+            created_at: SystemTime::now(),
+            last_updated: SystemTime::now(),
+        };
+        db.add_link(link_hub_a).await.unwrap();
+        db.add_link(link_hub_b).await.unwrap();
+
         let route = ProtoRoute {
             name: Some(ProtoName::from_strings(["org", "name", "type"])),
             ..Default::default()
         };
 
-        // Wildcard route: all nodes → spoke-b
-        // With star policy, only platform should get the route (spokes can't see each other)
+        // Wildcard route: all nodes → spoke-b.
+        // SPT rooted at "customer-b": customer-b → platform → customer-a.
+        // Hub (platform) gets route via link-hub-b, spoke-a (customer-a) via link to hub.
         svc.add_route(ALL_NODES_ID, "spoke-b", &route)
             .await
             .unwrap();
 
-        // Check routes in db: should have wildcard + hub-node→spoke-b, but NOT spoke-a→spoke-b
         let hub_routes = db.get_routes_for_node("hub-node").await.unwrap();
         let spoke_a_routes = db.get_routes_for_node("spoke-a").await.unwrap();
 
+        // Hub should have a route to spoke-b (parent of hub in SPT is spoke-b itself,
+        // so hub is a direct child of root and gets a route via link-hub-b).
         assert!(
             hub_routes
                 .iter()
                 .any(|r| r.dest_node_id == "spoke-b" && r.source_node_id == "hub-node"),
             "hub should have a route to spoke-b"
         );
+
+        // Spoke-a should have a route to spoke-b pointing toward hub (its parent in SPT).
         assert!(
-            !spoke_a_routes
+            spoke_a_routes
                 .iter()
                 .any(|r| r.dest_node_id == "spoke-b"),
-            "spoke-a should NOT have a route to spoke-b"
+            "spoke-a should have a route to spoke-b via hub"
         );
     }
 
-    // ── topology: resolve_hub_transit_link ─────────────────────────────────
+    // ── topology: SPT-based route expansion ──────────────────────────────
 
     #[tokio::test]
-    async fn resolve_hub_transit_link_finds_hub() {
+    async fn ensure_routes_spt_creates_route_via_parent() {
         let db = InMemoryDb::shared();
         let hub = make_node("hub-node", Some("platform"), vec![]);
         let spoke_a = make_node("spoke-a", Some("customer-a"), vec![]);
@@ -2049,47 +2027,7 @@ mod tests {
         db.save_node(spoke_a).await.unwrap();
         db.save_node(spoke_b).await.unwrap();
 
-        let svc = make_route_service_with_topology(db.clone(), star_topology());
-        let all_nodes = db.list_nodes().await.unwrap();
-
-        // Simulate link_by_peer for spoke-a: it has a link to hub-node
-        let mut link_by_peer: HashMap<&str, &str> = HashMap::new();
-        link_by_peer.insert("hub-node", "link-to-hub");
-
-        let result = svc.resolve_hub_transit_link(&link_by_peer, &all_nodes);
-        assert_eq!(result, Some("link-to-hub".to_string()));
-    }
-
-    #[tokio::test]
-    async fn resolve_hub_transit_link_returns_none_without_star() {
-        let db = InMemoryDb::shared();
-        let node_a = make_node("node-a", Some("group-a"), vec![]);
-        db.save_node(node_a).await.unwrap();
-
-        // Full mesh topology (default) - no hub
-        let svc = make_route_service(db.clone());
-        let all_nodes = db.list_nodes().await.unwrap();
-        let link_by_peer: HashMap<&str, &str> = HashMap::new();
-
-        let result = svc.resolve_hub_transit_link(&link_by_peer, &all_nodes);
-        assert_eq!(result, None);
-    }
-
-    // ── topology: star transit route creation ──────────────────────────────
-
-    #[tokio::test]
-    async fn ensure_routes_star_transit_creates_route_via_hub() {
-        let db = InMemoryDb::shared();
-        let hub = make_node("hub-node", Some("platform"), vec![]);
-        let spoke_a = make_node("spoke-a", Some("customer-a"), vec![]);
-        let spoke_b = make_node("spoke-b", Some("customer-b"), vec![]);
-        db.save_node(hub).await.unwrap();
-        db.save_node(spoke_a).await.unwrap();
-        db.save_node(spoke_b).await.unwrap();
-
-        // Star topology WITH cross-spoke visibility (in new model, can_see
-        // falls back to can_link — spokes can't link so they can't see each other,
-        // BUT we add an explicit link entry for customer-a↔customer-b to allow it)
+        // Star topology: platform links to all, spokes link only to platform.
         let topology = TopologyConfig {
             links: vec![
                 AdjacencyEntry {
@@ -2099,10 +2037,6 @@ mod tests {
                 AdjacencyEntry {
                     name: "*".to_string(),
                     peers: vec!["platform".to_string()],
-                },
-                AdjacencyEntry {
-                    name: "customer-a".to_string(),
-                    peers: vec!["customer-b".to_string()],
                 },
             ],
         };
@@ -2126,8 +2060,8 @@ mod tests {
         };
         db.add_route(wildcard_route).await.unwrap();
 
-        // spoke-a has a link to hub-node only (star topology)
-        let link_to_hub = crate::db::Link {
+        // spoke-a has a link to hub-node (star topology)
+        let link_a_hub = crate::db::Link {
             link_id: "link-a-hub".to_string(),
             source_node_id: "spoke-a".to_string(),
             dest_node_id: "hub-node".to_string(),
@@ -2138,28 +2072,62 @@ mod tests {
             created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         };
-        db.add_link(link_to_hub.clone()).await.unwrap();
+        db.add_link(link_a_hub.clone()).await.unwrap();
 
+        // hub-node has a link to spoke-b
+        let link_hub_b = crate::db::Link {
+            link_id: "link-hub-b".to_string(),
+            source_node_id: "hub-node".to_string(),
+            dest_node_id: "spoke-b".to_string(),
+            dest_endpoint: "spoke-b:8080".to_string(),
+            conn_config_data: ClientConfig::default(),
+            status: LinkStatus::Applied,
+            status_msg: String::new(),
+            created_at: SystemTime::now(),
+            last_updated: SystemTime::now(),
+        };
+        db.add_link(link_hub_b).await.unwrap();
+
+        // Build the link graph (normally done in node_registered).
         let all_nodes = db.list_nodes().await.unwrap();
-        let node_links = vec![link_to_hub];
+        svc.rebuild_link_graph(&all_nodes).await;
 
-        // Run ensure_routes_for_node for spoke-a
+        let node_links = vec![link_a_hub];
+
+        // Run ensure_routes_for_node for spoke-a.
+        // SPT rooted at "customer-b": customer-b → platform → customer-a
+        // So spoke-a should get a route pointing to its parent (platform/hub-node).
         svc.ensure_routes_for_node("spoke-a", &node_links, &all_nodes)
             .await;
 
-        // spoke-a should have a route to spoke-b via hub link (transit)
+        // spoke-a should have a route to spoke-b via the hub link (toward parent).
         let spoke_a_routes = db.get_routes_for_node("spoke-a").await.unwrap();
         let transit_route = spoke_a_routes
             .iter()
             .find(|r| r.dest_node_id == "spoke-b" && r.source_node_id == "spoke-a");
         assert!(
             transit_route.is_some(),
-            "spoke-a should have a transit route to spoke-b"
+            "spoke-a should have a route to spoke-b"
         );
         assert_eq!(
             transit_route.unwrap().link_id.as_deref(),
             Some("link-a-hub"),
-            "transit route should point to the hub link"
+            "route should point to the hub link (parent in SPT)"
+        );
+
+        // hub-node should also have a route to spoke-b via the direct link.
+        let hub_routes = db.get_routes_for_node("hub-node").await.unwrap();
+        let hub_route = hub_routes
+            .iter()
+            .find(|r| r.dest_node_id == "spoke-b" && r.source_node_id == "hub-node");
+        assert!(
+            hub_route.is_some(),
+            "hub-node should have a route to spoke-b"
+        );
+        assert_eq!(
+            hub_route.unwrap().link_id.as_deref(),
+            Some("link-hub-b"),
+            "hub route should point directly to spoke-b"
         );
     }
 }
