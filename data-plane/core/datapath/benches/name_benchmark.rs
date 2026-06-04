@@ -38,6 +38,7 @@ fn make_slim_header() -> SlimHeader {
         incoming_conn: None,
         error: None,
         header_mac: None,
+        ttl: 16,
     }
 }
 

@@ -90,6 +90,9 @@ pub enum DataPathError {
 
     #[error("inter-node ephemeral key generation failed")]
     LinkKeyGeneration,
+
+    #[error("message TTL expired")]
+    TtlExpired,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

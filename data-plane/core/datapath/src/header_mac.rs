@@ -148,12 +148,16 @@ fn preimage_upper_bound(header: &SlimHeader) -> usize {
     /// Byte size of error: Option<bool> encoded by [`push_bool_opt`]
     const ERROR_SIZE: usize = 2;
 
+    /// Byte size of TTL: u32 serialized by [`to_le_bytes`]
+    const TTL_SIZE: usize = 4;
+
     DOMAIN_V1.len()
         + LINK_UUID_SIZE
         + FANOUT_SIZE
         + RECV_FROM_SIZE
         + FORWARD_TO_SIZE
         + ERROR_SIZE
+        + TTL_SIZE
         + encoded_name_upper_bound(&header.source)
         + encoded_name_upper_bound(&header.destination)
 }
@@ -268,6 +272,7 @@ fn write_preimage(buf: &mut Vec<u8>, hdr: &SlimHeader, link_uuid: &[u8; 16]) {
     push_u64_opt(buf, hdr.recv_from);
     push_u64_opt(buf, hdr.forward_to);
     push_bool_opt(buf, hdr.error);
+    buf.extend_from_slice(&hdr.ttl.to_le_bytes());
 }
 
 #[cfg(test)]
@@ -315,6 +320,7 @@ mod tests {
             incoming_conn: Some(999),
             error: Some(false),
             header_mac: None,
+            ttl: 16,
         }
     }
 

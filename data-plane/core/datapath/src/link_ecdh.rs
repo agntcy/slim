@@ -79,6 +79,7 @@ mod tests {
             incoming_conn: None,
             error: None,
             header_mac: None,
+            ttl: 16,
         };
         a.sign_slim_header(&mut h, &lid).unwrap();
         b.verify_slim_header(&h, &lid).unwrap();
