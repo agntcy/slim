@@ -23,8 +23,9 @@ fn main() {
     // used as-is and this build script skips proto compilation.
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let proto_file = std::path::Path::new(&manifest_dir).join("proto/v1/controller.proto");
+    let repo_proto_dir = std::path::Path::new(&manifest_dir).join("../../../proto");
 
-    if !proto_file.exists() {
+    if !proto_file.exists() || !repo_proto_dir.exists() {
         // Published package: rely on the pre-generated src/api/gen/ file.
         return;
     }

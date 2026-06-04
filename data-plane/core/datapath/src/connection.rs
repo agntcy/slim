@@ -31,19 +31,7 @@ pub(crate) enum Channel {
     Client(mpsc::Sender<Message>),
 }
 
-/// Connection type
-#[derive(Debug, Clone, Default)]
-pub(crate) enum Type {
-    /// Connection with local application
-    Local,
-
-    /// Connection with remote slim instance
-    Remote,
-
-    /// Unknown connection type
-    #[default]
-    Unknown,
-}
+use crate::tables::ConnType;
 
 #[derive(Clone)]
 /// Connection information
@@ -61,7 +49,7 @@ pub struct Connection {
     config_data: Option<ClientConfig>,
 
     /// Connection type
-    connection_type: Type,
+    connection_type: ConnType,
 
     /// cancellation token to stop the receiving loop on this connection
     cancellation_token: Option<CancellationToken>,
@@ -90,7 +78,7 @@ impl std::fmt::Debug for Connection {
 /// Implementation of Connection
 impl Connection {
     /// Create a new Connection
-    pub(crate) fn new(connection_type: Type, channel: Channel) -> Self {
+    pub(crate) fn new(connection_type: ConnType, channel: Channel) -> Self {
         Self {
             remote_addr: None,
             local_addr: None,
@@ -171,15 +159,20 @@ impl Connection {
         self.config_data.as_ref()
     }
 
-    /// Get the connection type
-    #[allow(dead_code)]
-    pub(crate) fn connection_type(&self) -> &Type {
-        &self.connection_type
-    }
-
     /// Return true if is a local connection
     pub(crate) fn is_local_connection(&self) -> bool {
-        matches!(self.connection_type, Type::Local)
+        matches!(self.connection_type, ConnType::Local)
+    }
+
+    /// Return true if is a peer connection (same deployment replica)
+    #[allow(dead_code)]
+    pub(crate) fn is_peer_connection(&self) -> bool {
+        matches!(self.connection_type, ConnType::Peer)
+    }
+
+    /// Return the connection category for subscription table operations.
+    pub(crate) fn category(&self) -> ConnType {
+        self.connection_type
     }
 
     /// Return true if this node initiated the connection (outbound dial).
@@ -283,12 +276,12 @@ mod tests {
 
     fn server_conn() -> Connection {
         let (tx, _rx) = mpsc::channel(1);
-        Connection::new(Type::Remote, Channel::Server(tx))
+        Connection::new(ConnType::Remote, Channel::Server(tx))
     }
 
     fn client_conn() -> Connection {
         let (tx, _rx) = mpsc::channel(1);
-        Connection::new(Type::Remote, Channel::Client(tx))
+        Connection::new(ConnType::Remote, Channel::Client(tx))
             .with_config_data(Some(ClientConfig::default()))
     }
 
@@ -305,7 +298,7 @@ mod tests {
     #[test]
     fn test_is_outgoing_websocket_inbound() {
         let (tx, _rx) = mpsc::channel(1);
-        let conn = Connection::new(Type::Remote, Channel::Client(tx));
+        let conn = Connection::new(ConnType::Remote, Channel::Client(tx));
         assert!(!conn.is_outgoing());
     }
 

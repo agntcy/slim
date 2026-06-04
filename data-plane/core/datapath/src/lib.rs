@@ -5,6 +5,7 @@ pub mod api;
 pub mod errors;
 pub mod message_processing;
 pub mod messages;
+pub mod peer_discovery;
 pub mod tables;
 
 mod connection;

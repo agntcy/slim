@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.1](https://github.com/agntcy/slim/compare/slim-datapath-v0.14.0...slim-datapath-v0.14.1) - 2026-06-03
+
+### Fixed
+
+- *(build)* skip proto compilation in published packages ([#1706](https://github.com/agntcy/slim/pull/1706))
+
+## [0.14.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.13.2...slim-datapath-v0.14.0) - 2026-06-03
+
+### Added
+
+- increase Name ID from u64 to u128 ([#1680](https://github.com/agntcy/slim/pull/1680))
+- *(data-plane)* add node-to-node header integrity check ([#1609](https://github.com/agntcy/slim/pull/1609))
+- *(websocket)* add WebSocket transport for data-plane ([#1638](https://github.com/agntcy/slim/pull/1638))
+- *(dataplane)* remove group creation ([#1594](https://github.com/agntcy/slim/pull/1594))
+- split data and control channel ([#1418](https://github.com/agntcy/slim/pull/1418))
+
+### Fixed
+
+- *(datapath)* update doctests to match current API ([#1686](https://github.com/agntcy/slim/pull/1686))
+- fix ws tests port collision on fallback ([#1688](https://github.com/agntcy/slim/pull/1688))
+
+### Other
+
+- *(datapath)* replace is_local bool with ConnType enum ([#1689](https://github.com/agntcy/slim/pull/1689))
+- remove bindings dependecy from channel-manager ([#1697](https://github.com/agntcy/slim/pull/1697))
+- *(datapath)* replace RwLock with ArcSwap on the connection table read path ([#1624](https://github.com/agntcy/slim/pull/1624))
+- *(datapath)* refactor SubscriptionTableImpl for cache efficiency ([#1611](https://github.com/agntcy/slim/pull/1611))
+- drop transport field from the config ([#1662](https://github.com/agntcy/slim/pull/1662))
+- control plane in rust ([#1581](https://github.com/agntcy/slim/pull/1581))
+- *(data-plane)* replace encoder::Name with ProtoName throughout ([#1596](https://github.com/agntcy/slim/pull/1596))
+- *(datapath)* eliminate allocations from publish routing hot path ([#1577](https://github.com/agntcy/slim/pull/1577))
+
 ## [0.13.2](https://github.com/agntcy/slim/compare/slim-datapath-v0.13.1...slim-datapath-v0.13.2) - 2026-05-13
 
 ### Other

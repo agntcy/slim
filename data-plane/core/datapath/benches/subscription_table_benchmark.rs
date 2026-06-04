@@ -5,6 +5,7 @@ use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_ma
 use slim_datapath::api::{EncodedName, ProtoName};
 use slim_datapath::tables::SubscriptionTable;
 use slim_datapath::tables::subscription_table::SubscriptionTableImpl;
+use slim_datapath::tables::{ConnType, MatchFilter};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -20,7 +21,7 @@ fn build_specific_ids(n: usize) -> (SubscriptionTableImpl, EncodedName) {
     for i in 1..=n {
         let name = base.clone().with_id(i as u128);
         table
-            .add_subscription(name, (i + 100) as u64, false, i as u64)
+            .add_subscription(name, (i + 100) as u64, ConnType::Remote, i as u64)
             .unwrap();
     }
     let target = base.with_id(n as u128);
@@ -33,11 +34,13 @@ fn build_specific_ids(n: usize) -> (SubscriptionTableImpl, EncodedName) {
 fn build_with_null(n: usize) -> (SubscriptionTableImpl, EncodedName) {
     let base = ProtoName::from_strings(["org", "ns", "svc"]);
     let table = SubscriptionTableImpl::default();
-    table.add_subscription(base.clone(), 1, false, 1).unwrap();
+    table
+        .add_subscription(base.clone(), 1, ConnType::Remote, 1)
+        .unwrap();
     for i in 1..n {
         let name = base.clone().with_id(i as u128);
         table
-            .add_subscription(name, (i + 100) as u64, false, (i + 100) as u64)
+            .add_subscription(name, (i + 100) as u64, ConnType::Remote, (i + 100) as u64)
             .unwrap();
     }
     (table, encoded(&base))
@@ -50,9 +53,13 @@ fn build_one_id_n_conns(n_conns: usize) -> (SubscriptionTableImpl, EncodedName) 
     let table = SubscriptionTableImpl::default();
     let half = n_conns.div_ceil(2);
     for i in 0..n_conns {
-        let is_local = i < half;
+        let category = if i < half {
+            ConnType::Local
+        } else {
+            ConnType::Remote
+        };
         table
-            .add_subscription(name.clone(), (i + 10) as u64, is_local, i as u64)
+            .add_subscription(name.clone(), (i + 10) as u64, category, i as u64)
             .unwrap();
     }
     (table, encoded(&name))
@@ -69,7 +76,7 @@ fn build_many_prefixes(n: usize) -> (SubscriptionTableImpl, EncodedName) {
         let svc = format!("svc{i}");
         let name = ProtoName::from_strings(["org", "ns", svc.as_str()]).with_id(1);
         table
-            .add_subscription(name, (i + 100) as u64, false, i as u64)
+            .add_subscription(name, (i + 100) as u64, ConnType::Remote, i as u64)
             .unwrap();
     }
     let last_svc = format!("svc{}", n - 1);
@@ -86,7 +93,7 @@ fn bench_match_one_specific_id(c: &mut Criterion) {
     for &n in &[1usize, 4, 8, 16, 64, 256, 1024] {
         let (table, enc) = build_specific_ids(n);
         group.bench_with_input(BenchmarkId::from_parameter(n), &enc, |b, e| {
-            b.iter(|| black_box(table.match_one(black_box(e), u64::MAX)))
+            b.iter(|| black_box(table.match_one(black_box(e), u64::MAX, MatchFilter::ALL)))
         });
     }
     group.finish();
@@ -98,7 +105,7 @@ fn bench_match_one_null_component(c: &mut Criterion) {
     for &n in &[1usize, 4, 8, 16, 64, 256] {
         let (table, enc) = build_with_null(n);
         group.bench_with_input(BenchmarkId::from_parameter(n), &enc, |b, e| {
-            b.iter(|| black_box(table.match_one(black_box(e), u64::MAX)))
+            b.iter(|| black_box(table.match_one(black_box(e), u64::MAX, MatchFilter::ALL)))
         });
     }
     group.finish();
@@ -110,15 +117,19 @@ fn bench_match_one_local_preference(c: &mut Criterion) {
     let table = SubscriptionTableImpl::default();
     // 4 remote connections
     for i in 0u64..4 {
-        table.add_subscription(name.clone(), i, false, i).unwrap();
+        table
+            .add_subscription(name.clone(), i, ConnType::Remote, i)
+            .unwrap();
     }
     // 2 local connections (should be preferred)
     for i in 10u64..12 {
-        table.add_subscription(name.clone(), i, true, i).unwrap();
+        table
+            .add_subscription(name.clone(), i, ConnType::Local, i)
+            .unwrap();
     }
     let enc = encoded(&name);
     c.bench_function("match_one/local_preference", |b| {
-        b.iter(|| black_box(table.match_one(black_box(&enc), u64::MAX)))
+        b.iter(|| black_box(table.match_one(black_box(&enc), u64::MAX, MatchFilter::ALL)))
     });
 }
 
@@ -130,7 +141,7 @@ fn bench_match_one_many_prefixes(c: &mut Criterion) {
     for &n in &[64usize, 256, 1024, 4096] {
         let (table, enc) = build_many_prefixes(n);
         group.bench_with_input(BenchmarkId::from_parameter(n), &enc, |b, e| {
-            b.iter(|| black_box(table.match_one(black_box(e), u64::MAX)))
+            b.iter(|| black_box(table.match_one(black_box(e), u64::MAX, MatchFilter::ALL)))
         });
     }
     group.finish();
@@ -144,7 +155,7 @@ fn bench_match_all_specific_id(c: &mut Criterion) {
     for &n in &[1usize, 4, 8, 16, 64, 256] {
         let (table, enc) = build_one_id_n_conns(n);
         group.bench_with_input(BenchmarkId::from_parameter(n), &enc, |b, e| {
-            b.iter(|| black_box(table.match_all(black_box(e), u64::MAX)))
+            b.iter(|| black_box(table.match_all(black_box(e), u64::MAX, MatchFilter::ALL)))
         });
     }
     group.finish();
@@ -156,7 +167,7 @@ fn bench_match_all_null_component(c: &mut Criterion) {
     for &n in &[1usize, 4, 8, 16, 64, 256] {
         let (table, enc) = build_with_null(n);
         group.bench_with_input(BenchmarkId::from_parameter(n), &enc, |b, e| {
-            b.iter(|| black_box(table.match_all(black_box(e), u64::MAX)))
+            b.iter(|| black_box(table.match_all(black_box(e), u64::MAX, MatchFilter::ALL)))
         });
     }
     group.finish();
@@ -169,7 +180,7 @@ fn bench_match_all_many_prefixes(c: &mut Criterion) {
     for &n in &[64usize, 256, 1024, 4096] {
         let (table, enc) = build_many_prefixes(n);
         group.bench_with_input(BenchmarkId::from_parameter(n), &enc, |b, e| {
-            b.iter(|| black_box(table.match_all(black_box(e), u64::MAX)))
+            b.iter(|| black_box(table.match_all(black_box(e), u64::MAX, MatchFilter::ALL)))
         });
     }
     group.finish();

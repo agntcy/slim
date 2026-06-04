@@ -21,6 +21,7 @@ use slim_controller::config::Config as ControllerConfig;
 use slim_controller::config::Config as DataplaneConfig;
 use slim_controller::service::ControlPlane;
 use slim_datapath::message_processing::MessageProcessor;
+use slim_datapath::peer_discovery::PeerConfig;
 
 // Local crate
 use crate::errors::ServiceError;
@@ -75,6 +76,11 @@ pub struct ServiceConfiguration {
     /// Controller API configuration
     #[serde(default)]
     pub controller: ControllerConfig,
+
+    /// Peer replica configuration for intra-deployment route sync.
+    /// When present, enables peer-to-peer subscription synchronization.
+    #[serde(default)]
+    pub peers: Option<PeerConfig>,
 }
 
 impl ServiceConfiguration {
