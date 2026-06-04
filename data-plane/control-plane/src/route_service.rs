@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use petgraph::graph::UnGraph;
 use slim_config::grpc::client::ClientConfig;
 use slim_datapath::api::NameId;
 use uuid::Uuid;
@@ -46,6 +47,8 @@ struct Inner {
     node_locks: tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Topology configuration for link and route filtering.
     topology: TopologyConfig,
+    /// Runtime link graph at the group level. Rebuilt when nodes join/leave.
+    link_graph: tokio::sync::RwLock<UnGraph<String, u32>>,
 }
 
 #[derive(Clone)]
@@ -97,6 +100,7 @@ impl RouteService {
             shutdown_tx,
             node_locks: tokio::sync::Mutex::new(HashMap::new()),
             topology,
+            link_graph: tokio::sync::RwLock::new(UnGraph::new_undirected()),
         }));
 
         // Periodic full-sweep reconciliation with clean shutdown support.
@@ -143,6 +147,19 @@ impl RouteService {
         let _ = self.0.shutdown_tx.send(true);
         self.0.queue.shutdown_with_drain().await;
         tracing::info!("route service: reconcilers stopped");
+    }
+
+    /// Rebuild the runtime link graph from the given set of nodes.
+    /// Extracts distinct group names and calls `build_graph()` on the topology config.
+    async fn rebuild_link_graph(&self, nodes: &[crate::db::Node]) {
+        let groups: Vec<&str> = nodes
+            .iter()
+            .map(|n| n.group_name.as_deref().unwrap_or(""))
+            .collect::<HashSet<&str>>()
+            .into_iter()
+            .collect();
+        let graph = self.0.topology.build_graph(&groups);
+        *self.0.link_graph.write().await = graph;
     }
 
     pub async fn add_route(
@@ -420,6 +437,8 @@ impl RouteService {
                 return;
             }
         };
+
+        self.rebuild_link_graph(&all_nodes).await;
 
         let mut node_links = match self.0.db.get_links_for_node(node_id).await {
             Ok(l) => l,
@@ -749,6 +768,11 @@ impl RouteService {
         // Remove the node record itself.
         if let Err(e) = self.0.db.delete_node(node_id).await {
             tracing::warn!("node_deregistered: failed to delete node {node_id}: {e}");
+        }
+
+        // Rebuild link graph since the set of groups may have changed.
+        if let Ok(remaining_nodes) = self.0.db.list_nodes().await {
+            self.rebuild_link_graph(&remaining_nodes).await;
         }
 
         // Remove the map entry while _node_guard is still held.  Any
