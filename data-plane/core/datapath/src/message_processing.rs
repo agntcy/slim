@@ -1336,6 +1336,12 @@ impl MessageProcessor {
             // add incoming connection to the SLIM header
             msg.set_incoming_conn(Some(conn_index));
 
+            // TTL processing: decrement for remote messages (hop-by-hop)
+            if !category.is_local() && msg.decrement_ttl() == 0 {
+                debug!(%conn_index, "dropping message: TTL expired");
+                return Err(DataPathError::TtlExpired);
+            }
+
             #[cfg(feature = "otel_tracing")]
             otel_tracing::prepare_inbound_msg(
                 &mut msg,
