@@ -9,7 +9,7 @@ use uuid::Uuid;
 use parking_lot::Mutex;
 
 use crate::backoff;
-use crate::config::{ReconcilerConfig, TopologyConfig};
+use crate::config::ReconcilerConfig;
 use crate::error::{Error, Result};
 
 use crate::api::proto::controller::proto::v1::{
@@ -30,7 +30,6 @@ pub struct Reconciler {
     max_requeues: usize,
     base_retry_delay: Duration,
     requeue_counts: Arc<Mutex<HashMap<String, usize>>>,
-    topology: TopologyConfig,
 }
 
 impl Reconciler {
@@ -39,7 +38,6 @@ impl Reconciler {
         cmd_handler: DefaultNodeCommandHandler,
         queue: WorkQueue<String>,
         config: ReconcilerConfig,
-        topology: TopologyConfig,
     ) -> Self {
         Self {
             db,
@@ -48,7 +46,6 @@ impl Reconciler {
             max_requeues: config.max_requeues,
             base_retry_delay: config.base_retry_delay.into(),
             requeue_counts: Arc::new(Mutex::new(HashMap::new())),
-            topology,
         }
     }
 
@@ -56,7 +53,7 @@ impl Reconciler {
         tracing::info!("reconciler: starting");
 
         while let Some(node_id) = self.queue.pop().await {
-            if let Err(e) = handle_request(&self.db, &self.cmd_handler, &self.queue, &node_id, &self.topology).await
+            if let Err(e) = handle_request(&self.db, &self.cmd_handler, &self.queue, &node_id).await
             {
                 tracing::error!("reconciler: failed for node {node_id}: {e}");
 
@@ -101,7 +98,6 @@ async fn handle_request(
     cmd_handler: &DefaultNodeCommandHandler,
     queue: &WorkQueue<String>,
     node_id: &str,
-    topology: &TopologyConfig,
 ) -> Result<()> {
     if cmd_handler.get_connection_status(node_id).await != NodeStatus::Connected {
         tracing::info!("reconciler: node {node_id} not connected, skipping");
@@ -114,7 +110,7 @@ async fn handle_request(
     let (desired_connections, desired_link_ids, deleted_links) =
         build_desired_connections(&mut links, node_id)?;
     let (desired_routes, included_routes, mut needs_requeue) =
-        build_desired_routes(db, &routes, node_id, topology).await?;
+        build_desired_routes(db, &routes, node_id).await?;
 
     if desired_connections.is_empty() && desired_routes.is_empty() && deleted_links.is_empty() {
         if needs_requeue {
@@ -219,7 +215,6 @@ async fn build_desired_routes<'a>(
     db: &SharedDb,
     routes: &'a [crate::db::Route],
     _node_id: &str,
-    topology: &TopologyConfig,
 ) -> Result<(Vec<Route>, HashMap<SubKey, &'a crate::db::Route>, bool)> {
     let mut desired_routes: Vec<Route> = Vec::new();
     let mut included_routes: HashMap<SubKey, &crate::db::Route> = HashMap::new();
@@ -248,69 +243,28 @@ async fn build_desired_routes<'a>(
                         needs_requeue = true;
                     }
                     _ => {
-                        // No direct link. In star topology, try to resolve the hub
-                        // node as the next-hop for transit routing.
-                        if topology.is_star() {
-                            if let Some(hub_link) = resolve_hub_link(db, topology, &route.source_node_id).await {
-                                if let Err(e) = db.update_route_link_id(&route.id, &hub_link).await {
-                                    tracing::warn!(
-                                        "reconciler: failed to update route {} hub link_id: {e}",
-                                        route.id
-                                    );
-                                }
-                                needs_requeue = true;
-                            } else {
-                                tracing::debug!(
-                                    "reconciler: no hub link for route {} ({}→{}), deferring",
-                                    route.id,
-                                    route.source_node_id,
-                                    route.dest_node_id
-                                );
-                            }
-                        } else {
-                            tracing::debug!(
-                                "reconciler: no link yet for route {} ({}→{}), deferring",
-                                route.id,
-                                route.source_node_id,
-                                route.dest_node_id
-                            );
-                        }
+                        // No link available yet — defer until the link is established.
+                        tracing::debug!(
+                            "reconciler: no link yet for route {} ({}→{}), deferring",
+                            route.id,
+                            route.source_node_id,
+                            route.dest_node_id
+                        );
                     }
                 }
                 continue;
             }
         };
 
+        // SPT routing always sets link_id to the direct next-hop link between
+        // the gateway node and its parent in the tree. Look it up both ways
+        // (source→dest or dest→source) since link direction may vary.
         let link_lookup = db
             .get_link(link_id, &route.source_node_id, &route.dest_node_id)
             .await?
             .or(db
                 .get_link(link_id, &route.dest_node_id, &route.source_node_id)
                 .await?);
-        // In star topology, the link may be between source and hub (transit),
-        // not between source and dest. Try that lookup as well.
-        let link_lookup = match link_lookup {
-            Some(l) => Some(l),
-            None if topology.is_star() => {
-                if let Some(hub_group) = topology.hub_group() {
-                    let all_nodes = db.list_nodes().await?;
-                    if let Some(hub_id) = all_nodes
-                        .iter()
-                        .find(|n| n.group_name.as_deref() == Some(hub_group))
-                        .map(|n| n.id.as_str())
-                    {
-                        db.get_link(link_id, &route.source_node_id, hub_id)
-                            .await?
-                            .or(db.get_link(link_id, hub_id, &route.source_node_id).await?)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            }
-            None => None,
-        };
         if let Some(l) = link_lookup {
             if l.status == LinkStatus::Failed {
                 let msg = if l.status_msg.is_empty() {
@@ -499,33 +453,4 @@ async fn process_route_acks(
     }
 
     Ok(needs_requeue)
-}
-
-/// In a star topology, finds the link from `source_node_id` to the hub node.
-/// Used by the reconciler and route_service to resolve the next-hop for transit
-/// routes where source and destination have no direct link.
-pub(crate) async fn resolve_hub_link(
-    db: &SharedDb,
-    topology: &TopologyConfig,
-    source_node_id: &str,
-) -> Option<String> {
-    let hub_group = topology.hub_group()?;
-
-    // Find the hub node (single node per group).
-    let all_nodes = db.list_nodes().await.ok()?;
-    let hub_node_id = all_nodes
-        .iter()
-        .find(|n| n.group_name.as_deref() == Some(hub_group))
-        .map(|n| n.id.as_str())?;
-
-    // Find the link between the source node and the hub node.
-    let link = db
-        .find_link_between_nodes(source_node_id, hub_node_id)
-        .await
-        .ok()??;
-    if link.status != LinkStatus::Deleted {
-        Some(link.link_id)
-    } else {
-        None
-    }
 }

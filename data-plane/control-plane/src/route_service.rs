@@ -86,7 +86,6 @@ impl RouteService {
             cmd_handler.clone(),
             queue.clone(),
             reconciler_config.clone(),
-            topology.clone(),
         );
         let workers = reconciler_config.workers.max(1);
         for _ in 0..workers {
@@ -212,15 +211,16 @@ impl RouteService {
 
     /// Expand a wildcard route using the Shortest Path Tree.
     ///
-    /// Given a route announced by `dest_node_id`, computes the SPT rooted at
-    /// the destination's group. For each non-root group in the tree, selects
-    /// a gateway node and installs a route pointing toward the parent group.
-    ///
-    /// This replaces the old can_see/hub-transit expansion logic.
+    /// Given a route template (dest_node_id + name components), computes the SPT
+    /// rooted at the destination's group. For each non-root group in the tree,
+    /// selects a gateway node and installs a route pointing toward the parent group.
     async fn expand_route_via_spt(
         &self,
-        route: &ProtoRoute,
         dest_node_id: &str,
+        component0: &str,
+        component1: &str,
+        component2: &str,
+        component_id: Option<&str>,
         all_nodes: &[crate::db::Node],
     ) {
         // Resolve the destination node's group — this is the root of the SPT.
@@ -268,108 +268,16 @@ impl RouteService {
             };
             let parent_group = &spt.tree[parent_tree_idx];
 
-            // Find the link between the child group and parent group.
-            // The gateway node is the node in child_group that holds this link.
+            // Find the inter-group link. The gateway node is the node in
+            // child_group that holds this link.
             let (source_node_id, link_id) =
                 match self.find_inter_group_link(child_group, parent_group, all_nodes).await {
-                    Some((src, lid)) => (src, Some(lid)),
+                    Some(pair) => pair,
                     None => {
-                        // No link yet between these groups. Pick any node in the
-                        // child group and store route with link_id=None — the
-                        // reconciler will resolve it once the link is created.
-                        let src = all_nodes
-                            .iter()
-                            .find(|n| n.group_name.as_deref() == Some(child_group.as_str()))
-                            .map(|n| n.id.clone());
-                        match src {
-                            Some(id) => (id, None),
-                            None => continue,
-                        }
-                    }
-                };
-
-            // Create the per-gateway route pointing toward the parent group.
-            let per_node = Route {
-                source_node_id: source_node_id.clone(),
-                link_id,
-                status: RouteStatus::Pending,
-                ..route.to_db_route(ALL_NODES_ID, dest_node_id)
-            };
-            if let Err(e) = self.add_single_route(per_node).await {
-                tracing::debug!(
-                    "expand_route_via_spt: route for {source_node_id} skipped: {e}"
-                );
-            }
-        }
-    }
-
-    /// Same as `expand_route_via_spt` but takes a DB Route template directly.
-    /// Used by `ensure_routes_for_node` which already has wildcard routes from DB.
-    async fn expand_route_via_spt_from_db(
-        &self,
-        template: &Route,
-        all_nodes: &[crate::db::Node],
-    ) {
-        let dest_node_id = &template.dest_node_id;
-
-        // Resolve the destination node's group — this is the root of the SPT.
-        let dest_group = all_nodes
-            .iter()
-            .find(|n| n.id == *dest_node_id)
-            .and_then(|n| n.group_name.as_deref())
-            .unwrap_or("");
-
-        // Read the current link graph and find the root group's index.
-        let graph = self.0.link_graph.read().await;
-        let root_idx = match graph.node_indices().find(|&idx| graph[idx] == dest_group) {
-            Some(idx) => idx,
-            None => {
-                tracing::debug!(
-                    "expand_route_via_spt: dest group '{dest_group}' not in link graph"
-                );
-                return;
-            }
-        };
-
-        // Compute the SPT rooted at the destination group.
-        let spt = match spt::compute_spt(root_idx, &graph) {
-            Some(t) => t,
-            None => return,
-        };
-
-        // For each non-root group in the SPT, install a route on the gateway
-        // node pointing toward the parent group.
-        for (&orig_idx, &tree_idx) in &spt.index_map {
-            if orig_idx == root_idx {
-                continue;
-            }
-
-            let child_group = &graph[orig_idx];
-
-            // Find the parent group in the directed tree (incoming edge = from parent).
-            let parent_tree_idx = match spt
-                .tree
-                .edges_directed(tree_idx, petgraph::Direction::Incoming)
-                .next()
-            {
-                Some(edge) => edge.source(),
-                None => continue,
-            };
-            let parent_group = &spt.tree[parent_tree_idx];
-
-            // Find the link between the child group and parent group.
-            let (source_node_id, link_id) =
-                match self.find_inter_group_link(child_group, parent_group, all_nodes).await {
-                    Some((src, lid)) => (src, Some(lid)),
-                    None => {
-                        let src = all_nodes
-                            .iter()
-                            .find(|n| n.group_name.as_deref() == Some(child_group.as_str()))
-                            .map(|n| n.id.clone());
-                        match src {
-                            Some(id) => (id, None),
-                            None => continue,
-                        }
+                        tracing::debug!(
+                            "expand_route_via_spt: no link between '{child_group}' and '{parent_group}', skipping"
+                        );
+                        continue;
                     }
                 };
 
@@ -377,12 +285,12 @@ impl RouteService {
             let per_node = Route {
                 id: String::new(),
                 source_node_id: source_node_id.clone(),
-                dest_node_id: dest_node_id.clone(),
-                link_id,
-                component0: template.component0.clone(),
-                component1: template.component1.clone(),
-                component2: template.component2.clone(),
-                component_id: template.component_id.clone(),
+                dest_node_id: dest_node_id.to_string(),
+                link_id: Some(link_id),
+                component0: component0.to_string(),
+                component1: component1.to_string(),
+                component2: component2.to_string(),
+                component_id: component_id.map(|s| s.to_string()),
                 status: RouteStatus::Pending,
                 status_msg: String::new(),
                 created_at: SystemTime::now(),
@@ -412,8 +320,22 @@ impl RouteService {
         // gateway node pointing toward the parent group in the tree.
         if source_node_id == ALL_NODES_ID {
             let all_nodes = self.0.db.list_nodes().await?;
-            self.expand_route_via_spt(route, dest_node_id, &all_nodes)
-                .await;
+            let n = route.name.as_ref().unwrap();
+            let (c0, c1, c2) = n.str_components();
+            let comp_id = if n.id() == NameId::NULL_COMPONENT {
+                None
+            } else {
+                Some(n.string_id())
+            };
+            self.expand_route_via_spt(
+                dest_node_id,
+                c0,
+                c1,
+                c2,
+                comp_id.as_deref(),
+                &all_nodes,
+            )
+            .await;
         }
 
         Ok(route_id)
@@ -637,7 +559,7 @@ impl RouteService {
             }
         };
 
-        let groups_changed = self.rebuild_link_graph(&all_nodes).await;
+        self.rebuild_link_graph(&all_nodes).await;
 
         let mut node_links = match self.0.db.get_links_for_node(node_id).await {
             Ok(l) => l,
@@ -684,15 +606,9 @@ impl RouteService {
             }
         }
 
-        // Re-expand wildcard routes via SPT. If the group topology changed
-        // (a new group appeared), re-expand ALL wildcards so every affected node
-        // gets updated routes. Otherwise just expand for the registering node.
-        if groups_changed {
-            self.reexpand_all_wildcard_routes(&all_nodes).await;
-        } else {
-            self.ensure_routes_for_node(node_id, &node_links, &all_nodes)
-                .await;
-        }
+        // Re-expand wildcard routes via SPT. This is idempotent — duplicates
+        // are rejected by add_single_route.
+        self.reexpand_all_wildcard_routes(&all_nodes).await;
 
         // Mark DP-reported routes as Applied to avoid redundant reconciler pushes.
         if !dp_routes.is_empty() {
@@ -1217,35 +1133,26 @@ impl RouteService {
         }
     }
 
-    /// Ensure routes exist for a newly-registered or reconnected node.
-    ///
-    /// Fetches all wildcard route templates and re-expands them via the SPT.
-    /// Since `add_single_route` rejects duplicates, this is idempotent.
-    async fn ensure_routes_for_node(
-        &self,
-        _node_id: &str,
-        _node_links: &[crate::db::Link],
-        all_nodes: &[crate::db::Node],
-    ) {
-        self.reexpand_all_wildcard_routes(all_nodes).await;
-    }
-
     /// Re-expand every wildcard route template via SPT.
     /// Called when the group topology changes (group added/removed) or when a
     /// node registers and needs its routes populated.
-    /// Stale routes from groups that no longer exist are cleaned up.
+    /// `add_single_route` rejects duplicates so this is idempotent.
     async fn reexpand_all_wildcard_routes(&self, all_nodes: &[crate::db::Node]) {
-        // Fetch all wildcard route templates.
         let wildcard_routes = match self.0.db.get_routes_for_node(ALL_NODES_ID).await {
             Ok(r) => r,
             Err(_) => return,
         };
 
-        // For each wildcard route, expand via SPT. The SPT determines which
-        // gateway nodes get routes and which links they point to.
-        // `add_single_route` rejects duplicates so this is idempotent.
         for r in &wildcard_routes {
-            self.expand_route_via_spt_from_db(r, all_nodes).await;
+            self.expand_route_via_spt(
+                &r.dest_node_id,
+                &r.component0,
+                &r.component1,
+                &r.component2,
+                r.component_id.as_deref(),
+                all_nodes,
+            )
+            .await;
         }
     }
 
@@ -1976,7 +1883,7 @@ mod tests {
     // ── topology: add_route wildcard expansion ────────────────────────────
 
     #[tokio::test]
-    async fn add_route_wildcard_respects_routing_policy() {
+    async fn add_route_wildcard_expands_via_spt() {
         let db = InMemoryDb::shared();
         let hub = make_node("hub-node", Some("platform"), vec![]);
         let spoke_a = make_node("spoke-a", Some("customer-a"), vec![]);
@@ -2127,13 +2034,10 @@ mod tests {
         let all_nodes = db.list_nodes().await.unwrap();
         svc.rebuild_link_graph(&all_nodes).await;
 
-        let node_links = vec![link_a_hub];
-
-        // Run ensure_routes_for_node for spoke-a.
+        // Re-expand wildcard routes via SPT.
         // SPT rooted at "customer-b": customer-b → platform → customer-a
         // So spoke-a should get a route pointing to its parent (platform/hub-node).
-        svc.ensure_routes_for_node("spoke-a", &node_links, &all_nodes)
-            .await;
+        svc.reexpand_all_wildcard_routes(&all_nodes).await;
 
         // spoke-a should have a route to spoke-b via the hub link (toward parent).
         let spoke_a_routes = db.get_routes_for_node("spoke-a").await.unwrap();

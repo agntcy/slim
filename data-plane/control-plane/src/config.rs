@@ -237,42 +237,6 @@ impl TopologyConfig {
 // These methods maintain backward compatibility with route_service and reconciler
 // code that will be rewritten in Steps 1.2–1.7.
 
-impl TopologyConfig {
-    /// Deprecated: In the new SPT model, visibility is determined by the tree.
-    /// For now, returns true if can_link(a, b) (same as old full-mesh behavior).
-    #[deprecated(note = "will be removed in Step 1.6: SPT determines visibility")]
-    pub fn can_see(&self, from_group: &str, to_group: &str) -> bool {
-        if from_group == to_group {
-            return true;
-        }
-        self.can_link(from_group, to_group)
-    }
-
-    /// Deprecated: Detects a "star" topology (one node peers with "*", others peer with it only).
-    #[deprecated(note = "will be removed in Step 1.6: SPT handles all topologies")]
-    pub fn is_star(&self) -> bool {
-        self.hub_group().is_some()
-    }
-
-    /// Deprecated: Returns the hub group name if this is a star topology.
-    #[deprecated(note = "will be removed in Step 1.6: SPT handles all topologies")]
-    pub fn hub_group(&self) -> Option<&str> {
-        if self.links.is_empty() {
-            return None;
-        }
-        // Find the entry whose peers contain "*" and whose name is NOT "*"
-        self.links
-            .iter()
-            .find(|e| e.name != "*" && e.peers.iter().any(|p| p == "*"))
-            .map(|e| e.name.as_str())
-    }
-
-    /// Deprecated: Validation is no longer needed (SPT handles any topology).
-    #[deprecated(note = "will be removed in Step 1.6")]
-    pub fn validate(&self) -> std::result::Result<(), crate::error::Error> {
-        Ok(())
-    }
-}
 
 /// Returns true if `pattern` matches `group`. `"*"` matches any group.
 fn matches_group(pattern: &str, group: &str) -> bool {
