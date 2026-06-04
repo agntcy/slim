@@ -7,7 +7,7 @@ use crate::api::proto::dataplane::v1::Message;
 use aws_lc_rs::agreement::EphemeralPrivateKey;
 use parking_lot::RwLock;
 use semver::Version;
-use slim_config::client::{ClientConfig, is_valid_uuid_v4};
+use slim_config::client::ClientConfig;
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -228,15 +228,15 @@ impl Connection {
 
     /// Atomically complete link negotiation on the server (incoming) path.
     ///
-    /// Validates `link_id` as a UUID v4 and stores it together with `version` under one lock.
-    /// Returns `false` if `link_id` is not a valid UUID v4 or negotiation is already complete
+    /// Validates `link_id` is non-empty and stores it together with `version` under one lock.
+    /// Returns `false` if `link_id` is empty or negotiation is already complete
     /// (replay protection).
     pub fn complete_negotiation_as_server(&self, link_id: &str, version: Version) -> bool {
         let mut state = self.negotiation.write();
         if state.remote_slim_version.is_some() {
             return false;
         }
-        if !is_valid_uuid_v4(link_id) {
+        if link_id.is_empty() {
             return false;
         }
         state.link_id = Some(link_id.to_string());
@@ -347,21 +347,19 @@ mod tests {
     }
 
     #[test]
-    fn test_complete_negotiation_as_server_stores_valid_uuid() {
+    fn test_complete_negotiation_as_server_stores_link_id() {
         let conn = server_conn();
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = "my-custom-link-id";
         let v = Version::parse("1.2.3").unwrap();
-        assert!(conn.complete_negotiation_as_server(&id, v.clone()));
-        assert_eq!(conn.link_id(), Some(id));
+        assert!(conn.complete_negotiation_as_server(id, v.clone()));
+        assert_eq!(conn.link_id(), Some(id.to_string()));
         assert_eq!(conn.remote_slim_version(), Some(v));
     }
 
     #[test]
-    fn test_complete_negotiation_as_server_rejects_invalid_uuid() {
+    fn test_complete_negotiation_as_server_rejects_empty_link_id() {
         let conn = server_conn();
-        assert!(
-            !conn.complete_negotiation_as_server("not-a-uuid", Version::parse("1.0.0").unwrap())
-        );
+        assert!(!conn.complete_negotiation_as_server("", Version::parse("1.0.0").unwrap()));
         assert!(conn.link_id().is_none());
         assert!(conn.remote_slim_version().is_none());
     }
