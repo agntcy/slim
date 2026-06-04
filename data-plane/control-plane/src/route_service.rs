@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod reconciler;
+pub mod spt;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
