@@ -288,6 +288,7 @@ dependencies = [
  "display-error-chain",
  "drain",
  "fastwebsockets",
+ "futures",
  "h2",
  "http",
  "opentelemetry",

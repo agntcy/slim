@@ -132,6 +132,9 @@ pub struct ConnectionEntry {
     pub link_id: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(enumeration = "ConnectionDirection", tag = "5")]
     pub direction: i32,
+    /// Remote peer's node identifier (set after link negotiation).
+    #[prost(string, optional, tag = "6")]
+    pub peer_node_id: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ConnectionListRequest {}

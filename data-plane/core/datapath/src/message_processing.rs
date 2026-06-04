@@ -46,22 +46,13 @@ use crate::errors::{DataPathError, MessageContext};
 use crate::forwarder::Forwarder;
 use crate::link_ecdh::{self, X25519_PUBLIC_KEY_LEN};
 use crate::messages::utils::SlimHeaderFlags;
-use crate::recovery::RecoveryTable;
+use crate::sync::peer as sync_peer;
+use crate::sync::remote::{RemoteSync, SubscriptionInfo};
 use crate::tables::connection_table::ConnectionTable;
-use crate::tables::remote_subscription_table::SubscriptionInfo;
 use crate::tables::subscription_table::SubscriptionTableImpl;
 use crate::tables::{ConnType, MatchFilter};
 use crate::websocket;
 use semver;
-
-/// Event emitted by the server-side link negotiation when a peer connection is detected.
-#[derive(Debug, Clone)]
-pub struct IncomingPeerEvent {
-    /// The node_id of the remote peer, exchanged during negotiation.
-    pub node_id: String,
-    /// The connection index in the connection table.
-    pub conn_id: u64,
-}
 
 fn local_version() -> &'static str {
     slim_version::version()
@@ -95,8 +86,9 @@ struct MessageProcessorInternal {
     /// Tx channel towards control plane
     tx_control_plane: RwLock<Option<Sender<Result<Message, Status>>>>,
 
-    /// Pending route-recovery state for server-side connections (see [`RecoveryTable`]).
-    recovery_table: RecoveryTable,
+    /// Tracks subscriptions forwarded to remote connections and handles restore on reconnect.
+    /// Also owns the recovery table for server-side route preservation.
+    remote_sync: RemoteSync,
 
     /// Service ID for tracing
     service_id: String,
@@ -115,20 +107,14 @@ struct MessageProcessorInternal {
     /// Polling interval (in milliseconds) to wait between HMAC existence checks.
     link_hmac_poll_interval: std::time::Duration,
 
-    /// Channel to notify PeerSyncManager about incoming peer connections detected
-    /// during link negotiation (server-side).
-    incoming_peer_tx: tokio::sync::mpsc::Sender<IncomingPeerEvent>,
+    /// Whether peer-originated publishes should be relayed to other peers.
+    /// True for hub-and-spoke (hub) or generic multi-hop topologies.
+    /// False for full-mesh (peers deliver directly — 1-hop rule).
+    relay_peer_publishes: bool,
 
-    /// Receiver for incoming peer events — taken once by PeerSyncManager.
-    incoming_peer_rx: parking_lot::Mutex<Option<tokio::sync::mpsc::Receiver<IncomingPeerEvent>>>,
-
-    /// Whether this node acts as a hub in hub-and-spoke topology (write-once at startup).
-    /// When true, publishes arriving from peer connections are forwarded to other peers.
-    forward_to_peer: std::sync::atomic::AtomicBool,
-
-    /// The subscription forwarder (set after construction by PeerSyncManager).
-    /// When None, no peer forwarding occurs; controller forwarding falls back to inline.
-    subscription_forwarder: parking_lot::RwLock<Option<crate::peer_sync::SubscriptionForwarder>>,
+    /// Peer sync component for subscription forwarding and peer lifecycle.
+    /// Initialized as standalone; replaced with a peer-aware instance when peers are configured.
+    peer_sync: parking_lot::RwLock<crate::sync::PeerSync>,
 }
 
 #[derive(Debug, Clone)]
@@ -155,6 +141,7 @@ impl MessageProcessor {
             false,
             std::time::Duration::from_secs(5),
             std::time::Duration::from_millis(5),
+            false,
         )
     }
 
@@ -164,6 +151,7 @@ impl MessageProcessor {
         peer_group: String,
         server_config: &ServerConfig,
         recovery_ttl: Option<std::time::Duration>,
+        relay_peer_publishes: bool,
     ) -> Self {
         Self::new_internal(
             service_id,
@@ -172,6 +160,7 @@ impl MessageProcessor {
             server_config.require_header_mac,
             std::time::Duration::from_secs(server_config.link_hmac_timeout_secs),
             std::time::Duration::from_millis(server_config.link_hmac_poll_interval_ms),
+            relay_peer_publishes,
         )
     }
 
@@ -182,38 +171,26 @@ impl MessageProcessor {
         server_require_header_mac: bool,
         link_hmac_timeout: std::time::Duration,
         link_hmac_poll_interval: std::time::Duration,
+        relay_peer_publishes: bool,
     ) -> Self {
         let (signal, watch) = drain::channel();
-        let recovery_table = match recovery_ttl {
-            Some(ttl) => RecoveryTable::new(ttl),
-            None => RecoveryTable::default(),
-        };
-        let (incoming_peer_tx, incoming_peer_rx) = tokio::sync::mpsc::channel(64);
         let internal = MessageProcessorInternal {
             forwarder: Forwarder::new(),
             drain_signal: RwLock::new(Some(signal)),
             drain_watch: RwLock::new(Some(watch)),
             tx_control_plane: RwLock::new(None),
-            recovery_table,
+            remote_sync: RemoteSync::new(recovery_ttl),
             service_id,
             peer_group,
             server_require_header_mac,
             link_hmac_timeout,
             link_hmac_poll_interval,
-            incoming_peer_tx,
-            incoming_peer_rx: parking_lot::Mutex::new(Some(incoming_peer_rx)),
-            forward_to_peer: std::sync::atomic::AtomicBool::new(false),
-            subscription_forwarder: parking_lot::RwLock::new(None),
+            relay_peer_publishes,
+            peer_sync: parking_lot::RwLock::new(crate::sync::PeerSync::standalone()),
         };
-        let mp = Self {
+        Self {
             internal: Arc::new(internal),
-        };
-        // Install a standalone forwarder so process_subscription always has one available.
-        // PeerSyncManager replaces this with a peer-aware forwarder when configured.
-        mp.set_subscription_forwarder(crate::peer_sync::SubscriptionForwarder::standalone(
-            mp.clone(),
-        ));
-        mp
+        }
     }
 
     pub fn new() -> Self {
@@ -326,6 +303,10 @@ impl MessageProcessor {
         &self.internal.forwarder
     }
 
+    pub(crate) fn remote_sync(&self) -> &RemoteSync {
+        &self.internal.remote_sync
+    }
+
     /// Verify SLIM header MAC for inter-node traffic only (local app connections skip this).
     pub(crate) fn verify_remote_header_mac(
         &self,
@@ -381,7 +362,7 @@ impl MessageProcessor {
             .map_err(DataPathError::HeaderIntegrity)
     }
 
-    fn get_drain_watch(&self) -> Result<drain::Watch, DataPathError> {
+    pub(crate) fn get_drain_watch(&self) -> Result<drain::Watch, DataPathError> {
         self.internal
             .drain_watch
             .read()
@@ -390,43 +371,16 @@ impl MessageProcessor {
     }
 
     /// Re-send `remote_subs` as subscribe messages to `conn_index`.
-    ///
-    /// When `restore_tracking` is `true` (server-side recovery), also re-registers each
-    /// subscription in the local forwarded-subscription table.  This is necessary because
-    /// [`Forwarder::on_connection_drop`] already wiped that state.
-    ///
-    /// When `restore_tracking` is `false` (client-side reconnect), the forwarded-subscription
-    /// table was never cleaned up (reconnect reuses the same slot), so no re-registration is
-    /// needed and double-counting must be avoided.
+    /// Delegates to [`RemoteSync::restore`].
     async fn restore_remote_subscriptions(
         &self,
         remote_subs: &HashSet<SubscriptionInfo>,
         conn_index: u64,
         restore_tracking: bool,
     ) {
-        for r in remote_subs {
-            let sub_msg = Message::builder()
-                .source(r.source().clone())
-                .destination(r.name().clone())
-                .identity(r.source_identity())
-                .build_subscribe()
-                .unwrap();
-            if let Err(e) = self.send_msg(sub_msg, conn_index).await {
-                error!(
-                    error = %e.chain(), %conn_index,
-                    "error restoring subscription on remote node",
-                );
-            } else if restore_tracking {
-                self.forwarder().on_forwarded_subscription(
-                    r.source().clone(),
-                    r.name().clone(),
-                    r.source_identity().clone(),
-                    conn_index,
-                    true,
-                    r.subscription_id(),
-                );
-            }
-        }
+        self.remote_sync()
+            .restore(self, remote_subs, conn_index, restore_tracking)
+            .await;
     }
 
     async fn try_to_connect(
@@ -633,6 +587,16 @@ impl MessageProcessor {
             client_config.connection_type,
             false,
         )?;
+
+        // For peer connections established via client config (generic topology),
+        // auto-register in the forwarder and perform full sync.
+        // Only when no PeerSyncManager is active (it handles its own peers).
+        if matches!(client_config.connection_type, ConnType::Peer) {
+            let fwd = self.peer_sync();
+            if !fwd.has_peer_state() {
+                fwd.add_peer_conn_and_sync(self, conn_index);
+            }
+        }
 
         Ok((handle, conn_index))
     }
@@ -919,13 +883,8 @@ impl MessageProcessor {
 
     /// Handle an inbound link negotiation message.
     ///
-    /// On request (`is_reply == false`): validate the client-provided `link_id` as UUID v4,
-    /// atomically store both fields under one lock, then echo back a reply.
-    ///
-    /// On reply (`is_reply == true`): verify the echoed `link_id` matches what we sent, then
-    /// atomically store the remote version.  No further reply is sent, preventing echo loops.
-    ///
-    /// Both methods hold a single write lock for validation and mutation, eliminating TOCTOU races.
+    /// Validates the role (client receives replies, server receives requests),
+    /// parses the remote version, then delegates to the appropriate handler.
     async fn handle_link_negotiation(
         &self,
         payload: &LinkNegotiationPayload,
@@ -946,8 +905,6 @@ impl MessageProcessor {
             debug!(%in_connection, "ignoring link negotiation request received on unknown connection");
             return Ok(());
         };
-
-        let strict = conn.require_header_mac();
 
         // Role check: clients must only receive replies; servers must only receive requests.
         match (conn.is_outgoing(), payload.is_reply) {
@@ -971,204 +928,274 @@ impl MessageProcessor {
             }
         };
 
+        let strict = conn.require_header_mac();
+
         if payload.is_reply {
-            if strict && payload.link_ecdh_public_key.len() != X25519_PUBLIC_KEY_LEN {
-                return Err(DataPathError::NegotiationError(
-                    "public key length is invalid".to_string(),
-                ));
-            }
-
-            if !conn.complete_negotiation_as_client(link_id, version) {
-                debug!(%in_connection, %link_id, "ignoring link negotiation reply");
-                return Ok(());
-            }
-
-            if payload.link_ecdh_public_key.len() == X25519_PUBLIC_KEY_LEN
-                && let Some(sk) = conn.take_outbound_ecdh_private()
-            {
-                match link_ecdh::derive_header_mac_from_ecdh(
-                    sk,
-                    payload.link_ecdh_public_key.as_slice(),
-                    link_id,
-                ) {
-                    Ok(mac) => conn.install_header_hmac(mac),
-                    Err(e) => {
-                        error!(
-                            %in_connection,
-                            error = %e,
-                            "link ECDH key derivation failed (client path)",
-                        );
-                        return Err(DataPathError::NegotiationError(
-                            "failed to generate client exchange key".to_string(),
-                        ));
-                    }
-                }
-            }
-
-            if strict && conn.header_hmac().is_none() {
-                return Err(DataPathError::NegotiationError(
-                    "strict header MAC required but link HMAC session is not installed".to_string(),
-                ));
-            }
+            self.handle_negotiation_reply(payload, in_connection, conn, link_id, version, strict)
         } else {
-            if strict && payload.link_ecdh_public_key.len() != X25519_PUBLIC_KEY_LEN {
-                return Err(DataPathError::NegotiationError(
-                    "public key length is invalid".to_string(),
-                ));
-            }
+            self.handle_negotiation_request(payload, in_connection, conn, link_id, version, strict)
+                .await
+        }
+    }
 
-            if !conn.complete_negotiation_as_server(link_id, version) {
-                debug!(%in_connection, %link_id, "ignoring link negotiation request");
-                return Ok(());
-            }
+    /// Client path: process the server's link negotiation reply.
+    ///
+    /// Completes ECDH key exchange, installs header HMAC, and stores peer identity.
+    fn handle_negotiation_reply(
+        &self,
+        payload: &LinkNegotiationPayload,
+        in_connection: u64,
+        conn: Arc<Connection>,
+        link_id: &str,
+        version: semver::Version,
+        strict: bool,
+    ) -> Result<(), DataPathError> {
+        if strict && payload.link_ecdh_public_key.len() != X25519_PUBLIC_KEY_LEN {
+            return Err(DataPathError::NegotiationError(
+                "public key length is invalid".to_string(),
+            ));
+        }
 
-            let peer_ecdh = payload.link_ecdh_public_key.as_slice();
-            let mut server_reply_ecdh: Option<Vec<u8>> = None;
-            if peer_ecdh.len() == X25519_PUBLIC_KEY_LEN {
-                match link_ecdh::generate_x25519_ephemeral() {
-                    Ok((server_sk, server_pk)) => {
-                        match link_ecdh::derive_header_mac_from_ecdh(server_sk, peer_ecdh, link_id)
-                        {
-                            Ok(mac) => {
-                                conn.install_header_hmac(mac);
-                                server_reply_ecdh = Some(server_pk);
-                            }
-                            Err(e) => {
-                                error!(
-                                    %in_connection,
-                                    error = %e,
-                                    "link ECDH key derivation failed (server path)",
-                                );
-                                if strict {
-                                    return Err(DataPathError::NegotiationError(
-                                        "failed to derive header MAC from link ECDH (server path)"
-                                            .to_string(),
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        error!(%in_connection, "failed to generate server link ECDH key");
-                        return Err(DataPathError::NegotiationError(
-                            "failed to generate server exchange key".to_string(),
-                        ));
-                    }
-                }
-            }
+        if !conn.complete_negotiation_as_client(link_id, version) {
+            debug!(%in_connection, %link_id, "ignoring link negotiation reply");
+            return Ok(());
+        }
 
-            if strict && conn.header_hmac().is_none() {
-                return Err(DataPathError::NegotiationError(
-                    "strict header MAC required but link HMAC session is not installed".to_string(),
-                ));
-            }
+        // Store remote node identity for logging/diagnostics.
+        if !payload.node_id.is_empty() {
+            conn.set_peer_node_id(payload.node_id.clone());
+        }
 
-            // Route recovery: if the peer reconnected with a known link_id, restore all
-            // routing state that was preserved during the recovery window.
-            if let Some(entry) = self.internal.recovery_table.take(link_id) {
-                info!(%in_connection, %link_id, "recovering routes for reconnected peer");
-
-                // Re-add local routing entries.  A new conn_index was allocated for this
-                // connection, so we must re-register each name under the current index,
-                // preserving the original subscription IDs so UNSUBSCRIBE messages work.
-                for (name, sub_ids) in &entry.local_subs {
-                    for &subscription_id in sub_ids {
-                        if let Err(e) = self.forwarder().on_subscription_msg(
-                            name.clone(),
-                            in_connection,
-                            ConnType::Remote,
-                            true,
-                            subscription_id,
-                        ) {
-                            error!(
-                                error = %e.chain(), %in_connection,
-                                "error re-adding local subscription during recovery",
-                            );
-                        }
-                    }
-                }
-
-                // Re-send subscriptions to the remote peer and re-register tracking.
-                // restore_tracking = true: on_connection_drop already wiped the
-                // forwarded-subscription table, so we must rebuild it here.
-                self.restore_remote_subscriptions(&entry.remote_subs, in_connection, true)
-                    .await;
-            }
-
-            // Send reply only after state is committed.
-            // Echo back the connection type so the client confirms peer status.
-            let reply_conn_type = LinkConnectionType::try_from(payload.connection_type)
-                .unwrap_or(LinkConnectionType::Remote);
-            let reply = ProtoMessage::builder().build_link_negotiation(
+        if payload.link_ecdh_public_key.len() == X25519_PUBLIC_KEY_LEN
+            && let Some(sk) = conn.take_outbound_ecdh_private()
+        {
+            match link_ecdh::derive_header_mac_from_ecdh(
+                sk,
+                payload.link_ecdh_public_key.as_slice(),
                 link_id,
-                local_version(),
-                true,
-                server_reply_ecdh,
-                reply_conn_type,
-                &self.internal.service_id,
-                &self.internal.peer_group,
-            );
-            if let Err(e) = self.send_msg(reply, in_connection).await {
-                debug!(
-                    %in_connection,
-                    error = %e.chain(),
-                    "failed to send link negotiation reply",
-                );
-            }
-
-            // If the client indicated it is a peer (connection_type == 1), upgrade this
-            // server-side connection from Remote to Peer — but only if peer_group matches.
-            if payload.connection_type == LinkConnectionType::Peer as i32 {
-                // Reject self-connections (can happen when all replicas share the same config).
-                if payload.node_id == self.internal.service_id {
-                    warn!(
-                        %in_connection, %link_id,
-                        "rejecting peer connection from self (same node_id)"
+            ) {
+                Ok(mac) => conn.install_header_hmac(mac),
+                Err(e) => {
+                    error!(
+                        %in_connection,
+                        error = %e,
+                        "link ECDH key derivation failed (client path)",
                     );
-                    self.send_status(
-                        in_connection,
-                        Status::permission_denied("self-connection rejected: same node_id"),
-                    )
-                    .await;
-                    let _ = self.disconnect(in_connection);
-                    return Ok(());
+                    return Err(DataPathError::NegotiationError(
+                        "failed to generate client exchange key".to_string(),
+                    ));
                 }
-
-                // Verify peer_group: if we have a peer_group configured, the remote must match.
-                if !self.internal.peer_group.is_empty()
-                    && payload.peer_group != self.internal.peer_group
-                {
-                    warn!(
-                        %in_connection, %link_id,
-                        local_group = %self.internal.peer_group,
-                        remote_group = %payload.peer_group,
-                        "rejecting peer upgrade: peer_group mismatch"
-                    );
-                    self.send_status(
-                        in_connection,
-                        Status::permission_denied("peer_group mismatch"),
-                    )
-                    .await;
-                    let _ = self.disconnect(in_connection);
-                    return Ok(());
-                }
-
-                let remote_node_id = payload.node_id.clone();
-                info!(
-                    %in_connection, %link_id, %remote_node_id,
-                    "upgrading server-side connection to Peer (negotiation)"
-                );
-                self.connection_table().update(in_connection, |conn| {
-                    conn.set_connection_type(ConnType::Peer)
-                });
-
-                // Notify PeerSyncManager about the incoming peer connection.
-                let _ = self.internal.incoming_peer_tx.try_send(IncomingPeerEvent {
-                    node_id: remote_node_id,
-                    conn_id: in_connection,
-                });
             }
         }
+
+        if strict && conn.header_hmac().is_none() {
+            return Err(DataPathError::NegotiationError(
+                "strict header MAC required but link HMAC session is not installed".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Server path: process an incoming link negotiation request.
+    ///
+    /// Performs ECDH key exchange, route recovery, sends reply, and handles
+    /// peer upgrade if the client indicated connection_type == Peer.
+    async fn handle_negotiation_request(
+        &self,
+        payload: &LinkNegotiationPayload,
+        in_connection: u64,
+        conn: Arc<Connection>,
+        link_id: &str,
+        version: semver::Version,
+        strict: bool,
+    ) -> Result<(), DataPathError> {
+        if strict && payload.link_ecdh_public_key.len() != X25519_PUBLIC_KEY_LEN {
+            return Err(DataPathError::NegotiationError(
+                "public key length is invalid".to_string(),
+            ));
+        }
+
+        if !conn.complete_negotiation_as_server(link_id, version) {
+            debug!(%in_connection, %link_id, "ignoring link negotiation request");
+            return Ok(());
+        }
+
+        // Store remote node identity for logging/diagnostics.
+        if !payload.node_id.is_empty() {
+            conn.set_peer_node_id(payload.node_id.clone());
+        }
+
+        // Server-side ECDH: generate ephemeral key, derive HMAC, include public key in reply.
+        let server_reply_ecdh = self.negotiate_server_ecdh(
+            &conn,
+            payload.link_ecdh_public_key.as_slice(),
+            link_id,
+            in_connection,
+            strict,
+        )?;
+
+        if strict && conn.header_hmac().is_none() {
+            return Err(DataPathError::NegotiationError(
+                "strict header MAC required but link HMAC session is not installed".to_string(),
+            ));
+        }
+
+        // Route recovery: if the peer reconnected with a known link_id, restore routing state.
+        self.recover_routes_for_link(link_id, in_connection).await;
+
+        // Send reply (after state is committed).
+        let reply_conn_type = LinkConnectionType::try_from(payload.connection_type)
+            .unwrap_or(LinkConnectionType::Remote);
+        let reply = ProtoMessage::builder().build_link_negotiation(
+            link_id,
+            local_version(),
+            true,
+            server_reply_ecdh,
+            reply_conn_type,
+            &self.internal.service_id,
+            &self.internal.peer_group,
+        );
+        if let Err(e) = self.send_msg(reply, in_connection).await {
+            debug!(
+                %in_connection,
+                error = %e.chain(),
+                "failed to send link negotiation reply",
+            );
+        }
+
+        // Handle peer upgrade if client indicated peer connection_type.
+        if payload.connection_type == LinkConnectionType::Peer as i32 {
+            self.handle_peer_upgrade(payload, in_connection, link_id)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Server-side ECDH key exchange: generate ephemeral key pair, derive header HMAC.
+    /// Returns the server's public key to include in the reply (None if ECDH was not performed).
+    fn negotiate_server_ecdh(
+        &self,
+        conn: &Connection,
+        peer_ecdh_public_key: &[u8],
+        link_id: &str,
+        in_connection: u64,
+        strict: bool,
+    ) -> Result<Option<Vec<u8>>, DataPathError> {
+        if peer_ecdh_public_key.len() != X25519_PUBLIC_KEY_LEN {
+            return Ok(None);
+        }
+
+        let (server_sk, server_pk) = link_ecdh::generate_x25519_ephemeral().map_err(|_| {
+            error!(%in_connection, "failed to generate server link ECDH key");
+            DataPathError::NegotiationError("failed to generate server exchange key".to_string())
+        })?;
+
+        match link_ecdh::derive_header_mac_from_ecdh(server_sk, peer_ecdh_public_key, link_id) {
+            Ok(mac) => {
+                conn.install_header_hmac(mac);
+                Ok(Some(server_pk))
+            }
+            Err(e) => {
+                error!(
+                    %in_connection,
+                    error = %e,
+                    "link ECDH key derivation failed (server path)",
+                );
+                if strict {
+                    Err(DataPathError::NegotiationError(
+                        "failed to derive header MAC from link ECDH (server path)".to_string(),
+                    ))
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+    }
+
+    /// Restore routing state for a reconnecting peer whose link_id matches a recovery entry.
+    async fn recover_routes_for_link(&self, link_id: &str, in_connection: u64) {
+        let Some(entry) = self.remote_sync().recovery.take(link_id) else {
+            return;
+        };
+
+        info!(%in_connection, %link_id, "recovering routes for reconnected peer");
+
+        // Re-add local routing entries under the new connection index.
+        for (name, sub_ids) in &entry.local_subs {
+            for &subscription_id in sub_ids {
+                if let Err(e) = self.forwarder().on_subscription_msg(
+                    name.clone(),
+                    in_connection,
+                    ConnType::Remote,
+                    true,
+                    subscription_id,
+                ) {
+                    error!(
+                        error = %e.chain(), %in_connection,
+                        "error re-adding local subscription during recovery",
+                    );
+                }
+            }
+        }
+
+        // Re-send subscriptions to the remote peer and rebuild tracking.
+        self.restore_remote_subscriptions(&entry.remote_subs, in_connection, true)
+            .await;
+    }
+
+    /// Upgrade a server-side connection to Peer after validating identity and peer_group.
+    /// Notifies PeerSyncManager or auto-registers in the forwarder (generic topology).
+    async fn handle_peer_upgrade(
+        &self,
+        payload: &LinkNegotiationPayload,
+        in_connection: u64,
+        link_id: &str,
+    ) -> Result<(), DataPathError> {
+        // Reject self-connections (can happen when all replicas share the same config).
+        if payload.node_id == self.internal.service_id {
+            warn!(
+                %in_connection, %link_id,
+                "rejecting peer connection from self (same node_id)"
+            );
+            self.send_status(
+                in_connection,
+                Status::permission_denied("self-connection rejected: same node_id"),
+            )
+            .await;
+            let _ = self.disconnect(in_connection);
+            return Ok(());
+        }
+
+        // Verify peer_group: if we have a peer_group configured, the remote must match.
+        if !self.internal.peer_group.is_empty() && payload.peer_group != self.internal.peer_group {
+            warn!(
+                %in_connection, %link_id,
+                local_group = %self.internal.peer_group,
+                remote_group = %payload.peer_group,
+                "rejecting peer upgrade: peer_group mismatch"
+            );
+            self.send_status(
+                in_connection,
+                Status::permission_denied("peer_group mismatch"),
+            )
+            .await;
+            let _ = self.disconnect(in_connection);
+            return Ok(());
+        }
+
+        let remote_node_id = payload.node_id.clone();
+        info!(
+            %in_connection, %link_id, %remote_node_id,
+            "upgrading server-side connection to Peer (negotiation)"
+        );
+        self.connection_table().update(in_connection, |conn| {
+            conn.set_connection_type(ConnType::Peer)
+        });
+
+        self.peer_sync()
+            .on_incoming_peer(self, remote_node_id, in_connection);
 
         Ok(())
     }
@@ -1271,7 +1298,7 @@ impl MessageProcessor {
     //
     // This is the SINGLE entry point for all subscription handling.
     // All forwarding (to peers, to controller, hub relay) goes through
-    // the SubscriptionForwarder — no inline forwarding anywhere else.
+    // the PeerSync — no inline forwarding anywhere else.
     async fn process_subscription(
         &self,
         msg: Message,
@@ -1339,7 +1366,22 @@ impl MessageProcessor {
             return Ok(());
         }
 
+        // Loop prevention: check if this subscription_id has already been forwarded
+        // by this node. This prevents loops in ring/mesh topologies where a subscription
+        // could travel around and come back. Only applies to subscribes (add=true);
+        // unsubscribes with a seen sub_id are expected (they cancel a prior forwarded sub).
         let sub_id = subscription_id.unwrap_or(0);
+        if add && sub_id != 0 && self.peer_sync().has_seen_sub_id(sub_id) {
+            debug!(
+                %in_conn,
+                %sub_id,
+                "dropping subscription already forwarded by this node (loop prevention)"
+            );
+            if let Some(id) = subscription_id {
+                self.send_subscription_ack(in_connection, id, &Ok(())).await;
+            }
+            return Ok(());
+        }
 
         // Update local state (subscription table) — pure state change, no forwarding.
         let outcome = match self.update_subscription_state(&msg, in_conn, forward, add, sub_id) {
@@ -1359,24 +1401,31 @@ impl MessageProcessor {
 
         // Determine forwarding targets:
         // - Peers (All): non-peer subscription with aggregate transition (0→1 or 1→0)
-        // - Peers (ExcludeConn): peer subscription on hub → relay to other spokes
+        // - Peers (ExcludeConn): peer subscription with remaining TTL >= 2 (relay)
         // - Forward conn: controller/remote node when header.forward_to is set
-        let is_hub = self
-            .internal
-            .forward_to_peer
-            .load(std::sync::atomic::Ordering::Relaxed);
+        //
+        // TTL controls propagation depth:
+        // - TTL=2 on initial send → peer decrements to 1, sees 1 < 2, no relay (full mesh)
+        // - TTL=3 on initial send → hub decrements to 2, relays; spoke decrements to 1, stops
+        // - TTL=6 on initial send → allows up to 5 hops of relay (generic topology)
+        let remaining_ttl = msg.get_ttl();
 
-        let peer_target = if !outcome.is_peer_conn && outcome.transition {
-            // Local/remote subscription transition → forward to ALL peers
-            Some(crate::peer_sync::PeerTarget::All)
-        } else if outcome.is_peer_conn && is_hub {
-            // Hub relay: forward to all spokes except the source
-            Some(crate::peer_sync::PeerTarget::ExcludeConn(in_conn))
+        let (peer_target, peer_ttl) = if !outcome.is_peer_conn && outcome.transition {
+            // Local/remote subscription transition → forward to ALL peers with configured TTL
+            let ttl = self.peer_sync().subscription_ttl();
+            (Some(crate::sync::PeerTarget::All), ttl)
+        } else if outcome.is_peer_conn && remaining_ttl >= 2 {
+            // Peer subscription relay: TTL allows further propagation.
+            // Forward to all peers except the source, using remaining TTL.
+            (
+                Some(crate::sync::PeerTarget::ExcludeConn(in_conn)),
+                remaining_ttl,
+            )
         } else {
-            None
+            (None, 0)
         };
 
-        let targets = crate::peer_sync::ForwardTargets {
+        let targets = crate::sync::ForwardTargets {
             peers: peer_target,
             forward_conn: outcome.forward_conn,
         };
@@ -1384,17 +1433,20 @@ impl MessageProcessor {
         // If there are forwarding targets, spawn the forwarder task (non-blocking).
         // The forwarder will wait for ACKs and then ACK the upstream client.
         if targets.has_any() {
-            // Clone forwarder outside the lock (don't hold RwLock across await/spawn)
-            let fwd = self.subscription_forwarder();
-            if let Some(fwd) = fwd {
-                let dst = msg.get_dst();
-                debug!(
-                    %in_connection,
-                    %dst,
-                    ?targets,
-                    "spawning subscription forwarder task"
-                );
+            let fwd = self.peer_sync();
+            let dst = msg.get_dst();
+            debug!(
+                %in_connection,
+                %dst,
+                %remaining_ttl,
+                %peer_ttl,
+                ?targets,
+                "spawning subscription forwarder task"
+            );
+            let drain = self.get_drain_watch().ok();
+            if let Some(drain) = drain {
                 fwd.spawn_forward_and_ack(
+                    self.clone(),
                     msg,
                     dst,
                     sub_id,
@@ -1402,10 +1454,12 @@ impl MessageProcessor {
                     targets,
                     in_connection,
                     subscription_id,
+                    peer_ttl,
+                    drain,
                 );
                 return Ok(());
             }
-            // Fallback: forwarder not set (should not happen after construction).
+            // Fallback: drain not available (shutting down).
             // ACK immediately as best-effort.
         }
 
@@ -1430,12 +1484,7 @@ impl MessageProcessor {
             Some(PublishType(_)) => {
                 let filter = match category {
                     ConnType::Peer => {
-                        // In hub-and-spoke, the hub relays publishes to other peers.
-                        if self
-                            .internal
-                            .forward_to_peer
-                            .load(std::sync::atomic::Ordering::Relaxed)
-                        {
+                        if self.internal.relay_peer_publishes {
                             MatchFilter::ALL
                         } else {
                             MatchFilter::EXCLUDE_PEER
@@ -1453,11 +1502,10 @@ impl MessageProcessor {
                 let result = if ack.success {
                     Ok(())
                 } else {
-                    Err(DataPathError::RemoteSubscriptionAckError(ack.error.clone()))
+                    Err(DataPathError::RemoteSubscriptionAckError(ack.error))
                 };
-                if let Some(fwd) = self.subscription_forwarder() {
-                    fwd.resolve_ack(ack.subscription_id, result);
-                }
+
+                self.peer_sync().resolve_ack(ack.subscription_id, result);
                 Ok(())
             }
             None => unreachable!(
@@ -1577,13 +1625,21 @@ impl MessageProcessor {
     ) -> bool {
         info!("connection lost with remote endpoint, attempting to reconnect");
 
-        // These are the subscriptions that we forwarded to the remote SLIM on
-        // this connection. It is necessary to restore them to keep receive the messages
-        // The connections on the local subscription table (created using the set_route command)
-        // are still there and will be removed only if the reconnection process fails.
-        let remote_subscriptions = self
+        let is_peer = self
             .forwarder()
-            .get_subscriptions_forwarded_on_connection(conn_index);
+            .get_connection(conn_index)
+            .map(|c| c.connection_type() == ConnType::Peer)
+            .unwrap_or(false);
+
+        // For remote/controller connections: save the subscriptions we forwarded to this
+        // connection so we can replay them after reconnecting.
+        // For peer connections: we do a full sync instead (no need to save).
+        let remote_subscriptions = if !is_peer {
+            self.remote_sync()
+                .get_subscriptions_for_reconnect(conn_index)
+        } else {
+            Default::default()
+        };
 
         tokio::select! {
             _ = cancellation_token.cancelled() => {
@@ -1594,16 +1650,28 @@ impl MessageProcessor {
                 match res {
                     Ok(_) => {
                         info!("connection re-established successfully");
-                        // Restore subscriptions on the remote node.
-                        // restore_tracking = false: the forwarded-subscription table was not
-                        // cleaned up (same conn_index is reused), so we only replay the
-                        // messages without re-registering local tracking state.
-                        self.restore_remote_subscriptions(
-                            &remote_subscriptions,
-                            conn_index,
-                            false,
-                        )
-                        .await;
+                        if is_peer {
+                            // Peer connection: full sync (send local + remote subscriptions).
+                            let ttl = self.peer_sync().subscription_ttl();
+                            if let Err(e) = sync_peer::send_local_remote_sync(
+                                self, conn_index, ttl,
+                            )
+                            .await
+                            {
+                                warn!(
+                                    error = %e,
+                                    "failed to send full sync after peer reconnect"
+                                );
+                            }
+                        } else {
+                            // Remote/controller: restore only what was previously forwarded.
+                            self.restore_remote_subscriptions(
+                                &remote_subscriptions,
+                                conn_index,
+                                false,
+                            )
+                            .await;
+                        }
                         true
                     }
                     Err(e) => {
@@ -1802,15 +1870,24 @@ impl MessageProcessor {
                 };
 
                 // Delete connection state from all tables.
-                let (local_subs, remote_subs) = self_clone
+                let local_subs = self_clone
                     .forwarder()
                     .on_connection_drop(conn_index, category);
+                let remote_subs = self_clone
+                    .remote_sync()
+                    .on_connection_drop(conn_index);
+
+                // Remove peer connection from forwarder's peer list if applicable.
+                if matches!(category, ConnType::Peer) {
+                    self_clone.peer_sync().remove_peer_conn(conn_index);
+                }
 
                 // Notify peer sync about names that are no longer reachable.
-                // Only for non-peer connections (1-hop rule prevents loops).
-                if !matches!(category, ConnType::Peer) {
-                    // Clone forwarder outside any lock to avoid holding it across await.
-                    let fwd = self_clone.subscription_forwarder();
+                // For generic topologies (TTL-based relay), we also need to notify
+                // when a peer drops — the seen_sub_ids tracking ensures we only
+                // send unsubscribes for subscriptions we actually forwarded.
+                {
+                    let fwd = self_clone.peer_sync();
                     for name in local_subs.keys() {
                         let still_reachable = name.name.is_some_and(|enc| {
                             self_clone
@@ -1825,9 +1902,7 @@ impl MessageProcessor {
                                 ?category,
                                 "notifying peers of unsubscription (connection drop)"
                             );
-                            if let Some(fwd) = &fwd {
-                                fwd.notify_peers_unsubscribe(name).await;
-                            }
+                            fwd.notify_peers_unsubscribe(&self_clone, name).await;
                         } else {
                             debug!(
                                 %name,
@@ -1840,27 +1915,30 @@ impl MessageProcessor {
                 }
 
                 let recovery_enabled =
-                    !self_clone.internal.recovery_table.ttl().is_zero();
+                    !self_clone.remote_sync().recovery.ttl().is_zero();
 
-                if let Some(lid) = link_id.filter(|_| recovery_enabled) {
+                // Peer connections use full sync on reconnect — no recovery table needed.
+                let use_recovery = recovery_enabled && !matches!(category, ConnType::Peer);
+
+                if let Some(lid) = link_id.filter(|_| use_recovery) {
                     // Server connection with a known link_id: preserve routing state and
                     // suppress the control-plane notification for the duration of the TTL
                     // to give the peer a chance to reconnect.
                     info!(
                         %conn_index, %lid,
                         "connection lost, storing recovery state (TTL: {:?})",
-                        self_clone.internal.recovery_table.ttl(),
+                        self_clone.remote_sync().recovery.ttl(),
                     );
                     self_clone
-                        .internal
-                        .recovery_table
+                        .remote_sync()
+                        .recovery
                         .store(lid.clone(), local_subs, remote_subs);
 
                     // Spawn a TTL task that fires the CP notification if recovery never happens.
                     if let Ok(drain) = self_clone.get_drain_watch() {
                         let tx_cp_ttl = tx_cp;
                         let mp = self_clone.clone();
-                        self_clone.internal.recovery_table.spawn_ttl_task(
+                        self_clone.remote_sync().recovery.spawn_ttl_task(
                             lid,
                             drain,
                             move |entry| async move {
@@ -1934,30 +2012,19 @@ impl MessageProcessor {
         &self.internal.forwarder.connection_table
     }
 
-    /// Take the receiver for local subscription aggregate transition events.
-    /// Take the receiver for incoming peer events detected during server-side negotiation.
-    /// Can only be called once (the receiver is moved out).
-    pub fn take_incoming_peer_rx(&self) -> Option<tokio::sync::mpsc::Receiver<IncomingPeerEvent>> {
-        self.internal.incoming_peer_rx.lock().take()
+    /// The node identity used for cross-node communication.
+    pub fn service_id(&self) -> &str {
+        &self.internal.service_id
     }
 
-    /// Mark this message processor as the hub in a hub-and-spoke peer topology.
-    /// When set, publishes arriving from peer connections use ALL filter (relay to other peers)
-    /// instead of EXCLUDE_PEER.
-    pub fn set_forward_to_peer(&self, forward: bool) {
-        self.internal
-            .forward_to_peer
-            .store(forward, std::sync::atomic::Ordering::Relaxed);
+    /// Set the peer sync component.
+    pub fn set_peer_sync(&self, peer_sync: crate::sync::PeerSync) {
+        *self.internal.peer_sync.write() = peer_sync;
     }
 
-    /// Set the subscription forwarder (called by PeerSyncManager after construction).
-    pub(crate) fn set_subscription_forwarder(&self, fwd: crate::peer_sync::SubscriptionForwarder) {
-        *self.internal.subscription_forwarder.write() = Some(fwd);
-    }
-
-    /// Get a clone of the subscription forwarder (if set).
-    pub(crate) fn subscription_forwarder(&self) -> Option<crate::peer_sync::SubscriptionForwarder> {
-        self.internal.subscription_forwarder.read().clone()
+    /// Get a clone of the peer sync component.
+    pub(crate) fn peer_sync(&self) -> crate::sync::PeerSync {
+        self.internal.peer_sync.read().clone()
     }
 }
 
@@ -2037,7 +2104,7 @@ mod tests {
     use super::*;
     use crate::api::{ProtoName, ProtoSubscriptionAck};
     use crate::header_mac::HeaderMacSession;
-    use crate::tables::remote_subscription_table::SubscriptionInfo;
+    use crate::sync::remote::SubscriptionInfo;
     use tonic::Status;
 
     async fn assert_failed_subscription_ack_is_sent(add: bool) {
@@ -2296,6 +2363,7 @@ mod tests {
             String::new(),
             &server_config,
             None,
+            false,
         );
         let (conn_id, _rx) = make_server_conn(&processor);
         let payload = LinkNegotiationPayload {
@@ -2494,6 +2562,7 @@ mod tests {
             String::new(),
             &server_config,
             None,
+            false,
         );
 
         assert_eq!(
@@ -2720,7 +2789,7 @@ mod tests {
             success: true,
             error: String::new(),
         };
-        processor.subscription_forwarder().unwrap().resolve_ack(
+        processor.peer_sync().resolve_ack(
             ack.subscription_id,
             if ack.success {
                 Ok(())
@@ -2791,7 +2860,7 @@ mod tests {
             success: false,
             error: "remote error".to_string(),
         };
-        processor.subscription_forwarder().unwrap().resolve_ack(
+        processor.peer_sync().resolve_ack(
             ack.subscription_id,
             if ack.success {
                 Ok(())
@@ -2820,7 +2889,7 @@ mod tests {
         let processor =
             MessageProcessor::new_with_options("svc".into(), Some(Duration::from_secs(5)));
         assert_eq!(
-            processor.internal.recovery_table.ttl(),
+            processor.remote_sync().recovery.ttl(),
             Duration::from_secs(5)
         );
     }
@@ -2829,7 +2898,7 @@ mod tests {
     fn test_new_with_options_none_uses_default() {
         let processor = MessageProcessor::new_with_options("svc".into(), None);
         assert_eq!(
-            processor.internal.recovery_table.ttl(),
+            processor.remote_sync().recovery.ttl(),
             Duration::from_secs(30)
         );
     }
@@ -2837,7 +2906,7 @@ mod tests {
     #[test]
     fn test_new_with_options_zero_ttl() {
         let processor = MessageProcessor::new_with_options("svc".into(), Some(Duration::ZERO));
-        assert!(processor.internal.recovery_table.ttl().is_zero());
+        assert!(processor.remote_sync().recovery.ttl().is_zero());
     }
 
     // ── notify_control_plane_subscriptions_lost ───────────────────────────────
@@ -2889,8 +2958,8 @@ mod tests {
         let mut local_subs = HashMap::new();
         local_subs.insert(sub_name.clone(), HashSet::from([99u64]));
         processor
-            .internal
-            .recovery_table
+            .remote_sync()
+            .recovery
             .store(link_id.clone(), local_subs, HashSet::new());
 
         // Simulate the peer reconnecting with the same link_id.
@@ -2932,7 +3001,7 @@ mod tests {
             SubscriptionInfo::new(source.clone(), dest.clone(), "identity".into(), conn_id, 42);
 
         // Store recovery entry with remote subscriptions.
-        processor.internal.recovery_table.store(
+        processor.remote_sync().recovery.store(
             link_id.clone(),
             HashMap::new(),
             HashSet::from([remote_sub]),
@@ -3008,8 +3077,8 @@ mod tests {
 
         // With restore_tracking=true, the forwarded subscription should be tracked.
         let tracked = processor
-            .forwarder()
-            .get_subscriptions_forwarded_on_connection(conn_id);
+            .remote_sync()
+            .get_subscriptions_for_reconnect(conn_id);
         assert_eq!(tracked.len(), 1);
     }
 
@@ -3033,8 +3102,8 @@ mod tests {
 
         // With restore_tracking=false, forwarded subscription table should NOT be updated.
         let tracked = processor
-            .forwarder()
-            .get_subscriptions_forwarded_on_connection(conn_id);
+            .remote_sync()
+            .get_subscriptions_for_reconnect(conn_id);
         assert!(tracked.is_empty());
     }
 }

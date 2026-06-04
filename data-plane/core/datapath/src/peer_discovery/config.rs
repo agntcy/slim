@@ -3,7 +3,8 @@
 
 //! Configuration types for peer discovery.
 
-use serde::Deserialize;
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer};
 use slim_config::client::ClientConfig;
 
 /// Topology for peer-to-peer connections within a replica set.
@@ -67,13 +68,26 @@ pub struct PeerConfig {
     /// Static list of peer connections. Each entry requires a `node_id` plus
     /// the connection configuration fields (flattened from `ClientConfig`).
     /// The `connection_type` field is forced to `Peer` regardless of what is set.
-    #[serde(default)]
+    /// Must contain at least one entry.
+    #[serde(deserialize_with = "deserialize_non_empty_peers")]
     pub static_peers: Vec<StaticPeerEntry>,
 
     /// Optional dynamic discovery backend (e.g., Kubernetes).
     /// When absent and `static_peers` is non-empty, only static discovery is used.
     #[serde(default)]
     pub discovery: Option<PeerDiscoveryConfig>,
+}
+
+/// Deserialize `static_peers` and reject empty lists.
+fn deserialize_non_empty_peers<'de, D>(deserializer: D) -> Result<Vec<StaticPeerEntry>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let peers = Vec::<StaticPeerEntry>::deserialize(deserializer)?;
+    if peers.is_empty() {
+        return Err(D::Error::custom("static_peers must not be empty"));
+    }
+    Ok(peers)
 }
 
 /// Dynamic discovery backend configuration.
@@ -116,20 +130,33 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_peer_config_no_peers() {
+    fn test_deserialize_peer_config_no_peers_fails() {
         let yaml = r#"
             peer_group: "my-deployment"
         "#;
 
-        let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
-        assert!(config.static_peers.is_empty());
-        assert!(config.discovery.is_none());
+        let result: Result<PeerConfig, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err(), "static_peers is required");
+    }
+
+    #[test]
+    fn test_deserialize_peer_config_empty_peers_fails() {
+        let yaml = r#"
+            peer_group: "my-deployment"
+            static_peers: []
+        "#;
+
+        let result: Result<PeerConfig, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err(), "static_peers must not be empty");
     }
 
     #[test]
     fn test_deserialize_kubernetes_config() {
         let yaml = r#"
             peer_group: "slim-deployment"
+            static_peers:
+              - node_id: "slim-1"
+                endpoint: "http://slim-1:8080"
             discovery:
               type: kubernetes
               namespace: "default"
@@ -166,6 +193,9 @@ mod tests {
     fn test_topology_defaults_to_full_mesh() {
         let yaml = r#"
             peer_group: "my-deployment"
+            static_peers:
+              - node_id: "slim-1"
+                endpoint: "http://slim-1:8080"
         "#;
 
         let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
@@ -194,6 +224,9 @@ mod tests {
         let yaml = r#"
             peer_group: "my-deployment"
             topology: full_mesh
+            static_peers:
+              - node_id: "slim-1"
+                endpoint: "http://slim-1:8080"
         "#;
 
         let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
