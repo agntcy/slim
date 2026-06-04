@@ -27,8 +27,6 @@ use crate::session_config::SessionConfig;
 use crate::session_controller::SessionController;
 use crate::subscription_manager::SubscriptionManager;
 
-use crate::transmitter::SessionTransmitter;
-
 // Local crate
 use super::context::SessionContext;
 
@@ -317,13 +315,8 @@ where
                 }
             }; // lock is dropped here
 
-            // Create a new transmitter
+            // Create app channel for this session
             let (app_tx, app_rx) = tokio::sync::mpsc::unbounded_channel();
-            let tx = SessionTransmitter::new(
-                self.tx_slim.clone(),
-                app_tx,
-                self.identity_provider.clone(),
-            );
 
             // Build the session controller (this is async, so no locks are held)
             // The builder will automatically force DATA_CHANNEL_ID for multicast destinations
@@ -334,7 +327,8 @@ where
                 .with_config(session_config.clone())
                 .with_identity_provider(self.identity_provider.clone())
                 .with_identity_verifier(self.identity_verifier.clone())
-                .with_tx(tx)
+                .with_slim_tx(self.tx_slim.clone())
+                .with_app_tx(app_tx)
                 .with_tx_to_session_layer(self.tx_session.clone())
                 .with_direction(self.direction)
                 .with_subscription_manager(self.subscription_manager.clone())
@@ -554,7 +548,7 @@ where
             };
 
             if let Err(e) =
-                crate::transmitter::verify_identity(&message, &layer.identity_verifier).await
+                crate::session_controller::verify_identity(&message, &layer.identity_verifier).await
             {
                 debug!(
                     error = %e.chain(),

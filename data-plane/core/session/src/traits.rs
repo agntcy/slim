@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Local crate
-use crate::{common::SessionMessage, errors::SessionError, mls_state::MlsState};
-use slim_auth::traits::{TokenProvider, Verifier};
+use crate::{
+    common::{SessionMessage, SessionOutput},
+    errors::SessionError,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProcessingState {
@@ -15,6 +17,9 @@ pub enum ProcessingState {
 ///
 /// Each layer implements this trait and can hold an inner layer.
 /// The layer decides whether to pass messages to its inner layer or handle them itself (or both).
+///
+/// Layers return `SessionOutput` containing outbound messages instead of sending them internally.
+/// The processing loop is the single orchestration point for identity-setting and channel sends.
 #[trait_variant::make(Send)]
 pub trait MessageHandler {
     /// Init the layer.
@@ -24,20 +29,19 @@ pub trait MessageHandler {
     ///
     /// # Arguments
     /// * `message` - The session message. It can be an actual message or an event.
-    /// * `direction` - Whether the message is incoming (from network) or outgoing (from app)
     ///
     /// # Returns
-    /// * `Ok(())` - If processing succeeded
+    /// * `Ok(SessionOutput)` - Outbound messages to send (may be empty)
     /// * `Err(SessionError)` - If processing failed
-    async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError>;
+    async fn on_message(&mut self, message: SessionMessage) -> Result<SessionOutput, SessionError>;
 
     /// Add an endpoint to the session.
     /// Default implementation does nothing for layers that don't manage endpoints.
     async fn add_endpoint(
         &mut self,
         _endpoint: &slim_datapath::api::Participant,
-    ) -> Result<(), SessionError> {
-        async { Ok(()) }
+    ) -> Result<SessionOutput, SessionError> {
+        async { Ok(SessionOutput::new()) }
     }
 
     /// Remove an endpoint from the session.
@@ -73,8 +77,11 @@ pub trait MessageHandler {
 
 pub trait MlsStateSelector<P, V>: Send + Sync
 where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
+    P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+    V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
 {
-    fn set_mls_state(&mut self, mls_state: std::sync::Arc<parking_lot::Mutex<MlsState<P, V>>>);
+    fn set_mls_state(
+        &mut self,
+        mls_state: std::sync::Arc<parking_lot::Mutex<crate::mls_state::MlsState<P, V>>>,
+    );
 }

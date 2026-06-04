@@ -26,7 +26,6 @@ pub mod subscription_manager;
 pub mod timer;
 pub mod timer_factory;
 pub mod traits;
-pub mod transmitter;
 
 // Test utilities (only available during tests)
 #[cfg(test)]
@@ -49,6 +48,9 @@ pub use session_layer::{Direction, SessionLayer};
 
 // Common Session Types - internal use
 pub use common::{MessageDirection, SESSION_RANGE, SessionMessage, SlimChannelSender};
+
+// Session output types
+pub use common::{OutboundMessage, SessionOutput};
 
 // Public exports for external crates (like Python bindings)
 pub use common::{AppChannelReceiver, SESSION_UNSPECIFIED};

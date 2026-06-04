@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
@@ -16,20 +16,20 @@ use slim_mls::mls::Mls;
 use tracing::debug;
 
 use crate::{
-    common::{MessageDirection, SessionMessage},
+    common::{MessageDirection, SessionMessage, SessionOutput},
     errors::SessionError,
     mls_state::MlsState,
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
-    traits::{MessageHandler, MlsStateSelector, ProcessingState},
+    traits::{MessageHandler, ProcessingState},
 };
 
 pub struct SessionParticipant<P, V, I, M = SubscriptionManager>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
+    I: MessageHandler + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     /// name of the moderator, used to send mls proposal messages
@@ -39,7 +39,7 @@ where
     group_list: HashMap<ProtoName, ParticipantSettings>,
 
     /// mls state
-    mls_state: Option<std::sync::Arc<parking_lot::Mutex<MlsState<P, V>>>>,
+    mls_state: Option<MlsState<P, V>>,
 
     /// common session state
     common: SessionControllerCommon<P, V, M>,
@@ -49,6 +49,10 @@ where
 
     subscribed: bool,
 
+    /// True while a LeaveCleanup self-message is pending (route teardown deferred).
+    /// Prevents the processing loop from exiting before cleanup completes.
+    pending_leave_cleanup: bool,
+
     /// inner layer
     inner: I,
 }
@@ -57,7 +61,7 @@ impl<P, V, I, M> SessionParticipant<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
+    I: MessageHandler + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     pub(crate) fn new(inner: I, settings: SessionSettings<P, V, M>) -> Self {
@@ -70,6 +74,7 @@ where
             common,
             conn_id: None,
             subscribed: false,
+            pending_leave_cleanup: false,
             inner,
         }
     }
@@ -81,7 +86,7 @@ impl<P, V, I, M> MessageHandler for SessionParticipant<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
+    I: MessageHandler + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     async fn init(&mut self) -> Result<(), SessionError> {
@@ -95,9 +100,7 @@ where
                 mls_settings.header_integrity_validation_percent,
             )
             .expect("failed to create MLS state");
-            let shared = Arc::new(parking_lot::Mutex::new(mls_state));
-            self.inner.set_mls_state(shared.clone());
-            Some(shared)
+            Some(mls_state)
         } else {
             None
         };
@@ -105,7 +108,9 @@ where
         Ok(())
     }
 
-    async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
+    async fn on_message(&mut self, message: SessionMessage) -> Result<SessionOutput, SessionError> {
+        let mut output = SessionOutput::new();
+
         match message {
             SessionMessage::OnMessage {
                 mut message,
@@ -118,33 +123,29 @@ where
                         source = %message.get_source(),
                         "received message",
                     );
-                    self.process_control_message(message).await
+                    output.extend(self.process_control_message(message).await?);
                 } else {
-                    if direction == MessageDirection::South
-                        && self.common.settings.config.session_type
-                            == ProtoSessionType::PointToPoint
-                    {
-                        message
-                            .get_slim_header_mut()
-                            .set_destination(self.common.settings.destination.clone());
-                    }
-
                     if direction == MessageDirection::North
-                        && let Some(mls_state) = &self.mls_state
+                        && let Some(mls_state) = &mut self.mls_state
                     {
-                        mls_state.lock().process_message(&mut message, direction)?;
+                        mls_state.process_message(&mut message, direction)?;
                     }
 
-                    self.inner
+                    let inner_output = self
+                        .inner
                         .on_message(SessionMessage::OnMessage {
                             message,
                             direction,
                             ack_tx,
                         })
-                        .await
+                        .await?;
+
+                    output.extend(inner_output);
                 }
             }
-            SessionMessage::MessageError { error } => self.handle_message_error(error).await,
+            SessionMessage::MessageError { error } => {
+                output.extend(self.handle_message_error(error).await?);
+            }
             SessionMessage::TimerTimeout {
                 message_id,
                 message_type,
@@ -152,19 +153,23 @@ where
                 timeouts,
             } => {
                 if message_type.is_command_message() {
-                    self.common
-                        .sender
-                        .on_timer_timeout(message_id, message_type)
-                        .await
+                    output.extend(
+                        self.common
+                            .sender
+                            .on_timer_timeout(message_id, message_type)?,
+                    );
                 } else {
-                    self.inner
+                    let inner_output = self
+                        .inner
                         .on_message(SessionMessage::TimerTimeout {
                             message_id,
                             message_type,
                             name,
                             timeouts,
                         })
-                        .await
+                        .await?;
+
+                    output.extend(inner_output);
                 }
             }
             SessionMessage::TimerFailure {
@@ -175,24 +180,23 @@ where
             } => {
                 if message_type.is_command_message() {
                     self.common.sender.on_failure(message_id, message_type);
-                    Ok(())
                 } else {
-                    self.inner
-                        .on_message(SessionMessage::TimerFailure {
-                            message_id,
-                            message_type,
-                            name,
-                            timeouts,
-                        })
-                        .await
+                    output.extend(
+                        self.inner
+                            .on_message(SessionMessage::TimerFailure {
+                                message_id,
+                                message_type,
+                                name,
+                                timeouts,
+                            })
+                            .await?,
+                    );
                 }
             }
             SessionMessage::StartDrain {
                 grace_period: duration,
             } => {
                 debug!("received drain signal");
-                // create a leave request message for the participant that
-                // got disconnected and add the metadata to the message
                 let p = CommandPayload::builder().leave_request().as_content();
                 if let Some(moderator) = &self.moderator_name {
                     let mut msg = self.common.create_control_message(
@@ -205,47 +209,55 @@ where
                     debug!("start drain and notify the moderator");
                     msg.insert_metadata(LEAVING_SESSION.to_string(), TRUE_VAL.to_string());
 
-                    // remove the route and the subscription for the group
-                    // to avoid to get broadcast messages from the moderator
                     self.disconnect_from_group().await?;
 
-                    self.common.sender.on_message(&msg).await?;
+                    output.extend(self.common.sender.on_message(&msg)?);
                 }
 
-                // propagate draining state
                 self.common.processing_state = ProcessingState::Draining;
-
-                self.inner
-                    .on_message(SessionMessage::StartDrain {
-                        grace_period: duration,
-                    })
-                    .await?;
+                output.extend(
+                    self.inner
+                        .on_message(SessionMessage::StartDrain {
+                            grace_period: duration,
+                        })
+                        .await?,
+                );
                 self.common.sender.start_drain();
-
-                Ok(())
             }
             SessionMessage::ParticipantDisconnected { name: _ } => {
                 debug!("The moderator is not anymore connected to the current session, close it",);
 
-                // start drain
                 self.common.processing_state = ProcessingState::Draining;
-
-                self.inner
-                    .on_message(SessionMessage::StartDrain {
-                        grace_period: Duration::from_secs(1), // not used
-                    })
-                    .await?;
+                output.extend(
+                    self.inner
+                        .on_message(SessionMessage::StartDrain {
+                            grace_period: Duration::from_secs(1),
+                        })
+                        .await?,
+                );
                 self.common.sender.start_drain();
-
-                Ok(())
             }
-            _ => Err(SessionError::SessionMessageInternalUnexpected(Box::new(
-                message,
-            ))),
+            SessionMessage::LeaveCleanup => {
+                self.disconnect_from_group().await?;
+                self.disconnect_from_moderator().await?;
+                self.pending_leave_cleanup = false;
+            }
+            _ => {
+                return Err(SessionError::SessionMessageInternalUnexpected(Box::new(
+                    message,
+                )));
+            }
         }
+
+        self.encrypt_output(&mut output)?;
+
+        Ok(output)
     }
 
-    async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
+    async fn add_endpoint(
+        &mut self,
+        endpoint: &Participant,
+    ) -> Result<SessionOutput, SessionError> {
         self.inner.add_endpoint(endpoint).await
     }
 
@@ -254,7 +266,9 @@ where
     }
 
     fn needs_drain(&self) -> bool {
-        !self.common.sender.drain_completed() || self.inner.needs_drain()
+        self.pending_leave_cleanup
+            || !self.common.sender.drain_completed()
+            || self.inner.needs_drain()
     }
 
     fn processing_state(&self) -> ProcessingState {
@@ -279,15 +293,24 @@ impl<P, V, I, M> SessionParticipant<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
+    I: MessageHandler + Send + Sync + 'static,
     M: SubscriptionOps,
 {
+    fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
+        if let Some(mls_state) = &mut self.mls_state {
+            mls_state.encrypt_output(output)?;
+        }
+        Ok(())
+    }
+
     /// Helper method to handle MessageError
     /// Extracts context from the error and routes to appropriate handler
-    async fn handle_message_error(&mut self, error: SessionError) -> Result<(), SessionError> {
+    async fn handle_message_error(
+        &mut self,
+        error: SessionError,
+    ) -> Result<SessionOutput, SessionError> {
         let Some(session_ctx) = error.session_context() else {
             tracing::warn!("Received MessageError without session context");
-
             return self
                 .inner
                 .on_message(SessionMessage::MessageError { error })
@@ -295,22 +318,22 @@ where
         };
 
         if error.is_command_message_error() {
-            // Handle command message failure
             self.common.sender.on_failure(
                 session_ctx.message_id,
                 session_ctx.get_session_message_type(),
             );
-            Ok(())
+            Ok(SessionOutput::new())
         } else {
-            // Pass non-command errors to inner handler
-
             self.inner
                 .on_message(SessionMessage::MessageError { error })
                 .await
         }
     }
 
-    async fn process_control_message(&mut self, message: Message) -> Result<(), SessionError> {
+    async fn process_control_message(
+        &mut self,
+        message: Message,
+    ) -> Result<SessionOutput, SessionError> {
         match message.get_session_message_type() {
             ProtoSessionMessageType::JoinRequest => self.on_join_request(message).await,
             ProtoSessionMessageType::GroupWelcome => self.on_welcome(message).await,
@@ -327,9 +350,9 @@ where
                 // reception of the leave request sent on Drain start
                 // if the participant in not on drain state drop the message
                 if self.common.processing_state == ProcessingState::Draining {
-                    self.common.sender.on_message(&message).await?;
+                    return self.common.sender.on_message(&message);
                 }
-                Ok(())
+                Ok(SessionOutput::new())
             }
             ProtoSessionMessageType::GroupProposal
             | ProtoSessionMessageType::GroupAck
@@ -341,19 +364,19 @@ where
                     control_message_type = ?message.get_session_message_type(),
                     "Unexpected control message type",
                 );
-                Ok(())
+                Ok(SessionOutput::new())
             }
             _ => {
                 debug!(
                     message_type = ?message.get_session_message_type(),
                     "Unexpected message type",
                 );
-                Ok(())
+                Ok(SessionOutput::new())
             }
         }
     }
 
-    async fn on_join_request(&mut self, msg: Message) -> Result<(), SessionError> {
+    async fn on_join_request(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {
         debug!(
             name = %self.common.settings.source,
             id = %msg.get_id(),
@@ -366,9 +389,9 @@ where
             .add_route(source.clone(), msg.get_incoming_conn())
             .await?;
 
-        let key_package = if let Some(mls_state) = &self.mls_state {
+        let key_package = if let Some(mls_state) = &mut self.mls_state {
             debug!("mls enabled, create the package key");
-            let key = mls_state.lock().generate_key_package()?;
+            let key = mls_state.generate_key_package()?;
             Some(key)
         } else {
             None
@@ -392,18 +415,18 @@ where
             false,
         )?;
 
-        self.common.send_to_slim(reply).await
+        Ok(SessionOutput::to_slim(reply))
     }
 
-    async fn on_welcome(&mut self, msg: Message) -> Result<(), SessionError> {
+    async fn on_welcome(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {
         debug!(
             name = %self.common.settings.source,
             id = %msg.get_id(),
             "received welcome message",
         );
 
-        if let Some(mls_state) = &self.mls_state {
-            mls_state.lock().process_welcome_message(&msg)?;
+        if let Some(mls_state) = &mut self.mls_state {
+            mls_state.process_welcome_message(&msg)?;
         }
 
         self.join(&msg).await?;
@@ -439,33 +462,31 @@ where
             false,
         )?;
 
-        self.common.send_to_slim(ack).await
+        Ok(SessionOutput::to_slim(ack))
     }
 
     async fn on_group_update_message(
         &mut self,
         msg: Message,
         add: bool,
-    ) -> Result<(), SessionError> {
+    ) -> Result<SessionOutput, SessionError> {
         debug!(
             name = %self.common.settings.source,
             id = %msg.get_id(),
             "received update",
         );
 
-        if let Some(mls_state) = &self.mls_state {
+        if let Some(mls_state) = &mut self.mls_state {
             debug!("process mls control update");
             let source_proto = self.common.settings.source.clone();
-            let ret = mls_state
-                .lock()
-                .process_control_message(msg.clone(), &source_proto)?;
+            let ret = mls_state.process_control_message(msg.clone(), &source_proto)?;
 
             if !ret {
                 debug!(
                     id = %msg.get_id(),
                     "Message already processed, drop it",
                 );
-                return Ok(());
+                return Ok(SessionOutput::new());
             }
         }
 
@@ -516,11 +537,10 @@ where
             CommandPayload::builder().group_ack().as_content(),
             false,
         )?;
-
-        self.common.send_to_slim(msg).await
+        Ok(SessionOutput::to_slim(msg))
     }
 
-    async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
+    async fn on_leave_request(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {
         debug!("close session");
         self.common.processing_state = ProcessingState::Draining;
 
@@ -538,7 +558,6 @@ where
             }
             _ => {
                 // LeaveRequest: drain gracefully, waiting for in-flight acks.
-
                 self.inner
                     .on_message(SessionMessage::StartDrain {
                         grace_period: Duration::from_secs(60), // not used in session
@@ -560,11 +579,10 @@ where
             false,
         )?;
 
-        self.common.send_to_slim(reply).await?;
+        let output = SessionOutput::to_slim(reply);
 
-        self.disconnect_from_group().await?;
-        self.disconnect_from_moderator().await?;
-
+        // Remove session from pool IMMEDIATELY so that new DiscoveryRequests
+        // (e.g., re-adding this participant) are handled as fresh sessions.
         self.common
             .settings
             .tx_to_session_layer
@@ -572,22 +590,32 @@ where
                 session_id: self.common.settings.id,
             }))
             .await
-            .map_err(|_e| SessionError::SessionDeleteMessageSendFailed)
+            .map_err(|_e| SessionError::SessionDeleteMessageSendFailed)?;
+
+        // Schedule disconnect cleanup for AFTER the LeaveReply is dispatched.
+        self.pending_leave_cleanup = true;
+        self.common
+            .settings
+            .tx_session
+            .send(SessionMessage::LeaveCleanup)
+            .await
+            .map_err(|_| SessionError::SlimMessageSendFailed)?;
+
+        Ok(output)
     }
 
-    async fn on_ping(&mut self, mut msg: Message) -> Result<(), SessionError> {
+    async fn on_ping(&mut self, mut msg: Message) -> Result<SessionOutput, SessionError> {
         debug!("received ping message, reply");
         // send ping to the local sender to register the reception
-
-        self.common.sender.on_message(&msg).await?;
+        let mut output = self.common.sender.on_message(&msg)?;
 
         // reply to the ping
         let header = msg.get_slim_header_mut();
         let src = header.get_source();
         header.set_source(self.common.settings.source.clone());
         header.set_destination(src);
-
-        self.common.send_to_slim(msg).await
+        output.extend(SessionOutput::to_slim(msg));
+        Ok(output)
     }
 
     async fn join(&mut self, msg: &Message) -> Result<(), SessionError> {
@@ -672,6 +700,7 @@ where
 mod tests {
     use super::*;
     use crate::Direction;
+    use crate::common::OutboundMessage;
     use crate::session_config::SessionConfig;
     use crate::session_settings::SessionSettings;
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
@@ -719,6 +748,7 @@ mod tests {
         SessionParticipant<MockTokenProvider, MockVerifier, MockInnerHandler>,
         mpsc::Receiver<Result<Message, Status>>,
         mpsc::Receiver<Result<SessionMessage, SessionError>>,
+        mpsc::Receiver<SessionMessage>,
     ) {
         let source = make_name(&["local", "participant", "v1"]);
         let (destination, control) = match session_type {
@@ -738,10 +768,9 @@ mod tests {
 
         let (tx_slim, rx_slim) = mpsc::channel(16);
         let (tx_app, _rx_app) = mpsc::unbounded_channel();
-        let (tx_session, _rx_session) = mpsc::channel(16);
+        let (tx_session, rx_session) = mpsc::channel(16);
         let subscription_manager =
             crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
-        let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
         let (tx_session_layer, rx_session_layer) = mpsc::channel(16);
 
         let config = SessionConfig {
@@ -760,7 +789,8 @@ mod tests {
             control,
             config,
             direction: Direction::Bidirectional,
-            tx,
+            slim_tx: tx_slim,
+            app_tx: tx_app,
             tx_session,
             tx_to_session_layer: tx_session_layer,
             identity_provider,
@@ -773,12 +803,12 @@ mod tests {
         let inner = MockInnerHandler::new();
         let participant = SessionParticipant::new(inner, settings);
 
-        (participant, rx_slim, rx_session_layer)
+        (participant, rx_slim, rx_session_layer, rx_session)
     }
 
     #[tokio::test]
     async fn test_participant_new() {
-        let (participant, _rx_slim, _rx_session_layer) =
+        let (participant, _rx_slim, _rx_session_layer, _rx_session) =
             setup_participant(ProtoSessionType::Multicast);
 
         assert!(participant.moderator_name.is_none());
@@ -789,7 +819,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_init() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
+        let (mut participant, _rx_slim, _rx_session_layer, _rx_session) =
             setup_participant(ProtoSessionType::Multicast);
 
         let result = participant.init().await;
@@ -799,7 +829,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_on_join_request() {
-        let (mut participant, mut rx_slim, _rx_session_layer) =
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
@@ -835,20 +865,17 @@ mod tests {
         // Should have set moderator name
         assert_eq!(participant.moderator_name, Some(moderator));
 
-        // Should have sent at least the join reply (route subscribe was consumed by run_with_acks)
-        let mut message_count = 0;
-        while let Ok(Ok(_msg)) = rx_slim.try_recv() {
-            message_count += 1;
-        }
+        // Should have returned outbound messages (join reply)
+        let output = result.unwrap();
         assert!(
-            message_count > 0,
+            !output.is_empty(),
             "Should have sent messages including join reply"
         );
     }
 
     #[tokio::test]
     async fn test_participant_on_welcome_multicast() {
-        let (mut participant, mut rx_slim, _rx_session_layer) =
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
@@ -901,7 +928,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_on_group_add_message() {
-        let (mut participant, mut rx_slim, _rx_session_layer) =
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
         participant.subscribed = true;
@@ -949,13 +976,13 @@ mod tests {
         assert_eq!(participant.inner.get_endpoints_added_count().await, 1);
 
         // Should have sent group ack
-        let ack_msg = rx_slim.try_recv();
-        assert!(ack_msg.is_ok());
+        let output = result.unwrap();
+        assert!(!output.is_empty(), "Should have sent group ack");
     }
 
     #[tokio::test]
     async fn test_participant_on_group_remove_message() {
-        let (mut participant, mut rx_slim, _rx_session_layer) =
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
         participant.subscribed = true;
@@ -1008,13 +1035,13 @@ mod tests {
         assert_eq!(participant.inner.get_endpoints_removed_count().await, 1);
 
         // Should have sent group ack
-        let ack_msg = rx_slim.try_recv();
-        assert!(ack_msg.is_ok());
+        let output = result.unwrap();
+        assert!(!output.is_empty(), "Should have sent group ack");
     }
 
     #[tokio::test]
     async fn test_participant_on_leave_request() {
-        let (mut participant, mut rx_slim, mut rx_session_layer) =
+        let (mut participant, _rx_slim, mut rx_session_layer, _rx_session) =
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
         participant.subscribed = true;
@@ -1040,9 +1067,12 @@ mod tests {
         assert!(result.is_ok());
 
         // Should have sent leave reply
-        let reply_msg = rx_slim.try_recv();
-        assert!(reply_msg.is_ok());
-        let msg = reply_msg.unwrap().unwrap();
+        let output = result.unwrap();
+        assert!(!output.is_empty());
+        let msg = match &output.messages[0] {
+            OutboundMessage::ToSlim(m) => m,
+            _ => panic!("Expected ToSlim message"),
+        };
         assert_eq!(
             msg.get_session_header().session_message_type(),
             ProtoSessionMessageType::LeaveReply
@@ -1060,7 +1090,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_join_multicast() {
-        let (mut participant, mut rx_slim, _rx_session_layer) =
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
@@ -1091,7 +1121,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_join_point_to_point() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
+        let (mut participant, _rx_slim, _rx_session_layer, _rx_session) =
             setup_participant(ProtoSessionType::PointToPoint);
         participant.init().await.unwrap();
 
@@ -1122,7 +1152,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_join_idempotent() {
-        let (mut participant, mut rx_slim, _rx_session_layer) =
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
@@ -1163,7 +1193,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_application_message_forwarding() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
+        let (mut participant, _rx_slim, _rx_session_layer, _rx_session) =
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
@@ -1199,7 +1229,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_timer_timeout_control_message() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
+        let (mut participant, _rx_slim, _rx_session_layer, _rx_session) =
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
@@ -1217,7 +1247,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_timer_timeout_app_message() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
+        let (mut participant, _rx_slim, _rx_session_layer, _rx_session) =
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
@@ -1237,7 +1267,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_timer_failure_control_message() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
+        let (mut participant, _rx_slim, _rx_session_layer, _rx_session) =
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
@@ -1255,7 +1285,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_timer_failure_app_message() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
+        let (mut participant, _rx_slim, _rx_session_layer, _rx_session) =
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
@@ -1275,7 +1305,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_add_and_remove_endpoint() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
+        let (mut participant, _rx_slim, _rx_session_layer, _rx_session) =
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
@@ -1296,7 +1326,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_on_shutdown() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
+        let (mut participant, _rx_slim, _rx_session_layer, _rx_session) =
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
         participant.subscribed = true;
@@ -1308,7 +1338,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_unexpected_control_messages() {
-        let (mut participant, _rx_slim, _rx_session_layer) =
+        let (mut participant, _rx_slim, _rx_session_layer, _rx_session) =
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
 
@@ -1332,7 +1362,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_participant_leave_multicast_unsubscribes() {
-        let (mut participant, mut rx_slim, _rx_session_layer) =
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
             setup_participant(ProtoSessionType::Multicast);
         participant.init().await.unwrap();
         participant.subscribed = true;

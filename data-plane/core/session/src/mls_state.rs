@@ -2,12 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Standard library imports
-use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, btree_map::Entry};
-
-thread_local! {
-    static AAD_ENCODE_BUF: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(256));
-}
 
 // Third-party crates
 use tracing::{debug, error, trace};
@@ -18,8 +13,9 @@ use slim_datapath::api::{
     ProtoSessionMessageType,
 };
 
-// Local crate
-use crate::{SessionError, common::MessageDirection};
+use crate::{
+    SessionError, common::MessageDirection, common::OutboundMessage, common::SessionOutput,
+};
 use prost::Message as _;
 use slim_datapath::api::ProtoName;
 use slim_mls::{
@@ -245,7 +241,7 @@ where
         // Only process actual application data messages (Msg type)
         // Skip all control/session management messages
         match msg.get_session_header().session_message_type() {
-            ProtoSessionMessageType::Msg => {
+            ProtoSessionMessageType::Msg | ProtoSessionMessageType::RtxReply => {
                 // This is an application data message, process it
                 true
             }
@@ -286,6 +282,16 @@ where
         }
     }
 
+    /// Apply MLS encryption to all outbound ToSlim messages in the output.
+    pub fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
+        for msg in &mut output.messages {
+            if let OutboundMessage::ToSlim(m) = msg {
+                self.process_message(m, MessageDirection::South)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Encrypts a message payload using MLS
     ///
     /// # Arguments
@@ -302,11 +308,8 @@ where
         let payload = msg.get_payload().unwrap().as_application_payload()?;
 
         debug!("Encrypting message for group member");
-        let encrypted_payload = AAD_ENCODE_BUF.with(|cell| {
-            let mut buf = cell.borrow_mut();
-            self.build_aad_into(msg, &mut buf);
-            self.mls.encrypt_message(&payload.blob, buf.as_slice())
-        })?;
+        let aad = self.build_aad(msg);
+        let encrypted_payload = self.mls.encrypt_message(&payload.blob, &aad)?;
 
         msg.set_payload(
             ApplicationPayload::new(&payload.payload_type, encrypted_payload.to_vec()).as_content(),
@@ -342,15 +345,10 @@ where
             };
 
             if should_validate {
-                let aad_ok = AAD_ENCODE_BUF.with(|cell| {
-                    let mut buf = cell.borrow_mut();
-                    self.build_aad_into(msg, &mut buf);
-                    buf.as_slice() == auth_data.as_slice()
-                });
-                if !aad_ok {
-                    let expected_decoded = AAD_ENCODE_BUF
-                        .with(|cell| HeaderIntegrityAad::decode(&cell.borrow()[..]).ok());
-                    let got_decoded = HeaderIntegrityAad::decode(&auth_data[..]).ok();
+                let expected_aad = self.build_aad(msg);
+                if expected_aad != auth_data {
+                    let expected_decoded = HeaderIntegrityAad::decode(&expected_aad[..]);
+                    let got_decoded = HeaderIntegrityAad::decode(&auth_data[..]);
                     error!(
                         "Header integrity validation failed! Expected AAD: {:?}, Got AAD: {:?}",
                         expected_decoded, got_decoded
@@ -366,8 +364,8 @@ where
         Ok(())
     }
 
-    /// Builds the Authenticated Data (AAD) for header integrity checks into `buf`.
-    fn build_aad_into(&self, msg: &Message, buf: &mut Vec<u8>) {
+    /// Builds the Authenticated Data (AAD) for header integrity checks
+    fn build_aad(&self, msg: &Message) -> Vec<u8> {
         let slim_header = msg.get_slim_header();
         let session_header = msg.get_session_header();
 
@@ -392,8 +390,8 @@ where
             message_id: session_header.get_message_id(),
             payload_type,
         };
-        buf.clear();
-        aad.encode(buf).expect("HeaderIntegrityAad encode");
+
+        aad.encode_to_vec()
     }
 }
 
@@ -403,8 +401,8 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    /// MLS state for the moderator group
-    pub(crate) common: std::sync::Arc<parking_lot::Mutex<MlsState<P, V>>>,
+    /// mls state in common between moderator and participants
+    pub(crate) common: MlsState<P, V>,
 
     /// map of the participants (with real ids) with package keys
     /// used to remove participants from the channel
@@ -419,7 +417,7 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub(crate) fn new(mls: std::sync::Arc<parking_lot::Mutex<MlsState<P, V>>>) -> Self {
+    pub(crate) fn new(mls: MlsState<P, V>) -> Self {
         MlsModeratorState {
             common: mls,
             participants: HashMap::new(),
@@ -428,7 +426,7 @@ where
     }
 
     pub(crate) async fn init_moderator(&mut self) -> Result<(), SessionError> {
-        self.common.lock().mls.create_group()?;
+        self.common.mls.create_group()?;
         Ok(())
     }
 
@@ -439,7 +437,7 @@ where
         let payload = msg.extract_join_reply()?;
 
         // Propagate MlsError directly (will become SessionError::MlsOp via #[from])
-        let ret = self.common.lock().mls.add_member(payload.key_package())?;
+        let ret = self.common.mls.add_member(payload.key_package())?;
 
         // add participant to the list
         self.participants
@@ -459,7 +457,7 @@ where
             }
         };
 
-        let ret = self.common.lock().mls.remove_member(id)?;
+        let ret = self.common.mls.remove_member(id)?;
 
         // remove the participant from the list
         self.participants.remove(&name);
@@ -472,14 +470,14 @@ where
         &mut self,
         proposal: &ProposalMsg,
     ) -> Result<CommitMsg, SessionError> {
-        let commit = self.common.lock().mls.process_proposal(proposal, true)?;
+        let commit = self.common.mls.process_proposal(proposal, true)?;
 
         Ok(commit)
     }
 
     #[allow(dead_code)]
     pub(crate) fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, SessionError> {
-        let commit = self.common.lock().mls.process_local_pending_proposal()?;
+        let commit = self.common.mls.process_local_pending_proposal()?;
 
         Ok(commit)
     }

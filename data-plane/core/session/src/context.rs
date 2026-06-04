@@ -82,7 +82,6 @@ mod tests {
     use crate::session_config::SessionConfig;
     use crate::session_controller::SessionController;
     use crate::test_utils::{MockTokenProvider, MockVerifier};
-    use crate::transmitter::SessionTransmitter;
     use crate::{SessionError, SessionMessage};
     use slim_datapath::api::ProtoName as Name;
     use slim_datapath::api::ProtoSessionType;
@@ -110,11 +109,8 @@ mod tests {
             metadata: Default::default(),
         };
 
-        // Create channels for SessionTransmitter
+        // Create channels
         let (slim_tx, _slim_rx): (SlimChannelSender, _) = mpsc::channel(32);
-
-        // Create a SessionTransmitter
-        let session_tx = SessionTransmitter::new(slim_tx, app_tx.clone(), MockTokenProvider);
 
         // Create channel for session layer communication
         let (tx_session, _rx_session): (mpsc::Sender<Result<SessionMessage, SessionError>>, _) =
@@ -129,7 +125,8 @@ mod tests {
                 .with_config(cfg)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-                .with_tx(session_tx)
+                .with_slim_tx(slim_tx)
+                .with_app_tx(app_tx.clone())
                 .with_tx_to_session_layer(tx_session)
                 .ready()
                 .expect("Failed to prepare SessionController builder")

@@ -12,7 +12,7 @@ use slim_datapath::api::{Participant, ProtoName};
 use std::sync::Arc;
 
 use crate::SessionError;
-use crate::common::SessionMessage;
+use crate::common::{SessionMessage, SessionOutput};
 use crate::traits::MessageHandler;
 
 /// Mock token provider for testing.
@@ -105,14 +105,17 @@ impl MessageHandler for MockInnerHandler {
         Ok(())
     }
 
-    async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
+    async fn on_message(&mut self, message: SessionMessage) -> Result<SessionOutput, SessionError> {
         self.messages_received.lock().await.push(message);
-        Ok(())
+        Ok(SessionOutput::new())
     }
 
-    async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
+    async fn add_endpoint(
+        &mut self,
+        endpoint: &Participant,
+    ) -> Result<SessionOutput, SessionError> {
         self.endpoints_added.lock().await.push(endpoint.get_name()?);
-        Ok(())
+        Ok(SessionOutput::new())
     }
 
     fn remove_endpoint(&mut self, endpoint: &ProtoName) {
