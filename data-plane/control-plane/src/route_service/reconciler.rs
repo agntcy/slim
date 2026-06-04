@@ -341,8 +341,8 @@ async fn build_desired_routes<'a>(
                         route
                             .component_id
                             .as_deref()
-                            .and_then(|s| uuid::Uuid::parse_str(s).ok())
-                            .map(|u| u.as_u128())
+                            .and_then(|s| NameId::try_from(s.to_string()).ok())
+                            .map(|nid| -> u128 { nid.into() })
                             .unwrap_or(NameId::NULL_COMPONENT),
                     ),
             ),
