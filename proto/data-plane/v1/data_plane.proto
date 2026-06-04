@@ -11,7 +11,7 @@ service DataPlaneService {
 // SLIM messages
 message Subscribe {
   SLIMHeader header = 1;
-  // Globally unique identifier for this subscription.
+  // Identifier for this subscription.
   // Non-zero when the sender wants a SubscriptionAck back.
   uint64 subscription_id = 2;
 }

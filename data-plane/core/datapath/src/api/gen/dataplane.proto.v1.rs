@@ -4,7 +4,7 @@
 pub struct Subscribe {
     #[prost(message, optional, tag = "1")]
     pub header: ::core::option::Option<SlimHeader>,
-    /// Globally unique identifier for this subscription.
+    /// Identifier for this subscription.
     /// Non-zero when the sender wants a SubscriptionAck back.
     #[prost(uint64, tag = "2")]
     pub subscription_id: u64,

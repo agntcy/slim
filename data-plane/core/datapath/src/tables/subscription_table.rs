@@ -348,6 +348,7 @@ impl Clone for PrefixEntry {
 struct SubRecord {
     encoded: EncodedName,
     conn_id: u64,
+    category: ConnType,
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -530,6 +531,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             SubRecord {
                 encoded,
                 conn_id: conn,
+                category,
             },
         );
 
@@ -822,6 +824,35 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 debug!(?out, "found connections");
                 Ok(out)
             }
+        }
+    }
+}
+
+impl SubscriptionTableImpl {
+    /// Iterate all subscriptions, yielding `(ProtoName, sub_id, conn_id, category)` for each.
+    ///
+    /// This locks the subscription state and resolves names from the routing snapshot.
+    /// Used by the sync module to collect subscriptions with their original IDs.
+    pub fn for_each_subscription<F>(&self, mut f: F)
+    where
+        F: FnMut(ProtoName, u64, u64, ConnType),
+    {
+        let ss = self.subscription_state.lock();
+        let rs = self.routing.load();
+        for (&sub_id, record) in &ss.subscriptions {
+            let prefix = [
+                record.encoded.component_0,
+                record.encoded.component_1,
+                record.encoded.component_2,
+            ];
+            let proto_name = rs
+                .get(&prefix)
+                .map(|pe| pe.to_proto_name(record.encoded.id()))
+                .unwrap_or(ProtoName {
+                    name: Some(record.encoded),
+                    str_name: None,
+                });
+            f(proto_name, sub_id, record.conn_id, record.category);
         }
     }
 }

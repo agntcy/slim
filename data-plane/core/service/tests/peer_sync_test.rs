@@ -907,6 +907,211 @@ async fn test_explicit_unsubscribe_propagated_to_peers(#[case] topology: PeerTop
     shutdown_nodes(&nodes).await;
 }
 
+/// Test that when a peer reconnects, subscriptions are not duplicated.
+///
+/// Scenario:
+/// 1. Node 0 subscribes → propagates to node 1
+/// 2. Node 1 is shut down → node 0 detects disconnect
+/// 3. Node 1 restarts on the same port → node 0 reconnects
+/// 4. Verify node 1 has exactly ONE subscription entry (not duplicated)
+#[tokio::test(flavor = "multi_thread")]
+async fn test_no_duplicate_subscriptions_on_peer_reconnect() {
+    // We need 2 nodes where node 0 dials node 1. Since the smaller ID dials,
+    // we control IDs so that "node-a" < "node-b" → node-a dials node-b.
+    let port_a = reserve_port();
+    let port_b = reserve_port();
+
+    let static_peers = vec![
+        StaticPeerEntry {
+            node_id: "node-a".to_string(),
+            config: ClientConfig::with_endpoint(&format!("http://127.0.0.1:{port_a}"))
+                .with_tls_setting(TlsClientConfig::default().with_insecure(true)),
+        },
+        StaticPeerEntry {
+            node_id: "node-b".to_string(),
+            config: ClientConfig::with_endpoint(&format!("http://127.0.0.1:{port_b}"))
+                .with_tls_setting(TlsClientConfig::default().with_insecure(true)),
+        },
+    ];
+    let peer_config = PeerConfig {
+        peer_group: "test-reconnect".to_string(),
+        topology: PeerTopology::FullMesh,
+        static_peers,
+        discovery: None,
+    };
+
+    // Start node A (the dialer)
+    let node_a = start_peer_node(port_a, "node-a".to_string(), peer_config.clone()).await;
+    wait_for_server(&format!("127.0.0.1:{port_a}"), 40).await;
+
+    // Start node B (the receiver)
+    let node_b = start_peer_node(port_b, "node-b".to_string(), peer_config.clone()).await;
+    wait_for_server(&format!("127.0.0.1:{port_b}"), 40).await;
+
+    // Wait for peer connections
+    wait_for_peer_connections(&node_a.service, 1, Duration::from_secs(10)).await;
+    wait_for_peer_connections(&node_b.service, 1, Duration::from_secs(10)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Create a subscription on node A
+    let topic = Name::from_strings(["org", "ns", "reconnect-test"]).with_id(1);
+    let (_conn_id, sub_tx, _sub_rx) = node_a
+        .service
+        .message_processor()
+        .register_local_connection(false)
+        .expect("failed to register local connection");
+
+    let sub_msg = Message::builder()
+        .source(topic.clone())
+        .destination(topic.clone())
+        .subscription_id(500001)
+        .build_subscribe()
+        .unwrap();
+    sub_tx.send(Ok(sub_msg)).await.unwrap();
+
+    // Wait for subscription to propagate to node B
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let prefix = Name::from_strings(["org", "ns", "reconnect-test"]);
+    let count_peer_subs = |service: &Service, prefix: &Name| -> usize {
+        let sub_table = service.message_processor().subscription_table();
+        let mut count = 0usize;
+        sub_table.for_each(|name, _id, _local, _remote, peer_conns| {
+            if name == prefix {
+                count += peer_conns.len();
+            }
+        });
+        count
+    };
+
+    // Verify node B has exactly 1 peer subscription entry
+    let initial_count = count_peer_subs(&node_b.service, &prefix);
+    assert_eq!(
+        initial_count, 1,
+        "node B should have exactly 1 peer subscription before reconnect, got {initial_count}"
+    );
+
+    // Shutdown node B — this causes node A's outgoing connection to break
+    node_b.service.shutdown().await.ok();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Restart node B on the same port — node A will reconnect
+    let node_b = start_peer_node(port_b, "node-b".to_string(), peer_config.clone()).await;
+    wait_for_server(&format!("127.0.0.1:{port_b}"), 40).await;
+
+    // Wait for node A to reconnect and restore subscriptions
+    wait_for_peer_connections(&node_b.service, 1, Duration::from_secs(10)).await;
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    // Verify node B has exactly 1 peer subscription entry (not duplicated)
+    let final_count = count_peer_subs(&node_b.service, &prefix);
+    assert_eq!(
+        final_count, 1,
+        "node B should have exactly 1 peer subscription after reconnect, got {final_count}"
+    );
+
+    node_a.service.shutdown().await.ok();
+    node_b.service.shutdown().await.ok();
+}
+
+/// Test that when a peer reconnects, the remote subscription table is restored
+/// and used for reconnection rather than triggering a duplicate full sync.
+/// This test verifies with multiple subscriptions.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_multiple_subscriptions_restored_on_reconnect() {
+    let port_a = reserve_port();
+    let port_b = reserve_port();
+
+    let static_peers = vec![
+        StaticPeerEntry {
+            node_id: "node-a".to_string(),
+            config: ClientConfig::with_endpoint(&format!("http://127.0.0.1:{port_a}"))
+                .with_tls_setting(TlsClientConfig::default().with_insecure(true)),
+        },
+        StaticPeerEntry {
+            node_id: "node-b".to_string(),
+            config: ClientConfig::with_endpoint(&format!("http://127.0.0.1:{port_b}"))
+                .with_tls_setting(TlsClientConfig::default().with_insecure(true)),
+        },
+    ];
+    let peer_config = PeerConfig {
+        peer_group: "test-multi-reconnect".to_string(),
+        topology: PeerTopology::FullMesh,
+        static_peers,
+        discovery: None,
+    };
+
+    let node_a = start_peer_node(port_a, "node-a".to_string(), peer_config.clone()).await;
+    wait_for_server(&format!("127.0.0.1:{port_a}"), 40).await;
+    let node_b = start_peer_node(port_b, "node-b".to_string(), peer_config.clone()).await;
+    wait_for_server(&format!("127.0.0.1:{port_b}"), 40).await;
+
+    wait_for_peer_connections(&node_a.service, 1, Duration::from_secs(10)).await;
+    wait_for_peer_connections(&node_b.service, 1, Duration::from_secs(10)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Create multiple subscriptions on node A (different names)
+    let topics: Vec<Name> = (0..3)
+        .map(|i| Name::from_strings(["org", "ns", &format!("multi-{i}")]).with_id(i as u128 + 1))
+        .collect();
+
+    let (_conn_id, sub_tx, _sub_rx) = node_a
+        .service
+        .message_processor()
+        .register_local_connection(false)
+        .expect("failed to register local connection");
+
+    for (i, topic) in topics.iter().enumerate() {
+        let sub_msg = Message::builder()
+            .source(topic.clone())
+            .destination(topic.clone())
+            .subscription_id(600001 + i as u64)
+            .build_subscribe()
+            .unwrap();
+        sub_tx.send(Ok(sub_msg)).await.unwrap();
+    }
+
+    // Wait for propagation
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Verify all subscriptions on node B
+    let count_all_peer_subs = |service: &Service| -> usize {
+        let sub_table = service.message_processor().subscription_table();
+        let mut count = 0usize;
+        sub_table.for_each(|_name, _id, _local, _remote, peer_conns| {
+            count += peer_conns.len();
+        });
+        count
+    };
+
+    let initial_count = count_all_peer_subs(&node_b.service);
+    assert_eq!(
+        initial_count, 3,
+        "node B should have 3 peer subscriptions before reconnect, got {initial_count}"
+    );
+
+    // Shutdown and restart node B
+    node_b.service.shutdown().await.ok();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let node_b = start_peer_node(port_b, "node-b".to_string(), peer_config.clone()).await;
+    wait_for_server(&format!("127.0.0.1:{port_b}"), 40).await;
+
+    // Wait for reconnection and restore
+    wait_for_peer_connections(&node_b.service, 1, Duration::from_secs(10)).await;
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    // Verify exactly 3 subscriptions (no duplicates)
+    let final_count = count_all_peer_subs(&node_b.service);
+    assert_eq!(
+        final_count, 3,
+        "node B should have exactly 3 peer subscriptions after reconnect, got {final_count}"
+    );
+
+    node_a.service.shutdown().await.ok();
+    node_b.service.shutdown().await.ok();
+}
+
 /// Test that if two local connections subscribe to the same name on one node,
 /// dropping one connection does NOT remove the subscription from peers (still reachable).
 #[rstest]

@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use display_error_chain::ErrorChainExt;
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -13,8 +14,8 @@ use crate::peer_discovery::config::PeerTopology;
 use crate::peer_discovery::{PeerDiscovery, PeerEvent, PeerInfo};
 
 use super::SubscriptionForwarder;
+use super::peer;
 use super::state::{PeerEntry, PeerState};
-use super::sync;
 
 /// Configuration for the PeerSyncManager.
 #[derive(Debug, Clone)]
@@ -71,17 +72,8 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
         discovery: D,
         incoming_peer_rx: mpsc::Receiver<crate::message_processing::IncomingPeerEvent>,
     ) -> Self {
-        // If hub in hub-and-spoke, configure the message processor for publish relay.
-        if config.is_hub && config.topology == PeerTopology::HubAndSpoke {
-            message_processor.set_forward_to_peer(true);
-        }
-
         // Create and install the subscription forwarder.
-        let forwarder = SubscriptionForwarder::new(
-            message_processor.clone(),
-            config.is_hub,
-            config.topology.clone(),
-        );
+        let forwarder = SubscriptionForwarder::new(message_processor.clone(), &config.topology);
         message_processor.set_subscription_forwarder(forwarder.clone());
 
         Self {
@@ -208,12 +200,13 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
                 self.forwarder.add_peer_conn(conn_id);
 
                 // Perform full sync: send subscriptions to the new peer.
-                // Hub sends local + other peers' subscriptions; non-hub sends only local.
+                // Hub sends all subscriptions; non-hub sends only local + remote.
+                let ttl = self.forwarder.subscription_ttl();
                 let sync_result =
                     if self.config.is_hub && self.config.topology == PeerTopology::HubAndSpoke {
-                        sync::send_full_sync_as_hub(&self.message_processor, conn_id).await
+                        peer::send_full_sync(&self.message_processor, conn_id, ttl).await
                     } else {
-                        sync::send_full_sync(&self.message_processor, conn_id).await
+                        peer::send_local_remote_sync(&self.message_processor, conn_id, ttl).await
                     };
                 if let Err(e) = sync_result {
                     warn!(
@@ -227,7 +220,7 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
                 error!(
                     peer_id = %peer.id,
                     endpoint = %peer.config.endpoint,
-                    error = %e,
+                    error = %e.chain(),
                     "failed to connect to peer"
                 );
             }
@@ -266,7 +259,7 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
     /// peer connection_type and upgrades it. This handler registers that connection
     /// in peer state and performs a full sync.
     async fn handle_incoming_peer(&self, event: crate::message_processing::IncomingPeerEvent) {
-        let peer_id = event.node_id.clone();
+        let peer_id = event.node_id;
         let conn_id = event.conn_id;
 
         if self.state.read().contains(&peer_id) {
@@ -281,35 +274,18 @@ impl<D: PeerDiscovery + Send> PeerSyncManager<D> {
         info!(
             %peer_id,
             %conn_id,
-            "registering incoming peer connection"
+            "registering incoming peer in state table"
         );
 
+        // State tracking only — registration + sync already handled by the forwarder.
         self.state.write().insert(
-            peer_id.clone(),
+            peer_id,
             PeerEntry {
                 conn_id,
                 endpoint: String::new(), // server doesn't know the peer's listen endpoint
                 is_outgoing: false,
             },
         );
-
-        // Update the forwarder's peer connection list.
-        self.forwarder.add_peer_conn(conn_id);
-
-        // Perform full sync: send subscriptions to the incoming peer.
-        let sync_result = if self.config.is_hub && self.config.topology == PeerTopology::HubAndSpoke
-        {
-            sync::send_full_sync_as_hub(&self.message_processor, conn_id).await
-        } else {
-            sync::send_full_sync(&self.message_processor, conn_id).await
-        };
-        if let Err(e) = sync_result {
-            warn!(
-                %peer_id,
-                error = %e,
-                "full sync failed for incoming peer"
-            );
-        }
     }
 
     /// Register an incoming peer connection (server-side).

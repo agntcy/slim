@@ -10,7 +10,7 @@ use parking_lot::RwLock;
 use tracing::{debug, info};
 
 use crate::api::ProtoName;
-use crate::tables::remote_subscription_table::SubscriptionInfo;
+use crate::sync::remote::SubscriptionInfo;
 
 /// All routing state preserved while waiting for a server-side peer to reconnect within the
 /// recovery window.  A single [`RecoveryTable::take`] call returns everything needed to restore
@@ -126,7 +126,7 @@ mod tests {
     use tokio::sync::oneshot;
 
     use crate::api::ProtoName;
-    use crate::tables::remote_subscription_table::SubscriptionInfo;
+    use crate::sync::remote::SubscriptionInfo;
 
     fn empty_entry() -> (HashMap<ProtoName, HashSet<u64>>, HashSet<SubscriptionInfo>) {
         (HashMap::new(), HashSet::new())

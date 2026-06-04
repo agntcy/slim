@@ -6,7 +6,7 @@ pub mod errors;
 pub mod message_processing;
 pub mod messages;
 pub mod peer_discovery;
-pub mod peer_sync;
+pub mod sync;
 pub mod tables;
 
 mod connection;
@@ -15,7 +15,6 @@ mod header_mac;
 mod link_ecdh;
 #[cfg(feature = "otel_tracing")]
 mod otel_tracing;
-mod recovery;
 mod websocket;
 
 pub use tonic::Status;
