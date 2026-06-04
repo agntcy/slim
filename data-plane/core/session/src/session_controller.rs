@@ -140,8 +140,25 @@ impl SessionController {
             .reset(tokio::time::Instant::now() + shutdown_timeout);
     }
 
+    /// Apply the identity token to all outbound ToSlim messages.
+    /// Must run before MLS encryption so header-integrity AAD matches the on-wire header.
+    pub(crate) fn apply_identity_to_slim_output<P>(
+        output: &mut SessionOutput,
+        identity_provider: &P,
+    ) -> Result<(), SessionError>
+    where
+        P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+    {
+        let identity = identity_provider.get_token()?;
+        for msg in &mut output.messages {
+            if let OutboundMessage::ToSlim(m) = msg {
+                m.get_slim_header_mut().set_identity(identity.clone());
+            }
+        }
+        Ok(())
+    }
+
     /// Dispatch outbound messages from SessionOutput to actual channels.
-    /// Sets identity on ToSlim messages and sends them via the slim channel.
     /// Sends ToApp messages directly to the application channel.
     async fn dispatch_output<P, V, M>(output: SessionOutput, settings: &SessionSettings<P, V, M>)
     where
@@ -151,18 +168,9 @@ impl SessionController {
     {
         for msg in output.messages {
             match msg {
-                OutboundMessage::ToSlim(mut message) => {
-                    // Set identity on outbound SLIM messages
-                    match settings.identity_provider.get_token() {
-                        Ok(i) => {
-                            message.get_slim_header_mut().set_identity(i);
-                            if let Err(e) = settings.slim_tx.send(Ok(message)).await {
-                                tracing::error!(error = %e, "failed to send message to SLIM");
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!(error = %e, "error getting identity from identity provider")
-                        }
+                OutboundMessage::ToSlim(message) => {
+                    if let Err(e) = settings.slim_tx.send(Ok(message)).await {
+                        tracing::error!(error = %e, "failed to send message to SLIM");
                     }
                 }
                 OutboundMessage::ToApp(result) => {
