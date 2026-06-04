@@ -58,7 +58,11 @@ pub const FALSE_VAL: &str = "FALSE";
 pub const MAX_PUBLISH_ID: u32 = u32::MAX / 2;
 
 /// Default TTL value for messages that do not have an explicit TTL set.
+<<<<<<< HEAD
 pub const DEFAULT_TTL: u32 = 16;
+=======
+pub const DEFAULT_TTL: u32 = 6;
+>>>>>>> ca6e14dd (feat: add TTL to slim header)
 
 #[derive(Error, Debug, PartialEq)]
 pub enum MessageError {
