@@ -5,10 +5,7 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::Status;
 use slim_datapath::api::ProtoMessage as Message;
 
-use crate::{
-    MessageDirection, SessionError, SlimChannelSender, common::AppChannelSender,
-    mls_state::MlsState,
-};
+use crate::{SessionError, SlimChannelSender, common::AppChannelSender};
 
 pub(crate) async fn verify_identity<V>(msg: &Message, verifier: &V) -> Result<(), SessionError>
 where
@@ -52,25 +49,16 @@ where
             .map_err(|_e| SessionError::ApplicationMessageSendFailed)
     }
 
-    /// Sends a message to SLIM, applying identity and optional MLS encryption (South).
-    pub async fn send_to_slim<Prov, V>(
+    /// Sends a message to SLIM, applying identity (South).
+    pub async fn send_to_slim(
         &self,
-        mls: Option<&mut MlsState<Prov, V>>,
         mut message: Result<Message, Status>,
-    ) -> Result<(), SessionError>
-    where
-        Prov: TokenProvider + Send + Sync + Clone + 'static,
-        V: Verifier + Send + Sync + Clone + 'static,
-    {
-        if let Ok(msg) = message.as_mut() {
-            if msg.get_slim_header().get_identity().is_empty() {
-                let identity = self.identity_provider.get_token()?;
-                msg.get_slim_header_mut().set_identity(identity);
-            }
-
-            if let Some(mls) = mls {
-                mls.process_message(msg, MessageDirection::South)?;
-            }
+    ) -> Result<(), SessionError> {
+        if let Ok(msg) = message.as_mut()
+            && msg.get_slim_header().get_identity().is_empty()
+        {
+            let identity = self.identity_provider.get_token()?;
+            msg.get_slim_header_mut().set_identity(identity);
         }
 
         self.slim_tx
@@ -108,9 +96,7 @@ mod tests {
         let (app_tx, _app_rx) = mpsc::unbounded_channel::<Result<Message, SessionError>>();
         let tx = SessionTransmitter::new(slim_tx, app_tx, MockTokenProvider);
 
-        tx.send_to_slim::<MockTokenProvider, MockVerifier>(None, Ok(make_message()))
-            .await
-            .unwrap();
+        tx.send_to_slim(Ok(make_message())).await.unwrap();
         let sent = slim_rx.recv().await.unwrap().unwrap();
         assert_eq!(sent.get_slim_header().get_identity(), "");
     }

@@ -13,7 +13,6 @@ use crate::{
     Direction, MessageDirection,
     common::SessionMessage,
     errors::SessionError,
-    mls_state::MlsState,
     session_config::SessionConfig,
     session_receiver::SessionReceiver,
     session_sender::SessionSender,
@@ -21,19 +20,21 @@ use crate::{
     transmitter::SessionTransmitter,
 };
 
-pub(crate) struct Session<P>
+pub(crate) struct Session<P, V = slim_auth::shared_secret::SharedSecret>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
 {
     local_name: ProtoName,
-    pub(crate) sender: Option<SessionSender<P>>,
+    pub(crate) sender: Option<SessionSender<P, V>>,
     pub(crate) receiver: Option<SessionReceiver<P>>,
     processing_state: ProcessingState,
 }
 
-impl<P> Session<P>
+impl<P, V> Session<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
 {
     pub(crate) fn new(
         session_id: u32,
@@ -58,7 +59,7 @@ where
         let sender = if shutdown_send {
             None
         } else {
-            Some(SessionSender::<P>::new(
+            Some(SessionSender::<P, V>::new(
                 timer_settings.clone(),
                 session_id,
                 session_config.session_type,
@@ -88,15 +89,16 @@ where
         }
     }
 
-    pub async fn handle_message_with_mls<Prov, V>(
+    pub(crate) fn set_mls_state(
         &mut self,
-        mls: Option<&mut MlsState<Prov, V>>,
-        message: SessionMessage,
-    ) -> Result<(), SessionError>
-    where
-        Prov: TokenProvider + Send + Sync + Clone + 'static,
-        V: Verifier + Send + Sync + Clone + 'static,
-    {
+        mls_state: std::sync::Arc<parking_lot::Mutex<crate::mls_state::MlsState<P, V>>>,
+    ) {
+        if let Some(sender) = &mut self.sender {
+            sender.set_mls_state(mls_state);
+        }
+    }
+
+    pub async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
         match message {
             SessionMessage::OnMessage {
                 message,
@@ -111,7 +113,7 @@ where
                     direction = ?direction,
                     "received message",
                 );
-                self.on_application_message(mls, message, direction, ack_tx)
+                self.on_application_message(message, direction, ack_tx)
                     .await
             }
             SessionMessage::MessageError { error } => {
@@ -128,19 +130,13 @@ where
                 message_type,
                 name,
                 timeouts: _,
-            } => {
-                self.on_timer_timeout(mls, message_id, message_type, name)
-                    .await
-            }
+            } => self.on_timer_timeout(message_id, message_type, name).await,
             SessionMessage::TimerFailure {
                 message_id,
                 message_type,
                 name,
                 timeouts: _,
-            } => {
-                self.on_timer_failure(mls, message_id, message_type, name)
-                    .await
-            }
+            } => self.on_timer_failure(message_id, message_type, name).await,
             SessionMessage::StartDrain { grace_period: _ } => {
                 self.processing_state = ProcessingState::Draining;
                 if let Some(sender) = self.sender.as_mut() {
@@ -157,19 +153,11 @@ where
         }
     }
 
-    pub async fn add_endpoint<Prov, V>(
-        &mut self,
-        mls: Option<&mut MlsState<Prov, V>>,
-        endpoint: &Participant,
-    ) -> Result<(), SessionError>
-    where
-        Prov: TokenProvider + Send + Sync + Clone + 'static,
-        V: Verifier + Send + Sync + Clone + 'static,
-    {
+    pub async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
         let name = endpoint.get_name()?;
         debug!(%name, local_name = %self.local_name, "add participant");
         if let Some(sender) = &mut self.sender {
-            sender.add_endpoint(mls, endpoint).await?;
+            sender.add_endpoint(endpoint).await?;
         }
         Ok(())
     }
@@ -201,7 +189,7 @@ where
     ) -> Result<(), SessionError>
     where
         F: FnOnce(
-            &'a mut SessionSender<P>,
+            &'a mut SessionSender<P, V>,
             Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
         ) -> Fut,
         Fut: std::future::Future<Output = Result<(), SessionError>> + 'a,
@@ -221,7 +209,7 @@ where
     /// Helper to call sender methods without ack_tx
     fn with_sender_without_ack<F, R>(&mut self, f: F) -> Result<R, SessionError>
     where
-        F: FnOnce(&mut SessionSender<P>) -> Result<R, SessionError>,
+        F: FnOnce(&mut SessionSender<P, V>) -> Result<R, SessionError>,
     {
         match self.sender {
             Some(ref mut sender) => f(sender),
@@ -241,37 +229,28 @@ where
         }
     }
 
-    async fn on_application_message<Prov, V>(
+    async fn on_application_message(
         &mut self,
-        mls: Option<&mut MlsState<Prov, V>>,
         message: Message,
         direction: MessageDirection,
         ack_tx: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
-    ) -> Result<(), SessionError>
-    where
-        Prov: TokenProvider + Send + Sync + Clone + 'static,
-        V: Verifier + Send + Sync + Clone + 'static,
-    {
+    ) -> Result<(), SessionError> {
         match message.get_session_message_type() {
             ProtoSessionMessageType::Msg => {
                 if direction == MessageDirection::South {
-                    self.with_sender(ack_tx, |sender, ack_tx| {
-                        sender.on_message(mls, message, ack_tx)
-                    })
-                    .await
+                    self.with_sender(ack_tx, |sender, ack_tx| sender.on_message(message, ack_tx))
+                        .await
                 } else {
-                    self.with_receiver(|receiver| receiver.on_message(mls, message))
+                    self.with_receiver(|receiver| receiver.on_message(message))
                         .await
                 }
             }
             ProtoSessionMessageType::MsgAck | ProtoSessionMessageType::RtxRequest => {
-                self.with_sender(ack_tx, |sender, ack_tx| {
-                    sender.on_message(mls, message, ack_tx)
-                })
-                .await
+                self.with_sender(ack_tx, |sender, ack_tx| sender.on_message(message, ack_tx))
+                    .await
             }
             ProtoSessionMessageType::RtxReply => {
-                self.with_receiver(|receiver| receiver.on_message(mls, message))
+                self.with_receiver(|receiver| receiver.on_message(message))
                     .await
             }
             _ => {
@@ -285,25 +264,20 @@ where
         }
     }
 
-    async fn on_timer_timeout<Prov, V>(
+    async fn on_timer_timeout(
         &mut self,
-        mls: Option<&mut MlsState<Prov, V>>,
         id: u32,
         message_type: ProtoSessionMessageType,
         name: Option<EncodedName>,
-    ) -> Result<(), SessionError>
-    where
-        Prov: TokenProvider + Send + Sync + Clone + 'static,
-        V: Verifier + Send + Sync + Clone + 'static,
-    {
+    ) -> Result<(), SessionError> {
         match message_type {
             ProtoSessionMessageType::Msg => {
-                self.with_sender(None, |sender, _| sender.on_timer_timeout(mls, id))
+                self.with_sender(None, |sender, _| sender.on_timer_timeout(id))
                     .await
             }
             ProtoSessionMessageType::RtxRequest => {
                 if let Some(name) = name {
-                    self.with_receiver(|receiver| receiver.on_timer_timeout(mls, id, name))
+                    self.with_receiver(|receiver| receiver.on_timer_timeout(id, name))
                         .await
                 } else {
                     Err(SessionError::MissingParticipantNameOnTimer)
@@ -313,24 +287,19 @@ where
         }
     }
 
-    async fn on_timer_failure<Prov, V>(
+    async fn on_timer_failure(
         &mut self,
-        mls: Option<&mut MlsState<Prov, V>>,
         id: u32,
         message_type: ProtoSessionMessageType,
         name: Option<EncodedName>,
-    ) -> Result<(), SessionError>
-    where
-        Prov: TokenProvider + Send + Sync + Clone + 'static,
-        V: Verifier + Send + Sync + Clone + 'static,
-    {
+    ) -> Result<(), SessionError> {
         match message_type {
             ProtoSessionMessageType::Msg => {
                 self.with_sender_without_ack(|sender| sender.on_timer_failure(id))
             }
             ProtoSessionMessageType::RtxRequest => {
                 if let Some(name) = name {
-                    self.with_receiver(|receiver| receiver.on_timer_failure(mls, id, name))
+                    self.with_receiver(|receiver| receiver.on_timer_failure(id, name))
                         .await
                 } else {
                     Err(SessionError::MissingParticipantNameOnTimer)
@@ -343,9 +312,10 @@ where
 
 /// Implementation of MessageHandler trait for Session
 /// This allows Session to be used as a layer in the generic layer system
-impl<P> MessageHandler for Session<P>
+impl<P, V> MessageHandler for Session<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
 {
     async fn init(&mut self) -> Result<(), SessionError> {
         // Session is the innermost layer, no initialization needed
@@ -353,42 +323,11 @@ where
     }
 
     async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
-        #[cfg(test)]
-        {
-            use crate::test_utils::{MockTokenProvider, MockVerifier};
-            return self
-                .handle_message_with_mls::<MockTokenProvider, MockVerifier>(None, message)
-                .await;
-        }
-        #[cfg(not(test))]
-        {
-            let _ = message;
-            Err(SessionError::SessionClosed)
-        }
+        self.on_message(message).await
     }
 
-    async fn on_message_with_mls<Prov, V>(
-        &mut self,
-        mls: Option<&mut MlsState<Prov, V>>,
-        message: SessionMessage,
-    ) -> Result<(), SessionError>
-    where
-        Prov: TokenProvider + Send + Sync + Clone + 'static,
-        V: Verifier + Send + Sync + Clone + 'static,
-    {
-        self.handle_message_with_mls(mls, message).await
-    }
-
-    async fn add_endpoint_with_mls<Prov, V>(
-        &mut self,
-        mls: Option<&mut MlsState<Prov, V>>,
-        endpoint: &Participant,
-    ) -> Result<(), SessionError>
-    where
-        Prov: TokenProvider + Send + Sync + Clone + 'static,
-        V: Verifier + Send + Sync + Clone + 'static,
-    {
-        self.add_endpoint(mls, endpoint).await
+    async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
+        self.add_endpoint(endpoint).await
     }
 
     fn remove_endpoint(&mut self, endpoint: &slim_datapath::api::ProtoName) {
@@ -411,11 +350,24 @@ where
     }
 }
 
+impl<P, V> crate::traits::MlsStateSelector<P, V> for Session<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    fn set_mls_state(
+        &mut self,
+        mls_state: std::sync::Arc<parking_lot::Mutex<crate::mls_state::MlsState<P, V>>>,
+    ) {
+        self.set_mls_state(mls_state);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     type Session<P> = super::Session<P>;
 
-    use crate::test_utils::{MockTokenProvider, MockVerifier};
+    use crate::test_utils::MockTokenProvider;
     use crate::transmitter::SessionTransmitter;
 
     use super::*;
@@ -458,13 +410,10 @@ mod tests {
 
         // Add the remote endpoint to the session sender (should receive messages)
         session
-            .add_endpoint::<MockTokenProvider, MockVerifier>(
-                None,
-                &Participant::new(
-                    remote_name.clone(),
-                    ParticipantSettings::receive_only(), // Receives data only
-                ),
-            )
+            .add_endpoint(&Participant::new(
+                remote_name.clone(),
+                ParticipantSettings::receive_only(), // Receives data only
+            ))
             .await
             .expect("error adding participant");
 
@@ -818,10 +767,10 @@ mod tests {
 
         // Add receiver as endpoint for sender (receiver should receive data)
         sender_session
-            .add_endpoint::<MockTokenProvider, MockVerifier>(
-                None,
-                &Participant::new(receiver_name.clone(), ParticipantSettings::bidirectional()),
-            )
+            .add_endpoint(&Participant::new(
+                receiver_name.clone(),
+                ParticipantSettings::bidirectional(),
+            ))
             .await
             .expect("error adding participant");
 
@@ -856,10 +805,10 @@ mod tests {
 
         // Add sender as endpoint for receiver (sender can send and receive)
         receiver_session
-            .add_endpoint::<MockTokenProvider, MockVerifier>(
-                None,
-                &Participant::new(sender_name.clone(), ParticipantSettings::bidirectional()),
-            )
+            .add_endpoint(&Participant::new(
+                sender_name.clone(),
+                ParticipantSettings::bidirectional(),
+            ))
             .await
             .expect("error adding participant");
 

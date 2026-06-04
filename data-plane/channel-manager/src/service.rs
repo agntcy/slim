@@ -10,7 +10,8 @@ use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_datapath::api::{ProtoName, ProtoSessionType};
 use slim_service::app::App;
 use slim_session::completion_handle::CompletionHandle;
-use slim_session::{SessionConfig, SessionError, MlsSettings};
+use slim_session::session_config::MlsSettings;
+use slim_session::{SessionConfig, SessionError};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
 

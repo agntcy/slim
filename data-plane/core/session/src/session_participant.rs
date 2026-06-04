@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
@@ -22,14 +22,14 @@ use crate::{
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
-    traits::{MessageHandler, ProcessingState},
+    traits::{MessageHandler, MlsStateSelector, ProcessingState},
 };
 
 pub struct SessionParticipant<P, V, I, M = SubscriptionManager>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     /// name of the moderator, used to send mls proposal messages
@@ -39,7 +39,7 @@ where
     group_list: HashMap<ProtoName, ParticipantSettings>,
 
     /// mls state
-    mls_state: Option<MlsState<P, V>>,
+    mls_state: Option<std::sync::Arc<parking_lot::Mutex<MlsState<P, V>>>>,
 
     /// common session state
     common: SessionControllerCommon<P, V, M>,
@@ -57,7 +57,7 @@ impl<P, V, I, M> SessionParticipant<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     pub(crate) fn new(inner: I, settings: SessionSettings<P, V, M>) -> Self {
@@ -81,7 +81,7 @@ impl<P, V, I, M> MessageHandler for SessionParticipant<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     async fn init(&mut self) -> Result<(), SessionError> {
@@ -95,7 +95,9 @@ where
                 mls_settings.header_integrity_validation_percent,
             )
             .expect("failed to create MLS state");
-            Some(mls_state)
+            let shared = Arc::new(parking_lot::Mutex::new(mls_state));
+            self.inner.set_mls_state(shared.clone());
+            Some(shared)
         } else {
             None
         };
@@ -128,21 +130,17 @@ where
                     }
 
                     if direction == MessageDirection::North
-                        && let Some(mls_state) = &mut self.mls_state
+                        && let Some(mls_state) = &self.mls_state
                     {
-                        mls_state.process_message(&mut message, direction)?;
+                        mls_state.lock().process_message(&mut message, direction)?;
                     }
 
-                    let mls = self.mls_state.as_mut();
                     self.inner
-                        .on_message_with_mls(
-                            mls,
-                            SessionMessage::OnMessage {
-                                message,
-                                direction,
-                                ack_tx,
-                            },
-                        )
+                        .on_message(SessionMessage::OnMessage {
+                            message,
+                            direction,
+                            ack_tx,
+                        })
                         .await
                 }
             }
@@ -154,23 +152,18 @@ where
                 timeouts,
             } => {
                 if message_type.is_command_message() {
-                    let mls = self.mls_state.as_mut();
                     self.common
                         .sender
-                        .on_timer_timeout(mls, message_id, message_type)
+                        .on_timer_timeout(message_id, message_type)
                         .await
                 } else {
-                    let mls = self.mls_state.as_mut();
                     self.inner
-                        .on_message_with_mls(
-                            mls,
-                            SessionMessage::TimerTimeout {
-                                message_id,
-                                message_type,
-                                name,
-                                timeouts,
-                            },
-                        )
+                        .on_message(SessionMessage::TimerTimeout {
+                            message_id,
+                            message_type,
+                            name,
+                            timeouts,
+                        })
                         .await
                 }
             }
@@ -184,17 +177,13 @@ where
                     self.common.sender.on_failure(message_id, message_type);
                     Ok(())
                 } else {
-                    let mls = self.mls_state.as_mut();
                     self.inner
-                        .on_message_with_mls(
-                            mls,
-                            SessionMessage::TimerFailure {
-                                message_id,
-                                message_type,
-                                name,
-                                timeouts,
-                            },
-                        )
+                        .on_message(SessionMessage::TimerFailure {
+                            message_id,
+                            message_type,
+                            name,
+                            timeouts,
+                        })
                         .await
                 }
             }
@@ -220,20 +209,16 @@ where
                     // to avoid to get broadcast messages from the moderator
                     self.disconnect_from_group().await?;
 
-                    let mls = self.mls_state.as_mut();
-                    self.common.sender.on_message(mls, &msg).await?;
+                    self.common.sender.on_message(&msg).await?;
                 }
 
                 // propagate draining state
                 self.common.processing_state = ProcessingState::Draining;
-                let mls = self.mls_state.as_mut();
+
                 self.inner
-                    .on_message_with_mls(
-                        mls,
-                        SessionMessage::StartDrain {
-                            grace_period: duration,
-                        },
-                    )
+                    .on_message(SessionMessage::StartDrain {
+                        grace_period: duration,
+                    })
                     .await?;
                 self.common.sender.start_drain();
 
@@ -244,14 +229,11 @@ where
 
                 // start drain
                 self.common.processing_state = ProcessingState::Draining;
-                let mls = self.mls_state.as_mut();
+
                 self.inner
-                    .on_message_with_mls(
-                        mls,
-                        SessionMessage::StartDrain {
-                            grace_period: Duration::from_secs(1), // not used
-                        },
-                    )
+                    .on_message(SessionMessage::StartDrain {
+                        grace_period: Duration::from_secs(1), // not used
+                    })
                     .await?;
                 self.common.sender.start_drain();
 
@@ -264,8 +246,7 @@ where
     }
 
     async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
-        let mls = self.mls_state.as_mut();
-        self.inner.add_endpoint_with_mls(mls, endpoint).await
+        self.inner.add_endpoint(endpoint).await
     }
 
     fn remove_endpoint(&mut self, endpoint: &ProtoName) {
@@ -298,7 +279,7 @@ impl<P, V, I, M> SessionParticipant<P, V, I, M>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
-    I: MessageHandler + Send + Sync + 'static,
+    I: MessageHandler + MlsStateSelector<P, V> + Send + Sync + 'static,
     M: SubscriptionOps,
 {
     /// Helper method to handle MessageError
@@ -306,10 +287,10 @@ where
     async fn handle_message_error(&mut self, error: SessionError) -> Result<(), SessionError> {
         let Some(session_ctx) = error.session_context() else {
             tracing::warn!("Received MessageError without session context");
-            let mls = self.mls_state.as_mut();
+
             return self
                 .inner
-                .on_message_with_mls(mls, SessionMessage::MessageError { error })
+                .on_message(SessionMessage::MessageError { error })
                 .await;
         };
 
@@ -322,9 +303,9 @@ where
             Ok(())
         } else {
             // Pass non-command errors to inner handler
-            let mls = self.mls_state.as_mut();
+
             self.inner
-                .on_message_with_mls(mls, SessionMessage::MessageError { error })
+                .on_message(SessionMessage::MessageError { error })
                 .await
         }
     }
@@ -346,8 +327,7 @@ where
                 // reception of the leave request sent on Drain start
                 // if the participant in not on drain state drop the message
                 if self.common.processing_state == ProcessingState::Draining {
-                    let mls = self.mls_state.as_mut();
-                    self.common.sender.on_message(mls, &message).await?;
+                    self.common.sender.on_message(&message).await?;
                 }
                 Ok(())
             }
@@ -386,9 +366,9 @@ where
             .add_route(source.clone(), msg.get_incoming_conn())
             .await?;
 
-        let key_package = if let Some(mls_state) = &mut self.mls_state {
+        let key_package = if let Some(mls_state) = &self.mls_state {
             debug!("mls enabled, create the package key");
-            let key = mls_state.generate_key_package()?;
+            let key = mls_state.lock().generate_key_package()?;
             Some(key)
         } else {
             None
@@ -412,8 +392,7 @@ where
             false,
         )?;
 
-        let mls = self.mls_state.as_mut();
-        self.common.send_to_slim(mls, reply).await
+        self.common.send_to_slim(reply).await
     }
 
     async fn on_welcome(&mut self, msg: Message) -> Result<(), SessionError> {
@@ -423,8 +402,8 @@ where
             "received welcome message",
         );
 
-        if let Some(mls_state) = &mut self.mls_state {
-            mls_state.process_welcome_message(&msg)?;
+        if let Some(mls_state) = &self.mls_state {
+            mls_state.lock().process_welcome_message(&msg)?;
         }
 
         self.join(&msg).await?;
@@ -460,8 +439,7 @@ where
             false,
         )?;
 
-        let mls = self.mls_state.as_mut();
-        self.common.send_to_slim(mls, ack).await
+        self.common.send_to_slim(ack).await
     }
 
     async fn on_group_update_message(
@@ -475,10 +453,12 @@ where
             "received update",
         );
 
-        if let Some(mls_state) = &mut self.mls_state {
+        if let Some(mls_state) = &self.mls_state {
             debug!("process mls control update");
             let source_proto = self.common.settings.source.clone();
-            let ret = mls_state.process_control_message(msg.clone(), &source_proto)?;
+            let ret = mls_state
+                .lock()
+                .process_control_message(msg.clone(), &source_proto)?;
 
             if !ret {
                 debug!(
@@ -536,8 +516,8 @@ where
             CommandPayload::builder().group_ack().as_content(),
             false,
         )?;
-        let mls = self.mls_state.as_mut();
-        self.common.send_to_slim(mls, msg).await
+
+        self.common.send_to_slim(msg).await
     }
 
     async fn on_leave_request(&mut self, msg: Message) -> Result<(), SessionError> {
@@ -558,14 +538,11 @@ where
             }
             _ => {
                 // LeaveRequest: drain gracefully, waiting for in-flight acks.
-                let mls = self.mls_state.as_mut();
+
                 self.inner
-                    .on_message_with_mls(
-                        mls,
-                        SessionMessage::StartDrain {
-                            grace_period: Duration::from_secs(60), // not used in session
-                        },
-                    )
+                    .on_message(SessionMessage::StartDrain {
+                        grace_period: Duration::from_secs(60), // not used in session
+                    })
                     .await?;
                 self.common.sender.start_drain();
                 (
@@ -583,8 +560,7 @@ where
             false,
         )?;
 
-        let mls = self.mls_state.as_mut();
-        self.common.send_to_slim(mls, reply).await?;
+        self.common.send_to_slim(reply).await?;
 
         self.disconnect_from_group().await?;
         self.disconnect_from_moderator().await?;
@@ -602,16 +578,16 @@ where
     async fn on_ping(&mut self, mut msg: Message) -> Result<(), SessionError> {
         debug!("received ping message, reply");
         // send ping to the local sender to register the reception
-        let mls = self.mls_state.as_mut();
-        self.common.sender.on_message(mls, &msg).await?;
+
+        self.common.sender.on_message(&msg).await?;
 
         // reply to the ping
         let header = msg.get_slim_header_mut();
         let src = header.get_source();
         header.set_source(self.common.settings.source.clone());
         header.set_destination(src);
-        let mls = self.mls_state.as_mut();
-        self.common.send_to_slim(mls, msg).await
+
+        self.common.send_to_slim(msg).await
     }
 
     async fn join(&mut self, msg: &Message) -> Result<(), SessionError> {

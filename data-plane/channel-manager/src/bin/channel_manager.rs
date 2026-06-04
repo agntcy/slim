@@ -22,7 +22,7 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_config::component::ComponentBuilder;
 use slim_datapath::api::{ProtoName, ProtoSessionType};
 use slim_service::app::App;
-use slim_session::{Direction, SessionConfig};
+use slim_session::{Direction, SessionConfig, session_config::MlsSettings};
 use slim_tracing::TracingConfiguration;
 use tracing::{error, info, warn};
 

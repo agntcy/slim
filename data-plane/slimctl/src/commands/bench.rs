@@ -45,6 +45,7 @@ use slim_datapath::api::{ProtoName, ProtoPublishType, ProtoSessionType};
 use slim_service::app::App;
 use slim_service::{Service, ServiceBuilder};
 use slim_session::context::SessionContext;
+use slim_session::session_config::MlsSettings;
 use slim_session::{AppChannelReceiver, Direction, Notification, SessionConfig, SessionError};
 use slim_tracing::TracingConfiguration;
 use tokio::task::JoinSet;
@@ -650,7 +651,7 @@ async fn create_and_wait_session(
 ) -> Result<SessionContext> {
     let session_config = SessionConfig {
         session_type,
-        mls_enabled: false,
+        mls_settings: Some(MlsSettings::default()),
         max_retries: Some(SESSION_MAX_RETRIES),
         interval: Some(SESSION_RETRY_INTERVAL),
         initiator: true,
