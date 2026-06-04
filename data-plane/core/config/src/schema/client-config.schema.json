@@ -72,7 +72,7 @@
       ]
     },
     "link_id": {
-      "description": "Link identifier for this connection, used during link negotiation.\nMust be a valid UUID v4. Defaults to a randomly generated UUID v4.",
+      "description": "Link identifier for this connection, used during link negotiation.\nDefaults to a randomly generated UUID v4.",
       "type": "string",
       "default": "5809da77-44e1-4b56-b221-de07c3b641e9"
     },
