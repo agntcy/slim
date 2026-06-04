@@ -410,8 +410,8 @@ async fn initialize_and_start_global_services(
     // Create and start all services
     for (idx, service_config) in service_configs.iter().enumerate() {
         debug!("Creating global service {} with configuration", idx);
-        let mut slim_service =
-            ServiceBuilder::new().build_with_config(&service_config.node_id, service_config)?;
+        let mut slim_service = ServiceBuilder::new()
+            .build_with_config(service_config.effective_name(), service_config)?;
 
         // Start the service to initialize servers and clients
         // This calls run() internally if servers/clients are configured
@@ -821,9 +821,9 @@ mod tests {
         );
     }
 
-    #[tokio::test]
     #[test_fork::fork]
-    async fn test_service_order_preserved_from_config_file() {
+    #[test]
+    fn test_service_order_preserved_from_config_file() {
         // Test that service order is preserved when loading from config file
         use std::io::Write;
 

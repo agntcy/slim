@@ -70,7 +70,14 @@ pub struct ConnectionInfo {
 pub struct ServiceConfiguration {
     /// Unique node ID for the service. Defaults to a random UUID if not set,
     /// ensuring uniqueness across replicas sharing the same configuration.
+    /// This is the **global** identity used for peer sync and controller communication.
     pub node_id: String,
+
+    /// Optional local service name (e.g. the YAML map key like "slim/0").
+    /// Used as the service identifier within this process. When not set,
+    /// falls back to `node_id`.
+    #[serde(skip)]
+    pub service_name: Option<String>,
 
     /// Optional name of the group for the service.
     pub group_name: Option<String>,
@@ -90,6 +97,7 @@ impl Default for ServiceConfiguration {
     fn default() -> Self {
         Self {
             node_id: format!("node-{}", uuid::Uuid::new_v4()),
+            service_name: None,
             group_name: None,
             dataplane: DataplaneConfig::default(),
             controller: ControllerConfig::default(),
@@ -142,6 +150,11 @@ impl ServiceConfiguration {
     pub fn with_peers(mut self, peers: PeerConfig) -> Self {
         self.peers = Some(peers);
         self
+    }
+
+    /// Returns the effective service name: `service_name` if set, otherwise `node_id`.
+    pub fn effective_name(&self) -> &str {
+        self.service_name.as_deref().unwrap_or(&self.node_id)
     }
 
     pub fn build_server(&self, id: ID) -> Result<Service, ServiceError> {
@@ -360,28 +373,13 @@ impl Service {
             is_hub,
         };
 
-        let subscription_rx = self
-            .message_processor
-            .take_subscription_event_rx()
-            .expect("subscription_event_rx already taken");
         let incoming_peer_rx = self
             .message_processor
             .take_incoming_peer_rx()
             .expect("incoming_peer_rx already taken");
-        let peer_relay_rx = self
-            .message_processor
-            .take_peer_relay_rx()
-            .expect("peer_relay_rx already taken");
         let mp = (*self.message_processor).clone();
 
-        let mut manager = PeerSyncManager::new(
-            sync_config,
-            mp,
-            discovery,
-            subscription_rx,
-            incoming_peer_rx,
-            peer_relay_rx,
-        );
+        let mut manager = PeerSyncManager::new(sync_config, mp, discovery, incoming_peer_rx);
 
         tokio::spawn(async move {
             manager.run(cancel).await;

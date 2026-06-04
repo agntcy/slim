@@ -10,8 +10,15 @@
 //! - Listens to peer discovery events (Joined/Left)
 //! - Establishes connections to peers (single bidirectional link per pair)
 //! - Performs full subscription sync on peer join
-//! - Forwards incremental subscription changes (aggregate transitions only)
+//! - Maintains the SubscriptionForwarder's peer connection list
 //! - Handles peer disconnection cleanup
+//!
+//! # Subscription Forwarding
+//!
+//! Incremental subscription forwarding (to peers, controller, hub relay) is handled
+//! by the `SubscriptionForwarder` component, which is called directly from the
+//! `MessageProcessor::process_subscription` path. The PeerSyncManager only maintains
+//! the peer connection list and performs full sync on join.
 //!
 //! # Connection Deduplication
 //!
@@ -19,44 +26,11 @@
 //! The other side accepts the incoming connection. This guarantees exactly one
 //! link per peer pair with no races.
 
+pub(crate) mod forwarder;
 mod manager;
 mod state;
-mod sync;
+pub(crate) mod sync;
 
+pub use forwarder::{ForwardTargets, PeerTarget, SubscriptionForwarder};
 pub use manager::{PeerSyncConfig, PeerSyncManager};
 pub use state::PeerState;
-
-use crate::api::ProtoName;
-
-/// Subscription events emitted by the message processor when a local
-/// subscription aggregate transitions (0→1 or 1→0 local subscribers).
-///
-/// Only aggregate transitions are emitted — intermediate changes (e.g., second
-/// local subscriber for the same name) do not produce events.
-#[derive(Debug, Clone)]
-pub enum SubscriptionEvent {
-    /// A name gained its first local subscriber.
-    Added {
-        name: ProtoName,
-        subscription_id: u64,
-    },
-    /// A name lost its last local subscriber.
-    Removed {
-        name: ProtoName,
-        subscription_id: u64,
-    },
-}
-
-/// Event emitted when a subscription/unsubscription arrives on a peer connection.
-/// Used by hub-and-spoke topology to relay subscriptions between spokes.
-#[derive(Debug, Clone)]
-pub struct PeerRelayEvent {
-    /// The peer connection that originated this subscription.
-    pub source_conn: u64,
-    /// The subscription name.
-    pub name: ProtoName,
-    /// The subscription ID.
-    pub subscription_id: u64,
-    /// `true` for subscribe, `false` for unsubscribe.
-    pub is_subscribe: bool,
-}
