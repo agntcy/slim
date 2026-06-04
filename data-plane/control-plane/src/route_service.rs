@@ -153,15 +153,29 @@ impl RouteService {
 
     /// Rebuild the runtime link graph from the given set of nodes.
     /// Extracts distinct group names and calls `build_graph()` on the topology config.
-    async fn rebuild_link_graph(&self, nodes: &[crate::db::Node]) {
-        let groups: Vec<&str> = nodes
+    /// Returns true if the set of groups changed (a group was added or removed).
+    async fn rebuild_link_graph(&self, nodes: &[crate::db::Node]) -> bool {
+        let new_groups: HashSet<&str> = nodes
             .iter()
             .map(|n| n.group_name.as_deref().unwrap_or(""))
-            .collect::<HashSet<&str>>()
-            .into_iter()
             .collect();
-        let graph = self.0.topology.build_graph(&groups);
-        *self.0.link_graph.write().await = graph;
+
+        // Check if the group set changed compared to the current graph.
+        let current_graph = self.0.link_graph.read().await;
+        let current_groups: HashSet<&str> = current_graph
+            .node_indices()
+            .map(|idx| current_graph[idx].as_str())
+            .collect();
+        let groups_changed = new_groups != current_groups;
+        drop(current_graph);
+
+        if groups_changed {
+            let group_vec: Vec<&str> = new_groups.into_iter().collect();
+            let graph = self.0.topology.build_graph(&group_vec);
+            *self.0.link_graph.write().await = graph;
+        }
+
+        groups_changed
     }
 
     /// Find the inter-group link between two groups.
@@ -623,7 +637,7 @@ impl RouteService {
             }
         };
 
-        self.rebuild_link_graph(&all_nodes).await;
+        let groups_changed = self.rebuild_link_graph(&all_nodes).await;
 
         let mut node_links = match self.0.db.get_links_for_node(node_id).await {
             Ok(l) => l,
@@ -670,8 +684,15 @@ impl RouteService {
             }
         }
 
-        self.ensure_routes_for_node(node_id, &node_links, &all_nodes)
-            .await;
+        // Re-expand wildcard routes via SPT. If the group topology changed
+        // (a new group appeared), re-expand ALL wildcards so every affected node
+        // gets updated routes. Otherwise just expand for the registering node.
+        if groups_changed {
+            self.reexpand_all_wildcard_routes(&all_nodes).await;
+        } else {
+            self.ensure_routes_for_node(node_id, &node_links, &all_nodes)
+                .await;
+        }
 
         // Mark DP-reported routes as Applied to avoid redundant reconciler pushes.
         if !dp_routes.is_empty() {
@@ -956,8 +977,13 @@ impl RouteService {
         }
 
         // Rebuild link graph since the set of groups may have changed.
+        // If a group disappeared, re-expand all wildcard routes so stale
+        // per-gateway routes pointing at this node get cleaned up.
         if let Ok(remaining_nodes) = self.0.db.list_nodes().await {
-            self.rebuild_link_graph(&remaining_nodes).await;
+            let groups_changed = self.rebuild_link_graph(&remaining_nodes).await;
+            if groups_changed {
+                self.reexpand_all_wildcard_routes(&remaining_nodes).await;
+            }
         }
 
         // Remove the map entry while _node_guard is still held.  Any
@@ -1201,6 +1227,14 @@ impl RouteService {
         _node_links: &[crate::db::Link],
         all_nodes: &[crate::db::Node],
     ) {
+        self.reexpand_all_wildcard_routes(all_nodes).await;
+    }
+
+    /// Re-expand every wildcard route template via SPT.
+    /// Called when the group topology changes (group added/removed) or when a
+    /// node registers and needs its routes populated.
+    /// Stale routes from groups that no longer exist are cleaned up.
+    async fn reexpand_all_wildcard_routes(&self, all_nodes: &[crate::db::Node]) {
         // Fetch all wildcard route templates.
         let wildcard_routes = match self.0.db.get_routes_for_node(ALL_NODES_ID).await {
             Ok(r) => r,
@@ -1209,6 +1243,7 @@ impl RouteService {
 
         // For each wildcard route, expand via SPT. The SPT determines which
         // gateway nodes get routes and which links they point to.
+        // `add_single_route` rejects duplicates so this is idempotent.
         for r in &wildcard_routes {
             self.expand_route_via_spt_from_db(r, all_nodes).await;
         }
