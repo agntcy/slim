@@ -270,16 +270,18 @@ impl RouteService {
 
             // Find the inter-group link. The gateway node is the node in
             // child_group that holds this link.
-            let (source_node_id, link_id) =
-                match self.find_inter_group_link(child_group, parent_group, all_nodes).await {
-                    Some(pair) => pair,
-                    None => {
-                        tracing::debug!(
-                            "expand_route_via_spt: no link between '{child_group}' and '{parent_group}', skipping"
-                        );
-                        continue;
-                    }
-                };
+            let (source_node_id, link_id) = match self
+                .find_inter_group_link(child_group, parent_group, all_nodes)
+                .await
+            {
+                Some(pair) => pair,
+                None => {
+                    tracing::debug!(
+                        "expand_route_via_spt: no link between '{child_group}' and '{parent_group}', skipping"
+                    );
+                    continue;
+                }
+            };
 
             // Create the per-gateway route pointing toward the parent group.
             let per_node = Route {
@@ -297,9 +299,7 @@ impl RouteService {
                 last_updated: SystemTime::now(),
             };
             if let Err(e) = self.add_single_route(per_node).await {
-                tracing::debug!(
-                    "expand_route_via_spt: route for {source_node_id} skipped: {e}"
-                );
+                tracing::debug!("expand_route_via_spt: route for {source_node_id} skipped: {e}");
             }
         }
     }
@@ -310,6 +310,7 @@ impl RouteService {
     /// announcers need routes along the path from root down to their group.
     /// Walks from the new announcer's group up to the root in the SPT and
     /// installs a route on each intermediate parent pointing toward the child.
+    #[allow(clippy::too_many_arguments)]
     async fn install_downward_path(
         &self,
         root_node_id: &str,
@@ -337,7 +338,10 @@ impl RouteService {
             Some(idx) => idx,
             None => return,
         };
-        let announcer_idx = match graph.node_indices().find(|&idx| graph[idx] == announcer_group) {
+        let announcer_idx = match graph
+            .node_indices()
+            .find(|&idx| graph[idx] == announcer_group)
+        {
             Some(idx) => idx,
             None => return,
         };
@@ -369,8 +373,9 @@ impl RouteService {
             let child_group = &spt.tree[current];
 
             // Install route on the parent group's gateway pointing toward child.
-            if let Some((gateway_node_id, link_id)) =
-                self.find_inter_group_link(parent_group, child_group, all_nodes).await
+            if let Some((gateway_node_id, link_id)) = self
+                .find_inter_group_link(parent_group, child_group, all_nodes)
+                .await
             {
                 let per_node = Route {
                     id: String::new(),
@@ -2006,11 +2011,16 @@ mod tests {
 
         // spoke-a should link to hub but NOT to spoke-b
         assert!(affected.contains(&"spoke-a".to_string()));
-        assert!(new_links.iter().any(|l| l.dest_node_id == "hub-node"
-            || l.source_node_id == "hub-node"));
-        assert!(!new_links
-            .iter()
-            .any(|l| l.dest_node_id == "spoke-b" || l.source_node_id == "spoke-b"));
+        assert!(
+            new_links
+                .iter()
+                .any(|l| l.dest_node_id == "hub-node" || l.source_node_id == "hub-node")
+        );
+        assert!(
+            !new_links
+                .iter()
+                .any(|l| l.dest_node_id == "spoke-b" || l.source_node_id == "spoke-b")
+        );
     }
 
     #[tokio::test]
@@ -2116,9 +2126,7 @@ mod tests {
 
         // Spoke-a should have a route to spoke-b pointing toward hub (its parent in SPT).
         assert!(
-            spoke_a_routes
-                .iter()
-                .any(|r| r.dest_node_id == "spoke-b"),
+            spoke_a_routes.iter().any(|r| r.dest_node_id == "spoke-b"),
             "spoke-a should have a route to spoke-b via hub"
         );
     }
@@ -2295,7 +2303,10 @@ mod tests {
         svc.reexpand_all_wildcard_routes(&all_nodes).await;
 
         let count_after = db.get_routes_for_node("spoke-a").await.unwrap().len();
-        assert_eq!(count_before, count_after, "re-expansion should be idempotent");
+        assert_eq!(
+            count_before, count_after,
+            "re-expansion should be idempotent"
+        );
     }
 
     #[tokio::test]
@@ -2338,9 +2349,7 @@ mod tests {
             name: Some(ProtoName::from_strings(["org", "svc", "type"])),
             ..Default::default()
         };
-        svc.add_route(ALL_NODES_ID, "node-a", &route)
-            .await
-            .unwrap();
+        svc.add_route(ALL_NODES_ID, "node-a", &route).await.unwrap();
 
         // In full mesh SPT rooted at group-a, both group-b and group-c are
         // direct children. So node-b and node-c should each get a route.
@@ -2421,9 +2430,7 @@ mod tests {
             name: Some(ProtoName::from_strings(["org", "svc", "type"])),
             ..Default::default()
         };
-        svc.add_route(ALL_NODES_ID, "node-a", &route)
-            .await
-            .unwrap();
+        svc.add_route(ALL_NODES_ID, "node-a", &route).await.unwrap();
 
         // node-b (child of root group-a) should route via link-ab.
         let routes_b = db.get_routes_for_node("node-b").await.unwrap();

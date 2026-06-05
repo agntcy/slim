@@ -154,8 +154,7 @@ impl TopologyConfig {
             return true;
         }
         self.links.iter().any(|entry| {
-            (matches_group(&entry.name, a)
-                && entry.peers.iter().any(|p| matches_group(p, b)))
+            (matches_group(&entry.name, a) && entry.peers.iter().any(|p| matches_group(p, b)))
                 || (matches_group(&entry.name, b)
                     && entry.peers.iter().any(|p| matches_group(p, a)))
         })
@@ -166,10 +165,7 @@ impl TopologyConfig {
     /// edge weight 1 (uniform cost for now, future-proofed for weighted links).
     ///
     /// Wildcard `"*"` in entries is expanded to all groups in `known_groups`.
-    pub fn build_graph(
-        &self,
-        known_groups: &[&str],
-    ) -> petgraph::graph::UnGraph<String, u32> {
+    pub fn build_graph(&self, known_groups: &[&str]) -> petgraph::graph::UnGraph<String, u32> {
         use petgraph::graph::UnGraph;
         use std::collections::HashMap;
 
@@ -236,7 +232,6 @@ impl TopologyConfig {
 // ─── Deprecated stubs (to be removed in Step 1.6) ────────────────────────────
 // These methods maintain backward compatibility with route_service and reconciler
 // code that will be rewritten in Steps 1.2–1.7.
-
 
 /// Returns true if `pattern` matches `group`. `"*"` matches any group.
 fn matches_group(pattern: &str, group: &str) -> bool {

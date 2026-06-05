@@ -22,8 +22,12 @@ impl ControlPlane {
         let db = crate::db::open(&cfg.database).await?;
 
         let cmd_handler = DefaultNodeCommandHandler::new();
-        let route_service =
-            RouteService::new(db.clone(), cmd_handler.clone(), cfg.reconciler, cfg.topology);
+        let route_service = RouteService::new(
+            db.clone(),
+            cmd_handler.clone(),
+            cfg.reconciler,
+            cfg.topology,
+        );
         let nb_svc =
             NorthboundApiService::new(db.clone(), cmd_handler.clone(), route_service.clone());
 

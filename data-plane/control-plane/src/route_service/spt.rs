@@ -61,14 +61,14 @@ pub fn compute_spt(root: NodeIndex, graph: &UnGraph<String, u32>) -> Option<SptT
                 continue;
             }
             let weight = *edge.weight();
-            if let Some(&neighbor_dist) = distances.get(&neighbor) {
-                if neighbor_dist + weight == dist {
-                    // neighbor is the parent of node
-                    let parent_tree = index_map[&neighbor];
-                    let child_tree = index_map[&node];
-                    tree.add_edge(parent_tree, child_tree, weight);
-                    break;
-                }
+            if let Some(&neighbor_dist) = distances.get(&neighbor)
+                && neighbor_dist + weight == dist
+            {
+                // neighbor is the parent of node
+                let parent_tree = index_map[&neighbor];
+                let child_tree = index_map[&node];
+                tree.add_edge(parent_tree, child_tree, weight);
+                break;
             }
         }
     }
@@ -126,12 +126,16 @@ mod tests {
 
     fn out_degree(tree: &SptTree, orig_idx: NodeIndex) -> usize {
         let tree_idx = tree.index_map[&orig_idx];
-        tree.tree.edges_directed(tree_idx, Direction::Outgoing).count()
+        tree.tree
+            .edges_directed(tree_idx, Direction::Outgoing)
+            .count()
     }
 
     fn in_degree(tree: &SptTree, orig_idx: NodeIndex) -> usize {
         let tree_idx = tree.index_map[&orig_idx];
-        tree.tree.edges_directed(tree_idx, Direction::Incoming).count()
+        tree.tree
+            .edges_directed(tree_idx, Direction::Incoming)
+            .count()
     }
 
     #[test]
