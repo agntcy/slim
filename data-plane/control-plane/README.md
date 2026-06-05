@@ -72,10 +72,10 @@ mutations back on the same stream.
 |---|---|---|
 | **Southbound API** | `services/southbound.rs` | Accepts DP node connections, handles registration handshake, dispatches messages |
 | **Northbound API** | `services/northbound.rs` | Management gRPC API for operators (`slimctl`): create routes/links, list state |
-| **Route Service** | `services/routes.rs` | Orchestrates link/route lifecycle on node register/deregister events |
-| **Link Reconciler** | `services/routes/link_reconciler.rs` | Converges link state: creates/deletes connections on DP nodes |
-| **Route Reconciler** | `services/routes/route_reconciler.rs` | Converges route state: creates/deletes subscriptions on DP nodes |
-| **Node Command Handler** | `node_control.rs` | Manages per-node gRPC streams, request-response correlation, connection status |
+| **Route Service** | `route_service.rs` | Orchestrates link/route lifecycle on node register/deregister events |
+| **SPT Module** | `route_service/spt.rs` | Computes Shortest Path Trees for route expansion |
+| **Reconciler** | `route_service/reconciler.rs` | Converges link and route state: creates/deletes connections and subscriptions on DP nodes |
+| **Node Command Handler** | `node_transport.rs` | Manages per-node gRPC streams, request-response correlation, connection status |
 | **Work Queue** | `workqueue.rs` | Fair, deduplicating, k8s-style work queue with shutdown/drain support |
 | **Database** | `db/` | Persistent storage (InMemory or SQLite) for nodes, links, and routes |
 | **DP Controller** | `core/controller/src/service.rs` | Data-plane side: connects to CP, processes ConfigCommands, manages datapath connections |
@@ -148,12 +148,11 @@ lock (to serialize with concurrent deregistration):
    - If neither node has an external endpoint, log an error (cross-group
      connectivity requires at least one external endpoint).
 
-3. **Ensure routes exist** (`ensure_routes_for_node`). Expand wildcard route
-   templates (see [Wildcard Routes](#wildcard-routes)) in two passes:
-   - **Pass 1** -- node as source: for each wildcard `(*, dest_X)`, create
-     `node -> dest_X` if it doesn't exist.
-   - **Pass 2** -- node as destination: for each wildcard `(*, node)`, create
-     `peer -> node` for every registered peer.
+3. **Expand routes via SPT** (`expand_all_wildcard_routes`). For each unique
+   name with wildcard route templates, compute the SPT rooted at the first
+   announcer's group. Install upward routes (child→parent) for the root's
+   tree and downward routes (parent→child) for subsequent announcers. See
+   [Wildcard Routes](#wildcard-routes) for details.
 
 4. **Enqueue reconciliation.** All affected nodes are enqueued for link and
    route reconciliation.
@@ -273,14 +272,35 @@ specific link.
 ### Wildcard Routes
 
 Routes with `source_node_id = "*"` (the `ALL_NODES_ID` sentinel) are
-**wildcard templates**. They express operator intent: "every node should
-subscribe to this name." The CP automatically expands them:
+**wildcard templates**. They express operator intent: "every reachable node
+should be able to reach this name." The CP uses a Shortest Path Tree (SPT)
+to expand them efficiently without creating loops.
 
-- **On creation**: a per-node route is created for every currently registered
-  node (excluding the destination node itself).
-- **On node registration**: all wildcard templates are expanded for the new
-  node (both as source and as destination).
-- **On deletion**: the template and all its expansions are deleted.
+**Single-tree model.** For each unique name, only **one** SPT exists, rooted
+at the group of the first node to announce that name. Subsequent announcers
+join the existing tree rather than creating new ones.
+
+**Expansion logic:**
+
+- **First announcer** (no existing wildcard for this name): computes the SPT
+  rooted at the announcer's group. For each non-root group in the tree,
+  installs an *upward* route on that group's gateway node pointing toward
+  the parent group (toward root).
+- **Subsequent announcers** (wildcard already exists for this name): walks
+  from the new announcer's group up to the root in the SPT and installs
+  *downward* routes on each intermediate parent pointing toward the child
+  group (away from root, toward the new announcer).
+
+This produces a loop-free forwarding tree where:
+- Upward routes bring traffic from any node toward the root (first announcer).
+- Downward routes enable the root to fan out multicast traffic toward all
+  other announcers.
+
+**On node registration**: all wildcard templates are re-expanded via
+`expand_all_wildcard_routes` (idempotent — `add_single_route` rejects
+duplicate routes).
+
+**On deletion**: the template and all its per-node expansions are deleted.
 
 Wildcard template records themselves are stored with status `Applied` (they
 don't correspond to a real subscription). The per-node expansions are stored

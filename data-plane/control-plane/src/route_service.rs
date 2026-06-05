@@ -747,7 +747,7 @@ impl RouteService {
 
         // Re-expand wildcard routes via SPT. This is idempotent — duplicates
         // are rejected by add_single_route.
-        self.reexpand_all_wildcard_routes(&all_nodes).await;
+        self.expand_all_wildcard_routes(&all_nodes).await;
 
         // Mark DP-reported routes as Applied to avoid redundant reconciler pushes.
         if !dp_routes.is_empty() {
@@ -1037,7 +1037,7 @@ impl RouteService {
         if let Ok(remaining_nodes) = self.0.db.list_nodes().await {
             let groups_changed = self.rebuild_link_graph(&remaining_nodes).await;
             if groups_changed {
-                self.reexpand_all_wildcard_routes(&remaining_nodes).await;
+                self.expand_all_wildcard_routes(&remaining_nodes).await;
             }
         }
 
@@ -1272,11 +1272,11 @@ impl RouteService {
         }
     }
 
-    /// Re-expand every wildcard route template via SPT.
+    /// Expand every wildcard route template via SPT.
     /// Called when the group topology changes (group added/removed) or when a
     /// node registers and needs its routes populated.
     /// `add_single_route` rejects duplicates so this is idempotent.
-    async fn reexpand_all_wildcard_routes(&self, all_nodes: &[crate::db::Node]) {
+    async fn expand_all_wildcard_routes(&self, all_nodes: &[crate::db::Node]) {
         let wildcard_routes = match self.0.db.get_routes_for_node(ALL_NODES_ID).await {
             Ok(r) => r,
             Err(_) => return,
@@ -2208,10 +2208,10 @@ mod tests {
         let all_nodes = db.list_nodes().await.unwrap();
         svc.rebuild_link_graph(&all_nodes).await;
 
-        // Re-expand wildcard routes via SPT.
+        // Expand wildcard routes via SPT.
         // SPT rooted at "customer-b": customer-b → platform → customer-a
         // So spoke-a should get a route pointing to its parent (platform/hub-node).
-        svc.reexpand_all_wildcard_routes(&all_nodes).await;
+        svc.expand_all_wildcard_routes(&all_nodes).await;
 
         // spoke-a should have a route to spoke-b via the hub link (toward parent).
         let spoke_a_routes = db.get_routes_for_node("spoke-a").await.unwrap();
@@ -2299,8 +2299,8 @@ mod tests {
 
         let count_before = db.get_routes_for_node("spoke-a").await.unwrap().len();
 
-        // Re-expand again — should not create duplicates.
-        svc.reexpand_all_wildcard_routes(&all_nodes).await;
+        // Expand again — should not create duplicates.
+        svc.expand_all_wildcard_routes(&all_nodes).await;
 
         let count_after = db.get_routes_for_node("spoke-a").await.unwrap().len();
         assert_eq!(
