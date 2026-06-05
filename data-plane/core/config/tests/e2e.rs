@@ -107,7 +107,8 @@ mod tests {
 
     static TEST_DATA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata");
 
-    static NEXT_PORT: std::sync::OnceLock<std::sync::atomic::AtomicU16> = std::sync::OnceLock::new();
+    static NEXT_PORT: std::sync::OnceLock<std::sync::atomic::AtomicU16> =
+        std::sync::OnceLock::new();
 
     fn reserve_port() -> u16 {
         let port_atom = NEXT_PORT.get_or_init(|| {
@@ -177,7 +178,9 @@ mod tests {
         let response = match tokio::time::timeout(
             std::time::Duration::from_secs(5),
             client.say_hello(request),
-        ).await {
+        )
+        .await
+        {
             Ok(Ok(resp)) => resp,
             Ok(Err(e)) => return Err(Box::new(e)),
             Err(_) => return Err("timeout waiting for greeter response".into()),
@@ -290,11 +293,12 @@ mod tests {
         let data_dir = std::path::PathBuf::from_iter([TEST_DATA_PATH]);
         let cert = std::fs::read_to_string(data_dir.join("tls/server-1.crt"))?;
         let key = std::fs::read_to_string(data_dir.join("tls/server-1.key"))?;
-        let server_config = ServerConfig::with_endpoint(&format!("[::1]:{}", port)).with_tls_settings(
-            TlsServerConfig::new()
-                .with_insecure(false)
-                .with_cert_and_key_pem(&cert, &key),
-        );
+        let server_config = ServerConfig::with_endpoint(&format!("[::1]:{}", port))
+            .with_tls_settings(
+                TlsServerConfig::new()
+                    .with_insecure(false)
+                    .with_cert_and_key_pem(&cert, &key),
+            );
 
         // run grpc server and client
         setup_client_and_server(client_config, server_config).await
@@ -353,7 +357,9 @@ mod tests {
         let request = tonic::Request::new(HelloRequest { name: "wee".into() });
 
         // wait for response
-        let response = tokio::time::timeout(std::time::Duration::from_secs(5), client.say_hello(request)).await;
+        let response =
+            tokio::time::timeout(std::time::Duration::from_secs(5), client.say_hello(request))
+                .await;
         let response = match response {
             Ok(res) => res,
             Err(_) => return Err("timeout waiting for authentication failure response".into()),

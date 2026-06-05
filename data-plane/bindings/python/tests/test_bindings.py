@@ -169,6 +169,7 @@ async def test_auto_reconnect_after_server_restart(server):
     - Publish again and confirm continuity using original session context
     """
     import socket
+
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]
