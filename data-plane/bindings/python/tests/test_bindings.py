@@ -168,7 +168,12 @@ async def test_auto_reconnect_after_server_restart(server):
     - Wait for automatic reconnection
     - Publish again and confirm continuity using original session context
     """
-    endpoint = "127.0.0.1:12346"
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    endpoint = f"127.0.0.1:{port}"
 
     svc_server = slim_bindings.Service("svcserver")
     svc_alice = slim_bindings.Service("svcalice")
@@ -249,7 +254,7 @@ async def test_auto_reconnect_after_server_restart(server):
     # start the server
     _ = slim_bindings.Service("svcserver")
     await server.service.run_server_async(
-        slim_bindings.new_insecure_server_config("127.0.0.1:12346")
+        slim_bindings.new_insecure_server_config(endpoint)
     )
     await asyncio.sleep(
         3
