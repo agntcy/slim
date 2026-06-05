@@ -19,3 +19,11 @@ breaking:
   ignore_only:
     FIELD_NO_DELETE:
       - proto/data-plane/v1/data_plane.proto
+    FIELD_SAME_NAME:
+      - proto/data-plane/v1/data_plane.proto
+    FIELD_SAME_TYPE:
+      - proto/data-plane/v1/data_plane.proto
+    FIELD_SAME_CARDINALITY:
+      - proto/data-plane/v1/data_plane.proto
+    FIELD_SAME_JSON_NAME:
+      - proto/data-plane/v1/data_plane.proto

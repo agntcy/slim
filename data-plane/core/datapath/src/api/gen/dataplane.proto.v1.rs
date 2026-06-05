@@ -234,19 +234,15 @@ pub struct DiscoveryReplyPayload {}
 /// Join Request
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct JoinRequestPayload {
-    /// Deprecated: use mls_settings instead. Kept for buf wire compatibility.
-    #[deprecated]
-    #[prost(bool, tag = "1")]
-    pub enable_mls: bool,
     /// settings for timers for rtx and acks
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag = "1")]
     pub timer_settings: ::core::option::Option<TimerSettings>,
     /// name where to send the messages
     /// it can be a channel or none
-    #[prost(message, optional, tag = "3")]
+    #[prost(message, optional, tag = "2")]
     pub channel: ::core::option::Option<Name>,
-    /// MLS related settings (field 5 preserves wire compatibility with v1.1.x: timer_settings=2, channel=3)
-    #[prost(message, optional, tag = "5")]
+    /// MLS related settings
+    #[prost(message, optional, tag = "3")]
     pub mls_settings: ::core::option::Option<MlsSettings>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]

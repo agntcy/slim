@@ -179,15 +179,13 @@ message DiscoveryReplyPayload {}
 
 // Join Request
 message JoinRequestPayload {
-  // Deprecated: use mls_settings instead. Kept for buf wire compatibility.
-  bool enable_mls = 1 [deprecated = true];
   // settings for timers for rtx and acks
-  optional TimerSettings timer_settings = 2;
+  optional TimerSettings timer_settings = 1;
   // name where to send the messages
   // it can be a channel or none
-  optional Name channel = 3;
-  // MLS related settings (field 5 preserves wire compatibility with v1.1.x: timer_settings=2, channel=3)
-  optional MlsSettings mls_settings = 5;
+  optional Name channel = 2;
+  // MLS related settings
+  optional MlsSettings mls_settings = 3;
 }
 
 message TimerSettings {

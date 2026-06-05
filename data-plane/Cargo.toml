@@ -70,7 +70,7 @@ chrono = "0.4"
 clap = { version = "4.5.23", features = ["derive", "env"] }
 
 criterion = { version = "0.5", features = ["html_reports"] }
-diesel = { version = "2", features = ["sqlite"] }
+diesel = { version = "2.3.10", features = ["sqlite"] }
 diesel-async = { version = "0.9", features = [
     "sqlite",
     "deadpool",
