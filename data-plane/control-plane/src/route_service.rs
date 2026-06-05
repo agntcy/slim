@@ -153,6 +153,11 @@ impl RouteService {
     /// Rebuild the runtime link graph from the given set of nodes.
     /// Extracts distinct group names and calls `build_graph()` on the topology config.
     /// Returns true if the set of groups changed (a group was added or removed).
+    ///
+    /// NOTE: There is a race between the read (line checking current groups) and
+    /// the write (updating the graph). Two concurrent callers may both see
+    /// `groups_changed == true` and both write. This is benign because
+    /// `build_graph` is deterministic — both writers produce the same graph.
     async fn rebuild_link_graph(&self, nodes: &[crate::db::Node]) -> bool {
         let new_groups: HashSet<&str> = nodes
             .iter()
@@ -177,33 +182,44 @@ impl RouteService {
         groups_changed
     }
 
-    /// Find the inter-group link between two groups.
+    /// Find the inter-group link between two groups using pre-loaded links.
     ///
     /// Searches for an existing (non-deleted) link between any node in `group_a`
     /// and any node in `group_b`. Returns the node_id in `group_a` (the gateway)
     /// and the link_id connecting them.
-    async fn find_inter_group_link(
-        &self,
+    fn find_inter_group_link_from_cache(
         group_a: &str,
         group_b: &str,
         all_nodes: &[crate::db::Node],
+        all_links: &[crate::db::Link],
     ) -> Option<(String, String)> {
-        let nodes_a: Vec<&str> = all_nodes
+        let nodes_a: HashSet<&str> = all_nodes
             .iter()
             .filter(|n| n.group_name.as_deref() == Some(group_a))
             .map(|n| n.id.as_str())
             .collect();
-        let nodes_b: Vec<&str> = all_nodes
+        let nodes_b: HashSet<&str> = all_nodes
             .iter()
             .filter(|n| n.group_name.as_deref() == Some(group_b))
             .map(|n| n.id.as_str())
             .collect();
 
-        for &na in &nodes_a {
-            for &nb in &nodes_b {
-                if let Ok(link_id) = self.find_matching_link(na, nb).await {
-                    return Some((na.to_string(), link_id));
-                }
+        // Find any non-deleted link connecting a node in group_a to a node in group_b.
+        // Links are bidirectional, so check both directions.
+        for link in all_links {
+            if link.status == LinkStatus::Deleted {
+                continue;
+            }
+            if nodes_a.contains(link.source_node_id.as_str())
+                && nodes_b.contains(link.dest_node_id.as_str())
+            {
+                return Some((link.source_node_id.clone(), link.link_id.clone()));
+            }
+            if nodes_b.contains(link.source_node_id.as_str())
+                && nodes_a.contains(link.dest_node_id.as_str())
+            {
+                // Link goes B→A; the gateway in group_a is the dest side.
+                return Some((link.dest_node_id.clone(), link.link_id.clone()));
             }
         }
         None
@@ -214,6 +230,7 @@ impl RouteService {
     /// Given a route template (dest_node_id + name components), computes the SPT
     /// rooted at the destination's group. For each non-root group in the tree,
     /// selects a gateway node and installs a route pointing toward the parent group.
+    #[allow(clippy::too_many_arguments)]
     async fn expand_route_via_spt(
         &self,
         dest_node_id: &str,
@@ -222,6 +239,7 @@ impl RouteService {
         component2: &str,
         component_id: Option<&str>,
         all_nodes: &[crate::db::Node],
+        all_links: &[crate::db::Link],
     ) {
         // Resolve the destination node's group — this is the root of the SPT.
         let dest_group = all_nodes
@@ -230,8 +248,9 @@ impl RouteService {
             .and_then(|n| n.group_name.as_deref())
             .unwrap_or("");
 
-        // Read the current link graph and find the root group's index.
-        let graph = self.0.link_graph.read().await;
+        // Clone the graph to release the read lock before the async loop,
+        // preventing potential deadlocks with concurrent write lock acquisitions.
+        let graph = self.0.link_graph.read().await.clone();
         let root_idx = match graph.node_indices().find(|&idx| graph[idx] == dest_group) {
             Some(idx) => idx,
             None => {
@@ -268,12 +287,13 @@ impl RouteService {
             };
             let parent_group = &spt.tree[parent_tree_idx];
 
-            // Find the inter-group link. The gateway node is the node in
-            // child_group that holds this link.
-            let (source_node_id, link_id) = match self
-                .find_inter_group_link(child_group, parent_group, all_nodes)
-                .await
-            {
+            // Find the inter-group link from pre-loaded links (O(n) scan, no DB query).
+            let (source_node_id, link_id) = match Self::find_inter_group_link_from_cache(
+                child_group,
+                parent_group,
+                all_nodes,
+                all_links,
+            ) {
                 Some(pair) => pair,
                 None => {
                     tracing::debug!(
@@ -320,6 +340,7 @@ impl RouteService {
         component2: &str,
         component_id: Option<&str>,
         all_nodes: &[crate::db::Node],
+        all_links: &[crate::db::Link],
     ) {
         let root_group = all_nodes
             .iter()
@@ -333,7 +354,8 @@ impl RouteService {
             .and_then(|n| n.group_name.as_deref())
             .unwrap_or("");
 
-        let graph = self.0.link_graph.read().await;
+        // Clone the graph to release the read lock before the async loop.
+        let graph = self.0.link_graph.read().await.clone();
         let root_idx = match graph.node_indices().find(|&idx| graph[idx] == root_group) {
             Some(idx) => idx,
             None => return,
@@ -373,10 +395,12 @@ impl RouteService {
             let child_group = &spt.tree[current];
 
             // Install route on the parent group's gateway pointing toward child.
-            if let Some((gateway_node_id, link_id)) = self
-                .find_inter_group_link(parent_group, child_group, all_nodes)
-                .await
-            {
+            if let Some((gateway_node_id, link_id)) = Self::find_inter_group_link_from_cache(
+                parent_group,
+                child_group,
+                all_nodes,
+                all_links,
+            ) {
                 let per_node = Route {
                     id: String::new(),
                     source_node_id: gateway_node_id.clone(),
@@ -439,6 +463,7 @@ impl RouteService {
 
         if source_node_id == ALL_NODES_ID {
             let all_nodes = self.0.db.list_nodes().await?;
+            let all_links = self.0.db.list_all_links().await?;
             let n = route.name.as_ref().unwrap();
             let (c0, c1, c2) = n.str_components();
             let comp_id = if n.id() == NameId::NULL_COMPONENT {
@@ -457,6 +482,7 @@ impl RouteService {
                         c2,
                         comp_id.as_deref(),
                         &all_nodes,
+                        &all_links,
                     )
                     .await;
                 }
@@ -471,6 +497,7 @@ impl RouteService {
                         c2,
                         comp_id.as_deref(),
                         &all_nodes,
+                        &all_links,
                     )
                     .await;
                 }
@@ -747,7 +774,9 @@ impl RouteService {
 
         // Re-expand wildcard routes via SPT. This is idempotent — duplicates
         // are rejected by add_single_route.
-        self.expand_all_wildcard_routes(&all_nodes).await;
+        let all_links = self.0.db.list_all_links().await.unwrap_or_default();
+        self.expand_all_wildcard_routes(&all_nodes, &all_links)
+            .await;
 
         // Mark DP-reported routes as Applied to avoid redundant reconciler pushes.
         if !dp_routes.is_empty() {
@@ -1037,7 +1066,9 @@ impl RouteService {
         if let Ok(remaining_nodes) = self.0.db.list_nodes().await {
             let groups_changed = self.rebuild_link_graph(&remaining_nodes).await;
             if groups_changed {
-                self.expand_all_wildcard_routes(&remaining_nodes).await;
+                let all_links = self.0.db.list_all_links().await.unwrap_or_default();
+                self.expand_all_wildcard_routes(&remaining_nodes, &all_links)
+                    .await;
             }
         }
 
@@ -1276,7 +1307,11 @@ impl RouteService {
     /// Called when the group topology changes (group added/removed) or when a
     /// node registers and needs its routes populated.
     /// `add_single_route` rejects duplicates so this is idempotent.
-    async fn expand_all_wildcard_routes(&self, all_nodes: &[crate::db::Node]) {
+    async fn expand_all_wildcard_routes(
+        &self,
+        all_nodes: &[crate::db::Node],
+        all_links: &[crate::db::Link],
+    ) {
         let wildcard_routes = match self.0.db.get_routes_for_node(ALL_NODES_ID).await {
             Ok(r) => r,
             Err(_) => return,
@@ -1308,6 +1343,7 @@ impl RouteService {
                 &root_route.component2,
                 root_route.component_id.as_deref(),
                 all_nodes,
+                all_links,
             )
             .await;
 
@@ -1321,6 +1357,7 @@ impl RouteService {
                     &r.component2,
                     r.component_id.as_deref(),
                     all_nodes,
+                    all_links,
                 )
                 .await;
             }
@@ -2211,7 +2248,8 @@ mod tests {
         // Expand wildcard routes via SPT.
         // SPT rooted at "customer-b": customer-b → platform → customer-a
         // So spoke-a should get a route pointing to its parent (platform/hub-node).
-        svc.expand_all_wildcard_routes(&all_nodes).await;
+        let all_links = db.list_all_links().await.unwrap();
+        svc.expand_all_wildcard_routes(&all_nodes, &all_links).await;
 
         // spoke-a should have a route to spoke-b via the hub link (toward parent).
         let spoke_a_routes = db.get_routes_for_node("spoke-a").await.unwrap();
@@ -2300,7 +2338,8 @@ mod tests {
         let count_before = db.get_routes_for_node("spoke-a").await.unwrap().len();
 
         // Expand again — should not create duplicates.
-        svc.expand_all_wildcard_routes(&all_nodes).await;
+        let all_links = db.list_all_links().await.unwrap();
+        svc.expand_all_wildcard_routes(&all_nodes, &all_links).await;
 
         let count_after = db.get_routes_for_node("spoke-a").await.unwrap().len();
         assert_eq!(

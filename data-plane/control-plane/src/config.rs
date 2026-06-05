@@ -229,10 +229,6 @@ impl TopologyConfig {
     }
 }
 
-// ─── Deprecated stubs (to be removed in Step 1.6) ────────────────────────────
-// These methods maintain backward compatibility with route_service and reconciler
-// code that will be rewritten in Steps 1.2–1.7.
-
 /// Returns true if `pattern` matches `group`. `"*"` matches any group.
 fn matches_group(pattern: &str, group: &str) -> bool {
     pattern == "*" || pattern == group
