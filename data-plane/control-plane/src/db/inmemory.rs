@@ -420,7 +420,7 @@ impl DataAccess for InMemoryDb {
                         && r.component2 == component2
                         && r.component_id.as_deref() == component_id
                 })
-                .max_by_key(|r| r.last_updated)
+                .min_by_key(|r| r.created_at)
                 .map(|r| r.dest_node_id.clone())
         }))
     }

@@ -110,7 +110,7 @@ async fn handle_request(
     let (desired_connections, desired_link_ids, deleted_links) =
         build_desired_connections(&mut links, node_id)?;
     let (desired_routes, included_routes, mut needs_requeue) =
-        build_desired_routes(db, &routes, node_id).await?;
+        build_desired_routes(db, &routes, node_id, &links).await?;
 
     if desired_connections.is_empty() && desired_routes.is_empty() && deleted_links.is_empty() {
         if needs_requeue {
@@ -215,6 +215,7 @@ async fn build_desired_routes<'a>(
     db: &SharedDb,
     routes: &'a [crate::db::Route],
     _node_id: &str,
+    node_links: &[crate::db::Link],
 ) -> Result<(Vec<Route>, HashMap<SubKey, &'a crate::db::Route>, bool)> {
     let mut desired_routes: Vec<Route> = Vec::new();
     let mut included_routes: HashMap<SubKey, &crate::db::Route> = HashMap::new();
@@ -256,15 +257,13 @@ async fn build_desired_routes<'a>(
             }
         };
 
-        // SPT routing always sets link_id to the direct next-hop link between
-        // the gateway node and its parent in the tree. Look it up both ways
-        // (source→dest or dest→source) since link direction may vary.
-        let link_lookup = db
-            .get_link(link_id, &route.source_node_id, &route.dest_node_id)
-            .await?
-            .or(db
-                .get_link(link_id, &route.dest_node_id, &route.source_node_id)
-                .await?);
+        // SPT routing sets link_id to the next-hop link (gateway → parent in SPT).
+        // The link connects route.source_node_id to its tree parent, NOT to
+        // route.dest_node_id (which is the final destination). Look up the link
+        // among this node's pre-loaded links.
+        let link_lookup = node_links
+            .iter()
+            .find(|l| l.link_id == link_id && l.status != LinkStatus::Deleted);
         if let Some(l) = link_lookup {
             if l.status == LinkStatus::Failed {
                 let msg = if l.status_msg.is_empty() {

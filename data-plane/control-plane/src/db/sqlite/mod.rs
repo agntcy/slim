@@ -419,7 +419,7 @@ impl DataAccess for SqliteDb {
             .filter(routes::component0.eq(component0))
             .filter(routes::component1.eq(component1))
             .filter(routes::component2.eq(component2))
-            .order(routes::last_updated.desc())
+            .order(routes::created_at.asc())
             .select(routes::dest_node_id)
             .into_boxed();
         if let Some(id) = component_id {

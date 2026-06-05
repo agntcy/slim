@@ -1,0 +1,30 @@
+# Chain topology: node-a — node-b — node-c — node-d.
+# Each group links only to its neighbors. SPT computes multi-hop routes
+# automatically (e.g., node-a reaches node-d via node-b → node-c).
+
+tracing:
+  log_level: debug
+
+northbound:
+  endpoint: "127.0.0.1:50051"
+  tls:
+    insecure: true
+
+southbound:
+  endpoint: "127.0.0.1:50052"
+  tls:
+    insecure: true
+
+database:
+  type: in_memory
+
+topology:
+  links:
+    - name: node-a
+      peers: [node-b]
+    - name: node-b
+      peers: [node-a, node-c]
+    - name: node-c
+      peers: [node-b, node-d]
+    - name: node-d
+      peers: [node-c]

@@ -304,6 +304,103 @@ impl RouteService {
         }
     }
 
+    /// Install downward routes from the SPT root toward a new announcer.
+    ///
+    /// When a name already has an SPT (first announcer = root), subsequent
+    /// announcers need routes along the path from root down to their group.
+    /// Walks from the new announcer's group up to the root in the SPT and
+    /// installs a route on each intermediate parent pointing toward the child.
+    async fn install_downward_path(
+        &self,
+        root_node_id: &str,
+        new_announcer_node_id: &str,
+        component0: &str,
+        component1: &str,
+        component2: &str,
+        component_id: Option<&str>,
+        all_nodes: &[crate::db::Node],
+    ) {
+        let root_group = all_nodes
+            .iter()
+            .find(|n| n.id == root_node_id)
+            .and_then(|n| n.group_name.as_deref())
+            .unwrap_or("");
+
+        let announcer_group = all_nodes
+            .iter()
+            .find(|n| n.id == new_announcer_node_id)
+            .and_then(|n| n.group_name.as_deref())
+            .unwrap_or("");
+
+        let graph = self.0.link_graph.read().await;
+        let root_idx = match graph.node_indices().find(|&idx| graph[idx] == root_group) {
+            Some(idx) => idx,
+            None => return,
+        };
+        let announcer_idx = match graph.node_indices().find(|&idx| graph[idx] == announcer_group) {
+            Some(idx) => idx,
+            None => return,
+        };
+
+        let spt = match spt::compute_spt(root_idx, &graph) {
+            Some(t) => t,
+            None => return,
+        };
+
+        // Walk from announcer up to root in the tree, collecting (parent, child) pairs.
+        let mut current = match spt.index_map.get(&announcer_idx) {
+            Some(&idx) => idx,
+            None => return,
+        };
+        let tree_root = spt.index_map[&root_idx];
+
+        while current != tree_root {
+            // Find parent (incoming edge source).
+            let parent_tree_idx = match spt
+                .tree
+                .edges_directed(current, petgraph::Direction::Incoming)
+                .next()
+            {
+                Some(edge) => edge.source(),
+                None => break,
+            };
+
+            let parent_group = &spt.tree[parent_tree_idx];
+            let child_group = &spt.tree[current];
+
+            // Install route on the parent group's gateway pointing toward child.
+            if let Some((gateway_node_id, link_id)) =
+                self.find_inter_group_link(parent_group, child_group, all_nodes).await
+            {
+                let per_node = Route {
+                    id: String::new(),
+                    source_node_id: gateway_node_id.clone(),
+                    dest_node_id: new_announcer_node_id.to_string(),
+                    link_id: Some(link_id),
+                    component0: component0.to_string(),
+                    component1: component1.to_string(),
+                    component2: component2.to_string(),
+                    component_id: component_id.map(|s| s.to_string()),
+                    status: RouteStatus::Pending,
+                    status_msg: String::new(),
+                    created_at: SystemTime::now(),
+                    last_updated: SystemTime::now(),
+                };
+                if let Err(e) = self.add_single_route(per_node).await {
+                    tracing::debug!(
+                        "install_downward_path: route for {gateway_node_id} skipped: {e}"
+                    );
+                }
+            } else {
+                tracing::debug!(
+                    "install_downward_path: no link between '{parent_group}' and '{child_group}', skipping"
+                );
+            }
+
+            current = parent_tree_idx;
+        }
+    }
+
     pub async fn add_route(
         &self,
         source_node_id: &str,
@@ -312,12 +409,29 @@ impl RouteService {
     ) -> Result<String> {
         validate_route_nodes(source_node_id, dest_node_id)?;
 
+        // For wildcard routes, determine whether this is the first announcer
+        // for this name (creates the full SPT) or a subsequent one (installs
+        // downward path from root to new announcer).
+        let existing_root = if source_node_id == ALL_NODES_ID {
+            let n = route.name.as_ref().unwrap();
+            let (c0, c1, c2) = n.str_components();
+            let comp_id = if n.id() == NameId::NULL_COMPONENT {
+                None
+            } else {
+                Some(n.string_id())
+            };
+            self.0
+                .db
+                .get_destination_node_id_for_name(c0, c1, c2, comp_id.as_deref())
+                .await
+                .unwrap_or(None)
+        } else {
+            None
+        };
+
         let db_route = route.to_db_route(source_node_id, dest_node_id);
         let route_id = self.add_single_route(db_route).await?;
 
-        // For wildcard source, expand the route using the SPT rooted at the
-        // destination node's group. Each non-root group gets a route on its
-        // gateway node pointing toward the parent group in the tree.
         if source_node_id == ALL_NODES_ID {
             let all_nodes = self.0.db.list_nodes().await?;
             let n = route.name.as_ref().unwrap();
@@ -327,15 +441,35 @@ impl RouteService {
             } else {
                 Some(n.string_id())
             };
-            self.expand_route_via_spt(
-                dest_node_id,
-                c0,
-                c1,
-                c2,
-                comp_id.as_deref(),
-                &all_nodes,
-            )
-            .await;
+
+            match existing_root {
+                None => {
+                    // First announcer: full SPT expansion (upward routes).
+                    self.expand_route_via_spt(
+                        dest_node_id,
+                        c0,
+                        c1,
+                        c2,
+                        comp_id.as_deref(),
+                        &all_nodes,
+                    )
+                    .await;
+                }
+                Some(ref root_node_id) => {
+                    // Subsequent announcer: install downward path from root
+                    // to this new announcer.
+                    self.install_downward_path(
+                        root_node_id,
+                        dest_node_id,
+                        c0,
+                        c1,
+                        c2,
+                        comp_id.as_deref(),
+                        &all_nodes,
+                    )
+                    .await;
+                }
+            }
         }
 
         Ok(route_id)
@@ -1143,16 +1277,48 @@ impl RouteService {
             Err(_) => return,
         };
 
+        // Group wildcard routes by name. The first (oldest by created_at)
+        // route for each name owns the SPT; subsequent ones get downward paths.
+        let mut by_name: HashMap<(String, String, String, Option<String>), Vec<&Route>> =
+            HashMap::new();
         for r in &wildcard_routes {
+            let key = (
+                r.component0.clone(),
+                r.component1.clone(),
+                r.component2.clone(),
+                r.component_id.clone(),
+            );
+            by_name.entry(key).or_default().push(r);
+        }
+
+        for (_name, mut routes) in by_name {
+            routes.sort_by_key(|r| r.created_at);
+            let root_route = routes[0];
+
+            // First announcer: full SPT expansion (upward routes).
             self.expand_route_via_spt(
-                &r.dest_node_id,
-                &r.component0,
-                &r.component1,
-                &r.component2,
-                r.component_id.as_deref(),
+                &root_route.dest_node_id,
+                &root_route.component0,
+                &root_route.component1,
+                &root_route.component2,
+                root_route.component_id.as_deref(),
                 all_nodes,
             )
             .await;
+
+            // Subsequent announcers: install downward paths from root.
+            for r in &routes[1..] {
+                self.install_downward_path(
+                    &root_route.dest_node_id,
+                    &r.dest_node_id,
+                    &r.component0,
+                    &r.component1,
+                    &r.component2,
+                    r.component_id.as_deref(),
+                    all_nodes,
+                )
+                .await;
+            }
         }
     }
 
