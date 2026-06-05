@@ -106,6 +106,10 @@ fn node_id(name: &str) -> String {
     format!("slim/{name}")
 }
 
+fn grouped_node_id(group: &str, name: &str) -> String {
+    format!("{group}/slim/{name}")
+}
+
 async fn start_node(name: &str, southbound_port: u16) -> Service {
     start_node_on_port(name, southbound_port, reserve_port()).await
 }
@@ -2036,5 +2040,258 @@ async fn test_bidirectional_link_reuse() {
 
     node_a.shutdown().await.ok();
     node_b.shutdown().await.ok();
+    stop_control_plane(cp).await;
+}
+
+// --- Topology / SPT integration tests ---
+
+use slim_auth::metadata::{MetadataMap, MetadataValue};
+use slim_control_plane::config::{AdjacencyEntry, TopologyConfig};
+
+/// Start control plane with a custom topology configuration.
+async fn start_control_plane_with_topology(
+    reconciler_config: ReconcilerConfig,
+    topology: TopologyConfig,
+) -> TestControlPlane {
+    initialize_crypto_provider();
+
+    let northbound_port = reserve_port();
+    let southbound_port = reserve_port();
+
+    let cfg = Config {
+        northbound: ServerConfig::with_endpoint(&format!("127.0.0.1:{northbound_port}"))
+            .with_tls_settings(TlsServerConfig::insecure()),
+        southbound: ServerConfig::with_endpoint(&format!("127.0.0.1:{southbound_port}"))
+            .with_tls_settings(TlsServerConfig::insecure()),
+        database: DatabaseConfig::InMemory,
+        reconciler: reconciler_config,
+        topology,
+        ..Default::default()
+    };
+
+    let cp = ControlPlane::start(cfg)
+        .await
+        .expect("failed to start control plane");
+
+    TestControlPlane {
+        northbound_port,
+        southbound_port,
+        cp,
+    }
+}
+
+/// Start a node with a group name and an external endpoint for cross-group linking.
+async fn start_node_in_group(name: &str, group: &str, southbound_port: u16) -> Service {
+    start_node_in_group_on_port(name, group, southbound_port, reserve_port()).await
+}
+
+/// Start a node in a group on a specific DP port (so a client app can connect).
+async fn start_node_in_group_on_port(
+    name: &str,
+    group: &str,
+    southbound_port: u16,
+    dp_port: u16,
+) -> Service {
+    let dataplane_server = {
+        let mut md = MetadataMap::new();
+        md.insert(
+            "external_endpoint",
+            MetadataValue::String(format!("127.0.0.1:{dp_port}")),
+        );
+        let mut s = ServerConfig::with_endpoint(&format!("127.0.0.1:{dp_port}"))
+            .with_tls_settings(TlsServerConfig::insecure());
+        s.metadata = Some(md);
+        s
+    };
+
+    let cp_client = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{southbound_port}"))
+        .with_tls_setting(TlsClientConfig::insecure())
+        .with_keepalive(KeepaliveConfig {
+            http2_keepalive: Duration::from_secs(1).into(),
+            timeout: Duration::from_secs(1).into(),
+            keep_alive_while_idle: true,
+            ..Default::default()
+        });
+
+    let mut service_config = ServiceConfiguration::new()
+        .with_dataplane_server(vec![dataplane_server])
+        .with_controlplane_client(vec![cp_client]);
+    service_config.group_name = Some(group.to_string());
+
+    let svc_id = ID::new_with_str(&format!("slim/{name}")).unwrap();
+    let mut svc = service_config.build_server(svc_id).unwrap();
+    svc.start().await.unwrap();
+    svc
+}
+
+fn star_topology_config(hub_group: &str) -> TopologyConfig {
+    TopologyConfig {
+        links: vec![AdjacencyEntry {
+            name: hub_group.to_string(),
+            peers: vec!["*".to_string()],
+        }],
+    }
+}
+
+/// Star topology with SPT routing: a subscription on spoke-a should be
+/// reachable from spoke-b via the hub (transit routing through the SPT).
+/// Also verifies that spokes do NOT link directly to each other.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_spt_route_via_hub() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::new("info"))
+        .with_test_writer()
+        .try_init();
+
+    let cp = start_control_plane_with_topology(
+        test_reconciler_config(),
+        star_topology_config("platform"),
+    )
+    .await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+
+    let id_hub = grouped_node_id("platform", "hub");
+    let id_spoke_a = grouped_node_id("customer-a", "spoke-a");
+    let id_spoke_b = grouped_node_id("customer-b", "spoke-b");
+
+    let spoke_a_dp_port = reserve_port();
+    let hub = start_node_in_group("hub", "platform", cp.southbound_port).await;
+    let spoke_a =
+        start_node_in_group_on_port("spoke-a", "customer-a", cp.southbound_port, spoke_a_dp_port)
+            .await;
+    let spoke_b = start_node_in_group("spoke-b", "customer-b", cp.southbound_port).await;
+
+    wait_for_nodes_connected(
+        &mut client,
+        &[&id_hub, &id_spoke_a, &id_spoke_b],
+        Duration::from_secs(15),
+    )
+    .await;
+
+    // Verify spoke-to-hub links exist, no spoke-to-spoke link.
+    wait_for_link_between(&mut client, &id_spoke_a, &id_hub, Duration::from_secs(15)).await;
+    wait_for_link_between(&mut client, &id_spoke_b, &id_hub, Duration::from_secs(15)).await;
+    let all_links = collect_links(&mut client, "", "").await;
+    let spoke_to_spoke = all_links.iter().any(|l| {
+        !l.deleted
+            && ((l.source_node_id == id_spoke_a && l.dest_node_id == id_spoke_b)
+                || (l.source_node_id == id_spoke_b && l.dest_node_id == id_spoke_a))
+    });
+    assert!(
+        !spoke_to_spoke,
+        "star topology should NOT create spoke-to-spoke links"
+    );
+
+    // A client app subscribes on spoke-a → CP creates wildcard *→spoke-a.
+    // SPT rooted at spoke-a's group: spoke-b routes via hub.
+    let app_svc = subscribe_via_link(spoke_a_dp_port, "org", "ns", "transit-svc").await;
+
+    // spoke-b should get a route to spoke-a (via hub link).
+    wait_for_route_applied(
+        &mut client,
+        &id_spoke_b,
+        &id_spoke_a,
+        Duration::from_secs(30),
+    )
+    .await;
+
+    // hub should also have a route to spoke-a.
+    wait_for_route_applied(&mut client, &id_hub, &id_spoke_a, Duration::from_secs(30)).await;
+
+    // Verify the subscription is propagated to spoke-b.
+    wait_for_node_subscriptions(
+        &mut client,
+        &id_spoke_b,
+        &[("org", "ns", "transit-svc")],
+        Duration::from_secs(15),
+    )
+    .await;
+
+    print_state(&mut client, "spt_route_via_hub: final").await;
+
+    app_svc.shutdown().await.ok();
+    hub.shutdown().await.ok();
+    spoke_a.shutdown().await.ok();
+    spoke_b.shutdown().await.ok();
+    stop_control_plane(cp).await;
+}
+
+/// Full-mesh multicast: 3 nodes in different groups, all linked to each other.
+/// Two nodes subscribe to the same name. Verify that:
+/// (a) the first subscriber's SPT is used for all routing (single tree),
+/// (b) the second subscriber gets a downward path from the root,
+/// (c) no duplicate routes per (source, dest) pair exist.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_multicast_full_mesh_no_duplicate_routes() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::new("info"))
+        .with_test_writer()
+        .try_init();
+
+    // Full mesh: empty topology = all groups link to all groups.
+    let cp = start_control_plane_with_topology(test_reconciler_config(), TopologyConfig::default())
+        .await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+
+    let id_a = grouped_node_id("group-a", "node-a");
+    let id_b = grouped_node_id("group-b", "node-b");
+    let id_c = grouped_node_id("group-c", "node-c");
+
+    let node_a_dp_port = reserve_port();
+    let node_c_dp_port = reserve_port();
+    let node_a =
+        start_node_in_group_on_port("node-a", "group-a", cp.southbound_port, node_a_dp_port).await;
+    let node_b = start_node_in_group("node-b", "group-b", cp.southbound_port).await;
+    let node_c =
+        start_node_in_group_on_port("node-c", "group-c", cp.southbound_port, node_c_dp_port).await;
+
+    wait_for_nodes_connected(&mut client, &[&id_a, &id_b, &id_c], Duration::from_secs(15)).await;
+
+    // First subscriber on node-a → becomes the SPT root.
+    let app_a = subscribe_via_link(node_a_dp_port, "org", "ns", "mesh-multicast").await;
+
+    // Wait for other nodes to get routes to node-a.
+    wait_for_route_applied(&mut client, &id_b, &id_a, Duration::from_secs(30)).await;
+    wait_for_route_applied(&mut client, &id_c, &id_a, Duration::from_secs(30)).await;
+
+    // Second subscriber on node-c (same name) → downward path from root.
+    let app_c = subscribe_via_link(node_c_dp_port, "org", "ns", "mesh-multicast").await;
+
+    // node-a (root) should get a route to node-c (downward).
+    wait_for_route_applied(&mut client, &id_a, &id_c, Duration::from_secs(30)).await;
+
+    // Give the system a moment to settle.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // Verify no duplicate routes for this name.
+    let all_routes = collect_routes(&mut client, "", "").await;
+    let multicast_routes: Vec<_> = all_routes
+        .iter()
+        .filter(|r| {
+            r.name
+                .as_ref()
+                .is_some_and(|n| n.str_components().2 == "mesh-multicast")
+                && r.source_node_id != "*"
+        })
+        .collect();
+
+    let mut seen = std::collections::HashSet::new();
+    for r in &multicast_routes {
+        let key = (r.source_node_id.clone(), r.dest_node_id.clone());
+        assert!(
+            seen.insert(key.clone()),
+            "duplicate route found: {} → {}",
+            key.0,
+            key.1
+        );
+    }
+
+    print_state(&mut client, "multicast_full_mesh: final").await;
+
+    app_a.shutdown().await.ok();
+    app_c.shutdown().await.ok();
+    node_a.shutdown().await.ok();
+    node_b.shutdown().await.ok();
+    node_c.shutdown().await.ok();
     stop_control_plane(cp).await;
 }

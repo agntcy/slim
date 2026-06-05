@@ -147,6 +147,39 @@ impl super::RouteService {
         // Clone the graph to release the read lock before the async loop,
         // preventing potential deadlocks with concurrent write lock acquisitions.
         let graph = self.0.link_graph.read().await.clone();
+
+        // Single-group fallback: when all nodes share the same group (or no
+        // group is set), the SPT has nothing to expand. Create direct routes
+        // from every other node to the destination instead.
+        if graph.node_count() <= 1 {
+            for node in all_nodes {
+                if node.id == dest_node_id {
+                    continue;
+                }
+                let route = Route {
+                    id: String::new(),
+                    source_node_id: node.id.clone(),
+                    dest_node_id: dest_node_id.to_string(),
+                    link_id: None,
+                    component0: component0.to_string(),
+                    component1: component1.to_string(),
+                    component2: component2.to_string(),
+                    component_id: component_id.map(|s| s.to_string()),
+                    status: RouteStatus::Pending,
+                    status_msg: String::new(),
+                    created_at: SystemTime::now(),
+                    last_updated: SystemTime::now(),
+                };
+                if let Err(e) = self.add_single_route(route).await {
+                    tracing::debug!(
+                        "expand_route_via_spt: same-group route for {} skipped: {e}",
+                        node.id
+                    );
+                }
+            }
+            return;
+        }
+
         let root_idx = match graph.node_indices().find(|&idx| graph[idx] == dest_group) {
             Some(idx) => idx,
             None => {
@@ -247,6 +280,30 @@ impl super::RouteService {
 
         // Clone the graph to release the read lock before the async loop.
         let graph = self.0.link_graph.read().await.clone();
+
+        // Single-group fallback: when root and announcer are in the same group,
+        // install a direct route from root to the new announcer.
+        if graph.node_count() <= 1 || root_group == announcer_group {
+            let route = Route {
+                id: String::new(),
+                source_node_id: root_node_id.to_string(),
+                dest_node_id: new_announcer_node_id.to_string(),
+                link_id: None,
+                component0: component0.to_string(),
+                component1: component1.to_string(),
+                component2: component2.to_string(),
+                component_id: component_id.map(|s| s.to_string()),
+                status: RouteStatus::Pending,
+                status_msg: String::new(),
+                created_at: SystemTime::now(),
+                last_updated: SystemTime::now(),
+            };
+            if let Err(e) = self.add_single_route(route).await {
+                tracing::debug!("install_downward_path: same-group route skipped: {e}");
+            }
+            return;
+        }
+
         let root_idx = match graph.node_indices().find(|&idx| graph[idx] == root_group) {
             Some(idx) => idx,
             None => return,
