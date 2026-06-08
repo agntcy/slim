@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::time::SystemTime;
 
 use uuid::Uuid;
@@ -46,24 +46,26 @@ impl super::RouteService {
             })
             .collect();
 
-        // Map node_id → group for quick lookup.
-        let node_group: HashMap<&str, &str> = all_nodes
-            .iter()
-            .map(|n| (n.id.as_str(), n.group_name.as_deref().unwrap_or("")))
-            .collect();
-
-        // Track which group pairs already have an active inter-group link.
+        // Track which destination groups already have an active inter-group link
+        // from or to the source group.
         let src_group = src_node.group_name.as_deref().unwrap_or("");
         let mut linked_groups: HashSet<&str> = existing_links
             .iter()
             .filter(|l| l.status != LinkStatus::Deleted)
             .filter_map(|l| {
-                let sg = node_group.get(l.source_node_id.as_str()).copied()?;
-                let dg = node_group.get(l.dest_node_id.as_str()).copied()?;
-                if sg == src_group && dg != src_group {
+                // Use dest_group directly — no node lookup needed.
+                let dg = l.dest_group.as_str();
+                if l.source_node_id == node_id && !dg.is_empty() && dg != src_group {
+                    // Outgoing link from src to another group.
                     Some(dg)
-                } else if dg == src_group && sg != src_group {
-                    Some(sg)
+                } else if dg == src_group {
+                    // Incoming link targeting src_group — extract source's group from node_id.
+                    let sg = l.source_node_id.split('/').next().unwrap_or("");
+                    if !sg.is_empty() && sg != src_group {
+                        Some(sg)
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }

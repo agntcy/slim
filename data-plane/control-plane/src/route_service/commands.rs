@@ -213,4 +213,53 @@ impl super::RouteService {
             done: true,
         })
     }
+
+    /// Called when a node reports it received an incoming connection (after the
+    /// data-plane link negotiation). Claims the unclaimed link for this node.
+    pub async fn connection_received(&self, node_id: &str, link_id: &str) {
+        // Determine the node's group.
+        let node_group = match self.0.db.get_node(node_id).await {
+            Ok(Some(n)) => n.group_name.unwrap_or_default(),
+            Ok(None) => {
+                tracing::warn!(
+                    "connection_received: node {node_id} not found, ignoring claim for {link_id}"
+                );
+                return;
+            }
+            Err(e) => {
+                tracing::error!("connection_received: failed to get node {node_id}: {e}");
+                return;
+            }
+        };
+
+        if node_group.is_empty() {
+            tracing::warn!(
+                "connection_received: node {node_id} has no group, cannot claim link {link_id}"
+            );
+            return;
+        }
+
+        match self.0.db.claim_link(link_id, &node_group, node_id).await {
+            Ok(Some(claimed)) => {
+                tracing::info!(
+                    "connection_received: node {node_id} claimed link {link_id} from {}",
+                    claimed.source_node_id
+                );
+                // Enqueue both source and dest for reconciliation so routes
+                // can be expanded over the now-established link.
+                self.0.queue.add(claimed.source_node_id.clone());
+                self.0.queue.add(node_id.to_string());
+            }
+            Ok(None) => {
+                tracing::debug!(
+                    "connection_received: link {link_id} already claimed or not found for {node_id}"
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    "connection_received: failed to claim link {link_id} for {node_id}: {e}"
+                );
+            }
+        }
+    }
 }

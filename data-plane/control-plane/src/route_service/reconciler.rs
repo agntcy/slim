@@ -133,6 +133,7 @@ async fn handle_request(
             routes_to_delete: vec![],
             connections_to_delete: vec![],
             reconcile: true,
+            connections_received: vec![],
         })),
     };
 

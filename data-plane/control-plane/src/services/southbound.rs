@@ -325,6 +325,11 @@ async fn handle_node_messages(
                         tracing::debug!("southbound: error deleting route: {e}");
                     }
                 }
+                for entry in &cc.connections_received {
+                    if let Some(link_id) = entry.link_id.as_deref().filter(|id| !id.is_empty()) {
+                        route_service.connection_received(node_id, link_id).await;
+                    }
+                }
             }
             Some(Payload::DeregisterNodeRequest(_)) => {
                 // Always use the authenticated node_id from registration,

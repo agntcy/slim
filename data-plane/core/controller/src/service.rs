@@ -1428,6 +1428,7 @@ impl ControllerService {
                 routes_to_set: sub_vec,
                 routes_to_delete: vec![],
                 reconcile: false,
+                connections_received: vec![],
             })),
         };
 
@@ -1453,6 +1454,7 @@ impl ControllerService {
                 routes_to_set: vec![],
                 routes_to_delete: unsub_vec,
                 reconcile: false,
+                connections_received: vec![],
             })),
         };
 
@@ -1754,6 +1756,7 @@ impl ControllerService {
                                     routes_to_delete: vec![],
                                     connections_to_delete: vec![],
                                     reconcile: true,
+                                    connections_received: vec![],
                                 })),
                             };
                             if let Err(e) = this.handle_new_control_message(init_cmd, &tx).await {
@@ -2083,6 +2086,7 @@ mod tests {
                     }],
                     routes_to_delete: vec![],
                     reconcile: false,
+                    connections_received: vec![],
                 })),
             };
             controller
@@ -2155,6 +2159,7 @@ mod tests {
                 routes_to_set: vec![],
                 routes_to_delete: vec![],
                 reconcile: false,
+                connections_received: vec![],
             })),
         };
         let (tx, mut rx) = mpsc::channel(1);
@@ -2196,6 +2201,7 @@ mod tests {
                 routes_to_set: vec![],
                 routes_to_delete: vec![],
                 reconcile: false,
+                connections_received: vec![],
             })),
         };
         let (tx, mut rx) = mpsc::channel(1);
@@ -2279,6 +2285,7 @@ mod tests {
                 routes_to_set: vec![],
                 routes_to_delete: vec![],
                 reconcile: false,
+                connections_received: vec![],
             })),
         };
 
@@ -2334,6 +2341,7 @@ mod tests {
                 }],
                 routes_to_delete: vec![],
                 reconcile: false,
+                connections_received: vec![],
             })),
         };
         let (tx, mut rx) = mpsc::channel(1);
@@ -2385,6 +2393,7 @@ mod tests {
                 routes_to_set: vec![],
                 routes_to_delete: vec![],
                 reconcile: false,
+                connections_received: vec![],
             })),
         };
         let (tx, mut rx) = mpsc::channel(1);
@@ -2434,6 +2443,7 @@ mod tests {
                     direction: None,
                 }],
                 reconcile: false,
+                connections_received: vec![],
             })),
         };
         let (tx, mut rx) = mpsc::channel(1);
