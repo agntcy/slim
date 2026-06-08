@@ -230,12 +230,23 @@ async fn build_desired_routes<'a>(
         let link_id = match route.link_id.as_deref() {
             Some(id) => id,
             None => {
-                // No link_id yet, try to find a direct link in the database.
-                match db
-                    .find_link_between_nodes(&route.source_node_id, &route.dest_node_id)
-                    .await?
-                {
-                    Some(l) if l.status != LinkStatus::Deleted => {
+                // No link_id yet — find a link from this node to the dest node's group.
+                let dest_group = route.dest_node_id.split('/').next().unwrap_or("");
+                let found_link = node_links.iter().find(|l| {
+                    l.source_node_id == route.source_node_id
+                        && l.status != LinkStatus::Deleted
+                        && l.dest_group == dest_group
+                });
+                // Also check reverse direction (link where dest claimed by source's group).
+                let found_link = found_link.or_else(|| {
+                    node_links.iter().find(|l| {
+                        l.dest_node_id == route.source_node_id
+                            && l.status != LinkStatus::Deleted
+                            && l.source_node_id.starts_with(&format!("{dest_group}/"))
+                    })
+                });
+                match found_link {
+                    Some(l) if l.status == LinkStatus::Applied && !l.dest_node_id.is_empty() => {
                         if let Err(e) = db.update_route_link_id(&route.id, &l.link_id).await {
                             tracing::warn!(
                                 "reconciler: failed to update route {} link_id: {e}",
@@ -346,31 +357,43 @@ async fn process_connection_acks(
         .collect();
 
     for conn_ack in &ack.connections_status {
-        let link = match links_by_id.get(conn_ack.link_id.as_str()) {
-            Some(l) => *l,
+        // Use the snapshot to verify this ACK is relevant.
+        if !links_by_id.contains_key(conn_ack.link_id.as_str()) {
+            continue;
+        }
+
+        // Re-read from DB to get the latest state (may have been claimed concurrently).
+        let current_link = match db.get_link(&conn_ack.link_id, "", "").await? {
+            Some(l) => l,
             None => continue,
         };
 
-        let mut updated = link.clone();
+        let mut updated = current_link.clone();
         if conn_ack.success {
-            // Source confirmed the connection. Move to Connecting — the link
-            // becomes Applied only when the destination claims it.
-            updated.status = LinkStatus::Connecting;
+            if !current_link.dest_node_id.is_empty() {
+                // Link already claimed — keep it Applied.
+                updated.status = LinkStatus::Applied;
+            } else {
+                // Source confirmed the connection. Move to Connecting — the link
+                // becomes Applied only when the destination claims it.
+                updated.status = LinkStatus::Connecting;
+            }
             updated.status_msg = String::new();
             tracing::info!(
-                "reconciler: link {} ({}→dest_group:{}) connecting, awaiting dest claim",
-                link.link_id,
-                link.source_node_id,
-                link.dest_group
+                "reconciler: link {} ({}→dest_group:{}) status={:?}",
+                current_link.link_id,
+                current_link.source_node_id,
+                current_link.dest_group,
+                updated.status
             );
         } else {
             updated.status = LinkStatus::Failed;
             updated.status_msg = conn_ack.error_msg.clone();
             tracing::warn!(
                 "reconciler: link {} ({}→dest_group:{}) failed: {}",
-                link.link_id,
-                link.source_node_id,
-                link.dest_group,
+                current_link.link_id,
+                current_link.source_node_id,
+                current_link.dest_group,
                 conn_ack.error_msg
             );
         }

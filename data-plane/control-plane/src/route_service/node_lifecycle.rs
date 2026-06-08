@@ -169,11 +169,14 @@ impl super::RouteService {
                     continue;
                 }
                 let matched = dp_routes.iter().any(|dp| {
-                    let (c0, c1, c2) = dp.name.as_ref().unwrap().str_components();
-                    let comp_id = if dp.name.as_ref().unwrap().id() == NameId::NULL_COMPONENT {
+                    let Some(dp_name) = dp.name.as_ref() else {
+                        return false;
+                    };
+                    let (c0, c1, c2) = dp_name.str_components();
+                    let comp_id = if dp_name.id() == NameId::NULL_COMPONENT {
                         None
                     } else {
-                        Some(dp.name.as_ref().unwrap().string_id())
+                        Some(dp_name.string_id())
                     };
                     c0 == db_route.component0
                         && c1 == db_route.component1

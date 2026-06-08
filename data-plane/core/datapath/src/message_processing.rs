@@ -1505,6 +1505,15 @@ impl MessageProcessor {
             }
         };
 
+        // Notify the control plane of local subscription transitions so it can
+        // create inter-group routes (SPT expansion). Only for non-peer connections
+        // (local apps) that cause an aggregate transition.
+        if !outcome.is_peer_conn && outcome.transition {
+            if let Some(txcp) = self.get_tx_control_plane() {
+                let _ = txcp.send(Ok(msg.clone())).await;
+            }
+        }
+
         // Determine forwarding targets:
         // - Peers (All): non-peer subscription with aggregate transition (0→1 or 1→0)
         // - Peers (ExcludeConn): peer subscription with remaining TTL >= 2 (relay)

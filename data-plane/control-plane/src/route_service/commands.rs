@@ -27,16 +27,21 @@ impl super::RouteService {
     ) -> Result<String> {
         validate_route_nodes(source_node_id, dest_node_id)?;
 
+        let Some(route_name) = route.name.as_ref() else {
+            return Err(Error::InvalidInput(
+                "route name is required".to_string(),
+            ));
+        };
+
         // For wildcard routes, determine whether this is the first announcer
         // for this name (creates the full SPT) or a subsequent one (installs
         // downward path from root to new announcer).
         let existing_root = if source_node_id == ALL_NODES_ID {
-            let n = route.name.as_ref().unwrap();
-            let (c0, c1, c2) = n.str_components();
-            let comp_id = if n.id() == NameId::NULL_COMPONENT {
+            let (c0, c1, c2) = route_name.str_components();
+            let comp_id = if route_name.id() == NameId::NULL_COMPONENT {
                 None
             } else {
-                Some(n.string_id())
+                Some(route_name.string_id())
             };
             self.0
                 .db
@@ -53,12 +58,11 @@ impl super::RouteService {
         if source_node_id == ALL_NODES_ID {
             let all_nodes = self.0.db.list_nodes().await?;
             let all_links = self.0.db.list_all_links().await?;
-            let n = route.name.as_ref().unwrap();
-            let (c0, c1, c2) = n.str_components();
-            let comp_id = if n.id() == NameId::NULL_COMPONENT {
+            let (c0, c1, c2) = route_name.str_components();
+            let comp_id = if route_name.id() == NameId::NULL_COMPONENT {
                 None
             } else {
-                Some(n.string_id())
+                Some(route_name.string_id())
             };
 
             match existing_root {
@@ -106,11 +110,17 @@ impl super::RouteService {
             return Err(Error::EmptyDestNodeId);
         }
 
-        let (c0, c1, c2) = route.name.as_ref().unwrap().str_components();
-        let comp_id = if route.name.as_ref().unwrap().id() == NameId::NULL_COMPONENT {
+        let Some(route_name) = route.name.as_ref() else {
+            return Err(Error::InvalidInput(
+                "route name is required".to_string(),
+            ));
+        };
+
+        let (c0, c1, c2) = route_name.str_components();
+        let comp_id = if route_name.id() == NameId::NULL_COMPONENT {
             None
         } else {
-            Some(route.name.as_ref().unwrap().string_id())
+            Some(route_name.string_id())
         };
 
         let name = RouteName {
