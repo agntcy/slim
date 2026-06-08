@@ -42,8 +42,7 @@ impl ProducerBuffer {
     }
 
     /// Add message to the buffer.
-    /// return true if the insertion completes
-    pub fn push(&mut self, msg: Message) -> bool {
+    pub fn push(&mut self, msg: Message) {
         // if messages is empty init the destination name
         if self.messages.is_empty() {
             self.destination_name = msg.get_dst();
@@ -53,7 +52,7 @@ impl ProducerBuffer {
 
         // check if the message is already there; if yes return
         if self.messages.contains_key(&id) {
-            return true;
+            return;
         }
 
         // Evict the oldest entry: read its ID from the compact ring Vec (no Message access).
@@ -65,7 +64,6 @@ impl ProducerBuffer {
         self.messages.insert(id, msg);
         self.ring[self.next] = id;
         self.next = (self.next + 1) % self.capacity;
-        true
     }
 
     /// Remove all the elements in the buffer
