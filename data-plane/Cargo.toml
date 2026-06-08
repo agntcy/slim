@@ -80,6 +80,8 @@ duration-string = { version = "0.5.3", features = ["serde"] }
 fastwebsockets = { version = "0.10.0", features = ["upgrade", "unstable-split"] }
 futures = "0.3.31"
 futures-timer = "3.0.3"
+k8s-openapi = { version = "0.27", default-features = false }
+kube = { version = "3.1", default-features = false, features = ["client", "runtime", "rustls-tls"] }
 h2 = "0.4.7"
 headers = "0.4.1"
 hex = "0.4.3"

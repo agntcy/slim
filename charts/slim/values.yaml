@@ -18,6 +18,14 @@ slim:
   # This is for overriding the default config below
   overrideConfig:
 
+  # Peer configuration for multi-replica deployments.
+  # Automatically enabled when replicaCount > 1.
+  peers:
+    # Shared group identity for mutual peer authentication.
+    peerGroup: "slim-peers"
+    # Topology for peer connections: "full_mesh" or "hub_and_spoke"
+    topology: "full_mesh"
+
   config:
     tracing:
       log_level: debug

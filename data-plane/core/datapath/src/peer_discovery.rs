@@ -9,9 +9,13 @@
 //! - (Future) Kubernetes API-based discovery
 
 pub mod config;
+#[cfg(feature = "kubernetes")]
+pub mod kubernetes;
 mod static_list;
 
 pub use config::{PeerConfig, PeerDiscoveryConfig, PeerTopology, StaticPeerEntry};
+#[cfg(feature = "kubernetes")]
+pub use kubernetes::KubernetesPeerDiscovery;
 pub use static_list::StaticPeerDiscovery;
 
 use std::fmt;

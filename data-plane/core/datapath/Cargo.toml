@@ -10,6 +10,7 @@ name = "slim_datapath"
 
 [features]
 default = []
+kubernetes = ["dep:kube", "dep:k8s-openapi"]
 otel_tracing = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 
 [dependencies]
@@ -24,6 +25,8 @@ fastwebsockets = { workspace = true }
 futures = { workspace = true }
 h2 = { workspace = true }
 http = { workspace = true }
+k8s-openapi = { workspace = true, features = ["v1_32"], optional = true }
+kube = { workspace = true, optional = true }
 opentelemetry = { workspace = true, optional = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
