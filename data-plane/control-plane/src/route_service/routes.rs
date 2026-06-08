@@ -5,16 +5,11 @@ use std::collections::{HashMap, HashSet};
 use std::time::SystemTime;
 
 use petgraph::visit::EdgeRef;
-use slim_datapath::api::NameId;
-use uuid::Uuid;
 
-use crate::api::proto::controller::proto::v1::{
-    ControlMessage, Route as ProtoRoute, RouteListResponse, control_message::Payload,
-};
-use crate::db::{LinkStatus, Route, RouteName, RouteStatus};
+#[cfg(test)]
+use crate::api::proto::controller::proto::v1::Route as ProtoRoute;
+use crate::db::{LinkStatus, Route, RouteStatus};
 use crate::error::{Error, Result};
-use crate::node_transport::ResponseKind;
-use crate::types::validate_route_nodes;
 
 use super::spt;
 use super::*;
@@ -148,35 +143,9 @@ impl super::RouteService {
         // preventing potential deadlocks with concurrent write lock acquisitions.
         let graph = self.0.link_graph.read().await.clone();
 
-        // Single-group fallback: when all nodes share the same group (or no
-        // group is set), the SPT has nothing to expand. Create direct routes
-        // from every other node to the destination instead.
+        // If the link graph has no inter-group edges, there is nothing for the
+        // control plane to expand (same-group routing is handled by the data plane).
         if graph.node_count() <= 1 {
-            for node in all_nodes {
-                if node.id == dest_node_id {
-                    continue;
-                }
-                let route = Route {
-                    id: String::new(),
-                    source_node_id: node.id.clone(),
-                    dest_node_id: dest_node_id.to_string(),
-                    link_id: None,
-                    component0: component0.to_string(),
-                    component1: component1.to_string(),
-                    component2: component2.to_string(),
-                    component_id: component_id.map(|s| s.to_string()),
-                    status: RouteStatus::Pending,
-                    status_msg: String::new(),
-                    created_at: SystemTime::now(),
-                    last_updated: SystemTime::now(),
-                };
-                if let Err(e) = self.add_single_route(route).await {
-                    tracing::debug!(
-                        "expand_route_via_spt: same-group route for {} skipped: {e}",
-                        node.id
-                    );
-                }
-            }
             return;
         }
 
@@ -281,26 +250,9 @@ impl super::RouteService {
         // Clone the graph to release the read lock before the async loop.
         let graph = self.0.link_graph.read().await.clone();
 
-        // Single-group fallback: when root and announcer are in the same group,
-        // install a direct route from root to the new announcer.
+        // If root and announcer are in the same group, the data plane handles
+        // routing within that group — nothing for the control plane to do.
         if graph.node_count() <= 1 || root_group == announcer_group {
-            let route = Route {
-                id: String::new(),
-                source_node_id: root_node_id.to_string(),
-                dest_node_id: new_announcer_node_id.to_string(),
-                link_id: None,
-                component0: component0.to_string(),
-                component1: component1.to_string(),
-                component2: component2.to_string(),
-                component_id: component_id.map(|s| s.to_string()),
-                status: RouteStatus::Pending,
-                status_msg: String::new(),
-                created_at: SystemTime::now(),
-                last_updated: SystemTime::now(),
-            };
-            if let Err(e) = self.add_single_route(route).await {
-                tracing::debug!("install_downward_path: same-group route skipped: {e}");
-            }
             return;
         }
 
@@ -373,83 +325,6 @@ impl super::RouteService {
         }
     }
 
-    pub async fn add_route(
-        &self,
-        source_node_id: &str,
-        dest_node_id: &str,
-        route: &ProtoRoute,
-    ) -> Result<String> {
-        validate_route_nodes(source_node_id, dest_node_id)?;
-
-        // For wildcard routes, determine whether this is the first announcer
-        // for this name (creates the full SPT) or a subsequent one (installs
-        // downward path from root to new announcer).
-        let existing_root = if source_node_id == ALL_NODES_ID {
-            let n = route.name.as_ref().unwrap();
-            let (c0, c1, c2) = n.str_components();
-            let comp_id = if n.id() == NameId::NULL_COMPONENT {
-                None
-            } else {
-                Some(n.string_id())
-            };
-            self.0
-                .db
-                .get_destination_node_id_for_name(c0, c1, c2, comp_id.as_deref())
-                .await
-                .unwrap_or(None)
-        } else {
-            None
-        };
-
-        let db_route = route.to_db_route(source_node_id, dest_node_id);
-        let route_id = self.add_single_route(db_route).await?;
-
-        if source_node_id == ALL_NODES_ID {
-            let all_nodes = self.0.db.list_nodes().await?;
-            let all_links = self.0.db.list_all_links().await?;
-            let n = route.name.as_ref().unwrap();
-            let (c0, c1, c2) = n.str_components();
-            let comp_id = if n.id() == NameId::NULL_COMPONENT {
-                None
-            } else {
-                Some(n.string_id())
-            };
-
-            match existing_root {
-                None => {
-                    // First announcer: full SPT expansion (upward routes).
-                    self.expand_route_via_spt(
-                        dest_node_id,
-                        c0,
-                        c1,
-                        c2,
-                        comp_id.as_deref(),
-                        &all_nodes,
-                        &all_links,
-                    )
-                    .await;
-                }
-                Some(ref root_node_id) => {
-                    // Subsequent announcer: install downward path from root
-                    // to this new announcer.
-                    self.install_downward_path(
-                        root_node_id,
-                        dest_node_id,
-                        c0,
-                        c1,
-                        c2,
-                        comp_id.as_deref(),
-                        &all_nodes,
-                        &all_links,
-                    )
-                    .await;
-                }
-            }
-        }
-
-        Ok(route_id)
-    }
-
     pub(super) async fn add_single_route(&self, mut db_route: Route) -> Result<String> {
         // If link_id was not pre-resolved by the caller (e.g. expand_route_via_spt),
         // try to find a direct link between source and dest. If none exists yet,
@@ -501,73 +376,7 @@ impl super::RouteService {
         ))
     }
 
-    pub async fn delete_route(
-        &self,
-        source_node_id: &str,
-        dest_node_id: &str,
-        route: &ProtoRoute,
-    ) -> Result<()> {
-        if dest_node_id.is_empty() {
-            return Err(Error::EmptyDestNodeId);
-        }
-
-        let (c0, c1, c2) = route.name.as_ref().unwrap().str_components();
-        let comp_id = if route.name.as_ref().unwrap().id() == NameId::NULL_COMPONENT {
-            None
-        } else {
-            Some(route.name.as_ref().unwrap().string_id())
-        };
-
-        let name = RouteName {
-            component0: c0,
-            component1: c1,
-            component2: c2,
-            component_id: comp_id.as_deref(),
-        };
-
-        if source_node_id == ALL_NODES_ID {
-            // Delete the wildcard route itself.
-            let db_route = self
-                .0
-                .db
-                .get_route_for_src_dest_name(source_node_id, &name, dest_node_id, None)
-                .await?
-                .ok_or(Error::InvalidInput("route not found".to_string()))?;
-            self.0.db.delete_route(&db_route.id).await?;
-
-            // Also delete all per-node expansions.
-            let per_node = self
-                .0
-                .db
-                .get_routes_for_dest_node_id_and_name(dest_node_id, c0, c1, c2, comp_id.as_deref())
-                .await?;
-            for r in per_node {
-                self.delete_single_route(&r.source_node_id, &r.id, &r.to_string())
-                    .await?;
-            }
-            return Ok(());
-        }
-
-        let link_id = match route.link_id.as_deref().filter(|s| !s.is_empty()) {
-            Some(id) => id.to_string(),
-            None => {
-                self.find_matching_link(source_node_id, dest_node_id)
-                    .await?
-            }
-        };
-
-        let db_route = self
-            .0
-            .db
-            .get_route_for_src_dest_name(source_node_id, &name, dest_node_id, Some(&link_id))
-            .await?
-            .ok_or(Error::InvalidInput("route not found".to_string()))?;
-
-        self.delete_single_route(source_node_id, &db_route.id, &db_route.to_string())
-            .await
-    }
-
-    async fn delete_single_route(
+    pub(super) async fn delete_single_route(
         &self,
         node_id: &str,
         route_id: &str,
@@ -640,32 +449,6 @@ impl super::RouteService {
                 .await;
             }
         }
-    }
-
-    pub async fn list_node_routes(&self, node_id: &str) -> Result<RouteListResponse> {
-        let message_id = Uuid::new_v4().to_string();
-        let msg = ControlMessage {
-            message_id: message_id.clone(),
-            payload: Some(Payload::RouteListRequest(
-                crate::api::proto::controller::proto::v1::RouteListRequest {},
-            )),
-        };
-        let chunks = self
-            .0
-            .cmd_handler
-            .send_and_wait(node_id, msg, ResponseKind::RouteListResponse)
-            .await?;
-        let mut entries = Vec::new();
-        for chunk in chunks {
-            if let Some(Payload::RouteListResponse(r)) = chunk.payload {
-                entries.extend(r.entries);
-            }
-        }
-        Ok(RouteListResponse {
-            original_message_id: message_id,
-            entries,
-            done: true,
-        })
     }
 }
 
@@ -774,6 +557,7 @@ mod tests {
             link_id: "link-hub-a".to_string(),
             source_node_id: "hub-node".to_string(),
             dest_node_id: "spoke-a".to_string(),
+            dest_group: String::new(),
             dest_endpoint: "spoke-a:8080".to_string(),
             conn_config_data: ClientConfig::default(),
             status: LinkStatus::Applied,
@@ -785,6 +569,7 @@ mod tests {
             link_id: "link-hub-b".to_string(),
             source_node_id: "hub-node".to_string(),
             dest_node_id: "spoke-b".to_string(),
+            dest_group: String::new(),
             dest_endpoint: "spoke-b:8080".to_string(),
             conn_config_data: ClientConfig::default(),
             status: LinkStatus::Applied,
@@ -876,6 +661,7 @@ mod tests {
             link_id: "link-a-hub".to_string(),
             source_node_id: "spoke-a".to_string(),
             dest_node_id: "hub-node".to_string(),
+            dest_group: String::new(),
             dest_endpoint: "hub:8080".to_string(),
             conn_config_data: ClientConfig::default(),
             status: LinkStatus::Applied,
@@ -890,6 +676,7 @@ mod tests {
             link_id: "link-hub-b".to_string(),
             source_node_id: "hub-node".to_string(),
             dest_node_id: "spoke-b".to_string(),
+            dest_group: String::new(),
             dest_endpoint: "spoke-b:8080".to_string(),
             conn_config_data: ClientConfig::default(),
             status: LinkStatus::Applied,
@@ -975,6 +762,7 @@ mod tests {
             link_id: "link-1".to_string(),
             source_node_id: "hub-node".to_string(),
             dest_node_id: "spoke-a".to_string(),
+            dest_group: String::new(),
             dest_endpoint: "spoke-a:8080".to_string(),
             conn_config_data: ClientConfig::default(),
             status: LinkStatus::Applied,
@@ -1031,6 +819,7 @@ mod tests {
                 link_id: lid.to_string(),
                 source_node_id: src.to_string(),
                 dest_node_id: dst.to_string(),
+                dest_group: String::new(),
                 dest_endpoint: format!("{dst}:8080"),
                 conn_config_data: ClientConfig::default(),
                 status: LinkStatus::Applied,
@@ -1101,6 +890,7 @@ mod tests {
             link_id: "link-ab".to_string(),
             source_node_id: "node-a".to_string(),
             dest_node_id: "node-b".to_string(),
+            dest_group: String::new(),
             dest_endpoint: "node-b:8080".to_string(),
             conn_config_data: ClientConfig::default(),
             status: LinkStatus::Applied,
@@ -1112,6 +902,7 @@ mod tests {
             link_id: "link-bc".to_string(),
             source_node_id: "node-b".to_string(),
             dest_node_id: "node-c".to_string(),
+            dest_group: String::new(),
             dest_endpoint: "node-c:8080".to_string(),
             conn_config_data: ClientConfig::default(),
             status: LinkStatus::Applied,

@@ -55,9 +55,10 @@ impl ToSql<Integer, Sqlite> for LinkStatus {
     fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
         let v: i32 = match self {
             LinkStatus::Pending => 0,
-            LinkStatus::Applied => 1,
-            LinkStatus::Failed => 2,
-            LinkStatus::Deleted => 3,
+            LinkStatus::Connecting => 1,
+            LinkStatus::Applied => 2,
+            LinkStatus::Failed => 3,
+            LinkStatus::Deleted => 4,
         };
         out.set_value(v);
         Ok(IsNull::No)
@@ -1013,6 +1014,7 @@ mod tests {
             link_id: lid.to_string(),
             source_node_id: src.to_string(),
             dest_node_id: dst.to_string(),
+            dest_group: String::new(),
             dest_endpoint: ep.to_string(),
             conn_config_data: slim_config::grpc::client::ClientConfig::default(),
             status: LinkStatus::Pending,

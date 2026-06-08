@@ -11,7 +11,7 @@ use slim_datapath::api::NameId;
 use crate::api::proto::controller::proto::v1::ConnectionDirection;
 use crate::db::{LinkStatus, RouteStatus};
 
-use super::connections::{ReportedConnection, find_reported_connection};
+use super::connection_config::{ReportedConnection, find_reported_connection};
 use super::*;
 
 impl super::RouteService {
@@ -235,7 +235,7 @@ impl super::RouteService {
         // Endpoint changed or DP says link is dead — refresh config and reset to Pending.
         if conn_details_updated {
             match self
-                .get_connection_details(&link.source_node_id, node_id)
+                .get_client_config(&link.source_node_id, node_id)
                 .await
             {
                 Ok((endpoint, config_data)) => {
@@ -304,7 +304,7 @@ impl super::RouteService {
         };
 
         if let Ok((endpoint, config_data)) = self
-            .get_connection_details(&link.source_node_id, &link.dest_node_id)
+            .get_client_config(&link.source_node_id, &link.dest_node_id)
             .await
         {
             link.dest_endpoint = endpoint;

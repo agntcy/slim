@@ -2,13 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use slim_config::grpc::client::ClientConfig;
-use uuid::Uuid;
 
-use crate::api::proto::controller::proto::v1::{
-    ConnectionListResponse, ControlMessage, control_message::Payload,
-};
 use crate::error::{Error, Result};
-use crate::node_transport::ResponseKind;
 
 #[derive(Clone, Debug)]
 pub(super) struct ReportedConnection {
@@ -18,35 +13,9 @@ pub(super) struct ReportedConnection {
 }
 
 impl super::RouteService {
-    pub async fn list_connections(&self, node_id: &str) -> Result<ConnectionListResponse> {
-        let message_id = Uuid::new_v4().to_string();
-        let msg = ControlMessage {
-            message_id: message_id.clone(),
-            payload: Some(Payload::ConnectionListRequest(
-                crate::api::proto::controller::proto::v1::ConnectionListRequest {},
-            )),
-        };
-        let chunks = self
-            .0
-            .cmd_handler
-            .send_and_wait(node_id, msg, ResponseKind::ConnectionListResponse)
-            .await?;
-        let mut entries = Vec::new();
-        for chunk in chunks {
-            if let Some(Payload::ConnectionListResponse(r)) = chunk.payload {
-                entries.extend(r.entries);
-            }
-        }
-        Ok(ConnectionListResponse {
-            original_message_id: message_id,
-            entries,
-            done: true,
-        })
-    }
-
     /// Compute the effective endpoint and serialised JSON config data for a
     /// link from `source_node_id` to `dest_node_id`.
-    pub async fn get_connection_details(
+    pub async fn get_client_config(
         &self,
         source_node_id: &str,
         dest_node_id: &str,
@@ -59,11 +28,7 @@ impl super::RouteService {
                 .ok_or_else(|| Error::NodeNotFound {
                     id: dest_node_id.to_string(),
                 })?;
-        if dest_node.conn_details.is_empty() {
-            return Err(Error::InvalidInput(format!(
-                "no connections for destination node {dest_node_id}"
-            )));
-        }
+
         let src_node =
             self.0
                 .db
@@ -73,13 +38,13 @@ impl super::RouteService {
                     id: source_node_id.to_string(),
                 })?;
 
-        compute_connection_details(&src_node, &dest_node)
+        compute_client_config(&src_node, &dest_node)
     }
 }
 
 /// Compute the effective endpoint and serialised JSON config data from
 /// already-loaded node objects, without hitting the DB.
-pub(super) fn compute_connection_details(
+pub(super) fn compute_client_config(
     src_node: &crate::db::Node,
     dst_node: &crate::db::Node,
 ) -> Result<(String, ClientConfig)> {
@@ -97,7 +62,7 @@ pub(super) fn compute_connection_details(
 ///
 /// # Precondition
 /// `dst_node.conn_details` must be non-empty.  The caller
-/// (`compute_connection_details`) is responsible for enforcing this by
+/// (`compute_client_config`) is responsible for enforcing this by
 /// returning an error when `conn_details` is empty before calling here.
 pub(super) fn select_connection<'a>(
     dst_node: &'a crate::db::Node,
@@ -350,16 +315,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_connection_details_dest_not_found_returns_error() {
+    async fn get_client_config_dest_not_found_returns_error() {
         let db = InMemoryDb::shared();
         let svc = make_route_service(db);
-        let result = svc.get_connection_details("src", "ghost_dst").await;
+        let result = svc.get_client_config("src", "ghost_dst").await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("ghost_dst"));
     }
 
     #[tokio::test]
-    async fn get_connection_details_src_not_found_returns_error() {
+    async fn get_client_config_src_not_found_returns_error() {
         let db = InMemoryDb::shared();
         let dst = crate::db::Node {
             id: "dst".to_string(),
@@ -370,13 +335,13 @@ mod tests {
         };
         db.save_node(dst).await.unwrap();
         let svc = make_route_service(db);
-        let result = svc.get_connection_details("ghost_src", "dst").await;
+        let result = svc.get_client_config("ghost_src", "dst").await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("ghost_src"));
     }
 
     #[tokio::test]
-    async fn get_connection_details_no_conn_details_returns_error() {
+    async fn get_client_config_no_conn_details_returns_error() {
         let db = InMemoryDb::shared();
         let dst = crate::db::Node {
             id: "dst".to_string(),
@@ -395,12 +360,12 @@ mod tests {
         };
         db.save_node(src).await.unwrap();
         let svc = make_route_service(db);
-        let result = svc.get_connection_details("src", "dst").await;
+        let result = svc.get_client_config("src", "dst").await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
-    async fn get_connection_details_same_group_local() {
+    async fn get_client_config_same_group_local() {
         let db = InMemoryDb::shared();
         let dst = crate::db::Node {
             id: "dst".to_string(),
@@ -419,7 +384,7 @@ mod tests {
         };
         db.save_node(src).await.unwrap();
         let svc = make_route_service(db);
-        let (ep, _) = svc.get_connection_details("src", "dst").await.unwrap();
+        let (ep, _) = svc.get_client_config("src", "dst").await.unwrap();
         assert!(ep.starts_with("http://dst:8080"));
     }
 

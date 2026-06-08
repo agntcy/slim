@@ -1,7 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-mod connections;
+mod commands;
+mod connection_config;
 mod links;
 mod node_lifecycle;
 pub mod reconciler;
@@ -20,7 +21,7 @@ use crate::node_transport::DefaultNodeCommandHandler;
 use crate::workqueue::WorkQueue;
 
 pub use crate::types::ALL_NODES_ID;
-pub(crate) use connections::is_connection_not_found;
+pub(crate) use connection_config::is_connection_not_found;
 
 struct Inner {
     db: SharedDb,

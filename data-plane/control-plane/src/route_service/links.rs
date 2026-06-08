@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::SystemTime;
 
 use uuid::Uuid;
@@ -9,12 +9,13 @@ use uuid::Uuid;
 use crate::db::LinkStatus;
 use crate::error::{Error, Result};
 
-use super::connections::{
-    ReportedConnection, compute_connection_details, find_reported_connection_for_dest,
+use super::connection_config::{
+    ReportedConnection, compute_client_config, find_reported_connection_for_dest,
 };
 impl super::RouteService {
-    /// Ensure direct or group links exist between `node_id` and every other
-    /// node allowed by the topology link policy.
+    /// Ensure inter-group links exist between `node_id` and nodes in other
+    /// groups allowed by the topology link policy. Same-group connectivity
+    /// is handled by the data plane.
     /// Returns (affected_node_ids, newly_created_links).
     pub(super) async fn ensure_links_for_node(
         &self,
@@ -45,6 +46,30 @@ impl super::RouteService {
             })
             .collect();
 
+        // Map node_id → group for quick lookup.
+        let node_group: HashMap<&str, &str> = all_nodes
+            .iter()
+            .map(|n| (n.id.as_str(), n.group_name.as_deref().unwrap_or("")))
+            .collect();
+
+        // Track which group pairs already have an active inter-group link.
+        let src_group = src_node.group_name.as_deref().unwrap_or("");
+        let mut linked_groups: HashSet<&str> = existing_links
+            .iter()
+            .filter(|l| l.status != LinkStatus::Deleted)
+            .filter_map(|l| {
+                let sg = node_group.get(l.source_node_id.as_str()).copied()?;
+                let dg = node_group.get(l.dest_node_id.as_str()).copied()?;
+                if sg == src_group && dg != src_group {
+                    Some(dg)
+                } else if dg == src_group && sg != src_group {
+                    Some(sg)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
         let has_src_external = src_node.conn_details.iter().any(|d| {
             d.external_endpoint
                 .as_deref()
@@ -59,25 +84,21 @@ impl super::RouteService {
             if connected_peers.contains(&other.id) {
                 continue;
             }
-            // Topology policy: skip link creation if the groups are not allowed to link.
-            let src_group = src_node.group_name.as_deref().unwrap_or("");
+            // Same-group links are handled by the data plane automatically.
             let dst_group = other.group_name.as_deref().unwrap_or("");
+            if src_group == dst_group {
+                continue;
+            }
+            // Only one link per group pair.
+            if linked_groups.contains(dst_group) {
+                continue;
+            }
+            // Topology policy: skip link creation if the groups are not allowed to link.
             if !self.0.topology.can_link(src_group, dst_group) {
                 tracing::debug!(
                     "topology policy: skipping link between {node_id} ({src_group}) and {} ({dst_group})",
                     other.id
                 );
-                continue;
-            }
-            let same_group = src_node.group_name == other.group_name;
-            if same_group {
-                if let Some((src, link)) = self
-                    .ensure_link_internal(&src_node, other, reported, false)
-                    .await
-                {
-                    affected.insert(src);
-                    new_links.extend(link);
-                }
                 continue;
             }
             let has_dst_external = other.conn_details.iter().any(|d| {
@@ -93,6 +114,7 @@ impl super::RouteService {
                 {
                     affected.insert(src);
                     new_links.extend(link);
+                    linked_groups.insert(dst_group);
                 }
                 continue;
             }
@@ -103,6 +125,7 @@ impl super::RouteService {
                 {
                     affected.insert(src);
                     new_links.extend(link);
+                    linked_groups.insert(dst_group);
                 }
                 continue;
             }
@@ -114,9 +137,9 @@ impl super::RouteService {
         (affected.into_iter().collect(), new_links)
     }
 
-    /// Ensure a link exists between src_node and dst_node.
-    /// When `reuse_existing_link_id` is true (cross-group links), tries to reuse
-    /// an existing link_id for the same source+endpoint before generating a new one.
+    /// Ensure an inter-group link exists between src_node and dst_node.
+    /// Tries to reuse an existing link_id for the same source+endpoint
+    /// before generating a new one.
     async fn ensure_link_internal(
         &self,
         src_node: &crate::db::Node,
@@ -133,7 +156,7 @@ impl super::RouteService {
                     LinkStatus::Applied,
                 )
             } else {
-                let (ep, cd) = match compute_connection_details(src_node, dst_node) {
+                let (ep, cd) = match compute_client_config(src_node, dst_node) {
                     Ok(pair) => pair,
                     Err(e) => {
                         tracing::error!(
@@ -165,6 +188,7 @@ impl super::RouteService {
             link_id,
             source_node_id: src_node.id.clone(),
             dest_node_id: dst_node.id.clone(),
+            dest_group: dst_node.group_name.clone().unwrap_or_default(),
             dest_endpoint: endpoint,
             conn_config_data: config_data,
             status,

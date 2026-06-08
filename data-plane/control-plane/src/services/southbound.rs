@@ -226,7 +226,7 @@ async fn build_node_connections(
             continue;
         }
         let mut config = match route_service
-            .get_connection_details(&link.source_node_id, &link.dest_node_id)
+            .get_client_config(&link.source_node_id, &link.dest_node_id)
             .await
         {
             Ok((_endpoint, cfg)) => cfg,
