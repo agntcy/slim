@@ -137,9 +137,10 @@ impl super::RouteService {
         (affected.into_iter().collect(), new_links)
     }
 
-    /// Ensure an inter-group link exists between src_node and dst_node.
-    /// Tries to reuse an existing link_id for the same source+endpoint
-    /// before generating a new one.
+    /// Ensure an inter-group link exists between src_node and a node in the
+    /// destination group. The `dest_node_id` is left empty because the actual
+    /// destination node is unknown until the remote side claims the link.
+    /// `dst_node` is used only to derive the dest_group and endpoint.
     async fn ensure_link_internal(
         &self,
         src_node: &crate::db::Node,
@@ -147,13 +148,17 @@ impl super::RouteService {
         reported: &[ReportedConnection],
         reuse_existing_link_id: bool,
     ) -> Option<(String, Option<crate::db::Link>)> {
+        let dest_group = dst_node.group_name.clone().unwrap_or_default();
+
         let (endpoint, config_data, link_id, status) =
             if let Some(rc) = find_reported_connection_for_dest(reported, dst_node) {
                 (
                     rc.endpoint.clone(),
                     rc.config_data.clone(),
                     rc.link_id.clone(),
-                    LinkStatus::Applied,
+                    // Source already confirmed the connection; mark Connecting
+                    // until the destination claims the link.
+                    LinkStatus::Connecting,
                 )
             } else {
                 let (ep, cd) = match compute_client_config(src_node, dst_node) {
@@ -175,7 +180,7 @@ impl super::RouteService {
                         .await
                         .ok()
                         .flatten()
-                        .filter(|l| l.dest_node_id == dst_node.id)
+                        .filter(|l| l.dest_group == dest_group)
                         .map(|l| l.link_id)
                         .unwrap_or_else(|| Uuid::new_v4().to_string())
                 } else {
@@ -187,8 +192,9 @@ impl super::RouteService {
         let link = crate::db::Link {
             link_id,
             source_node_id: src_node.id.clone(),
-            dest_node_id: dst_node.id.clone(),
-            dest_group: dst_node.group_name.clone().unwrap_or_default(),
+            // dest_node_id is left empty — resolved when the remote node claims the link.
+            dest_node_id: String::new(),
+            dest_group,
             dest_endpoint: endpoint,
             conn_config_data: config_data,
             status,
@@ -207,9 +213,9 @@ impl super::RouteService {
             }
             Err(e) => {
                 tracing::error!(
-                    "ensure_link: failed to ensure link {}->{}:  {e}",
+                    "ensure_link: failed to ensure link {}->dest_group({}):  {e}",
                     src_node.id,
-                    dst_node.id
+                    dst_node.group_name.as_deref().unwrap_or("")
                 );
                 None
             }
@@ -262,17 +268,15 @@ mod tests {
             .ensure_links_for_node("spoke-a", &[], &all_nodes, &[])
             .await;
 
-        // spoke-a should link to hub but NOT to spoke-b
+        // spoke-a should link to hub's group (platform) but NOT to spoke-b's group
         assert!(affected.contains(&"spoke-a".to_string()));
-        assert!(
-            new_links
-                .iter()
-                .any(|l| l.dest_node_id == "hub-node" || l.source_node_id == "hub-node")
-        );
+        assert!(new_links.iter().any(|l| l.dest_group == "platform"
+            || l.source_node_id == "hub-node"));
         assert!(
             !new_links
                 .iter()
-                .any(|l| l.dest_node_id == "spoke-b" || l.source_node_id == "spoke-b")
+                .any(|l| l.dest_group == "customer-b"
+                    || l.source_node_id == "spoke-b")
         );
     }
 

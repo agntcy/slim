@@ -607,7 +607,6 @@ impl DataAccess for SqliteDb {
     async fn add_link(&self, mut link: Link) -> Result<Link> {
         if link.link_id.is_empty()
             || link.source_node_id.is_empty()
-            || link.dest_node_id.is_empty()
             || link.dest_endpoint.is_empty()
         {
             return Err(Error::LinkMissingFields);
@@ -645,7 +644,6 @@ impl DataAccess for SqliteDb {
     async fn update_link(&self, mut link: Link) -> Result<()> {
         if link.link_id.is_empty()
             || link.source_node_id.is_empty()
-            || link.dest_node_id.is_empty()
             || link.dest_endpoint.is_empty()
         {
             return Err(Error::LinkMissingFields);
@@ -686,7 +684,6 @@ impl DataAccess for SqliteDb {
     async fn delete_link(&self, link: &Link) -> Result<()> {
         if link.link_id.is_empty()
             || link.source_node_id.is_empty()
-            || link.dest_node_id.is_empty()
             || link.dest_endpoint.is_empty()
         {
             return Err(Error::LinkMissingFields);
@@ -779,7 +776,6 @@ impl DataAccess for SqliteDb {
     async fn find_or_create_link(&self, mut link: Link) -> Result<(Link, bool)> {
         if link.link_id.is_empty()
             || link.source_node_id.is_empty()
-            || link.dest_node_id.is_empty()
             || link.dest_endpoint.is_empty()
         {
             return Err(Error::LinkMissingFields);
@@ -801,24 +797,42 @@ impl DataAccess for SqliteDb {
             })?;
 
         let result = async {
-            let existing = links::table
-                .filter(links::status.ne(LinkStatus::Deleted))
-                .filter(
-                    links::source_node_id
-                        .eq(&link.source_node_id)
-                        .and(links::dest_node_id.eq(&link.dest_node_id))
-                        .or(links::source_node_id
-                            .eq(&link.dest_node_id)
-                            .and(links::dest_node_id.eq(&link.source_node_id))),
-                )
-                .order(links::last_updated.desc())
-                .first::<Link>(&mut conn)
-                .await
-                .optional()
-                .map_err(|e| Error::DbError {
-                    context: "find_or_create_link select",
-                    msg: e.to_string(),
-                })?;
+            // Uniqueness depends on whether the link has a known destination node.
+            // Unclaimed (dest_node_id empty): unique by (source_node_id, dest_group)
+            // Claimed (dest_node_id set): unique by node pair (bidirectional)
+            let existing = if link.dest_node_id.is_empty() {
+                links::table
+                    .filter(links::status.ne(LinkStatus::Deleted))
+                    .filter(links::source_node_id.eq(&link.source_node_id))
+                    .filter(links::dest_group.eq(&link.dest_group))
+                    .order(links::last_updated.desc())
+                    .first::<Link>(&mut conn)
+                    .await
+                    .optional()
+                    .map_err(|e| Error::DbError {
+                        context: "find_or_create_link select",
+                        msg: e.to_string(),
+                    })?
+            } else {
+                links::table
+                    .filter(links::status.ne(LinkStatus::Deleted))
+                    .filter(
+                        links::source_node_id
+                            .eq(&link.source_node_id)
+                            .and(links::dest_node_id.eq(&link.dest_node_id))
+                            .or(links::source_node_id
+                                .eq(&link.dest_node_id)
+                                .and(links::dest_node_id.eq(&link.source_node_id))),
+                    )
+                    .order(links::last_updated.desc())
+                    .first::<Link>(&mut conn)
+                    .await
+                    .optional()
+                    .map_err(|e| Error::DbError {
+                        context: "find_or_create_link select",
+                        msg: e.to_string(),
+                    })?
+            };
 
             if let Some(existing) = existing {
                 return Ok((existing, false));
@@ -960,6 +974,58 @@ impl DataAccess for SqliteDb {
                 context: "list_all_links",
                 msg: e.to_string(),
             })
+    }
+
+    async fn claim_link(
+        &self,
+        link_id: &str,
+        dest_group: &str,
+        claimant_node_id: &str,
+    ) -> Result<Option<Link>> {
+        let now = SystemTime::now();
+        let ts = DbTimestamp::from(now);
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "claim_link pool",
+            msg: e.to_string(),
+        })?;
+
+        // Atomic CAS: only update if dest_node_id is empty and dest_group matches.
+        let updated = diesel::update(
+            links::table
+                .filter(links::link_id.eq(link_id))
+                .filter(links::dest_node_id.eq(""))
+                .filter(links::dest_group.eq(dest_group))
+                .filter(links::status.ne(LinkStatus::Deleted)),
+        )
+        .set((
+            links::dest_node_id.eq(claimant_node_id),
+            links::status.eq(LinkStatus::Applied),
+            links::last_updated.eq(ts),
+        ))
+        .execute(&mut conn)
+        .await
+        .map_err(|e| Error::DbError {
+            context: "claim_link update",
+            msg: e.to_string(),
+        })?;
+
+        if updated == 0 {
+            return Ok(None);
+        }
+
+        // Fetch the updated link.
+        let link = links::table
+            .filter(links::link_id.eq(link_id))
+            .filter(links::dest_node_id.eq(claimant_node_id))
+            .first::<Link>(&mut conn)
+            .await
+            .optional()
+            .map_err(|e| Error::DbError {
+                context: "claim_link fetch",
+                msg: e.to_string(),
+            })?;
+
+        Ok(link)
     }
 }
 

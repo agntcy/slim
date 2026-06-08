@@ -117,6 +117,21 @@ pub trait DataAccess: Send + Sync {
     ) -> Result<Vec<Link>>;
     /// Return every link record in the store (no filtering).
     async fn list_all_links(&self) -> Result<Vec<Link>>;
+
+    /// Atomically claim an unclaimed link for a destination node.
+    ///
+    /// Succeeds only if the link exists with `dest_node_id == ""` and
+    /// `dest_group == dest_group`. On success, sets `dest_node_id` to
+    /// `claimant_node_id` and `status` to `Applied`.
+    ///
+    /// Returns `Ok(Some(link))` if claimed, `Ok(None)` if already claimed or
+    /// not found.
+    async fn claim_link(
+        &self,
+        link_id: &str,
+        dest_group: &str,
+        claimant_node_id: &str,
+    ) -> Result<Option<Link>>;
 }
 
 pub type SharedDb = Arc<dyn DataAccess>;
