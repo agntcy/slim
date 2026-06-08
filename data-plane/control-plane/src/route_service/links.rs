@@ -272,13 +272,15 @@ mod tests {
 
         // spoke-a should link to hub's group (platform) but NOT to spoke-b's group
         assert!(affected.contains(&"spoke-a".to_string()));
-        assert!(new_links.iter().any(|l| l.dest_group == "platform"
-            || l.source_node_id == "hub-node"));
+        assert!(
+            new_links
+                .iter()
+                .any(|l| l.dest_group == "platform" || l.source_node_id == "hub-node")
+        );
         assert!(
             !new_links
                 .iter()
-                .any(|l| l.dest_group == "customer-b"
-                    || l.source_node_id == "spoke-b")
+                .any(|l| l.dest_group == "customer-b" || l.source_node_id == "spoke-b")
         );
     }
 

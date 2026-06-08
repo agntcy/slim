@@ -789,14 +789,13 @@ impl DataAccess for InMemoryDb {
             };
             let mut found = None;
             for key in keys {
-                if let Some(link) = store.primary.get(key) {
-                    if link.dest_node_id.is_empty()
-                        && link.dest_group == dest_group
-                        && link.status != LinkStatus::Deleted
-                    {
-                        found = Some(key.clone());
-                        break;
-                    }
+                if let Some(link) = store.primary.get(key)
+                    && link.dest_node_id.is_empty()
+                    && link.dest_group == dest_group
+                    && link.status != LinkStatus::Deleted
+                {
+                    found = Some(key.clone());
+                    break;
                 }
             }
             match found {

@@ -337,7 +337,7 @@ async fn process_connection_acks(
     desired_link_ids: &HashSet<String>,
     node_id: &str,
 ) -> Result<HashSet<String>> {
-    let mut enqueue_nodes: HashSet<String> = HashSet::new();
+    let enqueue_nodes: HashSet<String> = HashSet::new();
 
     let links_by_id: HashMap<&str, &crate::db::Link> = links
         .iter()

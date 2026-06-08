@@ -234,10 +234,7 @@ impl super::RouteService {
 
         // Endpoint changed or DP says link is dead — refresh config and reset to Pending.
         if conn_details_updated {
-            match self
-                .get_client_config(&link.source_node_id, node_id)
-                .await
-            {
+            match self.get_client_config(&link.source_node_id, node_id).await {
                 Ok((endpoint, config_data)) => {
                     link.dest_endpoint = endpoint;
                     link.conn_config_data = config_data;
