@@ -95,10 +95,10 @@ impl super::RouteService {
             .map(|n| n.id.as_str())
             .collect();
 
-        // Find any non-deleted link connecting a node in group_a to a node in group_b.
-        // Links are bidirectional, so check both directions.
+        // Find an established link connecting a node in group_a to a node in group_b.
+        // Only Applied links with a known dest_node_id are usable for routing.
         for link in all_links {
-            if link.status == LinkStatus::Deleted {
+            if link.status != LinkStatus::Applied || link.dest_node_id.is_empty() {
                 continue;
             }
             if nodes_a.contains(link.source_node_id.as_str())

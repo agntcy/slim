@@ -280,6 +280,16 @@ async fn build_desired_routes<'a>(
                 }
                 continue;
             }
+            // Only push routes over fully established links (Applied + claimed).
+            if l.status != LinkStatus::Applied || l.dest_node_id.is_empty() {
+                tracing::debug!(
+                    "reconciler: deferring route {} — link {link_id} not yet established (status={:?})",
+                    route.id,
+                    l.status
+                );
+                needs_requeue = true;
+                continue;
+            }
         } else {
             tracing::warn!(
                 "reconciler: skipping route {} — link {link_id} not found",
@@ -343,26 +353,24 @@ async fn process_connection_acks(
 
         let mut updated = link.clone();
         if conn_ack.success {
-            updated.status = LinkStatus::Applied;
+            // Source confirmed the connection. Move to Connecting — the link
+            // becomes Applied only when the destination claims it.
+            updated.status = LinkStatus::Connecting;
             updated.status_msg = String::new();
             tracing::info!(
-                "reconciler: link {} ({}→{}) applied",
+                "reconciler: link {} ({}→dest_group:{}) connecting, awaiting dest claim",
                 link.link_id,
                 link.source_node_id,
-                link.dest_node_id
+                link.dest_group
             );
-            enqueue_nodes.insert(link.dest_node_id.clone());
-            for r in db.get_routes_by_link_id(&link.link_id).await? {
-                enqueue_nodes.insert(r.source_node_id.clone());
-            }
         } else {
             updated.status = LinkStatus::Failed;
             updated.status_msg = conn_ack.error_msg.clone();
             tracing::warn!(
-                "reconciler: link {} ({}→{}) failed: {}",
+                "reconciler: link {} ({}→dest_group:{}) failed: {}",
                 link.link_id,
                 link.source_node_id,
-                link.dest_node_id,
+                link.dest_group,
                 conn_ack.error_msg
             );
         }
