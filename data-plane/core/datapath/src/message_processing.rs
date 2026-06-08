@@ -1149,10 +1149,27 @@ impl MessageProcessor {
             );
         }
 
-        // Handle peer upgrade if client indicated peer connection_type.
-        if payload.connection_type == LinkConnectionType::Peer as i32 {
-            self.handle_peer_upgrade(payload, in_connection, link_id)
-                .await?;
+        // Handle connection type after negotiation.
+        match LinkConnectionType::try_from(payload.connection_type) {
+            Ok(LinkConnectionType::Peer) => {
+                self.handle_peer_upgrade(payload, in_connection, link_id)
+                    .await?;
+            }
+            Ok(LinkConnectionType::Remote) => {
+                // Notify the controller that we received a remote incoming connection
+                // so it can claim the link on the control-plane side.
+                if let Some(tx) = self.get_tx_control_plane() {
+                    let link = ProtoLink {
+                        link_type: Some(ProtoLinkType::LinkNegotiation(payload.clone())),
+                    };
+                    let msg = ProtoMessage {
+                        metadata: Default::default(),
+                        message_type: Some(LinkType(link)),
+                    };
+                    let _ = tx.send(Ok(msg)).await;
+                }
+            }
+            _ => {}
         }
 
         Ok(())
