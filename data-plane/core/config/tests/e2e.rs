@@ -82,6 +82,7 @@ mod tests {
     use slim_config::auth::jwt::JwtKey;
     use slim_config::auth::static_jwt::Config as BearerAuthConfig;
     use slim_config::grpc::client::AuthenticationConfig as ClientAuthenticationConfig;
+    use slim_config::grpc::client::BackoffConfig;
     use slim_config::grpc::server::AuthenticationConfig as ServerAuthenticationConfig;
     use slim_config::tls::client::TlsClientConfig;
     use slim_config::tls::provider;
@@ -107,20 +108,14 @@ mod tests {
 
     static TEST_DATA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata");
 
-    static NEXT_PORT: std::sync::OnceLock<std::sync::atomic::AtomicU16> =
-        std::sync::OnceLock::new();
-
     fn reserve_port() -> u16 {
-        let port_atom = NEXT_PORT.get_or_init(|| {
-            let pid = std::process::id();
-            std::sync::atomic::AtomicU16::new(51120 + ((pid % 100) as u16) * 10)
-        });
-        loop {
-            let port = port_atom.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            if std::net::TcpListener::bind(format!("[::1]:{}", port)).is_ok() {
-                return port;
-            }
-        }
+        let listener = std::net::TcpListener::bind("[::1]:0")
+            .or_else(|_| std::net::TcpListener::bind("127.0.0.1:0"))
+            .expect("failed to reserve test port");
+        listener
+            .local_addr()
+            .expect("failed to read reserved port")
+            .port()
     }
 
     async fn run_server(
@@ -151,15 +146,27 @@ mod tests {
         client_config: ClientConfig,
         server_config: ServerConfig,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        setup_client_and_server_with_server(client_config, server_config)
+            .await
+            .map(|_| ())
+    }
+
+    async fn setup_client_and_server_with_server(
+        client_config: ClientConfig,
+        server_config: ServerConfig,
+    ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
         provider::initialize_crypto_provider();
 
         // run grpc server
         let client_config_clone = client_config.clone();
-        let _server = tokio::spawn(async move {
+        let server_handle = tokio::spawn(async move {
             if let Err(e) = run_server(client_config_clone, server_config).await {
                 tracing::error!(error = %e, "server error");
             }
         });
+
+        // Give the server a brief moment to bind before the client connects.
+        tokio::task::yield_now().await;
 
         // create a client using the channel
         let channel = match client_config.to_channel().await {
@@ -189,7 +196,7 @@ mod tests {
         // print response
         debug!(?response);
 
-        Ok(())
+        Ok(server_handle)
     }
 
     #[cfg(unix)]
@@ -324,6 +331,11 @@ mod tests {
                     .with_tls_version("tls1.3")
                     .with_ca_file(&(TEST_DATA_PATH.to_string() + "/tls/ca-1.crt")),
             )
+            .with_connect_timeout(Duration::from_secs(5))
+            .with_backoff(BackoffConfig::new_fixed_interval(
+                Duration::from_millis(100),
+                20,
+            ))
             .with_auth(auth_client_config);
 
         // create server config
@@ -339,7 +351,8 @@ mod tests {
             .with_auth(auth_server_config);
 
         // run grpc server and client
-        setup_client_and_server(client_config.clone(), server_config).await?;
+        let server_handle =
+            setup_client_and_server_with_server(client_config.clone(), server_config).await?;
 
         // create a new client with wrong credentials
         let channel = match client_config
@@ -367,6 +380,9 @@ mod tests {
         if response.is_ok() {
             return Err("expected authentication failure for wrong credentials".into());
         }
+
+        server_handle.abort();
+        let _ = server_handle.await;
         Ok(())
     }
 
