@@ -170,16 +170,16 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        assert!(messages.push(p0.clone()));
+        messages.push(p0.clone());
 
         assert_eq!(messages.get(0).unwrap(), p0);
         assert_eq!(messages.get(0).unwrap(), p0);
         assert_eq!(messages.get(0).unwrap(), p0);
         assert_eq!(messages.get(1), None);
 
-        assert!(messages.push(p0.clone()));
-        assert!(messages.push(p1.clone()));
-        assert!(messages.push(p2.clone()));
+        messages.push(p0.clone());
+        messages.push(p1.clone());
+        messages.push(p2.clone());
 
         assert_eq!(messages.get(0).unwrap(), p0);
         assert_eq!(messages.get(1).unwrap(), p1);
@@ -187,7 +187,7 @@ mod tests {
         assert_eq!(messages.get(3), None);
 
         // now the messages is full, add a new element will remote the elem 0
-        assert!(messages.push(p3.clone()));
+        messages.push(p3.clone());
         assert_eq!(messages.get(0), None);
         assert_eq!(messages.get(1).unwrap(), p1);
         assert_eq!(messages.get(2).unwrap(), p2);
@@ -195,7 +195,7 @@ mod tests {
         assert_eq!(messages.get(4), None);
 
         // now the messages is full, add a new element will remote the elem 1
-        assert!(messages.push(p4.clone()));
+        messages.push(p4.clone());
         assert_eq!(messages.get(0), None);
         assert_eq!(messages.get(1), None);
         assert_eq!(messages.get(2).unwrap(), p2);
@@ -211,11 +211,11 @@ mod tests {
         assert_eq!(messages.get(4), None);
 
         // add all msgs and check again
-        assert!(messages.push(p0.clone()));
-        assert!(messages.push(p1.clone()));
-        assert!(messages.push(p2.clone()));
-        assert!(messages.push(p3.clone()));
-        assert!(messages.push(p4.clone()));
+        messages.push(p0.clone());
+        messages.push(p1.clone());
+        messages.push(p2.clone());
+        messages.push(p3.clone());
+        messages.push(p4.clone());
         assert_eq!(messages.get(0), None);
         assert_eq!(messages.get(1), None);
         assert_eq!(messages.get(2).unwrap(), p2);
