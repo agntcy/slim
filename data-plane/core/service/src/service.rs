@@ -10,7 +10,7 @@ use std::sync::Arc;
 use display_error_chain::ErrorChainExt;
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use slim_config::client::ClientConfig;
 use slim_config::component::configuration::Configuration;
@@ -21,7 +21,11 @@ use slim_controller::config::Config as ControllerConfig;
 use slim_controller::config::Config as DataplaneConfig;
 use slim_controller::service::ControlPlane;
 use slim_datapath::message_processing::MessageProcessor;
-use slim_datapath::peer_discovery::{PeerConfig, PeerTopology, StaticPeerDiscovery};
+#[cfg(feature = "kubernetes")]
+use slim_datapath::peer_discovery::KubernetesPeerDiscovery;
+use slim_datapath::peer_discovery::{
+    PeerConfig, PeerDiscoveryConfig, PeerTopology, StaticPeerDiscovery,
+};
 use slim_datapath::sync::PeerSyncConfig;
 use slim_datapath::sync::PeerSyncManager;
 use slim_datapath::tables::ConnType;
@@ -358,33 +362,8 @@ impl Service {
     fn start_peer_sync(&self, peer_config: &PeerConfig) {
         let self_id = self.config.node_id.clone();
 
-        // Determine if we are the hub (smallest node_id among all peers including self).
-        let is_hub = peer_config
-            .static_peers
-            .iter()
-            .map(|entry| entry.node_id.as_str())
-            .all(|peer_id| self_id.as_str() <= peer_id);
-
-        info!(
-            %self_id,
-            %is_hub,
-            topology = ?peer_config.topology,
-            peer_group = %peer_config.peer_group,
-            num_static_peers = peer_config.static_peers.len(),
-            "starting peer sync manager"
-        );
-
         let cancel = CancellationToken::new();
         *self.peer_sync_cancel.lock() = Some(cancel.clone());
-
-        let discovery = StaticPeerDiscovery::from_static_peers(&peer_config.static_peers, &self_id);
-
-        let sync_config = PeerSyncConfig {
-            self_id,
-            peer_group: peer_config.peer_group.clone(),
-            topology: peer_config.topology.clone(),
-            is_hub,
-        };
 
         let incoming_peer_rx = self
             .message_processor
@@ -392,11 +371,79 @@ impl Service {
             .expect("incoming_peer_rx already taken");
         let mp = (*self.message_processor).clone();
 
-        let mut manager = PeerSyncManager::new(sync_config, mp, discovery, incoming_peer_rx);
+        match &peer_config.discovery {
+            PeerDiscoveryConfig::StaticPeers { peers } => {
+                // Determine if we are the hub (smallest node_id among all peers including self).
+                let is_hub = peers
+                    .iter()
+                    .map(|entry| entry.node_id.as_str())
+                    .all(|peer_id| self_id.as_str() <= peer_id);
 
-        tokio::spawn(async move {
-            manager.run(cancel).await;
-        });
+                info!(
+                    %self_id,
+                    %is_hub,
+                    topology = ?peer_config.topology,
+                    peer_group = %peer_config.peer_group,
+                    num_peers = peers.len(),
+                    "starting peer sync manager (static peers)"
+                );
+
+                let sync_config = PeerSyncConfig {
+                    self_id: self_id.clone(),
+                    peer_group: peer_config.peer_group.clone(),
+                    topology: peer_config.topology.clone(),
+                    is_hub,
+                };
+
+                let discovery = StaticPeerDiscovery::from_static_peers(peers, &self_id);
+                let mut manager =
+                    PeerSyncManager::new(sync_config, mp, discovery, incoming_peer_rx);
+                tokio::spawn(async move {
+                    manager.run(cancel).await;
+                });
+            }
+            #[cfg(feature = "kubernetes")]
+            PeerDiscoveryConfig::Kubernetes {
+                namespace,
+                label_selector,
+                port,
+            } => {
+                info!(
+                    %self_id,
+                    %namespace,
+                    %label_selector,
+                    %port,
+                    topology = ?peer_config.topology,
+                    peer_group = %peer_config.peer_group,
+                    "starting peer sync manager (kubernetes discovery)"
+                );
+
+                let sync_config = PeerSyncConfig {
+                    self_id: self_id.clone(),
+                    peer_group: peer_config.peer_group.clone(),
+                    topology: peer_config.topology.clone(),
+                    is_hub: false,
+                };
+
+                let discovery = KubernetesPeerDiscovery::new(
+                    namespace.clone(),
+                    label_selector.clone(),
+                    *port,
+                    self_id,
+                );
+                let mut manager =
+                    PeerSyncManager::new(sync_config, mp, discovery, incoming_peer_rx);
+                tokio::spawn(async move {
+                    manager.run(cancel).await;
+                });
+            }
+            #[cfg(not(feature = "kubernetes"))]
+            PeerDiscoveryConfig::Kubernetes { .. } => {
+                panic!(
+                    "kubernetes peer discovery configured but the 'kubernetes' feature is not enabled"
+                );
+            }
+        }
     }
 
     #[tracing::instrument(skip_all, fields(service_id = %self.id))]
