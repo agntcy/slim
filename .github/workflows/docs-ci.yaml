@@ -9,8 +9,6 @@ on:
   pull_request:
     paths:
       - 'docs/**'
-      - '.github/workflows/docs-ci.yaml'
-      - '.github/workflows/reusable-docs.yml'
 
 permissions:
   contents: read
