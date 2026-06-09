@@ -3,7 +3,6 @@
 
 pub use crate::client::{
     AuthenticationConfig, BackoffConfig, ClientConfig, KeepaliveConfig, TransportChannel,
-    is_valid_uuid_v4,
 };
 
 use std::str::FromStr;

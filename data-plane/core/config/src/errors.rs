@@ -108,10 +108,6 @@ pub enum ConfigError {
     #[error("resolution error")]
     ResolutionError,
 
-    // Link negotiation
-    #[error("link_id must be a valid UUID v4")]
-    InvalidLinkId,
-
     // ServerHandler routing
     #[error("server handler does not provide gRPC routes, but transport is gRPC")]
     HandlerMissingGrpcSupport,
