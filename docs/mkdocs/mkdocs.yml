@@ -68,6 +68,7 @@ plugins:
 nav:
   - Home: index.md
   - Documentation:
+      - Overview: slim/slim-overview.md
       - Get Started:
           - Getting Started: slim/slim-howto.md
           - Configuration Reference: slim/slim-data-plane-config.md
@@ -82,6 +83,7 @@ nav:
           - Group Creation and Management: slim/slim-group.md
           - Group Communication Tutorial: slim/slim-group-tutorial.md
       - Integrations:
+          - Overview: slim/slim-integrations.md
           - SLIMRPC:
               - Overview: slim/slim-rpc.md
               - Protoc Plugin: slim/slim-slimrpc-compiler.md

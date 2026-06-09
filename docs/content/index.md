@@ -81,9 +81,7 @@ scalability—serving as the transport for A2A, MCP, and custom agent protocols.
 
     Understand core concepts, the messaging layer, and the controller.
 
-    [:octicons-arrow-right-24: Messaging Layer](slim/slim-data-plane.md)
-
-    [:octicons-arrow-right-24: SLIM Controller](slim/slim-controller.md)
+    [:octicons-arrow-right-24: Overview](slim/slim-overview.md)
 
 - :material-file-document-outline:{ .lg .middle } **Dive into the Specification**
 
@@ -93,19 +91,19 @@ scalability—serving as the transport for A2A, MCP, and custom agent protocols.
 
 - :material-connection:{ .lg .middle } **Integrations**
 
-    Run A2A, MCP, and OpenTelemetry over SLIM.
+    Run A2A, MCP, SLIMRPC, and OpenTelemetry over SLIM.
 
-    [:octicons-arrow-right-24: SLIMRPC](slim/slim-rpc.md)
+    [:octicons-arrow-right-24: Integrations](slim/slim-integrations.md)
 
-    [:octicons-arrow-right-24: SLIM A2A](slim/slim-a2a.md)
+- :material-cog:{ .lg .middle } **Configure**
 
-    [:octicons-arrow-right-24: MCP over SLIM](slim/slim-mcp.md)
-
-- :material-cog:{ .lg .middle } **Configure and Deploy**
-
-    Tune the data plane and controller for your environment.
+    Tune the data plane for your environment.
 
     [:octicons-arrow-right-24: Configuration Reference](slim/slim-data-plane-config.md)
+
+- :material-text-box-outline:{ .lg .middle } **Reference**
+
+    Controller API and configuration details.
 
     [:octicons-arrow-right-24: Controller Reference](slim/slim-controller-reference.md)
 
