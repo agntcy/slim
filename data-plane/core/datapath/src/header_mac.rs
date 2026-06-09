@@ -278,6 +278,7 @@ mod tests {
     use super::*;
     use crate::api::proto::dataplane::v1::{EncodedName, Name, NameId, StringName};
     use crate::messages::utils::DEFAULT_TTL;
+    use uuid::Uuid;
 
     fn test_key() -> Vec<u8> {
         b"01234567890123456789012345678901".to_vec()
