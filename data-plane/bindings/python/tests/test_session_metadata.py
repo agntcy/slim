@@ -68,7 +68,7 @@ async def test_session_metadata_merge_roundtrip(server):
     # Create PointToPoint session with metadata
     sess_cfg = slim_bindings.SessionConfig(
         session_type=slim_bindings.SessionType.POINT_TO_POINT,
-        enable_mls=False,
+        mls_settings=None,
         max_retries=5,
         interval=datetime.timedelta(seconds=1),
         metadata=metadata,

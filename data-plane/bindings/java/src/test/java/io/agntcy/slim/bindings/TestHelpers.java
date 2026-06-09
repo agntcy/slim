@@ -13,6 +13,11 @@ public final class TestHelpers {
     /** Shared secret for tests (min 32 chars). */
     public static final String LONG_SECRET = "e4aaecb9ae0b23b82086bb8a8633e01fba16ae8d9c1379a613c00838";
 
+    /** Default MLS settings (100% header integrity validation). */
+    public static MlsSettings defaultMlsSettings() {
+        return new MlsSettings(100);
+    }
+
     private TestHelpers() {}
 
     /**

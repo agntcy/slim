@@ -7,7 +7,7 @@ pub mod context;
 pub mod controller_sender;
 pub mod errors;
 
-mod mls_state;
+pub mod mls_state;
 mod moderator_task;
 pub mod notification;
 pub mod producer_buffer;
@@ -21,7 +21,7 @@ mod session_moderator;
 mod session_participant;
 pub mod session_receiver;
 pub mod session_sender;
-mod session_settings;
+pub mod session_settings;
 pub mod subscription_manager;
 pub mod timer;
 pub mod timer_factory;

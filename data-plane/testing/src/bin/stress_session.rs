@@ -45,6 +45,11 @@ struct Args {
     /// Config file (optional, only used for tracing setup)
     #[arg(short, long)]
     config: Option<String>,
+
+    /// E2E header validation percentage (0-100) to enable MLS.
+    /// If not specified, MLS is completely disabled.
+    #[arg(long)]
+    validation_percent: Option<u32>,
 }
 
 #[tokio::main]
@@ -67,6 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         messages: args.messages,
         payload_size: args.payload_size,
         drain_timeout: Duration::from_secs(args.drain_timeout),
+        validation_percent: args.validation_percent,
     };
 
     println!("Starting in-process session-layer stress test:");
@@ -79,6 +85,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "  Mode:            {}",
         if reliable { "reliable" } else { "unreliable" }
     );
+    if let Some(percent) = cfg.validation_percent {
+        println!(
+            "  MLS:             enabled (E2E header validation: {}%)",
+            percent
+        );
+    } else {
+        println!("  MLS:             disabled");
+    }
     println!();
 
     let result = run_session_benchmark(&cfg, reliable)
@@ -93,6 +107,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "  Mode:              {}",
         if reliable { "reliable" } else { "unreliable" }
     );
+    if let Some(percent) = cfg.validation_percent {
+        println!(
+            "  MLS:               enabled (E2E header validation: {}%)",
+            percent
+        );
+    } else {
+        println!("  MLS:               disabled");
+    }
     println!("  Total sent:        {}", result.total_sent);
     println!("  Total received:    {}", result.total_received);
     println!("  Delivery:          {:.1}%", result.delivery_pct());

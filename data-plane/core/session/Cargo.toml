@@ -18,6 +18,7 @@ display-error-chain = { workspace = true }
 futures = { workspace = true }
 futures-timer = { workspace = true }
 parking_lot = { workspace = true }
+prost = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 smallvec = { workspace = true }
@@ -30,4 +31,9 @@ trait-variant = { workspace = true }
 
 [dev-dependencies]
 agntcy-slim-testing = { workspace = true }
+criterion = { workspace = true }
 tracing-test = { workspace = true }
+
+[[bench]]
+name = "header_integrity"
+harness = false

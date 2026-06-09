@@ -27,6 +27,7 @@ use futures::future::join_all;
 use futures::stream::Stream;
 use futures_timer::Delay;
 use parking_lot::RwLock as ParkingRwLock;
+use slim_session::session_config::MlsSettings;
 use tokio::sync::mpsc::{self, unbounded_channel};
 use tokio::task::JoinHandle;
 
@@ -414,11 +415,11 @@ impl Channel {
 
             let slim_config = slim_session::session_config::SessionConfig {
                 session_type,
-                mls_enabled: true,
                 max_retries: Some(10),
                 interval: Some(Duration::from_secs(1)),
                 initiator: true,
                 metadata: HashMap::new(),
+                mls_settings: Some(MlsSettings::default()),
             };
 
             let (session_ctx, completion) = app

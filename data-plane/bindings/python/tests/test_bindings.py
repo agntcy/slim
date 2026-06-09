@@ -83,10 +83,10 @@ async def test_end_to_end(server):
     session_context_alice = await app_alice.create_session_async(
         slim_bindings.SessionConfig(
             session_type=slim_bindings.SessionType.POINT_TO_POINT,
-            enable_mls=False,
             max_retries=5,
             interval=datetime.timedelta(seconds=1),
             metadata={},
+            mls_settings=None,
         ),
         bob_name,
     )
@@ -168,7 +168,13 @@ async def test_auto_reconnect_after_server_restart(server):
     - Wait for automatic reconnection
     - Publish again and confirm continuity using original session context
     """
-    endpoint = "127.0.0.1:12346"
+    import socket
+
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    endpoint = f"127.0.0.1:{port}"
 
     svc_server = slim_bindings.Service("svcserver")
     svc_alice = slim_bindings.Service("svcalice")
@@ -210,10 +216,10 @@ async def test_auto_reconnect_after_server_restart(server):
     session_context_alice = await app_alice.create_session_async(
         slim_bindings.SessionConfig(
             session_type=slim_bindings.SessionType.POINT_TO_POINT,
-            enable_mls=False,
             max_retries=5,
             interval=datetime.timedelta(seconds=1),
             metadata={},
+            mls_settings=None,
         ),
         bob_name,
     )
@@ -249,7 +255,7 @@ async def test_auto_reconnect_after_server_restart(server):
     # start the server
     _ = slim_bindings.Service("svcserver")
     await server.service.run_server_async(
-        slim_bindings.new_insecure_server_config("127.0.0.1:12346")
+        slim_bindings.new_insecure_server_config(endpoint)
     )
     await asyncio.sleep(
         3
@@ -316,10 +322,10 @@ async def test_error_on_nonexistent_subscription(server):
         session = await app_alice.create_session_async(
             slim_bindings.SessionConfig(
                 session_type=slim_bindings.SessionType.POINT_TO_POINT,
-                enable_mls=False,
                 max_retries=None,
                 interval=None,
                 metadata={},
+                mls_settings=None,
             ),
             bob_name,
         )
@@ -430,10 +436,10 @@ async def test_get_message_timeout(server):
     session_context_alice = await app_alice.create_session_async(
         slim_bindings.SessionConfig(
             session_type=slim_bindings.SessionType.POINT_TO_POINT,
-            enable_mls=False,
             max_retries=5,
             interval=datetime.timedelta(seconds=1),
             metadata={},
+            mls_settings=None,
         ),
         bob_name,
     )

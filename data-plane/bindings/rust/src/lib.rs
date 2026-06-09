@@ -99,7 +99,7 @@ pub use service::{
     DataplaneConfig, Service, ServiceConfig, create_service, create_service_with_config,
     new_dataplane_config, new_service_configuration,
 };
-pub use session::{Session, SessionConfig, SessionType};
+pub use session::{MlsSettings, Session, SessionConfig, SessionType};
 pub use transport_protocol::TransportProtocol;
 pub use transport_protocol::TransportProtocol as ClientTransportProtocol;
 pub use transport_protocol::TransportProtocol as ServerTransportProtocol;

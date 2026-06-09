@@ -18,6 +18,9 @@ pub mod websocket;
 
 mod opaque;
 
+#[cfg(test)]
+mod test_env;
+
 pub use server_handler::ServerHandler;
 
 pub const CLIENT_CONFIG_SCHEMA_JSON: &str = include_str!("./schema/client-config.schema.json");

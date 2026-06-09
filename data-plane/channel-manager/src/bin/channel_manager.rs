@@ -22,7 +22,7 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_config::component::ComponentBuilder;
 use slim_datapath::api::{ProtoName, ProtoSessionType};
 use slim_service::app::App;
-use slim_session::{Direction, SessionConfig};
+use slim_session::{Direction, SessionConfig, session_config::MlsSettings};
 use slim_tracing::TracingConfiguration;
 use tracing::{error, info, warn};
 
@@ -50,7 +50,11 @@ async fn create_channels_from_config(
         // Create a new session for the channel
         let session_config = SessionConfig {
             session_type: ProtoSessionType::Multicast,
-            mls_enabled: channel_cfg.mls_enabled,
+            mls_settings: if channel_cfg.mls_enabled {
+                Some(MlsSettings::default())
+            } else {
+                None
+            },
             max_retries: Some(10),
             interval: Some(Duration::from_millis(1000)),
             initiator: true,
