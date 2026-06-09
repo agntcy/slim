@@ -213,15 +213,24 @@ public enum SlimSessionType
 }
 
 /// <summary>
+/// MLS-specific settings for a session.
+/// </summary>
+public sealed class SlimMlsSettings
+{
+    /// <summary>0 = disable header-integrity checks; 1–100 = percent of messages to verify after decrypt.</summary>
+    public uint HeaderIntegrityValidationPercent { get; init; } = 100;
+
+    internal Internal.MlsSettings ToInternal() =>
+        new(HeaderIntegrityValidationPercent);
+}
+
+/// <summary>
 /// Configuration for creating a SLIM session.
 /// </summary>
 public sealed class SlimSessionConfig
 {
     /// <summary>Session type (PointToPoint or Group).</summary>
     public SlimSessionType SessionType { get; init; } = SlimSessionType.PointToPoint;
-
-    /// <summary>Whether to enable MLS encryption.</summary>
-    public bool EnableMls { get; init; }
 
     /// <summary>Maximum retry attempts for session establishment.</summary>
     public uint MaxRetries { get; init; } = 5;
@@ -232,16 +241,19 @@ public sealed class SlimSessionConfig
     /// <summary>Optional metadata key-value pairs.</summary>
     public Dictionary<string, string>? Metadata { get; init; }
 
+    /// <summary>MLS options (None disables MLS).</summary>
+    public SlimMlsSettings? MlsSettings { get; init; }
+
     internal Internal.SessionConfig ToInternal()
     {
         return new Internal.SessionConfig(
             SessionType: SessionType == SlimSessionType.PointToPoint
                 ? Internal.SessionType.PointToPoint
                 : Internal.SessionType.Group,
-            EnableMls: EnableMls,
             MaxRetries: MaxRetries,
             Interval: RetryInterval,
-            Metadata: Metadata ?? new Dictionary<string, string>()
+            Metadata: Metadata ?? new Dictionary<string, string>(),
+            MlsSettings: MlsSettings?.ToInternal()
         );
     }
 }

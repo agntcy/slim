@@ -650,7 +650,7 @@ async fn create_and_wait_session(
 ) -> Result<SessionContext> {
     let session_config = SessionConfig {
         session_type,
-        mls_enabled: false,
+        mls_settings: None,
         max_retries: Some(SESSION_MAX_RETRIES),
         interval: Some(SESSION_RETRY_INTERVAL),
         initiator: true,

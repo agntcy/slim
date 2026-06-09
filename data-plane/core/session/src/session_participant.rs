@@ -91,13 +91,15 @@ where
 {
     async fn init(&mut self) -> Result<(), SessionError> {
         // Initialize MLS
-        self.mls_state = if self.common.settings.config.mls_enabled {
-            let mls_state = MlsState::new(Mls::new(
-                self.common.settings.identity_provider.clone(),
-                self.common.settings.identity_verifier.clone(),
-            ))
+        self.mls_state = if let Some(mls_settings) = &self.common.settings.config.mls_settings {
+            let mls_state = MlsState::new(
+                Mls::new(
+                    self.common.settings.identity_provider.clone(),
+                    self.common.settings.identity_verifier.clone(),
+                ),
+                mls_settings.header_integrity_validation_percent,
+            )
             .expect("failed to create MLS state");
-
             Some(mls_state)
         } else {
             None
@@ -295,6 +297,10 @@ where
     M: SubscriptionOps,
 {
     fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
+        crate::session_controller::SessionController::apply_identity_to_slim_output(
+            output,
+            &self.common.settings.identity_provider,
+        )?;
         if let Some(mls_state) = &mut self.mls_state {
             mls_state.encrypt_output(output)?;
         }
@@ -775,7 +781,7 @@ mod tests {
             session_type,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: false,
             metadata: Default::default(),
         };
@@ -845,12 +851,7 @@ mod tests {
             .message_id(100)
             .payload(
                 CommandPayload::builder()
-                    .join_request(
-                        false,
-                        Some(3),
-                        Some(std::time::Duration::from_secs(1)),
-                        None,
-                    )
+                    .join_request(Some(3), Some(std::time::Duration::from_secs(1)), None, None)
                     .as_content(),
             )
             .build_publish()
@@ -1141,12 +1142,7 @@ mod tests {
             .message_id(100)
             .payload(
                 CommandPayload::builder()
-                    .join_request(
-                        false,
-                        Some(3),
-                        Some(std::time::Duration::from_secs(1)),
-                        None,
-                    )
+                    .join_request(Some(3), Some(std::time::Duration::from_secs(1)), None, None)
                     .as_content(),
             )
             .build_publish()

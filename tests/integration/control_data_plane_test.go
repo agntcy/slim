@@ -112,7 +112,7 @@ var _ = Describe("Routing", func() {
 	Describe("message routing", func() {
 		// getRouteWithID queries a SLIM node's route list and returns the full
 		// route name including the runtime-assigned app ID for the given prefix.
-		// The route list output format is: "org/ns/agent/<uuid> connections=[...]"
+		// The route list output format is: "org/ns/agent id=<id> local=[...] remote=[...]"
 		getRouteWithID := func(controllerPort int, routePrefix string) string {
 			var routeName string
 			re := regexp.MustCompile(fmt.Sprintf(`(%s/[0-9a-f-]+)`, regexp.QuoteMeta(routePrefix)))

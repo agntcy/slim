@@ -399,7 +399,7 @@ func TestGroupSession(t *testing.T) {
 
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypeGroup,
-		EnableMls:   false,
+		MlsSettings: nil,
 	}
 
 	destination := slim.NewName("org", "group", "v1")
@@ -420,7 +420,7 @@ func TestSessionInviteRemove(t *testing.T) {
 
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypeGroup,
-		EnableMls:   false,
+		MlsSettings: nil,
 	}
 
 	destination := slim.NewName("org", "group", "v1")
@@ -515,7 +515,7 @@ func TestSessionCreationAutoWait(t *testing.T) {
 
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypePointToPoint,
-		EnableMls:   false,
+		MlsSettings: nil,
 	}
 
 	// CreateSession should auto-wait for session establishment
@@ -540,7 +540,7 @@ func TestInviteAutoWait(t *testing.T) {
 
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypeGroup,
-		EnableMls:   false,
+		MlsSettings: nil,
 	}
 
 	destination := slim.NewName("org", "group", "v1")
@@ -574,7 +574,7 @@ func TestRemoveAutoWait(t *testing.T) {
 
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypeGroup,
-		EnableMls:   false,
+		MlsSettings: nil,
 	}
 
 	destination := slim.NewName("org", "group", "v1")
@@ -726,7 +726,7 @@ func BenchmarkPublishFireAndForget(b *testing.B) {
 	defer app.Destroy()
 
 	session, err := app.CreateSession(
-		slim.SessionConfig{SessionType: slim.SessionTypePointToPoint, EnableMls: false},
+		slim.SessionConfig{SessionType: slim.SessionTypePointToPoint, MlsSettings: nil},
 		slim.NewName("org", "receiver", "v1"),
 	)
 	if err != nil {
@@ -754,7 +754,7 @@ func BenchmarkPublishWithCompletion(b *testing.B) {
 	defer app.Destroy()
 
 	session, err := app.CreateSession(
-		slim.SessionConfig{SessionType: slim.SessionTypePointToPoint, EnableMls: false},
+		slim.SessionConfig{SessionType: slim.SessionTypePointToPoint, MlsSettings: nil},
 		slim.NewName("org", "receiver", "v1"),
 	)
 	if err != nil {
@@ -785,7 +785,7 @@ func BenchmarkPublishWithCompletionAndWait(b *testing.B) {
 	defer app.Destroy()
 
 	session, err := app.CreateSession(
-		slim.SessionConfig{SessionType: slim.SessionTypePointToPoint, EnableMls: false},
+		slim.SessionConfig{SessionType: slim.SessionTypePointToPoint, MlsSettings: nil},
 		slim.NewName("org", "receiver", "v1"),
 	)
 	if err != nil {

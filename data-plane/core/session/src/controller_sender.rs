@@ -833,7 +833,7 @@ mod tests {
             .message_id(1)
             .payload(
                 CommandPayload::builder()
-                    .join_request(false, None, None, Some(channel.clone()))
+                    .join_request(None, None, Some(channel.clone()), None)
                     .as_content(),
             )
             .build_publish()
@@ -1642,7 +1642,7 @@ mod tests {
             .message_id(1)
             .payload(
                 CommandPayload::builder()
-                    .join_request(false, None, None, None)
+                    .join_request(None, None, None, None)
                     .as_content(),
             )
             .build_publish()
@@ -1731,7 +1731,7 @@ mod tests {
             .fanout(256)
             .payload(
                 CommandPayload::builder()
-                    .join_request(false, None, None, Some(data_channel_name.clone()))
+                    .join_request(None, None, Some(data_channel_name.clone()), None)
                     .as_content(),
             )
             .build_publish()

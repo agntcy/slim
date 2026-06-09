@@ -11,8 +11,8 @@ use display_error_chain::ErrorChainExt;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, MlsPayload, NameId, Participant, ProtoMessage as Message, ProtoName,
-        ProtoSessionMessageType, ProtoSessionType,
+        CommandPayload, MlsPayload, NameId, Participant, ProtoMessage as Message, ProtoMlsSettings,
+        ProtoName, ProtoSessionMessageType, ProtoSessionType,
     },
     messages::utils::{DELETE_GROUP, DISCONNECTION_DETECTED, LEAVING_SESSION, TRUE_VAL},
 };
@@ -107,13 +107,15 @@ where
 {
     async fn init(&mut self) -> Result<(), SessionError> {
         // Initialize MLS
-        self.mls_state = if self.common.settings.config.mls_enabled {
-            let mls_state = MlsState::new(Mls::new(
-                self.common.settings.identity_provider.clone(),
-                self.common.settings.identity_verifier.clone(),
-            ))
+        self.mls_state = if let Some(mls_settings) = &self.common.settings.config.mls_settings {
+            let mls_state = MlsState::new(
+                Mls::new(
+                    self.common.settings.identity_provider.clone(),
+                    self.common.settings.identity_verifier.clone(),
+                ),
+                mls_settings.header_integrity_validation_percent,
+            )
             .expect("failed to create MLS state");
-
             Some(MlsModeratorState::new(mls_state))
         } else {
             None
@@ -342,6 +344,10 @@ where
     M: SubscriptionOps,
 {
     fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
+        crate::session_controller::SessionController::apply_identity_to_slim_output(
+            output,
+            &self.common.settings.identity_provider,
+        )?;
         if let Some(mls_state) = &mut self.mls_state {
             mls_state.common.encrypt_output(output)?;
         }
@@ -654,12 +660,22 @@ where
             None
         };
 
+        let mls_settings =
+            self.common
+                .settings
+                .config
+                .mls_settings
+                .as_ref()
+                .map(|s| ProtoMlsSettings {
+                    header_integrity_validation_percent: s.header_integrity_validation_percent,
+                });
+
         let payload = CommandPayload::builder()
             .join_request(
-                self.mls_state.is_some(),
                 self.common.settings.config.max_retries,
                 self.common.settings.config.interval,
                 channel,
+                mls_settings,
             )
             .as_content();
 
@@ -1299,7 +1315,7 @@ mod tests {
             session_type: ProtoSessionType::Multicast,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };
@@ -1446,12 +1462,7 @@ mod tests {
             .message_id(100)
             .payload(
                 CommandPayload::builder()
-                    .join_request(
-                        false,
-                        Some(3),
-                        Some(std::time::Duration::from_secs(1)),
-                        None,
-                    )
+                    .join_request(Some(3), Some(std::time::Duration::from_secs(1)), None, None)
                     .as_content(),
             )
             .build_publish()
@@ -1668,7 +1679,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };
@@ -1749,7 +1760,7 @@ mod tests {
             session_type: ProtoSessionType::Multicast,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };
@@ -1899,7 +1910,7 @@ mod tests {
             session_type: ProtoSessionType::Multicast,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };
