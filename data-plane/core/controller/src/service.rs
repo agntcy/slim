@@ -1872,11 +1872,11 @@ impl ControllerService {
             result = connect_fut => { result? }
             _ = cancellation_token.cancelled() => {
                 debug!("connection cancelled during setup");
-                return Err(ControllerError::AlreadyStopped);
+                return Err(ControllerError::Canceled);
             }
             _ = watch.signaled() => {
                 debug!("drain signal received during connection setup");
-                return Err(ControllerError::AlreadyStopped);
+                return Err(ControllerError::Canceled);
             }
         };
 
