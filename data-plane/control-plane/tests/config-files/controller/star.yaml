@@ -20,5 +20,5 @@ database:
 
 topology:
   links:
-    - name: node-a
+    - name: deployment-a
       peers: ["*"]

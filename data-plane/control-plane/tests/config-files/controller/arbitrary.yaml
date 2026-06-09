@@ -19,7 +19,7 @@ database:
 
 topology:
   links:
-    - name: node-a
-      peers: [node-b, node-c]
-    - name: node-c
-      peers: [node-d]
+    - name: deployment-a
+      peers: [deployment-b, deployment-c]
+    - name: deployment-c
+      peers: [deployment-d]
