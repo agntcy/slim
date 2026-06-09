@@ -20,7 +20,9 @@ use slim_control_plane::api::proto::controlplane::proto::v1::{
     AddRouteRequest, LinkEntry, LinkListRequest, Node as CpNode, NodeEntry, NodeListRequest,
     RouteEntry, RouteListRequest,
 };
-use slim_control_plane::config::{AdjacencyEntry, Config, DatabaseConfig, ReconcilerConfig, TopologyConfig};
+use slim_control_plane::config::{
+    AdjacencyEntry, Config, DatabaseConfig, ReconcilerConfig, TopologyConfig,
+};
 use slim_control_plane::server::ControlPlane;
 use slim_datapath::api::ProtoName as Name;
 use slim_datapath::peer_discovery::{PeerConfig, PeerTopology, StaticPeerEntry};
@@ -413,7 +415,12 @@ async fn wait_for_link_between_groups(
         if tokio::time::Instant::now() >= deadline {
             let link_info: Vec<_> = links
                 .iter()
-                .map(|l| format!("{}→{} [status={}]", l.source_node_id, l.dest_node_id, l.status))
+                .map(|l| {
+                    format!(
+                        "{}→{} [status={}]",
+                        l.source_node_id, l.dest_node_id, l.status
+                    )
+                })
                 .collect();
             panic!(
                 "timeout waiting for Applied link between groups {group_a} and {group_b}. Links: [{}]",
@@ -726,8 +733,7 @@ impl ThreeGroupSetup {
 }
 
 async fn setup_three_groups(reconciler: ReconcilerConfig) -> ThreeGroupSetup {
-    let cp =
-        start_control_plane_with_topology(reconciler, TopologyConfig::default()).await;
+    let cp = start_control_plane_with_topology(reconciler, TopologyConfig::default()).await;
     let sb = cp.southbound_port;
 
     // Reserve ports for all 6 nodes first
@@ -796,7 +802,10 @@ async fn test_inter_group_links_created_and_claimed() {
     // Verify link count: full mesh of 3 groups = 3 group-pairs.
     // Each pair has at least one link per direction, so at least 6 links.
     let links = collect_links(&mut client, "", "").await;
-    let applied_links: Vec<_> = links.iter().filter(|l| l.status == 2 && !l.deleted).collect();
+    let applied_links: Vec<_> = links
+        .iter()
+        .filter(|l| l.status == 2 && !l.deleted)
+        .collect();
     assert!(
         applied_links.len() >= 3,
         "expected at least 3 Applied links for full mesh of 3 groups, got {}",
@@ -972,9 +981,8 @@ async fn test_node_crash_and_link_recovery() {
         .with_test_writer()
         .try_init();
 
-    let cp =
-        start_control_plane_with_topology(test_reconciler_config(), TopologyConfig::default())
-            .await;
+    let cp = start_control_plane_with_topology(test_reconciler_config(), TopologyConfig::default())
+        .await;
     let mut client = create_nb_client(cp.northbound_port).await;
 
     let a_port = reserve_port();
@@ -986,12 +994,7 @@ async fn test_node_crash_and_link_recovery() {
     let id_a = grouped_node_id("group-a", "node-a");
     let id_b = grouped_node_id("group-b", "node-b");
 
-    wait_for_nodes_connected(
-        &mut client,
-        &[&id_a, &id_b],
-        Duration::from_secs(15),
-    )
-    .await;
+    wait_for_nodes_connected(&mut client, &[&id_a, &id_b], Duration::from_secs(15)).await;
 
     wait_for_link_between_groups(&mut client, "group-a", "group-b", Duration::from_secs(30)).await;
 
@@ -1062,10 +1065,20 @@ async fn test_spt_route_via_hub() {
     .await;
 
     // Verify spoke-to-hub links exist, no spoke-to-spoke link.
-    wait_for_link_between_groups(&mut client, "customer-a", "platform", Duration::from_secs(15))
-        .await;
-    wait_for_link_between_groups(&mut client, "customer-b", "platform", Duration::from_secs(15))
-        .await;
+    wait_for_link_between_groups(
+        &mut client,
+        "customer-a",
+        "platform",
+        Duration::from_secs(15),
+    )
+    .await;
+    wait_for_link_between_groups(
+        &mut client,
+        "customer-b",
+        "platform",
+        Duration::from_secs(15),
+    )
+    .await;
 
     let all_links = collect_links(&mut client, "", "").await;
     let spoke_to_spoke = all_links.iter().any(|l| {

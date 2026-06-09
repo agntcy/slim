@@ -28,9 +28,7 @@ impl super::RouteService {
         validate_route_nodes(source_node_id, dest_node_id)?;
 
         let Some(route_name) = route.name.as_ref() else {
-            return Err(Error::InvalidInput(
-                "route name is required".to_string(),
-            ));
+            return Err(Error::InvalidInput("route name is required".to_string()));
         };
 
         // For wildcard routes, determine whether this is the first announcer
@@ -111,9 +109,7 @@ impl super::RouteService {
         }
 
         let Some(route_name) = route.name.as_ref() else {
-            return Err(Error::InvalidInput(
-                "route name is required".to_string(),
-            ));
+            return Err(Error::InvalidInput("route name is required".to_string()));
         };
 
         let (c0, c1, c2) = route_name.str_components();

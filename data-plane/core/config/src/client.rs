@@ -16,7 +16,7 @@ use duration_string::DurationString;
 use std::{collections::HashMap, time::Duration};
 
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize}; 
+use serde::{Deserialize, Serialize};
 use tonic::codegen::{Body, Bytes, StdError};
 
 use slim_auth::metadata::MetadataMap;

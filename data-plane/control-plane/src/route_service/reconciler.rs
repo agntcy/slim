@@ -105,6 +105,22 @@ async fn handle_request(
     }
 
     let mut links = db.get_links_for_node(node_id).await?;
+    // Also include inter-group links involving any node in the same group.
+    // A route on this node may reference a link claimed by another node in
+    // the same group (one link per group pair, not per node pair).
+    let node_group = node_id.split('/').next().unwrap_or("");
+    if !node_group.is_empty() {
+        let all_links = db.list_all_links().await?;
+        for link in all_links {
+            if links.iter().any(|l| l.link_id == link.link_id) {
+                continue;
+            }
+            let link_src_group = link.source_node_id.split('/').next().unwrap_or("");
+            if link_src_group == node_group || link.dest_group == node_group {
+                links.push(link);
+            }
+        }
+    }
     let routes = db.get_routes_for_node(node_id).await?;
 
     let (desired_connections, desired_link_ids, deleted_links) =

@@ -1506,9 +1506,11 @@ impl MessageProcessor {
         };
 
         // Notify the control plane of local subscription transitions so it can
-        // create inter-group routes (SPT expansion). Only for non-peer connections
-        // (local apps) that cause an aggregate transition.
-        if !outcome.is_peer_conn && outcome.transition {
+        // create inter-group routes (SPT expansion). Only for local app connections
+        // that cause an aggregate transition (0→1 for subscribe, 1→0 for unsubscribe).
+        // Remote connection subscribes are already forwarded to the control plane
+        // by the process_stream loop.
+        if connection.is_local_connection() && !outcome.is_peer_conn && outcome.transition {
             if let Some(txcp) = self.get_tx_control_plane() {
                 let _ = txcp.send(Ok(msg.clone())).await;
             }
@@ -1885,10 +1887,24 @@ impl MessageProcessor {
                                         }
                                         // check if we need to send the message to the control plane
                                         // we send the message if
-                                        // 1. the message is coming from remote
-                                        // 2. it is not coming from the control plane itself
-                                        // 3. the control plane exists
-                                        if !is_local && !from_control_plane && let Some(txcp) = &tx_cp {
+                                        // 1. the message is not coming from a local connection
+                                        // 2. the connection is currently Remote (inter-group).
+                                        //    We read the live connection type because incoming
+                                        //    connections start as Remote and may be upgraded to
+                                        //    Peer after link negotiation — the captured `category`
+                                        //    would be stale in that case.
+                                        // 3. it is not coming from the control plane itself
+                                        // 4. the control plane exists
+                                        let is_remote = !is_local
+                                            && self_clone
+                                                .forwarder()
+                                                .get_connection(conn_index)
+                                                .map(|c| c.connection_type() == ConnType::Remote)
+                                                .unwrap_or(false);
+                                        if is_remote
+                                            && !from_control_plane
+                                            && let Some(txcp) = &tx_cp
+                                        {
                                             match msg.get_type() {
                                                 PublishType(_) | LinkType(_) | SubscriptionAckType(_) => {/* do nothing */}
                                                 _ => {

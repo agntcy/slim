@@ -47,25 +47,21 @@ impl super::RouteService {
             .collect();
 
         // Track which destination groups already have an active inter-group link
-        // from or to the source group.
+        // from or to the source group (across ALL nodes in the group, not just this one).
         let src_group = src_node.group_name.as_deref().unwrap_or("");
-        let mut linked_groups: HashSet<&str> = existing_links
+        let all_links = self.0.db.list_all_links().await.unwrap_or_default();
+        let mut linked_groups: HashSet<String> = all_links
             .iter()
             .filter(|l| l.status != LinkStatus::Deleted)
             .filter_map(|l| {
-                // Use dest_group directly — no node lookup needed.
                 let dg = l.dest_group.as_str();
-                if l.source_node_id == node_id && !dg.is_empty() && dg != src_group {
-                    // Outgoing link from src to another group.
-                    Some(dg)
-                } else if dg == src_group {
-                    // Incoming link targeting src_group — extract source's group from node_id.
-                    let sg = l.source_node_id.split('/').next().unwrap_or("");
-                    if !sg.is_empty() && sg != src_group {
-                        Some(sg)
-                    } else {
-                        None
-                    }
+                // Outgoing link from any node in src_group to another group.
+                let src_grp = l.source_node_id.split('/').next().unwrap_or("");
+                if src_grp == src_group && !dg.is_empty() && dg != src_group {
+                    Some(dg.to_string())
+                } else if dg == src_group && !src_grp.is_empty() && src_grp != src_group {
+                    // Incoming link targeting src_group from another group.
+                    Some(src_grp.to_string())
                 } else {
                     None
                 }
@@ -116,7 +112,7 @@ impl super::RouteService {
                 {
                     affected.insert(src);
                     new_links.extend(link);
-                    linked_groups.insert(dst_group);
+                    linked_groups.insert(dst_group.to_string());
                 }
                 continue;
             }
@@ -127,7 +123,7 @@ impl super::RouteService {
                 {
                     affected.insert(src);
                     new_links.extend(link);
-                    linked_groups.insert(dst_group);
+                    linked_groups.insert(dst_group.to_string());
                 }
                 continue;
             }
@@ -225,12 +221,39 @@ impl super::RouteService {
     }
 
     pub(super) async fn find_matching_link(&self, source: &str, dest: &str) -> Result<String> {
-        match self.0.db.find_link_between_nodes(source, dest).await? {
-            Some(l) if l.status != LinkStatus::Deleted => Ok(l.link_id),
-            _ => Err(Error::InvalidInput(format!(
-                "no matching link found for source={source} destination={dest}"
-            ))),
+        // First try exact node-to-node match (legacy / direct links).
+        if let Some(l) = self.0.db.find_link_between_nodes(source, dest).await? {
+            if l.status != LinkStatus::Deleted {
+                return Ok(l.link_id);
+            }
         }
+
+        // For inter-group links: find a link between the groups of source and dest.
+        // Inter-group links have source_node_id in one group and dest_group pointing
+        // to the other group (dest_node_id is the claiming node in that group).
+        let source_group = source.split('/').next().unwrap_or(source);
+        let dest_group = dest.split('/').next().unwrap_or(dest);
+        if source_group != dest_group {
+            let all_links = self.0.db.list_all_links().await?;
+            for link in &all_links {
+                if link.status == LinkStatus::Deleted {
+                    continue;
+                }
+                let link_src_group = link.source_node_id.split('/').next().unwrap_or("");
+                // Link from dest_group → source_group (source node uses this link)
+                if link_src_group == dest_group && link.dest_group == source_group {
+                    return Ok(link.link_id.clone());
+                }
+                // Link from source_group → dest_group
+                if link_src_group == source_group && link.dest_group == dest_group {
+                    return Ok(link.link_id.clone());
+                }
+            }
+        }
+
+        Err(Error::InvalidInput(format!(
+            "no matching link found for source={source} destination={dest}"
+        )))
     }
 }
 
