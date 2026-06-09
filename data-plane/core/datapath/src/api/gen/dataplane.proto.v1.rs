@@ -84,15 +84,17 @@ pub struct SlimHeader {
     pub fanout: u32,
     #[prost(string, tag = "5")]
     pub version: ::prost::alloc::string::String,
-    #[prost(uint64, optional, tag = "6")]
-    pub recv_from: ::core::option::Option<u64>,
+    #[prost(uint32, tag = "6")]
+    pub ttl: u32,
     #[prost(uint64, optional, tag = "7")]
-    pub forward_to: ::core::option::Option<u64>,
+    pub recv_from: ::core::option::Option<u64>,
     #[prost(uint64, optional, tag = "8")]
+    pub forward_to: ::core::option::Option<u64>,
+    #[prost(uint64, optional, tag = "9")]
     pub incoming_conn: ::core::option::Option<u64>,
-    #[prost(bool, optional, tag = "9")]
+    #[prost(bool, optional, tag = "10")]
     pub error: ::core::option::Option<bool>,
-    #[prost(bytes = "vec", optional, tag = "10")]
+    #[prost(bytes = "vec", optional, tag = "11")]
     pub header_mac: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
