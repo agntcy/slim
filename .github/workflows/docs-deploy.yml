@@ -1,0 +1,88 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+#
+# Docs deploys via the reusable docs pipeline:
+#   - push to main         -> mode deploy-dev      (`dev` version; never `latest`)
+#   - release tag vX.Y.Z    -> mode deploy-release  (`X.Y.Z` + `latest`, default)
+#   - workflow_dispatch     -> mode deploy-release, version from input
+#
+# gh-pages is the version ledger (mike --push). Event parsing lives here (needs
+# the GitHub event context); the mike/task mechanics live in docs/Taskfile.yml.
+
+name: Documentation Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs-deploy.yml'
+      - '.github/workflows/reusable-docs.yml'
+    tags:
+      - 'v*.*.*'
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Docs version label for mike (e.g. 1.2.0; no leading v required)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Serialize gh-pages updates so concurrent mike pushes do not race.
+concurrency:
+  group: docs-deploy-pages
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve deploy mode + version
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.r.outputs.mode }}
+      version: ${{ steps.r.outputs.version }}
+    steps:
+      - name: Resolve mode and version
+        id: r
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          MODE=""
+          VERSION=""
+          if [ "${EVENT_NAME}" = "push" ] && [ "${REF}" = "refs/heads/main" ]; then
+            MODE="deploy-dev"
+          elif [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            MODE="deploy-release"
+            VERSION="${INPUT_VERSION}"
+          elif [ "${EVENT_NAME}" = "release" ] && [ -n "${RELEASE_TAG:-}" ]; then
+            MODE="deploy-release"
+            VERSION="${RELEASE_TAG}"
+          elif [ "${REF_TYPE}" = "tag" ]; then
+            MODE="deploy-release"
+            VERSION="${REF_NAME}"
+          else
+            echo "::error::Could not resolve deploy mode from event ${EVENT_NAME} (${REF})"
+            exit 1
+          fi
+          echo "mode=${MODE}" >> "${GITHUB_OUTPUT}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved mode=${MODE} version=${VERSION:-<none>}"
+
+  deploy:
+    needs: resolve
+    permissions:
+      contents: write
+    uses: ./.github/workflows/reusable-docs.yml
+    with:
+      mode: ${{ needs.resolve.outputs.mode }}
+      version: ${{ needs.resolve.outputs.version }}
