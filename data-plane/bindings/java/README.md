@@ -157,10 +157,10 @@ Name remoteName = new Name("org", "namespace", "remote");
 // Create point-to-point session
 SessionConfig sessionConfig = new SessionConfig(
     SessionType.POINT_TO_POINT,
-    true,  // enableMls
     null,  // maxRetries
     null,  // interval
-    Map.of()  // metadata
+    Map.of(),  // metadata
+    new MlsSettings(100) // mlsSettings (null to disable)
 );
 
 Session session = app.createSessionAndWait(sessionConfig, remoteName);

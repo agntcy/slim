@@ -68,10 +68,12 @@ async def _create_group_session(
     """Create a group session and return it."""
     session_config = slim_bindings.SessionConfig(
         session_type=slim_bindings.SessionType.GROUP,
-        enable_mls=mls_enabled,
         max_retries=5,
         interval=datetime.timedelta(seconds=1),
         metadata={},
+        mls_settings=slim_bindings.MlsSettings(header_integrity_validation_percent=100)
+        if mls_enabled
+        else None,
     )
     session_context = await participant.create_session_async(session_config, chat_name)
     await session_context.completion.wait_async()

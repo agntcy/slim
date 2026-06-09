@@ -4,22 +4,51 @@
 package integration
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
+	ginkgo "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
-func reservePort() int {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	Expect(err).NotTo(HaveOccurred())
-	defer listener.Close()
+var (
+	portMutex sync.Mutex
+	nextPort  int
+)
 
-	addr, ok := listener.Addr().(*net.TCPAddr)
-	Expect(ok).To(BeTrue())
-	return addr.Port
+func reservePort() int {
+	portMutex.Lock()
+	defer portMutex.Unlock()
+
+	node := ginkgo.GinkgoParallelProcess()
+
+	if nextPort == 0 {
+		// Use a combination of Ginkgo parallel node and PID to minimize collisions
+		// across parallel processes/runs.
+		nextPort = 20000 + (node-1)*1000 + (os.Getpid()%100)*10
+	}
+
+	for {
+		port := nextPort
+		nextPort++
+
+		// Ensure we don't go out of valid port range
+		if nextPort > 65000 {
+			nextPort = 20000 + (node-1)*1000 + (os.Getpid()%100)*10
+		}
+
+		// Double-check if the port is free to listen on
+		addr := fmt.Sprintf("127.0.0.1:%d", port)
+		l, err := net.Listen("tcp", addr)
+		if err == nil {
+			l.Close()
+			return port
+		}
+	}
 }
 
 func newTempDir(prefix string) string {

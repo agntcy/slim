@@ -10,6 +10,7 @@ establish sessions, publish messages, or perform connection logic.
 """
 
 import asyncio
+import socket
 
 import pytest_asyncio
 
@@ -53,6 +54,13 @@ async def server(request):
 
     # Get endpoint parameter
     endpoint = request.param
+    if endpoint is not None:
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
+        endpoint = f"127.0.0.1:{port}"
+
     local_service = endpoint is not None
 
     # Initialize global state

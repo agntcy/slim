@@ -70,7 +70,7 @@ class SessionMetadataTest {
             // Create PointToPoint session with metadata
             val sessCfg = SessionConfig(
                 sessionType = SessionType.POINT_TO_POINT,
-                enableMls = false,
+                mlsSettings = null,
                 maxRetries = 5u,
                 interval = Duration.ofSeconds(1),
                 metadata = metadata

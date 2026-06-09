@@ -459,6 +459,7 @@ mod tests {
     use super::*;
     use crate::{
         SessionError,
+        session_config::MlsSettings,
         test_utils::{MockTokenProvider, MockVerifier},
     };
     use slim_datapath::api::ProtoSessionType;
@@ -470,7 +471,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator,
             metadata: HashMap::new(),
         }
@@ -849,13 +850,15 @@ mod tests {
     #[test]
     fn test_builder_with_mls_enabled() {
         let mut config = create_test_config(true);
-        config.mls_enabled = true;
+        config.mls_settings = Some(MlsSettings {
+            header_integrity_validation_percent: 100,
+        });
 
         let builder =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_config(config);
 
-        assert!(builder.config.unwrap().mls_enabled);
+        assert!(builder.config.unwrap().mls_settings.is_some());
     }
 
     #[test]
@@ -1077,7 +1080,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: None,
             interval: None,
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: HashMap::new(),
         };
@@ -1095,7 +1098,7 @@ mod tests {
             session_type: ProtoSessionType::Multicast,
             max_retries: None,
             interval: None,
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: HashMap::new(),
         };
@@ -1117,7 +1120,7 @@ mod tests {
             session_type: ProtoSessionType::Unspecified,
             max_retries: None,
             interval: None,
-            mls_enabled: false,
+            mls_settings: None,
             initiator: false,
             metadata: HashMap::new(),
         };
@@ -1243,7 +1246,7 @@ mod tests {
     async fn test_builder_build_with_mls_disabled() {
         let (tx_to_session, _) = mpsc::channel(10);
         let mut config = create_test_config(false);
-        config.mls_enabled = false;
+        config.mls_settings = None;
 
         let dest = create_test_name("dest");
         let builder =
