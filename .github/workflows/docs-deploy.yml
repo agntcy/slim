@@ -29,6 +29,9 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
 # Serialize gh-pages updates so concurrent mike pushes do not race.
 concurrency:
   group: docs-deploy-pages
@@ -46,25 +49,29 @@ jobs:
         id: r
         shell: bash
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           set -euo pipefail
           MODE=""
           VERSION=""
-          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          if [ "${EVENT_NAME}" = "push" ] && [ "${REF}" = "refs/heads/main" ]; then
             MODE="deploy-dev"
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          elif [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
             MODE="deploy-release"
             VERSION="${INPUT_VERSION}"
-          elif [ "${{ github.event_name }}" = "release" ] && [ -n "${RELEASE_TAG:-}" ]; then
+          elif [ "${EVENT_NAME}" = "release" ] && [ -n "${RELEASE_TAG:-}" ]; then
             MODE="deploy-release"
             VERSION="${RELEASE_TAG}"
-          elif [ "${{ github.ref_type }}" = "tag" ]; then
+          elif [ "${REF_TYPE}" = "tag" ]; then
             MODE="deploy-release"
-            VERSION="${{ github.ref_name }}"
+            VERSION="${REF_NAME}"
           else
-            echo "::error::Could not resolve deploy mode from event ${{ github.event_name }} (${{ github.ref }})"
+            echo "::error::Could not resolve deploy mode from event ${EVENT_NAME} (${REF})"
             exit 1
           fi
           echo "mode=${MODE}" >> "${GITHUB_OUTPUT}"
@@ -79,4 +86,3 @@ jobs:
     with:
       mode: ${{ needs.resolve.outputs.mode }}
       version: ${{ needs.resolve.outputs.version }}
-    secrets: inherit

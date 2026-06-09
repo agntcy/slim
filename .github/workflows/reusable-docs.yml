@@ -38,6 +38,7 @@ jobs:
         with:
           # mike needs full history and the gh-pages branch to deploy versions.
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
@@ -67,7 +68,9 @@ jobs:
       - name: Deploy release version + latest
         if: inputs.mode == 'deploy-release'
         shell: bash
-        run: task docs:deploy:release VERSION=${{ inputs.version }}
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+        run: task docs:deploy:release VERSION="${VERSION_INPUT}"
 
       - name: Deploy root-level files (404/robots/llms)
         if: inputs.mode == 'deploy-dev' || inputs.mode == 'deploy-release'
