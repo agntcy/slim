@@ -19,7 +19,9 @@ use slim_config::server::ServerConfig;
 use slim_config::tls::client::TlsClientConfig;
 use slim_config::tls::server::TlsServerConfig;
 use slim_datapath::api::{ApplicationPayload, ProtoMessage as Message, ProtoName as Name};
-use slim_datapath::peer_discovery::{PeerConfig, PeerDiscoveryConfig, PeerTopology, StaticPeerEntry};
+use slim_datapath::peer_discovery::{
+    PeerConfig, PeerDiscoveryConfig, PeerTopology, StaticPeerEntry,
+};
 use slim_datapath::tables::{ConnType, SubscriptionTable};
 use slim_service::{Service, ServiceConfiguration};
 use slim_testing::utils::TEST_VALID_SECRET;

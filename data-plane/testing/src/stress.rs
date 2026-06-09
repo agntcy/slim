@@ -29,6 +29,8 @@ pub struct BenchmarkConfig {
     /// How long to wait after senders finish for the receiver to drain.
     /// Defaults to 2 seconds; tests may use a smaller value.
     pub drain_timeout: Duration,
+    /// E2E header validation percentage (Some(0..=100) enables MLS with that percentage, None disables MLS)
+    pub validation_percent: Option<u32>,
 }
 
 impl Default for BenchmarkConfig {
@@ -38,6 +40,7 @@ impl Default for BenchmarkConfig {
             messages: 1_000_000,
             payload_size: 64,
             drain_timeout: Duration::from_secs(2),
+            validation_percent: None,
         }
     }
 }
@@ -233,6 +236,7 @@ mod tests {
             messages,
             payload_size,
             drain_timeout: Duration::from_millis(500),
+            validation_percent: None,
         }
     }
 

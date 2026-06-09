@@ -140,8 +140,25 @@ impl SessionController {
             .reset(tokio::time::Instant::now() + shutdown_timeout);
     }
 
+    /// Apply the identity token to all outbound ToSlim messages.
+    /// Must run before MLS encryption so header-integrity AAD matches the on-wire header.
+    pub(crate) fn apply_identity_to_slim_output<P>(
+        output: &mut SessionOutput,
+        identity_provider: &P,
+    ) -> Result<(), SessionError>
+    where
+        P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+    {
+        let identity = identity_provider.get_token()?;
+        for msg in &mut output.messages {
+            if let OutboundMessage::ToSlim(m) = msg {
+                m.get_slim_header_mut().set_identity(identity.clone());
+            }
+        }
+        Ok(())
+    }
+
     /// Dispatch outbound messages from SessionOutput to actual channels.
-    /// Sets identity on ToSlim messages and sends them via the slim channel.
     /// Sends ToApp messages directly to the application channel.
     async fn dispatch_output<P, V, M>(output: SessionOutput, settings: &SessionSettings<P, V, M>)
     where
@@ -151,18 +168,9 @@ impl SessionController {
     {
         for msg in output.messages {
             match msg {
-                OutboundMessage::ToSlim(mut message) => {
-                    // Set identity on outbound SLIM messages
-                    match settings.identity_provider.get_token() {
-                        Ok(i) => {
-                            message.get_slim_header_mut().set_identity(i);
-                            if let Err(e) = settings.slim_tx.send(Ok(message)).await {
-                                tracing::error!(error = %e, "failed to send message to SLIM");
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!(error = %e, "error getting identity from identity provider")
-                        }
+                OutboundMessage::ToSlim(message) => {
+                    if let Err(e) = settings.slim_tx.send(Ok(message)).await {
+                        tracing::error!(error = %e, "failed to send message to SLIM");
                     }
                 }
                 OutboundMessage::ToApp(result) => {
@@ -850,6 +858,7 @@ mod tests {
     // Removed broken test_internal_draining_via_leave_request (incompatible mock trait implementation)
 
     use crate::Direction;
+    use crate::session_config::MlsSettings;
     use crate::subscription_manager::{SpySubscriptionManager, SubscriptionCall};
     use slim_auth::shared_secret::SharedSecret;
 
@@ -874,7 +883,7 @@ mod tests {
         source: ProtoName,
         destination: ProtoName,
         session_type: ProtoSessionType,
-        mls_enabled: bool,
+        mls_settings: Option<MlsSettings>,
         initiator: bool,
         max_retries: Option<u32>,
         interval: Option<Duration>,
@@ -890,7 +899,7 @@ mod tests {
                 source: ProtoName::from_strings(["org", "ns", "source"]).with_id(1),
                 destination: ProtoName::from_strings(["org", "ns", "dest"]).with_id(2),
                 session_type: ProtoSessionType::PointToPoint,
-                mls_enabled: false,
+                mls_settings: None,
                 initiator: true,
                 max_retries: Some(5),
                 interval: Some(Duration::from_millis(200)),
@@ -922,7 +931,11 @@ mod tests {
         }
 
         fn with_mls_enabled(mut self, enabled: bool) -> Self {
-            self.mls_enabled = enabled;
+            self.mls_settings = if enabled {
+                Some(MlsSettings::default())
+            } else {
+                None
+            };
             self
         }
 
@@ -952,7 +965,7 @@ mod tests {
                 session_type: self.session_type,
                 max_retries: self.max_retries,
                 interval: self.interval,
-                mls_enabled: self.mls_enabled,
+                mls_settings: self.mls_settings,
                 initiator: self.initiator,
                 metadata: self.metadata,
             };
@@ -1344,7 +1357,7 @@ mod tests {
             session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(1000)),
-            mls_enabled: true,
+            mls_settings: Some(MlsSettings::default()),
             initiator: true,
             metadata: std::collections::HashMap::new(),
         };
@@ -1376,7 +1389,7 @@ mod tests {
             session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
-            mls_enabled: true,
+            mls_settings: Some(MlsSettings::default()),
             initiator: false,
             metadata: std::collections::HashMap::new(),
         };
@@ -1854,7 +1867,7 @@ mod tests {
                 session_type: ProtoSessionType::PointToPoint,
                 max_retries: Some(3),
                 interval: Some(Duration::from_millis(150)),
-                mls_enabled: false,
+                mls_settings: None,
                 initiator: true,
                 metadata: HashMap::new(),
             },
@@ -2030,7 +2043,7 @@ mod tests {
                 session_type: ProtoSessionType::PointToPoint,
                 max_retries: Some(5),
                 interval: Some(Duration::from_millis(200)),
-                mls_enabled: false,
+                mls_settings: None,
                 initiator: true,
                 metadata: HashMap::new(),
             },

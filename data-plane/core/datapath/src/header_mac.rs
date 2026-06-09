@@ -277,6 +277,7 @@ fn write_preimage(buf: &mut Vec<u8>, hdr: &SlimHeader, link_id_bytes: &[u8]) {
 mod tests {
     use super::*;
     use crate::api::proto::dataplane::v1::{EncodedName, Name, NameId, StringName};
+    use crate::messages::utils::DEFAULT_TTL;
     use uuid::Uuid;
 
     fn test_key() -> Vec<u8> {
@@ -319,7 +320,7 @@ mod tests {
             incoming_conn: Some(999),
             error: Some(false),
             header_mac: None,
-            ttl: 16,
+            ttl: DEFAULT_TTL,
         }
     }
 

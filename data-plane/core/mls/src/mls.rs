@@ -361,18 +361,21 @@ where
         Ok(commit_msg)
     }
 
-    pub fn encrypt_message(&mut self, message: &[u8]) -> Result<Vec<u8>, MlsError> {
+    pub fn encrypt_message(&mut self, message: &[u8], aad: Vec<u8>) -> Result<Vec<u8>, MlsError> {
         debug!("Encrypting MLS message");
 
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
-        let encrypted_msg = group.encrypt_application_message(message, Default::default())?;
+        let encrypted_msg = group.encrypt_application_message(message, aad)?;
 
         let msg = encrypted_msg.to_bytes()?;
         Ok(msg)
     }
 
-    pub fn decrypt_message(&mut self, encrypted_message: &[u8]) -> Result<Vec<u8>, MlsError> {
+    pub fn decrypt_message(
+        &mut self,
+        encrypted_message: &[u8],
+    ) -> Result<(Vec<u8>, Vec<u8>), MlsError> {
         debug!("Decrypting MLS message");
 
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
@@ -380,7 +383,9 @@ where
         let message = MlsMessage::from_bytes(encrypted_message)?;
 
         match group.process_incoming_message(message)? {
-            ReceivedMessage::ApplicationMessage(app_msg) => Ok(app_msg.data().to_vec()),
+            ReceivedMessage::ApplicationMessage(app_msg) => {
+                Ok((app_msg.data().to_vec(), app_msg.authenticated_data.to_vec()))
+            }
             _ => Err(MlsError::verification_failed(
                 "Message was not an application message",
             )),
@@ -526,8 +531,8 @@ mod tests {
 
         // test encrypt decrypt
         let original_message = b"Hello from Alice 1!";
-        let encrypted = alice.encrypt_message(original_message)?;
-        let decrypted = bob.decrypt_message(&encrypted)?;
+        let encrypted = alice.encrypt_message(original_message, vec![])?;
+        let (decrypted, _) = bob.decrypt_message(&encrypted)?;
 
         assert_eq!(original_message, decrypted.as_slice());
         assert_ne!(original_message.to_vec(), encrypted);
@@ -556,16 +561,16 @@ mod tests {
 
         // test encrypt decrypt
         let original_message = b"Hello from Alice 1!";
-        let encrypted = alice.encrypt_message(original_message)?;
-        let decrypted_1 = bob.decrypt_message(&encrypted)?;
-        let decrypted_2 = charlie.decrypt_message(&encrypted)?;
+        let encrypted = alice.encrypt_message(original_message, vec![])?;
+        let (decrypted_1, _) = bob.decrypt_message(&encrypted)?;
+        let (decrypted_2, _) = charlie.decrypt_message(&encrypted)?;
         assert_eq!(original_message, decrypted_1.as_slice());
         assert_eq!(original_message, decrypted_2.as_slice());
 
         let original_message = b"Hello from Charlie!";
-        let encrypted = charlie.encrypt_message(original_message)?;
-        let decrypted_1 = bob.decrypt_message(&encrypted)?;
-        let decrypted_2 = alice.decrypt_message(&encrypted)?;
+        let encrypted = charlie.encrypt_message(original_message, vec![])?;
+        let (decrypted_1, _) = bob.decrypt_message(&encrypted)?;
+        let (decrypted_2, _) = alice.decrypt_message(&encrypted)?;
         assert_eq!(original_message, decrypted_1.as_slice());
         assert_eq!(original_message, decrypted_2.as_slice());
 
@@ -581,13 +586,13 @@ mod tests {
 
         // test encrypt decrypt
         let original_message = b"Hello from Alice 1!";
-        let encrypted = alice.encrypt_message(original_message)?;
-        let decrypted = charlie.decrypt_message(&encrypted)?;
+        let encrypted = alice.encrypt_message(original_message, vec![])?;
+        let (decrypted, _) = charlie.decrypt_message(&encrypted)?;
         assert_eq!(original_message, decrypted.as_slice());
 
         let original_message = b"Hello from Charlie!";
-        let encrypted = charlie.encrypt_message(original_message)?;
-        let decrypted = alice.decrypt_message(&encrypted)?;
+        let encrypted = charlie.encrypt_message(original_message, vec![])?;
+        let (decrypted, _) = alice.decrypt_message(&encrypted)?;
         assert_eq!(original_message, decrypted.as_slice());
 
         // add daniel and remove charlie
@@ -620,8 +625,8 @@ mod tests {
 
         // test encrypt decrypt
         let original_message = b"Hello from Alice 1!";
-        let encrypted = alice.encrypt_message(original_message)?;
-        let decrypted = daniel.decrypt_message(&encrypted)?;
+        let encrypted = alice.encrypt_message(original_message, vec![])?;
+        let (decrypted, _) = daniel.decrypt_message(&encrypted)?;
         assert_eq!(original_message, decrypted.as_slice());
 
         Ok(())
@@ -647,9 +652,9 @@ mod tests {
         let _bob_group_id = bob.process_welcome(&res.welcome_message)?;
 
         let message = b"Test message";
-        let encrypted = alice.encrypt_message(message)?;
+        let encrypted = alice.encrypt_message(message, vec![])?;
 
-        let decrypted = bob.decrypt_message(&encrypted)?;
+        let (decrypted, _) = bob.decrypt_message(&encrypted)?;
         assert_eq!(decrypted, message);
 
         Ok(())
@@ -679,8 +684,8 @@ mod tests {
         let _bob_group_id = bob.process_welcome(&welcome_message)?;
 
         let message1 = b"Message with secret_v1";
-        let encrypted1 = alice.encrypt_message(message1)?;
-        let decrypted1 = bob.decrypt_message(&encrypted1)?;
+        let encrypted1 = alice.encrypt_message(message1, vec![])?;
+        let (decrypted1, _) = bob.decrypt_message(&encrypted1)?;
         assert_eq!(decrypted1, message1);
 
         let mut alice_rotated_secret = Mls::new(
@@ -698,12 +703,12 @@ mod tests {
         alice_rotated_secret.initialize()?;
 
         let message2 = b"Message with rotated secret";
-        let encrypted2_result = alice_rotated_secret.encrypt_message(message2);
+        let encrypted2_result = alice_rotated_secret.encrypt_message(message2, vec![]);
         assert!(encrypted2_result.is_err());
 
         let message3 = b"Message from original alice after secret rotation";
-        let encrypted3 = alice.encrypt_message(message3)?;
-        let decrypted3 = bob.decrypt_message(&encrypted3)?;
+        let encrypted3 = alice.encrypt_message(message3, vec![])?;
+        let (decrypted3, _) = bob.decrypt_message(&encrypted3)?;
         assert_eq!(decrypted3, message3);
 
         Ok(())
@@ -741,8 +746,8 @@ mod tests {
         alice.process_commit(&commit_bob)?;
 
         let message1 = b"Message before rotation";
-        let encrypted1 = alice.encrypt_message(message1)?;
-        let decrypted1 = bob.decrypt_message(&encrypted1)?;
+        let encrypted1 = alice.encrypt_message(message1, vec![])?;
+        let (decrypted1, _) = bob.decrypt_message(&encrypted1)?;
         assert_eq!(decrypted1, message1);
 
         // Alice create a proposal
@@ -760,14 +765,14 @@ mod tests {
         // Test messaging after rotation
         // Bob can decrypt Alice's encrypted message
         let message2 = b"Message after rotation from alice";
-        let encrypted2 = alice.encrypt_message(message2)?;
-        let decrypted2 = bob.decrypt_message(&encrypted2)?;
+        let encrypted2 = alice.encrypt_message(message2, vec![])?;
+        let (decrypted2, _) = bob.decrypt_message(&encrypted2)?;
         assert_eq!(decrypted2, message2);
 
         // ... and Alice can decrypt Bob's encrypted message
         let message3 = b"Message after rotation from bob";
-        let encrypted3 = bob.encrypt_message(message3)?;
-        let decrypted3 = alice.decrypt_message(&encrypted3)?;
+        let encrypted3 = bob.encrypt_message(message3, vec![])?;
+        let (decrypted3, _) = alice.decrypt_message(&encrypted3)?;
         assert_eq!(decrypted3, message3);
 
         // Verify epochs are synchronized
@@ -852,8 +857,8 @@ mod tests {
 
         // Sanity application message
         let msg = b"Hello from the real Alice!";
-        let encrypted = alice.encrypt_message(msg)?;
-        let decrypted = charlie.decrypt_message(&encrypted)?;
+        let encrypted = alice.encrypt_message(msg, vec![])?;
+        let (decrypted, _) = charlie.decrypt_message(&encrypted)?;
         assert_eq!(decrypted, msg);
 
         // Extract stolen artifacts

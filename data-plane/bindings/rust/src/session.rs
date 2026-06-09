@@ -44,14 +44,41 @@ impl From<ProtoSessionType> for SessionType {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct MlsSettings {
+    /// 0 = disable header-integrity checks; 1–100 = percent of messages to verify after decrypt.
+    pub header_integrity_validation_percent: u32,
+}
+
+impl Default for MlsSettings {
+    fn default() -> Self {
+        Self {
+            header_integrity_validation_percent: 100,
+        }
+    }
+}
+
+impl From<MlsSettings> for slim_session::session_config::MlsSettings {
+    fn from(s: MlsSettings) -> Self {
+        Self {
+            header_integrity_validation_percent: s.header_integrity_validation_percent.min(100),
+        }
+    }
+}
+
+impl From<slim_session::session_config::MlsSettings> for MlsSettings {
+    fn from(s: slim_session::session_config::MlsSettings) -> Self {
+        Self {
+            header_integrity_validation_percent: s.header_integrity_validation_percent,
+        }
+    }
+}
+
 /// Session configuration
 #[derive(uniffi::Record)]
 pub struct SessionConfig {
     /// Session type (PointToPoint or Group)
     pub session_type: SessionType,
-
-    /// Enable MLS encryption for this session
-    pub enable_mls: bool,
 
     /// Maximum number of retries for message transmission (None = use default)
     pub max_retries: Option<u32>,
@@ -61,6 +88,9 @@ pub struct SessionConfig {
 
     /// Custom metadata key-value pairs for the session
     pub metadata: std::collections::HashMap<String, String>,
+
+    /// MLS options (None disables MLS).
+    pub mls_settings: Option<MlsSettings>,
 }
 
 impl From<SessionConfig> for SlimSessionConfig {
@@ -69,9 +99,9 @@ impl From<SessionConfig> for SlimSessionConfig {
             session_type: config.session_type.into(),
             max_retries: config.max_retries,
             interval: config.interval,
-            mls_enabled: config.enable_mls,
             initiator: true,
             metadata: config.metadata,
+            mls_settings: config.mls_settings.map(Into::into),
         }
     }
 }
@@ -80,10 +110,10 @@ impl From<SlimSessionConfig> for SessionConfig {
     fn from(config: SlimSessionConfig) -> Self {
         SessionConfig {
             session_type: config.session_type.into(),
-            enable_mls: config.mls_enabled,
             max_retries: config.max_retries,
             interval: config.interval,
             metadata: config.metadata,
+            mls_settings: config.mls_settings.map(Into::into),
         }
     }
 }
@@ -1611,19 +1641,19 @@ mod tests {
     fn test_session_config_point_to_point() {
         let config = SessionConfig {
             session_type: SessionType::PointToPoint,
-            enable_mls: true,
             max_retries: Some(5),
             interval: Some(std::time::Duration::from_millis(200)),
             metadata: std::collections::HashMap::from([
                 ("key1".to_string(), "value1".to_string()),
                 ("key2".to_string(), "value2".to_string()),
             ]),
+            mls_settings: Some(MlsSettings::default()),
         };
 
         let slim_config: SlimSessionConfig = config.into();
 
         assert_eq!(slim_config.session_type, ProtoSessionType::PointToPoint);
-        assert!(slim_config.mls_enabled);
+        assert!(slim_config.mls_settings.is_some());
         assert_eq!(slim_config.max_retries, Some(5));
         assert_eq!(
             slim_config.interval,
@@ -1640,16 +1670,16 @@ mod tests {
     fn test_session_config_group() {
         let config = SessionConfig {
             session_type: SessionType::Group,
-            enable_mls: false,
             max_retries: None,
             interval: None,
             metadata: std::collections::HashMap::new(),
+            mls_settings: None,
         };
 
         let slim_config: SlimSessionConfig = config.into();
 
         assert_eq!(slim_config.session_type, ProtoSessionType::Multicast);
-        assert!(!slim_config.mls_enabled);
+        assert!(slim_config.mls_settings.is_none());
         assert!(slim_config.max_retries.is_none());
         assert!(slim_config.interval.is_none());
     }

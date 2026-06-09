@@ -158,9 +158,33 @@ mod tests {
     }
 
     #[test]
+    fn test_deserialize_peer_config_no_peers_fails() {
+        let yaml = r#"
+            peer_group: "my-deployment"
+        "#;
+
+        let result: Result<PeerConfig, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err(), "static_peers is required");
+    }
+
+    #[test]
+    fn test_deserialize_peer_config_empty_peers_fails() {
+        let yaml = r#"
+            peer_group: "my-deployment"
+            static_peers: []
+        "#;
+
+        let result: Result<PeerConfig, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err(), "static_peers must not be empty");
+    }
+
+    #[test]
     fn test_deserialize_kubernetes_config() {
         let yaml = r#"
             peer_group: "slim-deployment"
+            static_peers:
+              - node_id: "slim-1"
+                endpoint: "http://slim-1:8080"
             discovery:
               type: kubernetes
               namespace: "default"

@@ -14,10 +14,10 @@ use std::collections::HashMap;
 
 use futures::TryStreamExt;
 use k8s_openapi::api::core::v1::Pod;
+use kube::Client;
 use kube::api::Api;
 use kube::runtime::watcher;
 use kube::runtime::watcher::Event as WatcherEvent;
-use kube::Client;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
@@ -49,12 +49,7 @@ impl KubernetesPeerDiscovery {
     /// - `label_selector`: Label selector to filter peer pods (e.g., "app=slim").
     /// - `port`: Port on which peer pods listen for dataplane connections.
     /// - `self_node_id`: This node's pod name (will be excluded from events).
-    pub fn new(
-        namespace: String,
-        label_selector: String,
-        port: u16,
-        self_node_id: String,
-    ) -> Self {
+    pub fn new(namespace: String, label_selector: String, port: u16, self_node_id: String) -> Self {
         Self {
             namespace,
             label_selector,
@@ -75,9 +70,9 @@ impl KubernetesPeerDiscovery {
             .conditions
             .as_ref()
             .map(|conds| {
-                conds.iter().any(|c| {
-                    c.type_ == "Ready" && c.status == "True"
-                })
+                conds
+                    .iter()
+                    .any(|c| c.type_ == "Ready" && c.status == "True")
             })
             .unwrap_or(false);
 
@@ -105,9 +100,9 @@ impl PeerDiscovery for KubernetesPeerDiscovery {
             return Ok(());
         }
 
-        let client = Client::try_default()
-            .await
-            .map_err(|e| PeerDiscoveryError::Backend(format!("failed to create k8s client: {e}")))?;
+        let client = Client::try_default().await.map_err(|e| {
+            PeerDiscoveryError::Backend(format!("failed to create k8s client: {e}"))
+        })?;
 
         let pods: Api<Pod> = Api::namespaced(client, &self.namespace);
 
@@ -213,10 +208,7 @@ impl PeerDiscovery for KubernetesPeerDiscovery {
 
     async fn recv(&mut self) -> Result<PeerEvent, PeerDiscoveryError> {
         match &mut self.event_rx {
-            Some(rx) => rx
-                .recv()
-                .await
-                .ok_or(PeerDiscoveryError::Closed),
+            Some(rx) => rx.recv().await.ok_or(PeerDiscoveryError::Closed),
             None => Err(PeerDiscoveryError::Backend(
                 "discovery not started".to_string(),
             )),

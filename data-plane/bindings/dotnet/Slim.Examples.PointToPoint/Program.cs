@@ -105,7 +105,7 @@ class Program
         var config = new SlimSessionConfig
         {
             SessionType = SlimSessionType.PointToPoint,
-            EnableMls = enableMls
+            MlsSettings = enableMls ? new SlimMlsSettings() : null
         };
 
         Console.WriteLine($"[{instance}] Creating session to {remote}...");

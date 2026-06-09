@@ -10,9 +10,9 @@ use crate::api::proto::dataplane::v1::{
 };
 use crate::api::{
     Content, LinkNegotiationPayload, MessageType, ProtoLink, ProtoLinkMessageType, ProtoLinkType,
-    ProtoMessage, ProtoName, ProtoPublish, ProtoPublishType, ProtoSessionType, ProtoSubscribe,
-    ProtoSubscribeType, ProtoSubscriptionAck, ProtoSubscriptionAckType, ProtoUnsubscribe,
-    ProtoUnsubscribeType, SessionHeader, SlimHeader,
+    ProtoMessage, ProtoMlsSettings as MlsSettings, ProtoName, ProtoPublish, ProtoPublishType,
+    ProtoSessionType, ProtoSubscribe, ProtoSubscribeType, ProtoSubscriptionAck,
+    ProtoSubscriptionAckType, ProtoUnsubscribe, ProtoUnsubscribeType, SessionHeader, SlimHeader,
     proto::dataplane::v1::{
         ApplicationPayload, CommandPayload, DiscoveryReplyPayload, DiscoveryRequestPayload,
         EncodedName, GroupAckPayload, GroupAddPayload, GroupProposalPayload, GroupRemovePayload,
@@ -70,7 +70,7 @@ pub const FALSE_VAL: &str = "FALSE";
 pub const MAX_PUBLISH_ID: u32 = u32::MAX / 2;
 
 /// Default TTL value for messages that do not have an explicit TTL set.
-pub const DEFAULT_TTL: u32 = 6;
+pub const DEFAULT_TTL: u32 = 16;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum MessageError {
@@ -1136,10 +1136,10 @@ impl AsRef<ProtoPublish> for ProtoMessage {
 ///
 /// let channel = ProtoName::from_strings(["org", "namespace", "channel"]);
 /// let payload = CommandPayload::builder().join_request(
-///     true,  // enable_mls
 ///     Some(5),  // max_retries
 ///     Some(Duration::from_secs(10)),  // timeout
 ///     Some(channel),
+///     None, // mls_settings
 /// );
 /// ```
 ///
@@ -1186,12 +1186,13 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a join request payload
+    #[allow(deprecated)]
     pub fn join_request(
         self,
-        enable_mls: bool,
         max_retries: Option<u32>,
         timer_duration: Option<Duration>,
         channel: Option<ProtoName>,
+        mls_settings: Option<MlsSettings>,
     ) -> CommandPayload {
         let proto_channel = channel;
 
@@ -1207,9 +1208,9 @@ impl CommandPayloadBuilder {
         };
 
         let payload = JoinRequestPayload {
-            enable_mls,
             timer_settings,
             channel: proto_channel,
+            mls_settings,
         };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::JoinRequest(payload)),
@@ -2069,7 +2070,7 @@ mod tests {
             incoming_conn: None,
             error: None,
             header_mac: None,
-            ttl: 16,
+            ttl: DEFAULT_TTL,
         };
 
         // the operations to retrieve source and destination should fail with panic
@@ -2241,13 +2242,13 @@ mod tests {
 
         // Test join request
         let payload = CommandPayload::builder().join_request(
-            true,
             Some(5),
             Some(Duration::from_secs(10)),
             Some(dest.clone()),
+            Some(MlsSettings::default()),
         );
         let extracted = payload.as_join_request_payload().unwrap();
-        assert!(extracted.enable_mls);
+        assert!(extracted.mls_settings.is_some());
         assert!(extracted.timer_settings.is_some());
 
         // Test join reply

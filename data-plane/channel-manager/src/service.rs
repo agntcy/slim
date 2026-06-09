@@ -10,7 +10,7 @@ use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_datapath::api::{ProtoName, ProtoSessionType};
 use slim_service::app::App;
 use slim_session::completion_handle::CompletionHandle;
-use slim_session::{SessionConfig, SessionError};
+use slim_session::{SessionConfig, SessionError, session_config::MlsSettings};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
 
@@ -89,7 +89,11 @@ impl ChannelManagerServer {
         // Create a new session for the channel
         let session_config = SessionConfig {
             session_type: ProtoSessionType::Multicast,
-            mls_enabled: req.mls_enabled,
+            mls_settings: if req.mls_enabled {
+                Some(MlsSettings::default())
+            } else {
+                None
+            },
             max_retries: Some(10),
             interval: Some(Duration::from_millis(1000)),
             initiator: true,

@@ -23,7 +23,9 @@ use slim_controller::service::ControlPlane;
 use slim_datapath::message_processing::MessageProcessor;
 #[cfg(feature = "kubernetes")]
 use slim_datapath::peer_discovery::KubernetesPeerDiscovery;
-use slim_datapath::peer_discovery::{PeerConfig, PeerDiscoveryConfig, PeerTopology, StaticPeerDiscovery};
+use slim_datapath::peer_discovery::{
+    PeerConfig, PeerDiscoveryConfig, PeerTopology, StaticPeerDiscovery,
+};
 use slim_datapath::sync::PeerSyncConfig;
 use slim_datapath::sync::PeerSyncManager;
 use slim_datapath::tables::ConnType;
@@ -437,7 +439,9 @@ impl Service {
             }
             #[cfg(not(feature = "kubernetes"))]
             PeerDiscoveryConfig::Kubernetes { .. } => {
-                panic!("kubernetes peer discovery configured but the 'kubernetes' feature is not enabled");
+                panic!(
+                    "kubernetes peer discovery configured but the 'kubernetes' feature is not enabled"
+                );
             }
         }
     }
@@ -748,6 +752,7 @@ mod tests {
     use slim_datapath::api::MessageType;
     use slim_datapath::api::ProtoName;
     use slim_session::SessionConfig;
+    use slim_session::session_config::MlsSettings;
     use slim_testing::utils::TEST_VALID_SECRET;
     use std::time::Duration;
     use tokio::time;
@@ -1089,7 +1094,7 @@ mod tests {
             session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
             max_retries: Some(3),
             interval: Some(Duration::from_millis(500)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: HashMap::new(),
         };
@@ -1112,7 +1117,7 @@ mod tests {
             session_type: slim_datapath::api::ProtoSessionType::Multicast,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(1000)),
-            mls_enabled: true,
+            mls_settings: Some(MlsSettings::default()),
             initiator: true,
             metadata: HashMap::new(),
         };

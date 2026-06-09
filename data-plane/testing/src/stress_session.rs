@@ -170,6 +170,11 @@ pub async fn run_session_benchmark(
             config.max_retries = Some(10);
             config.interval = Some(Duration::from_secs(1));
         }
+        if let Some(percent) = cfg.validation_percent {
+            config.mls_settings = Some(slim_session::session_config::MlsSettings {
+                header_integrity_validation_percent: percent,
+            });
+        }
 
         let dest = receiver_dest_names[i].clone();
         let (session_ctx, completion_handle) = sender_apps[i]
@@ -277,6 +282,7 @@ mod tests {
             // Generous timeout: session layer has higher per-message overhead
             // than the raw datapath benchmark.
             drain_timeout: Duration::from_secs(5),
+            validation_percent: None,
         }
     }
 

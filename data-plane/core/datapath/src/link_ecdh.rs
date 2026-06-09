@@ -59,6 +59,7 @@ pub fn derive_header_mac_from_ecdh(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::messages::utils::DEFAULT_TTL;
 
     #[test]
     fn ecdh_hkdf_matches_between_initiator_and_responder() {
@@ -79,7 +80,7 @@ mod tests {
             incoming_conn: None,
             error: None,
             header_mac: None,
-            ttl: 16,
+            ttl: DEFAULT_TTL,
         };
         a.sign_slim_header(&mut h, &lid).unwrap();
         b.verify_slim_header(&h, &lid).unwrap();

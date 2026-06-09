@@ -64,9 +64,14 @@ func runSender(app *slim.App, connID uint64, remote, message string, iterations 
 	}
 	fmt.Printf("[%s] 📍 Route set to %s via connection %d\n", instance, remote, connID)
 
+	var mlsSettings *slim.MlsSettings
+	if enableMLS {
+		mlsSettings = &slim.MlsSettings{HeaderIntegrityValidationPercent: 100}
+	}
+
 	config := slim.SessionConfig{
 		SessionType: slim.SessionTypePointToPoint,
-		EnableMls:   enableMLS,
+		MlsSettings: mlsSettings,
 	}
 
 	fmt.Printf("[%s] 🔍 Creating session to %s...\n", instance, remote)
