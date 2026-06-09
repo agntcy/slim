@@ -1,0 +1,2423 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://agntcy.github.io/slim/latest/slim/slim-controller/">
+      
+      
+        <link rel="prev" href="../slim-data-plane-config/">
+      
+      
+        <link rel="next" href="../slim-controller-reference/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/agntcy/favicon.ico">
+      <meta name="generator" content="mkdocs-ProperDocs 1.6.7, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Overview - SLIM</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/agntcy-docs.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#slim-controller" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="SLIM" class="md-header__button md-logo" aria-label="SLIM" data-md-component="logo">
+      <img src="../../assets/agntcy/img/logo-light.svg" alt="logo" class="logo-light" />
+<img src="../../assets/agntcy/img/logo-dark.svg" alt="logo" class="logo-dark" />
+<span class="md-logo__brand-name">SLIM</span>
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            SLIM
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Overview
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7a5 5 0 0 0-5 5 5 5 0 0 0 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1M8 13h8v-2H8zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4a5 5 0 0 0 5-5 5 5 0 0 0-5-5"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 7H7a5 5 0 0 0-5 5 5 5 0 0 0 5 5h10a5 5 0 0 0 5-5 5 5 0 0 0-5-5m0 8a3 3 0 0 1-3-3 3 3 0 0 1 3-3 3 3 0 0 1 3 3 3 3 0 0 1-3 3"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="indigo"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 7H7a5 5 0 0 0-5 5 5 5 0 0 0 5 5h10a5 5 0 0 0 5-5 5 5 0 0 0-5-5M7 15a3 3 0 0 1-3-3 3 3 0 0 1 3-3 3 3 0 0 1 3 3 3 3 0 0 1-3 3"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/agntcy/slim" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    agntcy/slim
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../slim-overview/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Documentation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../community/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Community
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="https://datatracker.ietf.org/doc/draft-mpsb-agntcy-slim/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Specification
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="https://blogs.agntcy.org/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Blog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="SLIM" class="md-nav__button md-logo" aria-label="SLIM" data-md-component="logo">
+      <img src="../../assets/agntcy/img/logo-light.svg" alt="logo" class="logo-light" />
+<img src="../../assets/agntcy/img/logo-dark.svg" alt="logo" class="logo-dark" />
+<span class="md-logo__brand-name">SLIM</span>
+    </a>
+    SLIM
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/agntcy/slim" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    agntcy/slim
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Documentation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slim-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_2" id="__nav_2_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Get Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Get Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slim-howto/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slim-data-plane-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2_3" id="__nav_2_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SLIM Controller
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    SLIM Controller
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#controller-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Controller Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#slimctl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        slimctl
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="slimctl">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#command-groups" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command Groups
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#installing-slimctl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installing slimctl
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuring-slimctl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuring slimctl
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#managing-slim-nodes-directly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managing SLIM Nodes Directly
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Features
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#control-plane-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Control Plane Architecture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#control-flow-sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Control Flow Sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Prerequisites">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#building-the-controller" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building the Controller
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#starting-the-controller" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Starting the Controller
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#managing-nodes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managing Nodes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slim-controller-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Controller Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_4" id="__nav_2_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SLIM Messaging Layer
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    SLIM Messaging Layer
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slim-data-plane/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slim-session/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sessions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slim-authentication/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Authentication
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_5" id="__nav_2_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SLIM Groups
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    SLIM Groups
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slim-group/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Group Creation and Management
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slim-group-tutorial/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Group Communication Tutorial
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_6" id="__nav_2_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slim-integrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_6_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_6_2" id="__nav_2_6_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SLIMRPC
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_6_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_6_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    SLIMRPC
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slim-rpc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slim-slimrpc-compiler/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protoc Plugin
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slim-a2a/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SLIM A2A
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slim-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP over SLIM
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slim-otel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenTelemetry over SLIM
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../community/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Community
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://datatracker.ietf.org/doc/draft-mpsb-agntcy-slim/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://blogs.agntcy.org/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Blog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#controller-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Controller Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#slimctl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        slimctl
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="slimctl">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#command-groups" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command Groups
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#installing-slimctl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installing slimctl
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuring-slimctl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuring slimctl
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#managing-slim-nodes-directly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managing SLIM Nodes Directly
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Features
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#control-plane-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Control Plane Architecture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#control-flow-sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Control Flow Sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Prerequisites">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#building-the-controller" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building the Controller
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#starting-the-controller" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Starting the Controller
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#managing-nodes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managing Nodes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../slim-overview/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Documentation
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="./" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    SLIM Controller
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/agntcy/slim/edit/main/docs/content/slim/slim-controller.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+    
+      
+    
+    <a href="https://github.com/agntcy/slim/raw/main/docs/content/slim/slim-controller.md" title="View source of this page" class="md-content__button md-icon">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
+    </a>
+  
+
+
+<h1 id="slim-controller">SLIM Controller</h1>
+<p>The <a href="../../">SLIM</a> Controller is a central management component that
+orchestrates and manages SLIM nodes in a distributed messaging system. It
+provides a unified interface for configuring routes, managing node registration,
+and coordinating communication between nodes.</p>
+<p>The Controller serves as the central coordination point for SLIM infrastructure,
+offering both northbound and southbound interfaces. The northbound interface
+allows external systems and administrators to configure and manage the SLIM
+network. The southbound interface enables SLIM nodes to register and receive
+configuration updates.</p>
+<h2 id="controller-configuration">Controller Configuration</h2>
+<p>The Controller can be configured through the <code>config.yaml</code> file.</p>
+<p>An example of a minimal configuration:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">northbound</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">httpHost</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
+<span class="w">  </span><span class="nt">httpPort</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50051</span>
+<span class="w">  </span><span class="nt">logging</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DEBUG</span>
+
+<span class="nt">southbound</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">httpHost</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
+<span class="w">  </span><span class="nt">httpPort</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50052</span>
+<span class="w">  </span><span class="c1"># number of node reconciler threads</span>
+<span class="w">  </span><span class="nt">reconciler</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">threads</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+
+<span class="nt">logging</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DEBUG</span>
+</code></pre></div>
+<p>Example config to enable MTLS on Southbound endpoint using <a href="https://spiffe.io/docs/latest/spire-about/spire-concepts/">Spire</a>.</p>
+<div class="highlight"><pre><span></span><code><span class="w">  </span><span class="nt">northbound</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">httpHost</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0.0.0</span>
+<span class="w">    </span><span class="nt">httpPort</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50051</span>
+
+<span class="w">  </span><span class="nt">southbound</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">httpHost</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0.0.0</span>
+<span class="w">    </span><span class="nt">httpPort</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50052</span>
+<span class="w">      </span><span class="l l-Scalar l-Scalar-Plain">tls</span><span class="p p-Indicator">:</span>
+<span class="w">        </span><span class="nt">useSpiffe</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="w w-Error">  </span><span class="nt">spire</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">socketPath</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;unix:///run/spire/agent-sockets/api.sock&quot;</span>
+
+<span class="w">  </span><span class="nt">logging</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DEBUG</span>
+
+<span class="w">  </span><span class="nt">reconciler</span><span class="p">:</span>
+<span class="w">    </span><span class="c1"># Max number of times a failed reconcile will be retried</span>
+<span class="w">    </span><span class="nt">maxRequeues</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">15</span>
+<span class="w">    </span><span class="c1"># Max number of reconciles that can be run in parallel for different nodes</span>
+<span class="w">    </span><span class="nt">maxNumOfParallelReconciles</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1000</span>
+
+<span class="w">  </span><span class="c1"># Specifies the SQLite database file path for storing control plane data</span>
+<span class="w">  </span><span class="nt">database</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">filePath</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">controlplane.db</span>
+
+<span class="w">  </span><span class="nt">spire</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">    </span><span class="c1"># Slim Controller SVIDs will be federated with these trust domains</span>
+<span class="w">    </span><span class="nt">trustedDomains</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<span class="w">      </span><span class="c1"># - cluster-a.example.org</span>
+<span class="w">      </span><span class="c1"># - cluster-b.example.org</span>
+</code></pre></div>
+<h2 id="slimctl">slimctl</h2>
+<p><code>slimctl</code> is a unified command-line interface for managing SLIM instances and the SLIM control plane. It provides commands for:</p>
+<ul>
+<li><strong>Local Development</strong> - Run standalone SLIM instances for development and testing using production configurations</li>
+<li><strong>Route Management</strong> - Configure message routing between services via the SLIM Control Plane</li>
+<li><strong>Connection Monitoring</strong> - View and manage active connections on SLIM nodes</li>
+<li><strong>Direct Node Access</strong> - Manage SLIM nodes directly without going through the Control Plane</li>
+</ul>
+<h3 id="command-groups">Command Groups</h3>
+<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>--help
+Usage:<span class="w"> </span>slimctl<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span><span class="w"> </span>&lt;COMMAND&gt;
+
+Commands:
+<span class="w">  </span>version<span class="w">     </span>Print<span class="w"> </span>version<span class="w"> </span>information
+<span class="w">  </span>config<span class="w">      </span>Manage<span class="w"> </span>slimctl<span class="w"> </span>configuration
+<span class="w">  </span>node<span class="w">        </span>Commands<span class="w"> </span>to<span class="w"> </span>interact<span class="w"> </span>with<span class="w"> </span>SLIM<span class="w"> </span>nodes<span class="w"> </span>directly
+<span class="w">  </span>controller<span class="w">  </span>Commands<span class="w"> </span>to<span class="w"> </span>interact<span class="w"> </span>with<span class="w"> </span>the<span class="w"> </span>SLIM<span class="w"> </span>Control<span class="w"> </span>Plane
+<span class="w">  </span>slim<span class="w">        </span>Commands<span class="w"> </span><span class="k">for</span><span class="w"> </span>managing<span class="w"> </span>a<span class="w"> </span><span class="nb">local</span><span class="w"> </span>SLIM<span class="w"> </span>instance
+<span class="w">  </span><span class="nb">help</span><span class="w">        </span>Print<span class="w"> </span>this<span class="w"> </span>message<span class="w"> </span>or<span class="w"> </span>the<span class="w"> </span><span class="nb">help</span><span class="w"> </span>of<span class="w"> </span>the<span class="w"> </span>given<span class="w"> </span>subcommand<span class="o">(</span>s<span class="o">)</span>
+</code></pre></div>
+<h3 id="installing-slimctl">Installing slimctl</h3>
+<p><code>slimctl</code> is available for multiple operating systems and architectures.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Pre-built Binaries</label><label for="__tabbed_1_2">Homebrew (macOS)</label><label for="__tabbed_1_3">Building from Source</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<p>Download from the <a href="https://github.com/agntcy/slim/releases">GitHub releases page</a>:</p>
+<ol>
+<li>Download the binary for your OS and architecture</li>
+<li>Extract the archive</li>
+<li>Move <code>slimctl</code> to a directory in your <code>PATH</code></li>
+</ol>
+</div>
+<div class="tabbed-block">
+<p>If you are using macOS, you can install slimctl via Homebrew:</p>
+<div class="highlight"><pre><span></span><code>brew<span class="w"> </span>tap<span class="w"> </span>agntcy/slim<span class="w"> </span>https://github.com/agntcy/slim.git
+brew<span class="w"> </span>install<span class="w"> </span>slimctl
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<p><strong>Prerequisites</strong>: Go 1.20+, Task (taskfile.dev)</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># From repository root</span>
+<span class="nb">cd</span><span class="w"> </span>control-plane
+task<span class="w"> </span>control-plane:slimctl:build
+
+<span class="c1"># Binary location: .dist/bin/slimctl</span>
+</code></pre></div>
+</div>
+</div>
+</div>
+<h3 id="configuring-slimctl">Configuring slimctl</h3>
+<p><code>slimctl</code> supports configuration through a configuration file, environment variables, or command-line flags. It looks for the Control Plane configuration at the following locations:</p>
+<ul>
+<li><code>$HOME/.slimctl/config.yaml</code></li>
+<li><code>./config.yaml</code> (current directory)</li>
+<li>Via <code>--config</code> flag</li>
+</ul>
+<p>An example <code>config.yaml</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">server</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;127.0.0.1:46358&quot;</span>
+<span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;10s&quot;</span>
+<span class="nt">tls</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">insecure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">ca_file</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;/path/to/ca.pem&quot;</span>
+<span class="w">  </span><span class="nt">cert_file</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;/path/to/client.pem&quot;</span>
+<span class="w">  </span><span class="nt">key_file</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;/path/to/client.key&quot;</span>
+</code></pre></div>
+<p>The <code>server</code> endpoint should point to a <a href="https://github.com/agntcy/slim/tree/slim-v1.1.0/control-plane/control-plane">SLIM Control</a> endpoint which is a central service managing SLIM node configurations.</p>
+<h3 id="managing-slim-nodes-directly">Managing SLIM Nodes Directly</h3>
+<p>SLIM nodes can be configured to expose a Controller endpoint. slimctl can connect to this endpoint to manage the SLIM instance directly using the <code>node</code> sub-command, bypassing the central Control Plane.</p>
+<p>To enable this, configure the node to host a server allowing the client to connect:</p>
+<div class="highlight"><pre><span></span><code><span class="w">  </span><span class="nt">tracing</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">log_level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">info</span>
+<span class="w">    </span><span class="nt">display_thread_names</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">display_thread_ids</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="w">  </span><span class="nt">runtime</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">n_cores</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="w">    </span><span class="nt">thread_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;slim-data-plane&quot;</span>
+<span class="w">    </span><span class="nt">drain_timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
+
+<span class="w">  </span><span class="nt">services</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">slim/1</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">dataplane</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">servers</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<span class="w">        </span><span class="nt">clients</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<span class="w">      </span><span class="nt">controller</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">servers</span><span class="p">:</span>
+<span class="w">            </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0.0.0.0:46358&quot;</span>
+<span class="w">              </span><span class="nt">tls</span><span class="p">:</span>
+<span class="w">                </span><span class="nt">insecure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w"> </span><span class="c1"># Or specify tls cert and key</span>
+<span class="w">        </span><span class="nt">clients</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+</code></pre></div>
+<p><strong>List connections on a SLIM instance:</strong></p>
+<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>node<span class="w"> </span>connection<span class="w"> </span>list<span class="w"> </span>--server<span class="o">=</span>&lt;node_control_endpoint&gt;
+</code></pre></div>
+<p><strong>List routes on a SLIM instance:</strong></p>
+<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>node<span class="w"> </span>route<span class="w"> </span>list<span class="w"> </span>--server<span class="o">=</span>&lt;node_control_endpoint&gt;
+</code></pre></div>
+<p><strong>Add a route to the SLIM instance:</strong></p>
+<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>node<span class="w"> </span>route<span class="w"> </span>add<span class="w"> </span>&lt;organization/namespace/agentName/agentId&gt;<span class="w"> </span>via<span class="w"> </span>&lt;config_file&gt;<span class="w"> </span>--server<span class="o">=</span>&lt;node_control_endpoint&gt;
+</code></pre></div>
+<p><strong>Delete a route from the SLIM instance:</strong></p>
+<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>node<span class="w"> </span>route<span class="w"> </span>del<span class="w"> </span>&lt;organization/namespace/agentName/agentId&gt;<span class="w"> </span>via<span class="w"> </span>&lt;host:port&gt;<span class="w"> </span>--server<span class="o">=</span>&lt;node_control_endpoint&gt;
+</code></pre></div>
+<h2 id="key-features">Key Features</h2>
+<ul>
+<li><strong>Centralized Node Management</strong>: Register and manage multiple SLIM nodes from a single control point.</li>
+<li><strong>Route Configuration</strong>: Set up message routing between nodes through the Controller.</li>
+<li><strong>Bidirectional Communication</strong>: Supports both northbound and southbound gRPC interfaces.</li>
+<li><strong>Connection Orchestration</strong>: Manages connections and subscriptions between SLIM nodes.</li>
+</ul>
+<h2 id="architecture">Architecture</h2>
+<p>The Controller implements northbound and southbound gRPC interfaces.</p>
+<p>The northbound interface provides management capabilities for external systems
+and administrators, such as <a href="#slimctl">slimctl</a>. It includes:</p>
+<ul>
+<li><strong>Route Management</strong>: Create, list, and manage message routes between nodes.</li>
+<li><strong>Connection Management</strong>: Set up and monitor connections between SLIM nodes.</li>
+<li><strong>Node Discovery</strong>: List registered nodes and their status.</li>
+</ul>
+<p>The southbound interface allows SLIM nodes to register with the Controller and
+receive configuration updates. It includes:</p>
+<ul>
+<li><strong>Node Registration</strong>: Nodes can register themselves with the Controller.</li>
+<li><strong>Node De-registration</strong>: Nodes can unregister when shutting down.</li>
+<li><strong>Configuration Distribution</strong>: The Controller can push configuration updates to registered nodes.</li>
+<li><strong>Bidirectional Communication</strong>: Supports real-time communication between the Controller and nodes.</li>
+</ul>
+<h3 id="control-plane-architecture">Control Plane Architecture</h3>
+<pre class="mermaid"><code>graph TB
+    %% User and CLI
+    User[👤 User/Administrator]
+    CLI[slimctl CLI Tool]
+
+    %% Control Plane Components
+    subgraph "Control Plane"
+        Controller[SLIM Controller&lt;br/&gt;- Northbound API&lt;br/&gt;- Southbound API&lt;br/&gt;- Node Registry]
+        Config[Configuration&lt;br/&gt;Store]
+    end
+
+    %% Data Plane Nodes
+    subgraph "Data Plane"
+        Node1[SLIM Node 1&lt;br/&gt;- Message Routing&lt;br/&gt;- Client Connections]
+        Node2[SLIM Node 2&lt;br/&gt;- Message Routing&lt;br/&gt;- Client Connections]
+        Node3[SLIM Node 3&lt;br/&gt;- Message Routing&lt;br/&gt;- Client Connections]
+    end
+
+    %% Client Applications
+    subgraph "Applications"
+        App1[Client App 1]
+        App2[Client App 2]
+        App3[Client App 3]
+    end
+
+    %% User interactions
+    User --&gt;|Commands| CLI
+    CLI --&gt;|gRPC Northbound&lt;br/&gt;Port 50051| Controller
+
+    %% Control plane interactions
+    Controller &lt;--&gt;|Store/Retrieve&lt;br/&gt;Configuration| Config
+
+    %% Southbound connections
+    Controller &lt;--&gt;|gRPC Southbound&lt;br/&gt;Port 50052&lt;br/&gt;Registration &amp; Config| Node1
+    Controller &lt;--&gt;|gRPC Southbound&lt;br/&gt;Port 50052&lt;br/&gt;Registration &amp; Config| Node2
+    Controller &lt;--&gt;|gRPC Southbound&lt;br/&gt;Port 50052&lt;br/&gt;Registration &amp; Config| Node3
+
+    %% Inter-node communication
+    Node1 &lt;--&gt;|Message Routing| Node2
+    Node2 &lt;--&gt;|Message Routing| Node3
+    Node1 &lt;--&gt;|Message Routing| Node3
+
+    %% Application connections
+    App1 --&gt;|SLIM Protocol| Node1
+    App2 --&gt;|SLIM Protocol| Node2
+    App3 --&gt;|SLIM Protocol| Node3
+
+    %% Styling for light/dark mode compatibility
+    classDef user fill:#4A90E2,stroke:#2E5D8A,stroke-width:2px,color:#FFFFFF
+    classDef control fill:#9B59B6,stroke:#6A3A7C,stroke-width:2px,color:#FFFFFF
+    classDef data fill:#27AE60,stroke:#1E8449,stroke-width:2px,color:#FFFFFF
+    classDef app fill:#F39C12,stroke:#D68910,stroke-width:2px,color:#FFFFFF
+
+    class User,CLI user
+    class Controller,Config control
+    class Node1,Node2,Node3 data
+    class App1,App2,App3 app</code></pre>
+<h3 id="control-flow-sequence">Control Flow Sequence</h3>
+<pre class="mermaid"><code>sequenceDiagram
+    participant User
+    participant CLI as slimctl CLI
+    participant Controller as SLIM Controller
+    participant Node as SLIM Node
+    participant App as Client App
+
+    %% Node Registration
+    Note over Node,Controller: Node Startup &amp; Registration
+    Node-&gt;&gt;Controller: Register Node (Southbound)
+    Controller-&gt;&gt;Node: Registration Ack
+    Controller-&gt;&gt;Controller: Store Node Info
+
+    %% Route Management via CLI
+    Note over User,Controller: Route Management
+    User-&gt;&gt;CLI: slimctl route add org/ns/agent via config.json
+    CLI-&gt;&gt;Controller: CreateRoute Request (Northbound)
+    Controller-&gt;&gt;Controller: Validate &amp; Store Route
+    Controller-&gt;&gt;Node: Push Route Configuration (Southbound)
+    Node-&gt;&gt;Controller: Configuration Ack
+    Controller-&gt;&gt;CLI: Route Created Response
+    CLI-&gt;&gt;User: Success Message
+
+    %% Connection Management
+    Note over User,Controller: Connection Management
+    User-&gt;&gt;CLI: slimctl connection list --node-id=slim/1
+    CLI-&gt;&gt;Controller: ListConnections Request (Northbound)
+    Controller-&gt;&gt;Controller: Retrieve Connection Info
+    Controller-&gt;&gt;CLI: Connections List Response
+    CLI-&gt;&gt;User: Display Connections
+
+    %% Application Communication
+    Note over App,Node: Application Messaging
+    App-&gt;&gt;Node: Connect &amp; Subscribe
+    Node-&gt;&gt;App: Connection Established
+    App-&gt;&gt;Node: Publish Message
+    Node-&gt;&gt;Node: Route Message via Controller Config
+
+    %% Node Status Updates
+    Note over Node,Controller: Status Monitoring
+    Node-&gt;&gt;Controller: Status Update (Southbound)
+    Controller-&gt;&gt;Controller: Update Node Status</code></pre>
+<h2 id="usage">Usage</h2>
+<h2 id="prerequisites">Prerequisites</h2>
+<p>Go 1.24 or later is required for running the SLIM Controller.</p>
+<p>Task runner is recommended for Taskfile commands.</p>
+<h3 id="building-the-controller">Building the Controller</h3>
+<p>The Controller can be built by running the following task:</p>
+<div class="highlight"><pre><span></span><code># Build all Controller components
+task control-plane:build
+
+# Or build just the Controller binary
+task control-plane:control-plane:build
+</code></pre></div>
+<h3 id="starting-the-controller">Starting the Controller</h3>
+<p>The Controller can be started by running the following task:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Start the Controller service</span>
+task<span class="w"> </span>control-plane:control-plane:run
+</code></pre></div>
+<p>Alternatively, start the Controller with the Docker image:</p>
+<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>run<span class="w"> </span>ghcr.io/agntcy/slim/control-plane:0.0.1
+</code></pre></div>
+<p>Or use the following to also add a configuration file:</p>
+<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>run<span class="w"> </span>-v<span class="w"> </span>./config.yaml:/config.yaml<span class="w">  </span>ghcr.io/agntcy/slim/control-plane:0.0.1<span class="w"> </span>-c<span class="w"> </span>/config.yaml
+</code></pre></div>
+<h3 id="managing-nodes">Managing Nodes</h3>
+<p>Nodes can register themselves with the Controller upon startup. Once registered, the controller can communicate with nodes using the same connection.</p>
+<p>To enable self-registration, configure the nodes with the Controller address:</p>
+<div class="highlight"><pre><span></span><code><span class="w">  </span><span class="nt">tracing</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">log_level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">info</span>
+<span class="w">    </span><span class="nt">display_thread_names</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">display_thread_ids</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="w">  </span><span class="nt">runtime</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">n_cores</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="w">    </span><span class="nt">thread_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;slim-data-plane&quot;</span>
+<span class="w">    </span><span class="nt">drain_timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
+
+<span class="w">  </span><span class="nt">services</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">slim/1</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">dataplane</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">servers</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<span class="w">        </span><span class="nt">clients</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<span class="w">      </span><span class="nt">controller</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">servers</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<span class="w">        </span><span class="nt">clients</span><span class="p">:</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http://&lt;controller-address&gt;:50052&quot;</span>
+<span class="w">            </span><span class="nt">tls</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">insecure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</code></pre></div>
+<p>Routes between SLIM nodes are automatically created by Controller upon receiving new subscriptions from clients.</p>
+<p>Nodes can be managed through slimctl. Although routes are automatically created for client subscription you can still add/remove routes manually.</p>
+<p>For more information, see the <a href="#slimctl">slimctl</a>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../slim-data-plane-config/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Configuration Reference">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Configuration Reference
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../slim-controller-reference/" class="md-footer__link md-footer__link--next" aria-label="Next: Controller Reference">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Controller Reference
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div style="text-align: center; font-size: 0.75rem; margin-top: 1rem; color: var(--md-default-fg-color--light);">
+  © Copyright AGNTCY Contributors.
+
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["announce.dismiss", "content.action.edit", "content.action.view", "content.code.annotate", "content.code.copy", "content.tabs.link", "content.tooltips", "navigation.footer", "navigation.indexes", "navigation.path", "navigation.sections", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "navigation.tracking", "search.highlight", "search.share", "search.suggest", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../javascripts/card-links.js"></script>
+      
+        <script src="../../javascripts/external-links.js"></script>
+      
+    
+  </body>
+</html>
