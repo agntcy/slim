@@ -159,7 +159,7 @@ class IdentityTest {
             // Create PointToPoint session
             val sessionConfig = SessionConfig(
                 sessionType = SessionType.POINT_TO_POINT,
-                enableMls = false,
+                mlsSettings = null,
                 maxRetries = 3u,
                 interval = Duration.ofMillis(333),
                 metadata = emptyMap()

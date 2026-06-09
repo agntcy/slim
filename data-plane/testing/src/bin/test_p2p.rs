@@ -10,6 +10,7 @@ use parking_lot::RwLock;
 
 use slim_datapath::api::ProtoName as Name;
 use slim_service::ServiceError;
+use slim_session::session_config::MlsSettings;
 use slim_session::{Notification, SessionConfig};
 use slim_testing::build_client_service;
 use slim_testing::common::{create_and_subscribe_app, reserve_local_port, run_slim_node};
@@ -224,7 +225,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
         max_retries: Some(10),
         interval: Some(Duration::from_secs(1)),
-        mls_enabled,
+        mls_settings: if mls_enabled {
+            Some(MlsSettings::default())
+        } else {
+            None
+        },
         initiator: true,
         metadata: HashMap::new(),
     };

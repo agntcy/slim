@@ -84,15 +84,17 @@ pub struct SlimHeader {
     pub fanout: u32,
     #[prost(string, tag = "5")]
     pub version: ::prost::alloc::string::String,
-    #[prost(uint64, optional, tag = "6")]
-    pub recv_from: ::core::option::Option<u64>,
+    #[prost(uint32, tag = "6")]
+    pub ttl: u32,
     #[prost(uint64, optional, tag = "7")]
-    pub forward_to: ::core::option::Option<u64>,
+    pub recv_from: ::core::option::Option<u64>,
     #[prost(uint64, optional, tag = "8")]
+    pub forward_to: ::core::option::Option<u64>,
+    #[prost(uint64, optional, tag = "9")]
     pub incoming_conn: ::core::option::Option<u64>,
-    #[prost(bool, optional, tag = "9")]
+    #[prost(bool, optional, tag = "10")]
     pub error: ::core::option::Option<bool>,
-    #[prost(bytes = "vec", optional, tag = "10")]
+    #[prost(bytes = "vec", optional, tag = "11")]
     pub header_mac: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
@@ -234,16 +236,16 @@ pub struct DiscoveryReplyPayload {}
 /// Join Request
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct JoinRequestPayload {
-    /// true if mls is enabled
-    #[prost(bool, tag = "1")]
-    pub enable_mls: bool,
     /// settings for timers for rtx and acks
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag = "1")]
     pub timer_settings: ::core::option::Option<TimerSettings>,
     /// name where to send the messages
     /// it can be a channel or none
-    #[prost(message, optional, tag = "3")]
+    #[prost(message, optional, tag = "2")]
     pub channel: ::core::option::Option<Name>,
+    /// MLS related settings
+    #[prost(message, optional, tag = "3")]
+    pub mls_settings: ::core::option::Option<MlsSettings>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct TimerSettings {
@@ -279,6 +281,36 @@ pub struct MlsPayload {
     /// commit or welcome mls message
     #[prost(bytes = "vec", tag = "2")]
     pub mls_content: ::prost::alloc::vec::Vec<u8>,
+}
+/// MLS specific settings
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct MlsSettings {
+    /// 0 = disable header-integrity checks (still may send AAD for forward compat)
+    /// 1-100 = percent of messages to verify after decrypt
+    #[prost(uint32, tag = "1")]
+    pub header_integrity_validation_percent: u32,
+}
+/// Fields to include in E2E header integrity check
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct HeaderIntegrityAad {
+    #[prost(uint32, tag = "1")]
+    pub version: u32,
+    #[prost(message, optional, tag = "2")]
+    pub source: ::core::option::Option<Name>,
+    #[prost(message, optional, tag = "3")]
+    pub destination: ::core::option::Option<Name>,
+    #[prost(string, tag = "4")]
+    pub identity: ::prost::alloc::string::String,
+    #[prost(enumeration = "SessionType", tag = "5")]
+    pub session_type: i32,
+    #[prost(enumeration = "SessionMessageType", tag = "6")]
+    pub session_message_type: i32,
+    #[prost(uint32, tag = "7")]
+    pub session_id: u32,
+    #[prost(uint32, tag = "8")]
+    pub message_id: u32,
+    #[prost(string, tag = "9")]
+    pub payload_type: ::prost::alloc::string::String,
 }
 /// Group Add Payload
 /// sent when a new participant is added

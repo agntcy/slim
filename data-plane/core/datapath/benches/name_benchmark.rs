@@ -3,6 +3,7 @@
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use slim_datapath::api::{EncodedName, NameId, ProtoName, SlimHeader, StringName};
+use slim_datapath::messages::utils::DEFAULT_TTL;
 use slim_datapath::tables::SubscriptionTable;
 use slim_datapath::tables::subscription_table::SubscriptionTableImpl;
 use slim_datapath::tables::{ConnType, MatchFilter};
@@ -38,6 +39,7 @@ fn make_slim_header() -> SlimHeader {
         incoming_conn: None,
         error: None,
         header_mac: None,
+        ttl: DEFAULT_TTL,
     }
 }
 

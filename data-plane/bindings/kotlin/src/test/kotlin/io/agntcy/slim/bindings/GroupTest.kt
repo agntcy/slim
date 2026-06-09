@@ -79,10 +79,10 @@ class GroupTest {
     ): Session {
         val sessionConfig = SessionConfig(
             sessionType = SessionType.GROUP,
-            enableMls = mlsEnabled,
             maxRetries = 5u,
             interval = Duration.ofSeconds(1),
-            metadata = emptyMap()
+            metadata = emptyMap(),
+            mlsSettings = if (mlsEnabled) MlsSettings(100u) else null
         )
         val sessionContext = participant.createSession(sessionConfig, chatName)
         sessionContext.completion.waitAsync()

@@ -273,7 +273,7 @@ func (h *TestHarness) CreateSession() (*slim.Session, error) {
 
 	sessionConfig := slim.SessionConfig{
 		SessionType: slim.SessionTypePointToPoint,
-		EnableMls:   false,
+		MlsSettings: nil,
 	}
 
 	h.t.Logf("[Sender] Creating session to %v...", h.ReceiverName.Components())

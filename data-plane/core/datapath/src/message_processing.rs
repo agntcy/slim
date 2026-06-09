@@ -323,7 +323,7 @@ impl MessageProcessor {
         };
         let link_id = conn
             .link_id()
-            .filter(|id| slim_config::grpc::client::is_valid_uuid_v4(id))
+            .filter(|id| !id.is_empty())
             .ok_or(DataPathError::HeaderMacAwaitingLinkNegotiation(conn_index))?;
         mac.verify_slim_header(header, &link_id)
             .map_err(DataPathError::HeaderIntegrity)
@@ -710,7 +710,7 @@ impl MessageProcessor {
                     let link_id = conn
                         .link_id()
                         .or_else(|| conn.config_data().map(|c| c.link_id.clone()))
-                        .filter(|id| slim_config::grpc::client::is_valid_uuid_v4(id));
+                        .filter(|id| !id.is_empty());
                     if let Some(ref id) = link_id {
                         let header = msg.get_slim_header_mut();
 
@@ -1336,6 +1336,12 @@ impl MessageProcessor {
             // add incoming connection to the SLIM header
             msg.set_incoming_conn(Some(conn_index));
 
+            // TTL processing: decrement for remote messages (hop-by-hop)
+            if !category.is_local() && msg.decrement_ttl() == 0 {
+                debug!(%conn_index, "dropping message: TTL expired");
+                return Err(DataPathError::TtlExpired);
+            }
+
             #[cfg(feature = "otel_tracing")]
             otel_tracing::prepare_inbound_msg(
                 &mut msg,
@@ -1795,7 +1801,6 @@ impl DataPlaneService for MessageProcessor {
 #[cfg(test)]
 mod tests {
     use slim_config::client::ClientConfig;
-    use slim_config::grpc::client::is_valid_uuid_v4;
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -1860,24 +1865,6 @@ mod tests {
     #[tokio::test]
     async fn test_process_subscription_sends_failed_ack_on_unsubscribe_error() {
         assert_failed_subscription_ack_is_sent(false).await;
-    }
-
-    #[test]
-    fn test_is_valid_uuid_v4_accepts_v4() {
-        let id = uuid::Uuid::new_v4().to_string();
-        assert!(is_valid_uuid_v4(&id));
-    }
-
-    #[test]
-    fn test_is_valid_uuid_v4_rejects_non_uuid_string() {
-        assert!(!is_valid_uuid_v4("not-a-uuid"));
-        assert!(!is_valid_uuid_v4(""));
-    }
-
-    #[test]
-    fn test_is_valid_uuid_v4_rejects_non_v4_uuid() {
-        // Version 1 UUID (time-based).
-        assert!(!is_valid_uuid_v4("00000000-0000-1000-8000-000000000000"));
     }
 
     // ── handle_link_message ───────────────────────────────────────────────────
@@ -2030,11 +2017,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_handle_link_negotiation_server_invalid_uuid_ignored() {
+    async fn test_handle_link_negotiation_server_empty_link_id_ignored() {
         let processor = MessageProcessor::new();
         let (conn_id, _rx) = make_server_conn(&processor);
         let payload = LinkNegotiationPayload {
-            link_id: "not-a-uuid".into(),
+            link_id: "".into(),
             slim_version: "1.0.0".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],

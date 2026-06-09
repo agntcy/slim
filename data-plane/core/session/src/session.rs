@@ -326,7 +326,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: false,
             metadata: HashMap::new(),
         };
@@ -456,7 +456,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: false,
             metadata: HashMap::new(),
         };
@@ -662,7 +662,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: HashMap::new(),
         };
@@ -690,7 +690,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: false,
             metadata: HashMap::new(),
         };
