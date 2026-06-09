@@ -1,0 +1,28 @@
+# https://github.com/lycheeverse/lychee
+max_concurrency = 10
+timeout = 10
+# Include transient gateway / origin errors so flaky GitHub (502) does not fail the docs job.
+accept = [200, 201, 204, 403, 429, 502, 503, 504]
+
+exclude = [
+    'localhost',
+    'http://127\\.0\\.0\\.1',
+    'https://127\\.0\\.0\\.1',
+    'http://0\\.0\\.0\\.0',
+    'host\\.docker\\.internal',
+    '\\.well-known',
+    'example\\.com',
+    'your-username',
+    'company\\.com',
+    'w3\\.org',
+    'gnu\\.org',
+]
+
+exclude_path = ['overrides', '\\.index(/|$)', '(^|/)404\\.html$']
+# Disk cache reuses prior results; failed runs (offline, timeouts) store empty status and
+# show as "Error (cached)" forever unless the cache is cleared — too easy to misread as live failures.
+cache = false
+max_retries = 3
+method = "get"
+include_verbatim = false
+user_agent = "lychee/agntcy-docs-theme"

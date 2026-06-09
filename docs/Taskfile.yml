@@ -1,0 +1,230 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+#
+# Documentation tasks. From repo root: task docs:run
+# Or: task -t docs/Taskfile.yml run
+
+version: "3"
+
+interval: "500ms"
+
+vars:
+  REPO:
+    sh: git rev-parse --show-toplevel
+  DOCS_DIR: "{{.REPO}}/docs"
+  MKDOCS_DIR: "{{.DOCS_DIR}}/mkdocs"
+  MKDOCS_CONFIG: "{{.MKDOCS_DIR}}/mkdocs.yml"
+  BUILD_SITE: "{{.REPO}}/.build/site"
+  CONTENT_DIR: "{{.DOCS_DIR}}/content"
+  # Pages in mkdocs nav (exclude draft/orphan pages under content/)
+  LINT_PATHS: "{{.CONTENT_DIR}}/index.md {{.CONTENT_DIR}}/community.md {{.CONTENT_DIR}}/slim"
+  SPELL_CONFIG: "{{.DOCS_DIR}}/codespellrc"
+  MD_CONFIG: "{{.DOCS_DIR}}/pymarkdown.yaml"
+  LYCHEE_CONFIG: "{{.DOCS_DIR}}/lychee.toml"
+  # Deploy (mike --push to gh-pages). Defaults overridable from the environment.
+  MIKE_REMOTE: '{{.MIKE_REMOTE | default "origin"}}'
+  SITE_URL: '{{.SITE_URL | default "https://agntcy.github.io/slim/"}}'
+  BOT_NAME: "github-actions[bot]"
+  BOT_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
+
+tasks:
+  default:
+    desc: List tasks
+    cmds:
+      - task --list
+
+  deps:sync:
+    desc: Install MkDocs stack via uv (docs/mkdocs)
+    internal: true
+    run: once
+    preconditions:
+      - sh: command -v uv
+        msg: "uv is required; see https://docs.astral.sh/uv/"
+    cmds:
+      - cd "{{.MKDOCS_DIR}}" && uv sync
+    sources:
+      - "{{.MKDOCS_DIR}}/pyproject.toml"
+      - "{{.MKDOCS_DIR}}/uv.lock"
+    generates:
+      - "{{.MKDOCS_DIR}}/.venv/**"
+
+  build:
+    desc: Build documentation site to .build/site
+    deps:
+      - deps:sync
+    cmds:
+      - mkdir -p "{{.BUILD_SITE}}"
+      - cd "{{.MKDOCS_DIR}}" && DISABLE_MKDOCS_2_WARNING="${DISABLE_MKDOCS_2_WARNING:-true}" uv run mkdocs build --site-dir "{{.BUILD_SITE}}"
+      - 'echo "Docs built: file://{{.BUILD_SITE}}/index.html"'
+
+  run:
+    desc: >-
+      Run mkdocs serve (live reload). Picks the first free port in 8000–8009 unless MKDOCS_ADDR
+      is set (e.g. MKDOCS_ADDR=127.0.0.1:9000). Sets DISABLE_MKDOCS_2_WARNING=true by default.
+    deps:
+      - deps:sync
+    cmds:
+      - |
+        set -e
+        cd "{{.MKDOCS_DIR}}"
+        export DISABLE_MKDOCS_2_WARNING="${DISABLE_MKDOCS_2_WARNING:-true}"
+        if [ -n "${MKDOCS_ADDR:-}" ]; then
+          exec uv run mkdocs serve -a "$MKDOCS_ADDR"
+        fi
+        for port in 8000 8001 8002 8003 8004 8005 8006 8007 8008 8009; do
+          if ! lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+            echo "mkdocs serve on 127.0.0.1:$port (set MKDOCS_ADDR to override)"
+            exec uv run mkdocs serve -a "127.0.0.1:$port"
+          fi
+        done
+        echo "No free port between 8000 and 8009. Free one or set MKDOCS_ADDR." >&2
+        exit 1
+
+  ci:
+    desc: CI checks (build + lint)
+    cmds:
+      - task: build
+      - task: test
+
+  test:
+    desc: Run all documentation lint checks
+    deps:
+      - deps:sync
+    cmds:
+      - task: lint
+
+  lint:
+    desc: Run spelling, markdown, and link checks
+    deps:
+      - deps:sync
+    cmds:
+      - task: lint:spelling
+      - task: lint:markdown
+      - task: lint:links
+
+  lint:spelling:
+    desc: Check spelling under docs/content
+    deps:
+      - deps:sync
+    cmds:
+      - cd "{{.MKDOCS_DIR}}" && uv run codespell --config {{.SPELL_CONFIG}} {{.LINT_PATHS}}
+
+  lint:markdown:
+    desc: Check Markdown style under docs/content
+    deps:
+      - deps:sync
+    cmds:
+      - cd "{{.MKDOCS_DIR}}" && uv run pymarkdown --config {{.MD_CONFIG}} scan {{.LINT_PATHS}}
+
+  lint:links:
+    desc: Check links in markdown under docs/content (requires lychee on PATH)
+    cmds:
+      - lychee --config "{{.LYCHEE_CONFIG}}" {{.LINT_PATHS}}
+
+  lint:fix:
+    desc: Auto-fix spelling and markdown where supported
+    deps:
+      - deps:sync
+    cmds:
+      - task: lint:fix:spelling
+      - task: lint:fix:markdown
+
+  lint:fix:spelling:
+    desc: Apply codespell write-fixes to docs/content
+    deps:
+      - deps:sync
+    cmds:
+      - cd "{{.MKDOCS_DIR}}" && uv run codespell --config {{.SPELL_CONFIG}} {{.LINT_PATHS}} --write-changes
+
+  lint:fix:markdown:
+    desc: Apply pymarkdown fixes to published nav content (index.md and slim/)
+    deps:
+      - deps:sync
+    cmds:
+      - cd "{{.MKDOCS_DIR}}" && uv run pymarkdown --config {{.MD_CONFIG}} fix {{.CONTENT_DIR}}/index.md
+      - cd "{{.MKDOCS_DIR}}" && uv run pymarkdown --config {{.MD_CONFIG}} fix {{.CONTENT_DIR}}/community.md
+      - cd "{{.MKDOCS_DIR}}" && uv run pymarkdown --config {{.MD_CONFIG}} fix -r {{.CONTENT_DIR}}/slim
+
+  # CI deploy tasks (mike --push to gh-pages). The docs workflows
+  # (.github/workflows/docs-deploy.yml -> reusable-docs.yml) only provision
+  # tools and call these:
+  #   push to main           -> docs:deploy:dev      (`dev` version)
+  #   release tag / dispatch -> docs:deploy:release  (`<version>` + `latest`, default)
+  #   any deploy             -> docs:deploy:root-files (404/robots/llms at branch root)
+  # They push to the remote and refuse to run outside CI unless ALLOW_DOCS_PUSH=1.
+  # For local, no-push preview use docs:mike:deploy-local / docs:mike:serve below.
+
+  deploy:dev:
+    desc: "CI: publish current docs as the `dev` version (mike --push to gh-pages)."
+    deps:
+      - deps:sync
+    preconditions:
+      - sh: '[ "${CI:-}" = "true" ] || [ "${ALLOW_DOCS_PUSH:-}" = "1" ]'
+        msg: "Refusing to push docs outside CI. Set ALLOW_DOCS_PUSH=1 to override."
+    cmds:
+      - git config user.name "{{.BOT_NAME}}"
+      - git config user.email "{{.BOT_EMAIL}}"
+      - |
+        set -euo pipefail
+        export MKDOCS_SITE_URL="${MKDOCS_SITE_URL:-{{.SITE_URL}}}"
+        cd "{{.MKDOCS_DIR}}"
+        uv run mike deploy --push --remote "{{.MIKE_REMOTE}}" -F "{{.MKDOCS_CONFIG}}" dev
+        uv run mike list -F "{{.MKDOCS_CONFIG}}"
+
+  deploy:release:
+    desc: "CI: publish VERSION + `latest` alias (set-default `latest`) via mike --push. Requires VERSION."
+    deps:
+      - deps:sync
+    requires:
+      vars: [VERSION]
+    preconditions:
+      - sh: '[ "${CI:-}" = "true" ] || [ "${ALLOW_DOCS_PUSH:-}" = "1" ]'
+        msg: "Refusing to push docs outside CI. Set ALLOW_DOCS_PUSH=1 to override."
+    cmds:
+      - git config user.name "{{.BOT_NAME}}"
+      - git config user.email "{{.BOT_EMAIL}}"
+      - |
+        set -euo pipefail
+        VERSION="{{.VERSION}}"
+        VERSION="${VERSION#v}"
+        [ -n "${VERSION}" ] || { echo "::error::VERSION is empty after normalizing leading v"; exit 1; }
+        echo "Deploying docs version: ${VERSION}"
+        export MKDOCS_SITE_URL="${MKDOCS_SITE_URL:-{{.SITE_URL}}}"
+        cd "{{.MKDOCS_DIR}}"
+        uv run mike deploy --push --update-aliases --remote "{{.MIKE_REMOTE}}" -F "{{.MKDOCS_CONFIG}}" "${VERSION}" latest
+        uv run mike set-default --push --remote "{{.MIKE_REMOTE}}" -F "{{.MKDOCS_CONFIG}}" latest
+        uv run mike list -F "{{.MKDOCS_CONFIG}}"
+
+  deploy:root-files:
+    desc: "CI: publish 404.html/robots.txt/llms.txt to gh-pages root. Requires REPO_SLUG + GH_TOKEN env."
+    preconditions:
+      - sh: '[ -n "${GH_TOKEN:-}" ]'
+        msg: "GH_TOKEN environment variable is required."
+    cmds:
+      - bash "{{.DOCS_DIR}}/scripts/deploy_root_files.sh" "${REPO_SLUG:?REPO_SLUG environment variable is required}"
+
+  mike:deploy-local:
+    desc: >-
+      Deploy current docs to local gh-pages as the `dev` version (no git push). Run docs:mike:serve to preview.
+    deps:
+      - deps:sync
+    cmds:
+      - git fetch origin gh-pages --depth=1 2>/dev/null || true
+      - |
+        set -euo pipefail
+        export MKDOCS_SITE_URL="${MKDOCS_SITE_URL:-https://agntcy.github.io/slim/}"
+        cd "{{.MKDOCS_DIR}}"
+        uv run mike deploy -F "{{.MKDOCS_CONFIG}}" dev
+        uv run mike list -F "{{.MKDOCS_CONFIG}}"
+      - echo "Local gh-pages updated (dev). Run task docs:mike:serve and open http://127.0.0.1:8000/"
+
+  mike:serve:
+    desc: >-
+      Serve versioned site from local gh-pages (run mike:deploy-local first). Uses MKDOCS_SITE_URL if set.
+    deps:
+      - deps:sync
+    cmds:
+      - |
+        cd "{{.MKDOCS_DIR}}"
+        export MKDOCS_SITE_URL="${MKDOCS_SITE_URL:-https://agntcy.github.io/slim/}"
+        exec uv run mike serve -F "{{.MKDOCS_CONFIG}}" -a 127.0.0.1:8000
