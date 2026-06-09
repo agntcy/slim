@@ -1,6 +1,10 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+// Transport-agnostic types that must be available on every target (including
+// wasm32) live outside the gated block below.
+pub mod conn_type;
+
 // TODO(wasm32): expose a browser-friendly transport (tonic-web-wasm-client + browser WS).
 cfg_if::cfg_if! {
     if #[cfg(not(target_arch = "wasm32"))] {
