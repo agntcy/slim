@@ -20,11 +20,11 @@ database:
 
 topology:
   links:
-    - name: node-a
-      peers: [node-b]
-    - name: node-b
-      peers: [node-a, node-c]
-    - name: node-c
-      peers: [node-b, node-d]
-    - name: node-d
-      peers: [node-c]
+    - name: deployment-a
+      peers: [deployment-b]
+    - name: deployment-b
+      peers: [deployment-a, deployment-c]
+    - name: deployment-c
+      peers: [deployment-b, deployment-d]
+    - name: deployment-d
+      peers: [deployment-c]

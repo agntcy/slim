@@ -10,6 +10,7 @@ use slim_datapath::api::NameId;
 
 use crate::api::proto::controller::proto::v1::ConnectionDirection;
 use crate::db::{LinkStatus, RouteStatus};
+use crate::node_transport::NodeStatus;
 
 use super::connection_config::{ReportedConnection, find_reported_connection};
 use super::*;
@@ -129,6 +130,10 @@ impl super::RouteService {
         };
         for route in dest_routes {
             if route.status != RouteStatus::Deleted {
+                continue;
+            }
+            // Skip wildcard templates — the app must re-subscribe to recreate them.
+            if route.source_node_id == ALL_NODES_ID {
                 continue;
             }
             let link_id = node_links
@@ -338,127 +343,291 @@ impl super::RouteService {
 
         tracing::info!("route service: cleaning up state for deregistered node {node_id}");
 
-        // Fetch both route sets concurrently.
-        let (src_routes, dest_routes) = tokio::join!(
-            self.0.db.get_routes_for_node(node_id),
-            self.0.db.get_routes_for_dest_node_id(node_id),
-        );
-        let src_routes = match src_routes {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::error!("node_deregistered: failed to get routes for node {node_id}: {e}");
-                vec![]
-            }
-        };
-        let dest_routes = match dest_routes {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::error!("node_deregistered: failed to get dest routes for {node_id}: {e}");
-                vec![]
-            }
-        };
+        // Handle link failover first — this moves routes to the new gateway
+        // before cleanup_routes_for_node would delete them.
+        self.handle_links_for_departing_node(node_id).await;
 
-        for route in src_routes {
-            if let Err(e) = self.0.db.delete_route(&route.id).await {
-                tracing::warn!(
-                    "node_deregistered: failed to delete route {}: {e}",
-                    route.id
-                );
-            }
-        }
-
-        // For routes where this node is the destination: mark deleted and
-        // re-trigger source nodes so the subscription is cleaned up on them.
-        for route in &dest_routes {
-            if route.source_node_id == ALL_NODES_ID {
-                // Wildcard template routes are intentionally preserved: they represent
-                // operator intent and will be re-expanded when the node re-registers.
-                continue;
-            }
-            if let Err(e) = self.0.db.mark_route_deleted(&route.id).await {
-                tracing::warn!(
-                    "node_deregistered: failed to mark route {} deleted: {e}",
-                    route.id
-                );
-            } else {
-                self.0.queue.add(route.source_node_id.clone());
-            }
-        }
-
-        // Links: process all links involving this node.
-        let links = self
-            .0
-            .db
-            .get_links_for_node(node_id)
-            .await
-            .unwrap_or_else(|e| {
-                tracing::error!("node_deregistered: failed to get links for {node_id}: {e}");
-                vec![]
-            });
-        for mut link in links {
-            if link.status == LinkStatus::Deleted {
-                continue;
-            }
-            if link.source_node_id == node_id {
-                // Soft-delete outgoing links.  The link reconciler cannot reach
-                // this node to tear down the connection (it's gone), but keeping
-                // the record allows re-registration to restore the same link_id
-                // and avoid invalidating route references.
-                link.status = LinkStatus::Deleted;
-                link.last_updated = std::time::SystemTime::now();
-                if let Err(e) = self.0.db.update_link(link.clone()).await {
-                    tracing::warn!(
-                        "node_deregistered: failed to mark outgoing link {} deleted: {e}",
-                        link.link_id
-                    );
-                }
-            } else {
-                // Incoming links from peer nodes: soft-delete to preserve the
-                // link_id for re-registration.  We intentionally do NOT enqueue
-                // the link reconciler here — doing so would hard-delete the
-                // record after the peer ACKs the connection removal, making it
-                // impossible to restore the link on re-register.  The stale
-                // connection on the peer is harmless (no routes reference it
-                // while this node is down) and will be replaced when the link
-                // is restored.
-                link.status = LinkStatus::Deleted;
-                link.last_updated = std::time::SystemTime::now();
-                if let Err(e) = self.0.db.update_link(link.clone()).await {
-                    tracing::warn!(
-                        "node_deregistered: failed to mark link {} deleted: {e}",
-                        link.link_id
-                    );
-                }
-            }
-        }
+        // Clean up any remaining routes.
+        self.cleanup_routes_for_node(node_id).await;
 
         // Remove the node record itself.
         if let Err(e) = self.0.db.delete_node(node_id).await {
             tracing::warn!("node_deregistered: failed to delete node {node_id}: {e}");
         }
 
-        // Rebuild link graph since the set of groups may have changed.
-        // If a group disappeared, re-expand all wildcard routes so stale
-        // per-gateway routes pointing at this node get cleaned up.
-        if let Ok(remaining_nodes) = self.0.db.list_nodes().await {
-            let groups_changed = self.rebuild_link_graph(&remaining_nodes).await;
-            if groups_changed {
-                let all_links = self.0.db.list_all_links().await.unwrap_or_default();
-                self.expand_all_wildcard_routes(&remaining_nodes, &all_links)
-                    .await;
+        // Remove the map entry while _node_guard is still held.
+        self.0.node_locks.lock().await.remove(node_id);
+        // _node_guard drops here naturally.
+    }
+
+    /// Called when a node disconnects ungracefully (stream error, crash).
+    /// Unlike `node_deregistered`, keeps the node record (expecting reconnection)
+    /// and attempts gateway failover for inter-group links.
+    pub async fn node_disconnected(&self, node_id: &str) {
+        // Serialize with node_registered/node_deregistered for the same node.
+        let node_lock = {
+            let mut locks = self.0.node_locks.lock().await;
+            locks
+                .entry(node_id.to_string())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                .clone()
+        };
+        let _node_guard = node_lock.lock().await;
+
+        tracing::info!("route service: handling disconnect for node {node_id}");
+
+        // Handle link failover first — this moves routes to the new gateway
+        // before cleanup_routes_for_node would delete them.
+        self.handle_links_for_departing_node(node_id).await;
+
+        // Clean up any remaining routes (those not moved by link reassignment).
+        self.cleanup_routes_for_node(node_id).await;
+
+        // Node record and node_lock are kept — node may reconnect.
+    }
+
+    // ── Shared helpers ──────────────────────────────────────────────────────
+
+    /// Delete routes where this node is the source, mark-delete routes where
+    /// this node is the destination and re-trigger their source nodes.
+    async fn cleanup_routes_for_node(&self, node_id: &str) {
+        let (src_routes, dest_routes) = tokio::join!(
+            self.0.db.get_routes_for_node(node_id),
+            self.0.db.get_routes_for_dest_node_id(node_id),
+        );
+
+        let src_routes = src_routes.unwrap_or_else(|e| {
+            tracing::error!("cleanup_routes: failed to get routes for {node_id}: {e}");
+            vec![]
+        });
+        let dest_routes = dest_routes.unwrap_or_else(|e| {
+            tracing::error!("cleanup_routes: failed to get dest routes for {node_id}: {e}");
+            vec![]
+        });
+
+        for route in src_routes {
+            if let Err(e) = self.0.db.delete_route(&route.id).await {
+                tracing::warn!("cleanup_routes: failed to delete route {}: {e}", route.id);
             }
         }
 
-        // Remove the map entry while _node_guard is still held.  Any
-        // concurrent node_registered is either waiting for this guard (and
-        // will create a fresh entry after we remove it) or hasn't started
-        // yet.  Dropping the guard first would open a window where a racing
-        // thread re-inserts an entry that we then remove, leaving it without
-        // a lock.
-        // Lock-ordering note: the outer node_locks Mutex is always released
-        // before a per-node Mutex is awaited, so taking the outer lock here
-        // (while holding the inner guard) does not introduce a deadlock.
-        self.0.node_locks.lock().await.remove(node_id);
-        // _node_guard drops here naturally.
+        // For routes where this node is the destination: mark deleted and
+        // re-trigger source nodes so the subscription is cleaned up on them.
+        // Wildcard templates are also deleted — the app will re-subscribe
+        // when it reconnects, creating a fresh wildcard.
+        for route in &dest_routes {
+            if let Err(e) = self.0.db.mark_route_deleted(&route.id).await {
+                tracing::warn!(
+                    "cleanup_routes: failed to mark route {} deleted: {e}",
+                    route.id
+                );
+            } else if route.source_node_id != ALL_NODES_ID {
+                self.0.queue.add(route.source_node_id.clone());
+            }
+        }
+    }
+
+    /// Handle inter-group links for a departing node. If other connected nodes
+    /// exist in the group, reassigns links to a new gateway. Otherwise
+    /// soft-deletes links and rebuilds the link graph.
+    async fn handle_links_for_departing_node(&self, node_id: &str) {
+        let links: Vec<crate::db::Link> = self
+            .0
+            .db
+            .get_links_for_node(node_id)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::error!(
+                    "handle_links_for_departing_node: failed to get links for {node_id}: {e}"
+                );
+                vec![]
+            })
+            .into_iter()
+            .filter(|l| l.status != LinkStatus::Deleted)
+            .filter(|l| l.source_node_id == node_id || l.dest_node_id == node_id)
+            .collect();
+
+        if links.is_empty() {
+            return;
+        }
+
+        let group = node_id.split('/').next().unwrap_or("");
+        let other_nodes = self.find_connected_nodes_in_group(group, node_id).await;
+
+        if other_nodes.is_empty() {
+            self.handle_last_node_in_group(&links).await;
+        } else {
+            self.reassign_gateway_links(node_id, &links, &other_nodes)
+                .await;
+        }
+    }
+
+    /// Find connected nodes in a group, excluding a specific node.
+    async fn find_connected_nodes_in_group(&self, group: &str, exclude_node: &str) -> Vec<String> {
+        let all_nodes = self.0.db.list_nodes().await.unwrap_or_default();
+        let mut result = Vec::new();
+        for node in &all_nodes {
+            if node.id == exclude_node {
+                continue;
+            }
+            if node.group_name.as_deref() == Some(group)
+                && self.0.cmd_handler.get_connection_status(&node.id).await == NodeStatus::Connected
+            {
+                result.push(node.id.clone());
+            }
+        }
+        result
+    }
+
+    /// Reassign inter-group links from a departing node to another connected
+    /// node in the same group.
+    async fn reassign_gateway_links(
+        &self,
+        departing_node: &str,
+        links: &[crate::db::Link],
+        available_nodes: &[String],
+    ) {
+        let new_gateway = &available_nodes[0];
+        tracing::info!(
+            "reassign_gateway_links: moving links from {departing_node} to {new_gateway}"
+        );
+
+        let mut sources_needing_links: Vec<String> = Vec::new();
+
+        for link in links {
+            if link.source_node_id == departing_node {
+                // Outgoing link: move source to new gateway, reset to Pending
+                // so reconciler re-establishes the connection from new node.
+                let mut updated = link.clone();
+                updated.source_node_id = new_gateway.clone();
+                updated.status = LinkStatus::Pending;
+                updated.last_updated = SystemTime::now();
+
+                // storage_key includes source/dest fields, so changing them
+                // requires delete + re-add rather than an in-place update.
+                if let Err(e) = self.0.db.delete_link(link).await {
+                    tracing::warn!(
+                        "reassign_gateway_links: failed to delete old link {}: {e}",
+                        link.link_id
+                    );
+                    continue;
+                }
+                if let Err(e) = self.0.db.add_link(updated).await {
+                    tracing::warn!(
+                        "reassign_gateway_links: failed to re-add link {}: {e}",
+                        link.link_id
+                    );
+                }
+                self.0.queue.add(new_gateway.clone());
+            } else if link.dest_node_id == departing_node {
+                // Incoming link: the dest_endpoint points to the dead node.
+                // Delete the link entirely and let ensure_links_for_node on
+                // the source side recreate it targeting the new gateway.
+                if let Err(e) = self.0.db.delete_link(link).await {
+                    tracing::warn!(
+                        "reassign_gateway_links: failed to delete incoming link {}: {e}",
+                        link.link_id
+                    );
+                    continue;
+                }
+                tracing::info!(
+                    "reassign_gateway_links: deleted incoming link {} (source {}), will be recreated targeting {new_gateway}",
+                    link.link_id,
+                    link.source_node_id
+                );
+                sources_needing_links.push(link.source_node_id.clone());
+            } else {
+                continue;
+            }
+        }
+
+        // Recreate links from source nodes that lost their dest-side gateway.
+        if !sources_needing_links.is_empty() {
+            let all_nodes = self.0.db.list_nodes().await.unwrap_or_default();
+            let all_links = self.0.db.list_all_links().await.unwrap_or_default();
+            for src_node_id in &sources_needing_links {
+                let (affected, _new_links) = self
+                    .ensure_links_for_node(src_node_id, &all_links, &all_nodes, &[])
+                    .await;
+                for nid in affected {
+                    self.0.queue.add(nid);
+                }
+            }
+            self.rebuild_link_graph(&all_nodes).await;
+        }
+
+        // Move routes that were on the departing node to the new gateway.
+        // These routes referenced the reassigned links — they need to stay
+        // alive on the new gateway so the reconciler pushes them once the
+        // link is re-established.
+        let src_routes = self
+            .0
+            .db
+            .get_routes_for_node(departing_node)
+            .await
+            .unwrap_or_default();
+        for route in &src_routes {
+            // Delete old route and re-add with new source.
+            let mut moved = route.clone();
+            moved.source_node_id = new_gateway.clone();
+            moved.status = RouteStatus::Pending;
+            if let Err(e) = self.0.db.delete_route(&route.id).await {
+                tracing::warn!(
+                    "reassign_gateway_links: failed to delete route {}: {e}",
+                    route.id
+                );
+                continue;
+            }
+            match self.0.db.add_route(moved).await {
+                Ok(r) => {
+                    tracing::info!(
+                        "reassign_gateway_links: moved route to {new_gateway}: {}",
+                        r.id
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "reassign_gateway_links: failed to re-add route {}: {e}",
+                        route.id
+                    );
+                }
+            }
+        }
+        self.0.queue.add(new_gateway.clone());
+
+        // Re-expand wildcard routes with new gateway.
+        let all_nodes = self.0.db.list_nodes().await.unwrap_or_default();
+        let all_links = self.0.db.list_all_links().await.unwrap_or_default();
+        self.expand_all_wildcard_routes(&all_nodes, &all_links)
+            .await;
+    }
+
+    /// Last node in group — soft-delete all links, rebuild graph, re-expand routes.
+    async fn handle_last_node_in_group(&self, links: &[crate::db::Link]) {
+        tracing::info!(
+            "handle_last_node_in_group: soft-deleting {} links",
+            links.len()
+        );
+
+        for link in links {
+            let mut updated = link.clone();
+            updated.status = LinkStatus::Deleted;
+            updated.last_updated = SystemTime::now();
+            if let Err(e) = self.0.db.update_link(updated).await {
+                tracing::warn!(
+                    "handle_last_node_in_group: failed to mark link {} deleted: {e}",
+                    link.link_id
+                );
+            }
+        }
+
+        // Rebuild link graph and re-expand wildcard routes.
+        let remaining_nodes = self.0.db.list_nodes().await.unwrap_or_default();
+        let groups_changed = self.rebuild_link_graph(&remaining_nodes).await;
+        if groups_changed {
+            let all_links = self.0.db.list_all_links().await.unwrap_or_default();
+            self.expand_all_wildcard_routes(&remaining_nodes, &all_links)
+                .await;
+        }
     }
 }

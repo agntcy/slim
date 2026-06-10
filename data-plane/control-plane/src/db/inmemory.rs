@@ -311,7 +311,6 @@ impl DataAccess for InMemoryDb {
             .map(|ids| {
                 ids.iter()
                     .filter_map(|id| store.primary.get(id))
-                    .filter(|r| r.source_node_id != ALL_NODES_ID)
                     .cloned()
                     .collect()
             })

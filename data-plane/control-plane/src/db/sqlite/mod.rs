@@ -302,7 +302,6 @@ impl DataAccess for SqliteDb {
         })?;
         routes::table
             .filter(routes::dest_node_id.eq(node_id))
-            .filter(routes::source_node_id.ne(ALL_NODES_ID))
             .load::<Route>(&mut conn)
             .await
             .map_err(|e| Error::DbError {

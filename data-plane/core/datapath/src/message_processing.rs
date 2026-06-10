@@ -1510,10 +1510,12 @@ impl MessageProcessor {
         // that cause an aggregate transition (0→1 for subscribe, 1→0 for unsubscribe).
         // Remote connection subscribes are already forwarded to the control plane
         // by the process_stream loop.
-        if connection.is_local_connection() && !outcome.is_peer_conn && outcome.transition {
-            if let Some(txcp) = self.get_tx_control_plane() {
-                let _ = txcp.send(Ok(msg.clone())).await;
-            }
+        if connection.is_local_connection()
+            && !outcome.is_peer_conn
+            && outcome.transition
+            && let Some(txcp) = self.get_tx_control_plane()
+        {
+            let _ = txcp.send(Ok(msg.clone())).await;
         }
 
         // Determine forwarding targets:
