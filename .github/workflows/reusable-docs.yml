@@ -1,0 +1,82 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+#
+# Reusable docs pipeline for https://agntcy.github.io/slim/. Provisions tools
+# (uv, task, lychee) and calls task entries from docs/Taskfile.yml. All build,
+# lint, and deploy logic lives in the Taskfile; this only wires it to CI.
+#
+# Behavior by `mode`:
+#   ci             -> task docs:ci                     (build + lint)
+#   deploy-dev     -> build + lint, then docs:deploy:dev (`dev` version) + docs:deploy:root-files
+#   deploy-release -> docs:deploy:release VERSION=<v> + docs:deploy:root-files
+
+name: Reusable Docs
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: "ci | deploy-dev | deploy-release"
+        required: true
+        type: string
+      version:
+        description: "Raw version label for deploy-release (leading v stripped by the task)"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  docs:
+    name: Docs (${{ inputs.mode }})
+    runs-on: ubuntu-latest
+    # GITHUB_TOKEN permissions are controlled by the caller:
+    #   docs-ci.yaml  -> contents: read (lint/build only)
+    #   docs-deploy.yml deploy job -> contents: write (mike --push, root files)
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # mike needs full history and the gh-pages branch to deploy versions.
+          fetch-depth: 0
+          # Keep checkout credentials for mike --push in deploy modes.
+          persist-credentials: true
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+
+      - name: Setup task
+        uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2.1.0
+
+      - name: Install lychee (link checker)
+        if: inputs.mode == 'ci' || inputs.mode == 'deploy-dev'
+        shell: bash
+        run: |
+          curl -sSfL https://github.com/lycheeverse/lychee/releases/download/lychee-v0.18.1/lychee-x86_64-unknown-linux-gnu.tar.gz \
+            | tar xzv
+          sudo mv lychee /usr/local/bin/lychee
+          lychee --version
+
+      - name: CI checks (build + lint)
+        if: inputs.mode == 'ci' || inputs.mode == 'deploy-dev'
+        shell: bash
+        run: task docs:ci
+
+      - name: Deploy dev
+        if: inputs.mode == 'deploy-dev'
+        shell: bash
+        run: task docs:deploy:dev
+
+      - name: Deploy release version + latest
+        if: inputs.mode == 'deploy-release'
+        shell: bash
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+        run: task docs:deploy:release VERSION="${VERSION_INPUT}"
+
+      - name: Deploy root-level files (404/robots/llms)
+        if: inputs.mode == 'deploy-dev' || inputs.mode == 'deploy-release'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_SLUG: ${{ github.repository }}
+        run: task docs:deploy:root-files

@@ -1862,27 +1862,45 @@ impl ControllerService {
         self.inner.route_subscription_ids.lock().clear();
         self.inner.link_id_to_conn_id.write().clear();
 
-        let channel = match config.to_channel().await? {
-            TransportChannel::Grpc(c) => c,
-            TransportChannel::Websocket(_) => {
-                return Err(ControllerError::ConfigError(
-                    slim_config::errors::ConfigError::GrpcChannelUnsupportedTransport,
-                ));
-            }
+        // Obtain drain watch to handle graceful shutdown during connection
+        let watch = self.drain_watch()?;
+
+        let connect_fut = async {
+            let channel = match config.to_channel().await? {
+                TransportChannel::Grpc(c) => c,
+                TransportChannel::Websocket(_) => {
+                    return Err(ControllerError::ConfigError(
+                        slim_config::errors::ConfigError::GrpcChannelUnsupportedTransport,
+                    ));
+                }
+            };
+
+            let mut client = ControllerServiceClient::new(channel.clone());
+            let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
+            let out_stream = ReceiverStream::new(rx).filter_map(|res| match res {
+                Ok(msg) => Some(msg),
+                Err(e) => {
+                    error!(error = %e, "dropping outbound control message due to error");
+                    None
+                }
+            });
+            let stream = client
+                .open_control_channel(Request::new(out_stream))
+                .await?;
+            Ok((tx, stream))
         };
 
-        let mut client = ControllerServiceClient::new(channel.clone());
-        let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
-        let out_stream = ReceiverStream::new(rx).filter_map(|res| match res {
-            Ok(msg) => Some(msg),
-            Err(e) => {
-                error!(error = %e, "dropping outbound control message due to error");
-                None
+        let (tx, stream) = tokio::select! {
+            result = connect_fut => { result? }
+            _ = cancellation_token.cancelled() => {
+                debug!("connection cancelled during setup");
+                return Err(ControllerError::Canceled);
             }
-        });
-        let stream = client
-            .open_control_channel(Request::new(out_stream))
-            .await?;
+            _ = watch.signaled() => {
+                debug!("drain signal received during connection setup");
+                return Err(ControllerError::Canceled);
+            }
+        };
 
         // start processing the incoming stream
         let endpoint_key = config.endpoint.clone();
