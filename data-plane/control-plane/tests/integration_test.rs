@@ -123,11 +123,13 @@ async fn start_node_on_port(name: &str, southbound_port: u16, dp_port: u16) -> S
             ..Default::default()
         });
 
+    let node_id = node_id(name);
     let service_config = ServiceConfiguration::new()
+        .with_node_id(&node_id)
         .with_dataplane_server(vec![dataplane_server])
         .with_controlplane_client(vec![cp_client]);
 
-    let svc_id = ID::new_with_str(&format!("slim/{name}")).unwrap();
+    let svc_id = ID::new_with_str(&node_id).unwrap();
     let mut svc = service_config.build_server(svc_id).unwrap();
     svc.start().await.unwrap();
     svc
@@ -1046,6 +1048,7 @@ async fn test_static_connection_adoption() {
         ClientConfig::with_endpoint(&format!("http://127.0.0.1:{}", cp.southbound_port))
             .with_tls_setting(TlsClientConfig::insecure());
     let svc_b_config = ServiceConfiguration::new()
+        .with_node_id(node_id("node-b"))
         .with_dataplane_server(vec![node_b_dp_server])
         .with_controlplane_client(vec![cp_client_b]);
     let svc_b_id = ID::new_with_str("slim/node-b").unwrap();
@@ -1066,6 +1069,7 @@ async fn test_static_connection_adoption() {
     static_client.link_id = static_link_id.clone();
 
     let svc_a_config = ServiceConfiguration::new()
+        .with_node_id(node_id("node-a"))
         .with_dataplane_server(vec![node_a_dp_server])
         .with_dataplane_client(vec![static_client])
         .with_controlplane_client(vec![cp_client_a]);
@@ -1347,7 +1351,9 @@ async fn subscribe_via_link(server_dp_port: u16, org: &str, ns: &str, component:
     let client_cfg = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{server_dp_port}"))
         .with_tls_setting(TlsClientConfig::insecure());
     let endpoint = client_cfg.endpoint.clone();
-    let svc_cfg = ServiceConfiguration::new().with_dataplane_client(vec![client_cfg]);
+    let svc_cfg = ServiceConfiguration::new()
+        .with_node_id(format!("slim/app-{component}"))
+        .with_dataplane_client(vec![client_cfg]);
     let svc_id = ID::new_with_str(&format!("slim/app-{component}")).unwrap();
     let mut svc = svc_cfg.build_server(svc_id).unwrap();
     svc.start().await.unwrap();
@@ -1391,6 +1397,7 @@ async fn test_subscription_route_propagation() {
                 ..Default::default()
             });
     let svc_b_config = ServiceConfiguration::new()
+        .with_node_id(node_id("node-b"))
         .with_dataplane_server(vec![node_b_dp_server])
         .with_controlplane_client(vec![cp_client_b]);
     let svc_b_id = ID::new_with_str("slim/node-b").unwrap();
@@ -1453,6 +1460,7 @@ async fn test_subscription_with_static_link() {
                 ..Default::default()
             });
     let svc_b_config = ServiceConfiguration::new()
+        .with_node_id(node_id("node-b"))
         .with_dataplane_server(vec![node_b_dp_server])
         .with_controlplane_client(vec![cp_client_b]);
     let svc_b_id = ID::new_with_str("slim/node-b").unwrap();
@@ -1479,6 +1487,7 @@ async fn test_subscription_with_static_link() {
     static_client.link_id = static_link_id.clone();
 
     let svc_a_config = ServiceConfiguration::new()
+        .with_node_id(node_id("node-a"))
         .with_dataplane_server(vec![node_a_dp_server])
         .with_dataplane_client(vec![static_client.clone()])
         .with_controlplane_client(vec![cp_client_a]);
@@ -1584,6 +1593,7 @@ async fn test_subscription_before_cp_available() {
             ..Default::default()
         });
     let svc_a_config = ServiceConfiguration::new()
+        .with_node_id(node_id("node-a"))
         .with_dataplane_server(vec![node_a_dp_server])
         .with_controlplane_client(vec![cp_client_a]);
     let mut node_a = svc_a_config
@@ -1603,6 +1613,7 @@ async fn test_subscription_before_cp_available() {
             ..Default::default()
         });
     let svc_b_config = ServiceConfiguration::new()
+        .with_node_id(node_id("node-b"))
         .with_dataplane_server(vec![node_b_dp_server])
         .with_controlplane_client(vec![cp_client_b]);
     let mut node_b = svc_b_config
@@ -1705,6 +1716,7 @@ async fn test_subscription_survives_cp_restart() {
             ..Default::default()
         });
     let svc_a_config = ServiceConfiguration::new()
+        .with_node_id(node_id("node-a"))
         .with_dataplane_server(vec![node_a_dp_server])
         .with_controlplane_client(vec![cp_client_a]);
     let svc_a_id = ID::new_with_str("slim/node-a").unwrap();
@@ -1722,6 +1734,7 @@ async fn test_subscription_survives_cp_restart() {
             ..Default::default()
         });
     let svc_b_config = ServiceConfiguration::new()
+        .with_node_id(node_id("node-b"))
         .with_dataplane_server(vec![node_b_dp_server])
         .with_controlplane_client(vec![cp_client_b]);
     let svc_b_id = ID::new_with_str("slim/node-b").unwrap();

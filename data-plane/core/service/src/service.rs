@@ -111,6 +111,11 @@ impl ServiceConfiguration {
         ServiceConfiguration::default()
     }
 
+    pub fn with_node_id(mut self, node_id: impl Into<String>) -> Self {
+        self.node_id = node_id.into();
+        self
+    }
+
     pub fn with_dataplane_server(mut self, server: Vec<ServerConfig>) -> Self {
         self.dataplane.servers = server;
         self
