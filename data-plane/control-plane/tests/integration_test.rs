@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use rlimit::increase_nofile_limit;
-use std::net::TcpListener;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -24,6 +23,7 @@ use slim_control_plane::config::{Config, DatabaseConfig, ReconcilerConfig};
 use slim_control_plane::server::ControlPlane;
 use slim_datapath::api::ProtoName as Name;
 use slim_service::{Service, ServiceConfiguration};
+use slim_testing::common::reserve_local_port;
 use slim_testing::utils::TEST_VALID_SECRET;
 use tokio_stream::StreamExt;
 use tracing_subscriber::EnvFilter;
@@ -39,10 +39,7 @@ fn raise_fd_limit() {
 
 fn reserve_port() -> u16 {
     raise_fd_limit();
-    let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind test port");
-    let port = listener.local_addr().expect("failed to read port").port();
-    drop(listener);
-    port
+    reserve_local_port()
 }
 
 fn test_reconciler_config() -> ReconcilerConfig {

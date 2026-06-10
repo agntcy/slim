@@ -128,6 +128,7 @@ dependencies = [
  "agntcy-slim-service",
  "agntcy-slim-session",
  "agntcy-slim-signal",
+ "agntcy-slim-testing",
  "agntcy-slim-tracing",
  "anyhow",
  "clap",
@@ -279,6 +280,7 @@ name = "agntcy-slim-datapath"
 version = "0.14.1"
 dependencies = [
  "agntcy-slim-config",
+ "agntcy-slim-testing",
  "agntcy-slim-tracing",
  "agntcy-slim-version",
  "anyhow",

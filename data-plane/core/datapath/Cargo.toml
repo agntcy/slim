@@ -47,6 +47,7 @@ protoc-bin-vendored = { workspace = true }
 tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
+agntcy-slim-testing = { workspace = true }
 anyhow = { workspace = true }
 criterion = { workspace = true }
 serde_yaml = { workspace = true }
