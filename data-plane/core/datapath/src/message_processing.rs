@@ -1372,6 +1372,8 @@ impl MessageProcessor {
         // by this node. This prevents loops in ring/mesh topologies where a subscription
         // could travel around and come back. Only applies to subscribes (add=true);
         // unsubscribes with a seen sub_id are expected (they cancel a prior forwarded sub).
+        // Unsubscribe loops are bounded by TTL and don't cause state corruption since
+        // remove operations are idempotent.
         let sub_id = subscription_id.unwrap_or(0);
         if add && sub_id != 0 && self.peer_sync().has_seen_sub_id(sub_id) {
             debug!(
