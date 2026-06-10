@@ -708,6 +708,50 @@ mod tests {
     }
 
     #[test]
+    fn test_set_signature_keys_updates_keys_and_claims() {
+        let mut s = SharedSecret::new("svc", &valid_secret()).unwrap();
+
+        let initial_pub = s.get_signature_public_key().unwrap();
+        let initial_token = s.get_token().unwrap();
+
+        let new_priv = vec![7u8; 32];
+        let new_pub = vec![9u8; 32];
+        s.set_signature_keys(new_priv.clone(), new_pub.clone())
+            .unwrap();
+
+        // The provider now reports the externally-supplied key pair.
+        assert_eq!(s.get_signature_secret_key().unwrap(), new_priv);
+        assert_eq!(s.get_signature_public_key().unwrap(), new_pub);
+        assert_ne!(s.get_signature_public_key().unwrap(), initial_pub);
+
+        // The embedded claims carry the public key, so a token minted after the
+        // swap differs from one minted before it.
+        let new_token = s.get_token().unwrap();
+        let claims_before = initial_token.split(':').nth(3).unwrap();
+        let claims_after = new_token.split(':').nth(3).unwrap();
+        assert_ne!(claims_before, claims_after);
+
+        // The token must still self-verify after the key swap.
+        assert!(s.try_verify(new_token).is_ok());
+    }
+
+    #[test]
+    fn test_rotate_signature_keys_changes_keys() {
+        let mut s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        let before_pub = s.get_signature_public_key().unwrap();
+        let before_priv = s.get_signature_secret_key().unwrap();
+
+        s.rotate_signature_keys().unwrap();
+
+        assert_ne!(before_pub, s.get_signature_public_key().unwrap());
+        assert_ne!(before_priv, s.get_signature_secret_key().unwrap());
+
+        // The rotated identity still produces a verifiable token.
+        let token = s.get_token().unwrap();
+        assert!(s.try_verify(token).is_ok());
+    }
+
+    #[test]
     fn test_id_validation() {
         assert!(SharedSecret::new("good-id", &valid_secret()).is_ok());
         assert!(SharedSecret::new("bad:id", &valid_secret()).is_err());

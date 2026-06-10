@@ -1141,4 +1141,93 @@ mod tests {
 
         Ok(())
     }
+
+    // -------------------------------------------------------------------------
+    // Direct IdentityProvider coverage (paths not exercised by the group flows).
+    // -------------------------------------------------------------------------
+
+    /// Build a genuine `SigningIdentity` whose embedded token matches its
+    /// public key, plus a provider that can verify it.
+    fn genuine_identity(
+        name: &str,
+    ) -> Result<(SlimIdentityProvider<SharedSecret>, SigningIdentity), Box<dyn std::error::Error>>
+    {
+        let mls = init_identity(name, "")?;
+        let (token, pub_bytes) = extract_token_and_pubkey(&mls);
+        let pubkey = SignaturePublicKey::new(pub_bytes.clone());
+        let cred = BasicCredential::new(token.as_bytes().to_vec());
+        let signing_identity = SigningIdentity::new(cred.into_credential(), pubkey);
+        let provider = SlimIdentityProvider::new(SharedSecret::new(name, SHARED_SECRET).unwrap());
+        Ok((provider, signing_identity))
+    }
+
+    #[test]
+    fn test_identity_provider_validate_member_ok() -> Result<(), Box<dyn std::error::Error>> {
+        let (provider, signing_identity) = genuine_identity("alice")?;
+        let res = provider.validate_member(&signing_identity, None, MemberValidationContext::None);
+        assert!(res.is_ok(), "genuine identity must validate: {:?}", res);
+        Ok(())
+    }
+
+    #[test]
+    fn test_identity_provider_identity_returns_subject() -> Result<(), Box<dyn std::error::Error>> {
+        let (provider, signing_identity) = genuine_identity("alice")?;
+        let identity = provider.identity(&signing_identity, &ExtensionList::default())?;
+        let subject = String::from_utf8(identity)?;
+        assert!(
+            subject.starts_with("alice"),
+            "subject should be the identity id, got {subject}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_identity_provider_external_sender_rejected() -> Result<(), Box<dyn std::error::Error>> {
+        let (provider, signing_identity) = genuine_identity("alice")?;
+        let res = provider.validate_external_sender(&signing_identity, None, None);
+        assert!(
+            matches!(res, Err(MlsError::ExternalCommitNotSupported)),
+            "external senders must be rejected, got {:?}",
+            res
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_identity_provider_valid_successor_same_subject()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (provider, signing_identity) = genuine_identity("alice")?;
+        // Same identity => same subject => valid succession.
+        let ok = provider.valid_successor(
+            &signing_identity,
+            &signing_identity,
+            &ExtensionList::default(),
+        )?;
+        assert!(ok, "same-subject succession must be valid");
+        Ok(())
+    }
+
+    #[test]
+    fn test_identity_provider_valid_successor_different_subject()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // The provider verifies tokens via the shared secret, so a "bob" token
+        // signed with the same secret verifies but resolves to a different
+        // subject, which must be rejected as a successor for "alice".
+        let (provider, alice_identity) = genuine_identity("alice")?;
+        let (_bob_provider, bob_identity) = genuine_identity("bob")?;
+        let ok =
+            provider.valid_successor(&alice_identity, &bob_identity, &ExtensionList::default())?;
+        assert!(!ok, "different-subject succession must be rejected");
+        Ok(())
+    }
+
+    #[test]
+    fn test_identity_provider_supported_types_is_basic() -> Result<(), Box<dyn std::error::Error>> {
+        let (provider, _id) = genuine_identity("alice")?;
+        assert_eq!(
+            provider.supported_types(),
+            vec![mls_rs::identity::CredentialType::BASIC]
+        );
+        Ok(())
+    }
 }

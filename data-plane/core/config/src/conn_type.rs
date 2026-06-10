@@ -58,3 +58,75 @@ impl ConnType {
         matches!(self, ConnType::Local)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_is_remote() {
+        assert_eq!(ConnType::default(), ConnType::Remote);
+    }
+
+    #[test]
+    fn all_and_count_are_consistent() {
+        assert_eq!(ConnType::COUNT, 3);
+        assert_eq!(ConnType::ALL.len(), ConnType::COUNT);
+        assert_eq!(
+            ConnType::ALL,
+            [ConnType::Local, ConnType::Remote, ConnType::Peer]
+        );
+    }
+
+    #[test]
+    fn index_is_stable_and_unique() {
+        assert_eq!(ConnType::Local.index(), 0);
+        assert_eq!(ConnType::Remote.index(), 1);
+        assert_eq!(ConnType::Peer.index(), 2);
+
+        // Every variant maps to its position in ALL.
+        for (i, ct) in ConnType::ALL.iter().enumerate() {
+            assert_eq!(ct.index(), i);
+        }
+    }
+
+    #[test]
+    fn from_is_local_maps_to_local_or_remote() {
+        assert_eq!(ConnType::from_is_local(true), ConnType::Local);
+        assert_eq!(ConnType::from_is_local(false), ConnType::Remote);
+    }
+
+    #[test]
+    fn is_local_only_true_for_local() {
+        assert!(ConnType::Local.is_local());
+        assert!(!ConnType::Remote.is_local());
+        assert!(!ConnType::Peer.is_local());
+    }
+
+    #[test]
+    fn serde_roundtrip_lowercase() {
+        // Local is `#[serde(skip)]`, so only Remote and Peer are wire-visible.
+        assert_eq!(
+            serde_json::to_string(&ConnType::Remote).unwrap(),
+            "\"remote\""
+        );
+        assert_eq!(serde_json::to_string(&ConnType::Peer).unwrap(), "\"peer\"");
+
+        assert_eq!(
+            serde_json::from_str::<ConnType>("\"remote\"").unwrap(),
+            ConnType::Remote
+        );
+        assert_eq!(
+            serde_json::from_str::<ConnType>("\"peer\"").unwrap(),
+            ConnType::Peer
+        );
+    }
+
+    #[test]
+    fn copy_and_eq_semantics() {
+        let a = ConnType::Peer;
+        let b = a; // Copy
+        assert_eq!(a, b);
+        assert_ne!(ConnType::Local, ConnType::Peer);
+    }
+}

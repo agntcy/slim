@@ -81,3 +81,48 @@ mod imp {
 }
 
 pub use imp::HmacKey;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sign_is_deterministic_and_verifies() {
+        let key = HmacKey::new(b"super-secret-key-material-0123456");
+        let msg = b"hello world";
+        let tag1 = key.sign(msg);
+        let tag2 = key.sign(msg);
+        assert_eq!(tag1, tag2);
+        assert_eq!(tag1.len(), HMAC_TAG_LEN);
+        assert!(key.verify(msg, &tag1));
+    }
+
+    #[test]
+    fn verify_rejects_wrong_inputs() {
+        let key = HmacKey::new(b"super-secret-key-material-0123456");
+        let msg = b"hello world";
+        let tag = key.sign(msg);
+
+        // Wrong message.
+        assert!(!key.verify(b"hello worlt", &tag));
+
+        // Tampered tag.
+        let mut tampered = tag;
+        tampered[0] ^= 0xFF;
+        assert!(!key.verify(msg, &tampered));
+
+        // Wrong key.
+        let other = HmacKey::new(b"different-key-material-9876543210");
+        assert!(!other.verify(msg, &tag));
+
+        // Wrong-length tag.
+        assert!(!key.verify(msg, &tag[..16]));
+    }
+
+    #[test]
+    fn different_keys_produce_different_tags() {
+        let a = HmacKey::new(b"key-aaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let b = HmacKey::new(b"key-bbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        assert_ne!(a.sign(b"msg"), b.sign(b"msg"));
+    }
+}
