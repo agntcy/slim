@@ -17,6 +17,17 @@ mod tests {
     use slim_datapath::errors::DataPathError;
     use slim_datapath::message_processing::MessageProcessor;
 
+    fn reserve_port() -> u16 {
+        let listener =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("failed to bind local test port");
+        let port = listener
+            .local_addr()
+            .expect("failed to read local address")
+            .port();
+        drop(listener);
+        port
+    }
+
     /// Poll for server readiness with exponential backoff (max 2 seconds)
     async fn wait_for_server_ready(addr: &str, max_attempts: u32) {
         for attempt in 0..max_attempts {
@@ -97,8 +108,10 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_connection() {
+        let port = reserve_port();
+
         // setup server from configuration
-        let mut server_conf = ServerConfig::with_endpoint("127.0.0.1:50051");
+        let mut server_conf = ServerConfig::with_endpoint(&format!("127.0.0.1:{port}"));
         server_conf.tls_setting.insecure = true;
 
         let processor = MessageProcessor::new();
@@ -117,10 +130,10 @@ mod tests {
             }
         });
 
-        wait_for_server_ready("127.0.0.1:50051", 40).await;
+        wait_for_server_ready(&format!("127.0.0.1:{port}"), 40).await;
 
         // connect client
-        let mut client_config = ClientConfig::with_endpoint("http://127.0.0.1:50051");
+        let mut client_config = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{port}"));
         client_config.tls_setting.insecure = true;
 
         // create bidirectional stream
@@ -129,7 +142,7 @@ mod tests {
             .connect(
                 client_config,
                 None,
-                Some(SocketAddr::from(([127, 0, 0, 1], 50051))),
+                Some(SocketAddr::from(([127, 0, 0, 1], port))),
             )
             .await
             .expect("error creating channel");
@@ -232,8 +245,10 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_disconnection() {
+        let port = reserve_port();
+
         // setup server from configuration
-        let mut server_conf = ServerConfig::with_endpoint("127.0.0.1:50053");
+        let mut server_conf = ServerConfig::with_endpoint(&format!("127.0.0.1:{port}"));
         server_conf.tls_setting.insecure = true;
 
         let processor = MessageProcessor::new();
@@ -251,10 +266,10 @@ mod tests {
             }
         });
 
-        wait_for_server_ready("127.0.0.1:50053", 40).await;
+        wait_for_server_ready(&format!("127.0.0.1:{port}"), 40).await;
 
         // create a client config we will attach to the connection
-        let mut client_config = ClientConfig::with_endpoint("http://127.0.0.1:50053");
+        let mut client_config = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{port}"));
         client_config.tls_setting.insecure = true;
 
         // connect with client_config Some(...)
@@ -262,7 +277,7 @@ mod tests {
             .connect(
                 client_config.clone(),
                 None,
-                Some(SocketAddr::from(([127, 0, 0, 1], 50053))),
+                Some(SocketAddr::from(([127, 0, 0, 1], port))),
             )
             .await
             .expect("error creating channel");
@@ -288,16 +303,18 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_transport_roundtrip_grpc() -> anyhow::Result<()> {
-        let server_conf = ServerConfig::with_endpoint("127.0.0.1:51060")
+        let port = reserve_port();
+
+        let server_conf = ServerConfig::with_endpoint(&format!("127.0.0.1:{port}"))
             .with_tls_settings(TlsServerConfig::insecure());
 
-        let client_conf = ClientConfig::with_endpoint("http://127.0.0.1:51060")
+        let client_conf = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{port}"))
             .with_tls_setting(TlsClientConfig::insecure());
 
         let conn_index = run_transport_roundtrip(
             server_conf,
             client_conf,
-            Some(SocketAddr::from(([127, 0, 0, 1], 51060))),
+            Some(SocketAddr::from(([127, 0, 0, 1], port))),
             "grpc",
         )
         .await?;
@@ -313,10 +330,12 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_websocket_connection_ws() -> anyhow::Result<()> {
-        let server_conf = ServerConfig::with_endpoint("ws://127.0.0.1:51061")
+        let port = reserve_port();
+
+        let server_conf = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
             .with_tls_settings(TlsServerConfig::insecure());
 
-        let client_conf = ClientConfig::with_endpoint("ws://127.0.0.1:51061")
+        let client_conf = ClientConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
             .with_tls_setting(TlsClientConfig::insecure());
         let conn_index =
             run_transport_roundtrip(server_conf, client_conf, None, "websocket ws").await?;
@@ -332,6 +351,8 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_websocket_connection_wss() -> anyhow::Result<()> {
+        let port = reserve_port();
+
         let grpc_tls_testdata = format!("{}/../config/testdata/grpc", env!("CARGO_MANIFEST_DIR"));
 
         let server_tls = TlsServerConfig::new().with_cert_and_key_file(
@@ -339,13 +360,13 @@ mod tests {
             &format!("{}/server.key", grpc_tls_testdata),
         );
 
-        let server_conf =
-            ServerConfig::with_endpoint("wss://127.0.0.1:51062").with_tls_settings(server_tls);
+        let server_conf = ServerConfig::with_endpoint(&format!("wss://127.0.0.1:{port}"))
+            .with_tls_settings(server_tls);
 
         let client_tls =
             TlsClientConfig::new().with_ca_file(&format!("{}/ca.crt", grpc_tls_testdata));
 
-        let client_conf = ClientConfig::with_endpoint("wss://127.0.0.1:51062")
+        let client_conf = ClientConfig::with_endpoint(&format!("wss://127.0.0.1:{port}"))
             .with_server_name("example1")
             .with_tls_setting(client_tls);
         let conn_index =
