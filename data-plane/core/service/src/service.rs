@@ -253,10 +253,10 @@ impl Service {
     /// Create a new Service with configuration
     pub fn new_with_config(id: ID, config: ServiceConfiguration) -> Self {
         let recovery_ttl = config.dataplane.recovery_ttl.as_ref().map(|d| (*d).into());
-        let peer_group = config
+        let deployment_name = config
             .peers
             .as_ref()
-            .map(|p| p.peer_group.clone())
+            .map(|p| p.deployment_name.clone())
             .unwrap_or_default();
         let service_id = config.node_id.clone();
 
@@ -273,7 +273,7 @@ impl Service {
         let message_processor = if let Some(server) = config.dataplane_servers().first() {
             MessageProcessor::new_with_server_config(
                 service_id,
-                peer_group,
+                deployment_name,
                 server,
                 recovery_ttl,
                 relay_peer_publishes,
@@ -367,7 +367,7 @@ impl Service {
             %self_id,
             %is_hub,
             topology = ?peer_config.topology,
-            peer_group = %peer_config.peer_group,
+            deployment_name = %peer_config.deployment_name,
             num_static_peers = peer_config.static_peers.len(),
             "starting peer sync"
         );
@@ -379,7 +379,7 @@ impl Service {
 
         let sync_config = PeerSyncConfig {
             self_id,
-            peer_group: peer_config.peer_group.clone(),
+            deployment_name: peer_config.deployment_name.clone(),
             topology: peer_config.topology.clone(),
             is_hub,
         };

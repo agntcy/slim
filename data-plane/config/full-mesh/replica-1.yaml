@@ -25,7 +25,7 @@ services:
           tls:
             insecure: true
     peers:
-      peer_group: "thegroup"
+      deployment_name: "thegroup"
       topology: "full_mesh"
       static_peers:
         - node_id: "slim-1"

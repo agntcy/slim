@@ -76,7 +76,7 @@ pub struct PeerSyncConfig {
     /// This replica's unique identifier.
     pub self_id: String,
     /// Shared group identifier for peer authentication.
-    pub peer_group: String,
+    pub deployment_name: String,
     /// Topology for peer connections.
     pub topology: PeerTopology,
     /// Whether this node is the hub (smallest ID). Only meaningful for HubAndSpoke.
@@ -270,29 +270,7 @@ impl PeerSync {
             );
         }
 
-        self.add_peer_conn(conn_id);
-        let forwarder = self.clone();
-        let mp = mp.clone();
-        tokio::spawn(async move {
-            let ttl = forwarder.inner.subscription_ttl;
-            let filter = forwarder.inner.sync_filter;
-            let subscriptions = peer::collect_subscriptions(&mp, conn_id, filter);
-            match peer::send_subscriptions(&mp, conn_id, &subscriptions, ttl).await {
-                Ok(count) => {
-                    info!(
-                        %conn_id,
-                        count,
-                        "completed full sync for incoming peer"
-                    );
-                    for (name, sub_id) in &subscriptions {
-                        forwarder.register_forwarded_sub(name, *sub_id);
-                    }
-                }
-                Err(e) => {
-                    warn!(%conn_id, error = %e, "full sync failed for incoming peer");
-                }
-            }
-        });
+        self.add_peer_conn_and_sync(mp, conn_id);
     }
 
     /// Register a peer connection and perform full sync (send local subscriptions).
@@ -338,7 +316,7 @@ impl PeerSync {
     ) {
         info!(
             self_id = %config.self_id,
-            peer_group = %config.peer_group,
+            deployment_name = %config.deployment_name,
             "peer sync starting"
         );
 

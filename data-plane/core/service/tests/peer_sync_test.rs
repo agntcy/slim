@@ -83,7 +83,7 @@ fn build_peer_configs_with_topology(
         .collect();
 
     let peer_config = PeerConfig {
-        peer_group: "test-group".to_string(),
+        deployment_name: "test-group".to_string(),
         topology,
         static_peers,
         discovery: None,
@@ -934,7 +934,7 @@ async fn test_no_duplicate_subscriptions_on_peer_reconnect() {
         },
     ];
     let peer_config = PeerConfig {
-        peer_group: "test-reconnect".to_string(),
+        deployment_name: "test-reconnect".to_string(),
         topology: PeerTopology::FullMesh,
         static_peers,
         discovery: None,
@@ -1035,7 +1035,7 @@ async fn test_multiple_subscriptions_restored_on_reconnect() {
         },
     ];
     let peer_config = PeerConfig {
-        peer_group: "test-multi-reconnect".to_string(),
+        deployment_name: "test-multi-reconnect".to_string(),
         topology: PeerTopology::FullMesh,
         static_peers,
         discovery: None,

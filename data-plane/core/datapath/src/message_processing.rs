@@ -96,7 +96,7 @@ struct MessageProcessorInternal {
     /// Peer group this node belongs to. Used during link negotiation to verify
     /// that both sides of a peer connection belong to the same deployment.
     /// Empty when no peer config is set.
-    peer_group: String,
+    deployment_name: String,
 
     /// Default strict header MAC policy for server-accepted inter-node connections (see [`ServerConfig::require_header_mac`]).
     server_require_header_mac: bool,
@@ -148,14 +148,14 @@ impl MessageProcessor {
     /// Create a processor with the server strict header MAC policy from `server_config`.
     pub fn new_with_server_config(
         service_id: String,
-        peer_group: String,
+        deployment_name: String,
         server_config: &ServerConfig,
         recovery_ttl: Option<std::time::Duration>,
         relay_peer_publishes: bool,
     ) -> Self {
         Self::new_internal(
             service_id,
-            peer_group,
+            deployment_name,
             recovery_ttl,
             server_config.require_header_mac,
             std::time::Duration::from_secs(server_config.link_hmac_timeout_secs),
@@ -166,7 +166,7 @@ impl MessageProcessor {
 
     fn new_internal(
         service_id: String,
-        peer_group: String,
+        deployment_name: String,
         recovery_ttl: Option<std::time::Duration>,
         server_require_header_mac: bool,
         link_hmac_timeout: std::time::Duration,
@@ -181,7 +181,7 @@ impl MessageProcessor {
             tx_control_plane: RwLock::new(None),
             remote_sync: RemoteSync::new(recovery_ttl),
             service_id,
-            peer_group,
+            deployment_name,
             server_require_header_mac,
             link_hmac_timeout,
             link_hmac_poll_interval,
@@ -492,7 +492,7 @@ impl MessageProcessor {
             ecdh_public_key,
             connection_type.into(),
             &self.internal.service_id,
-            &self.internal.peer_group,
+            &self.internal.deployment_name,
         );
         if let Err(e) = self.send_msg(negotiation_msg, conn_index).await {
             debug!(
@@ -1054,7 +1054,7 @@ impl MessageProcessor {
             server_reply_ecdh,
             reply_conn_type,
             &self.internal.service_id,
-            &self.internal.peer_group,
+            &self.internal.deployment_name,
         );
         if let Err(e) = self.send_msg(reply, in_connection).await {
             debug!(
@@ -1145,7 +1145,7 @@ impl MessageProcessor {
             .await;
     }
 
-    /// Upgrade a server-side connection to Peer after validating identity and peer_group.
+    /// Upgrade a server-side connection to Peer after validating identity and deployment_name.
     /// Notifies PeerSyncManager or auto-registers in the forwarder (generic topology).
     async fn handle_peer_upgrade(
         &self,
@@ -1168,17 +1168,19 @@ impl MessageProcessor {
             return Ok(());
         }
 
-        // Verify peer_group: if we have a peer_group configured, the remote must match.
-        if !self.internal.peer_group.is_empty() && payload.peer_group != self.internal.peer_group {
+        // Verify deployment_name: if we have a deployment_name configured, the remote must match.
+        if !self.internal.deployment_name.is_empty()
+            && payload.deployment_name != self.internal.deployment_name
+        {
             warn!(
                 %in_connection, %link_id,
-                local_group = %self.internal.peer_group,
-                remote_group = %payload.peer_group,
-                "rejecting peer upgrade: peer_group mismatch"
+                local_group = %self.internal.deployment_name,
+                remote_group = %payload.deployment_name,
+                "rejecting peer upgrade: deployment_name mismatch"
             );
             self.send_status(
                 in_connection,
-                Status::permission_denied("peer_group mismatch"),
+                Status::permission_denied("deployment_name mismatch"),
             )
             .await;
             let _ = self.disconnect(in_connection);
@@ -2228,7 +2230,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
-            peer_group: String::new(),
+            deployment_name: String::new(),
         };
         assert!(
             processor
@@ -2249,7 +2251,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
-            peer_group: String::new(),
+            deployment_name: String::new(),
         };
         assert!(
             processor
@@ -2278,7 +2280,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
-            peer_group: String::new(),
+            deployment_name: String::new(),
         };
         assert!(
             processor
@@ -2307,7 +2309,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
-            peer_group: String::new(),
+            deployment_name: String::new(),
         };
         assert!(
             processor
@@ -2336,7 +2338,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
-            peer_group: String::new(),
+            deployment_name: String::new(),
         };
         assert!(
             processor
@@ -2373,7 +2375,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
-            peer_group: String::new(),
+            deployment_name: String::new(),
         };
         let err = processor
             .handle_link_negotiation(&payload, conn_id)
@@ -2396,7 +2398,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
-            peer_group: String::new(),
+            deployment_name: String::new(),
         };
         assert!(
             processor
@@ -2427,7 +2429,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
-            peer_group: String::new(),
+            deployment_name: String::new(),
         };
         // First request: accepted, reply sent.
         assert!(
@@ -2461,7 +2463,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
-            peer_group: String::new(),
+            deployment_name: String::new(),
         };
         assert!(
             processor
@@ -2488,7 +2490,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
-            peer_group: String::new(),
+            deployment_name: String::new(),
         };
         assert!(
             processor
@@ -2513,7 +2515,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
-            peer_group: String::new(),
+            deployment_name: String::new(),
         };
         // First reply: accepted.
         assert!(
@@ -2970,7 +2972,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
-            peer_group: String::new(),
+            deployment_name: String::new(),
         };
         processor
             .handle_link_negotiation(&payload, conn_id)
@@ -3014,7 +3016,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
-            peer_group: String::new(),
+            deployment_name: String::new(),
         };
         processor
             .handle_link_negotiation(&payload, conn_id)
@@ -3042,7 +3044,7 @@ mod tests {
             link_ecdh_public_key: vec![],
             connection_type: LinkConnectionType::Remote.into(),
             node_id: String::new(),
-            peer_group: String::new(),
+            deployment_name: String::new(),
         };
         processor
             .handle_link_negotiation(&payload, conn_id)
