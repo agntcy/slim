@@ -18,15 +18,9 @@ mod state;
 pub use forwarder::{ForwardTargets, PeerSync, PeerSyncConfig, PeerTarget};
 pub use state::PeerState;
 
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use crate::api::proto::dataplane::v1::Message;
 use crate::api::{ProtoMessage, ProtoName};
 use crate::messages::utils::MessageError;
-
-/// Monotonically increasing counter for generating unique sync subscription IDs.
-/// These IDs are distinct from application-level subscription IDs.
-static SYNC_SUB_ID: AtomicU64 = AtomicU64::new(1_000_000);
 
 /// Build a Subscribe message for a given name.
 pub fn build_subscribe_msg(
