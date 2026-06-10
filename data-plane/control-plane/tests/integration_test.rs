@@ -155,7 +155,7 @@ async fn start_grouped_node(
 
     let peer_config = if static_peers.len() > 1 {
         Some(PeerConfig {
-            peer_group: group.to_string(),
+            deployment_name: group.to_string(),
             topology: PeerTopology::FullMesh,
             static_peers,
             discovery: None,
@@ -172,7 +172,8 @@ async fn start_grouped_node(
         service_config = service_config.with_peers(pc);
     }
 
-    let svc_id = ID::new_with_str(&node_id).unwrap();
+    let node_id_str = grouped_node_id(group, name);
+    let svc_id = ID::new_with_str(&node_id_str).unwrap();
     let mut svc = service_config.build_server(svc_id).unwrap();
     svc.start().await.unwrap();
     svc

@@ -341,11 +341,3 @@ enum LinkConnectionType {
   // Peer connection (intra-deployment replica).
   LINK_CONNECTION_TYPE_PEER = 1;
 }
-
-// Connection type for link negotiation.
-enum LinkConnectionType {
-  // Remote connection (default, backward compatible with peers that don't send this field).
-  LINK_CONNECTION_TYPE_REMOTE = 0;
-  // Peer connection (intra-deployment replica).
-  LINK_CONNECTION_TYPE_PEER = 1;
-}

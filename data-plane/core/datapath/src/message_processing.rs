@@ -987,91 +987,6 @@ impl MessageProcessor {
                 }
             }
         }
-    }
-
-    /// Restore routing state for a reconnecting peer whose link_id matches a recovery entry.
-    async fn recover_routes_for_link(&self, link_id: &str, in_connection: u64) {
-        let Some(entry) = self.remote_sync().recovery.take(link_id) else {
-            return;
-        };
-
-        info!(%in_connection, %link_id, "recovering routes for reconnected peer");
-
-        // Re-add local routing entries under the new connection index.
-        for (name, sub_ids) in &entry.local_subs {
-            for &subscription_id in sub_ids {
-                if let Err(e) = self.forwarder().on_subscription_msg(
-                    name.clone(),
-                    in_connection,
-                    ConnType::Remote,
-                    true,
-                    subscription_id,
-                ) {
-                    error!(
-                        error = %e.chain(), %in_connection,
-                        "error re-adding local subscription during recovery",
-                    );
-                }
-            }
-        }
-
-        // Re-send subscriptions to the remote peer and rebuild tracking.
-        self.restore_remote_subscriptions(&entry.remote_subs, in_connection, true)
-            .await;
-    }
-
-    /// Upgrade a server-side connection to Peer after validating identity and peer_group.
-    /// Notifies PeerSyncManager or auto-registers in the forwarder (generic topology).
-    async fn handle_peer_upgrade(
-        &self,
-        payload: &LinkNegotiationPayload,
-        in_connection: u64,
-        link_id: &str,
-    ) -> Result<(), DataPathError> {
-        // Reject self-connections (can happen when all replicas share the same config).
-        if payload.node_id == self.internal.service_id {
-            warn!(
-                %in_connection, %link_id,
-                "rejecting peer connection from self (same node_id)"
-            );
-            self.send_status(
-                in_connection,
-                Status::permission_denied("self-connection rejected: same node_id"),
-            )
-            .await;
-            let _ = self.disconnect(in_connection);
-            return Ok(());
-        }
-
-        // Verify peer_group: if we have a peer_group configured, the remote must match.
-        if !self.internal.peer_group.is_empty() && payload.peer_group != self.internal.peer_group {
-            warn!(
-                %in_connection, %link_id,
-                local_group = %self.internal.peer_group,
-                remote_group = %payload.peer_group,
-                "rejecting peer upgrade: peer_group mismatch"
-            );
-            self.send_status(
-                in_connection,
-                Status::permission_denied("peer_group mismatch"),
-            )
-            .await;
-            let _ = self.disconnect(in_connection);
-            return Ok(());
-        }
-
-        let remote_node_id = payload.node_id.clone();
-        info!(
-            %in_connection, %link_id, %remote_node_id,
-            "upgrading server-side connection to Peer (negotiation)"
-        );
-        self.connection_table().update(in_connection, |conn| {
-            conn.set_connection_type(ConnType::Peer)
-        });
-
-        if let Some(fwd) = self.subscription_forwarder() {
-            fwd.on_incoming_peer(remote_node_id, in_connection).await;
-        }
 
         if strict && conn.header_hmac().is_none() {
             return Err(DataPathError::NegotiationError(
@@ -2048,35 +1963,6 @@ impl MessageProcessor {
                                 "notifying peers of unsubscription (connection drop)"
                             );
                             fwd.notify_peers_unsubscribe(&self_clone, name).await;
-                        } else {
-                            debug!(
-                                %name,
-                                %conn_index,
-                                ?category,
-                                "name still reachable, not emitting removal"
-                            );
-                        }
-                    }
-                }
-
-                // Notify peer sync about names that are no longer reachable.
-                // Only for non-peer connections (1-hop rule prevents loops).
-                if !matches!(category, ConnType::Peer) {
-                    for name in local_subs.keys() {
-                        let still_reachable = name.name.is_some_and(|enc| {
-                            self_clone
-                                .forwarder()
-                                .on_publish_msg_match(enc, u64::MAX, u32::MAX, MatchFilter::ALL)
-                                .is_ok()
-                        });
-                        if !still_reachable {
-                            debug!(
-                                %name,
-                                %conn_index,
-                                ?category,
-                                "emitting subscription removed event for peer sync"
-                            );
-                            self_clone.send_subscription_event(name, false, 0);
                         } else {
                             debug!(
                                 %name,
