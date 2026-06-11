@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.1](https://github.com/agntcy/slim/compare/slim-bindings-v2.0.0-alpha.0...slim-bindings-v2.0.0-alpha.1) - 2026-06-11
+
+### Added
+
+- *(peer-sync)* subscription synchronization ([#1705](https://github.com/agntcy/slim/pull/1705))
+- *(datapath)* mandatory link negotiation with immutable connections ([#1736](https://github.com/agntcy/slim/pull/1736))
+- e2e header integrity validation ([#1677](https://github.com/agntcy/slim/pull/1677))
+- *(datapath)* add peer discovery module with static backend ([#1696](https://github.com/agntcy/slim/pull/1696))
+
 ## [2.0.0-alpha.0](https://github.com/agntcy/slim/compare/slim-bindings-v1.4.0...slim-bindings-v2.0.0-alpha.0) - 2026-06-03
 
 ### Added
