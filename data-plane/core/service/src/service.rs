@@ -215,12 +215,11 @@ impl Service {
 
     /// Create a new Service with configuration
     pub fn new_with_config(id: ID, config: ServiceConfiguration) -> Self {
-        let recovery_ttl = config.dataplane.recovery_ttl.as_ref().map(|d| (*d).into());
         let message_processor =
             Arc::new(if let Some(server) = config.dataplane_servers().first() {
-                MessageProcessor::new_with_server_config(id.to_string(), server, recovery_ttl)
+                MessageProcessor::new_with_server_config(id.to_string(), server)
             } else {
-                MessageProcessor::new_with_options(id.to_string(), recovery_ttl)
+                MessageProcessor::new_with_service_id(id.to_string())
             });
 
         Service {

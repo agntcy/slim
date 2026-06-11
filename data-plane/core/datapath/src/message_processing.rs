@@ -44,7 +44,6 @@ use crate::connection::{Channel, Connection};
 use crate::errors::{DataPathError, MessageContext};
 use crate::forwarder::Forwarder;
 use crate::messages::utils::SlimHeaderFlags;
-use crate::recovery::RecoveryTable;
 use crate::tables::connection_table::ConnectionTable;
 use crate::tables::remote_subscription_table::SubscriptionInfo;
 use crate::tables::subscription_table::SubscriptionTableImpl;
@@ -68,9 +67,6 @@ struct MessageProcessorInternal {
 
     /// Tx channel towards control plane
     tx_control_plane: RwLock<Option<Sender<Result<Message, Status>>>>,
-
-    /// Pending route-recovery state for server-side connections (see [`RecoveryTable`]).
-    recovery_table: RecoveryTable,
 
     /// Remote subscription ACK manager
     sub_ack_manager: crate::subscription_ack::RemoteSubAckManager,
@@ -112,27 +108,13 @@ enum StreamSetup {
 
 impl MessageProcessor {
     pub fn new_with_service_id(service_id: String) -> Self {
-        Self::new_with_options(service_id, None)
-    }
-
-    pub fn new_with_options(service_id: String, recovery_ttl: Option<std::time::Duration>) -> Self {
-        Self::new_internal(
-            service_id,
-            recovery_ttl,
-            false,
-            std::time::Duration::from_secs(5),
-        )
+        Self::new_internal(service_id, false, std::time::Duration::from_secs(5))
     }
 
     /// Create a processor with the server strict header MAC policy from `server_config`.
-    pub fn new_with_server_config(
-        service_id: String,
-        server_config: &ServerConfig,
-        recovery_ttl: Option<std::time::Duration>,
-    ) -> Self {
+    pub fn new_with_server_config(service_id: String, server_config: &ServerConfig) -> Self {
         Self::new_internal(
             service_id,
-            recovery_ttl,
             server_config.require_header_mac,
             std::time::Duration::from_secs(server_config.negotiation_timeout_secs),
         )
@@ -140,21 +122,15 @@ impl MessageProcessor {
 
     fn new_internal(
         service_id: String,
-        recovery_ttl: Option<std::time::Duration>,
         server_require_header_mac: bool,
         negotiation_timeout: std::time::Duration,
     ) -> Self {
         let (signal, watch) = drain::channel();
-        let recovery_table = match recovery_ttl {
-            Some(ttl) => RecoveryTable::new(ttl),
-            None => RecoveryTable::default(),
-        };
         let internal = MessageProcessorInternal {
             forwarder: Forwarder::new(),
             drain_signal: RwLock::new(Some(signal)),
             drain_watch: RwLock::new(Some(watch)),
             tx_control_plane: RwLock::new(None),
-            recovery_table,
             sub_ack_manager: crate::subscription_ack::RemoteSubAckManager::new(),
             service_id,
             server_require_header_mac,
@@ -267,10 +243,6 @@ impl MessageProcessor {
 
     pub fn forwarder(&self) -> &Forwarder<Connection> {
         &self.internal.forwarder
-    }
-
-    pub(crate) fn recovery_table(&self) -> &RecoveryTable {
-        &self.internal.recovery_table
     }
 
     /// Verify SLIM header MAC for inter-node traffic only (local app connections skip this).
@@ -1320,7 +1292,6 @@ impl MessageProcessor {
                         crate::negotiation::run_negotiation(
                             &mut connection,
                             &mut stream,
-                            self_clone.recovery_table(),
                         ),
                     ) => match result {
                         Ok(r) => r,
@@ -1347,7 +1318,7 @@ impl MessageProcessor {
                         info!(telemetry = true, counter.num_active_connections = -1);
                         return;
                     }
-                    Ok(result) => {
+                    Ok(()) => {
                         // Negotiation succeeded — insert the fully-negotiated connection.
                         let idx = match self_clone
                             .forwarder()
@@ -1362,30 +1333,6 @@ impl MessageProcessor {
                         };
 
                         debug!(%idx, "connection registered after link negotiation");
-
-                        // Apply route recovery (server side) now that we have a conn_index.
-                        if let Some(entry) = result.recovery_entry {
-                            info!(%idx, "recovering routes for reconnected peer");
-                            for (name, sub_ids) in &entry.local_subs {
-                                for &subscription_id in sub_ids {
-                                    if let Err(e) = self_clone.forwarder().on_subscription_msg(
-                                        name.clone(),
-                                        idx,
-                                        ConnType::Remote,
-                                        true,
-                                        subscription_id,
-                                    ) {
-                                        error!(
-                                            error = %e.chain(), %idx,
-                                            "error re-adding local subscription during recovery",
-                                        );
-                                    }
-                                }
-                            }
-                            self_clone
-                                .restore_remote_subscriptions(&entry.remote_subs, idx, true)
-                                .await;
-                        }
 
                         let _ = conn_index_tx.send(Ok(idx));
                         idx
@@ -1482,9 +1429,6 @@ impl MessageProcessor {
             // stream is closed as soon as possible
             drop(stream);
 
-            // Save whether this is a client-initiated connection before client_conf_clone
-            // is consumed by the if-let below.
-            let is_client_connection = client_conf_clone.is_some();
             let mut connected = false;
 
             if try_to_reconnect && let Some(config) = client_conf_clone {
@@ -1499,80 +1443,17 @@ impl MessageProcessor {
             }
 
             if !connected {
-                // For incoming (server) connections capture the link_id before
-                // on_connection_drop removes the connection from the table.
-                let link_id = if !is_local && !is_client_connection {
-                    self_clone
-                        .forwarder()
-                        .get_connection(conn_index)
-                        .and_then(|c| c.link_id())
-                } else {
-                    None
-                };
-
                 // Delete connection state from all tables.
-                let (local_subs, remote_subs) = self_clone
+                let (local_subs, _remote_subs) = self_clone
                     .forwarder()
                     .on_connection_drop(conn_index, category);
 
-                let recovery_enabled =
-                    !self_clone.internal.recovery_table.ttl().is_zero();
-
-                if let Some(lid) = link_id.filter(|_| recovery_enabled) {
-                    // Server connection with a known link_id: preserve routing state and
-                    // suppress the control-plane notification for the duration of the TTL
-                    // to give the peer a chance to reconnect.
-                    info!(
-                        %conn_index, %lid,
-                        "connection lost, storing recovery state (TTL: {:?})",
-                        self_clone.internal.recovery_table.ttl(),
-                    );
-                    self_clone
-                        .internal
-                        .recovery_table
-                        .store(lid.clone(), local_subs, remote_subs);
-
-                    // Spawn a TTL task that fires the CP notification if recovery never happens.
-                    if let Ok(drain) = self_clone.get_drain_watch() {
-                        let tx_cp_ttl = tx_cp;
-                        let mp = self_clone.clone();
-                        self_clone.internal.recovery_table.spawn_ttl_task(
-                            lid,
-                            drain,
-                            move |entry| async move {
-                                info!("recovery window expired, notifying control plane");
-                                // Only unsubscribe names that are no longer reachable.
-                                // If the peer reconnected with a different link_id, the
-                                // CP will have already pushed the same subscriptions on
-                                // the new connection — those names are still in the
-                                // subscription table and must not be torn down.
-                                let unreachable = entry
-                                    .local_subs
-                                    .into_iter()
-                                    .filter(|(name, _)| {
-                                        mp.forwarder()
-                                            .on_publish_msg_match(name.name.unwrap(), u64::MAX, u32::MAX, MatchFilter::ALL)
-                                            .is_err()
-                                    })
-                                    .collect();
-                                MessageProcessor::notify_control_plane_subscriptions_lost(
-                                    tx_cp_ttl,
-                                    unreachable,
-                                    conn_index,
-                                )
-                                .await;
-                            },
-                        );
-                    }
-                } else {
-                    // No link_id (local connection, client that failed to reconnect, or a peer
-                    // that does not support link negotiation): notify the control plane now.
-                    if !is_local {
-                        MessageProcessor::notify_control_plane_subscriptions_lost(
-                            tx_cp, local_subs, conn_index,
-                        )
-                        .await;
-                    }
+                // Notify the control plane about lost subscriptions.
+                if !is_local {
+                    MessageProcessor::notify_control_plane_subscriptions_lost(
+                        tx_cp, local_subs, conn_index,
+                    )
+                    .await;
                 }
 
                 info!(telemetry = true, counter.num_active_connections = -1);
@@ -1839,11 +1720,8 @@ mod tests {
             negotiation_timeout_secs: 1, // 1 second timeout
             ..Default::default()
         };
-        let processor = MessageProcessor::new_with_server_config(
-            "test_service".to_string(),
-            &server_config,
-            None,
-        );
+        let processor =
+            MessageProcessor::new_with_server_config("test_service".to_string(), &server_config);
 
         assert_eq!(
             processor.internal.negotiation_timeout,
@@ -2416,33 +2294,6 @@ mod tests {
             .expect("upstream ack should have been sent")
             .unwrap();
         assert!(!ack.get_subscription_ack().success);
-    }
-
-    // ── new_with_options ──────────────────────────────────────────────────────
-
-    #[test]
-    fn test_new_with_options_custom_ttl() {
-        let processor =
-            MessageProcessor::new_with_options("svc".into(), Some(Duration::from_secs(5)));
-        assert_eq!(
-            processor.internal.recovery_table.ttl(),
-            Duration::from_secs(5)
-        );
-    }
-
-    #[test]
-    fn test_new_with_options_none_uses_default() {
-        let processor = MessageProcessor::new_with_options("svc".into(), None);
-        assert_eq!(
-            processor.internal.recovery_table.ttl(),
-            Duration::from_secs(30)
-        );
-    }
-
-    #[test]
-    fn test_new_with_options_zero_ttl() {
-        let processor = MessageProcessor::new_with_options("svc".into(), Some(Duration::ZERO));
-        assert!(processor.internal.recovery_table.ttl().is_zero());
     }
 
     // ── notify_control_plane_subscriptions_lost ───────────────────────────────
