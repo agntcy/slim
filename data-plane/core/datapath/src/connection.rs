@@ -51,6 +51,9 @@ pub struct Connection {
 
     /// Strict header MAC policy for this connection (fixed at establishment).
     require_header_mac: bool,
+
+    /// Remote node identifier, set during link negotiation.
+    peer_node_id: Option<String>,
 }
 
 impl std::fmt::Debug for Connection {
@@ -83,6 +86,7 @@ impl Connection {
             remote_slim_version: None,
             header_hmac: None,
             require_header_mac: false,
+            peer_node_id: None,
         }
     }
 
@@ -146,6 +150,16 @@ impl Connection {
         self.config_data.as_ref()
     }
 
+    /// Get the connection type
+    pub fn connection_type(&self) -> ConnType {
+        self.connection_type
+    }
+
+    /// Upgrade the connection type (e.g., from Remote to Peer after negotiation).
+    pub(crate) fn set_connection_type(&mut self, conn_type: ConnType) {
+        self.connection_type = conn_type;
+    }
+
     /// Return true if is a local connection
     pub(crate) fn is_local_connection(&self) -> bool {
         matches!(self.connection_type, ConnType::Local)
@@ -155,11 +169,6 @@ impl Connection {
     #[allow(dead_code)]
     pub(crate) fn is_peer_connection(&self) -> bool {
         matches!(self.connection_type, ConnType::Peer)
-    }
-
-    /// Return the connection category for subscription table operations.
-    pub(crate) fn category(&self) -> ConnType {
-        self.connection_type
     }
 
     /// Return true if this node initiated the connection (outbound dial).
@@ -209,6 +218,16 @@ impl Connection {
     /// Get the SLIM version of the remote peer.
     pub fn remote_slim_version(&self) -> Option<Version> {
         self.remote_slim_version.clone()
+    }
+
+    /// Get the remote peer's node identifier (set during link negotiation).
+    pub fn peer_node_id(&self) -> Option<&str> {
+        self.peer_node_id.as_deref()
+    }
+
+    /// Set the remote peer's node identifier.
+    pub(crate) fn set_peer_node_id(&mut self, node_id: String) {
+        self.peer_node_id = Some(node_id);
     }
 
     /// Returns true if link negotiation has completed (remote_slim_version is set).

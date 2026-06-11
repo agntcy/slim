@@ -245,11 +245,12 @@ async fn connection_list(node_id: &str, opts: &ClientConfig) -> Result<()> {
     println!("Received connection list response: {}", resp.entries.len());
     for entry in &resp.entries {
         println!(
-            "Connection ID: {}, Connection type: {:?}, Direction: {:?}, LinkID: {:?}, ConfigData: {}",
+            "Connection ID: {}, Connection type: {:?}, Direction: {:?}, LinkID: {:?}, Peer: {:?}, ConfigData: {}",
             entry.id,
             entry.connection_type,
             entry.direction(),
             entry.link_id,
+            entry.peer_node_id,
             entry.config_data
         );
     }
@@ -274,12 +275,14 @@ async fn route_list(node_id: &str, opts: &ClientConfig) -> Result<()> {
             .connections
             .iter()
             .map(|c| {
+                let peer = c.peer_node_id.as_deref().unwrap_or("-");
                 format!(
-                    "{}:{}:{:?}:{}",
+                    "{}:{}:{:?}:{}:peer={}",
                     c.connection_type().as_str_name(),
                     c.id,
                     c.link_id,
-                    c.config_data
+                    c.config_data,
+                    peer,
                 )
             })
             .collect();

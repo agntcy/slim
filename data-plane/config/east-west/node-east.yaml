@@ -1,6 +1,9 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
+# East node configuration for a 2-node east-west topology
+# with route propagation. East acts as server; West connects to it.
+
 tracing:
   log_level: debug
   display_thread_names: true
@@ -8,21 +11,15 @@ tracing:
 
 runtime:
   n_cores: 0
-  thread_name: "slim-data-plane-a"
+  thread_name: "slim-data-plane"
   drain_timeout: 10s
 
 services:
-  slim/a:
-    node_id: "slim/a"
+  slim/0:
+    node_id: slim-east
     dataplane:
       servers:
         - endpoint: "0.0.0.0:46357"
           tls:
             insecure: true
-
       clients: []
-    controller:
-      clients:
-        - endpoint: "http://127.0.0.1:50052"
-          tls:
-            insecure: true

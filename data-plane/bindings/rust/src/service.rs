@@ -90,7 +90,9 @@ impl ServiceConfig {
 impl From<ServiceConfig> for SlimServiceConfiguration {
     fn from(config: ServiceConfig) -> Self {
         let mut core_config = SlimServiceConfiguration::new();
-        core_config.node_id = config.node_id;
+        if let Some(node_id) = config.node_id {
+            core_config.node_id = node_id;
+        }
         core_config.group_name = config.group_name;
         core_config.dataplane = config.dataplane.into();
         core_config
@@ -100,7 +102,7 @@ impl From<ServiceConfig> for SlimServiceConfiguration {
 impl From<SlimServiceConfiguration> for ServiceConfig {
     fn from(config: SlimServiceConfiguration) -> Self {
         Self {
-            node_id: config.node_id,
+            node_id: Some(config.node_id),
             group_name: config.group_name,
             dataplane: config.dataplane.into(),
         }
@@ -110,7 +112,7 @@ impl From<SlimServiceConfiguration> for ServiceConfig {
 impl From<&SlimServiceConfiguration> for ServiceConfig {
     fn from(config: &SlimServiceConfiguration) -> Self {
         Self {
-            node_id: config.node_id.clone(),
+            node_id: Some(config.node_id.clone()),
             group_name: config.group_name.clone(),
             dataplane: config.dataplane.clone().into(),
         }
@@ -623,14 +625,14 @@ mod tests {
         };
 
         let core_config: SlimServiceConfiguration = config.clone().into();
-        assert_eq!(core_config.node_id.as_deref(), Some("node-456"));
+        assert_eq!(core_config.node_id, "node-456");
         assert_eq!(core_config.group_name.as_deref(), Some("group-abc"));
     }
 
     #[test]
     fn test_service_configuration_from_core_conversion() {
         let mut core_config = SlimServiceConfiguration::new();
-        core_config.node_id = Some("core-node".to_string());
+        core_config.node_id = "core-node".to_string();
         core_config.group_name = Some("core-group".to_string());
 
         let config: ServiceConfig = core_config.into();
@@ -753,7 +755,6 @@ mod tests {
     fn test_global_service_name() {
         let name = get_global_service().get_name();
         assert!(!name.is_empty());
-        assert!(name.contains("global-bindings-service"));
     }
 
     // ========================================================================

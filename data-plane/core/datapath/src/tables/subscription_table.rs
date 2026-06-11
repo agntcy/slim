@@ -201,7 +201,8 @@ impl PrefixEntry {
     }
 
     /// Ensure a slot for `id` exists, then insert `conn` (deduped).
-    fn insert_conn_for_id(&mut self, id: u128, conn: u64, category: ConnType) {
+    /// Returns `true` if this was the first connection for `(id, category)` (0→1 transition).
+    fn insert_conn_for_id(&mut self, id: u128, conn: u64, category: ConnType) -> bool {
         let idx = match self.ids.iter().position(|&i| i == id) {
             Some(i) => i,
             None => {
@@ -209,15 +210,21 @@ impl PrefixEntry {
                 self.ids.len() - 1
             }
         };
+
+        let was_empty = self.slots[category.index()][idx].is_empty();
+
         let (slots, aggregate) = self.lists_mut(category);
         slots[idx].push(conn);
         if !aggregate.contains(&conn) {
             aggregate.push(conn);
         }
+
+        was_empty
     }
 
     /// Remove `conn` from the slot for `id` (no-op if slot absent).
-    fn remove_conn_for_id(&mut self, id: u128, conn: u64, category: ConnType) {
+    /// Returns `true` if this was the last connection for `(id, category)` (1→0 transition).
+    fn remove_conn_for_id(&mut self, id: u128, conn: u64, category: ConnType) -> bool {
         if let Some(idx) = self.ids.iter().position(|&i| i == id) {
             let (slots, aggregate) = self.lists_mut(category);
             slots[idx].remove(conn);
@@ -226,6 +233,10 @@ impl PrefixEntry {
             {
                 aggregate.swap_remove(pos);
             }
+
+            self.slots[category.index()][idx].is_empty()
+        } else {
+            false
         }
     }
 
@@ -337,6 +348,7 @@ impl Clone for PrefixEntry {
 struct SubRecord {
     encoded: EncodedName,
     conn_id: u64,
+    category: ConnType,
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -488,7 +500,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         conn: u64,
         category: ConnType,
         subscription_id: u64,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<bool, Self::Error> {
         let enc = name.name.as_ref().unwrap();
         let prefix = [enc.component_0, enc.component_1, enc.component_2];
         let id = enc.id();
@@ -510,7 +522,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
         // 2 & 3. Ensure an ID slot exists and insert conn (deduped).
         // Arc::make_mut does COW: clones only this PrefixEntry if other refs exist.
-        Arc::make_mut(entry).insert_conn_for_id(id, conn, category);
+        let first = Arc::make_mut(entry).insert_conn_for_id(id, conn, category);
         self.routing.store(Arc::new(rs));
 
         // 4 & 5. Record subscription and update the reverse conn→sub_ids map.
@@ -519,11 +531,12 @@ impl SubscriptionTable for SubscriptionTableImpl {
             SubRecord {
                 encoded,
                 conn_id: conn,
+                category,
             },
         );
 
         debug!(%name, %conn, "subscription table: add subscription");
-        Ok(())
+        Ok(first)
     }
 
     fn remove_subscription(
@@ -532,7 +545,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         conn: u64,
         category: ConnType,
         subscription_id: u64,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<bool, Self::Error> {
         let enc = name.name.as_ref().unwrap();
         let prefix = [enc.component_0, enc.component_1, enc.component_2];
         let id = enc.id();
@@ -577,23 +590,26 @@ impl SubscriptionTable for SubscriptionTableImpl {
         // subscription_id.
         let conn_still_subscribed = ss.conn_still_subscribed(conn, encoded);
 
-        if !conn_still_subscribed {
+        let last = if !conn_still_subscribed {
             let mut rs = (**self.routing.load()).clone();
-            let should_remove_prefix = if let Some(entry) = rs.get_mut(&prefix) {
+            let (should_remove_prefix, last) = if let Some(entry) = rs.get_mut(&prefix) {
                 let pe = Arc::make_mut(entry);
-                pe.remove_conn_for_id(id, conn, category);
+                let last = pe.remove_conn_for_id(id, conn, category);
                 pe.retain_non_empty();
-                pe.is_empty()
+                (pe.is_empty(), last)
             } else {
-                false
+                (false, false)
             };
             if should_remove_prefix {
                 rs.remove(&prefix);
             }
             self.routing.store(Arc::new(rs));
-        }
+            last
+        } else {
+            false
+        };
 
-        Ok(())
+        Ok(last)
     }
 
     fn remove_connection(
@@ -808,6 +824,35 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 debug!(?out, "found connections");
                 Ok(out)
             }
+        }
+    }
+}
+
+impl SubscriptionTableImpl {
+    /// Iterate all subscriptions, yielding `(ProtoName, sub_id, conn_id, category)` for each.
+    ///
+    /// This locks the subscription state and resolves names from the routing snapshot.
+    /// Used by the sync module to collect subscriptions with their original IDs.
+    pub fn for_each_subscription<F>(&self, mut f: F)
+    where
+        F: FnMut(ProtoName, u64, u64, ConnType),
+    {
+        let ss = self.subscription_state.lock();
+        let rs = self.routing.load();
+        for (&sub_id, record) in &ss.subscriptions {
+            let prefix = [
+                record.encoded.component_0,
+                record.encoded.component_1,
+                record.encoded.component_2,
+            ];
+            let proto_name = rs
+                .get(&prefix)
+                .map(|pe| pe.to_proto_name(record.encoded.id()))
+                .unwrap_or(ProtoName {
+                    name: Some(record.encoded),
+                    str_name: None,
+                });
+            f(proto_name, sub_id, record.conn_id, record.category);
         }
     }
 }

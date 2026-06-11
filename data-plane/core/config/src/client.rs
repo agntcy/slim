@@ -510,6 +510,13 @@ impl ClientConfig {
         }
     }
 
+    pub fn with_connection_type(self, connection_type: ConnType) -> Self {
+        Self {
+            connection_type,
+            ..self
+        }
+    }
+
     /// Build a transport channel from this configuration. The returned
     /// [`TransportChannel`] variant matches `self.transport`.
     ///

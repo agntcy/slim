@@ -5,7 +5,8 @@ use std::fmt::Display;
 use std::{collections::HashMap, time::Duration};
 
 use crate::api::proto::dataplane::v1::{
-    GroupClosePayload, GroupNackPayload, Participant, ParticipantSettings, PingPayload,
+    GroupClosePayload, GroupNackPayload, LinkConnectionType, Participant, ParticipantSettings,
+    PingPayload,
 };
 use crate::api::{
     Content, LinkNegotiationPayload, MessageType, ProtoLink, ProtoLinkMessageType, ProtoLinkType,
@@ -23,6 +24,17 @@ use crate::api::{
 
 use slim_version::version;
 use thiserror::Error;
+
+use crate::tables::ConnType;
+
+impl From<ConnType> for LinkConnectionType {
+    fn from(ct: ConnType) -> Self {
+        match ct {
+            ConnType::Peer => LinkConnectionType::Peer,
+            _ => LinkConnectionType::Remote,
+        }
+    }
+}
 
 /// DELETE_GROUP indicates that the entire group is being closed.
 /// The moderator sets this metadata on the leave message sent to all participants
@@ -58,7 +70,7 @@ pub const FALSE_VAL: &str = "FALSE";
 pub const MAX_PUBLISH_ID: u32 = u32::MAX / 2;
 
 /// Default TTL value for messages that do not have an explicit TTL set.
-pub const DEFAULT_TTL: u32 = 16;
+pub const DEFAULT_TTL: u32 = 8;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum MessageError {
@@ -1732,12 +1744,16 @@ impl ProtoMessageBuilder {
 
     /// Builds a link negotiation message.
     /// Link messages are link-local and never routed; they carry no SLIM header.
+    #[allow(clippy::too_many_arguments)]
     pub fn build_link_negotiation(
         self,
         link_id: impl Into<String>,
         slim_version: impl Into<String>,
         is_reply: bool,
         link_ecdh_public_key: Option<Vec<u8>>,
+        connection_type: LinkConnectionType,
+        node_id: impl Into<String>,
+        deployment_name: impl Into<String>,
     ) -> ProtoMessage {
         let link_ecdh_public_key = link_ecdh_public_key.unwrap_or_default();
         let link = ProtoLink {
@@ -1746,6 +1762,9 @@ impl ProtoMessageBuilder {
                 slim_version: slim_version.into(),
                 is_reply,
                 link_ecdh_public_key,
+                connection_type: connection_type.into(),
+                node_id: node_id.into(),
+                deployment_name: deployment_name.into(),
             })),
         };
         ProtoMessage::new(self.metadata, ProtoLinkMessageType(link))
@@ -2336,6 +2355,9 @@ mod tests {
                 slim_version: "1.0.0".into(),
                 is_reply: false,
                 link_ecdh_public_key: vec![],
+                connection_type: 0,
+                node_id: String::new(),
+                deployment_name: String::new(),
             })),
         };
         let msg = ProtoMessage::new(HashMap::new(), ProtoLinkMessageType(link));
@@ -2344,7 +2366,15 @@ mod tests {
 
     #[test]
     fn test_build_link_negotiation_request() {
-        let msg = ProtoMessage::builder().build_link_negotiation("my-id", "1.2.3", false, None);
+        let msg = ProtoMessage::builder().build_link_negotiation(
+            "my-id",
+            "1.2.3",
+            false,
+            None,
+            LinkConnectionType::Remote,
+            "",
+            "",
+        );
         assert!(msg.is_link());
         assert!(!msg.is_publish());
         assert!(!msg.is_subscribe());
@@ -2353,7 +2383,15 @@ mod tests {
 
     #[test]
     fn test_build_link_negotiation_reply() {
-        let msg = ProtoMessage::builder().build_link_negotiation("my-id", "1.2.3", true, None);
+        let msg = ProtoMessage::builder().build_link_negotiation(
+            "my-id",
+            "1.2.3",
+            true,
+            None,
+            LinkConnectionType::Remote,
+            "",
+            "",
+        );
         assert!(msg.is_link());
         assert!(msg.validate().is_ok());
     }

@@ -7,7 +7,6 @@
 use std::collections::{HashMap, HashSet};
 
 pub mod connection_table;
-pub mod remote_subscription_table;
 pub mod subscription_table;
 
 pub mod pool;
@@ -52,21 +51,25 @@ pub trait SubscriptionTable {
     where
         F: FnMut(&ProtoName, u128, &[u64], &[u64], &[u64]);
 
+    /// Add a subscription. Returns `true` if this is the first connection for the
+    /// given `(name, category)` pair (0→1 transition).
     fn add_subscription(
         &self,
         name: ProtoName,
         conn: u64,
         category: ConnType,
         subscription_id: u64,
-    ) -> Result<(), Self::Error>;
+    ) -> Result<bool, Self::Error>;
 
+    /// Remove a subscription. Returns `true` if this was the last connection for the
+    /// given `(name, category)` pair (1→0 transition).
     fn remove_subscription(
         &self,
         name: &ProtoName,
         conn: u64,
         category: ConnType,
         subscription_id: u64,
-    ) -> Result<(), Self::Error>;
+    ) -> Result<bool, Self::Error>;
 
     /// Remove all subscriptions for `conn` and return a map of each name to its set of
     /// subscription IDs, so that callers can restore the exact state later if needed.
