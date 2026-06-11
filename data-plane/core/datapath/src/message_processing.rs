@@ -1396,6 +1396,144 @@ impl MessageProcessor {
         }
     }
 
+    /// Resolve the connection index for a new stream.
+    ///
+    /// For local (already-registered) connections, returns immediately.
+    /// For remote connections, runs mandatory link negotiation, inserts the
+    /// connection into the table, and handles peer upgrade if negotiated.
+    ///
+    /// Returns `Some((conn_index, category))` on success or `None` if the
+    /// connection setup failed (the error is sent on `conn_index_tx`).
+    async fn resolve_connection(
+        &self,
+        stream: &mut (impl Stream<Item = Result<Message, Status>> + Unpin + Send),
+        setup: StreamSetup,
+        category: ConnType,
+        conn_index_tx: oneshot::Sender<Result<u64, DataPathError>>,
+        watch: &drain::Watch,
+        token: &CancellationToken,
+    ) -> Option<(u64, ConnType)> {
+        match setup {
+            StreamSetup::Registered(idx) => {
+                let _ = conn_index_tx.send(Ok(idx));
+                Some((idx, category))
+            }
+            StreamSetup::Pending {
+                connection,
+                existing_index,
+            } => {
+                self.negotiate_and_register(
+                    stream,
+                    *connection,
+                    existing_index,
+                    category,
+                    conn_index_tx,
+                    watch,
+                    token,
+                )
+                .await
+            }
+        }
+    }
+
+    /// Perform link negotiation, register the connection, and handle peer upgrade.
+    ///
+    /// Returns `Some((conn_index, category))` on success or `None` on failure.
+    async fn negotiate_and_register(
+        &self,
+        stream: &mut (impl Stream<Item = Result<Message, Status>> + Unpin + Send),
+        mut connection: Connection,
+        existing_index: Option<u64>,
+        category: ConnType,
+        conn_index_tx: oneshot::Sender<Result<u64, DataPathError>>,
+        watch: &drain::Watch,
+        token: &CancellationToken,
+    ) -> Option<(u64, ConnType)> {
+        let timeout = self.internal.negotiation_timeout;
+        let params = crate::negotiation::NegotiationParams {
+            node_id: &self.internal.service_id,
+            deployment_name: &self.internal.deployment_name,
+            connection_type: category,
+        };
+
+        let negotiation_result = tokio::select! {
+            result = tokio::time::timeout(
+                timeout,
+                crate::negotiation::run_negotiation(&mut connection, stream, &params),
+            ) => match result {
+                Ok(r) => r,
+                Err(_) => Err(DataPathError::NegotiationError(
+                    "timed out waiting for link negotiation".to_string(),
+                )),
+            },
+            _ = watch.clone().signaled() => {
+                info!("shutting down during link negotiation");
+                let _ = conn_index_tx.send(Err(DataPathError::ShuttingDownError));
+                return None;
+            }
+            _ = token.cancelled() => {
+                info!("connection cancelled during link negotiation");
+                let _ = conn_index_tx.send(Err(DataPathError::ShuttingDownError));
+                return None;
+            }
+        };
+
+        let result = match negotiation_result {
+            Ok(r) => r,
+            Err(e) => {
+                error!(error = %e.chain(), "link negotiation failed, closing connection");
+                let _ = conn_index_tx.send(Err(e));
+                info!(telemetry = true, counter.num_active_connections = -1);
+                return None;
+            }
+        };
+
+        // Insert the fully-negotiated connection into the table.
+        let idx = match self
+            .forwarder()
+            .on_connection_established(connection, existing_index)
+        {
+            Some(idx) => idx,
+            None => {
+                let _ = conn_index_tx.send(Err(DataPathError::ConnectionTableAddError));
+                info!(telemetry = true, counter.num_active_connections = -1);
+                return None;
+            }
+        };
+
+        debug!(%idx, "connection registered after link negotiation");
+
+        // Handle connection-type-specific post-negotiation logic.
+        let category = match result.connection_type {
+            ConnType::Peer => {
+                let link_id = self
+                    .forwarder()
+                    .get_connection(idx)
+                    .and_then(|c| c.link_id())
+                    .unwrap_or_default();
+                if let Err(e) = self
+                    .handle_peer_upgrade(
+                        &result.remote_node_id,
+                        &result.remote_deployment_name,
+                        idx,
+                        &link_id,
+                    )
+                    .await
+                {
+                    error!(error = %e.chain(), "peer upgrade failed after negotiation");
+                    let _ = conn_index_tx.send(Err(e));
+                    info!(telemetry = true, counter.num_active_connections = -1);
+                    return None;
+                }
+                ConnType::Peer
+            }
+            other => other,
+        };
+
+        let _ = conn_index_tx.send(Ok(idx));
+        Some((idx, category))
+    }
+
     fn process_stream(
         &self,
         mut stream: impl Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
@@ -1421,130 +1559,42 @@ impl MessageProcessor {
 
         let (conn_index_tx, conn_index_rx) = oneshot::channel();
 
-        // For registered (local) connections, we know conn_index immediately.
-        let (pre_conn_index, pending_connection, require_header_mac): (
-            Option<u64>,
-            Option<(Connection, Option<u64>)>,
-            bool,
-        ) = match setup {
-            StreamSetup::Registered(idx) => {
-                let rhm = self
-                    .forwarder()
-                    .get_connection(idx)
-                    .map(|c| c.require_header_mac())
-                    .unwrap_or(false);
-                (Some(idx), None, rhm)
-            }
-            StreamSetup::Pending {
-                connection,
-                existing_index,
-            } => {
-                let rhm = connection.require_header_mac();
-                (None, Some((*connection, existing_index)), rhm)
-            }
+        let require_header_mac = match &setup {
+            StreamSetup::Registered(idx) => self
+                .forwarder()
+                .get_connection(*idx)
+                .map(|c| c.require_header_mac())
+                .unwrap_or(false),
+            StreamSetup::Pending { connection, .. } => connection.require_header_mac(),
         };
 
         let span = tracing::info_span!(
             "process_stream",
             service_id = %self.internal.service_id,
-            conn_index = pre_conn_index.unwrap_or(0),
+            conn_index = match &setup {
+                StreamSetup::Registered(idx) => *idx,
+                _ => 0,
+            },
             is_local,
         );
 
         let handle = tokio::spawn(async move {
             let mut try_to_reconnect = true;
-            let mut category = category;
 
-            // Resolve the conn_index: either we already have it (local), or we
-            // must perform negotiation and then insert into the table (remote).
-            let conn_index = if let Some(idx) = pre_conn_index {
-                // Local: already registered.
-                let _ = conn_index_tx.send(Ok(idx));
-                idx
-            } else if let Some((mut connection, existing_index)) = pending_connection {
-                // Remote: perform mandatory link negotiation before inserting.
-                let timeout = self_clone.internal.negotiation_timeout;
-                let params = crate::negotiation::NegotiationParams {
-                    node_id: &self_clone.internal.service_id,
-                    deployment_name: &self_clone.internal.deployment_name,
-                    connection_type: category,
-                };
-                let negotiation_result = tokio::select! {
-                    result = tokio::time::timeout(
-                        timeout,
-                        crate::negotiation::run_negotiation(
-                            &mut connection,
-                            &mut stream,
-                            &params,
-                        ),
-                    ) => match result {
-                        Ok(r) => r,
-                        Err(_) => Err(DataPathError::NegotiationError(
-                            "timed out waiting for link negotiation".to_string(),
-                        )),
-                    },
-                    _ = watch.clone().signaled() => {
-                        info!("shutting down during link negotiation");
-                        let _ = conn_index_tx.send(Err(DataPathError::ShuttingDownError));
-                        return;
-                    }
-                    _ = token_clone.cancelled() => {
-                        info!("connection cancelled during link negotiation");
-                        let _ = conn_index_tx.send(Err(DataPathError::ShuttingDownError));
-                        return;
-                    }
-                };
-
-                match negotiation_result {
-                    Err(e) => {
-                        error!(error = %e.chain(), "link negotiation failed, closing connection");
-                        let _ = conn_index_tx.send(Err(e));
-                        info!(telemetry = true, counter.num_active_connections = -1);
-                        return;
-                    }
-                    Ok(result) => {
-                        // Negotiation succeeded — insert the fully-negotiated connection.
-                        let idx = match self_clone
-                            .forwarder()
-                            .on_connection_established(connection, existing_index)
-                        {
-                            Some(idx) => idx,
-                            None => {
-                                let _ = conn_index_tx.send(Err(DataPathError::ConnectionTableAddError));
-                                info!(telemetry = true, counter.num_active_connections = -1);
-                                return;
-                            }
-                        };
-
-                        debug!(%idx, "connection registered after link negotiation");
-
-                        // Handle peer upgrade if the remote indicated peer connection_type.
-                        if result.peer_upgrade_requested {
-                            let link_id = self_clone
-                                .forwarder()
-                                .get_connection(idx)
-                                .and_then(|c| c.link_id())
-                                .unwrap_or_default();
-                            if let Err(e) = self_clone.handle_peer_upgrade(
-                                &result.remote_node_id,
-                                &result.remote_deployment_name,
-                                idx,
-                                &link_id,
-                            ).await {
-                                error!(error = %e.chain(), "peer upgrade failed after negotiation");
-                                let _ = conn_index_tx.send(Err(e));
-                                info!(telemetry = true, counter.num_active_connections = -1);
-                                return;
-                            }
-                            category = ConnType::Peer;
-                        }
-
-                        let _ = conn_index_tx.send(Ok(idx));
-                        idx
-                    }
-                }
-            } else {
-                unreachable!("process_stream called with neither registered nor pending setup");
+            // Resolve the conn_index: either already registered (local) or
+            // perform negotiation + table insertion (remote).
+            let Some((conn_index, category)) = self_clone
+                .resolve_connection(
+                    &mut stream,
+                    setup,
+                    category,
+                    conn_index_tx,
+                    &watch,
+                    &token_clone,
+                )
+                .await
+            else {
+                return;
             };
 
             let mut watch = std::pin::pin!(watch.signaled());

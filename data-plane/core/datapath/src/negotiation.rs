@@ -30,8 +30,8 @@ pub(crate) struct NegotiationParams<'a> {
 
 /// Result of a successful negotiation.
 pub(crate) struct NegotiationResult {
-    /// Whether the remote side indicated it wants a Peer connection.
-    pub(crate) peer_upgrade_requested: bool,
+    /// The connection type indicated by the remote side.
+    pub(crate) connection_type: ConnType,
     /// The remote node's identifier (from the negotiation payload).
     pub(crate) remote_node_id: String,
     /// The remote's advertised deployment name.
@@ -151,7 +151,10 @@ where
     // Capture remote identity from the payload.
     let remote_node_id = payload.node_id.clone();
     let remote_deployment_name = payload.deployment_name.clone();
-    let peer_upgrade_requested = payload.connection_type == LinkConnectionType::Peer as i32;
+    let remote_conn_type = match LinkConnectionType::try_from(payload.connection_type) {
+        Ok(LinkConnectionType::Peer) => ConnType::Peer,
+        _ => ConnType::Remote,
+    };
 
     if is_client {
         // Client path: validate the reply and derive HMAC.
@@ -280,7 +283,7 @@ where
 
     debug!("link negotiation completed successfully");
     Ok(NegotiationResult {
-        peer_upgrade_requested,
+        connection_type: remote_conn_type,
         remote_node_id,
         remote_deployment_name,
     })
