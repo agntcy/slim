@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/agntcy/slim/compare/slim-mls-v0.1.20...slim-mls-v0.2.0) - 2026-06-11
+
+### Added
+
+- e2e header integrity validation ([#1677](https://github.com/agntcy/slim/pull/1677))
+
 ## [0.1.20](https://github.com/agntcy/slim/compare/slim-mls-v0.1.19...slim-mls-v0.1.20) - 2026-06-03
 
 ### Other
