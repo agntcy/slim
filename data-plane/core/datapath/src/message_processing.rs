@@ -44,11 +44,22 @@ use crate::connection::{Channel, Connection};
 use crate::errors::{DataPathError, MessageContext};
 use crate::forwarder::Forwarder;
 use crate::messages::utils::SlimHeaderFlags;
+use crate::sync::peer as sync_peer;
+use crate::sync::remote::{RemoteSync, SubscriptionInfo};
 use crate::tables::connection_table::ConnectionTable;
-use crate::tables::remote_subscription_table::SubscriptionInfo;
 use crate::tables::subscription_table::SubscriptionTableImpl;
 use crate::tables::{ConnType, MatchFilter};
 use crate::websocket;
+
+/// Result of updating subscription state (pure state change, no forwarding).
+struct SubscriptionOutcome {
+    /// Whether an aggregate transition occurred (0→1 or 1→0).
+    transition: bool,
+    /// Whether the source connection is a peer connection.
+    is_peer_conn: bool,
+    /// The forward-to connection (controller), if any.
+    forward_conn: Option<u64>,
+}
 
 // Sync tests using environment variables
 #[cfg(test)]
@@ -68,17 +79,31 @@ struct MessageProcessorInternal {
     /// Tx channel towards control plane
     tx_control_plane: RwLock<Option<Sender<Result<Message, Status>>>>,
 
-    /// Remote subscription ACK manager
-    sub_ack_manager: crate::subscription_ack::RemoteSubAckManager,
+    /// Tracks subscriptions forwarded to remote connections and handles restore on reconnect.
+    remote_sync: RemoteSync,
 
     /// Service ID for tracing
     service_id: String,
+
+    /// Peer group this node belongs to. Used during link negotiation to verify
+    /// that both sides of a peer connection belong to the same deployment.
+    /// Empty when no peer config is set.
+    deployment_name: String,
 
     /// Default strict header MAC policy for server-accepted inter-node connections (see [`ServerConfig::require_header_mac`]).
     server_require_header_mac: bool,
 
     /// Timeout for link negotiation to complete.
     negotiation_timeout: std::time::Duration,
+
+    /// Whether peer-originated publishes should be relayed to other peers.
+    /// True for hub-and-spoke (hub) or generic multi-hop topologies.
+    /// False for full-mesh (peers deliver directly — 1-hop rule).
+    relay_peer_publishes: bool,
+
+    /// Peer sync component for subscription forwarding and peer lifecycle.
+    /// Initialized as standalone; replaced with a peer-aware instance when peers are configured.
+    peer_sync: parking_lot::RwLock<crate::sync::PeerSync>,
 }
 
 #[derive(Debug, Clone)]
@@ -108,22 +133,37 @@ enum StreamSetup {
 
 impl MessageProcessor {
     pub fn new_with_service_id(service_id: String) -> Self {
-        Self::new_internal(service_id, false, std::time::Duration::from_secs(5))
+        Self::new_internal(
+            service_id,
+            String::new(),
+            false,
+            std::time::Duration::from_secs(5),
+            false,
+        )
     }
 
     /// Create a processor with the server strict header MAC policy from `server_config`.
-    pub fn new_with_server_config(service_id: String, server_config: &ServerConfig) -> Self {
+    pub fn new_with_server_config(
+        service_id: String,
+        deployment_name: String,
+        server_config: &ServerConfig,
+        relay_peer_publishes: bool,
+    ) -> Self {
         Self::new_internal(
             service_id,
+            deployment_name,
             server_config.require_header_mac,
             std::time::Duration::from_secs(server_config.negotiation_timeout_secs),
+            relay_peer_publishes,
         )
     }
 
     fn new_internal(
         service_id: String,
+        deployment_name: String,
         server_require_header_mac: bool,
         negotiation_timeout: std::time::Duration,
+        relay_peer_publishes: bool,
     ) -> Self {
         let (signal, watch) = drain::channel();
         let internal = MessageProcessorInternal {
@@ -131,10 +171,13 @@ impl MessageProcessor {
             drain_signal: RwLock::new(Some(signal)),
             drain_watch: RwLock::new(Some(watch)),
             tx_control_plane: RwLock::new(None),
-            sub_ack_manager: crate::subscription_ack::RemoteSubAckManager::new(),
+            remote_sync: RemoteSync::default(),
             service_id,
+            deployment_name,
             server_require_header_mac,
             negotiation_timeout,
+            relay_peer_publishes,
+            peer_sync: parking_lot::RwLock::new(crate::sync::PeerSync::standalone()),
         };
         Self {
             internal: Arc::new(internal),
@@ -245,6 +288,10 @@ impl MessageProcessor {
         &self.internal.forwarder
     }
 
+    pub(crate) fn remote_sync(&self) -> &RemoteSync {
+        &self.internal.remote_sync
+    }
+
     /// Verify SLIM header MAC for inter-node traffic only (local app connections skip this).
     pub(crate) fn verify_remote_header_mac(
         &self,
@@ -256,7 +303,7 @@ impl MessageProcessor {
             .forwarder()
             .get_connection(conn_index)
             .ok_or(DataPathError::ConnectionNotFound(conn_index))?;
-        if !matches!(conn.category(), ConnType::Remote) {
+        if !matches!(conn.connection_type(), ConnType::Remote) {
             return Ok(());
         }
         let header = message
@@ -300,11 +347,7 @@ impl MessageProcessor {
             .map_err(DataPathError::HeaderIntegrity)
     }
 
-    pub(crate) fn remove_sub_ack(&self, subscription_id: u64) {
-        self.internal.sub_ack_manager.remove(subscription_id);
-    }
-
-    fn get_drain_watch(&self) -> Result<drain::Watch, DataPathError> {
+    pub(crate) fn get_drain_watch(&self) -> Result<drain::Watch, DataPathError> {
         self.internal
             .drain_watch
             .read()
@@ -313,43 +356,16 @@ impl MessageProcessor {
     }
 
     /// Re-send `remote_subs` as subscribe messages to `conn_index`.
-    ///
-    /// When `restore_tracking` is `true` (server-side recovery), also re-registers each
-    /// subscription in the local forwarded-subscription table.  This is necessary because
-    /// [`Forwarder::on_connection_drop`] already wiped that state.
-    ///
-    /// When `restore_tracking` is `false` (client-side reconnect), the forwarded-subscription
-    /// table was never cleaned up (reconnect reuses the same slot), so no re-registration is
-    /// needed and double-counting must be avoided.
+    /// Delegates to [`RemoteSync::restore`].
     async fn restore_remote_subscriptions(
         &self,
         remote_subs: &HashSet<SubscriptionInfo>,
         conn_index: u64,
         restore_tracking: bool,
     ) {
-        for r in remote_subs {
-            let sub_msg = Message::builder()
-                .source(r.source().clone())
-                .destination(r.name().clone())
-                .identity(r.source_identity())
-                .build_subscribe()
-                .unwrap();
-            if let Err(e) = self.send_msg(sub_msg, conn_index).await {
-                error!(
-                    error = %e.chain(), %conn_index,
-                    "error restoring subscription on remote node",
-                );
-            } else if restore_tracking {
-                self.forwarder().on_forwarded_subscription(
-                    r.source().clone(),
-                    r.name().clone(),
-                    r.source_identity().clone(),
-                    conn_index,
-                    true,
-                    r.subscription_id(),
-                );
-            }
-        }
+        self.remote_sync()
+            .restore(self, remote_subs, conn_index, restore_tracking)
+            .await;
     }
 
     async fn try_to_connect(
@@ -399,6 +415,15 @@ impl MessageProcessor {
                     )
                 })??;
 
+                // For peer connections established via client config (generic topology),
+                // auto-register in the forwarder and perform full sync.
+                if matches!(client_config.connection_type, ConnType::Peer) {
+                    let fwd = self.peer_sync();
+                    if !fwd.has_peer_state() {
+                        fwd.add_peer_conn_and_sync(self, conn_index);
+                    }
+                }
+
                 Ok((handle, conn_index))
             }
             TransportChannel::Websocket(ws_channel) => {
@@ -424,6 +449,15 @@ impl MessageProcessor {
                         "negotiation task terminated unexpectedly".to_string(),
                     )
                 })??;
+
+                // For peer connections established via client config (generic topology),
+                // auto-register in the forwarder and perform full sync.
+                if matches!(client_config.connection_type, ConnType::Peer) {
+                    let fwd = self.peer_sync();
+                    if !fwd.has_peer_state() {
+                        fwd.add_peer_conn_and_sync(self, conn_index);
+                    }
+                }
 
                 Ok((handle, conn_index))
             }
@@ -456,7 +490,7 @@ impl MessageProcessor {
     where
         S: Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
     {
-        let mut connection = Connection::new(ConnType::Remote, outbound)
+        let mut connection = Connection::new(client_config.connection_type, outbound)
             .with_local_addr(local)
             .with_remote_addr(remote)
             .with_config_data(Some(client_config.clone()))
@@ -469,6 +503,7 @@ impl MessageProcessor {
         debug!(
             remote = ?connection.remote_addr(),
             local = ?connection.local_addr(),
+            ?client_config.connection_type,
             "new connection initiated locally",
         );
 
@@ -480,7 +515,7 @@ impl MessageProcessor {
             },
             Some(client_config.clone()),
             cancellation_token,
-            ConnType::Remote,
+            client_config.connection_type,
             false,
         )?;
 
@@ -605,7 +640,7 @@ impl MessageProcessor {
 
                 if !msg.is_link()
                     && !msg.is_subscription_ack()
-                    && matches!(conn.category(), ConnType::Remote)
+                    && matches!(conn.connection_type(), ConnType::Remote)
                     && conn.require_header_mac()
                     && conn.header_hmac().is_none()
                 {
@@ -617,7 +652,7 @@ impl MessageProcessor {
 
                 if !msg.is_link()
                     && !msg.is_subscription_ack()
-                    && matches!(conn.category(), ConnType::Remote)
+                    && matches!(conn.connection_type(), ConnType::Remote)
                     && let Some(mac) = conn.header_hmac()
                 {
                     let link_id = conn
@@ -647,7 +682,7 @@ impl MessageProcessor {
                 if !msg.is_link()
                     && !msg.is_subscription_ack()
                     && matches!(conn.channel(), Channel::Server(_))
-                    && matches!(conn.category(), ConnType::Local)
+                    && matches!(conn.connection_type(), ConnType::Local)
                 {
                     msg.get_slim_header_mut().header_mac = None;
                 }
@@ -672,6 +707,16 @@ impl MessageProcessor {
                 }
             }
             None => Err(DataPathError::ConnectionNotFound(out_conn)),
+        }
+    }
+
+    /// Send a gRPC status error on a server-side connection.
+    /// This causes the client's stream to yield `Err(status)`.
+    async fn send_status(&self, conn_index: u64, status: Status) {
+        if let Some(conn) = self.forwarder().get_connection(conn_index)
+            && let Channel::Server(tx) = conn.channel()
+        {
+            let _ = tx.send(Err(status)).await;
         }
     }
 
@@ -773,6 +818,64 @@ impl MessageProcessor {
             is_reply = payload.is_reply,
             "ignoring link negotiation message on already-negotiated connection",
         );
+
+        Ok(())
+    }
+
+    /// Upgrade a server-side connection to Peer after validating identity and deployment_name.
+    /// Notifies PeerSyncManager or auto-registers in the forwarder (generic topology).
+    pub(crate) async fn handle_peer_upgrade(
+        &self,
+        remote_node_id: &str,
+        remote_deployment_name: &str,
+        in_connection: u64,
+        link_id: &str,
+    ) -> Result<(), DataPathError> {
+        // Reject self-connections (can happen when all replicas share the same config).
+        if remote_node_id == self.internal.service_id {
+            warn!(
+                %in_connection, %link_id,
+                "rejecting peer connection from self (same node_id)"
+            );
+            self.send_status(
+                in_connection,
+                Status::permission_denied("self-connection rejected: same node_id"),
+            )
+            .await;
+            let _ = self.disconnect(in_connection);
+            return Ok(());
+        }
+
+        // Verify deployment_name: if we have a deployment_name configured, the remote must match.
+        if !self.internal.deployment_name.is_empty()
+            && remote_deployment_name != self.internal.deployment_name
+        {
+            warn!(
+                %in_connection, %link_id,
+                local_group = %self.internal.deployment_name,
+                remote_group = %remote_deployment_name,
+                "rejecting peer upgrade: deployment_name mismatch"
+            );
+            self.send_status(
+                in_connection,
+                Status::permission_denied("deployment_name mismatch"),
+            )
+            .await;
+            let _ = self.disconnect(in_connection);
+            return Ok(());
+        }
+
+        info!(
+            %in_connection, %link_id, %remote_node_id,
+            "upgrading server-side connection to Peer (negotiation)"
+        );
+        self.connection_table().update(in_connection, |conn| {
+            conn.set_connection_type(ConnType::Peer)
+        });
+
+        self.peer_sync()
+            .on_incoming_peer(self, remote_node_id.to_string(), in_connection);
+
         Ok(())
     }
 
@@ -823,71 +926,58 @@ impl MessageProcessor {
         }
     }
 
-    async fn process_subscription_update_and_forward(
+    /// Pure state update for a subscription: updates the subscription table
+    /// and returns the outcome (whether a transition occurred, connection type, forward target).
+    /// Does NOT perform any forwarding or event emission.
+    fn update_subscription_state(
         &self,
-        msg: Message,
+        msg: &Message,
         conn: u64,
         forward: Option<u64>,
         add: bool,
         subscription_id: u64,
-    ) -> Result<(), DataPathError> {
+    ) -> Result<SubscriptionOutcome, DataPathError> {
         let dst = msg.get_dst();
 
         // As connection is deleted only after processing, at this point it must exist.
         let connection = if let Some(c) = self.forwarder().get_connection(conn) {
             c
         } else {
-            return Err(DataPathError::MessageProcessingError {
-                source: Box::new(DataPathError::ConnectionNotFound(conn)),
-                msg: Box::new(msg),
-            });
+            return Err(DataPathError::ConnectionNotFound(conn));
         };
 
         debug!(
             %conn,
             %dst,
             is_local = connection.is_local_connection(),
-            "processing {}subscription",
+            "processing {}subscription state",
             if add { "" } else { "un" }
         );
 
-        self.forwarder().on_subscription_msg(
-            dst.clone(),
+        let is_peer_conn = connection.is_peer_connection();
+
+        let transition = self.forwarder().on_subscription_msg(
+            dst,
             conn,
-            connection.category(),
+            connection.connection_type(),
             add,
             subscription_id,
         )?;
 
-        match forward {
-            None => Ok(()),
-            Some(out_conn) => {
-                debug!(
-                    %out_conn,
-                    "forwarding {}subscription to connection",
-                    if add { "" } else { "un" }
-                );
-
-                let source = msg.get_source();
-                let identity = msg.get_identity();
-
-                self.send_msg(msg, out_conn).await.map(|_| {
-                    self.forwarder().on_forwarded_subscription(
-                        source,
-                        dst,
-                        identity,
-                        out_conn,
-                        add,
-                        subscription_id,
-                    );
-                })
-            }
-        }
+        Ok(SubscriptionOutcome {
+            transition,
+            is_peer_conn,
+            forward_conn: forward,
+        })
     }
 
     // Use a single function to process subscription and unsubscription packets.
     // The flag add = true is used to add a new subscription while add = false
-    // is used to remove existing state
+    // is used to remove existing state.
+    //
+    // This is the SINGLE entry point for all subscription handling.
+    // All forwarding (to peers, to controller, hub relay) goes through
+    // the PeerSync — no inline forwarding anywhere else.
     async fn process_subscription(
         &self,
         msg: Message,
@@ -929,11 +1019,6 @@ impl MessageProcessor {
                 .unwrap_or(true)
         });
 
-        // If forwarding to a remote node, use the remote ack path:
-        // update local state now, then asynchronously forward and wait for the remote ACK
-        // before notifying the upstream requester.
-        let use_remote_ack = forward.is_some();
-
         // As connection is deleted only after processing, at this point it must exist.
         let Some(connection) = self.forwarder().get_connection(in_conn) else {
             if let Some(id) = subscription_id {
@@ -960,45 +1045,112 @@ impl MessageProcessor {
             return Ok(());
         }
 
-        debug!(use_remote_ack, dst = %msg.get_dst(), forward_to = forward, "subscription: ack path decision");
-
+        // Loop prevention: check if this subscription_id has already been forwarded
+        // by this node. This prevents loops in ring/mesh topologies where a subscription
+        // could travel around and come back. Only applies to subscribes (add=true);
+        // unsubscribes with a seen sub_id are expected (they cancel a prior forwarded sub).
+        // Unsubscribe loops are bounded by TTL and don't cause state corruption since
+        // remove operations are idempotent.
         let sub_id = subscription_id.unwrap_or(0);
-
-        // Always register subscription as at this point we might not have received the link negotiaiion
-        // yet, so the other side might reply just after
-        let rx = self.internal.sub_ack_manager.register(sub_id);
-
-        // Update local state and forward the subscription.
-        let result = self
-            .process_subscription_update_and_forward(msg.clone(), in_conn, forward, add, sub_id)
-            .await;
-
-        // Remote-ack path: on success, spawn a retry loop that waits for the
-        // downstream ACK (the initial send was already done above) and retries
-        // on timeout.
-        if use_remote_ack && result.is_ok() {
-            let out_conn = forward.unwrap();
-
-            tokio::spawn(crate::subscription_ack::retry_loop(
-                self.clone(),
-                sub_id,
-                msg,
-                out_conn,
-                in_connection,
-                subscription_id,
-                rx,
-            ));
-
+        if add && sub_id != 0 && self.peer_sync().has_seen_sub_id(sub_id) {
+            debug!(
+                %in_conn,
+                %sub_id,
+                "dropping subscription already forwarded by this node (loop prevention)"
+            );
+            if let Some(id) = subscription_id {
+                self.send_subscription_ack(in_connection, id, &Ok(())).await;
+            }
             return Ok(());
         }
 
-        // Default path (or remote-ack error fallback): ACK the requester immediately.
-        if let Some(id) = subscription_id {
-            debug!(%in_connection, ok = result.is_ok(), "sending immediate subscription ack");
-            self.send_subscription_ack(in_connection, id, &result).await;
+        // Update local state (subscription table) — pure state change, no forwarding.
+        let outcome = match self.update_subscription_state(&msg, in_conn, forward, add, sub_id) {
+            Ok(o) => o,
+            Err(e) => {
+                if let Some(id) = subscription_id {
+                    self.send_subscription_ack(in_connection, id, &Err(e)).await;
+                    // Return Ok since we already sent the error ACK.
+                    return Ok(());
+                }
+                return Err(DataPathError::MessageProcessingError {
+                    source: Box::new(e),
+                    msg: Box::new(msg),
+                });
+            }
+        };
+
+        // Determine forwarding targets:
+        // - Peers (All): non-peer subscription with aggregate transition (0→1 or 1→0)
+        // - Peers (ExcludeConn): peer subscription with remaining TTL >= 2 (relay)
+        // - Forward conn: controller/remote node when header.forward_to is set
+        //
+        // TTL controls propagation depth:
+        // - TTL=2 on initial send → peer decrements to 1, sees 1 < 2, no relay (full mesh)
+        // - TTL=3 on initial send → hub decrements to 2, relays; spoke decrements to 1, stops
+        // - TTL=6 on initial send → allows up to 5 hops of relay (generic topology)
+        let remaining_ttl = msg.get_ttl();
+
+        let (peer_target, peer_ttl) = if !outcome.is_peer_conn && outcome.transition {
+            // Local/remote subscription transition → forward to ALL peers with configured TTL
+            let ttl = self.peer_sync().subscription_ttl();
+            (Some(crate::sync::PeerTarget::All), ttl)
+        } else if outcome.is_peer_conn && remaining_ttl >= 2 {
+            // Peer subscription relay: TTL allows further propagation.
+            // Forward to all peers except the source, using remaining TTL.
+            (
+                Some(crate::sync::PeerTarget::ExcludeConn(in_conn)),
+                remaining_ttl,
+            )
+        } else {
+            (None, 0)
+        };
+
+        let targets = crate::sync::ForwardTargets {
+            peers: peer_target,
+            forward_conn: outcome.forward_conn,
+        };
+
+        // If there are forwarding targets, spawn the forwarder task (non-blocking).
+        // The forwarder will wait for ACKs and then ACK the upstream client.
+        if targets.has_any() {
+            let fwd = self.peer_sync();
+            let dst = msg.get_dst();
+            debug!(
+                %in_connection,
+                %dst,
+                %remaining_ttl,
+                %peer_ttl,
+                ?targets,
+                "spawning subscription forwarder task"
+            );
+            let drain = self.get_drain_watch().ok();
+            if let Some(drain) = drain {
+                fwd.spawn_forward_and_ack(
+                    self.clone(),
+                    msg,
+                    dst,
+                    sub_id,
+                    add,
+                    targets,
+                    in_connection,
+                    subscription_id,
+                    peer_ttl,
+                    drain,
+                );
+                return Ok(());
+            }
+            // Fallback: drain not available (shutting down).
+            // ACK immediately as best-effort.
         }
 
-        result
+        // No forwarding needed (or no forwarder) — ACK immediately.
+        if let Some(id) = subscription_id {
+            debug!(%in_connection, "sending immediate subscription ack (no forwarding)");
+            self.send_subscription_ack(in_connection, id, &Ok(())).await;
+        }
+
+        Ok(())
     }
 
     pub async fn process_message(
@@ -1012,7 +1164,13 @@ impl MessageProcessor {
             Some(UnsubscribeType(_)) => self.process_subscription(msg, in_connection, false).await,
             Some(PublishType(_)) => {
                 let filter = match category {
-                    ConnType::Peer => MatchFilter::EXCLUDE_PEER,
+                    ConnType::Peer => {
+                        if self.internal.relay_peer_publishes {
+                            MatchFilter::ALL
+                        } else {
+                            MatchFilter::EXCLUDE_PEER
+                        }
+                    }
                     _ => MatchFilter::ALL,
                 };
                 self.process_publish(msg, in_connection, filter).await
@@ -1025,11 +1183,10 @@ impl MessageProcessor {
                 let result = if ack.success {
                     Ok(())
                 } else {
-                    Err(DataPathError::RemoteSubscriptionAckError(ack.error.clone()))
+                    Err(DataPathError::RemoteSubscriptionAckError(ack.error))
                 };
-                self.internal
-                    .sub_ack_manager
-                    .resolve(ack.subscription_id, result);
+
+                self.peer_sync().resolve_ack(ack.subscription_id, result);
                 Ok(())
             }
             None => unreachable!(
@@ -1149,13 +1306,21 @@ impl MessageProcessor {
     ) -> bool {
         info!("connection lost with remote endpoint, attempting to reconnect");
 
-        // These are the subscriptions that we forwarded to the remote SLIM on
-        // this connection. It is necessary to restore them to keep receive the messages
-        // The connections on the local subscription table (created using the set_route command)
-        // are still there and will be removed only if the reconnection process fails.
-        let remote_subscriptions = self
+        let is_peer = self
             .forwarder()
-            .get_subscriptions_forwarded_on_connection(conn_index);
+            .get_connection(conn_index)
+            .map(|c| c.connection_type() == ConnType::Peer)
+            .unwrap_or(false);
+
+        // For remote/controller connections: save the subscriptions we forwarded to this
+        // connection so we can replay them after reconnecting.
+        // For peer connections: we do a full sync instead (no need to save).
+        let remote_subscriptions = if !is_peer {
+            self.remote_sync()
+                .get_subscriptions_for_reconnect(conn_index)
+        } else {
+            Default::default()
+        };
 
         tokio::select! {
             _ = cancellation_token.cancelled() => {
@@ -1166,16 +1331,28 @@ impl MessageProcessor {
                 match res {
                     Ok(_) => {
                         info!("connection re-established successfully");
-                        // Restore subscriptions on the remote node.
-                        // restore_tracking = false: the forwarded-subscription table was not
-                        // cleaned up (same conn_index is reused), so we only replay the
-                        // messages without re-registering local tracking state.
-                        self.restore_remote_subscriptions(
-                            &remote_subscriptions,
-                            conn_index,
-                            false,
-                        )
-                        .await;
+                        if is_peer {
+                            // Peer connection: full sync (send local + remote subscriptions).
+                            let ttl = self.peer_sync().subscription_ttl();
+                            if let Err(e) = sync_peer::send_local_remote_sync(
+                                self, conn_index, ttl,
+                            )
+                            .await
+                            {
+                                warn!(
+                                    error = %e,
+                                    "failed to send full sync after peer reconnect"
+                                );
+                            }
+                        } else {
+                            // Remote/controller: restore only what was previously forwarded.
+                            self.restore_remote_subscriptions(
+                                &remote_subscriptions,
+                                conn_index,
+                                false,
+                            )
+                            .await;
+                        }
                         true
                     }
                     Err(e) => {
@@ -1219,6 +1396,145 @@ impl MessageProcessor {
         }
     }
 
+    /// Resolve the connection index for a new stream.
+    ///
+    /// For local (already-registered) connections, returns immediately.
+    /// For remote connections, runs mandatory link negotiation, inserts the
+    /// connection into the table, and handles peer upgrade if negotiated.
+    ///
+    /// Returns `Some((conn_index, category))` on success or `None` if the
+    /// connection setup failed (the error is sent on `conn_index_tx`).
+    async fn resolve_connection(
+        &self,
+        stream: &mut (impl Stream<Item = Result<Message, Status>> + Unpin + Send),
+        setup: StreamSetup,
+        category: ConnType,
+        conn_index_tx: oneshot::Sender<Result<u64, DataPathError>>,
+        watch: &drain::Watch,
+        token: &CancellationToken,
+    ) -> Option<(u64, ConnType)> {
+        match setup {
+            StreamSetup::Registered(idx) => {
+                let _ = conn_index_tx.send(Ok(idx));
+                Some((idx, category))
+            }
+            StreamSetup::Pending {
+                connection,
+                existing_index,
+            } => {
+                self.negotiate_and_register(
+                    stream,
+                    *connection,
+                    existing_index,
+                    category,
+                    conn_index_tx,
+                    watch,
+                    token,
+                )
+                .await
+            }
+        }
+    }
+
+    /// Perform link negotiation, register the connection, and handle peer upgrade.
+    ///
+    /// Returns `Some((conn_index, category))` on success or `None` on failure.
+    #[allow(clippy::too_many_arguments)]
+    async fn negotiate_and_register(
+        &self,
+        stream: &mut (impl Stream<Item = Result<Message, Status>> + Unpin + Send),
+        mut connection: Connection,
+        existing_index: Option<u64>,
+        category: ConnType,
+        conn_index_tx: oneshot::Sender<Result<u64, DataPathError>>,
+        watch: &drain::Watch,
+        token: &CancellationToken,
+    ) -> Option<(u64, ConnType)> {
+        let timeout = self.internal.negotiation_timeout;
+        let params = crate::negotiation::NegotiationParams {
+            node_id: &self.internal.service_id,
+            deployment_name: &self.internal.deployment_name,
+            connection_type: category,
+        };
+
+        let negotiation_result = tokio::select! {
+            result = tokio::time::timeout(
+                timeout,
+                crate::negotiation::run_negotiation(&mut connection, stream, &params),
+            ) => match result {
+                Ok(r) => r,
+                Err(_) => Err(DataPathError::NegotiationError(
+                    "timed out waiting for link negotiation".to_string(),
+                )),
+            },
+            _ = watch.clone().signaled() => {
+                info!("shutting down during link negotiation");
+                let _ = conn_index_tx.send(Err(DataPathError::ShuttingDownError));
+                return None;
+            }
+            _ = token.cancelled() => {
+                info!("connection cancelled during link negotiation");
+                let _ = conn_index_tx.send(Err(DataPathError::ShuttingDownError));
+                return None;
+            }
+        };
+
+        let result = match negotiation_result {
+            Ok(r) => r,
+            Err(e) => {
+                error!(error = %e.chain(), "link negotiation failed, closing connection");
+                let _ = conn_index_tx.send(Err(e));
+                info!(telemetry = true, counter.num_active_connections = -1);
+                return None;
+            }
+        };
+
+        // Insert the fully-negotiated connection into the table.
+        let idx = match self
+            .forwarder()
+            .on_connection_established(connection, existing_index)
+        {
+            Some(idx) => idx,
+            None => {
+                let _ = conn_index_tx.send(Err(DataPathError::ConnectionTableAddError));
+                info!(telemetry = true, counter.num_active_connections = -1);
+                return None;
+            }
+        };
+
+        debug!(%idx, "connection registered after link negotiation");
+
+        // Handle connection-type-specific post-negotiation logic.
+        let category = match result.connection_type {
+            ConnType::Peer => {
+                let link_id = self
+                    .forwarder()
+                    .get_connection(idx)
+                    .and_then(|c| c.link_id())
+                    .unwrap_or_default();
+                if let Err(e) = self
+                    .handle_peer_upgrade(
+                        &result.remote_node_id,
+                        &result.remote_deployment_name,
+                        idx,
+                        &link_id,
+                    )
+                    .await
+                {
+                    error!(error = %e.chain(), "peer upgrade failed after negotiation");
+                    let _ = conn_index_tx.send(Err(e));
+                    info!(telemetry = true, counter.num_active_connections = -1);
+                    return None;
+                }
+                ConnType::Peer
+            }
+            other => other,
+        };
+
+        let _ = conn_index_tx.send(Ok(idx));
+        Some((idx, category))
+    }
+
     fn process_stream(
         &self,
         mut stream: impl Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
@@ -1244,102 +1560,42 @@ impl MessageProcessor {
 
         let (conn_index_tx, conn_index_rx) = oneshot::channel();
 
-        // For registered (local) connections, we know conn_index immediately.
-        let (pre_conn_index, pending_connection, require_header_mac): (
-            Option<u64>,
-            Option<(Connection, Option<u64>)>,
-            bool,
-        ) = match setup {
-            StreamSetup::Registered(idx) => {
-                let rhm = self
-                    .forwarder()
-                    .get_connection(idx)
-                    .map(|c| c.require_header_mac())
-                    .unwrap_or(false);
-                (Some(idx), None, rhm)
-            }
-            StreamSetup::Pending {
-                connection,
-                existing_index,
-            } => {
-                let rhm = connection.require_header_mac();
-                (None, Some((*connection, existing_index)), rhm)
-            }
+        let require_header_mac = match &setup {
+            StreamSetup::Registered(idx) => self
+                .forwarder()
+                .get_connection(*idx)
+                .map(|c| c.require_header_mac())
+                .unwrap_or(false),
+            StreamSetup::Pending { connection, .. } => connection.require_header_mac(),
         };
 
         let span = tracing::info_span!(
             "process_stream",
             service_id = %self.internal.service_id,
-            conn_index = pre_conn_index.unwrap_or(0),
+            conn_index = match &setup {
+                StreamSetup::Registered(idx) => *idx,
+                _ => 0,
+            },
             is_local,
         );
 
         let handle = tokio::spawn(async move {
             let mut try_to_reconnect = true;
 
-            // Resolve the conn_index: either we already have it (local), or we
-            // must perform negotiation and then insert into the table (remote).
-            let conn_index = if let Some(idx) = pre_conn_index {
-                // Local: already registered.
-                let _ = conn_index_tx.send(Ok(idx));
-                idx
-            } else if let Some((mut connection, existing_index)) = pending_connection {
-                // Remote: perform mandatory link negotiation before inserting.
-                let timeout = self_clone.internal.negotiation_timeout;
-                let negotiation_result = tokio::select! {
-                    result = tokio::time::timeout(
-                        timeout,
-                        crate::negotiation::run_negotiation(
-                            &mut connection,
-                            &mut stream,
-                        ),
-                    ) => match result {
-                        Ok(r) => r,
-                        Err(_) => Err(DataPathError::NegotiationError(
-                            "timed out waiting for link negotiation".to_string(),
-                        )),
-                    },
-                    _ = watch.clone().signaled() => {
-                        info!("shutting down during link negotiation");
-                        let _ = conn_index_tx.send(Err(DataPathError::ShuttingDownError));
-                        return;
-                    }
-                    _ = token_clone.cancelled() => {
-                        info!("connection cancelled during link negotiation");
-                        let _ = conn_index_tx.send(Err(DataPathError::ShuttingDownError));
-                        return;
-                    }
-                };
-
-                match negotiation_result {
-                    Err(e) => {
-                        error!(error = %e.chain(), "link negotiation failed, closing connection");
-                        let _ = conn_index_tx.send(Err(e));
-                        info!(telemetry = true, counter.num_active_connections = -1);
-                        return;
-                    }
-                    Ok(()) => {
-                        // Negotiation succeeded — insert the fully-negotiated connection.
-                        let idx = match self_clone
-                            .forwarder()
-                            .on_connection_established(connection, existing_index)
-                        {
-                            Some(idx) => idx,
-                            None => {
-                                let _ = conn_index_tx.send(Err(DataPathError::ConnectionTableAddError));
-                                info!(telemetry = true, counter.num_active_connections = -1);
-                                return;
-                            }
-                        };
-
-                        debug!(%idx, "connection registered after link negotiation");
-
-                        let _ = conn_index_tx.send(Ok(idx));
-                        idx
-                    }
-                }
-            } else {
-                unreachable!("process_stream called with neither registered nor pending setup");
+            // Resolve the conn_index: either already registered (local) or
+            // perform negotiation + table insertion (remote).
+            let Some((conn_index, category)) = self_clone
+                .resolve_connection(
+                    &mut stream,
+                    setup,
+                    category,
+                    conn_index_tx,
+                    &watch,
+                    &token_clone,
+                )
+                .await
+            else {
+                return;
             };
 
             let mut watch = std::pin::pin!(watch.signaled());
@@ -1383,6 +1639,7 @@ impl MessageProcessor {
                                             // Checking if NegotiationError occurred
                                             if matches!(e, DataPathError::NegotiationError(_)) {
                                                 error!(%conn_index, "fatal link negotiation error, closing connection");
+                                                try_to_reconnect = false;
                                                 break;
                                             }
                                             debug!(%conn_index, error = %e.chain(), "error processing incoming message");
@@ -1394,7 +1651,14 @@ impl MessageProcessor {
                                         }
                                     }
                                     Err(e) => {
-                                        if let Some(io_err) = MessageProcessor::match_for_io_error(&e) {
+                                        if e.code() == tonic::Code::PermissionDenied {
+                                            warn!(
+                                                %conn_index,
+                                                message = %e.message(),
+                                                "connection rejected by remote, will not reconnect"
+                                            );
+                                            try_to_reconnect = false;
+                                        } else if let Some(io_err) = MessageProcessor::match_for_io_error(&e) {
                                             if io_err.kind() == std::io::ErrorKind::BrokenPipe {
                                                 info!(%conn_index, "connection closed by peer");
                                             }
@@ -1444,9 +1708,50 @@ impl MessageProcessor {
 
             if !connected {
                 // Delete connection state from all tables.
-                let (local_subs, _remote_subs) = self_clone
+                let local_subs = self_clone
                     .forwarder()
                     .on_connection_drop(conn_index, category);
+                let _remote_subs = self_clone
+                    .remote_sync()
+                    .on_connection_drop(conn_index);
+
+                // Remove peer connection from forwarder's peer list if applicable.
+                if matches!(category, ConnType::Peer) {
+                    self_clone.peer_sync().remove_peer_conn(conn_index);
+                }
+
+                // Notify peer sync about names that are no longer reachable.
+                // For generic topologies (TTL-based relay), we also need to notify
+                // when a peer drops — the seen_sub_ids tracking ensures we only
+                // send unsubscribes for subscriptions we actually forwarded.
+                {
+                    let fwd = self_clone.peer_sync();
+                    for name in local_subs.keys() {
+                        let still_reachable = name.name.is_some_and(|enc| {
+                            self_clone
+                                .forwarder()
+                                .on_publish_msg_match(enc, u64::MAX, u32::MAX, MatchFilter::ALL)
+                                .is_ok()
+                        });
+                        if !still_reachable {
+                            debug!(
+                                %name,
+                                %conn_index,
+                                ?category,
+                                "notifying peers of unsubscription (connection drop)"
+                            );
+                            fwd.notify_peers_unsubscribe(&self_clone, name).await;
+                        } else {
+                            debug!(
+                                %name,
+                                %conn_index,
+                                ?category,
+                                "name still reachable, not emitting removal"
+                            );
+                        }
+                    }
+                }
+
 
                 // Notify the control plane about lost subscriptions.
                 if !is_local {
@@ -1489,6 +1794,21 @@ impl MessageProcessor {
 
     pub fn connection_table(&self) -> &ConnectionTable<Connection> {
         &self.internal.forwarder.connection_table
+    }
+
+    /// The node identity used for cross-node communication.
+    pub fn service_id(&self) -> &str {
+        &self.internal.service_id
+    }
+
+    /// Set the peer sync component.
+    pub fn set_peer_sync(&self, peer_sync: crate::sync::PeerSync) {
+        *self.internal.peer_sync.write() = peer_sync;
+    }
+
+    /// Get a clone of the peer sync component.
+    pub(crate) fn peer_sync(&self) -> crate::sync::PeerSync {
+        self.internal.peer_sync.read().clone()
     }
 }
 
@@ -1563,7 +1883,7 @@ mod tests {
     use super::*;
     use crate::api::{ProtoMessage, ProtoName, ProtoSubscriptionAck};
     use crate::header_mac::HeaderMacSession;
-    use crate::tables::remote_subscription_table::SubscriptionInfo;
+    use crate::sync::remote::SubscriptionInfo;
     use tonic::Status;
 
     async fn assert_failed_subscription_ack_is_sent(add: bool) {
@@ -1651,19 +1971,6 @@ mod tests {
 
     // ── handle_link_negotiation ───────────────────────────────────────────────
 
-    fn make_server_conn(
-        processor: &MessageProcessor,
-    ) -> (u64, tokio::sync::mpsc::Receiver<Result<Message, Status>>) {
-        let (tx, rx) = mpsc::channel(16);
-        let conn = Connection::new(ConnType::Remote, Channel::Server(tx))
-            .with_require_header_mac(processor.internal.server_require_header_mac);
-        let conn_id = processor
-            .forwarder()
-            .on_connection_established(conn, None)
-            .unwrap();
-        (conn_id, rx)
-    }
-
     /// After negotiation completes and the connection is inserted into the table,
     /// any further link negotiation messages arriving in the main loop are simply
     /// logged and ignored (the handler is a no-op). This test verifies that.
@@ -1675,6 +1982,9 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
+            connection_type: 0,
+            node_id: String::new(),
+            deployment_name: String::new(),
         };
         // Unknown connection: handler returns Ok without panic.
         assert!(
@@ -1720,8 +2030,12 @@ mod tests {
             negotiation_timeout_secs: 1, // 1 second timeout
             ..Default::default()
         };
-        let processor =
-            MessageProcessor::new_with_server_config("test_service".to_string(), &server_config);
+        let processor = MessageProcessor::new_with_server_config(
+            "test_service".to_string(),
+            String::new(),
+            &server_config,
+            false,
+        );
 
         assert_eq!(
             processor.internal.negotiation_timeout,
@@ -1929,7 +2243,7 @@ mod tests {
             success: true,
             error: String::new(),
         };
-        processor.internal.sub_ack_manager.resolve(
+        processor.peer_sync().resolve_ack(
             ack.subscription_id,
             if ack.success {
                 Ok(())
@@ -1999,7 +2313,7 @@ mod tests {
             success: false,
             error: "remote error".to_string(),
         };
-        processor.internal.sub_ack_manager.resolve(
+        processor.peer_sync().resolve_ack(
             ack.subscription_id,
             if ack.success {
                 Ok(())
@@ -2019,281 +2333,6 @@ mod tests {
         assert_eq!(ack_inner.subscription_id, upstream_ack_id);
         assert!(!ack_inner.success);
         assert!(!ack_inner.error.is_empty());
-    }
-
-    // ── retry_loop tests ──────────────────────────────────────────────────────
-
-    fn make_test_subscribe(sub_id: u64) -> Message {
-        let source = ProtoName::from_strings(["org", "ns", "src"]).with_id(1);
-        let destination = ProtoName::from_strings(["org", "ns", "dst"]).with_id(2);
-        Message::builder()
-            .source(source)
-            .destination(destination)
-            .subscription_id(sub_id)
-            .build_subscribe()
-            .unwrap()
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn test_retry_loop_ack_received_before_timeout() {
-        // ACK arrives within the first wait window → no retry send.
-        let processor = MessageProcessor::new();
-        let (local_conn, _tx_local, mut rx_local) = processor
-            .register_local_connection(false)
-            .expect("failed to create local connection");
-        let (remote_conn, mut rx_remote) = make_negotiated_server_conn(&processor, "1.2.0");
-
-        let sub_id: u64 = 1000;
-        let msg = make_test_subscribe(sub_id);
-        let rx = processor.internal.sub_ack_manager.register(sub_id);
-
-        let proc_clone = processor.clone();
-        let handle = tokio::spawn(crate::subscription_ack::retry_loop(
-            proc_clone,
-            sub_id,
-            msg,
-            remote_conn,
-            local_conn,
-            Some(sub_id),
-            rx,
-        ));
-
-        // Resolve immediately — the loop should receive it before the timeout.
-        processor.internal.sub_ack_manager.resolve(sub_id, Ok(()));
-
-        handle.await.unwrap();
-
-        // No retry sends should have been made.
-        assert!(
-            rx_remote.try_recv().is_err(),
-            "no retry send expected when ack arrives before timeout"
-        );
-
-        // Upstream ack must have been sent.
-        let ack = rx_local
-            .try_recv()
-            .expect("upstream ack should have been sent")
-            .unwrap();
-        assert!(ack.get_subscription_ack().success);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn test_retry_loop_timeout_then_retry_send_then_ack() {
-        // First wait times out → retry send → ACK arrives on second wait.
-        let processor = MessageProcessor::new();
-        let (local_conn, _tx_local, mut rx_local) = processor
-            .register_local_connection(false)
-            .expect("failed to create local connection");
-        let (remote_conn, mut rx_remote) = make_negotiated_server_conn(&processor, "1.2.0");
-
-        let sub_id: u64 = 1001;
-        let msg = make_test_subscribe(sub_id);
-        let rx = processor.internal.sub_ack_manager.register(sub_id);
-
-        let proc_clone = processor.clone();
-        let handle = tokio::spawn(crate::subscription_ack::retry_loop(
-            proc_clone,
-            sub_id,
-            msg,
-            remote_conn,
-            local_conn,
-            Some(sub_id),
-            rx,
-        ));
-
-        // Let the first timeout elapse → triggers a retry send.
-        tokio::time::sleep(crate::subscription_ack::TIMEOUT + Duration::from_millis(100)).await;
-
-        // A retry message should have been sent.
-        let retried = rx_remote
-            .try_recv()
-            .expect("retry send expected after first timeout")
-            .unwrap();
-        assert!(retried.get_subscription_id().is_some());
-
-        // Now resolve so the second wait succeeds.
-        processor.internal.sub_ack_manager.resolve(sub_id, Ok(()));
-
-        handle.await.unwrap();
-
-        // Upstream success ack.
-        let ack = rx_local
-            .try_recv()
-            .expect("upstream ack should have been sent")
-            .unwrap();
-        assert!(ack.get_subscription_ack().success);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn test_retry_loop_retry_send_fails() {
-        // Timeout → retry send fails because the connection is gone → loop
-        // exits with the send error, upstream receives a failure ack.
-        let processor = MessageProcessor::new();
-        let (local_conn, _tx_local, mut rx_local) = processor
-            .register_local_connection(false)
-            .expect("failed to create local connection");
-        let (remote_conn, _rx_remote) = make_server_conn(&processor);
-
-        let sub_id: u64 = 1002;
-        let msg = make_test_subscribe(sub_id);
-        let rx = processor.internal.sub_ack_manager.register(sub_id);
-
-        // Drop the remote connection so send_msg fails on retry.
-        processor.connection_table().remove(remote_conn);
-
-        let proc_clone = processor.clone();
-        let handle = tokio::spawn(crate::subscription_ack::retry_loop(
-            proc_clone,
-            sub_id,
-            msg,
-            remote_conn,
-            local_conn,
-            Some(sub_id),
-            rx,
-        ));
-
-        // Let the first timeout elapse → triggers a retry send which fails.
-        tokio::time::sleep(crate::subscription_ack::TIMEOUT + Duration::from_millis(100)).await;
-
-        handle.await.unwrap();
-
-        // Upstream failure ack.
-        let ack = rx_local
-            .try_recv()
-            .expect("upstream ack should have been sent")
-            .unwrap();
-        assert!(!ack.get_subscription_ack().success);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn test_retry_loop_all_retries_exhausted() {
-        // No ACK ever arrives → all waits time out → final_result is timeout error.
-        let processor = MessageProcessor::new();
-        let (local_conn, _tx_local, mut rx_local) = processor
-            .register_local_connection(false)
-            .expect("failed to create local connection");
-        let (remote_conn, mut rx_remote) = make_negotiated_server_conn(&processor, "1.2.0");
-
-        let sub_id: u64 = 1003;
-        let msg = make_test_subscribe(sub_id);
-        let rx = processor.internal.sub_ack_manager.register(sub_id);
-
-        let proc_clone = processor.clone();
-        let handle = tokio::spawn(crate::subscription_ack::retry_loop(
-            proc_clone,
-            sub_id,
-            msg,
-            remote_conn,
-            local_conn,
-            Some(sub_id),
-            rx,
-        ));
-
-        // Advance time past all retry windows: (MAX_RETRIES + 1) timeouts.
-        for _ in 0..=crate::subscription_ack::MAX_RETRIES {
-            tokio::time::sleep(crate::subscription_ack::TIMEOUT + Duration::from_millis(100)).await;
-        }
-
-        handle.await.unwrap();
-
-        // Should have exactly MAX_RETRIES retry sends (attempts 0..MAX_RETRIES-1
-        // trigger resends; the last attempt only waits).
-        let mut retry_count = 0;
-        while rx_remote.try_recv().is_ok() {
-            retry_count += 1;
-        }
-        assert_eq!(
-            retry_count,
-            crate::subscription_ack::MAX_RETRIES as usize,
-            "expected {} retry sends",
-            crate::subscription_ack::MAX_RETRIES,
-        );
-
-        // Upstream ack must indicate failure (timeout).
-        let ack = rx_local
-            .try_recv()
-            .expect("upstream ack should have been sent")
-            .unwrap();
-        let ack_inner = ack.get_subscription_ack();
-        assert!(
-            !ack_inner.success,
-            "ack must indicate failure after exhausting retries"
-        );
-        assert!(!ack_inner.error.is_empty());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn test_retry_loop_no_upstream_subscription_id() {
-        // When upstream_subscription_id is None, no upstream ack is sent.
-        let processor = MessageProcessor::new();
-        let (_local_conn, _tx_local, mut rx_local) = processor
-            .register_local_connection(false)
-            .expect("failed to create local connection");
-        let (remote_conn, _rx_remote) = make_server_conn(&processor);
-
-        let sub_id: u64 = 1004;
-        let msg = make_test_subscribe(sub_id);
-        let rx = processor.internal.sub_ack_manager.register(sub_id);
-
-        let proc_clone = processor.clone();
-        let handle = tokio::spawn(crate::subscription_ack::retry_loop(
-            proc_clone,
-            sub_id,
-            msg,
-            remote_conn,
-            0, // in_connection — irrelevant since upstream_subscription_id is None
-            None,
-            rx,
-        ));
-
-        // Resolve immediately.
-        processor.internal.sub_ack_manager.resolve(sub_id, Ok(()));
-
-        handle.await.unwrap();
-
-        // No upstream ack should be sent.
-        assert!(
-            rx_local.try_recv().is_err(),
-            "no upstream ack when upstream_subscription_id is None"
-        );
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn test_retry_loop_sender_dropped() {
-        // If the oneshot sender is dropped (e.g. processor shutdown), the loop
-        // must exit promptly without panicking.
-        let processor = MessageProcessor::new();
-        let (local_conn, _tx_local, mut rx_local) = processor
-            .register_local_connection(false)
-            .expect("failed to create local connection");
-        let (remote_conn, _rx_remote) = make_server_conn(&processor);
-
-        let sub_id: u64 = 1005;
-        let msg = make_test_subscribe(sub_id);
-        let rx = processor.internal.sub_ack_manager.register(sub_id);
-
-        // Drop the sender by removing the pending entry.
-        processor.internal.sub_ack_manager.remove(sub_id);
-
-        let proc_clone = processor.clone();
-        let handle = tokio::spawn(crate::subscription_ack::retry_loop(
-            proc_clone,
-            sub_id,
-            msg,
-            remote_conn,
-            local_conn,
-            Some(sub_id),
-            rx,
-        ));
-
-        handle.await.unwrap();
-
-        // Upstream failure ack (timeout error since we never got a result).
-        let ack = rx_local
-            .try_recv()
-            .expect("upstream ack should have been sent")
-            .unwrap();
-        assert!(!ack.get_subscription_ack().success);
     }
 
     // ── notify_control_plane_subscriptions_lost ───────────────────────────────
@@ -2353,8 +2392,8 @@ mod tests {
 
         // With restore_tracking=true, the forwarded subscription should be tracked.
         let tracked = processor
-            .forwarder()
-            .get_subscriptions_forwarded_on_connection(conn_id);
+            .remote_sync()
+            .get_subscriptions_for_reconnect(conn_id);
         assert_eq!(tracked.len(), 1);
     }
 
@@ -2378,8 +2417,8 @@ mod tests {
 
         // With restore_tracking=false, forwarded subscription table should NOT be updated.
         let tracked = processor
-            .forwarder()
-            .get_subscriptions_forwarded_on_connection(conn_id);
+            .remote_sync()
+            .get_subscriptions_for_reconnect(conn_id);
         assert!(tracked.is_empty());
     }
 }

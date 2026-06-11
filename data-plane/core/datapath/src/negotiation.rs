@@ -7,14 +7,35 @@ use tonic::Status;
 use tracing::{debug, error};
 
 use crate::api::ProtoMessage;
-use crate::api::proto::dataplane::v1::Message;
+use crate::api::proto::dataplane::v1::{LinkConnectionType, Message};
 use crate::connection::Connection;
 use crate::errors::DataPathError;
 use crate::link_ecdh;
 use crate::link_ecdh::X25519_PUBLIC_KEY_LEN;
+use crate::tables::ConnType;
 
 fn local_version() -> &'static str {
     slim_version::version()
+}
+
+/// Parameters for running the link negotiation that come from the node's configuration.
+pub(crate) struct NegotiationParams<'a> {
+    /// This node's identity (e.g. "slim/a").
+    pub node_id: &'a str,
+    /// Deployment name for peer-group verification.
+    pub deployment_name: &'a str,
+    /// The connection type the local side wants to advertise to the remote.
+    pub connection_type: ConnType,
+}
+
+/// Result of a successful negotiation.
+pub(crate) struct NegotiationResult {
+    /// The connection type indicated by the remote side.
+    pub(crate) connection_type: ConnType,
+    /// The remote node's identifier (from the negotiation payload).
+    pub(crate) remote_node_id: String,
+    /// The remote's advertised deployment name.
+    pub(crate) remote_deployment_name: String,
 }
 
 /// Perform the mandatory link negotiation phase on a remote connection.
@@ -23,12 +44,14 @@ fn local_version() -> &'static str {
 /// - `remote_slim_version` set
 /// - `link_id` set (server gets it from the peer; client already has it)
 /// - `header_hmac` installed (if ECDH keys are exchanged)
+/// - `peer_node_id` set (if provided by the remote)
 ///
 /// For the **server** path, a reply is sent to the peer.
 pub(crate) async fn run_negotiation<S>(
     connection: &mut Connection,
     stream: &mut S,
-) -> Result<(), DataPathError>
+    params: &NegotiationParams<'_>,
+) -> Result<NegotiationResult, DataPathError>
 where
     S: Stream<Item = Result<Message, Status>> + Unpin + Send,
 {
@@ -55,6 +78,9 @@ where
             local_version(),
             false,
             Some(pk),
+            conn_type_to_link(params.connection_type),
+            params.node_id,
+            params.deployment_name,
         );
         connection.send(negotiation_msg).await.map_err(|e| {
             DataPathError::NegotiationError(format!(
@@ -122,6 +148,14 @@ where
         DataPathError::NegotiationError(format!("unparsable remote SLIM version: {}", e))
     })?;
 
+    // Capture remote identity from the payload.
+    let remote_node_id = payload.node_id.clone();
+    let remote_deployment_name = payload.deployment_name.clone();
+    let remote_conn_type = match LinkConnectionType::try_from(payload.connection_type) {
+        Ok(LinkConnectionType::Peer) => ConnType::Peer,
+        _ => ConnType::Remote,
+    };
+
     if is_client {
         // Client path: validate the reply and derive HMAC.
         if strict && payload.link_ecdh_public_key.len() != X25519_PUBLIC_KEY_LEN {
@@ -134,6 +168,11 @@ where
             return Err(DataPathError::NegotiationError(
                 "link negotiation reply rejected (link_id mismatch or replay)".to_string(),
             ));
+        }
+
+        // Store remote node identity.
+        if !remote_node_id.is_empty() {
+            connection.set_peer_node_id(remote_node_id.clone());
         }
 
         if payload.link_ecdh_public_key.len() == X25519_PUBLIC_KEY_LEN
@@ -176,6 +215,11 @@ where
             ));
         }
 
+        // Store remote node identity.
+        if !remote_node_id.is_empty() {
+            connection.set_peer_node_id(remote_node_id.clone());
+        }
+
         let peer_ecdh = payload.link_ecdh_public_key.as_slice();
         let mut server_reply_ecdh: Option<Vec<u8>> = None;
         if peer_ecdh.len() == X25519_PUBLIC_KEY_LEN {
@@ -214,12 +258,20 @@ where
             ));
         }
 
+        // Echo back with the same connection_type the remote requested — this
+        // tells the client that the server acknowledges the peer upgrade intent.
+        let reply_conn_type = LinkConnectionType::try_from(payload.connection_type)
+            .unwrap_or(LinkConnectionType::Remote);
+
         // Send reply.
         let reply = ProtoMessage::builder().build_link_negotiation(
             link_id,
             local_version(),
             true,
             server_reply_ecdh,
+            reply_conn_type,
+            params.node_id,
+            params.deployment_name,
         );
         connection.send(reply).await.map_err(|e| {
             DataPathError::NegotiationError(format!(
@@ -230,5 +282,17 @@ where
     }
 
     debug!("link negotiation completed successfully");
-    Ok(())
+    Ok(NegotiationResult {
+        connection_type: remote_conn_type,
+        remote_node_id,
+        remote_deployment_name,
+    })
+}
+
+/// Map internal [`ConnType`] to the protobuf [`LinkConnectionType`] for the wire.
+fn conn_type_to_link(ct: ConnType) -> LinkConnectionType {
+    match ct {
+        ConnType::Peer => LinkConnectionType::Peer,
+        _ => LinkConnectionType::Remote,
+    }
 }

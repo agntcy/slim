@@ -16,6 +16,7 @@ runtime:
 
 services:
   slim/0:
+    node_id: "slim/node-0"
     dataplane:
       servers:
         - endpoint: "0.0.0.0:46357"

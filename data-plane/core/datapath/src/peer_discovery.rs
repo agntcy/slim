@@ -8,25 +8,38 @@
 //! - [`StaticPeerDiscovery`]: Configuration-defined list of peer endpoints
 //! - (Future) Kubernetes API-based discovery
 
-mod config;
+pub mod config;
 mod static_list;
 
-pub use config::{PeerConfig, PeerDiscoveryConfig};
+pub use config::{PeerConfig, PeerDiscoveryConfig, PeerTopology, StaticPeerEntry};
 pub use static_list::StaticPeerDiscovery;
 
 use std::fmt;
 
+use slim_config::client::ClientConfig;
+
+/// Derive a deterministic link identifier for a peer connection.
+///
+/// The link_id is the concatenation of the source (connecting) and destination
+/// (target) node identifiers separated by `:`.  Because the initiating node
+/// always uses its own ID as `source` and the remote node's ID as `dest`, the
+/// resulting link_id is stable across restarts and does not need to be
+/// specified in configuration.
+pub fn peer_link_id(source_node_id: &str, dest_node_id: &str) -> String {
+    format!("{source_node_id}:{dest_node_id}")
+}
+
 /// Information about a discovered peer replica.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct PeerInfo {
     /// Unique peer identifier (e.g., pod name or configured ID).
     pub id: String,
-    /// Network endpoint to reach the peer (e.g., "10.0.0.2:8080").
-    pub endpoint: String,
+    /// Full client configuration for connecting to the peer.
+    pub config: ClientConfig,
 }
 
 /// Events emitted by a peer discovery implementation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum PeerEvent {
     /// A new peer has been discovered and is available for connection.
     Joined(PeerInfo),
@@ -84,4 +97,27 @@ pub trait PeerDiscovery {
     /// Blocks until an event is available. Returns an error if the discovery
     /// backend encounters a failure or the stream is closed.
     async fn recv(&mut self) -> Result<PeerEvent, PeerDiscoveryError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_peer_link_id() {
+        assert_eq!(
+            peer_link_id("slim-west", "slim-east"),
+            "slim-west:slim-east"
+        );
+        assert_eq!(peer_link_id("node-a", "node-b"), "node-a:node-b");
+    }
+
+    #[test]
+    fn test_peer_link_id_is_directional() {
+        // Different directions produce different link_ids
+        assert_ne!(
+            peer_link_id("node-a", "node-b"),
+            peer_link_id("node-b", "node-a")
+        );
+    }
 }
