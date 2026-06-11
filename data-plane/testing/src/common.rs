@@ -28,8 +28,7 @@ pub fn reserve_local_port() -> u16 {
 
     use parking_lot::Mutex;
 
-    static ALLOCATED: LazyLock<Mutex<HashSet<u16>>> =
-        LazyLock::new(|| Mutex::new(HashSet::new()));
+    static ALLOCATED: LazyLock<Mutex<HashSet<u16>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 
     loop {
         let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind test port");
