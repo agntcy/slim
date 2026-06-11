@@ -1749,6 +1749,7 @@ impl MessageProcessor {
 
         let handle = tokio::spawn(async move {
             let mut try_to_reconnect = true;
+            let mut category = category;
 
             let mut watch = std::pin::pin!(watch.signaled());
             loop {
@@ -1787,6 +1788,8 @@ impl MessageProcessor {
                                             }
                                         }
 
+                                        let is_link_msg = msg.is_link();
+
                                         if let Err(e) = self_clone.handle_new_message(conn_index, category, msg).await {
                                             // Checking if NegotiationError occurred
                                             if matches!(e, DataPathError::NegotiationError(_)) {
@@ -1799,6 +1802,15 @@ impl MessageProcessor {
                                             if is_local {
                                                 // try to forward error to the local app
                                                 self_clone.send_error_to_local_app(conn_index, e).await;
+                                            }
+                                        }
+
+                                        // After link negotiation the connection type may have
+                                        // been upgraded (e.g. Remote → Peer). Cache the new
+                                        // value so subsequent messages use the correct category.
+                                        if is_link_msg {
+                                            if let Some(conn) = self_clone.forwarder().get_connection(conn_index) {
+                                                category = conn.connection_type();
                                             }
                                         }
                                     }
