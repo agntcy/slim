@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpStream;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -25,20 +25,11 @@ use slim_datapath::api::ProtoName;
 use slim_service::app::App;
 use slim_service::{Service, ServiceBuilder};
 use slim_session::Direction;
+use slim_testing::common::reserve_local_port;
 
 const SHARED_SECRET: &str = "integration-test-shared-secret-0123456789-abcdef";
 
 // --- Helpers ---
-
-fn reserve_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind local test port");
-    let port = listener
-        .local_addr()
-        .expect("failed to read local address")
-        .port();
-    drop(listener);
-    port
-}
 
 async fn wait_for_port(host: &str, port: u16, timeout: Duration, label: &str) {
     let deadline = tokio::time::Instant::now() + timeout;
@@ -204,8 +195,8 @@ async fn create_cm_client(cm_port: u16) -> ChannelManagerServiceClient<tonic::tr
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_channel_manager_via_cmctl() {
-    let slim_port = reserve_port();
-    let cm_port = reserve_port();
+    let slim_port = reserve_local_port();
+    let cm_port = reserve_local_port();
 
     // Start a SLIM node in-process (separate thread with its own runtime).
     let _slim_handle = start_slim_node(slim_port);

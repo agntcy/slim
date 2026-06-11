@@ -501,9 +501,7 @@ async fn test_spiffe_grpc_jwt_auth() {
     let spire_cfg = env.get_spiffe_config();
 
     // Reserve an available TCP port for the test gRPC server
-    let tcp_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind failed");
-    let port = tcp_listener.local_addr().expect("local addr").port();
-    drop(tcp_listener);
+    let port = slim_testing::common::reserve_local_port();
 
     let mut server_task: Option<tokio::task::JoinHandle<()>> = None;
     let mut should_panic = false;

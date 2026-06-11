@@ -128,6 +128,7 @@ dependencies = [
  "agntcy-slim-service",
  "agntcy-slim-session",
  "agntcy-slim-signal",
+ "agntcy-slim-testing",
  "agntcy-slim-tracing",
  "anyhow",
  "clap",
@@ -253,7 +254,6 @@ dependencies = [
  "agntcy-slim-version",
  "display-error-chain",
  "drain",
- "duration-string",
  "futures",
  "h2",
  "parking_lot",
@@ -279,6 +279,7 @@ name = "agntcy-slim-datapath"
 version = "0.14.1"
 dependencies = [
  "agntcy-slim-config",
+ "agntcy-slim-testing",
  "agntcy-slim-tracing",
  "agntcy-slim-version",
  "anyhow",
