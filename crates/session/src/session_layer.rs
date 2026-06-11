@@ -524,7 +524,7 @@ where
                 self.handle_join_request(message, id, session_type).await
             }
             ProtoSessionMessageType::DiscoveryRequest => {
-                self.handle_discovery_request(message, id, session_type, session_message_type)
+                self.handle_discovery_request(message, id, session_type)
             }
             _ => {
                 tracing::debug!(?message, "received channel message with unknown session id");
@@ -538,7 +538,6 @@ where
         message: Message,
         id: u32,
         session_type: ProtoSessionType,
-        session_message_type: ProtoSessionMessageType,
     ) -> Result<(), SessionError> {
         let layer = self.clone();
         tokio::spawn(async move {
@@ -551,46 +550,38 @@ where
                 crate::session_controller::verify_identity(&message, &layer.identity_verifier, true)
                     .await
             {
-                let err = e.chain();
                 error!(
-                    error = %err,
-                    msg_type = %session_message_type.as_str_name(),
+                    error = %e.chain(),
+                    msg_type = %ProtoSessionMessageType::DiscoveryRequest.as_str_name(),
                     "dropping pre-session message: identity verification failed",
                 );
                 return;
             }
 
-            let local_name =
-                match layer.get_local_name_for_session(message.get_slim_header().get_dst()) {
-                    Ok(n) => n,
-                    Err(e) => {
-                        debug!(error = %e.chain(), "error handling discovery request");
-                        return;
-                    }
-                };
-
-            let mut reply =
-                match handle_channel_discovery_message(&message, &local_name, id, session_type) {
-                    Ok(r) => r,
-                    Err(e) => {
-                        debug!(error = %e.chain(), "error building discovery reply");
-                        return;
-                    }
-                };
-
-            let identity = match layer.identity_provider.get_token() {
-                Ok(t) => t,
-                Err(e) => {
-                    debug!(error = %e.chain(), "error getting identity token for discovery reply");
-                    return;
-                }
-            };
-            reply.get_slim_header_mut().set_identity(identity);
-            if let Err(e) = layer.tx_slim.send(Ok(reply)).await {
-                debug!(error = %e.chain(), "error sending discovery reply");
+            if let Err(e) = layer
+                .process_discovery_request(message, id, session_type)
+                .await
+            {
+                debug!(error = %e.chain(), "error handling discovery request");
             }
         });
 
+        Ok(())
+    }
+
+    async fn process_discovery_request(
+        &self,
+        message: Message,
+        id: u32,
+        session_type: ProtoSessionType,
+    ) -> Result<(), SessionError> {
+        let local_name = self.get_local_name_for_session(message.get_slim_header().get_dst())?;
+        let mut reply =
+            handle_channel_discovery_message(&message, &local_name, id, session_type)?;
+        crate::session_controller::sign_outbound_control_message(&mut reply, &self.identity_provider)?;
+        if let Err(e) = self.tx_slim.send(Ok(reply)).await {
+            debug!(error = %e.chain(), "error sending discovery reply");
+        }
         Ok(())
     }
 

@@ -47,4 +47,3 @@ tracing-test = { workspace = true }
 [[bench]]
 name = "header_integrity"
 harness = false
-

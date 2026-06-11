@@ -79,6 +79,32 @@ where
     Ok(())
 }
 
+pub(crate) fn sign_outbound_control_message<P>(
+    msg: &mut Message,
+    identity_provider: &P,
+) -> Result<(), SessionError>
+where
+    P: TokenProvider,
+{
+    if !msg.get_session_message_type().is_command_message() {
+        return Ok(());
+    }
+    let private_key = match identity_provider.get_signature_secret_key() {
+        Ok(k) if !k.is_empty() => k,
+        _ => return Ok(()),
+    };
+    let public_key = match identity_provider.get_signature_public_key() {
+        Ok(k) if !k.is_empty() => k,
+        _ => return Ok(()),
+    };
+    let identity = identity_provider.get_token()?;
+    msg.get_slim_header_mut().set_identity(identity);
+    let aad = crate::mls_state::build_aad(msg);
+    let signature = slim_auth::utils::sign_header_aad(&aad, &private_key, &public_key)?;
+    msg.get_slim_header_mut().e2e_header_sig = Some(signature);
+    Ok(())
+}
+
 pub struct SessionController {
     /// session id
     pub(crate) id: u32,
@@ -368,7 +394,7 @@ impl SessionController {
                                     }
                                 }
                                 Err(e) => {
-                                    debug!(
+                                    tracing::error!(
                                         error=%e,
                                         "Error processing message{}",
                                         if draining { " during graceful shutdown" } else { "" }
@@ -772,8 +798,9 @@ where
     /// Send control message through ControllerSender, returning the output.
     pub(crate) fn send_with_timer(
         &mut self,
-        message: Message,
+        mut message: Message,
     ) -> Result<SessionOutput, SessionError> {
+        sign_outbound_control_message(&mut message, &self.settings.identity_provider)?;
         self.sender.on_message(&message)
     }
 
