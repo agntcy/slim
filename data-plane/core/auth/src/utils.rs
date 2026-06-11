@@ -32,12 +32,24 @@ pub fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), crate::errors
 }
 
 /// Sign the header AAD bytes using an Ed25519 private key.
+<<<<<<< HEAD
 pub fn sign_header_aad(aad_bytes: &[u8], private_key_bytes: &[u8]) -> Result<Vec<u8>, crate::errors::AuthError> {
     use aws_lc_rs::signature::Ed25519KeyPair;
     let key_pair = Ed25519KeyPair::from_seed_and_public_key(
             &private_key_bytes[..32],
             &private_key_bytes[32..],
         )
+=======
+pub fn sign_header_aad(
+    aad_bytes: &[u8],
+    private_key_bytes: &[u8],
+) -> Result<Vec<u8>, crate::errors::AuthError> {
+    use aws_lc_rs::signature::Ed25519KeyPair;
+    let key_pair = Ed25519KeyPair::from_seed_and_public_key(
+        &private_key_bytes[..32],
+        &private_key_bytes[32..],
+    )
+>>>>>>> cf013eb9 (feat: add header integrity validation and replay protection to control messages)
     .map_err(|_| crate::errors::AuthError::MlsKeyGenerationFailed)?;
     let signature = key_pair.sign(aad_bytes);
     Ok(signature.as_ref().to_vec())
@@ -49,7 +61,11 @@ pub fn verify_header_aad(
     signature_bytes: &[u8],
     public_key_bytes: &[u8],
 ) -> Result<(), crate::errors::AuthError> {
+<<<<<<< HEAD
     use aws_lc_rs::signature::{UnparsedPublicKey, ED25519};
+=======
+    use aws_lc_rs::signature::{ED25519, UnparsedPublicKey};
+>>>>>>> cf013eb9 (feat: add header integrity validation and replay protection to control messages)
     let public_key = UnparsedPublicKey::new(&ED25519, public_key_bytes);
     public_key
         .verify(aad_bytes, signature_bytes)

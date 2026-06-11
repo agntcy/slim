@@ -304,11 +304,10 @@ impl SessionController {
                     // Finish any ongoing processing before starting drain
                     debug!("consuming pending messages before entering draining state");
                     while let Ok(msg) = rx.try_recv() {
-                        if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &msg {
-                            if let Err(e) = Self::verify_and_check_replay(message, &settings).await {
+                        if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &msg
+                            && let Err(e) = Self::verify_and_check_replay(message, &settings).await {
                                 debug!(error = %e.chain(), "dropping inbound message during drain: verification or replay check failed");
                                 continue;
-                            }
                         }
                         match inner.on_message(msg).await {
                             Ok(output) => Self::dispatch_output(output, &settings).await,
@@ -348,8 +347,8 @@ impl SessionController {
                                 continue;
                             }
 
-                            if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &session_message {
-                                if let Err(e) = Self::verify_and_check_replay(message, &settings).await {
+                            if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &session_message
+                                && let Err(e) = Self::verify_and_check_replay(message, &settings).await {
                                     debug!(
                                         error = %e.chain(),
                                         msg_type = %message.get_session_message_type().as_str_name(),
@@ -357,7 +356,6 @@ impl SessionController {
                                         "dropping inbound message: verification or replay check failed",
                                     );
                                     continue;
-                                }
                             }
 
                             let draining = inner.processing_state() == ProcessingState::Draining;
