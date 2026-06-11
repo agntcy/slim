@@ -25,12 +25,6 @@ pub struct Config {
     /// Controller client config to connect to control plane
     #[serde(default)]
     pub clients: Vec<ClientConfig>,
-
-    /// How long to keep routing state after a server-side connection drops,
-    /// waiting for the peer to reconnect before notifying the control plane.
-    /// Accepts duration strings like "30s", "1s", "500ms".  Defaults to 30 s.
-    #[serde(default)]
-    pub recovery_ttl: Option<duration_string::DurationString>,
 }
 
 impl Config {

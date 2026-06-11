@@ -12,18 +12,9 @@ use crate::connection::Connection;
 use crate::errors::DataPathError;
 use crate::link_ecdh;
 use crate::link_ecdh::X25519_PUBLIC_KEY_LEN;
-use crate::recovery::RecoveryEntry;
 
 fn local_version() -> &'static str {
     slim_version::version()
-}
-
-/// Result of a successful negotiation.
-///
-/// Contains the optional recovery entry (server-side only) which must be applied
-/// after the connection is inserted into the table.
-pub(crate) struct NegotiationResult {
-    pub(crate) recovery_entry: Option<RecoveryEntry>,
 }
 
 /// Perform the mandatory link negotiation phase on a remote connection.
@@ -33,14 +24,11 @@ pub(crate) struct NegotiationResult {
 /// - `link_id` set (server gets it from the peer; client already has it)
 /// - `header_hmac` installed (if ECDH keys are exchanged)
 ///
-/// For the **server** path, a reply is sent to the peer and any pending
-/// [`RecoveryEntry`] is returned so the caller can apply route recovery after
-/// the connection is added to the table.
+/// For the **server** path, a reply is sent to the peer.
 pub(crate) async fn run_negotiation<S>(
     connection: &mut Connection,
     stream: &mut S,
-    recovery_table: &crate::recovery::RecoveryTable,
-) -> Result<NegotiationResult, DataPathError>
+) -> Result<(), DataPathError>
 where
     S: Stream<Item = Result<Message, Status>> + Unpin + Send,
 {
@@ -134,8 +122,6 @@ where
         DataPathError::NegotiationError(format!("unparsable remote SLIM version: {}", e))
     })?;
 
-    let mut recovery_entry: Option<RecoveryEntry> = None;
-
     if is_client {
         // Client path: validate the reply and derive HMAC.
         if strict && payload.link_ecdh_public_key.len() != X25519_PUBLIC_KEY_LEN {
@@ -228,9 +214,6 @@ where
             ));
         }
 
-        // Take any pending recovery entry before sending the reply.
-        recovery_entry = recovery_table.take(link_id);
-
         // Send reply.
         let reply = ProtoMessage::builder().build_link_negotiation(
             link_id,
@@ -247,5 +230,5 @@ where
     }
 
     debug!("link negotiation completed successfully");
-    Ok(NegotiationResult { recovery_entry })
+    Ok(())
 }

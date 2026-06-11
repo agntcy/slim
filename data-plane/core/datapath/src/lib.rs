@@ -15,7 +15,6 @@ mod link_ecdh;
 mod negotiation;
 #[cfg(feature = "otel_tracing")]
 mod otel_tracing;
-mod recovery;
 pub(crate) mod subscription_ack;
 mod websocket;
 
