@@ -1439,6 +1439,7 @@ impl MessageProcessor {
     /// Perform link negotiation, register the connection, and handle peer upgrade.
     ///
     /// Returns `Some((conn_index, category))` on success or `None` on failure.
+    #[allow(clippy::too_many_arguments)]
     async fn negotiate_and_register(
         &self,
         stream: &mut (impl Stream<Item = Result<Message, Status>> + Unpin + Send),
