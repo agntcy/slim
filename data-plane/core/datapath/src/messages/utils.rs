@@ -277,6 +277,8 @@ impl SlimHeader {
             incoming_conn: flags.incoming_conn,
             error: flags.error,
             header_mac: None,
+            sequence_number: None,
+            e2e_header_sig: None,
         }
     }
 
@@ -2011,6 +2013,8 @@ mod tests {
             incoming_conn: None,
             error: None,
             header_mac: None,
+            sequence_number: None,
+            e2e_header_sig: None,
         };
 
         // the operations to retrieve source and destination should fail with panic

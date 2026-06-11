@@ -79,7 +79,7 @@ pub enum SessionError {
     MlsOp(#[from] MlsError),
 
     // Authorization and roles
-    #[error("auth error")]
+    #[error("auth error: {0}")]
     Auth(#[from] AuthError),
 
     // Acknowledgements and routing
@@ -162,13 +162,13 @@ pub enum SessionError {
     ModeratorTaskUnsupportedPhase,
     #[error("unexpected timer id: {0}")]
     ModeratorTaskUnexpectedTimerId(u32),
-    #[error("failed to add participant to session")]
+    #[error("failed to add participant to session: {source}")]
     ModeratorTaskAddFailed { source: Box<SessionError> },
-    #[error("failed to remove participant from session")]
+    #[error("failed to remove participant from session: {source}")]
     ModeratorTaskRemoveFailed { source: Box<SessionError> },
-    #[error("failed to update session")]
+    #[error("failed to update session: {source}")]
     ModeratorTaskUpdateFailed { source: Box<SessionError> },
-    #[error("failed to close session")]
+    #[error("failed to close session: {source}")]
     ModeratorTaskCloseFailed { source: Box<SessionError> },
 }
 

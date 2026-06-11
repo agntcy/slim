@@ -79,6 +79,8 @@ mod tests {
             incoming_conn: None,
             error: None,
             header_mac: None,
+            sequence_number: None,
+            e2e_header_sig: None,
         };
         a.sign_slim_header(&mut h, &lid).unwrap();
         b.verify_slim_header(&h, &lid).unwrap();

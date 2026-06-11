@@ -38,6 +38,8 @@ fn make_slim_header() -> SlimHeader {
         incoming_conn: None,
         error: None,
         header_mac: None,
+        e2e_header_sig: None,
+        sequence_number: None,
     }
 }
 

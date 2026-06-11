@@ -368,6 +368,7 @@ dependencies = [
  "agntcy-slim-testing",
  "agntcy-slim-version",
  "async-trait",
+ "base64 0.22.1",
  "criterion",
  "display-error-chain",
  "futures",

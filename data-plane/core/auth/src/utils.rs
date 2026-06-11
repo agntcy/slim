@@ -31,6 +31,31 @@ pub fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), crate::errors
     ))
 }
 
+/// Sign the header AAD bytes using an Ed25519 private key.
+pub fn sign_header_aad(aad_bytes: &[u8], private_key_bytes: &[u8]) -> Result<Vec<u8>, crate::errors::AuthError> {
+    use aws_lc_rs::signature::Ed25519KeyPair;
+    let key_pair = Ed25519KeyPair::from_seed_and_public_key(
+            &private_key_bytes[..32],
+            &private_key_bytes[32..],
+        )
+    .map_err(|_| crate::errors::AuthError::MlsKeyGenerationFailed)?;
+    let signature = key_pair.sign(aad_bytes);
+    Ok(signature.as_ref().to_vec())
+}
+
+/// Verify the header AAD signature using an Ed25519 public key.
+pub fn verify_header_aad(
+    aad_bytes: &[u8],
+    signature_bytes: &[u8],
+    public_key_bytes: &[u8],
+) -> Result<(), crate::errors::AuthError> {
+    use aws_lc_rs::signature::{UnparsedPublicKey, ED25519};
+    let public_key = UnparsedPublicKey::new(&ED25519, public_key_bytes);
+    public_key
+        .verify(aad_bytes, signature_bytes)
+        .map_err(|_| crate::errors::AuthError::TokenInvalid)
+}
+
 /// Convert arbitrary bytes into a PEM-formatted string with the provided header/footer.
 /// The body is wrapped at 64 character lines per RFC 7468 guidance.
 /// Header/footer should include the BEGIN/END lines with trailing/leading newlines as desired.
@@ -57,6 +82,14 @@ pub fn bytes_to_pem(key_bytes: &[u8], header: &str, footer: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_sign_header_aad_with_generated_keys() {
+        let (secret, public) = generate_mls_signature_keys().unwrap();
+        let msg = b"hello";
+        let sig = sign_header_aad(msg, &secret).unwrap();
+        verify_header_aad(msg, &sig, &public).unwrap();
+    }
 
     #[test]
     fn test_bytes_to_pem_basic() {

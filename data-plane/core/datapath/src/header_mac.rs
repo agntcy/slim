@@ -315,6 +315,8 @@ mod tests {
             incoming_conn: Some(999),
             error: Some(false),
             header_mac: None,
+            sequence_number: None,
+            e2e_header_sig: None,
         }
     }
 
