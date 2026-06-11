@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.14.1...slim-datapath-v0.15.0) - 2026-06-11
+
+### Added
+
+- *(peer-sync)* subscription synchronization ([#1705](https://github.com/agntcy/slim/pull/1705))
+- *(datapath)* mandatory link negotiation with immutable connections ([#1736](https://github.com/agntcy/slim/pull/1736))
+- remove UUID v4 constraint on link_id, require non-empty string ([#1713](https://github.com/agntcy/slim/pull/1713))
+- *(datapath)* add TTL support for message forwarding ([#1714](https://github.com/agntcy/slim/pull/1714))
+- e2e header integrity validation ([#1677](https://github.com/agntcy/slim/pull/1677))
+- *(datapath)* add peer discovery module with static backend ([#1696](https://github.com/agntcy/slim/pull/1696))
+
+### Other
+
+- remove link recovery mechanism ([#1737](https://github.com/agntcy/slim/pull/1737))
+- *(tests)* use common reserve_local_port helper across all test crates ([#1732](https://github.com/agntcy/slim/pull/1732))
+
 ## [0.14.1](https://github.com/agntcy/slim/compare/slim-datapath-v0.14.0...slim-datapath-v0.14.1) - 2026-06-03
 
 ### Fixed

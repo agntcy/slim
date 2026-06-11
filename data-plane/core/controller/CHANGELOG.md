@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/agntcy/slim/compare/slim-controller-v0.7.0...slim-controller-v0.8.0) - 2026-06-11
+
+### Added
+
+- *(peer-sync)* subscription synchronization ([#1705](https://github.com/agntcy/slim/pull/1705))
+- *(datapath)* mandatory link negotiation with immutable connections ([#1736](https://github.com/agntcy/slim/pull/1736))
+
+### Fixed
+
+- *(controller)* make sure controller stop retrying connection when signaled ([#1730](https://github.com/agntcy/slim/pull/1730))
+
+### Other
+
+- remove link recovery mechanism ([#1737](https://github.com/agntcy/slim/pull/1737))
+
 ## [0.7.0](https://github.com/agntcy/slim/compare/slim-controller-v0.6.2...slim-controller-v0.7.0) - 2026-06-03
 
 ### Added

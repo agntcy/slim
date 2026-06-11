@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/agntcy/slim/compare/slim-session-v0.2.1...slim-session-v0.3.0) - 2026-06-11
+
+### Added
+
+- e2e header integrity validation ([#1677](https://github.com/agntcy/slim/pull/1677))
+
+### Other
+
+- *(session)* remove SessionTransmitter, return SessionOutput from layers ([#1702](https://github.com/agntcy/slim/pull/1702))
+
 ## [0.2.1](https://github.com/agntcy/slim/compare/slim-session-v0.2.0...slim-session-v0.2.1) - 2026-06-03
 
 ### Other
