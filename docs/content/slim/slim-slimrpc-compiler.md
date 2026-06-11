@@ -176,7 +176,7 @@ message ExampleResponse {
 ```
 
 If using Go, you might need to specify your Go package as well
-as shown in [the simple example](https://github.com/agntcy/slim/blob/slim-bindings-v1.1.1/data-plane/bindings/go/examples/slimrpc/simple/example.proto).
+as shown in [the simple example](https://github.com/agntcy/slim-bindings/blob/main/go/examples/slimrpc/simple/example.proto).
 
 ### Using with Buf (Recommended)
 
@@ -320,8 +320,8 @@ protoc \
 
 Complete working examples are available in the repository:
 
-- **Python**: [bindings/python/examples/slimrpc/simple](https://github.com/agntcy/slim/tree/slim-bindings-v1.1.1/data-plane/bindings/python/examples/slimrpc/simple)
-- **Go**: [bindings/go/examples/slimrpc/simple](https://github.com/agntcy/slim/tree/slim-bindings-v1.1.1/data-plane/bindings/go/examples/slimrpc/simple)
+- **Python**: [python/examples/slimrpc/simple](https://github.com/agntcy/slim-bindings/tree/main/python/examples/slimrpc/simple)
+- **Go**: [go/examples/slimrpc/simple](https://github.com/agntcy/slim-bindings/tree/main/go/examples/slimrpc/simple)
 
 Both examples demonstrate all four RPC patterns with comprehensive client and server implementations.
 

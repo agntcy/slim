@@ -227,7 +227,7 @@ Language bindings allow you to integrate SLIM with your applications.
     dependencies = ["slim-bindings~=1.0"]
     ```
 
-    For more information on the SLIM bindings, see the [Messaging Layer Tutorial](./slim-data-plane.md) and the [Python Examples](https://github.com/agntcy/slim/tree/slim-v1.1.0/data-plane/bindings/python/examples).
+    For more information on the SLIM bindings, see the [Messaging Layer Tutorial](./slim-data-plane.md) and the [Python Examples](https://github.com/agntcy/slim-bindings/tree/main/python/examples).
 
 === "Go"
 
@@ -252,7 +252,7 @@ Language bindings allow you to integrate SLIM with your applications.
     !!! warning "C Compiler Required"
         The Go bindings use native libraries via [CGO](https://pkg.go.dev/cmd/cgo), so you'll need a C compiler installed on your system.
 
-    For more information on the Go bindings, see the [Go Examples](https://github.com/agntcy/slim/tree/slim-v1.1.0/data-plane/bindings/go/examples).
+    For more information on the Go bindings, see the [Go Examples](https://github.com/agntcy/slim-bindings/tree/main/go/examples).
 
 === "Kotlin"
 
@@ -295,7 +295,7 @@ Language bindings allow you to integrate SLIM with your applications.
     !!! note "JDK 17+ Required"
         The Kotlin bindings use [JNA](https://github.com/java-native-access/jna) for native library loading and require JDK 17 or higher.
 
-    For more information on the Kotlin bindings, see the [Kotlin Examples](https://github.com/agntcy/slim/tree/slim-bindings-v1.2.0/data-plane/bindings/kotlin/examples).
+    For more information on the Kotlin bindings, see the [Kotlin Examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples).
 
 ### Slimctl
 
@@ -427,7 +427,7 @@ For more information on the build system and development workflow, see the [SLIM
 You've installed SLIM! Here's what to do next:
 
 1. Read the [messaging layer documentation](./slim-data-plane.md)
-2. Explore the [example applications](https://github.com/agntcy/slim/tree/slim-v1.1.0/data-plane/bindings/)
+2. Explore the [example applications](https://github.com/agntcy/slim-bindings)
 3. Learn about [configuration options](./slim-data-plane-config.md)
 4. Join us on [Slack](https://join.slack.com/t/agntcy/shared_invite/zt-3hb4p7bo0-5H2otGjxGt9OQ1g5jzK_GQ)
 
