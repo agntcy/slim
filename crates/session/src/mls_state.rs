@@ -280,33 +280,39 @@ where
 
     /// Builds the Authenticated Data (AAD) for header integrity checks
     fn build_aad(&self, msg: &Message) -> Vec<u8> {
-        let slim_header = msg.get_slim_header();
-        let session_header = msg.get_session_header();
+        build_aad(msg)
+    }
+}
 
-        let payload_type = if let Some(payload) = msg.get_payload() {
-            if let Ok(app_payload) = payload.as_application_payload() {
-                app_payload.payload_type.clone()
-            } else {
-                String::new()
-            }
+/// Builds the Authenticated Data (AAD) for header integrity checks
+pub(crate) fn build_aad(msg: &Message) -> Vec<u8> {
+    let slim_header = msg.get_slim_header();
+    let session_header = msg.get_session_header();
+
+    let payload_type = if let Some(payload) = msg.get_payload() {
+        if let Ok(app_payload) = payload.as_application_payload() {
+            app_payload.payload_type.clone()
         } else {
             String::new()
-        };
+        }
+    } else {
+        String::new()
+    };
 
-        let aad = HeaderIntegrityAad {
-            version: 1,
-            source: Some(slim_header.get_source().clone()),
-            destination: Some(slim_header.get_dst().clone()),
-            identity: slim_header.get_identity().to_string(),
-            session_type: session_header.session_type() as i32,
-            session_message_type: session_header.session_message_type() as i32,
-            session_id: session_header.get_session_id(),
-            message_id: session_header.get_message_id(),
-            payload_type,
-        };
+    let aad = HeaderIntegrityAad {
+        version: 1,
+        source: Some(slim_header.get_source().clone()),
+        destination: Some(slim_header.get_dst().clone()),
+        identity: slim_header.get_identity().to_string(),
+        session_type: session_header.session_type() as i32,
+        session_message_type: session_header.session_message_type() as i32,
+        session_id: session_header.get_session_id(),
+        message_id: session_header.get_message_id(),
+        payload_type,
+        sequence_number: slim_header.sequence_number,
+    };
 
-        aad.encode_to_vec()
-    }
+    aad.encode_to_vec()
 }
 
 /// Async MLS state operations (sync on native via `is_sync`, async on wasm32).

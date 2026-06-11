@@ -482,6 +482,7 @@ impl SlimHeader {
             error: flags.error,
             header_mac: None,
             ttl: flags.ttl,
+            e2e_header_sig: None,
         }
     }
 
@@ -2187,6 +2188,7 @@ mod message_tests {
             error: None,
             header_mac: None,
             ttl: DEFAULT_TTL,
+            e2e_header_sig: None,
         };
 
         assert!(std::panic::catch_unwind(|| header.get_source()).is_err());

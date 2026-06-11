@@ -40,6 +40,7 @@ fn make_slim_header() -> SlimHeader {
         error: None,
         header_mac: None,
         ttl: DEFAULT_TTL,
+        e2e_header_sig: None,
     }
 }
 

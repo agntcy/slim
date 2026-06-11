@@ -16,7 +16,7 @@ use slim_mls::mls::Mls;
 use tracing::debug;
 
 use crate::{
-    common::{MessageDirection, SessionMessage, SessionOutput},
+    common::{MessageDirection, OutboundMessage, SessionMessage, SessionOutput},
     errors::SessionError,
     mls_state::MlsState,
     runtime::maybe_await,
@@ -304,6 +304,25 @@ where
             output,
             &self.common.settings.identity_provider,
         )?;
+        if self.mls_state.is_some() {
+            for msg in &mut output.messages {
+                if let OutboundMessage::ToSlim(m) = msg
+                    && m.get_session_message_type().is_command_message()
+                {
+                    m.get_slim_header_mut().sequence_number = Some(self.common.next_control_seq);
+                    self.common.next_control_seq += 1;
+
+                    let aad = crate::mls_state::build_aad(m);
+                    let private_key = self
+                        .common
+                        .settings
+                        .identity_provider
+                        .get_signature_secret_key()?;
+                    let signature = slim_auth::utils::sign_header_aad(&aad, &private_key)?;
+                    m.get_slim_header_mut().e2e_header_sig = Some(signature);
+                }
+            }
+        }
         if let Some(mls_state) = &mut self.mls_state {
             mls_state.encrypt_output(output).await?;
         }
@@ -805,6 +824,7 @@ mod tests {
             graceful_shutdown_timeout: None,
             subscription_manager,
             service_id: String::new(),
+            seen_control_seqs: crate::session_settings::new_seen_control_seqs(),
         };
 
         let inner = MockInnerHandler::new();

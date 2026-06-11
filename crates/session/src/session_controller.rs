@@ -32,13 +32,62 @@ use crate::{
     traits::{MessageHandler, ProcessingState},
 };
 
-pub(crate) async fn verify_identity<V>(msg: &Message, verifier: &V) -> Result<(), SessionError>
+pub(crate) async fn verify_identity<V>(
+    msg: &Message,
+    verifier: &V,
+    e2e_integrity_required: bool,
+) -> Result<(), SessionError>
 where
     V: Verifier + Send + Sync,
 {
     let identity = msg.get_slim_header().get_identity();
     if verifier.try_verify(&identity).is_err() {
         verifier.verify(&identity).await?;
+    }
+
+    if e2e_integrity_required && msg.get_session_message_type().is_command_message() {
+        let slim_header = msg.get_slim_header();
+        let Some(sig) = &slim_header.e2e_header_sig else {
+            return Err(SessionError::Auth(slim_auth::errors::AuthError::TokenInvalid));
+        };
+
+        #[derive(serde::Deserialize)]
+        struct CustomClaims {
+            pubkey: Option<String>,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct IdentityClaims {
+            pubkey: Option<String>,
+            custom_claims: Option<CustomClaims>,
+        }
+
+        let claims_res = verifier.get_claims(&identity).await;
+        if let Err(ref e) = claims_res {
+            tracing::error!("verify_identity: get_claims failed with: {:?}", e);
+        }
+        let claims: IdentityClaims = claims_res?;
+        let pubkey = claims.pubkey
+            .or_else(|| claims.custom_claims.and_then(|c| c.pubkey))
+            .ok_or_else(|| {
+                tracing::error!("verify_identity: pubkey not found in claims. claims_json: {:?}", identity);
+                SessionError::Auth(slim_auth::errors::AuthError::TokenInvalid)
+            })?;
+        
+        use base64::Engine as _;
+        let pubkey_bytes_res = base64::engine::general_purpose::STANDARD.decode(&pubkey);
+        if let Err(ref e) = pubkey_bytes_res {
+            tracing::error!("verify_identity: base64 decode of pubkey failed with: {:?}", e);
+        }
+        let pubkey_bytes = pubkey_bytes_res
+            .map_err(|_| SessionError::Auth(slim_auth::errors::AuthError::TokenMalformed))?;
+
+        let aad = crate::mls_state::build_aad(msg);
+        let verify_res = slim_auth::utils::verify_header_aad(&aad, sig, &pubkey_bytes);
+        if let Err(ref e) = verify_res {
+            tracing::error!("verify_identity: verify_header_aad failed: {:?}", e);
+        }
+        verify_res?;
     }
     Ok(())
 }
@@ -182,6 +231,52 @@ impl SessionController {
         }
     }
 
+    async fn verify_and_check_replay<P, V, M>(
+        msg: &Message,
+        settings: &SessionSettings<P, V, M>,
+    ) -> Result<(), SessionError>
+    where
+        P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+        V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
+        M: crate::subscription_manager::SubscriptionOps,
+    {
+        let msg_type = msg.get_session_message_type();
+        let is_post_session_control = matches!(
+            msg_type,
+            ProtoSessionMessageType::LeaveRequest
+                | ProtoSessionMessageType::LeaveReply
+                | ProtoSessionMessageType::GroupAdd
+                | ProtoSessionMessageType::GroupRemove
+                | ProtoSessionMessageType::GroupClose
+                | ProtoSessionMessageType::GroupProposal
+                | ProtoSessionMessageType::GroupAck
+                | ProtoSessionMessageType::GroupNack
+                | ProtoSessionMessageType::Ping
+        );
+        // Require E2E verification only when the sender included a signature (matches pre-session path).
+        let e2e_required = is_post_session_control && msg.get_slim_header().e2e_header_sig.is_some();
+
+        // 1. Verify E2E header signature and token
+        crate::session_controller::verify_identity(msg, &settings.identity_verifier, e2e_required).await?;
+
+        // 2. Perform sequence number check for command messages
+        if e2e_required && msg.get_session_message_type().is_command_message() {
+            let sender = msg.get_source();
+            let seq = msg.get_slim_header().sequence_number;
+            if let Some(s) = seq {
+                let mut seen_control_seqs = settings.seen_control_seqs.lock();
+                let seen = seen_control_seqs.entry(sender.clone()).or_default();
+                if !seen.insert(s) {
+                    // Duplicate delivery (network retransmission or fanout). Handlers are idempotent.
+                    return Ok(());
+                }
+            } else {
+                return Err(SessionError::Auth(slim_auth::errors::AuthError::TokenInvalid));
+            }
+        }
+        Ok(())
+    }
+
     async fn processing_loop<P, V, M>(
         mut inner: impl MessageHandler + 'static,
         mut rx: sync::mpsc::Receiver<SessionMessage>,
@@ -194,7 +289,6 @@ impl SessionController {
     {
         // Start with an infinite timeout (will be updated on graceful shutdown)
         let mut shutdown_deadline = std::pin::pin!(tokio::time::sleep(Duration::MAX));
-
         // Init the inner components
         if let Err(e) = inner.init().await {
             tracing::error!(error = %e.chain(), "error during initialization of session");
@@ -210,10 +304,11 @@ impl SessionController {
                     // Finish any ongoing processing before starting drain
                     debug!("consuming pending messages before entering draining state");
                     while let Ok(msg) = rx.try_recv() {
-                        if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &msg
-                            && let Err(e) = crate::session_controller::verify_identity(message, &settings.identity_verifier).await {
-                            debug!(error = %e.chain(), "dropping inbound message during drain: identity verification failed");
-                            continue;
+                        if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &msg {
+                            if let Err(e) = Self::verify_and_check_replay(message, &settings).await {
+                                debug!(error = %e.chain(), "dropping inbound message during drain: verification or replay check failed");
+                                continue;
+                            }
                         }
                         match inner.on_message(msg).await {
                             Ok(output) => Self::dispatch_output(output, &settings).await,
@@ -253,15 +348,16 @@ impl SessionController {
                                 continue;
                             }
 
-                            if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &session_message
-                                && let Err(e) = crate::session_controller::verify_identity(message, &settings.identity_verifier).await {
-                                debug!(
-                                    error = %e.chain(),
-                                    msg_type = %message.get_session_message_type().as_str_name(),
-                                    msg_id = %message.get_id(),
-                                    "dropping inbound message: identity verification failed",
-                                );
-                                continue;
+                            if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &session_message {
+                                if let Err(e) = Self::verify_and_check_replay(message, &settings).await {
+                                    debug!(
+                                        error = %e.chain(),
+                                        msg_type = %message.get_session_message_type().as_str_name(),
+                                        msg_id = %message.get_id(),
+                                        "dropping inbound message: verification or replay check failed",
+                                    );
+                                    continue;
+                                }
                             }
 
                             let draining = inner.processing_state() == ProcessingState::Draining;
@@ -286,7 +382,7 @@ impl SessionController {
                                     }
                                 }
                                 Err(e) => {
-                                    debug!(
+                                    tracing::error!(
                                         error=%e,
                                         "Error processing message{}",
                                         if draining { " during graceful shutdown" } else { "" }
@@ -624,6 +720,9 @@ pub(crate) struct SessionControllerCommon<
 
     /// Maps (kind, name, conn) → subscription_id for route/subscription tracking.
     subscription_ids: HashMap<(SubscriptionKind, ProtoName, u64), u64>,
+
+    /// Next sequence number to use for outbound control messages
+    pub(crate) next_control_seq: u64,
 }
 
 /// Distinguishes route entries from subscription entries in the subscription_ids map.
@@ -659,6 +758,7 @@ where
             sender: controller_sender,
             processing_state: ProcessingState::Active,
             subscription_ids: HashMap::new(),
+            next_control_seq: 1,
         }
     }
 
@@ -1881,6 +1981,7 @@ mod tests {
             graceful_shutdown_timeout: Some(Duration::from_secs(10)),
             subscription_manager,
             service_id: String::new(),
+            seen_control_seqs: crate::session_settings::new_seen_control_seqs(),
         };
 
         let needs_drain = Arc::new(AtomicBool::new(true));
@@ -2057,6 +2158,7 @@ mod tests {
             graceful_shutdown_timeout,
             subscription_manager,
             service_id: String::new(),
+            seen_control_seqs: crate::session_settings::new_seen_control_seqs(),
         }
     }
 
