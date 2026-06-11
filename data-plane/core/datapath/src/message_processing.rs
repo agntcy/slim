@@ -1852,10 +1852,9 @@ impl MessageProcessor {
                                         // After link negotiation the connection type may have
                                         // been upgraded (e.g. Remote → Peer). Cache the new
                                         // value so subsequent messages use the correct category.
-                                        if is_link_msg {
-                                            if let Some(conn) = self_clone.forwarder().get_connection(conn_index) {
+                                        if is_link_msg
+                                            && let Some(conn) = self_clone.forwarder().get_connection(conn_index) {
                                                 category = conn.connection_type();
-                                            }
                                         }
                                     }
                                     Err(e) => {

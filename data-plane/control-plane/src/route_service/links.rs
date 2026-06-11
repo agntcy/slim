@@ -222,10 +222,10 @@ impl super::RouteService {
 
     pub(super) async fn find_matching_link(&self, source: &str, dest: &str) -> Result<String> {
         // First try exact node-to-node match (legacy / direct links).
-        if let Some(l) = self.0.db.find_link_between_nodes(source, dest).await? {
-            if l.status != LinkStatus::Deleted {
-                return Ok(l.link_id);
-            }
+        if let Some(l) = self.0.db.find_link_between_nodes(source, dest).await?
+            && l.status != LinkStatus::Deleted
+        {
+            return Ok(l.link_id);
         }
 
         // For inter-group links: find a link between the groups of source and dest.
