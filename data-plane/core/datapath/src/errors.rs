@@ -54,6 +54,8 @@ pub enum DataPathError {
     MalformedMessage(#[from] MessageError),
     #[error("message processing error: {0}")]
     ProcessingError(MessageError),
+    #[error("connection send error")]
+    ConnectionSendError,
     #[error("error adding connection to connection table")]
     ConnectionTableAddError,
     #[error("message processing error: {source}")]

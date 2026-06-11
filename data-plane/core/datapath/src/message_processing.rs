@@ -17,6 +17,7 @@ use slim_config::server_handler::ServerHandler;
 use slim_config::websocket::server as websocket_server;
 use slim_config::websocket::server::AcceptedWebSocketConnection;
 use tokio::sync::mpsc::{self, Sender};
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
@@ -28,7 +29,6 @@ use tracing::{Instrument, debug, error, info, warn};
 #[cfg(feature = "otel_tracing")]
 use crate::otel_tracing;
 
-use crate::api::ProtoMessage;
 use crate::api::ProtoPublishType as PublishType;
 use crate::api::ProtoSubscribeType as SubscribeType;
 use crate::api::ProtoSubscriptionAckType as SubscriptionAckType;
@@ -43,7 +43,6 @@ use crate::api::{
 use crate::connection::{Channel, Connection};
 use crate::errors::{DataPathError, MessageContext};
 use crate::forwarder::Forwarder;
-use crate::link_ecdh::{self, X25519_PUBLIC_KEY_LEN};
 use crate::messages::utils::SlimHeaderFlags;
 use crate::recovery::RecoveryTable;
 use crate::tables::connection_table::ConnectionTable;
@@ -51,11 +50,6 @@ use crate::tables::remote_subscription_table::SubscriptionInfo;
 use crate::tables::subscription_table::SubscriptionTableImpl;
 use crate::tables::{ConnType, MatchFilter};
 use crate::websocket;
-use semver;
-
-fn local_version() -> &'static str {
-    slim_version::version()
-}
 
 // Sync tests using environment variables
 #[cfg(test)]
@@ -87,11 +81,8 @@ struct MessageProcessorInternal {
     /// Default strict header MAC policy for server-accepted inter-node connections (see [`ServerConfig::require_header_mac`]).
     server_require_header_mac: bool,
 
-    /// Timeout to wait for link HMAC session to be installed.
-    link_hmac_timeout: std::time::Duration,
-
-    /// Polling interval (in milliseconds) to wait between HMAC existence checks.
-    link_hmac_poll_interval: std::time::Duration,
+    /// Timeout for link negotiation to complete.
+    negotiation_timeout: std::time::Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -105,6 +96,20 @@ impl Default for MessageProcessor {
     }
 }
 
+/// Describes how a connection enters [`MessageProcessor::process_stream`].
+///
+/// Local connections are pre-registered in the table; remote connections are
+/// only inserted after the mandatory link negotiation completes.
+enum StreamSetup {
+    /// Connection already in the table (local connections).
+    Registered(u64),
+    /// Remote connection not yet in the table; will be inserted after negotiation.
+    Pending {
+        connection: Box<Connection>,
+        existing_index: Option<u64>,
+    },
+}
+
 impl MessageProcessor {
     pub fn new_with_service_id(service_id: String) -> Self {
         Self::new_with_options(service_id, None)
@@ -116,7 +121,6 @@ impl MessageProcessor {
             recovery_ttl,
             false,
             std::time::Duration::from_secs(5),
-            std::time::Duration::from_millis(5),
         )
     }
 
@@ -130,8 +134,7 @@ impl MessageProcessor {
             service_id,
             recovery_ttl,
             server_config.require_header_mac,
-            std::time::Duration::from_secs(server_config.link_hmac_timeout_secs),
-            std::time::Duration::from_millis(server_config.link_hmac_poll_interval_ms),
+            std::time::Duration::from_secs(server_config.negotiation_timeout_secs),
         )
     }
 
@@ -139,8 +142,7 @@ impl MessageProcessor {
         service_id: String,
         recovery_ttl: Option<std::time::Duration>,
         server_require_header_mac: bool,
-        link_hmac_timeout: std::time::Duration,
-        link_hmac_poll_interval: std::time::Duration,
+        negotiation_timeout: std::time::Duration,
     ) -> Self {
         let (signal, watch) = drain::channel();
         let recovery_table = match recovery_ttl {
@@ -156,8 +158,7 @@ impl MessageProcessor {
             sub_ack_manager: crate::subscription_ack::RemoteSubAckManager::new(),
             service_id,
             server_require_header_mac,
-            link_hmac_timeout,
-            link_hmac_poll_interval,
+            negotiation_timeout,
         };
         Self {
             internal: Arc::new(internal),
@@ -211,18 +212,12 @@ impl MessageProcessor {
         );
         info!(telemetry = true, counter.num_active_connections = 1);
 
-        let conn_index = match self.forwarder().on_connection_established(connection, None) {
-            Some(index) => index,
-            None => {
-                error!("failed to add websocket connection to table");
-                cancellation_token.cancel();
-                return;
-            }
-        };
-
         if let Err(err) = self.process_stream(
             streams.inbound,
-            conn_index,
+            StreamSetup::Pending {
+                connection: Box::new(connection),
+                existing_index: None,
+            },
             None,
             cancellation_token,
             ConnType::Remote,
@@ -270,8 +265,12 @@ impl MessageProcessor {
         tx_guard.clone()
     }
 
-    fn forwarder(&self) -> &Forwarder<Connection> {
+    pub fn forwarder(&self) -> &Forwarder<Connection> {
         &self.internal.forwarder
+    }
+
+    pub(crate) fn recovery_table(&self) -> &RecoveryTable {
+        &self.internal.recovery_table
     }
 
     /// Verify SLIM header MAC for inter-node traffic only (local app connections skip this).
@@ -411,10 +410,7 @@ impl MessageProcessor {
                     .open_channel(Request::new(ReceiverStream::new(rx)))
                     .await?;
 
-                let (ecdh_sk, ecdh_pk) = link_ecdh::generate_x25519_ephemeral()
-                    .map_err(|_| DataPathError::LinkKeyGeneration)?;
-
-                let (handle, conn_index) = self.register_remote_connection(
+                let (handle, conn_index_rx) = self.register_remote_connection(
                     stream.into_inner(),
                     Channel::Client(tx),
                     &client_config,
@@ -423,13 +419,13 @@ impl MessageProcessor {
                     existing_conn_index,
                     cancellation_token,
                     Some(link_id.clone()),
-                    Some(ecdh_sk),
                 )?;
 
-                self.send_client_link_negotiation(&link_id, conn_index, Some(ecdh_pk))
-                    .await;
-                self.await_link_hmac_ready(conn_index, client_config.require_header_mac)
-                    .await?;
+                let conn_index = conn_index_rx.await.map_err(|_| {
+                    DataPathError::NegotiationError(
+                        "negotiation task terminated unexpectedly".to_string(),
+                    )
+                })??;
 
                 Ok((handle, conn_index))
             }
@@ -440,10 +436,7 @@ impl MessageProcessor {
                 let streams =
                     websocket::spawn_transport_tasks(websocket, cancellation_token.clone());
 
-                let (ecdh_sk, ecdh_pk) = link_ecdh::generate_x25519_ephemeral()
-                    .map_err(|_| DataPathError::LinkKeyGeneration)?;
-
-                let (handle, conn_index) = self.register_remote_connection(
+                let (handle, conn_index_rx) = self.register_remote_connection(
                     streams.inbound,
                     Channel::Client(streams.outbound),
                     &client_config,
@@ -452,66 +445,17 @@ impl MessageProcessor {
                     existing_conn_index,
                     cancellation_token,
                     Some(link_id.clone()),
-                    Some(ecdh_sk),
                 )?;
 
-                self.send_client_link_negotiation(&link_id, conn_index, Some(ecdh_pk))
-                    .await;
-                self.await_link_hmac_ready(conn_index, client_config.require_header_mac)
-                    .await?;
+                let conn_index = conn_index_rx.await.map_err(|_| {
+                    DataPathError::NegotiationError(
+                        "negotiation task terminated unexpectedly".to_string(),
+                    )
+                })??;
 
                 Ok((handle, conn_index))
             }
         }
-    }
-
-    /// Send the outbound link negotiation request (best-effort for older peers).
-    async fn send_client_link_negotiation(
-        &self,
-        link_id: &str,
-        conn_index: u64,
-        ecdh_public_key: Option<Vec<u8>>,
-    ) {
-        let negotiation_msg = ProtoMessage::builder().build_link_negotiation(
-            link_id,
-            local_version(),
-            false,
-            ecdh_public_key,
-        );
-        if let Err(e) = self.send_msg(negotiation_msg, conn_index).await {
-            debug!(
-                %conn_index,
-                error = %e.chain(),
-                "failed to send link negotiation (remote may be an older SLIM instance)",
-            );
-        }
-    }
-
-    /// Block until the link HMAC session is installed when strict header MAC is enabled.
-    async fn await_link_hmac_ready(
-        &self,
-        conn_index: u64,
-        require_header_mac: bool,
-    ) -> Result<(), DataPathError> {
-        if !require_header_mac {
-            return Ok(());
-        }
-
-        let timeout = self.internal.link_hmac_timeout;
-        let start = tokio::time::Instant::now();
-        while start.elapsed() < timeout {
-            match self.forwarder().get_connection(conn_index) {
-                Some(conn) if conn.header_hmac().is_some() => return Ok(()),
-                Some(_) => {
-                    tokio::time::sleep(self.internal.link_hmac_poll_interval).await;
-                }
-                None => return Err(DataPathError::ConnectionNotFound(conn_index)),
-            }
-        }
-
-        Err(DataPathError::NegotiationError(
-            "timed out waiting for link HMAC session after negotiation".to_string(),
-        ))
     }
 
     /// Common post-connect plumbing shared by every transport: register the
@@ -530,8 +474,13 @@ impl MessageProcessor {
         existing_conn_index: Option<u64>,
         cancellation_token: CancellationToken,
         link_id: Option<String>,
-        outbound_ecdh_private: Option<aws_lc_rs::agreement::EphemeralPrivateKey>,
-    ) -> Result<(JoinHandle<()>, u64), DataPathError>
+    ) -> Result<
+        (
+            JoinHandle<()>,
+            oneshot::Receiver<Result<u64, DataPathError>>,
+        ),
+        DataPathError,
+    >
     where
         S: Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
     {
@@ -545,33 +494,25 @@ impl MessageProcessor {
             connection = connection.with_link_id(link_id);
         }
 
-        if let Some(ecdh_sk) = outbound_ecdh_private {
-            connection.set_outbound_ecdh_private(ecdh_sk);
-        }
-
         debug!(
             remote = ?connection.remote_addr(),
             local = ?connection.local_addr(),
             "new connection initiated locally",
         );
 
-        let conn_index = self
-            .forwarder()
-            .on_connection_established(connection, existing_conn_index)
-            .ok_or(DataPathError::ConnectionTableAddError)?;
-
-        debug!(%conn_index, is_local = false, "new connection index");
-
-        let handle = self.process_stream(
+        let (handle, conn_index_rx) = self.process_stream(
             inbound,
-            conn_index,
+            StreamSetup::Pending {
+                connection: Box::new(connection),
+                existing_index: existing_conn_index,
+            },
             Some(client_config.clone()),
             cancellation_token,
             ConnType::Remote,
             false,
         )?;
 
-        Ok((handle, conn_index))
+        Ok((handle, conn_index_rx))
     }
 
     pub async fn connect(
@@ -653,7 +594,7 @@ impl MessageProcessor {
         // this loop will process messages from the local app
         self.process_stream(
             ReceiverStream::new(rx1),
-            conn_id,
+            StreamSetup::Registered(conn_id),
             None,
             cancellation_token,
             ConnType::Local,
@@ -844,200 +785,22 @@ impl MessageProcessor {
         }
     }
 
-    /// Handle an inbound link negotiation message.
+    /// Handle an inbound link negotiation message arriving in the main loop.
     ///
-    /// On request (`is_reply == false`): validate the client-provided `link_id` as UUID v4,
-    /// atomically store both fields under one lock, then echo back a reply.
-    ///
-    /// On reply (`is_reply == true`): verify the echoed `link_id` matches what we sent, then
-    /// atomically store the remote version.  No further reply is sent, preventing echo loops.
-    ///
-    /// Both methods hold a single write lock for validation and mutation, eliminating TOCTOU races.
+    /// Since negotiation is mandatory and completes before the connection is
+    /// inserted into the table, any link negotiation message arriving here is
+    /// either a duplicate or a protocol error — we log and ignore it.
     async fn handle_link_negotiation(
         &self,
         payload: &LinkNegotiationPayload,
         in_connection: u64,
     ) -> Result<(), DataPathError> {
-        let link_id = &payload.link_id;
-        let remote_version = &payload.slim_version;
-
         debug!(
             %in_connection,
-            %link_id,
-            %remote_version,
+            link_id = %payload.link_id,
             is_reply = payload.is_reply,
-            "received link negotiation",
+            "ignoring link negotiation message on already-negotiated connection",
         );
-
-        let Some(conn) = self.forwarder().get_connection(in_connection) else {
-            debug!(%in_connection, "ignoring link negotiation request received on unknown connection");
-            return Ok(());
-        };
-
-        let strict = conn.require_header_mac();
-
-        // Role check: clients must only receive replies; servers must only receive requests.
-        match (conn.is_outgoing(), payload.is_reply) {
-            (true, false) => {
-                debug!(%in_connection, "ignoring link negotiation request received on outgoing connection");
-                return Ok(());
-            }
-            (false, true) => {
-                debug!(%in_connection, "ignoring link negotiation reply received on incoming connection");
-                return Ok(());
-            }
-            _ => {}
-        }
-
-        // Parse the remote version before any state mutation.
-        let version = match semver::Version::parse(remote_version) {
-            Ok(v) => v,
-            Err(e) => {
-                debug!(%in_connection, %remote_version, error = %e, "ignoring link negotiation with unparsable remote SLIM version");
-                return Ok(());
-            }
-        };
-
-        if payload.is_reply {
-            if strict && payload.link_ecdh_public_key.len() != X25519_PUBLIC_KEY_LEN {
-                return Err(DataPathError::NegotiationError(
-                    "public key length is invalid".to_string(),
-                ));
-            }
-
-            if !conn.complete_negotiation_as_client(link_id, version) {
-                debug!(%in_connection, %link_id, "ignoring link negotiation reply");
-                return Ok(());
-            }
-
-            if payload.link_ecdh_public_key.len() == X25519_PUBLIC_KEY_LEN
-                && let Some(sk) = conn.take_outbound_ecdh_private()
-            {
-                match link_ecdh::derive_header_mac_from_ecdh(
-                    sk,
-                    payload.link_ecdh_public_key.as_slice(),
-                    link_id,
-                ) {
-                    Ok(mac) => conn.install_header_hmac(mac),
-                    Err(e) => {
-                        error!(
-                            %in_connection,
-                            error = %e,
-                            "link ECDH key derivation failed (client path)",
-                        );
-                        return Err(DataPathError::NegotiationError(
-                            "failed to generate client exchange key".to_string(),
-                        ));
-                    }
-                }
-            }
-
-            if strict && conn.header_hmac().is_none() {
-                return Err(DataPathError::NegotiationError(
-                    "strict header MAC required but link HMAC session is not installed".to_string(),
-                ));
-            }
-        } else {
-            if strict && payload.link_ecdh_public_key.len() != X25519_PUBLIC_KEY_LEN {
-                return Err(DataPathError::NegotiationError(
-                    "public key length is invalid".to_string(),
-                ));
-            }
-
-            if !conn.complete_negotiation_as_server(link_id, version) {
-                debug!(%in_connection, %link_id, "ignoring link negotiation request");
-                return Ok(());
-            }
-
-            let peer_ecdh = payload.link_ecdh_public_key.as_slice();
-            let mut server_reply_ecdh: Option<Vec<u8>> = None;
-            if peer_ecdh.len() == X25519_PUBLIC_KEY_LEN {
-                match link_ecdh::generate_x25519_ephemeral() {
-                    Ok((server_sk, server_pk)) => {
-                        match link_ecdh::derive_header_mac_from_ecdh(server_sk, peer_ecdh, link_id)
-                        {
-                            Ok(mac) => {
-                                conn.install_header_hmac(mac);
-                                server_reply_ecdh = Some(server_pk);
-                            }
-                            Err(e) => {
-                                error!(
-                                    %in_connection,
-                                    error = %e,
-                                    "link ECDH key derivation failed (server path)",
-                                );
-                                if strict {
-                                    return Err(DataPathError::NegotiationError(
-                                        "failed to derive header MAC from link ECDH (server path)"
-                                            .to_string(),
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        error!(%in_connection, "failed to generate server link ECDH key");
-                        return Err(DataPathError::NegotiationError(
-                            "failed to generate server exchange key".to_string(),
-                        ));
-                    }
-                }
-            }
-
-            if strict && conn.header_hmac().is_none() {
-                return Err(DataPathError::NegotiationError(
-                    "strict header MAC required but link HMAC session is not installed".to_string(),
-                ));
-            }
-
-            // Route recovery: if the peer reconnected with a known link_id, restore all
-            // routing state that was preserved during the recovery window.
-            if let Some(entry) = self.internal.recovery_table.take(link_id) {
-                info!(%in_connection, %link_id, "recovering routes for reconnected peer");
-
-                // Re-add local routing entries.  A new conn_index was allocated for this
-                // connection, so we must re-register each name under the current index,
-                // preserving the original subscription IDs so UNSUBSCRIBE messages work.
-                for (name, sub_ids) in &entry.local_subs {
-                    for &subscription_id in sub_ids {
-                        if let Err(e) = self.forwarder().on_subscription_msg(
-                            name.clone(),
-                            in_connection,
-                            ConnType::Remote,
-                            true,
-                            subscription_id,
-                        ) {
-                            error!(
-                                error = %e.chain(), %in_connection,
-                                "error re-adding local subscription during recovery",
-                            );
-                        }
-                    }
-                }
-
-                // Re-send subscriptions to the remote peer and re-register tracking.
-                // restore_tracking = true: on_connection_drop already wiped the
-                // forwarded-subscription table, so we must rebuild it here.
-                self.restore_remote_subscriptions(&entry.remote_subs, in_connection, true)
-                    .await;
-            }
-
-            // Send reply only after state is committed.
-            let reply = ProtoMessage::builder().build_link_negotiation(
-                link_id,
-                local_version(),
-                true,
-                server_reply_ecdh,
-            );
-            if let Err(e) = self.send_msg(reply, in_connection).await {
-                debug!(
-                    %in_connection,
-                    error = %e.chain(),
-                    "failed to send link negotiation reply",
-                );
-            }
-        }
-
         Ok(())
     }
 
@@ -1303,7 +1066,7 @@ impl MessageProcessor {
         }
     }
 
-    async fn handle_new_message(
+    pub(crate) async fn handle_new_message(
         &self,
         conn_index: u64,
         category: ConnType,
@@ -1487,12 +1250,18 @@ impl MessageProcessor {
     fn process_stream(
         &self,
         mut stream: impl Stream<Item = Result<Message, Status>> + Unpin + Send + 'static,
-        conn_index: u64,
+        setup: StreamSetup,
         client_config: Option<ClientConfig>,
         cancellation_token: CancellationToken,
         category: ConnType,
         from_control_plane: bool,
-    ) -> Result<JoinHandle<()>, DataPathError> {
+    ) -> Result<
+        (
+            JoinHandle<()>,
+            oneshot::Receiver<Result<u64, DataPathError>>,
+        ),
+        DataPathError,
+    > {
         // Clone self to be able to move it into the spawned task
         let self_clone = self.clone();
         let token_clone = cancellation_token.clone();
@@ -1500,20 +1269,131 @@ impl MessageProcessor {
         let tx_cp: Option<Sender<Result<Message, Status>>> = self.get_tx_control_plane();
         let watch = self.get_drain_watch()?;
         let is_local = category.is_local();
+
+        let (conn_index_tx, conn_index_rx) = oneshot::channel();
+
+        // For registered (local) connections, we know conn_index immediately.
+        let (pre_conn_index, pending_connection, require_header_mac): (
+            Option<u64>,
+            Option<(Connection, Option<u64>)>,
+            bool,
+        ) = match setup {
+            StreamSetup::Registered(idx) => {
+                let rhm = self
+                    .forwarder()
+                    .get_connection(idx)
+                    .map(|c| c.require_header_mac())
+                    .unwrap_or(false);
+                (Some(idx), None, rhm)
+            }
+            StreamSetup::Pending {
+                connection,
+                existing_index,
+            } => {
+                let rhm = connection.require_header_mac();
+                (None, Some((*connection, existing_index)), rhm)
+            }
+        };
+
         let span = tracing::info_span!(
             "process_stream",
             service_id = %self.internal.service_id,
-            %conn_index,
+            conn_index = pre_conn_index.unwrap_or(0),
             is_local,
         );
-        let require_header_mac = self
-            .forwarder()
-            .get_connection(conn_index)
-            .map(|c| c.require_header_mac())
-            .unwrap_or(false);
 
         let handle = tokio::spawn(async move {
             let mut try_to_reconnect = true;
+
+            // Resolve the conn_index: either we already have it (local), or we
+            // must perform negotiation and then insert into the table (remote).
+            let conn_index = if let Some(idx) = pre_conn_index {
+                // Local: already registered.
+                let _ = conn_index_tx.send(Ok(idx));
+                idx
+            } else if let Some((mut connection, existing_index)) = pending_connection {
+                // Remote: perform mandatory link negotiation before inserting.
+                let timeout = self_clone.internal.negotiation_timeout;
+                let negotiation_result = tokio::select! {
+                    result = tokio::time::timeout(
+                        timeout,
+                        crate::negotiation::run_negotiation(
+                            &mut connection,
+                            &mut stream,
+                            self_clone.recovery_table(),
+                        ),
+                    ) => match result {
+                        Ok(r) => r,
+                        Err(_) => Err(DataPathError::NegotiationError(
+                            "timed out waiting for link negotiation".to_string(),
+                        )),
+                    },
+                    _ = watch.clone().signaled() => {
+                        info!("shutting down during link negotiation");
+                        let _ = conn_index_tx.send(Err(DataPathError::ShuttingDownError));
+                        return;
+                    }
+                    _ = token_clone.cancelled() => {
+                        info!("connection cancelled during link negotiation");
+                        let _ = conn_index_tx.send(Err(DataPathError::ShuttingDownError));
+                        return;
+                    }
+                };
+
+                match negotiation_result {
+                    Err(e) => {
+                        error!(error = %e.chain(), "link negotiation failed, closing connection");
+                        let _ = conn_index_tx.send(Err(e));
+                        info!(telemetry = true, counter.num_active_connections = -1);
+                        return;
+                    }
+                    Ok(result) => {
+                        // Negotiation succeeded — insert the fully-negotiated connection.
+                        let idx = match self_clone
+                            .forwarder()
+                            .on_connection_established(connection, existing_index)
+                        {
+                            Some(idx) => idx,
+                            None => {
+                                let _ = conn_index_tx.send(Err(DataPathError::ConnectionTableAddError));
+                                info!(telemetry = true, counter.num_active_connections = -1);
+                                return;
+                            }
+                        };
+
+                        debug!(%idx, "connection registered after link negotiation");
+
+                        // Apply route recovery (server side) now that we have a conn_index.
+                        if let Some(entry) = result.recovery_entry {
+                            info!(%idx, "recovering routes for reconnected peer");
+                            for (name, sub_ids) in &entry.local_subs {
+                                for &subscription_id in sub_ids {
+                                    if let Err(e) = self_clone.forwarder().on_subscription_msg(
+                                        name.clone(),
+                                        idx,
+                                        ConnType::Remote,
+                                        true,
+                                        subscription_id,
+                                    ) {
+                                        error!(
+                                            error = %e.chain(), %idx,
+                                            "error re-adding local subscription during recovery",
+                                        );
+                                    }
+                                }
+                            }
+                            self_clone
+                                .restore_remote_subscriptions(&entry.remote_subs, idx, true)
+                                .await;
+                        }
+
+                        let _ = conn_index_tx.send(Ok(idx));
+                        idx
+                    }
+                }
+            } else {
+                unreachable!("process_stream called with neither registered nor pending setup");
+            };
 
             let mut watch = std::pin::pin!(watch.signaled());
             loop {
@@ -1699,7 +1579,7 @@ impl MessageProcessor {
             }
         }.instrument(span));
 
-        Ok(handle)
+        Ok((handle, conn_index_rx))
     }
 
     fn match_for_io_error(err_status: &Status) -> Option<&std::io::Error> {
@@ -1772,15 +1652,12 @@ impl DataPlaneService for MessageProcessor {
         );
         info!(telemetry = true, counter.num_active_connections = 1);
 
-        // insert connection into connection table
-        let conn_index = self
-            .forwarder()
-            .on_connection_established(connection, None)
-            .unwrap();
-
         self.process_stream(
             stream,
-            conn_index,
+            StreamSetup::Pending {
+                connection: Box::new(connection),
+                existing_index: None,
+            },
             None,
             CancellationToken::new(),
             ConnType::Remote,
@@ -1800,12 +1677,10 @@ impl DataPlaneService for MessageProcessor {
 
 #[cfg(test)]
 mod tests {
-    use slim_config::client::ClientConfig;
-    use std::sync::Arc;
     use std::time::Duration;
 
     use super::*;
-    use crate::api::{ProtoName, ProtoSubscriptionAck};
+    use crate::api::{ProtoMessage, ProtoName, ProtoSubscriptionAck};
     use crate::header_mac::HeaderMacSession;
     use crate::tables::remote_subscription_table::SubscriptionInfo;
     use tonic::Status;
@@ -1908,12 +1783,48 @@ mod tests {
         (conn_id, rx)
     }
 
-    fn make_client_conn(
+    /// After negotiation completes and the connection is inserted into the table,
+    /// any further link negotiation messages arriving in the main loop are simply
+    /// logged and ignored (the handler is a no-op). This test verifies that.
+    #[tokio::test]
+    async fn test_handle_link_negotiation_post_negotiation_is_noop() {
+        let processor = MessageProcessor::new();
+        let payload = LinkNegotiationPayload {
+            link_id: uuid::Uuid::new_v4().to_string(),
+            slim_version: "1.0.0".into(),
+            is_reply: false,
+            link_ecdh_public_key: vec![],
+        };
+        // Unknown connection: handler returns Ok without panic.
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, u64::MAX)
+                .await
+                .is_ok()
+        );
+        // Known connection: handler still returns Ok (noop).
+        let (conn_id, _rx) = make_negotiated_server_conn(&processor, "1.2.0");
+        assert!(
+            processor
+                .handle_link_negotiation(&payload, conn_id)
+                .await
+                .is_ok()
+        );
+    }
+
+    // ── process_subscription: remote ack path ─────────────────────────────────
+
+    /// Helper: create a server connection that is already negotiated with given version and
+    /// a test HMAC session, suitable for testing routing and MAC verification.
+    fn make_negotiated_server_conn(
         processor: &MessageProcessor,
-    ) -> (u64, tokio::sync::mpsc::Receiver<Message>) {
+        version: &str,
+    ) -> (u64, tokio::sync::mpsc::Receiver<Result<Message, Status>>) {
         let (tx, rx) = mpsc::channel(16);
-        let conn = Connection::new(ConnType::Remote, Channel::Client(tx))
-            .with_config_data(Some(ClientConfig::default()));
+        let conn = Connection::new(ConnType::Remote, Channel::Server(tx))
+            .with_require_header_mac(processor.internal.server_require_header_mac)
+            .with_negotiation(&uuid::Uuid::new_v4().to_string(), version)
+            .with_header_hmac(HeaderMacSession::new(b"01234567890123456789012345678901").unwrap());
         let conn_id = processor
             .forwarder()
             .on_connection_established(conn, None)
@@ -1922,304 +1833,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_handle_link_negotiation_unknown_connection_ignored() {
-        let processor = MessageProcessor::new();
-        let payload = LinkNegotiationPayload {
-            link_id: uuid::Uuid::new_v4().to_string(),
-            slim_version: "1.0.0".into(),
-            is_reply: false,
-            link_ecdh_public_key: vec![],
-        };
-        assert!(
-            processor
-                .handle_link_negotiation(&payload, u64::MAX)
-                .await
-                .is_ok()
-        );
-    }
-
-    #[tokio::test]
-    async fn test_handle_link_negotiation_role_outgoing_receives_request_ignored() {
-        let processor = MessageProcessor::new();
-        let (conn_id, _rx) = make_client_conn(&processor);
-        let payload = LinkNegotiationPayload {
-            link_id: uuid::Uuid::new_v4().to_string(),
-            slim_version: "1.0.0".into(),
-            is_reply: false, // request on outgoing connection → ignored
-            link_ecdh_public_key: vec![],
-        };
-        assert!(
-            processor
-                .handle_link_negotiation(&payload, conn_id)
-                .await
-                .is_ok()
-        );
-        assert!(
-            processor
-                .forwarder()
-                .get_connection(conn_id)
-                .unwrap()
-                .remote_slim_version()
-                .is_none()
-        );
-    }
-
-    #[tokio::test]
-    async fn test_handle_link_negotiation_role_incoming_receives_reply_ignored() {
-        let processor = MessageProcessor::new();
-        let (conn_id, _rx) = make_server_conn(&processor);
-        let payload = LinkNegotiationPayload {
-            link_id: uuid::Uuid::new_v4().to_string(),
-            slim_version: "1.0.0".into(),
-            is_reply: true, // reply on incoming connection → ignored
-            link_ecdh_public_key: vec![],
-        };
-        assert!(
-            processor
-                .handle_link_negotiation(&payload, conn_id)
-                .await
-                .is_ok()
-        );
-        assert!(
-            processor
-                .forwarder()
-                .get_connection(conn_id)
-                .unwrap()
-                .remote_slim_version()
-                .is_none()
-        );
-    }
-
-    #[tokio::test]
-    async fn test_handle_link_negotiation_unparsable_version_ignored() {
-        let processor = MessageProcessor::new();
-        let (conn_id, _rx) = make_server_conn(&processor);
-        let payload = LinkNegotiationPayload {
-            link_id: uuid::Uuid::new_v4().to_string(),
-            slim_version: "not-semver".into(),
-            is_reply: false,
-            link_ecdh_public_key: vec![],
-        };
-        assert!(
-            processor
-                .handle_link_negotiation(&payload, conn_id)
-                .await
-                .is_ok()
-        );
-        assert!(
-            processor
-                .forwarder()
-                .get_connection(conn_id)
-                .unwrap()
-                .remote_slim_version()
-                .is_none()
-        );
-    }
-
-    #[tokio::test]
-    async fn test_handle_link_negotiation_server_empty_link_id_ignored() {
-        let processor = MessageProcessor::new();
-        let (conn_id, _rx) = make_server_conn(&processor);
-        let payload = LinkNegotiationPayload {
-            link_id: "".into(),
-            slim_version: "1.0.0".into(),
-            is_reply: false,
-            link_ecdh_public_key: vec![],
-        };
-        assert!(
-            processor
-                .handle_link_negotiation(&payload, conn_id)
-                .await
-                .is_ok()
-        );
-        assert!(
-            processor
-                .forwarder()
-                .get_connection(conn_id)
-                .unwrap()
-                .remote_slim_version()
-                .is_none()
-        );
-    }
-
-    #[tokio::test]
-    async fn test_handle_link_negotiation_server_strict_rejects_missing_ecdh() {
-        let mut server_config = ServerConfig::with_endpoint("127.0.0.1:0");
-        server_config.require_header_mac = true;
-        let processor =
-            MessageProcessor::new_with_server_config("test".into(), &server_config, None);
-        let (conn_id, _rx) = make_server_conn(&processor);
-        let payload = LinkNegotiationPayload {
-            link_id: uuid::Uuid::new_v4().to_string(),
-            slim_version: "1.2.3".into(),
-            is_reply: false,
-            link_ecdh_public_key: vec![],
-        };
-        let err = processor
-            .handle_link_negotiation(&payload, conn_id)
-            .await
-            .expect_err("strict mode must reject negotiation without peer ECDH");
-        assert!(matches!(err, DataPathError::NegotiationError(_)));
-        let conn = processor.forwarder().get_connection(conn_id).unwrap();
-        assert!(conn.remote_slim_version().is_none());
-    }
-
-    #[tokio::test]
-    async fn test_handle_link_negotiation_server_happy_path() {
-        let processor = MessageProcessor::new();
-        let (conn_id, mut rx) = make_server_conn(&processor);
-        let link_id = uuid::Uuid::new_v4().to_string();
-        let payload = LinkNegotiationPayload {
-            link_id: link_id.clone(),
-            slim_version: "1.2.3".into(),
-            is_reply: false,
-            link_ecdh_public_key: vec![],
-        };
-        assert!(
-            processor
-                .handle_link_negotiation(&payload, conn_id)
-                .await
-                .is_ok()
-        );
-        let conn = processor.forwarder().get_connection(conn_id).unwrap();
-        assert_eq!(conn.link_id(), Some(link_id));
-        assert_eq!(
-            conn.remote_slim_version(),
-            Some(semver::Version::parse("1.2.3").unwrap())
-        );
-        // A reply must have been sent.
-        let reply = rx.try_recv().expect("reply should be sent").unwrap();
-        assert!(reply.is_link());
-    }
-
-    #[tokio::test]
-    async fn test_handle_link_negotiation_server_replay_protection() {
-        let processor = MessageProcessor::new();
-        let (conn_id, mut rx) = make_server_conn(&processor);
-        let link_id = uuid::Uuid::new_v4().to_string();
-        let payload = LinkNegotiationPayload {
-            link_id: link_id.clone(),
-            slim_version: "1.0.0".into(),
-            is_reply: false,
-            link_ecdh_public_key: vec![],
-        };
-        // First request: accepted, reply sent.
-        assert!(
-            processor
-                .handle_link_negotiation(&payload, conn_id)
-                .await
-                .is_ok()
-        );
-        assert!(rx.try_recv().is_ok());
-        // Second request: replay protection must suppress it, no reply.
-        assert!(
-            processor
-                .handle_link_negotiation(&payload, conn_id)
-                .await
-                .is_ok()
-        );
-        assert!(rx.try_recv().is_err());
-    }
-
-    #[tokio::test]
-    async fn test_handle_link_negotiation_client_happy_path() {
-        let processor = MessageProcessor::new();
-        let (conn_id, _rx) = make_client_conn(&processor);
-        let link_id = uuid::Uuid::new_v4().to_string();
-        let conn = processor.forwarder().get_connection(conn_id).unwrap();
-        conn.set_link_id(link_id.clone());
-        let payload = LinkNegotiationPayload {
-            link_id: link_id.clone(),
-            slim_version: "2.0.0".into(),
-            is_reply: true,
-            link_ecdh_public_key: vec![],
-        };
-        assert!(
-            processor
-                .handle_link_negotiation(&payload, conn_id)
-                .await
-                .is_ok()
-        );
-        assert_eq!(
-            conn.remote_slim_version(),
-            Some(semver::Version::parse("2.0.0").unwrap())
-        );
-    }
-
-    #[tokio::test]
-    async fn test_handle_link_negotiation_client_link_id_mismatch_ignored() {
-        let processor = MessageProcessor::new();
-        let (conn_id, _rx) = make_client_conn(&processor);
-        let conn = processor.forwarder().get_connection(conn_id).unwrap();
-        conn.set_link_id("correct-id".to_string());
-        let payload = LinkNegotiationPayload {
-            link_id: "wrong-id".into(),
-            slim_version: "1.0.0".into(),
-            is_reply: true,
-            link_ecdh_public_key: vec![],
-        };
-        assert!(
-            processor
-                .handle_link_negotiation(&payload, conn_id)
-                .await
-                .is_ok()
-        );
-        assert!(conn.remote_slim_version().is_none());
-    }
-
-    #[tokio::test]
-    async fn test_handle_link_negotiation_client_replay_protection() {
-        let processor = MessageProcessor::new();
-        let (conn_id, _rx) = make_client_conn(&processor);
-        let link_id = uuid::Uuid::new_v4().to_string();
-        let conn = processor.forwarder().get_connection(conn_id).unwrap();
-        conn.set_link_id(link_id.clone());
-        let payload = LinkNegotiationPayload {
-            link_id: link_id.clone(),
-            slim_version: "1.0.0".into(),
-            is_reply: true,
-            link_ecdh_public_key: vec![],
-        };
-        // First reply: accepted.
-        assert!(
-            processor
-                .handle_link_negotiation(&payload, conn_id)
-                .await
-                .is_ok()
-        );
-        let stored = conn.remote_slim_version();
-        assert!(stored.is_some());
-        // Second reply: replay protection must reject it; version unchanged.
-        assert!(
-            processor
-                .handle_link_negotiation(&payload, conn_id)
-                .await
-                .is_ok()
-        );
-        assert_eq!(conn.remote_slim_version(), stored);
-    }
-
-    // ── process_subscription: remote ack path ─────────────────────────────────
-
-    /// Helper: negotiate a server connection to version `v` and install a test HMAC session
-    /// so `subscription_ack::supports` matches a fully established inter-node link.
-    fn negotiate_conn(processor: &MessageProcessor, conn_id: u64, version: &str) {
-        let c = processor.forwarder().get_connection(conn_id).unwrap();
-        c.complete_negotiation_as_server(
-            &uuid::Uuid::new_v4().to_string(),
-            semver::Version::parse(version).unwrap(),
-        );
-        c.test_install_header_mac(Arc::new(
-            HeaderMacSession::new(b"01234567890123456789012345678901").unwrap(),
-        ));
-    }
-
-    #[tokio::test]
-    async fn test_await_link_hmac_ready_timeout_configurable() {
+    async fn test_negotiation_timeout_configurable() {
         let server_config = ServerConfig {
             endpoint: "localhost:12345".to_string(),
-            link_hmac_timeout_secs: 1,      // 1 second timeout
-            link_hmac_poll_interval_ms: 10, // 10 milliseconds poll interval
+            negotiation_timeout_secs: 1, // 1 second timeout
             ..Default::default()
         };
         let processor = MessageProcessor::new_with_server_config(
@@ -2229,39 +1846,25 @@ mod tests {
         );
 
         assert_eq!(
-            processor.internal.link_hmac_timeout,
+            processor.internal.negotiation_timeout,
             std::time::Duration::from_secs(1)
         );
-        assert_eq!(
-            processor.internal.link_hmac_poll_interval,
-            std::time::Duration::from_millis(10)
-        );
-
-        // Register a connection but do not install any HMAC session
-        let (conn_id, _tx, _rx) = processor
-            .register_local_connection(false)
-            .expect("failed to register local connection");
-
-        // Measure time taken to fail
-        let start = std::time::Instant::now();
-        let result = processor.await_link_hmac_ready(conn_id, true).await;
-        let elapsed = start.elapsed();
-
-        assert!(result.is_err());
-        assert!(elapsed >= std::time::Duration::from_millis(900));
-        assert!(elapsed < std::time::Duration::from_secs(3));
     }
 
     #[test]
     fn verify_remote_header_mac_strict_rejects_publish_without_mac_session() {
         let processor = MessageProcessor::new();
-        let (remote_conn, _rx) = make_server_conn(&processor);
-        let conn = processor.forwarder().get_connection(remote_conn).unwrap();
-        conn.complete_negotiation_as_server(
-            &uuid::Uuid::new_v4().to_string(),
-            semver::Version::parse("1.2.0").unwrap(),
-        );
-        assert!(conn.header_hmac().is_none());
+        // Create a negotiated connection WITHOUT header HMAC installed.
+        let (tx, _rx) = mpsc::channel(16);
+        let conn = Connection::new(ConnType::Remote, Channel::Server(tx))
+            .with_require_header_mac(true)
+            .with_negotiation(&uuid::Uuid::new_v4().to_string(), "1.2.0");
+        let remote_conn = processor
+            .forwarder()
+            .on_connection_established(conn, None)
+            .unwrap();
+        let c = processor.forwarder().get_connection(remote_conn).unwrap();
+        assert!(c.header_hmac().is_none());
 
         let source = ProtoName::from_strings(["org", "default", "a"]).with_id(1);
         let dest = ProtoName::from_strings(["org", "default", "b"]).with_id(2);
@@ -2281,8 +1884,7 @@ mod tests {
     #[test]
     fn verify_remote_header_mac_accepts_signed_inter_node_publish() {
         let processor = MessageProcessor::new();
-        let (remote_conn, _rx) = make_server_conn(&processor);
-        negotiate_conn(&processor, remote_conn, "1.2.0");
+        let (remote_conn, _rx) = make_negotiated_server_conn(&processor, "1.2.0");
         let link_id = processor
             .forwarder()
             .get_connection(remote_conn)
@@ -2314,8 +1916,7 @@ mod tests {
     #[test]
     fn verify_remote_header_mac_rejects_destination_tamper_after_sign() {
         let processor = MessageProcessor::new();
-        let (remote_conn, _rx) = make_server_conn(&processor);
-        negotiate_conn(&processor, remote_conn, "1.2.0");
+        let (remote_conn, _rx) = make_negotiated_server_conn(&processor, "1.2.0");
         let link_id = processor
             .forwarder()
             .get_connection(remote_conn)
@@ -2359,8 +1960,7 @@ mod tests {
         }
 
         let processor = MessageProcessor::new();
-        let (conn_id, mut rx) = make_server_conn(&processor);
-        negotiate_conn(&processor, conn_id, "1.2.0");
+        let (conn_id, mut rx) = make_negotiated_server_conn(&processor, "1.2.0");
 
         let source = ProtoName::from_strings(["org", "default", "a"]).with_id(1);
         let dest = ProtoName::from_strings(["org", "default", "b"]).with_id(2);
@@ -2405,8 +2005,7 @@ mod tests {
             .register_local_connection(false)
             .expect("failed to create local connection");
 
-        let (remote_conn, mut rx_remote) = make_server_conn(&processor);
-        negotiate_conn(&processor, remote_conn, "1.2.0");
+        let (remote_conn, mut rx_remote) = make_negotiated_server_conn(&processor, "1.2.0");
 
         let source = ProtoName::from_strings(["org", "ns", "src"]).with_id(1);
         let destination = ProtoName::from_strings(["org", "ns", "dst"]).with_id(2);
@@ -2482,8 +2081,7 @@ mod tests {
             .register_local_connection(false)
             .expect("failed to create local connection");
 
-        let (remote_conn, mut rx_remote) = make_server_conn(&processor);
-        negotiate_conn(&processor, remote_conn, "1.2.0");
+        let (remote_conn, mut rx_remote) = make_negotiated_server_conn(&processor, "1.2.0");
 
         let source = ProtoName::from_strings(["org", "ns", "src"]).with_id(1);
         let destination = ProtoName::from_strings(["org", "ns", "dst"]).with_id(2);
@@ -2565,7 +2163,7 @@ mod tests {
         let (local_conn, _tx_local, mut rx_local) = processor
             .register_local_connection(false)
             .expect("failed to create local connection");
-        let (remote_conn, mut rx_remote) = make_server_conn(&processor);
+        let (remote_conn, mut rx_remote) = make_negotiated_server_conn(&processor, "1.2.0");
 
         let sub_id: u64 = 1000;
         let msg = make_test_subscribe(sub_id);
@@ -2608,7 +2206,7 @@ mod tests {
         let (local_conn, _tx_local, mut rx_local) = processor
             .register_local_connection(false)
             .expect("failed to create local connection");
-        let (remote_conn, mut rx_remote) = make_server_conn(&processor);
+        let (remote_conn, mut rx_remote) = make_negotiated_server_conn(&processor, "1.2.0");
 
         let sub_id: u64 = 1001;
         let msg = make_test_subscribe(sub_id);
@@ -2696,7 +2294,7 @@ mod tests {
         let (local_conn, _tx_local, mut rx_local) = processor
             .register_local_connection(false)
             .expect("failed to create local connection");
-        let (remote_conn, mut rx_remote) = make_server_conn(&processor);
+        let (remote_conn, mut rx_remote) = make_negotiated_server_conn(&processor, "1.2.0");
 
         let sub_id: u64 = 1003;
         let msg = make_test_subscribe(sub_id);
@@ -2882,114 +2480,12 @@ mod tests {
         assert!(rx.try_recv().is_err());
     }
 
-    // ── route recovery on link negotiation ────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_link_negotiation_server_triggers_route_recovery() {
-        let processor = MessageProcessor::new();
-        let (conn_id, _rx) = make_server_conn(&processor);
-
-        let link_id = uuid::Uuid::new_v4().to_string();
-        let sub_name = ProtoName::from_strings(["org", "default", "recovered"]);
-
-        // Pre-populate the recovery table as if a prior connection dropped.
-        let mut local_subs = HashMap::new();
-        local_subs.insert(sub_name.clone(), HashSet::from([99u64]));
-        processor
-            .internal
-            .recovery_table
-            .store(link_id.clone(), local_subs, HashSet::new());
-
-        // Simulate the peer reconnecting with the same link_id.
-        let payload = LinkNegotiationPayload {
-            link_id: link_id.clone(),
-            slim_version: "1.0.0".into(),
-            is_reply: false,
-            link_ecdh_public_key: vec![],
-        };
-        processor
-            .handle_link_negotiation(&payload, conn_id)
-            .await
-            .unwrap();
-
-        // The subscription should have been restored in the routing table.
-        let result = processor.forwarder().on_publish_msg_match(
-            sub_name.name.unwrap(),
-            u64::MAX,
-            1,
-            MatchFilter::ALL,
-        );
-        assert!(result.is_ok(), "recovered subscription should be routable");
-        assert_eq!(result.unwrap(), vec![conn_id]);
-    }
-
-    #[tokio::test]
-    async fn test_link_negotiation_server_recovery_restores_remote_subs() {
-        let processor = MessageProcessor::new();
-        let (conn_id, mut rx) = make_server_conn(&processor);
-
-        let link_id = uuid::Uuid::new_v4().to_string();
-        let source = ProtoName::from_strings(["org", "default", "src"]);
-        let dest = ProtoName::from_strings(["org", "default", "dst"]);
-
-        let remote_sub =
-            SubscriptionInfo::new(source.clone(), dest.clone(), "identity".into(), conn_id, 42);
-
-        // Store recovery entry with remote subscriptions.
-        processor.internal.recovery_table.store(
-            link_id.clone(),
-            HashMap::new(),
-            HashSet::from([remote_sub]),
-        );
-
-        let payload = LinkNegotiationPayload {
-            link_id: link_id.clone(),
-            slim_version: "1.0.0".into(),
-            is_reply: false,
-            link_ecdh_public_key: vec![],
-        };
-        processor
-            .handle_link_negotiation(&payload, conn_id)
-            .await
-            .unwrap();
-
-        // The restored subscribe is sent before the link negotiation reply.
-        let sub_msg = rx.recv().await.unwrap().unwrap();
-        assert!(matches!(sub_msg.get_type(), SubscribeType(_)));
-        let reply = rx.recv().await.unwrap().unwrap();
-        assert!(reply.is_link());
-    }
-
-    #[tokio::test]
-    async fn test_link_negotiation_server_no_recovery_entry() {
-        let processor = MessageProcessor::new();
-        let (conn_id, mut rx) = make_server_conn(&processor);
-
-        let link_id = uuid::Uuid::new_v4().to_string();
-        // No recovery entry stored — normal negotiation, no restoration.
-        let payload = LinkNegotiationPayload {
-            link_id: link_id.clone(),
-            slim_version: "1.0.0".into(),
-            is_reply: false,
-            link_ecdh_public_key: vec![],
-        };
-        processor
-            .handle_link_negotiation(&payload, conn_id)
-            .await
-            .unwrap();
-
-        // Only the reply should have been sent.
-        let reply = rx.try_recv().unwrap().unwrap();
-        assert!(reply.is_link());
-        assert!(rx.try_recv().is_err());
-    }
-
     // ── restore_remote_subscriptions ──────────────────────────────────────────
 
     #[tokio::test]
     async fn test_restore_remote_subscriptions_with_tracking() {
         let processor = MessageProcessor::new();
-        let (conn_id, mut rx) = make_server_conn(&processor);
+        let (conn_id, mut rx) = make_negotiated_server_conn(&processor, "1.2.0");
 
         let source = ProtoName::from_strings(["org", "default", "src"]);
         let dest = ProtoName::from_strings(["org", "default", "dst"]);
@@ -3014,7 +2510,7 @@ mod tests {
     #[tokio::test]
     async fn test_restore_remote_subscriptions_without_tracking() {
         let processor = MessageProcessor::new();
-        let (conn_id, mut rx) = make_server_conn(&processor);
+        let (conn_id, mut rx) = make_negotiated_server_conn(&processor, "1.2.0");
 
         let source = ProtoName::from_strings(["org", "default", "src"]);
         let dest = ProtoName::from_strings(["org", "default", "dst"]);

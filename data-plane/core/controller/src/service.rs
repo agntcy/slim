@@ -2107,27 +2107,20 @@ mod tests {
 
         let controller = control_plane_client.controller.clone();
         let link_id = "test-delete-link-id".to_string();
-        let mut assigned = false;
-        for _ in 0..50 {
-            controller
-                .inner
-                .message_processor
-                .connection_table()
-                .for_each(|_, conn| {
-                    if !assigned {
-                        conn.set_link_id(link_id.clone());
-                        assigned = true;
-                    }
-                });
-            if assigned {
-                break;
-            }
-            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
-        }
-        assert!(
-            assigned,
-            "expected at least one connection to assign link_id"
-        );
+
+        // Insert a pre-negotiated remote connection with a known link_id for testing.
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+        let conn = slim_datapath::connection::Connection::new(
+            slim_datapath::tables::ConnType::Remote,
+            slim_datapath::connection::Channel::Server(tx),
+        )
+        .with_negotiation(&link_id, "1.0.0");
+        controller
+            .inner
+            .message_processor
+            .forwarder()
+            .on_connection_established(conn, None)
+            .unwrap();
 
         let ctrl_msg = ControlMessage {
             message_id: uuid::Uuid::new_v4().to_string(),
@@ -2221,27 +2214,20 @@ mod tests {
 
         let controller = control_plane_client.controller.clone();
         let link_id = "test-create-link-id".to_string();
-        let mut assigned = false;
-        for _ in 0..50 {
-            controller
-                .inner
-                .message_processor
-                .connection_table()
-                .for_each(|_, conn| {
-                    if !assigned {
-                        conn.set_link_id(link_id.clone());
-                        assigned = true;
-                    }
-                });
-            if assigned {
-                break;
-            }
-            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
-        }
-        assert!(
-            assigned,
-            "expected at least one connection to assign link_id"
-        );
+
+        // Insert a pre-negotiated remote connection with a known link_id for testing.
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+        let conn = slim_datapath::connection::Connection::new(
+            slim_datapath::tables::ConnType::Remote,
+            slim_datapath::connection::Channel::Server(tx),
+        )
+        .with_negotiation(&link_id, "1.0.0");
+        controller
+            .inner
+            .message_processor
+            .forwarder()
+            .on_connection_established(conn, None)
+            .unwrap();
 
         let endpoint = "http://127.0.0.1:59999";
         let connection_config = serde_json::json!({

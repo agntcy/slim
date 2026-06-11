@@ -936,6 +936,17 @@ impl ProtoMessage {
         matches!(self.get_type(), MessageType::Link(_))
     }
 
+    /// Extract the [`LinkNegotiationPayload`] from a Link message, if present.
+    pub fn get_link_negotiation_payload(&self) -> Option<LinkNegotiationPayload> {
+        match &self.message_type {
+            Some(ProtoLinkMessageType(link)) => match &link.link_type {
+                Some(ProtoLinkType::LinkNegotiation(payload)) => Some(payload.clone()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     pub fn is_subscription_ack(&self) -> bool {
         matches!(self.get_type(), MessageType::SubscriptionAck(_))
     }
