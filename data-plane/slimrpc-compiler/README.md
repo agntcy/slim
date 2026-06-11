@@ -356,12 +356,13 @@ TestServerRegistration.RegisterTestServer(server, impl);
 
 ## Examples
 
-Complete working examples are available in the repository:
+Complete working examples are available in the
+[slim-bindings](https://github.com/agntcy/slim-bindings) repository:
 
-- **Python**: [`bindings/python/examples/slimrpc/simple`](../bindings/python/examples/slimrpc/simple)
-- **Go**: [`bindings/go/examples/slimrpc/simple`](../bindings/go/examples/slimrpc/simple)
-- **Java**: [`bindings/java/examples/slimrpc/simple`](../bindings/java/examples/slimrpc/simple)
-- **C#**: [`bindings/dotnet/Slim.Examples.SlimRpc`](../bindings/dotnet/Slim.Examples.SlimRpc)
+- **Python**: [`python/examples/slimrpc/simple`](https://github.com/agntcy/slim-bindings/tree/main/python/examples/slimrpc/simple)
+- **Go**: [`go/examples/slimrpc/simple`](https://github.com/agntcy/slim-bindings/tree/main/go/examples/slimrpc/simple)
+- **Java**: [`java/examples/slimrpc/simple`](https://github.com/agntcy/slim-bindings/tree/main/java/examples/slimrpc/simple)
+- **C#**: [`dotnet/Slim.Examples.SlimRpc`](https://github.com/agntcy/slim-bindings/tree/main/dotnet/Slim.Examples.SlimRpc)
 
 All examples demonstrate all four RPC patterns with comprehensive client and
 server implementations.
