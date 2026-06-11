@@ -8,10 +8,11 @@ pub mod messages;
 pub mod peer_discovery;
 pub mod tables;
 
-mod connection;
-mod forwarder;
+pub mod connection;
+pub mod forwarder;
 mod header_mac;
 mod link_ecdh;
+mod negotiation;
 #[cfg(feature = "otel_tracing")]
 mod otel_tracing;
 mod recovery;

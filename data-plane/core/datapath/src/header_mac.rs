@@ -45,6 +45,7 @@ pub enum HeaderMacError {
 }
 
 /// Per-link HMAC state: only the key material. Preimage buffers are thread-local (see module docs).
+#[derive(Clone)]
 pub struct HeaderMacSession {
     key: hmac::Key,
 }

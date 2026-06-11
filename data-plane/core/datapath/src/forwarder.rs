@@ -25,6 +25,15 @@ where
     pub connection_table: ConnectionTable<T>,
 }
 
+impl<T> Default for Forwarder<T>
+where
+    T: Clone,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> Forwarder<T>
 where
     T: Clone,
