@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use slim_auth::metadata::{MetadataMap, MetadataValue};
 use slim_auth::shared_secret::SharedSecret;
-use slim_config::component::id::ID;
 use slim_config::component::Component;
+use slim_config::component::id::ID;
 use slim_config::grpc::client::{ClientConfig, KeepaliveConfig};
 use slim_config::grpc::server::ServerConfig;
 use slim_config::tls::client::TlsClientConfig;
@@ -204,12 +204,7 @@ async fn start_grouped_node(
 }
 
 /// Start a single node in a group (no peers).
-async fn start_single_node(
-    name: &str,
-    group: &str,
-    southbound_port: u16,
-    dp_port: u16,
-) -> Service {
+async fn start_single_node(name: &str, group: &str, southbound_port: u16, dp_port: u16) -> Service {
     start_grouped_node(name, group, southbound_port, dp_port, &[(name, dp_port)]).await
 }
 
@@ -807,8 +802,7 @@ async fn test_spt_route_via_hub() {
         }
         let sg = l.source_node_id.split('/').next().unwrap_or("");
         let dg = l.dest_node_id.split('/').next().unwrap_or("");
-        (sg == "customer-a" && dg == "customer-b")
-            || (sg == "customer-b" && dg == "customer-a")
+        (sg == "customer-a" && dg == "customer-b") || (sg == "customer-b" && dg == "customer-a")
     });
     assert!(
         !spoke_to_spoke,
@@ -971,10 +965,9 @@ async fn test_source_gateway_failover() {
     loop {
         let links = collect_links(&mut client, "", "").await;
         let new_link = links.iter().any(|l| {
-            let involves_sibling =
-                l.source_node_id == sibling_id || l.dest_node_id == sibling_id;
-            let involves_group_b = l.source_node_id.starts_with("group-b")
-                || l.dest_node_id.starts_with("group-b");
+            let involves_sibling = l.source_node_id == sibling_id || l.dest_node_id == sibling_id;
+            let involves_group_b =
+                l.source_node_id.starts_with("group-b") || l.dest_node_id.starts_with("group-b");
             involves_sibling && involves_group_b && l.status == LINK_APPLIED && !l.deleted
         });
         if new_link {
@@ -1069,10 +1062,9 @@ async fn test_dest_gateway_failover() {
     loop {
         let links = collect_links(&mut client, "", "").await;
         let new_link = links.iter().any(|l| {
-            let involves_sibling =
-                l.source_node_id == b_sibling || l.dest_node_id == b_sibling;
-            let involves_group_a = l.source_node_id.starts_with("group-a")
-                || l.dest_node_id.starts_with("group-a");
+            let involves_sibling = l.source_node_id == b_sibling || l.dest_node_id == b_sibling;
+            let involves_group_a =
+                l.source_node_id.starts_with("group-a") || l.dest_node_id.starts_with("group-a");
             involves_sibling && involves_group_a && l.status == LINK_APPLIED && !l.deleted
         });
         if new_link {

@@ -38,7 +38,8 @@ use crate::api::proto::dataplane::v1::Message;
 use crate::api::proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
 use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneService;
 use crate::api::{
-    LinkNegotiationPayload, ProtoLink, ProtoLinkMessageType as LinkType, ProtoLinkType, ProtoName,
+    LinkNegotiationPayload, ProtoLink, ProtoLinkMessageType as LinkType, ProtoLinkType,
+    ProtoMessage, ProtoName,
 };
 use crate::connection::{Channel, Connection};
 use crate::errors::{DataPathError, MessageContext};
@@ -1517,13 +1518,13 @@ impl MessageProcessor {
         debug!(%idx, "connection registered after link negotiation");
 
         // Handle connection-type-specific post-negotiation logic.
+        let link_id = self
+            .forwarder()
+            .get_connection(idx)
+            .and_then(|c| c.link_id())
+            .unwrap_or_default();
         let category = match result.connection_type {
             ConnType::Peer => {
-                let link_id = self
-                    .forwarder()
-                    .get_connection(idx)
-                    .and_then(|c| c.link_id())
-                    .unwrap_or_default();
                 if let Err(e) = self
                     .handle_peer_upgrade(
                         &result.remote_node_id,
@@ -1545,7 +1546,10 @@ impl MessageProcessor {
                 // so it can claim the link on the control-plane side.
                 if let Some(tx) = self.get_tx_control_plane() {
                     let link = ProtoLink {
-                        link_type: Some(ProtoLinkType::LinkNegotiation(payload.clone())),
+                        link_type: Some(ProtoLinkType::LinkNegotiation(LinkNegotiationPayload {
+                            link_id,
+                            ..Default::default()
+                        })),
                     };
                     let msg = ProtoMessage {
                         metadata: Default::default(),
