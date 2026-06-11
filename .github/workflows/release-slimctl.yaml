@@ -96,6 +96,46 @@ jobs:
           manifest-path: ./data-plane/slimctl/Cargo.toml
           build-tool: ${{ matrix.platform.build-tool }}
 
+  publish-skill:
+    runs-on: ubuntu-latest
+    needs: [ensure-release]
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Package slimctl skill
+        run: |
+          python3 - <<'EOF'
+          import zipfile, pathlib
+
+          skill_dir = pathlib.Path("skills/slimctl")
+          out = pathlib.Path("slimctl.skill")
+          exclude_dirs = {"evals", "__pycache__"}
+
+          with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+              for f in sorted(skill_dir.rglob("*")):
+                  if not f.is_file():
+                      continue
+                  rel = f.relative_to(skill_dir.parent)
+                  if any(part in exclude_dirs for part in rel.parts):
+                      continue
+                  zf.write(f, rel)
+                  print(f"  added: {rel}")
+
+          print(f"created {out} ({out.stat().st_size} bytes)")
+          EOF
+
+      - name: Upload skill to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release upload "$TAG" slimctl.skill --clobber
+
   homebrew:
     runs-on: ubuntu-latest
     needs: [build-binaries]
