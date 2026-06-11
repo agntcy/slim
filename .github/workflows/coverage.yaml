@@ -42,7 +42,7 @@ jobs:
         run: cargo install cargo-llvm-cov
 
       - name: Generate data plane coverage report
-        run: task data-plane:test:coverage ARGS="--workspace --all-targets --locked --all-features"
+        run: task data-plane:test:coverage ARGS="--all-targets --locked --all-features"
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
