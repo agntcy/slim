@@ -353,16 +353,20 @@ where
         )?;
         if self.mls_state.is_some() {
             for msg in &mut output.messages {
-                if let OutboundMessage::ToSlim(m) = msg {
-                    if m.get_session_message_type().is_command_message() {
-                        m.get_slim_header_mut().sequence_number = Some(self.common.next_control_seq);
-                        self.common.next_control_seq += 1;
+                if let OutboundMessage::ToSlim(m) = msg
+                    && m.get_session_message_type().is_command_message()
+                {
+                    m.get_slim_header_mut().sequence_number = Some(self.common.next_control_seq);
+                    self.common.next_control_seq += 1;
 
-                        let aad = crate::mls_state::build_aad(m);
-                        let private_key = self.common.settings.identity_provider.get_signature_secret_key()?;
-                        let signature = slim_auth::utils::sign_header_aad(&aad, &private_key)?;
-                        m.get_slim_header_mut().e2e_header_sig = Some(signature);
-                    }
+                    let aad = crate::mls_state::build_aad(m);
+                    let private_key = self
+                        .common
+                        .settings
+                        .identity_provider
+                        .get_signature_secret_key()?;
+                    let signature = slim_auth::utils::sign_header_aad(&aad, &private_key)?;
+                    m.get_slim_header_mut().e2e_header_sig = Some(signature);
                 }
             }
         }
