@@ -257,7 +257,6 @@ impl Service {
 
     /// Create a new Service with configuration
     pub fn new_with_config(id: ID, config: ServiceConfiguration) -> Self {
-        let recovery_ttl = config.dataplane.recovery_ttl.as_ref().map(|d| (*d).into());
         let deployment_name = config
             .peers
             .as_ref()
@@ -280,11 +279,10 @@ impl Service {
                 service_id,
                 deployment_name,
                 server,
-                recovery_ttl,
                 relay_peer_publishes,
             )
         } else {
-            MessageProcessor::new_with_options(service_id, recovery_ttl)
+            MessageProcessor::new_with_service_id(service_id)
         };
 
         Service {

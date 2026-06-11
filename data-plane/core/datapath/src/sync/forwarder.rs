@@ -226,7 +226,7 @@ impl PeerSync {
     fn peer_label(&self, mp: &MessageProcessor, conn_id: u64) -> String {
         mp.forwarder()
             .get_connection(conn_id)
-            .and_then(|c| c.peer_node_id())
+            .and_then(|c| c.peer_node_id().map(|s| s.to_string()))
             .unwrap_or_else(|| conn_id.to_string())
     }
 

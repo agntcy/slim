@@ -11,7 +11,6 @@
 
 pub(crate) mod forwarder;
 pub mod peer;
-pub(crate) mod recovery;
 pub mod remote;
 mod state;
 

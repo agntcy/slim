@@ -3,11 +3,10 @@
 
 //! Remote/controller connection sync.
 //!
-//! [`RemoteSync`] tracks subscriptions forwarded to each remote connection,
-//! preserves routing state during brief disconnects (recovery), and handles
-//! restore on reconnect. Unlike peer connections (which do a full sync),
-//! remote connections only replay the specific set of subscriptions that were
-//! previously forwarded to them.
+//! [`RemoteSync`] tracks subscriptions forwarded to each remote connection
+//! and handles restore on reconnect. Unlike peer connections (which do a full
+//! sync), remote connections only replay the specific set of subscriptions that
+//! were previously forwarded to them.
 
 use std::collections::{HashMap, HashSet};
 
@@ -17,7 +16,6 @@ use tracing::error;
 
 use crate::api::ProtoName;
 use crate::message_processing::MessageProcessor;
-use crate::sync::recovery::RecoveryTable;
 
 // ─── SubscriptionInfo ────────────────────────────────────────────────────────
 
@@ -65,36 +63,20 @@ impl SubscriptionInfo {
 
 // ─── RemoteSync ──────────────────────────────────────────────────────────────
 
-/// Manages subscription tracking, recovery, and restore for remote (non-peer) connections.
+/// Manages subscription tracking and restore for remote (non-peer) connections.
 ///
 /// Event-driven interface used by the message processor:
 /// - [`on_forwarded_subscription`](Self::on_forwarded_subscription): a sub was sent to a remote conn
 /// - [`on_connection_drop`](Self::on_connection_drop): a remote connection was lost
 /// - [`get_subscriptions_for_reconnect`](Self::get_subscriptions_for_reconnect): snapshot before client reconnect
 /// - [`restore`](Self::restore): replay subscriptions after reconnect
-///
-/// Also owns the [`RecoveryTable`] for server-side route preservation during brief disconnects.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct RemoteSync {
     /// Subscriptions forwarded to each remote connection, keyed by conn_id.
     table: RwLock<HashMap<u64, HashSet<SubscriptionInfo>>>,
-
-    /// Server-side route preservation during brief disconnects (keyed by link_id).
-    pub(crate) recovery: RecoveryTable,
 }
 
 impl RemoteSync {
-    pub fn new(recovery_ttl: Option<std::time::Duration>) -> Self {
-        let recovery = match recovery_ttl {
-            Some(ttl) => RecoveryTable::new(ttl),
-            None => RecoveryTable::default(),
-        };
-        Self {
-            table: RwLock::new(HashMap::new()),
-            recovery,
-        }
-    }
-
     /// Record that a subscription was forwarded (or unforwarded) on a remote connection.
     pub fn on_forwarded_subscription(
         &self,
@@ -130,7 +112,6 @@ impl RemoteSync {
     }
 
     /// A remote connection dropped — remove and return its tracked subscriptions.
-    /// The caller stores them in the recovery table (keyed by link_id).
     pub fn on_connection_drop(&self, conn: u64) -> HashSet<SubscriptionInfo> {
         let mut map = self.table.write();
         map.remove(&conn).unwrap_or_default()
@@ -145,9 +126,8 @@ impl RemoteSync {
 
     /// Re-send previously-forwarded subscriptions to a remote connection after reconnect.
     ///
-    /// When `restore_tracking` is `true` (server-side recovery), also re-registers each
-    /// subscription in the tracking table. This is necessary because `on_connection_drop`
-    /// already wiped that state.
+    /// When `restore_tracking` is `true`, also re-registers each subscription in the
+    /// tracking table.
     ///
     /// When `restore_tracking` is `false` (client-side reconnect), the tracking table was
     /// never cleaned (reconnect reuses the same slot), so no re-registration is needed.
@@ -181,11 +161,5 @@ impl RemoteSync {
                 );
             }
         }
-    }
-}
-
-impl Default for RemoteSync {
-    fn default() -> Self {
-        Self::new(None)
     }
 }

@@ -98,6 +98,7 @@ mod tests {
     use slim_config::testutils::helloworld::greeter_client::GreeterClient;
     use slim_config::testutils::helloworld::greeter_server::GreeterServer;
     use slim_config::{client::ClientConfig, server::ServerConfig};
+    use slim_testing::common::reserve_local_port;
     use slim_testing::utils::setup_test_jwt_resolver;
     #[cfg(unix)]
     use {
@@ -107,16 +108,6 @@ mod tests {
     };
 
     static TEST_DATA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata");
-
-    fn reserve_port() -> u16 {
-        let listener = std::net::TcpListener::bind("[::1]:0")
-            .or_else(|_| std::net::TcpListener::bind("127.0.0.1:0"))
-            .expect("failed to reserve test port");
-        listener
-            .local_addr()
-            .expect("failed to read reserved port")
-            .port()
-    }
 
     async fn run_server(
         client_config: ClientConfig,
@@ -260,7 +251,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
-        let port = reserve_port();
+        let port = reserve_local_port();
         // create a client configuration and derive a channel from it
         let client_config = ClientConfig::with_endpoint(&format!("http://[::1]:{}", port))
             .with_headers(HashMap::from([(
@@ -281,7 +272,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_tls_grpc_configuration() -> Result<(), Box<dyn std::error::Error>> {
-        let port = reserve_port();
+        let port = reserve_local_port();
         // create a client configuration and derive a channel from it
         let client_config = ClientConfig::with_endpoint(&format!("https://[::1]:{}", port))
             .with_headers(HashMap::from([(
@@ -315,9 +306,8 @@ mod tests {
         auth_client_config: ClientAuthenticationConfig,
         auth_server_config: ServerAuthenticationConfig,
         auth_wrong_client_config: ClientAuthenticationConfig,
-        _port: u16,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let port = reserve_port();
+        let port = reserve_local_port();
         // create a client configuration and derive a channel from it
         let client_config = ClientConfig::with_endpoint(&format!("https://[::1]:{}", port))
             .with_headers(HashMap::from([(
@@ -402,7 +392,7 @@ mod tests {
             ClientAuthenticationConfig::Basic(BasicAuthConfig::new("wrong", "password"));
 
         // run grpc server and client
-        test_grpc_auth(client_config, server_config, wrong_client_config, 50054).await
+        test_grpc_auth(client_config, server_config, wrong_client_config).await
     }
 
     #[cfg(unix)]
@@ -527,7 +517,7 @@ mod tests {
         );
 
         // run grpc server and client
-        test_grpc_auth(client_config, server_config, wrong_client_config, 50055).await?;
+        test_grpc_auth(client_config, server_config, wrong_client_config).await?;
 
         // Clean up temporary files
         let _ = std::fs::remove_file(token_path);
@@ -539,7 +529,6 @@ mod tests {
         key_client: Key,
         key_server: Key,
         key_client_wrong: Key,
-        port: u16,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Create JWT claims
         let claims = slim_config::auth::jwt::Claims::default()
@@ -566,7 +555,7 @@ mod tests {
         ));
 
         // run grpc server and client
-        test_grpc_auth(client_config, server_config, wring_client_config, port).await
+        test_grpc_auth(client_config, server_config, wring_client_config).await
     }
 
     #[tokio::test]
@@ -589,7 +578,6 @@ mod tests {
                 format: KeyFormat::Pem,
                 key: KeyData::Data("wrong-key".to_string()),
             },
-            50057,
         )
         .await
     }
@@ -614,7 +602,6 @@ mod tests {
                 format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem"),
             },
-            50058,
         )
         .await
     }
@@ -639,7 +626,6 @@ mod tests {
                 format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem"),
             },
-            50059,
         )
         .await
     }
@@ -664,7 +650,6 @@ mod tests {
                 format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem"),
             },
-            50060,
         )
         .await
     }
@@ -689,7 +674,6 @@ mod tests {
                 format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/ec256-wrong.pem"),
             },
-            50061,
         )
         .await
     }
@@ -714,7 +698,6 @@ mod tests {
                 format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/ec384-wrong.pem"),
             },
-            50062,
         )
         .await
     }
@@ -739,7 +722,6 @@ mod tests {
                 format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem"),
             },
-            50063,
         )
         .await
     }
@@ -764,7 +746,6 @@ mod tests {
                 format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem"),
             },
-            50064,
         )
         .await
     }
@@ -789,7 +770,6 @@ mod tests {
                 format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem"),
             },
-            50065,
         )
         .await
     }
@@ -814,14 +794,12 @@ mod tests {
                 format: KeyFormat::Pem,
                 key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/eddsa-wrong.pem"),
             },
-            50066,
         )
         .await
     }
 
     async fn test_tls_jwt_resolver_grpc_configuration(
         algorithm: Algorithm,
-        port: u16,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let (test_key, mock_server, _alg_str) = setup_test_jwt_resolver(algorithm).await;
 
@@ -871,7 +849,7 @@ mod tests {
         ));
 
         // run grpc server and client
-        test_grpc_auth(client_config, server_config, wring_client_config, port).await
+        test_grpc_auth(client_config, server_config, wring_client_config).await
     }
 
     #[tokio::test]
@@ -879,7 +857,7 @@ mod tests {
     async fn test_tls_jwt_ecdsa256_autoresolve_grpc_configuration()
     -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
-        test_tls_jwt_resolver_grpc_configuration(Algorithm::ES256, 51111).await
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::ES256).await
     }
 
     #[tokio::test]
@@ -887,7 +865,7 @@ mod tests {
     async fn test_tls_jwt_ecdsa384_autoresolve_grpc_configuration()
     -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
-        test_tls_jwt_resolver_grpc_configuration(Algorithm::ES384, 51112).await
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::ES384).await
     }
 
     #[tokio::test]
@@ -895,7 +873,7 @@ mod tests {
     async fn test_tls_jwt_rsa256_autoresolve_grpc_configuration()
     -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
-        test_tls_jwt_resolver_grpc_configuration(Algorithm::RS256, 51113).await
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::RS256).await
     }
 
     #[tokio::test]
@@ -903,7 +881,7 @@ mod tests {
     async fn test_tls_jwt_rsa384_autoresolve_grpc_configuration()
     -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
-        test_tls_jwt_resolver_grpc_configuration(Algorithm::RS384, 51114).await
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::RS384).await
     }
 
     #[tokio::test]
@@ -911,7 +889,7 @@ mod tests {
     async fn test_tls_jwt_rsa512_autoresolve_grpc_configuration()
     -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
-        test_tls_jwt_resolver_grpc_configuration(Algorithm::RS512, 51115).await
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::RS512).await
     }
 
     #[tokio::test]
@@ -919,7 +897,7 @@ mod tests {
     async fn test_tls_jwt_rsap256_autoresolve_grpc_configuration()
     -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
-        test_tls_jwt_resolver_grpc_configuration(Algorithm::PS256, 51116).await
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::PS256).await
     }
 
     #[tokio::test]
@@ -927,7 +905,7 @@ mod tests {
     async fn test_tls_jwt_rsap384_autoresolve_grpc_configuration()
     -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
-        test_tls_jwt_resolver_grpc_configuration(Algorithm::PS384, 51117).await
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::PS384).await
     }
 
     #[tokio::test]
@@ -935,7 +913,7 @@ mod tests {
     async fn test_tls_jwt_rsap512_autoresolve_grpc_configuration()
     -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
-        test_tls_jwt_resolver_grpc_configuration(Algorithm::PS512, 51118).await
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::PS512).await
     }
 
     #[tokio::test]
@@ -943,7 +921,7 @@ mod tests {
     async fn test_tls_jwt_eddsa_autoresolve_grpc_configuration()
     -> Result<(), Box<dyn std::error::Error>> {
         // Test RSA JWT configuration
-        test_tls_jwt_resolver_grpc_configuration(Algorithm::EdDSA, 51119).await
+        test_tls_jwt_resolver_grpc_configuration(Algorithm::EdDSA).await
     }
 
     #[tokio::test]
@@ -979,7 +957,7 @@ mod tests {
         let spiffe_cfg = env.get_spiffe_config();
 
         // TEST 1: SPIFFE TLS without client authentication
-        let port1 = reserve_port();
+        let port1 = reserve_local_port();
 
         // Server TLS config uses dynamic SPIFFE resolver (no cert/key files)
         let server_tls = TlsServerConfig::new()
@@ -1005,7 +983,7 @@ mod tests {
         }
 
         // TEST 2: SPIFFE mTLS with client authentication
-        let port2 = reserve_port();
+        let port2 = reserve_local_port();
 
         // Server TLS config uses dynamic SPIFFE resolver (no cert/key files)
         let server_tls = TlsServerConfig::new()
@@ -1033,7 +1011,7 @@ mod tests {
         }
 
         // TEST 3: SPIFFE mTLS with different client_ca on server side (should fail)
-        let port3 = reserve_port();
+        let port3 = reserve_local_port();
 
         // Server TLS config uses dynamic SPIFFE resolver (no cert/key files)
         let server_tls = TlsServerConfig::new()
@@ -1064,7 +1042,7 @@ mod tests {
         }
 
         // TEST 4: SPIFFE TLS with no CA on client side (should fail)
-        let port4 = reserve_port();
+        let port4 = reserve_local_port();
 
         // Server TLS config uses dynamic SPIFFE resolver (no cert/key files)
         let server_tls = TlsServerConfig::new()
