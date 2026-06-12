@@ -44,8 +44,8 @@
   "devDependencies": {
     "@types/node": "^20.10.0",
     "typescript": "^5.3.3",
-    "vitest": "^2.0.0",
-    "@vitest/coverage-v8": "^2.0.0"
+    "vitest": "^4.1.8",
+    "@vitest/coverage-v8": "^4.1.8"
   },
   "peerDependencies": {
     "react-native": ">=0.72.0"
