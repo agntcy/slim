@@ -311,6 +311,7 @@ impl DataAccess for InMemoryDb {
             .map(|ids| {
                 ids.iter()
                     .filter_map(|id| store.primary.get(id))
+                    .filter(|r| r.source_node_id != ALL_NODES_ID)
                     .cloned()
                     .collect()
             })
@@ -434,7 +435,8 @@ impl DataAccess for InMemoryDb {
             ids.iter()
                 .filter_map(|id| store.primary.get(id))
                 .filter(|r| {
-                    r.component0 == component0
+                    r.status != RouteStatus::Deleted
+                        && r.component0 == component0
                         && r.component1 == component1
                         && r.component2 == component2
                         && r.component_id.as_deref() == component_id
@@ -524,26 +526,6 @@ impl DataAccess for InMemoryDb {
         let route = store.primary.get_mut(route_id).unwrap();
         route.link_id = Some(link_id.to_string());
         route.status = RouteStatus::Pending;
-        route.last_updated = SystemTime::now();
-        let updated = route.clone();
-        store.index_add(&updated);
-        Ok(())
-    }
-
-    async fn restore_route(&self, route_id: &str, link_id: &str) -> Result<()> {
-        let mut store = self.routes.write();
-        let route = store
-            .primary
-            .get(route_id)
-            .ok_or_else(|| Error::RouteNotFound {
-                id: route_id.to_string(),
-            })?;
-        let old_snapshot = route.clone();
-        store.index_remove(&old_snapshot);
-        let route = store.primary.get_mut(route_id).unwrap();
-        route.status = RouteStatus::Pending;
-        route.status_msg = String::new();
-        route.link_id = Some(link_id.to_string());
         route.last_updated = SystemTime::now();
         let updated = route.clone();
         store.index_add(&updated);

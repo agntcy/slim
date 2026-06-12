@@ -302,6 +302,7 @@ impl DataAccess for SqliteDb {
         })?;
         routes::table
             .filter(routes::dest_node_id.eq(node_id))
+            .filter(routes::source_node_id.ne(ALL_NODES_ID))
             .load::<Route>(&mut conn)
             .await
             .map_err(|e| Error::DbError {
@@ -416,6 +417,7 @@ impl DataAccess for SqliteDb {
         })?;
         let mut q = routes::table
             .filter(routes::source_node_id.eq(ALL_NODES_ID))
+            .filter(routes::status.ne(RouteStatus::Deleted))
             .filter(routes::component0.eq(component0))
             .filter(routes::component1.eq(component1))
             .filter(routes::component2.eq(component2))
@@ -564,33 +566,6 @@ impl DataAccess for SqliteDb {
             .await
             .map_err(|e| Error::DbError {
                 context: "update_route_link_id",
-                msg: e.to_string(),
-            })?;
-        if n == 0 {
-            return Err(Error::RouteNotFound {
-                id: route_id.to_string(),
-            });
-        }
-        Ok(())
-    }
-
-    async fn restore_route(&self, route_id: &str, link_id: &str) -> Result<()> {
-        let ts = DbTimestamp::from(SystemTime::now());
-        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
-            context: "restore_route pool",
-            msg: e.to_string(),
-        })?;
-        let n = diesel::update(routes::table.find(route_id))
-            .set((
-                routes::status.eq(RouteStatus::Pending),
-                routes::status_msg.eq(""),
-                routes::link_id.eq(Some(link_id)),
-                routes::last_updated.eq(ts),
-            ))
-            .execute(&mut conn)
-            .await
-            .map_err(|e| Error::DbError {
-                context: "restore_route",
                 msg: e.to_string(),
             })?;
         if n == 0 {

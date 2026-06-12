@@ -65,9 +65,6 @@ pub trait DataAccess: Send + Sync {
     async fn mark_route_failed(&self, route_id: &str, msg: &str) -> Result<()>;
     /// Update the link_id on an existing route and reset status to Pending.
     async fn update_route_link_id(&self, route_id: &str, link_id: &str) -> Result<()>;
-    /// Restore a soft-deleted route: set deleted=false, status=Pending,
-    /// and update the link_id to the current link between the nodes.
-    async fn restore_route(&self, route_id: &str, link_id: &str) -> Result<()>;
 
     // ── Links ──────────────────────────────────────────────────────────────
 

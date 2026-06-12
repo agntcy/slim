@@ -120,40 +120,6 @@ impl super::RouteService {
         }
         node_links.extend(new_links);
 
-        // Restore soft-deleted routes where this node is the destination.
-        let dest_routes = match self.0.db.get_routes_for_dest_node_id(node_id).await {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::error!("node_registered: get_routes_for_dest_node_id: {e}");
-                return;
-            }
-        };
-        for route in dest_routes {
-            if route.status != RouteStatus::Deleted {
-                continue;
-            }
-            // Skip wildcard templates — the app must re-subscribe to recreate them.
-            if route.source_node_id == ALL_NODES_ID {
-                continue;
-            }
-            let link_id = node_links
-                .iter()
-                .find(|l| {
-                    l.status != LinkStatus::Deleted
-                        && ((l.source_node_id == route.source_node_id && l.dest_node_id == node_id)
-                            || (l.source_node_id == node_id
-                                && l.dest_node_id == route.source_node_id))
-                })
-                .map(|l| l.link_id.as_str())
-                .or(route.link_id.as_deref())
-                .unwrap_or_default();
-            if let Err(e) = self.0.db.restore_route(&route.id, link_id).await {
-                tracing::warn!("node_registered: failed to restore route {}: {e}", route.id);
-            } else {
-                self.0.queue.add(route.source_node_id.clone());
-            }
-        }
-
         // Re-expand wildcard routes via SPT. This is idempotent — duplicates
         // are rejected by add_single_route.
         let all_links = self.0.db.list_all_links().await.unwrap_or_default();
@@ -391,9 +357,10 @@ impl super::RouteService {
     /// Delete routes where this node is the source, mark-delete routes where
     /// this node is the destination and re-trigger their source nodes.
     async fn cleanup_routes_for_node(&self, node_id: &str) {
-        let (src_routes, dest_routes) = tokio::join!(
+        let (src_routes, dest_routes, wildcard_routes) = tokio::join!(
             self.0.db.get_routes_for_node(node_id),
             self.0.db.get_routes_for_dest_node_id(node_id),
+            self.0.db.get_routes_for_node(ALL_NODES_ID),
         );
 
         let src_routes = src_routes.unwrap_or_else(|e| {
@@ -404,6 +371,12 @@ impl super::RouteService {
             tracing::error!("cleanup_routes: failed to get dest routes for {node_id}: {e}");
             vec![]
         });
+        // Wildcard templates where this node is the destination.
+        let wildcard_dest: Vec<_> = wildcard_routes
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|r| r.dest_node_id == node_id)
+            .collect();
 
         for route in src_routes {
             if let Err(e) = self.0.db.delete_route(&route.id).await {
@@ -413,16 +386,25 @@ impl super::RouteService {
 
         // For routes where this node is the destination: mark deleted and
         // re-trigger source nodes so the subscription is cleaned up on them.
-        // Wildcard templates are also deleted — the app will re-subscribe
-        // when it reconnects, creating a fresh wildcard.
         for route in &dest_routes {
             if let Err(e) = self.0.db.mark_route_deleted(&route.id).await {
                 tracing::warn!(
                     "cleanup_routes: failed to mark route {} deleted: {e}",
                     route.id
                 );
-            } else if route.source_node_id != ALL_NODES_ID {
+            } else {
                 self.0.queue.add(route.source_node_id.clone());
+            }
+        }
+
+        // Wildcard templates are also deleted — the app will re-subscribe
+        // when it reconnects, creating a fresh wildcard.
+        for route in &wildcard_dest {
+            if let Err(e) = self.0.db.mark_route_deleted(&route.id).await {
+                tracing::warn!(
+                    "cleanup_routes: failed to mark wildcard route {} deleted: {e}",
+                    route.id
+                );
             }
         }
     }
@@ -543,7 +525,17 @@ impl super::RouteService {
 
         // Recreate links from source nodes that lost their dest-side gateway.
         if !sources_needing_links.is_empty() {
-            let all_nodes = self.0.db.list_nodes().await.unwrap_or_default();
+            // Exclude the departing node so ensure_links_for_node picks
+            // the sibling's endpoint instead of the dead node's.
+            let all_nodes: Vec<_> = self
+                .0
+                .db
+                .list_nodes()
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|n| n.id != departing_node)
+                .collect();
             let all_links = self.0.db.list_all_links().await.unwrap_or_default();
             for src_node_id in &sources_needing_links {
                 let (affected, _new_links) = self
@@ -556,10 +548,11 @@ impl super::RouteService {
             self.rebuild_link_graph(&all_nodes).await;
         }
 
-        // Move routes that were on the departing node to the new gateway.
-        // These routes referenced the reassigned links — they need to stay
-        // alive on the new gateway so the reconciler pushes them once the
-        // link is re-established.
+        // Handle routes on the departing node.
+        // - If there are NO incoming links being recreated (sources_needing_links is empty),
+        //   all links were outgoing and kept their link_id. Move routes to new gateway.
+        // - If there ARE incoming links being recreated, the old link_ids are gone.
+        //   Delete those routes; they'll be re-expanded after the new link is claimed.
         let src_routes = self
             .0
             .db
@@ -567,27 +560,38 @@ impl super::RouteService {
             .await
             .unwrap_or_default();
         for route in &src_routes {
-            // Delete old route and re-add with new source.
-            let mut moved = route.clone();
-            moved.source_node_id = new_gateway.clone();
-            moved.status = RouteStatus::Pending;
-            if let Err(e) = self.0.db.delete_route(&route.id).await {
-                tracing::warn!(
-                    "reassign_gateway_links: failed to delete route {}: {e}",
-                    route.id
-                );
-                continue;
-            }
-            match self.0.db.add_route(moved).await {
-                Ok(r) => {
-                    tracing::info!(
-                        "reassign_gateway_links: moved route to {new_gateway}: {}",
-                        r.id
-                    );
-                }
-                Err(e) => {
+            if sources_needing_links.is_empty() {
+                // Outgoing-link case: move route to new gateway (link_id stays same).
+                let mut moved = route.clone();
+                moved.source_node_id = new_gateway.clone();
+                moved.status = RouteStatus::Pending;
+                if let Err(e) = self.0.db.delete_route(&route.id).await {
                     tracing::warn!(
-                        "reassign_gateway_links: failed to re-add route {}: {e}",
+                        "reassign_gateway_links: failed to delete route {}: {e}",
+                        route.id
+                    );
+                    continue;
+                }
+                match self.0.db.add_route(moved).await {
+                    Ok(r) => {
+                        tracing::info!(
+                            "reassign_gateway_links: moved route to {new_gateway}: {}",
+                            r.id
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "reassign_gateway_links: failed to re-add route {}: {e}",
+                            route.id
+                        );
+                    }
+                }
+            } else {
+                // Incoming-link case: old link_id is gone, delete route.
+                // It will be re-expanded after the new link is claimed.
+                if let Err(e) = self.0.db.delete_route(&route.id).await {
+                    tracing::warn!(
+                        "reassign_gateway_links: failed to delete route {}: {e}",
                         route.id
                     );
                 }
@@ -595,8 +599,16 @@ impl super::RouteService {
         }
         self.0.queue.add(new_gateway.clone());
 
-        // Re-expand wildcard routes with new gateway.
-        let all_nodes = self.0.db.list_nodes().await.unwrap_or_default();
+        // Re-expand wildcard routes with new gateway (excluding departing node).
+        let all_nodes: Vec<_> = self
+            .0
+            .db
+            .list_nodes()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|n| n.id != departing_node)
+            .collect();
         let all_links = self.0.db.list_all_links().await.unwrap_or_default();
         self.expand_all_wildcard_routes(&all_nodes, &all_links)
             .await;

@@ -596,19 +596,20 @@ async fn test_inter_group_route_applied() {
     stop_control_plane(cp).await;
 }
 
-/// Test 3: Local subscription creates wildcard + remote route
+/// Test 3: Subscription creates correct routes and does NOT propagate over Remote links
 ///
 /// Scenario:
 ///   - Start CP + 2 nodes in different groups (group-a, group-b).
-///   - An app connects to node-a and subscribes to "org/ns/svc".
-///   - The CP should create:
-///     - A wildcard route: * -> node-a (representing the local subscription)
-///     - A remote route: node-b -> node-a (so node-b can forward to node-a)
-///   - Both routes should reach Applied status.
+///   - An app subscribes on node-a:
+///     - Verify wildcard route *->node-a and remote route node-b->node-a are created.
+///   - A second app subscribes on node-b:
+///     - Verify wildcard route *->node-b and remote route node-a->node-b are created.
+///     - Verify NO spurious wildcard *->node-a is created from propagation over
+///       the Remote inter-group link.
 ///
-/// Validates: app subscribe -> CP notified -> wildcard template -> SPT expansion.
+/// Validates: subscribe → CP notified → SPT expansion + no cross-link propagation.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_local_subscription_creates_routes() {
+async fn test_subscription_routing() {
     init_tracing();
 
     let cp = start_control_plane(TopologyConfig::default()).await;
@@ -626,86 +627,58 @@ async fn test_local_subscription_creates_routes() {
     wait_for_nodes_connected(&mut client, &[&id_a, &id_b], SHORT_TIMEOUT).await;
     wait_for_link_between_groups(&mut client, "group-a", "group-b", DEFAULT_TIMEOUT).await;
 
-    // App subscribes on node-a.
-    let app = start_subscribing_app(a_port, "org", "ns", "local-sub").await;
-
-    // Wildcard route: * -> node-a.
+    // App subscribes on node-a → creates wildcard + expanded route.
+    let app_a = start_subscribing_app(a_port, "org", "ns", "local-sub").await;
     wait_for_route_applied(&mut client, "*", &id_a, DEFAULT_TIMEOUT).await;
-    // Remote route: node-b -> node-a.
     wait_for_route_applied(&mut client, &id_b, &id_a, DEFAULT_TIMEOUT).await;
 
-    app.shutdown().await.ok();
-    node_a.shutdown().await.ok();
-    node_b.shutdown().await.ok();
-    stop_control_plane(cp).await;
-}
-
-/// Test 4: Subscription does NOT propagate over Remote links
-///
-/// Scenario:
-///   - Start CP + 2 nodes in different groups (group-a, group-b).
-///   - An app subscribes on node-b.
-///   - Verify that ONLY routes *->node-b and node-a->node-b are created.
-///   - Verify that NO wildcard *->node-a is created (which would mean the
-///     subscription incorrectly propagated over the Remote inter-group link).
-///
-/// Validates: data plane does NOT forward subscribes over Remote connections.
-#[tokio::test(flavor = "multi_thread")]
-async fn test_subscription_does_not_propagate_over_remote_links() {
-    init_tracing();
-
-    let cp = start_control_plane(TopologyConfig::default()).await;
-    let mut client = create_nb_client(cp.northbound_port).await;
-
-    let a_port = reserve_port();
-    let b_port = reserve_port();
-
-    let node_a = start_single_node("node-a", "group-a", cp.southbound_port, a_port).await;
-    let node_b = start_single_node("node-b", "group-b", cp.southbound_port, b_port).await;
-
-    let id_a = grouped_node_id("group-a", "node-a");
-    let id_b = grouped_node_id("group-b", "node-b");
-
-    wait_for_nodes_connected(&mut client, &[&id_a, &id_b], SHORT_TIMEOUT).await;
-    wait_for_link_between_groups(&mut client, "group-a", "group-b", DEFAULT_TIMEOUT).await;
-
-    // App subscribes on node-b.
-    let app = start_subscribing_app(b_port, "org", "ns", "no-propagate").await;
-
-    // Correct routes should exist.
+    // App subscribes on node-b → creates wildcard + expanded route.
+    let app_b = start_subscribing_app(b_port, "org", "ns", "no-propagate").await;
     wait_for_route_applied(&mut client, "*", &id_b, DEFAULT_TIMEOUT).await;
     wait_for_route_applied(&mut client, &id_a, &id_b, DEFAULT_TIMEOUT).await;
 
     // Give extra time for any incorrect routes to appear.
     tokio::time::sleep(Duration::from_secs(2)).await;
 
-    // Verify NO wildcard *->node-a exists (would indicate wrong propagation).
+    // Verify no EXTRA wildcard *->node-a was created by propagation from node-b's subscribe.
+    // There should be exactly one wildcard for node-a (from app_a), not a second one from
+    // node-b's subscription leaking over the Remote link.
     let routes = collect_routes(&mut client, "*", &id_a).await;
-    let wrong_wildcard = routes
+    let wildcard_count = routes
         .iter()
-        .any(|r| r.source_node_id == "*" && r.dest_node_id == id_a && r.status == ROUTE_APPLIED);
-    assert!(
-        !wrong_wildcard,
-        "subscription incorrectly propagated over Remote link: found *->{id_a} route"
+        .filter(|r| r.source_node_id == "*" && r.dest_node_id == id_a && r.status == ROUTE_APPLIED)
+        .count();
+    assert_eq!(
+        wildcard_count, 1,
+        "expected exactly 1 wildcard *->{id_a} (from app_a), got {wildcard_count} — \
+         subscription may have propagated over Remote link"
     );
 
-    // Also verify no reverse route node-b->node-a exists.
+    // Verify no reverse route node-b->node-a exists for the "no-propagate" service.
     let routes = collect_routes(&mut client, &id_b, &id_a).await;
-    let wrong_reverse = routes
-        .iter()
-        .any(|r| r.source_node_id == id_b && r.dest_node_id == id_a && r.status == ROUTE_APPLIED);
+    let wrong_reverse = routes.iter().any(|r| {
+        r.source_node_id == id_b
+            && r.dest_node_id == id_a
+            && r.status == ROUTE_APPLIED
+            && r.name
+                .as_ref()
+                .and_then(|n| n.str_name.as_ref())
+                .map(|sn| sn.str_component_2 == "no-propagate")
+                .unwrap_or(false)
+    });
     assert!(
         !wrong_reverse,
-        "subscription created wrong reverse route: {id_b}->{id_a}"
+        "subscription created wrong reverse route: {id_b}->{id_a} for 'no-propagate'"
     );
 
-    app.shutdown().await.ok();
+    app_a.shutdown().await.ok();
+    app_b.shutdown().await.ok();
     node_a.shutdown().await.ok();
     node_b.shutdown().await.ok();
     stop_control_plane(cp).await;
 }
 
-/// Test 5: Bidirectional inter-group routes
+/// Test 4: Bidirectional inter-group routes
 ///
 /// Scenario:
 ///   - Start CP + 2 nodes in different groups.
@@ -751,7 +724,7 @@ async fn test_bidirectional_inter_group_routes() {
     stop_control_plane(cp).await;
 }
 
-/// Test 6: SPT route via hub (star topology)
+/// Test 5: SPT route via hub (star topology)
 ///
 /// Scenario:
 ///   - Start CP with star topology: "platform" is the hub.
@@ -762,7 +735,6 @@ async fn test_bidirectional_inter_group_routes() {
 ///
 /// Validates: SPT routing through intermediate hops when no direct link exists.
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "SPT multi-hop routing requires full claim flow"]
 async fn test_spt_route_via_hub() {
     init_tracing();
 
@@ -824,7 +796,7 @@ async fn test_spt_route_via_hub() {
     stop_control_plane(cp).await;
 }
 
-/// Test 7: Multicast - no duplicate routes per (source, dest) pair
+/// Test 6: Multicast - no duplicate routes per (source, dest) pair
 ///
 /// Scenario:
 ///   - Full mesh with 3 groups, 1 node each.
@@ -833,7 +805,6 @@ async fn test_spt_route_via_hub() {
 ///
 /// Validates: SPT expansion doesn't create conflicting or duplicate routes.
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "SPT multicast routing requires full claim flow"]
 async fn test_multicast_no_duplicate_routes() {
     init_tracing();
 
@@ -895,17 +866,16 @@ async fn test_multicast_no_duplicate_routes() {
     stop_control_plane(cp).await;
 }
 
-/// Test 8: Source gateway failover
+/// Test 7: Source gateway failover
 ///
 /// Scenario:
 ///   - Start CP + 2 nodes in group-a (node-a1, node-a2) + 1 node in group-b.
-///   - Wait for inter-group link (one of group-a's nodes becomes the gateway).
-///   - Add a route from the gateway to node-b.
-///   - Kill the gateway node.
-///   - Verify: the link is reassigned to the sibling in group-a.
-///   - Verify: the route migrates to the new gateway and reaches Applied.
+///   - App subscribes on node-b → wildcard *->node-b + expanded route from gateway->node-b.
+///   - Kill the gateway node in group-a.
+///   - Verify: link is reassigned to the sibling in group-a.
+///   - Verify: route from sibling->node-b is re-expanded and reaches Applied.
 ///
-/// Validates: reassign_gateway_links moves links+routes to sibling on source-side crash.
+/// Validates: source-side gateway failover + wildcard route re-expansion.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_source_gateway_failover() {
     init_tracing();
@@ -931,12 +901,11 @@ async fn test_source_gateway_failover() {
     wait_for_nodes_connected(&mut client, &[&id_a1, &id_a2, &id_b], SHORT_TIMEOUT).await;
     wait_for_link_between_groups(&mut client, "group-a", "group-b", DEFAULT_TIMEOUT).await;
 
-    // Find which node in group-a is involved in the link.
+    // Find which node in group-a is the gateway.
     let link =
         wait_for_link_between_groups_entry(&mut client, "group-a", "group-b", DEFAULT_TIMEOUT)
             .await;
 
-    // The group-a node participating in the link is the gateway.
     let gateway_id = if link.source_node_id.starts_with("group-a") {
         link.source_node_id.clone()
     } else {
@@ -948,8 +917,9 @@ async fn test_source_gateway_failover() {
         id_a1.clone()
     };
 
-    // Add route from gateway to node-b.
-    add_route(&mut client, &gateway_id, &id_b, "org", "ns", "failover-svc").await;
+    // App subscribes on node-b → creates wildcard *->node-b + expanded route gateway->node-b.
+    let app = start_subscribing_app(b_port, "org", "ns", "failover-svc").await;
+    wait_for_route_applied(&mut client, "*", &id_b, DEFAULT_TIMEOUT).await;
     wait_for_route_applied(&mut client, &gateway_id, &id_b, DEFAULT_TIMEOUT).await;
 
     // Kill the gateway node.
@@ -981,10 +951,11 @@ async fn test_source_gateway_failover() {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 
-    // Route should be migrated to sibling and reach Applied.
+    // Route from sibling->node-b should be re-expanded via wildcard and reach Applied.
     wait_for_route_applied(&mut client, &sibling_id, &id_b, DEFAULT_TIMEOUT).await;
 
     // Cleanup.
+    app.shutdown().await.ok();
     if gateway_id == id_a1 {
         node_a2.shutdown().await.ok();
     } else {
@@ -994,7 +965,7 @@ async fn test_source_gateway_failover() {
     stop_control_plane(cp).await;
 }
 
-/// Test 9: Dest gateway failover
+/// Test 8: Dest gateway failover
 ///
 /// Scenario:
 ///   - Start CP + 1 node in group-a + 2 nodes in group-b (node-b1, node-b2).
@@ -1089,7 +1060,7 @@ async fn test_dest_gateway_failover() {
     stop_control_plane(cp).await;
 }
 
-/// Test 10: Wildcard route deleted on node crash
+/// Test 9: Wildcard route deleted on node crash
 ///
 /// Scenario:
 ///   - Start CP + 1 node in group-a (with app subscribed) + 1 node in group-b.
@@ -1133,7 +1104,7 @@ async fn test_wildcard_route_deleted_on_node_crash() {
     stop_control_plane(cp).await;
 }
 
-/// Test 11: Route restored when node reconnects with new app subscription
+/// Test 10: Route restored when node reconnects with new app subscription
 ///
 /// Scenario:
 ///   - Start CP + 2 nodes in different groups.
@@ -1195,7 +1166,7 @@ async fn test_route_restored_after_reconnect() {
     stop_control_plane(cp).await;
 }
 
-/// Test 12: App disconnect removes routes
+/// Test 11: App disconnect removes routes
 ///
 /// Scenario:
 ///   - Start CP + 2 nodes in different groups.
@@ -1205,7 +1176,6 @@ async fn test_route_restored_after_reconnect() {
 ///
 /// Validates: unsubscribe path - app disconnect triggers route deletion via CP.
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "Requires unsubscribe-over-Remote forwarding fix"]
 async fn test_app_disconnect_removes_routes() {
     init_tracing();
 
@@ -1247,7 +1217,7 @@ async fn test_app_disconnect_removes_routes() {
     stop_control_plane(cp).await;
 }
 
-/// Test 13: Last node in group removes group from topology
+/// Test 12: Last node in group removes group from topology
 ///
 /// Scenario:
 ///   - Start CP + 3 nodes in 3 different groups.
@@ -1316,16 +1286,16 @@ async fn test_last_node_removes_group_links() {
     stop_control_plane(cp).await;
 }
 
-/// Test 14: Node crash and recovery - link re-established
+/// Test 13: Node crash and recovery - link re-established
 ///
 /// Scenario:
 ///   - Start CP + 2 nodes in different groups.
-///   - Add a route, verify Applied.
-///   - Kill one node, wait briefly.
-///   - Restart the node on the same port.
-///   - Verify the link is re-established and route becomes Applied again.
+///   - App subscribes on node-a → wildcard + expanded route created.
+///   - Kill node-b (dest side), wait briefly.
+///   - Restart node-b on the same port.
+///   - Verify the link is re-established and expanded route becomes Applied again.
 ///
-/// Validates: full crash->recovery cycle for a single-node group.
+/// Validates: full crash->recovery cycle for a single-node group with subscription-based routes.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_node_crash_and_link_recovery() {
     init_tracing();
@@ -1345,10 +1315,12 @@ async fn test_node_crash_and_link_recovery() {
     wait_for_nodes_connected(&mut client, &[&id_a, &id_b], SHORT_TIMEOUT).await;
     wait_for_link_between_groups(&mut client, "group-a", "group-b", DEFAULT_TIMEOUT).await;
 
-    add_route(&mut client, &id_a, &id_b, "org", "ns", "recovery-svc").await;
-    wait_for_route_applied(&mut client, &id_a, &id_b, DEFAULT_TIMEOUT).await;
+    // App subscribes on node-a — creates wildcard template + expanded route via SPT.
+    let app = start_subscribing_app(a_port, "org", "ns", "recovery-svc").await;
+    wait_for_route_applied(&mut client, "*", &id_a, DEFAULT_TIMEOUT).await;
+    wait_for_route_applied(&mut client, &id_b, &id_a, DEFAULT_TIMEOUT).await;
 
-    // Crash node-b.
+    // Crash node-b (the destination side).
     node_b.deregister().await.ok();
     node_b.shutdown().await.ok();
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -1357,10 +1329,11 @@ async fn test_node_crash_and_link_recovery() {
     let node_b2 = start_single_node("node-b", "group-b", cp.southbound_port, b_port).await;
     wait_for_nodes_connected(&mut client, &[&id_b], SHORT_TIMEOUT).await;
 
-    // Link should be re-established and route re-applied.
+    // Link should be re-established and expanded route re-applied.
     wait_for_link_between_groups(&mut client, "group-a", "group-b", DEFAULT_TIMEOUT).await;
-    wait_for_route_applied(&mut client, &id_a, &id_b, DEFAULT_TIMEOUT).await;
+    wait_for_route_applied(&mut client, &id_b, &id_a, DEFAULT_TIMEOUT).await;
 
+    app.shutdown().await.ok();
     node_a.shutdown().await.ok();
     node_b2.shutdown().await.ok();
     stop_control_plane(cp).await;

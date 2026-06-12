@@ -251,6 +251,13 @@ impl super::RouteService {
                     "connection_received: node {node_id} claimed link {link_id} from {}",
                     claimed.source_node_id
                 );
+
+                // Re-expand wildcard routes now that a new link is fully established.
+                let all_nodes = self.0.db.list_nodes().await.unwrap_or_default();
+                let all_links = self.0.db.list_all_links().await.unwrap_or_default();
+                self.expand_all_wildcard_routes(&all_nodes, &all_links)
+                    .await;
+
                 // Enqueue both source and dest for reconciliation so routes
                 // can be expanded over the now-established link.
                 self.0.queue.add(claimed.source_node_id.clone());

@@ -406,9 +406,13 @@ impl super::RouteService {
 
         // Group wildcard routes by name. The first (oldest by created_at)
         // route for each name owns the SPT; subsequent ones get downward paths.
+        // Only consider non-deleted routes for expansion.
         let mut by_name: HashMap<(String, String, String, Option<String>), Vec<&Route>> =
             HashMap::new();
-        for r in &wildcard_routes {
+        for r in wildcard_routes
+            .iter()
+            .filter(|r| r.status != crate::db::RouteStatus::Deleted)
+        {
             let key = (
                 r.component0.clone(),
                 r.component1.clone(),

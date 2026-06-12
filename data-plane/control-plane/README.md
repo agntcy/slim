@@ -8,11 +8,15 @@ information is propagated to data-plane instances, and how failures are handled.
 ## Table of Contents
 
 1. [System Overview](#system-overview)
+   - [Group-Based Routing](#group-based-routing)
+   - [Topology Policies](#topology-policies)
+   - [Architecture](#architecture)
 2. [Components](#components)
 3. [Node Lifecycle](#node-lifecycle)
    - [Registration](#registration)
    - [Deregistration](#deregistration)
    - [Crash Disconnect](#crash-disconnect)
+   - [Gateway Failover](#gateway-failover)
 4. [Link Management](#link-management)
    - [Link Creation](#link-creation)
    - [Link Reconciliation](#link-reconciliation)
@@ -41,6 +45,48 @@ data-plane (DP) nodes. It maintains the desired state of inter-node connections
 (links) and message subscriptions (routes), and uses a declarative
 reconciliation loop to converge the actual state of each DP node toward the
 desired state.
+
+### Group-Based Routing
+
+The CP operates on **groups** (also called deployments), not individual nodes.
+Each DP node belongs to exactly one group. Intra-group connectivity is handled
+by the data plane directly (nodes within the same group discover each other via
+static peers). The CP is responsible only for **inter-group** connectivity:
+creating links between groups and expanding routes across group boundaries.
+
+Within a group, one node is automatically elected as the **gateway** — the node
+that holds the inter-group link and forwards traffic between its group and
+other groups. If the gateway crashes, the CP reassigns the link to a sibling
+node in the same group (see [Gateway Failover](#gateway-failover)).
+
+### Topology Policies
+
+The CP supports configurable topology policies that control which groups are
+allowed to form inter-group links. This enables network partitioning — for
+example, two customer clusters connected to a shared cloud cluster where
+customers cannot see each other's agents.
+
+Topology is configured via the `topology` section in the CP config file:
+
+```yaml
+topology:
+  type: full-mesh  # all groups can link to all other groups (default)
+```
+
+```yaml
+topology:
+  type: custom
+  allowed_links:
+    - [customer-a, cloud]
+    - [customer-b, cloud]
+  # customer-a and customer-b cannot link directly
+```
+
+The topology policy is enforced during link creation (`ensure_links_for_node`):
+if `topology.can_link(src_group, dst_group)` returns false, the link is
+skipped.
+
+### Architecture
 
 ```mermaid
 graph TD
@@ -194,6 +240,31 @@ and routes remain in the DB. When the node reconnects, `node_registered`
 syncs the state (see step 1 of Registration). The periodic reconciliation
 sweep also re-enqueues connected nodes to catch any drift.
 
+### Gateway Failover
+
+When a node that serves as a group's gateway (the node holding inter-group
+links) departs, the CP performs gateway failover to maintain connectivity.
+This is handled by `reassign_gateway_links` in `node_lifecycle.rs`.
+
+**Outgoing links** (gateway is the source side of the link):
+1. The link's `source_node_id` is changed to a sibling node in the same group.
+2. The link keeps its `link_id` and is reset to `Pending`.
+3. Routes on the departing gateway are moved to the sibling (same `link_id`).
+4. The reconciler pushes the connection to the new gateway, which establishes it.
+
+**Incoming links** (gateway is the dest side of the link):
+1. The old link is deleted entirely (the endpoint pointed to the dead node).
+2. `ensure_links_for_node` is called on the source to recreate the link
+   targeting the sibling's endpoint.
+3. Routes referencing the old link are deleted.
+4. After the new link is claimed, `expand_all_wildcard_routes` re-creates
+   the routes with the correct new `link_id`.
+
+**Single-node groups**: If the departing node is the last in its group, no
+failover is possible. All links are soft-deleted and routes are cleaned up.
+When a new node joins the group later, links and routes are recreated from
+scratch.
+
 ## Link Management
 
 A **link** represents a desired gRPC connection between two DP nodes. Links
@@ -210,16 +281,30 @@ with status `Pending`. The link record includes:
 |---|---|
 | `link_id` | Unique identifier (UUID) |
 | `source_node_id` | Node that initiates the connection |
-| `dest_node_id` | Target node |
+| `dest_node_id` | Target node (empty until claimed) |
+| `dest_group` | Target group name |
 | `dest_endpoint` | gRPC endpoint address |
 | `conn_config_data` | JSON-serialized `ClientConfig` (TLS settings, backoff, keepalive, headers) |
-| `status` | `Pending`, `Applied`, or `Failed` |
+| `status` | `Pending`, `Connecting`, `Applied`, or `Failed` |
 | `deleted` | Soft-delete flag |
 
 **Connection detail selection.** For same-group links, the first connection
 detail's local endpoint is used with insecure TLS. For cross-group links, the
 `external_endpoint` is used with mTLS (SPIRE-based), and additional settings
 (backoff, keepalive, SPIRE socket path) are injected into the config.
+
+**Link claim mechanism.** Inter-group links use a two-phase creation process:
+
+1. The CP creates the link record with `dest_node_id` empty and `dest_group`
+   set. The reconciler pushes the connection config to the source node.
+2. The source node establishes the gRPC connection to the dest endpoint.
+3. The dest node receives the connection and reports it back to the CP via
+   `ConfigCommand` (with the `link_id` embedded in the connection metadata).
+4. The CP calls `claim_link`: it matches the `link_id` + `dest_group` and
+   fills in `dest_node_id` with the claiming node. The link is now fully
+   established (`Applied`).
+5. After claim, `expand_all_wildcard_routes` is triggered to create routes
+   over the newly established link.
 
 ### Link Reconciliation
 
