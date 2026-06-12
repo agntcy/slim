@@ -875,12 +875,39 @@ impl PeerSync {
 mod tests {
     use super::*;
 
+    use slim_config::client::ClientConfig;
+    use tokio_util::sync::CancellationToken;
+
     use crate::message_processing::MessageProcessor;
+    use crate::peer_discovery::{PeerDiscovery, PeerDiscoveryError, PeerEvent, PeerInfo};
 
     fn make_forwarder() -> PeerSync {
         let mp = MessageProcessor::new();
         mp.peer_sync()
     }
+
+    fn make_forwarder_with_state() -> PeerSync {
+        PeerSync::with_peer_state(
+            &PeerTopology::FullMesh,
+            Arc::new(RwLock::new(PeerState::new())),
+        )
+    }
+
+    fn make_name() -> ProtoName {
+        ProtoName::from_strings(["org", "example", "svc"])
+    }
+
+    fn make_peer_info(id: &str) -> PeerInfo {
+        PeerInfo {
+            id: id.to_string(),
+            config: ClientConfig {
+                endpoint: "http://127.0.0.1:9999".to_string(),
+                ..Default::default()
+            },
+        }
+    }
+
+    // ── ACK tests ───────────────────────────────────────────────────────────
 
     #[tokio::test]
     async fn test_register_and_resolve_delivers_ok() {
@@ -939,5 +966,703 @@ mod tests {
 
         fwd.remove_peer_conn(10);
         assert_eq!(fwd.peer_conns(), HashSet::from([20]));
+    }
+
+    // ── Multi-peer ACK aggregation ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_multi_ack_all_ok() {
+        let fwd = make_forwarder();
+        let rx = fwd.register_ack(10, 3);
+        fwd.resolve_ack(10, Ok(()));
+        fwd.resolve_ack(10, Ok(()));
+        fwd.resolve_ack(10, Ok(()));
+        let result = rx.await.unwrap();
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_multi_ack_partial_error() {
+        let fwd = make_forwarder();
+        let rx = fwd.register_ack(11, 2);
+        fwd.resolve_ack(11, Ok(()));
+        fwd.resolve_ack(
+            11,
+            Err(DataPathError::RemoteSubscriptionAckError(
+                "peer-fail".into(),
+            )),
+        );
+        let result = rx.await.unwrap();
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_multi_ack_all_errors() {
+        let fwd = make_forwarder();
+        let rx = fwd.register_ack(12, 2);
+        fwd.resolve_ack(
+            12,
+            Err(DataPathError::RemoteSubscriptionAckError("e1".into())),
+        );
+        fwd.resolve_ack(
+            12,
+            Err(DataPathError::RemoteSubscriptionAckError("e2".into())),
+        );
+        let result = rx.await.unwrap();
+        assert!(result.is_err());
+    }
+
+    // ── Forwarded sub tracking ──────────────────────────────────────────────
+
+    #[test]
+    fn test_forwarded_sub_tracking() {
+        let fwd = make_forwarder();
+        let name = make_name();
+
+        assert!(!fwd.has_seen_sub_id(42));
+        fwd.register_forwarded_sub(&name, 42);
+        assert!(fwd.has_seen_sub_id(42));
+
+        // name → sub_id lookup
+        assert_eq!(
+            fwd.inner.forwarded_sub_for_name.read().get(&name).copied(),
+            Some(42)
+        );
+
+        fwd.remove_forwarded_sub(&name, 42);
+        assert!(!fwd.has_seen_sub_id(42));
+        assert!(fwd.inner.forwarded_sub_for_name.read().get(&name).is_none());
+    }
+
+    // ── forward_to_peers ────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_forward_to_peers_no_target() {
+        let fwd = make_forwarder();
+        let mp = MessageProcessor::new();
+        let name = make_name();
+        let targets = ForwardTargets {
+            peers: None,
+            forward_conn: None,
+        };
+        // No peer target → early return Ok
+        let result = fwd.forward_to_peers(&mp, &name, 1, true, &targets, 2).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_forward_to_peers_no_conns() {
+        let fwd = make_forwarder();
+        let mp = MessageProcessor::new();
+        let name = make_name();
+        let targets = ForwardTargets {
+            peers: Some(PeerTarget::All),
+            forward_conn: None,
+        };
+        // Peer target set but no peer conns → early return Ok
+        let result = fwd.forward_to_peers(&mp, &name, 1, true, &targets, 2).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_forward_to_peers_send_failure_still_ok() {
+        let fwd = make_forwarder();
+        let mp = MessageProcessor::new();
+        let name = make_name();
+
+        // Add peer conns that don't actually exist in the forwarder table
+        fwd.add_peer_conn(100);
+        fwd.add_peer_conn(200);
+
+        let targets = ForwardTargets {
+            peers: Some(PeerTarget::All),
+            forward_conn: None,
+        };
+
+        // send_msg will fail since conns 100/200 don't exist → sends fail,
+        // sent_count == 0, returns Ok (no ACK wait needed)
+        let result = fwd
+            .forward_to_peers(&mp, &name, 50, true, &targets, 2)
+            .await;
+        assert!(result.is_ok());
+        // Despite failure, the sub was registered in seen set
+        assert!(fwd.has_seen_sub_id(50));
+    }
+
+    #[tokio::test]
+    async fn test_forward_to_peers_exclude_conn() {
+        let fwd = make_forwarder();
+        let mp = MessageProcessor::new();
+        let name = make_name();
+
+        fwd.add_peer_conn(100);
+        fwd.add_peer_conn(200);
+
+        let targets = ForwardTargets {
+            peers: Some(PeerTarget::ExcludeConn(100)),
+            forward_conn: None,
+        };
+
+        // Only conn 200 will be targeted (and fail since it doesn't exist)
+        let result = fwd
+            .forward_to_peers(&mp, &name, 51, true, &targets, 2)
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_forward_to_peers_unsubscribe() {
+        let fwd = make_forwarder();
+        let mp = MessageProcessor::new();
+        let name = make_name();
+
+        // Pre-register to test removal path
+        fwd.register_forwarded_sub(&name, 60);
+        assert!(fwd.has_seen_sub_id(60));
+
+        fwd.add_peer_conn(100);
+        let targets = ForwardTargets {
+            peers: Some(PeerTarget::All),
+            forward_conn: None,
+        };
+
+        let result = fwd
+            .forward_to_peers(&mp, &name, 60, false, &targets, 2)
+            .await;
+        assert!(result.is_ok());
+        // Unsubscribe removes from seen set
+        assert!(!fwd.has_seen_sub_id(60));
+    }
+
+    // ── forward_to_conn ─────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_forward_to_conn_no_target() {
+        let fwd = make_forwarder();
+        let mp = MessageProcessor::new();
+        let name = make_name();
+        let msg = super::super::build_subscribe_msg(&name, 70, 2).unwrap();
+        let targets = ForwardTargets {
+            peers: None,
+            forward_conn: None,
+        };
+        let result = fwd.forward_to_conn(&mp, &msg, 70, true, &targets).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_forward_to_conn_send_failure() {
+        let fwd = make_forwarder();
+        let mp = MessageProcessor::new();
+        let name = make_name();
+        let msg = super::super::build_subscribe_msg(&name, 71, 2).unwrap();
+        let targets = ForwardTargets {
+            peers: None,
+            forward_conn: Some(999), // non-existent connection
+        };
+        let result = fwd.forward_to_conn(&mp, &msg, 71, true, &targets).await;
+        assert!(result.is_err());
+        // ACK should have been cleaned up
+        assert!(!fwd.inner.pending_acks.read().contains_key(&71));
+    }
+
+    // ── forward_and_ack ─────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_forward_and_ack_no_targets() {
+        let fwd = make_forwarder();
+        let mp = MessageProcessor::new();
+        let name = make_name();
+        let msg = super::super::build_subscribe_msg(&name, 80, 2).unwrap();
+        let targets = ForwardTargets::none();
+        // No targets → both return Ok, no upstream ACK sent (None)
+        fwd.forward_and_ack(&mp, msg, name, 80, true, targets, 1, None, 2)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn test_forward_and_ack_peer_failure_nonfatal() {
+        let fwd = make_forwarder();
+        let mp = MessageProcessor::new();
+        let name = make_name();
+        let msg = super::super::build_subscribe_msg(&name, 81, 2).unwrap();
+
+        // peer target with fake conns → send fails → peer error is non-fatal
+        fwd.add_peer_conn(300);
+        let targets = ForwardTargets {
+            peers: Some(PeerTarget::All),
+            forward_conn: None,
+        };
+        fwd.forward_and_ack(&mp, msg, name, 81, true, targets, 1, None, 2)
+            .await;
+        // Should not panic; peer failure is logged but not propagated
+    }
+
+    #[tokio::test]
+    async fn test_forward_and_ack_forward_conn_failure() {
+        let fwd = make_forwarder();
+        let mp = MessageProcessor::new();
+        let name = make_name();
+        let msg = super::super::build_subscribe_msg(&name, 82, 2).unwrap();
+
+        let targets = ForwardTargets {
+            peers: None,
+            forward_conn: Some(999), // non-existent
+        };
+        // forward_conn failure → upstream ACK should NOT be sent (no upstream_subscription_id)
+        fwd.forward_and_ack(&mp, msg, name, 82, true, targets, 1, None, 2)
+            .await;
+    }
+
+    // ── notify_peers_unsubscribe ────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_notify_peers_unsubscribe_unknown_name() {
+        let fwd = make_forwarder();
+        let mp = MessageProcessor::new();
+        let name = make_name();
+        // Never forwarded → should return immediately
+        fwd.notify_peers_unsubscribe(&mp, &name).await;
+    }
+
+    #[tokio::test]
+    async fn test_notify_peers_unsubscribe_known_name() {
+        let fwd = make_forwarder();
+        let mp = MessageProcessor::new();
+        let name = make_name();
+
+        // Register the name first
+        fwd.register_forwarded_sub(&name, 90);
+        fwd.add_peer_conn(400); // fake conn → send will fail but we just check it doesn't panic
+
+        fwd.notify_peers_unsubscribe(&mp, &name).await;
+        // After unsubscribe, the seen set no longer contains this ID
+        assert!(!fwd.has_seen_sub_id(90));
+    }
+
+    // ── on_connection_drop ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_on_connection_drop_removes_peer_state() {
+        let fwd = make_forwarder_with_state();
+        let state = fwd.peer_state().unwrap();
+        state.write().insert(
+            "peer-a".to_string(),
+            PeerEntry {
+                conn_id: 50,
+                endpoint: "http://a".to_string(),
+                is_outgoing: true,
+            },
+        );
+        fwd.add_peer_conn(50);
+
+        fwd.on_connection_drop(50);
+        assert!(!fwd.peer_conns().contains(&50));
+        assert!(!state.read().contains("peer-a"));
+    }
+
+    #[test]
+    fn test_on_connection_drop_unknown_conn() {
+        let fwd = make_forwarder_with_state();
+        // Should not panic on unknown conn
+        fwd.on_connection_drop(999);
+    }
+
+    // ── on_incoming_peer ────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_on_incoming_peer_dedup() {
+        let fwd = make_forwarder_with_state();
+        let mp = MessageProcessor::new();
+
+        let state = fwd.peer_state().unwrap();
+        state.write().insert(
+            "peer-a".to_string(),
+            PeerEntry {
+                conn_id: 10,
+                endpoint: "http://a".to_string(),
+                is_outgoing: false,
+            },
+        );
+
+        // Second registration of same node_id should be a no-op
+        fwd.on_incoming_peer(&mp, "peer-a".to_string(), 20);
+        // conn_id should still be the original
+        assert_eq!(state.read().conn_id("peer-a"), Some(10));
+    }
+
+    #[tokio::test]
+    async fn test_on_incoming_peer_new() {
+        let fwd = make_forwarder_with_state();
+        let mp = MessageProcessor::new();
+
+        fwd.on_incoming_peer(&mp, "peer-b".to_string(), 30);
+        let state = fwd.peer_state().unwrap();
+        assert!(state.read().contains("peer-b"));
+        assert!(fwd.peer_conns().contains(&30));
+    }
+
+    // ── ForwardTargets ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_forward_targets_has_any() {
+        assert!(!ForwardTargets::none().has_any());
+        assert!(
+            ForwardTargets {
+                peers: Some(PeerTarget::All),
+                forward_conn: None,
+            }
+            .has_any()
+        );
+        assert!(
+            ForwardTargets {
+                peers: None,
+                forward_conn: Some(1),
+            }
+            .has_any()
+        );
+    }
+
+    // ── PeerSync constructors ───────────────────────────────────────────────
+
+    #[test]
+    fn test_standalone_constructor() {
+        let fwd = PeerSync::standalone();
+        assert_eq!(fwd.subscription_ttl(), DEFAULT_TTL);
+        assert!(!fwd.has_peer_state());
+    }
+
+    #[test]
+    fn test_fullmesh_constructor() {
+        let fwd = PeerSync::new(&PeerTopology::FullMesh);
+        assert_eq!(fwd.subscription_ttl(), 2);
+        assert!(!fwd.has_peer_state());
+    }
+
+    #[test]
+    fn test_hub_and_spoke_constructor() {
+        let fwd = PeerSync::new(&PeerTopology::HubAndSpoke);
+        assert_eq!(fwd.subscription_ttl(), 3);
+    }
+
+    #[test]
+    fn test_with_peer_state_constructor() {
+        let fwd = make_forwarder_with_state();
+        assert!(fwd.has_peer_state());
+    }
+
+    // ── run_discovery ───────────────────────────────────────────────────────
+
+    /// Mock discovery that yields a sequence of events then closes.
+    struct MockDiscovery {
+        events: Vec<Result<PeerEvent, PeerDiscoveryError>>,
+        start_error: Option<PeerDiscoveryError>,
+    }
+
+    impl MockDiscovery {
+        fn new(events: Vec<Result<PeerEvent, PeerDiscoveryError>>) -> Self {
+            Self {
+                events,
+                start_error: None,
+            }
+        }
+
+        fn with_start_error(err: PeerDiscoveryError) -> Self {
+            Self {
+                events: vec![],
+                start_error: Some(err),
+            }
+        }
+    }
+
+    impl PeerDiscovery for MockDiscovery {
+        async fn start(&mut self) -> Result<(), PeerDiscoveryError> {
+            if let Some(e) = self.start_error.take() {
+                Err(e)
+            } else {
+                Ok(())
+            }
+        }
+
+        async fn recv(&mut self) -> Result<PeerEvent, PeerDiscoveryError> {
+            if self.events.is_empty() {
+                // Block forever (will be cancelled)
+                std::future::pending().await
+            } else {
+                self.events.remove(0)
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_run_discovery_start_error() {
+        let fwd = make_forwarder_with_state();
+        let mp = MessageProcessor::new();
+        let cancel = CancellationToken::new();
+        let config = PeerSyncConfig {
+            self_id: "self".to_string(),
+            deployment_name: "deploy".to_string(),
+            topology: PeerTopology::FullMesh,
+            is_hub: false,
+        };
+
+        let discovery =
+            MockDiscovery::with_start_error(PeerDiscoveryError::Backend("cannot start".into()));
+        // Should return without panicking
+        fwd.run_discovery(&mp, config, discovery, cancel).await;
+    }
+
+    #[tokio::test]
+    async fn test_run_discovery_cancellation() {
+        let fwd = make_forwarder_with_state();
+        let mp = MessageProcessor::new();
+        let cancel = CancellationToken::new();
+        let config = PeerSyncConfig {
+            self_id: "self".to_string(),
+            deployment_name: "deploy".to_string(),
+            topology: PeerTopology::FullMesh,
+            is_hub: false,
+        };
+
+        let discovery = MockDiscovery::new(vec![]);
+        cancel.cancel();
+        fwd.run_discovery(&mp, config, discovery, cancel).await;
+    }
+
+    #[tokio::test]
+    async fn test_run_discovery_error_event() {
+        let fwd = make_forwarder_with_state();
+        let mp = MessageProcessor::new();
+        let cancel = CancellationToken::new();
+        let config = PeerSyncConfig {
+            self_id: "self".to_string(),
+            deployment_name: "deploy".to_string(),
+            topology: PeerTopology::FullMesh,
+            is_hub: false,
+        };
+
+        let discovery = MockDiscovery::new(vec![Err(PeerDiscoveryError::Backend(
+            "stream error".into(),
+        ))]);
+        // Should break on error event
+        fwd.run_discovery(&mp, config, discovery, cancel).await;
+    }
+
+    // ── handle_peer_joined ──────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_handle_peer_joined_skip_self() {
+        let fwd = make_forwarder_with_state();
+        let mp = MessageProcessor::new();
+        let config = PeerSyncConfig {
+            self_id: "self-node".to_string(),
+            deployment_name: "deploy".to_string(),
+            topology: PeerTopology::FullMesh,
+            is_hub: false,
+        };
+
+        // Peer with same id as self → skip
+        let peer = make_peer_info("self-node");
+        fwd.handle_peer_joined(&mp, &config, peer).await;
+        assert!(fwd.peer_conns().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_handle_peer_joined_skip_no_dial_fullmesh() {
+        let fwd = make_forwarder_with_state();
+        let mp = MessageProcessor::new();
+        let config = PeerSyncConfig {
+            self_id: "z-node".to_string(), // lexicographically larger
+            deployment_name: "deploy".to_string(),
+            topology: PeerTopology::FullMesh,
+            is_hub: false,
+        };
+
+        // In FullMesh, only smaller ID dials → "z-node" > "a-peer", so no dial
+        let peer = make_peer_info("a-peer");
+        fwd.handle_peer_joined(&mp, &config, peer).await;
+        assert!(fwd.peer_conns().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_handle_peer_joined_skip_no_dial_spoke() {
+        let fwd = make_forwarder_with_state();
+        let mp = MessageProcessor::new();
+        let config = PeerSyncConfig {
+            self_id: "spoke-node".to_string(),
+            deployment_name: "deploy".to_string(),
+            topology: PeerTopology::HubAndSpoke,
+            is_hub: false, // spoke never dials
+        };
+
+        let peer = make_peer_info("other");
+        fwd.handle_peer_joined(&mp, &config, peer).await;
+        assert!(fwd.peer_conns().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_handle_peer_joined_already_connected() {
+        let fwd = make_forwarder_with_state();
+        let mp = MessageProcessor::new();
+        let config = PeerSyncConfig {
+            self_id: "a-node".to_string(), // smaller → should_dial
+            deployment_name: "deploy".to_string(),
+            topology: PeerTopology::FullMesh,
+            is_hub: false,
+        };
+
+        // Pre-register the peer as already connected
+        let state = fwd.peer_state().unwrap();
+        state.write().insert(
+            "b-peer".to_string(),
+            PeerEntry {
+                conn_id: 100,
+                endpoint: "http://b".to_string(),
+                is_outgoing: true,
+            },
+        );
+
+        let peer = make_peer_info("b-peer");
+        fwd.handle_peer_joined(&mp, &config, peer).await;
+        // Should skip — no new peer_conn added
+        assert!(fwd.peer_conns().is_empty());
+    }
+
+    // ── handle_peer_left ────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_handle_peer_left_known_peer() {
+        let fwd = make_forwarder_with_state();
+        let mp = MessageProcessor::new();
+
+        let state = fwd.peer_state().unwrap();
+        state.write().insert(
+            "peer-x".to_string(),
+            PeerEntry {
+                conn_id: 55,
+                endpoint: "http://x".to_string(),
+                is_outgoing: true,
+            },
+        );
+        fwd.add_peer_conn(55);
+
+        let peer = make_peer_info("peer-x");
+        fwd.handle_peer_left(&mp, peer).await;
+        assert!(!fwd.peer_conns().contains(&55));
+        assert!(!state.read().contains("peer-x"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_peer_left_unknown_peer() {
+        let fwd = make_forwarder_with_state();
+        let mp = MessageProcessor::new();
+
+        let peer = make_peer_info("unknown-peer");
+        // Should not panic
+        fwd.handle_peer_left(&mp, peer).await;
+    }
+
+    #[tokio::test]
+    async fn test_handle_peer_left_incoming_peer_no_disconnect() {
+        let fwd = make_forwarder_with_state();
+        let mp = MessageProcessor::new();
+
+        let state = fwd.peer_state().unwrap();
+        state.write().insert(
+            "peer-y".to_string(),
+            PeerEntry {
+                conn_id: 66,
+                endpoint: "http://y".to_string(),
+                is_outgoing: false, // incoming → no disconnect call
+            },
+        );
+        fwd.add_peer_conn(66);
+
+        let peer = make_peer_info("peer-y");
+        fwd.handle_peer_left(&mp, peer).await;
+        assert!(!fwd.peer_conns().contains(&66));
+    }
+
+    // ── wait_for_ack_with_retry ─────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_wait_for_ack_immediate_ok() {
+        let fwd = make_forwarder();
+        let mp = MessageProcessor::new();
+        let name = make_name();
+        let msg = super::super::build_subscribe_msg(&name, 100, 2).unwrap();
+
+        let (tx, rx) = oneshot::channel();
+        tx.send(Ok(())).unwrap();
+
+        let result = fwd.wait_for_ack_with_retry(&mp, 100, msg, 999, rx).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_ack_immediate_err() {
+        let fwd = make_forwarder();
+        let mp = MessageProcessor::new();
+        let name = make_name();
+        let msg = super::super::build_subscribe_msg(&name, 101, 2).unwrap();
+
+        let (tx, rx) = oneshot::channel();
+        tx.send(Err(DataPathError::RemoteSubscriptionAckError(
+            "nope".into(),
+        )))
+        .unwrap();
+
+        let result = fwd.wait_for_ack_with_retry(&mp, 101, msg, 999, rx).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_ack_sender_dropped() {
+        let fwd = make_forwarder();
+        let mp = MessageProcessor::new();
+        let name = make_name();
+        let msg = super::super::build_subscribe_msg(&name, 102, 2).unwrap();
+
+        let (_tx, rx) = oneshot::channel::<Result<(), DataPathError>>();
+        // Drop tx immediately
+        drop(_tx);
+
+        let result = fwd.wait_for_ack_with_retry(&mp, 102, msg, 999, rx).await;
+        assert!(result.is_err());
+    }
+
+    // ── set_peer_conns ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_set_peer_conns() {
+        let fwd = make_forwarder();
+        fwd.set_peer_conns(HashSet::from([1, 2, 3]));
+        assert_eq!(fwd.peer_conns(), HashSet::from([1, 2, 3]));
+    }
+
+    // ── peer_label ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_peer_label_unknown_conn() {
+        let fwd = make_forwarder();
+        let mp = MessageProcessor::new();
+        // Unknown conn → falls back to conn_id as string
+        assert_eq!(fwd.peer_label(&mp, 12345), "12345");
+    }
+
+    // ── PendingAck Debug ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_pending_ack_debug() {
+        let (tx, _rx) = oneshot::channel();
+        let ack = PendingAck {
+            remaining: 2,
+            tx: Some(tx),
+            errors: vec![DataPathError::RemoteSubscriptionAckError("x".into())],
+        };
+        let dbg = format!("{:?}", ack);
+        assert!(dbg.contains("remaining: 2"));
+        assert!(dbg.contains("tx: true"));
+        assert!(dbg.contains("errors: 1"));
     }
 }

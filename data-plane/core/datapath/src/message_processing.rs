@@ -304,7 +304,7 @@ impl MessageProcessor {
             .forwarder()
             .get_connection(conn_index)
             .ok_or(DataPathError::ConnectionNotFound(conn_index))?;
-        if !matches!(conn.connection_type(), ConnType::Remote) {
+        if !matches!(conn.connection_type(), ConnType::Remote | ConnType::Edge) {
             return Ok(());
         }
         let header = message
@@ -641,7 +641,7 @@ impl MessageProcessor {
 
                 if !msg.is_link()
                     && !msg.is_subscription_ack()
-                    && matches!(conn.connection_type(), ConnType::Remote)
+                    && matches!(conn.connection_type(), ConnType::Remote | ConnType::Edge)
                     && conn.require_header_mac()
                     && conn.header_hmac().is_none()
                 {
@@ -653,7 +653,7 @@ impl MessageProcessor {
 
                 if !msg.is_link()
                     && !msg.is_subscription_ack()
-                    && matches!(conn.connection_type(), ConnType::Remote)
+                    && matches!(conn.connection_type(), ConnType::Remote | ConnType::Edge)
                     && let Some(mac) = conn.header_hmac()
                 {
                     let link_id = conn
@@ -1453,6 +1453,7 @@ impl MessageProcessor {
     /// Perform link negotiation, register the connection, and handle peer upgrade.
     ///
     /// Returns `Some((conn_index, category))` on success or `None` on failure.
+    #[allow(clippy::too_many_arguments)]
     async fn negotiate_and_register(
         &self,
         stream: &mut (impl Stream<Item = Result<Message, Status>> + Unpin + Send),
@@ -1740,7 +1741,10 @@ impl MessageProcessor {
 
             let mut connected = false;
 
-            if try_to_reconnect && !matches!(category, ConnType::Remote) && let Some(config) = client_conf_clone {
+            if try_to_reconnect
+                && !matches!(category, ConnType::Remote)
+                && let Some(config) = client_conf_clone
+            {
                 // Break the span chain: reconnect → try_to_connect → process_stream
                 // would otherwise nest under the current process_stream span on every
                 // reconnection, growing the span hierarchy unboundedly.

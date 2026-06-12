@@ -10,7 +10,6 @@
 //! 3. Relay publish messages across multiple hops
 //! 4. Propagate unsubscribes when connections drop
 
-use std::net::TcpListener;
 use std::time::Duration;
 
 use slim_config::client::ClientConfig;
@@ -21,17 +20,11 @@ use slim_config::tls::server::TlsServerConfig;
 use slim_datapath::api::{ApplicationPayload, ProtoMessage as Message, ProtoName as Name};
 use slim_datapath::tables::{ConnType, SubscriptionTable};
 use slim_service::{Service, ServiceConfiguration};
+use slim_testing::common::reserve_local_port;
 
 // ============================================================================
 // Helpers
 // ============================================================================
-
-fn reserve_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind test port");
-    let port = listener.local_addr().expect("failed to read port").port();
-    drop(listener);
-    port
-}
 
 async fn wait_for_server(addr: &str, max_attempts: u32) {
     for attempt in 0..max_attempts {
@@ -59,7 +52,7 @@ struct GenericNode {
 /// Each node has a server; each node connects as peer to the next node.
 /// This tests multi-hop propagation (A's subscriptions should reach C via B).
 async fn start_chain(count: usize) -> Vec<GenericNode> {
-    let ports: Vec<u16> = (0..count).map(|_| reserve_port()).collect();
+    let ports: Vec<u16> = (0..count).map(|_| reserve_local_port()).collect();
     let node_ids: Vec<String> = (0..count).map(|i| format!("chain-{}", ports[i])).collect();
 
     // Phase 1: Start all nodes with servers only (no clients).
@@ -121,7 +114,7 @@ async fn start_chain(count: usize) -> Vec<GenericNode> {
 /// Build a star topology: all nodes connect as peers to node 0 (center).
 /// Unlike hub-and-spoke with PeerSyncManager, this uses generic TTL-based forwarding.
 async fn start_star(count: usize) -> Vec<GenericNode> {
-    let ports: Vec<u16> = (0..count).map(|_| reserve_port()).collect();
+    let ports: Vec<u16> = (0..count).map(|_| reserve_local_port()).collect();
     let node_ids: Vec<String> = (0..count).map(|i| format!("star-{}", ports[i])).collect();
 
     let mut nodes = Vec::new();
@@ -602,8 +595,8 @@ async fn test_generic_chain_unsubscribe_on_disconnect() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_generic_full_sync_on_late_join() {
     // Start just node A with a server
-    let port_a = reserve_port();
-    let port_b = reserve_port();
+    let port_a = reserve_local_port();
+    let port_b = reserve_local_port();
 
     let server_a = ServerConfig::with_endpoint(&format!("127.0.0.1:{port_a}"))
         .with_tls_settings(TlsServerConfig::default().with_insecure(true));

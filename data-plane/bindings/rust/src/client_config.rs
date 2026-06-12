@@ -346,7 +346,7 @@ impl From<ClientConfig> for CoreClientConfig {
             require_header_mac: config
                 .require_header_mac
                 .unwrap_or(core_defaults.require_header_mac),
-            connection_type: core_defaults.connection_type,
+            connection_type: slim_config::client::ConnType::Edge,
         }
     }
 }
