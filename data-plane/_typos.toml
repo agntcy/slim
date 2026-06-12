@@ -9,14 +9,11 @@ extend-ignore-re = [
 ]
 
 [files]
-# Ignore all changelogs and generated bindings files
+# Ignore all changelogs and generated files
 extend-exclude = [
     "**/CHANGELOG.md",
     "**/*.pem",
     "**/*.yaml",
-    "bindings/go/generated/**",
     "**/*.pbxproj",
     "**/*.pbxproj.bak",
-    "bindings/java/examples/**/types/**",
-    "bindings/kotlin/examples/**/types/**",
 ]
