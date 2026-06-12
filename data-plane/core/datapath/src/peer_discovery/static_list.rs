@@ -4,12 +4,15 @@
 //! Static peer discovery implementation.
 //!
 //! Discovers peers from a pre-built list of [`PeerInfo`] entries (typically
-//! derived from `dataplane.clients` with `connection_type: peer`).
+//! derived from `PeerConfig.static_peers`).
 //! Emits `Joined` events for all entries on startup. Never emits `Left`
 //! events since static peers are assumed to be always available.
 
 use std::collections::VecDeque;
 
+use slim_config::client::ConnType;
+
+use super::config::StaticPeerEntry;
 use super::{PeerDiscovery, PeerDiscoveryError, PeerEvent, PeerInfo};
 
 /// Static peer discovery: all peers are known at configuration time.
@@ -32,6 +35,30 @@ impl StaticPeerDiscovery {
             pending: VecDeque::new(),
             started: false,
         }
+    }
+
+    /// Create from a list of `StaticPeerEntry` entries (from `PeerConfig.static_peers`).
+    ///
+    /// Each entry's `node_id` is used as the peer ID.
+    /// Entries matching `self_node_id` are excluded (skip self).
+    /// The `connection_type` is forced to `Peer` regardless of what's configured.
+    /// The `link_id` is derived deterministically from the source and destination node IDs
+    /// so that reconnecting peers always present the same link identity.
+    pub fn from_static_peers(entries: &[StaticPeerEntry], self_node_id: &str) -> Self {
+        let peers = entries
+            .iter()
+            .filter(|entry| entry.node_id != self_node_id)
+            .map(|entry| {
+                let mut config = entry.config.clone();
+                config.connection_type = ConnType::Peer;
+                config.link_id = super::peer_link_id(self_node_id, &entry.node_id);
+                PeerInfo {
+                    id: entry.node_id.clone(),
+                    config,
+                }
+            })
+            .collect();
+        Self::new(peers)
     }
 }
 
@@ -62,18 +89,34 @@ impl PeerDiscovery for StaticPeerDiscovery {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slim_config::client::ClientConfig;
 
     fn test_peers() -> Vec<PeerInfo> {
         vec![
             PeerInfo {
                 id: "slim-1".to_string(),
-                endpoint: "slim-1:8080".to_string(),
+                config: ClientConfig {
+                    endpoint: "slim-1:8080".to_string(),
+                    connection_type: ConnType::Peer,
+                    ..Default::default()
+                },
             },
             PeerInfo {
                 id: "slim-2".to_string(),
-                endpoint: "slim-2:8080".to_string(),
+                config: ClientConfig {
+                    endpoint: "slim-2:8080".to_string(),
+                    connection_type: ConnType::Peer,
+                    ..Default::default()
+                },
             },
         ]
+    }
+
+    fn assert_joined_with_id(event: &PeerEvent, expected_id: &str) {
+        match event {
+            PeerEvent::Joined(info) => assert_eq!(info.id, expected_id),
+            PeerEvent::Left(_) => panic!("expected Joined, got Left"),
+        }
     }
 
     #[tokio::test]
@@ -84,20 +127,8 @@ mod tests {
         let event1 = discovery.recv().await.unwrap();
         let event2 = discovery.recv().await.unwrap();
 
-        assert_eq!(
-            event1,
-            PeerEvent::Joined(PeerInfo {
-                id: "slim-1".to_string(),
-                endpoint: "slim-1:8080".to_string(),
-            })
-        );
-        assert_eq!(
-            event2,
-            PeerEvent::Joined(PeerInfo {
-                id: "slim-2".to_string(),
-                endpoint: "slim-2:8080".to_string(),
-            })
-        );
+        assert_joined_with_id(&event1, "slim-1");
+        assert_joined_with_id(&event2, "slim-2");
     }
 
     #[tokio::test]
@@ -124,5 +155,60 @@ mod tests {
         let result =
             tokio::time::timeout(std::time::Duration::from_millis(50), discovery.recv()).await;
         assert!(result.is_err()); // no events
+    }
+
+    #[tokio::test]
+    async fn test_from_static_peers() {
+        let entries = vec![
+            StaticPeerEntry {
+                node_id: "node-0".to_string(),
+                config: ClientConfig {
+                    endpoint: "http://slim-0:8080".to_string(),
+                    ..Default::default()
+                },
+            },
+            StaticPeerEntry {
+                node_id: "node-1".to_string(),
+                config: ClientConfig {
+                    endpoint: "http://slim-1:8080".to_string(),
+                    ..Default::default()
+                },
+            },
+            StaticPeerEntry {
+                node_id: "node-2".to_string(),
+                config: ClientConfig {
+                    endpoint: "http://slim-2:8080".to_string(),
+                    ..Default::default()
+                },
+            },
+        ];
+
+        // Self (node-1) is excluded
+        let mut discovery = StaticPeerDiscovery::from_static_peers(&entries, "node-1");
+        discovery.start().await.unwrap();
+
+        let event1 = discovery.recv().await.unwrap();
+        let event2 = discovery.recv().await.unwrap();
+
+        assert_joined_with_id(&event1, "node-0");
+        assert_joined_with_id(&event2, "node-2");
+
+        // Verify connection_type is forced to Peer
+        if let PeerEvent::Joined(info) = &event1 {
+            assert_eq!(info.config.connection_type, ConnType::Peer);
+        }
+
+        // Verify deterministic link_id: "self_node_id:peer_node_id"
+        if let PeerEvent::Joined(info) = &event1 {
+            assert_eq!(info.config.link_id, "node-1:node-0");
+        }
+        if let PeerEvent::Joined(info) = &event2 {
+            assert_eq!(info.config.link_id, "node-1:node-2");
+        }
+
+        // No more events
+        let result =
+            tokio::time::timeout(std::time::Duration::from_millis(50), discovery.recv()).await;
+        assert!(result.is_err());
     }
 }

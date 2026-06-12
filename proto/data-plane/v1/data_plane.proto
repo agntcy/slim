@@ -11,7 +11,7 @@ service DataPlaneService {
 // SLIM messages
 message Subscribe {
   SLIMHeader header = 1;
-  // Globally unique identifier for this subscription.
+  // Identifier for this subscription.
   // Non-zero when the sender wants a SubscriptionAck back.
   uint64 subscription_id = 2;
 }
@@ -60,6 +60,7 @@ message SLIMHeader {
   string identity = 3;
   uint32 fanout = 4;
   string version = 5;
+<<<<<<< control-message-header-integrity
   optional uint64 recv_from = 6;
   optional uint64 forward_to = 7;
   optional uint64 incoming_conn = 8;
@@ -67,6 +68,14 @@ message SLIMHeader {
   optional bytes header_mac = 10;
   optional uint64 sequence_number = 11;
   optional bytes e2e_header_sig = 12;
+=======
+  uint32 ttl = 6;
+  optional uint64 recv_from = 7;
+  optional uint64 forward_to = 8;
+  optional uint64 incoming_conn = 9;
+  optional bool error = 10;
+  optional bytes header_mac = 11;
+>>>>>>> main
 }
 
 message SessionHeader {
@@ -324,4 +333,22 @@ message LinkNegotiationPayload {
   // X25519 ephemeral public key (32 bytes) for per-link HMAC key agreement between nodes.
   // Empty when absent (legacy peers); both sides must send a valid key to enable header HMAC.
   bytes link_ecdh_public_key = 4;
+  // Connection type advertised by the initiator.
+  LinkConnectionType connection_type = 5;
+  // Unique node identifier of the sender.
+  // Used by peer replicas to identify which node is on the other end of a connection.
+  // Empty for legacy peers that don't send this field.
+  string node_id = 6;
+  // Peer group identifier. When non-empty and connection_type is LINK_CONNECTION_TYPE_PEER,
+  // the server verifies both sides belong to the same peer group before
+  // upgrading the connection. Empty for non-peer connections.
+  string deployment_name = 7;
+}
+
+// Connection type for link negotiation.
+enum LinkConnectionType {
+  // Remote connection (default, backward compatible with peers that don't send this field).
+  LINK_CONNECTION_TYPE_REMOTE = 0;
+  // Peer connection (intra-deployment replica).
+  LINK_CONNECTION_TYPE_PEER = 1;
 }

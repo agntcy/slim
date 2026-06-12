@@ -21,11 +21,14 @@ use slim_controller::config::Config as ControllerConfig;
 use slim_controller::config::Config as DataplaneConfig;
 use slim_controller::service::ControlPlane;
 use slim_datapath::message_processing::MessageProcessor;
-use slim_datapath::peer_discovery::PeerConfig;
+use slim_datapath::peer_discovery::{PeerConfig, PeerTopology, StaticPeerDiscovery};
+use slim_datapath::sync::{PeerSync, PeerSyncConfig};
+use slim_datapath::tables::ConnType;
 
 // Local crate
 use crate::errors::ServiceError;
 
+/// Strip URL scheme prefix for endpoint comparison.
 // Session feature imports
 #[cfg(feature = "session")]
 use {
@@ -56,36 +59,61 @@ pub struct ConnectionInfo {
 
     /// Endpoint from client configuration (if available)
     pub endpoint: Option<String>,
+
+    /// The connection type (Local, Remote, Peer)
+    pub conn_type: ConnType,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct ServiceConfiguration {
-    /// Optional node ID for the service. If not set, the name of the component will be used.
-    #[serde(default)]
-    pub node_id: Option<String>,
+    /// Unique node ID for the service. Defaults to a random UUID if not set,
+    /// ensuring uniqueness across replicas sharing the same configuration.
+    /// This is the **global** identity used for peer sync and controller communication.
+    pub node_id: String,
+
+    /// Local service identifier (the YAML map key, e.g. "0" from "slim/0").
+    /// Used as the service identifier within this process.
+    /// Always set: from the config file key when loading YAML, or defaults to `node_id`.
+    #[serde(skip)]
+    pub service_id: String,
 
     /// Optional name of the group for the service.
-    #[serde(default)]
     pub group_name: Option<String>,
 
     /// DataPlane API configuration
-    #[serde(default)]
     pub dataplane: DataplaneConfig,
 
     /// Controller API configuration
-    #[serde(default)]
     pub controller: ControllerConfig,
 
     /// Peer replica configuration for intra-deployment route sync.
     /// When present, enables peer-to-peer subscription synchronization.
-    #[serde(default)]
     pub peers: Option<PeerConfig>,
+}
+
+impl Default for ServiceConfiguration {
+    fn default() -> Self {
+        let node_id = format!("node-{}", uuid::Uuid::new_v4());
+        Self {
+            service_id: node_id.clone(),
+            node_id,
+            group_name: None,
+            dataplane: DataplaneConfig::default(),
+            controller: ControllerConfig::default(),
+            peers: None,
+        }
+    }
 }
 
 impl ServiceConfiguration {
     pub fn new() -> Self {
         ServiceConfiguration::default()
+    }
+
+    pub fn with_node_id(mut self, node_id: impl Into<String>) -> Self {
+        self.node_id = node_id.into();
+        self
     }
 
     pub fn with_dataplane_server(mut self, server: Vec<ServerConfig>) -> Self {
@@ -124,11 +152,17 @@ impl ServiceConfiguration {
         &self.controller.clients
     }
 
+    pub fn with_peers(mut self, peers: PeerConfig) -> Self {
+        self.peers = Some(peers);
+        self
+    }
+
+    /// Returns the service ID (always set — from config key or defaults to node_id).
+    pub fn service_id(&self) -> &str {
+        &self.service_id
+    }
+
     pub fn build_server(&self, id: ID) -> Result<Service, ServiceError> {
-        let id = match &self.node_id {
-            Some(node_id) => ID::new_with_name(id.kind().clone(), node_id)?,
-            None => id,
-        };
         let service = Service::new_with_config(id, self.clone());
         Ok(service)
     }
@@ -158,7 +192,7 @@ pub struct Service {
     id: ID,
 
     /// underlying message processor
-    message_processor: Arc<MessageProcessor>,
+    message_processor: MessageProcessor,
 
     /// controller service
     controller: tokio::sync::RwLock<Option<ControlPlane>>,
@@ -171,6 +205,9 @@ pub struct Service {
 
     /// clients created by the service
     clients: parking_lot::RwLock<HashMap<String, u64>>,
+
+    /// Cancellation token for the peer sync manager task.
+    peer_sync_cancel: parking_lot::Mutex<Option<CancellationToken>>,
 }
 
 impl std::fmt::Debug for Service {
@@ -187,6 +224,11 @@ impl std::fmt::Debug for Service {
 
 impl Drop for Service {
     fn drop(&mut self) {
+        // Cancel peer sync manager
+        if let Some(token) = self.peer_sync_cancel.lock().take() {
+            token.cancel();
+        }
+
         // Trigger all cancellation tokens to stop servers
         for (endpoint, token) in self.cancellation_tokens.write().drain() {
             debug!(%endpoint, "cancelling server on drop");
@@ -215,13 +257,33 @@ impl Service {
 
     /// Create a new Service with configuration
     pub fn new_with_config(id: ID, config: ServiceConfiguration) -> Self {
-        let recovery_ttl = config.dataplane.recovery_ttl.as_ref().map(|d| (*d).into());
-        let message_processor =
-            Arc::new(if let Some(server) = config.dataplane_servers().first() {
-                MessageProcessor::new_with_server_config(id.to_string(), server, recovery_ttl)
-            } else {
-                MessageProcessor::new_with_options(id.to_string(), recovery_ttl)
-            });
+        let deployment_name = config
+            .peers
+            .as_ref()
+            .map(|p| p.deployment_name.clone())
+            .unwrap_or_default();
+        let service_id = config.node_id.clone();
+
+        // Determine relay_peer_publishes at build time based on peer topology.
+        let relay_peer_publishes = match &config.peers {
+            Some(peer_config) => match peer_config.topology {
+                PeerTopology::FullMesh => false,
+                PeerTopology::HubAndSpoke => true,
+            },
+            // No peer config — standalone/generic topology needs relay.
+            None => true,
+        };
+
+        let message_processor = if let Some(server) = config.dataplane_servers().first() {
+            MessageProcessor::new_with_server_config(
+                service_id,
+                deployment_name,
+                server,
+                relay_peer_publishes,
+            )
+        } else {
+            MessageProcessor::new_with_service_id(service_id)
+        };
 
         Service {
             id,
@@ -230,6 +292,7 @@ impl Service {
             config,
             cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
             clients: parking_lot::RwLock::new(HashMap::new()),
+            peer_sync_cancel: parking_lot::Mutex::new(None),
         }
     }
 
@@ -263,6 +326,11 @@ impl Service {
             _ = self.connect(client).await?;
         }
 
+        // Peer sync manager
+        if let Some(ref peer_config) = self.config.peers.clone() {
+            self.start_peer_sync(peer_config);
+        }
+
         // Controller service
         if self.config.controller.is_default() {
             info!("no controller configuration provided, skipping controller startup");
@@ -272,7 +340,7 @@ impl Service {
         // run the controller
         debug!("starting controller service");
         let mut controller = self.config.controller.into_service(
-            self.id.clone(),
+            self.config.node_id.clone(),
             self.config.group_name.clone(),
             self.message_processor.clone(),
             self.config.dataplane_servers(),
@@ -287,6 +355,54 @@ impl Service {
         Ok(())
     }
 
+    /// Start the peer sync manager in a background task.
+    fn start_peer_sync(&self, peer_config: &PeerConfig) {
+        let self_id = self.config.node_id.clone();
+
+        // Determine if we are the hub (smallest node_id among all peers including self).
+        let is_hub = peer_config
+            .static_peers
+            .iter()
+            .map(|entry| entry.node_id.as_str())
+            .all(|peer_id| self_id.as_str() <= peer_id);
+
+        info!(
+            %self_id,
+            %is_hub,
+            topology = ?peer_config.topology,
+            deployment_name = %peer_config.deployment_name,
+            num_static_peers = peer_config.static_peers.len(),
+            "starting peer sync"
+        );
+
+        let cancel = CancellationToken::new();
+        *self.peer_sync_cancel.lock() = Some(cancel.clone());
+
+        let discovery = StaticPeerDiscovery::from_static_peers(&peer_config.static_peers, &self_id);
+
+        let sync_config = PeerSyncConfig {
+            self_id,
+            deployment_name: peer_config.deployment_name.clone(),
+            topology: peer_config.topology.clone(),
+            is_hub,
+        };
+
+        let mp = self.message_processor.clone();
+        let peer_sync = PeerSync::with_peer_state(
+            &peer_config.topology,
+            Arc::new(parking_lot::RwLock::new(
+                slim_datapath::sync::PeerState::new(),
+            )),
+        );
+        self.message_processor.set_peer_sync(peer_sync.clone());
+
+        tokio::spawn(async move {
+            peer_sync
+                .run_discovery(&mp, sync_config, discovery, cancel)
+                .await;
+        });
+    }
+
     #[tracing::instrument(skip_all, fields(service_id = %self.id))]
     pub async fn deregister(&self) -> Result<(), ServiceError> {
         if let Some(ref controller) = *self.controller.read().await {
@@ -297,6 +413,11 @@ impl Service {
 
     pub async fn shutdown(&self) -> Result<(), ServiceError> {
         debug!("shutting down service");
+
+        // Cancel peer sync manager
+        if let Some(token) = self.peer_sync_cancel.lock().take() {
+            token.cancel();
+        }
 
         // Cancel and drain all server cancellation tokens
         for (endpoint, token) in self.cancellation_tokens.write().drain() {
@@ -503,6 +624,7 @@ impl Service {
                         remote_addr: conn.remote_addr().copied(),
                         local_addr: conn.local_addr().copied(),
                         endpoint: Some(endpoint.clone()),
+                        conn_type: conn.connection_type(),
                     })
             })
             .collect();
@@ -513,8 +635,8 @@ impl Service {
         connections
     }
 
-    #[cfg(test)]
-    pub(crate) fn message_processor(&self) -> &Arc<MessageProcessor> {
+    /// Get a reference to the underlying message processor.
+    pub fn message_processor(&self) -> &MessageProcessor {
         &self.message_processor
     }
 }
@@ -601,25 +723,28 @@ mod tests {
     }
 
     #[test]
-    fn test_build_server_uses_node_id_when_set() {
+    fn test_build_server_uses_passed_id() {
         let mut config = ServiceConfiguration::new();
-        config.node_id = Some("custom-node".to_string());
+        config.node_id = "custom-node".to_string();
 
         let original_id = ID::new_with_name(Kind::new(KIND).unwrap(), "original").unwrap();
         let service = config.build_server(original_id).unwrap();
 
-        assert_eq!(service.identifier().name(), "custom-node");
+        // build_server uses the ID passed directly
+        assert_eq!(service.identifier().name(), "original");
         assert_eq!(service.identifier().kind(), &Kind::new(KIND).unwrap());
     }
 
     #[test]
-    fn test_build_server_preserves_id_when_node_id_is_none() {
-        let config = ServiceConfiguration::new();
+    fn test_build_with_config_uses_node_id() {
+        let mut config = ServiceConfiguration::new();
+        config.node_id = "custom-node".to_string();
 
-        let original_id = ID::new_with_name(Kind::new(KIND).unwrap(), "original").unwrap();
-        let service = config.build_server(original_id).unwrap();
+        let builder = ServiceBuilder::new();
+        let service = builder.build_with_config("custom-node", &config).unwrap();
 
-        assert_eq!(service.identifier().name(), "original");
+        // build_with_config uses the name parameter (which is node_id from config)
+        assert_eq!(service.identifier().name(), "custom-node");
     }
 
     #[tokio::test]

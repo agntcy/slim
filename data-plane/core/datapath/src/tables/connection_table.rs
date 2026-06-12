@@ -102,6 +102,26 @@ where
             f(id, conn.clone());
         }
     }
+
+    /// Mutate a connection in-place (copy-on-write).
+    ///
+    /// Clones the pool, applies `f` to the entry, and replaces the pool atomically.
+    /// Returns `true` if the connection was found and updated.
+    pub fn update<F>(&self, id: u64, f: F) -> bool
+    where
+        F: FnOnce(&mut T),
+    {
+        let _guard = self.write_lock.lock();
+        let mut pool = (**self.pool.load()).clone();
+        if let Some(entry) = pool.get_mut(id) {
+            let conn = Arc::make_mut(entry);
+            f(conn);
+            self.pool.store(Arc::new(pool));
+            true
+        } else {
+            false
+        }
+    }
 }
 
 #[cfg(test)]

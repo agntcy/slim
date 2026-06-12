@@ -1,13 +1,10 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
-
 use serde::Deserialize;
 
 use slim_config::client::ClientConfig;
 use slim_config::component::configuration::Configuration;
-use slim_config::component::id::ID;
 use slim_config::server::ServerConfig;
 use slim_datapath::message_processing::MessageProcessor;
 
@@ -25,12 +22,6 @@ pub struct Config {
     /// Controller client config to connect to control plane
     #[serde(default)]
     pub clients: Vec<ClientConfig>,
-
-    /// How long to keep routing state after a server-side connection drops,
-    /// waiting for the peer to reconnect before notifying the control plane.
-    /// Accepts duration strings like "30s", "1s", "500ms".  Defaults to 30 s.
-    #[serde(default)]
-    pub recovery_ttl: Option<duration_string::DurationString>,
 }
 
 impl Config {
@@ -66,9 +57,9 @@ impl Config {
     /// Create a ControlPlane service instance from this configuration
     pub fn into_service(
         &self,
-        id: ID,
+        node_id: String,
         group_name: Option<String>,
-        message_processor: Arc<MessageProcessor>,
+        message_processor: MessageProcessor,
         // List of server configurations for the dataplane services.
         // Used to extract connection type information required to connect to the node
         // (e.g., TLS settings). This information is used by the control plane.
@@ -77,7 +68,7 @@ impl Config {
         let connection_details = dataplane_servers.iter().map(from_server_config).collect();
 
         ControlPlane::new(ControlPlaneSettings {
-            id,
+            id: node_id,
             group_name,
             servers: self.servers.clone(),
             clients: self.clients.clone(),
@@ -107,10 +98,8 @@ impl Configuration for Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slim_config::component::id::{ID, Kind};
     use slim_config::server::ServerConfig;
     use slim_datapath::message_processing::MessageProcessor;
-    use std::sync::Arc;
 
     fn create_test_server_config() -> ServerConfig {
         ServerConfig::with_endpoint("127.0.0.1:50051")
@@ -230,12 +219,15 @@ mod tests {
             .with_servers(vec![server_config.clone()])
             .with_clients(vec![client_config]);
 
-        let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-instance").unwrap();
         let group_name = Some("test-group".to_string());
-        let message_processor = Arc::new(MessageProcessor::new());
+        let message_processor = MessageProcessor::new();
 
-        let _control_plane =
-            config.into_service(id, group_name, message_processor, &[server_config]);
+        let _control_plane = config.into_service(
+            "test-instance".to_string(),
+            group_name,
+            message_processor,
+            &[server_config],
+        );
     }
 
     #[test]

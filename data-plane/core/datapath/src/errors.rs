@@ -54,6 +54,8 @@ pub enum DataPathError {
     MalformedMessage(#[from] MessageError),
     #[error("message processing error: {0}")]
     ProcessingError(MessageError),
+    #[error("connection send error")]
+    ConnectionSendError,
     #[error("error adding connection to connection table")]
     ConnectionTableAddError,
     #[error("message processing error: {source}")]
@@ -71,7 +73,7 @@ pub enum DataPathError {
     #[error("remote subscription ack timed out after {0} retries")]
     RemoteSubscriptionAckTimeout(u32),
 
-    #[error("remote subscription ack returned error: {0}")]
+    #[error("remote subscription ack error")]
     RemoteSubscriptionAckError(String),
 
     // Shutdown errors
@@ -90,6 +92,9 @@ pub enum DataPathError {
 
     #[error("inter-node ephemeral key generation failed")]
     LinkKeyGeneration,
+
+    #[error("message TTL expired")]
+    TtlExpired,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

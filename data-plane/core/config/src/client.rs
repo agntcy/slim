@@ -285,7 +285,7 @@ pub struct ClientConfig {
     pub metadata: Option<MetadataMap>,
 
     /// Link identifier for this connection, used during link negotiation.
-    /// Must be a valid UUID v4. Defaults to a randomly generated UUID v4.
+    /// Defaults to a randomly generated UUID v4.
     #[serde(default = "default_link_id")]
     pub link_id: String,
 
@@ -369,24 +369,12 @@ impl std::fmt::Display for ClientConfig {
     }
 }
 
-pub fn is_valid_uuid_v4(s: &str) -> bool {
-    match uuid::Uuid::parse_str(s) {
-        Ok(id) => id.get_version() == Some(uuid::Version::Random),
-        Err(_) => false,
-    }
-}
-
 impl Configuration for ClientConfig {
     type Error = ConfigError;
 
     fn validate(&self) -> Result<(), Self::Error> {
         if self.endpoint.is_empty() {
             return Err(ConfigError::MissingEndpoint);
-        }
-
-        // Validate link_id is a UUID v4
-        if !is_valid_uuid_v4(&self.link_id) {
-            return Err(ConfigError::InvalidLinkId);
         }
 
         // Validate the client configuration
@@ -518,6 +506,13 @@ impl ClientConfig {
     pub fn with_metadata(self, metadata: MetadataMap) -> Self {
         Self {
             metadata: Some(metadata),
+            ..self
+        }
+    }
+
+    pub fn with_connection_type(self, connection_type: ConnType) -> Self {
+        Self {
+            connection_type,
             ..self
         }
     }
@@ -742,24 +737,9 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_rejects_non_uuid_link_id() {
+    fn test_validate_accepts_any_link_id() {
         let mut config = ClientConfig::with_endpoint("http://localhost:1234");
-        config.link_id = "not-a-uuid".to_string();
-        assert!(matches!(config.validate(), Err(ConfigError::InvalidLinkId)));
-    }
-
-    #[test]
-    fn test_validate_rejects_non_v4_uuid() {
-        let mut config = ClientConfig::with_endpoint("http://localhost:1234");
-        // Version 1 UUID.
-        config.link_id = "00000000-0000-1000-8000-000000000000".to_string();
-        assert!(matches!(config.validate(), Err(ConfigError::InvalidLinkId)));
-    }
-
-    #[test]
-    fn test_validate_accepts_default_v4_link_id() {
-        // default_link_id() generates a v4 UUID; validation must pass.
-        let config = ClientConfig::with_endpoint("http://localhost:1234");
+        config.link_id = "my-custom-link-id".to_string();
         assert!(config.validate().is_ok());
     }
 }

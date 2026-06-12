@@ -1,0 +1,146 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+#
+# MkDocs config lives in docs/mkdocs/; paths below are relative to this file.
+# Build: task docs:build   or: uv run mkdocs build (from docs/mkdocs)
+
+site_name: SLIM
+# Local `mkdocs serve` must use a site_url *without* a path segment, or only /slim/... URLs work (404 at /).
+# CI sets MKDOCS_SITE_URL for production builds. Default: local dev server root.
+site_url: !ENV [MKDOCS_SITE_URL, 'http://127.0.0.1:8000/']
+
+docs_dir: ../content
+
+repo_name: agntcy/slim
+repo_url: https://github.com/agntcy/slim
+edit_uri: edit/main/docs/content/
+
+extra:
+  version:
+    provider: mike
+  var:
+    docs_url: https://agntcy.github.io/slim/
+    repo_url: https://github.com/agntcy/slim
+    repo_slug: agntcy/slim
+    org: AGNTCY
+
+  copyright: >
+    © Copyright AGNTCY Contributors.
+
+extra_css:
+  - stylesheets/agntcy-docs.css
+
+extra_javascript:
+  - javascripts/card-links.js
+  - javascripts/external-links.js
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+hooks:
+  - hooks.py
+
+plugins:
+  # Process includes before search indexing and versioned builds (mike).
+  include-markdown: {}
+  search:
+  mike:
+    alias_type: copy
+    canonical_version: latest
+  redirects:
+    redirect_maps: {}
+
+nav:
+  - Home: index.md
+  - Documentation:
+      - Overview: slim/slim-overview.md
+      - Get Started:
+          - Getting Started: slim/slim-howto.md
+          - Configuration Reference: slim/slim-data-plane-config.md
+      - SLIM Controller:
+          - Overview: slim/slim-controller.md
+          - Controller Reference: slim/slim-controller-reference.md
+      - SLIM Messaging Layer:
+          - Overview: slim/slim-data-plane.md
+          - Sessions: slim/slim-session.md
+          - Authentication: slim/slim-authentication.md
+      - SLIM Groups:
+          - Group Creation and Management: slim/slim-group.md
+          - Group Communication Tutorial: slim/slim-group-tutorial.md
+      - Integrations:
+          - Overview: slim/slim-integrations.md
+          - SLIMRPC:
+              - Overview: slim/slim-rpc.md
+              - Protoc Plugin: slim/slim-slimrpc-compiler.md
+          - SLIM A2A: slim/slim-a2a.md
+          - MCP over SLIM: slim/slim-mcp.md
+          - OpenTelemetry over SLIM: slim/slim-otel.md
+  - Community: community.md
+  - Specification: https://datatracker.ietf.org/doc/draft-mpsb-agntcy-slim/
+  - Blog: https://blogs.agntcy.org/
+
+theme:
+  name: material
+  custom_dir: overrides
+
+  features:
+    - announce.dismiss
+    - content.action.edit
+    - content.action.view
+    - content.code.annotate
+    - content.code.copy
+    - content.tabs.link
+    - content.tooltips
+    - navigation.footer
+    - navigation.indexes
+    - navigation.path
+    - navigation.sections
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.top
+    - navigation.tracking
+    - search.highlight
+    - search.share
+    - search.suggest
+    - toc.follow
+
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/link
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/toggle-switch
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/toggle-switch-off
+        name: Switch to system preference
+  font:
+    text: Roboto
+    code: Roboto Mono
+  favicon: assets/agntcy/favicon.ico
+  logo_light: assets/agntcy/img/logo-light.svg
+  logo_dark: assets/agntcy/img/logo-dark.svg

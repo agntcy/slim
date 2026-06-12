@@ -31,8 +31,10 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 twox-hash = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 agntcy-slim-testing = { workspace = true }
+rstest = { workspace = true }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true, features = ["no-env-filter"] }
