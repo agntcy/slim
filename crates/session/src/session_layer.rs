@@ -576,9 +576,11 @@ where
         session_type: ProtoSessionType,
     ) -> Result<(), SessionError> {
         let local_name = self.get_local_name_for_session(message.get_slim_header().get_dst())?;
-        let mut reply =
-            handle_channel_discovery_message(&message, &local_name, id, session_type)?;
-        crate::session_controller::sign_outbound_control_message(&mut reply, &self.identity_provider)?;
+        let mut reply = handle_channel_discovery_message(&message, &local_name, id, session_type)?;
+        crate::session_controller::sign_outbound_control_message(
+            &mut reply,
+            &self.identity_provider,
+        )?;
         if let Err(e) = self.tx_slim.send(Ok(reply)).await {
             debug!(error = %e.chain(), "error sending discovery reply");
         }
