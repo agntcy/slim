@@ -455,7 +455,7 @@ impl super::RouteService {
         let other_nodes = self.find_connected_nodes_in_group(group, node_id).await;
 
         if other_nodes.is_empty() {
-            self.handle_last_node_in_group(&links).await;
+            self.handle_last_node_in_group(&links, node_id).await;
         } else {
             self.reassign_gateway_links(node_id, &links, &other_nodes)
                 .await;
@@ -603,21 +603,34 @@ impl super::RouteService {
     }
 
     /// Last node in group — soft-delete all links, rebuild graph, re-expand routes.
-    async fn handle_last_node_in_group(&self, links: &[crate::db::Link]) {
+    async fn handle_last_node_in_group(&self, links: &[crate::db::Link], node_id: &str) {
         tracing::info!(
             "handle_last_node_in_group: soft-deleting {} links",
             links.len()
         );
 
         for link in links {
-            let mut updated = link.clone();
-            updated.status = LinkStatus::Deleted;
-            updated.last_updated = SystemTime::now();
-            if let Err(e) = self.0.db.update_link(updated).await {
-                tracing::warn!(
-                    "handle_last_node_in_group: failed to mark link {} deleted: {e}",
-                    link.link_id
-                );
+            if link.source_node_id == node_id {
+                // The departing node is the source — we can never send it the
+                // "delete connection" command, so hard-delete the record now.
+                if let Err(e) = self.0.db.delete_link(link).await {
+                    tracing::warn!(
+                        "handle_last_node_in_group: failed to delete link {}: {e}",
+                        link.link_id
+                    );
+                }
+            } else {
+                // The departing node is the dest — soft-delete so the reconciler
+                // can notify the source to remove its outgoing connection.
+                let mut updated = link.clone();
+                updated.status = LinkStatus::Deleted;
+                updated.last_updated = SystemTime::now();
+                if let Err(e) = self.0.db.update_link(updated).await {
+                    tracing::warn!(
+                        "handle_last_node_in_group: failed to mark link {} deleted: {e}",
+                        link.link_id
+                    );
+                }
             }
         }
 

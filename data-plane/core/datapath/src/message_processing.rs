@@ -1740,7 +1740,7 @@ impl MessageProcessor {
 
             let mut connected = false;
 
-            if try_to_reconnect && let Some(config) = client_conf_clone {
+            if try_to_reconnect && !matches!(category, ConnType::Remote) && let Some(config) = client_conf_clone {
                 // Break the span chain: reconnect → try_to_connect → process_stream
                 // would otherwise nest under the current process_stream span on every
                 // reconnection, growing the span hierarchy unboundedly.

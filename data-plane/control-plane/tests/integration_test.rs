@@ -954,8 +954,10 @@ async fn test_source_gateway_failover() {
 
     // Kill the gateway node.
     if gateway_id == id_a1 {
+        node_a1.deregister().await.ok();
         node_a1.shutdown().await.ok();
     } else {
+        node_a2.deregister().await.ok();
         node_a2.shutdown().await.ok();
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -1050,9 +1052,11 @@ async fn test_dest_gateway_failover() {
     // Kill the group-b gateway.
     if b_gateway == id_b1 {
         tracing::info!("Shutting down {id_b1}");
+        node_b1.deregister().await.ok();
         node_b1.shutdown().await.ok();
     } else {
         tracing::info!("Shutting down {id_b2}");
+        node_b2.deregister().await.ok();
         node_b2.shutdown().await.ok();
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -1118,6 +1122,7 @@ async fn test_wildcard_route_deleted_on_node_crash() {
     wait_for_route_applied(&mut client, "*", &id_a, DEFAULT_TIMEOUT).await;
 
     // Kill node-a (also kills the app connected to it).
+    node_a.deregister().await.ok();
     node_a.shutdown().await.ok();
     tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -1165,6 +1170,7 @@ async fn test_route_restored_after_reconnect() {
 
     // Kill node-a + app.
     app.shutdown().await.ok();
+    node_a.deregister().await.ok();
     node_a.shutdown().await.ok();
     tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -1276,6 +1282,9 @@ async fn test_last_node_removes_group_links() {
     wait_for_link_between_groups(&mut client, "group-b", "group-c", DEFAULT_TIMEOUT).await;
 
     // Kill the only node in group-a.
+    // Use deregister() to explicitly notify the CP (shutdown alone doesn't
+    // reliably close the gRPC stream fast enough in-process).
+    node_a.deregister().await.ok();
     node_a.shutdown().await.ok();
     tokio::time::sleep(Duration::from_secs(2)).await;
 
@@ -1340,6 +1349,7 @@ async fn test_node_crash_and_link_recovery() {
     wait_for_route_applied(&mut client, &id_a, &id_b, DEFAULT_TIMEOUT).await;
 
     // Crash node-b.
+    node_b.deregister().await.ok();
     node_b.shutdown().await.ok();
     tokio::time::sleep(Duration::from_millis(500)).await;
 
