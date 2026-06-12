@@ -78,6 +78,8 @@ mod tests {
             incoming_conn: None,
             error: None,
             header_mac: None,
+            sequence_number: None,
+            e2e_header_sig: None,
             ttl: DEFAULT_TTL,
         };
         a.sign_slim_header(&mut h, &lid).unwrap();

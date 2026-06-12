@@ -96,6 +96,10 @@ pub struct SlimHeader {
     pub error: ::core::option::Option<bool>,
     #[prost(bytes = "vec", optional, tag = "11")]
     pub header_mac: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(uint64, optional, tag = "12")]
+    pub sequence_number: ::core::option::Option<u64>,
+    #[prost(bytes = "vec", optional, tag = "13")]
+    pub e2e_header_sig: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SessionHeader {
@@ -311,6 +315,8 @@ pub struct HeaderIntegrityAad {
     pub message_id: u32,
     #[prost(string, tag = "9")]
     pub payload_type: ::prost::alloc::string::String,
+    #[prost(uint64, optional, tag = "10")]
+    pub sequence_number: ::core::option::Option<u64>,
 }
 /// Group Add Payload
 /// sent when a new participant is added

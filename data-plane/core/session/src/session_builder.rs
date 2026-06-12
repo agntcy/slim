@@ -446,6 +446,7 @@ where
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
             subscription_manager,
             service_id: self.service_id.unwrap_or_default(),
+            seen_control_seqs: crate::session_settings::new_seen_control_seqs(),
         };
 
         let wrapper = wrapper_constructor(inner, settings.clone());

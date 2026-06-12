@@ -1,6 +1,12 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
+
+use parking_lot::Mutex;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::ProtoName;
 
@@ -75,4 +81,26 @@ where
 
     /// Service ID for tracing — identifies which service instance owns this session
     pub(crate) service_id: String,
+
+    /// Seen control-message sequence numbers per remote sender (E2E replay protection).
+    pub(crate) seen_control_seqs: Arc<Mutex<HashMap<ProtoName, HashSet<u64>>>>,
+}
+
+pub(crate) fn new_seen_control_seqs() -> Arc<Mutex<HashMap<ProtoName, HashSet<u64>>>> {
+    Arc::new(Mutex::new(HashMap::new()))
+}
+
+impl<P, V, M> SessionSettings<P, V, M>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+    M: SubscriptionOps,
+{
+    /// Forget replay state for a participant that left or was removed so re-invites can restart seq.
+    pub(crate) fn clear_seen_control_seqs(&self, participant: &ProtoName) {
+        let components = participant.str_components();
+        self.seen_control_seqs
+            .lock()
+            .retain(|k, _| k.str_components() != components);
+    }
 }

@@ -547,10 +547,15 @@ where
                 Err(_) => return,
             };
 
-            if let Err(e) =
-                crate::session_controller::verify_identity(&message, &layer.identity_verifier).await
+            let e2e_required = message.get_slim_header().e2e_header_sig.is_some();
+            if let Err(e) = crate::session_controller::verify_identity(
+                &message,
+                &layer.identity_verifier,
+                e2e_required,
+            )
+            .await
             {
-                debug!(
+                error!(
                     error = %e.chain(),
                     msg_type = %session_message_type.as_str_name(),
                     "dropping pre-session message: identity verification failed",

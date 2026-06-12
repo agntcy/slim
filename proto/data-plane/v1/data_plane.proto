@@ -66,6 +66,8 @@ message SLIMHeader {
   optional uint64 incoming_conn = 9;
   optional bool error = 10;
   optional bytes header_mac = 11;
+  optional uint64 sequence_number = 12;
+  optional bytes e2e_header_sig = 13;
 }
 
 message SessionHeader {
@@ -236,6 +238,7 @@ message HeaderIntegrityAad {
   uint32 session_id = 7;
   uint32 message_id = 8;
   string payload_type = 9;
+  optional uint64 sequence_number = 10;
 }
 
 // Group Add Payload
