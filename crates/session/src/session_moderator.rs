@@ -22,7 +22,7 @@ use tokio::sync::oneshot;
 use tracing::debug;
 
 use crate::{
-    common::{MessageDirection, OutboundMessage, SessionMessage, SessionOutput},
+    common::{MessageDirection, SessionMessage, SessionOutput},
     errors::SessionError,
     mls_state::{MlsModeratorState, MlsState},
     moderator_task::{
@@ -347,28 +347,22 @@ where
 {
     #[maybe_async::maybe_async]
     async fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
-        crate::session_controller::SessionController::apply_identity_to_slim_output(
-            output,
-            &self.common.settings.identity_provider,
-        )?;
-        if self.mls_state.is_some() {
-            for msg in &mut output.messages {
-                if let OutboundMessage::ToSlim(m) = msg
-                    && m.get_session_message_type().is_command_message()
-                {
-                    m.get_slim_header_mut().sequence_number = Some(self.common.next_control_seq);
-                    self.common.next_control_seq += 1;
-
-                    let aad = crate::mls_state::build_aad(m);
-                    let private_key = self
-                        .common
-                        .settings
-                        .identity_provider
-                        .get_signature_secret_key()?;
-                    let signature = slim_auth::utils::sign_header_aad(&aad, &private_key)?;
-                    m.get_slim_header_mut().e2e_header_sig = Some(signature);
-                }
-            }
+        if let Some(mls_state) = &self.mls_state {
+            let identity_provider = mls_state.common.mls.identity_provider();
+            crate::session_controller::SessionController::apply_identity_to_slim_output(
+                output,
+                identity_provider,
+            )?;
+            self.common
+                .sign_control_messages(output, identity_provider)?;
+        } else {
+            let identity_provider = self.common.settings.identity_provider.clone();
+            crate::session_controller::SessionController::apply_identity_to_slim_output(
+                output,
+                &identity_provider,
+            )?;
+            self.common
+                .sign_control_messages(output, &identity_provider)?;
         }
         if let Some(mls_state) = &mut self.mls_state {
             mls_state.common.encrypt_output(output).await?;
@@ -492,8 +486,10 @@ where
         participant_no_id.reset_id();
         self.group_list.remove(&participant_no_id);
 
-        // Re-invited participants restart their control-seq counter; drop stale replay state.
-        self.common.settings.clear_seen_control_seqs(participant);
+        // Re-invited participants may reuse message ids; drop stale replay state.
+        self.common
+            .settings
+            .clear_seen_control_message_ids(participant);
 
         // Remove endpoint from local session
         self.remove_endpoint(participant);
@@ -1360,7 +1356,7 @@ mod tests {
             graceful_shutdown_timeout: None,
             subscription_manager,
             service_id: String::new(),
-            seen_control_seqs: crate::session_settings::new_seen_control_seqs(),
+            seen_control_message_ids: crate::session_settings::new_seen_control_message_ids(),
         };
 
         let inner = MockInnerHandler::new();
@@ -1725,7 +1721,7 @@ mod tests {
             graceful_shutdown_timeout: None,
             subscription_manager,
             service_id: String::new(),
-            seen_control_seqs: crate::session_settings::new_seen_control_seqs(),
+            seen_control_message_ids: crate::session_settings::new_seen_control_message_ids(),
         };
 
         let inner = MockInnerHandler::new();
@@ -1807,7 +1803,7 @@ mod tests {
             graceful_shutdown_timeout: None,
             subscription_manager,
             service_id: String::new(),
-            seen_control_seqs: crate::session_settings::new_seen_control_seqs(),
+            seen_control_message_ids: crate::session_settings::new_seen_control_message_ids(),
         };
 
         let inner = MockInnerHandler::new();
@@ -1958,7 +1954,7 @@ mod tests {
             graceful_shutdown_timeout: None,
             subscription_manager,
             service_id: String::new(),
-            seen_control_seqs: crate::session_settings::new_seen_control_seqs(),
+            seen_control_message_ids: crate::session_settings::new_seen_control_message_ids(),
         };
 
         let inner = MockInnerHandler::new();

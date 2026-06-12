@@ -81,6 +81,8 @@ pub enum SessionError {
     // Authorization and roles
     #[error("auth error: {0}")]
     Auth(#[from] AuthError),
+    #[error("duplicate control message replay: message_id={message_id}")]
+    ControlMessageReplay { message_id: u32 },
 
     // Acknowledgements and routing
     #[error("error receiving ack for message: {0}")]

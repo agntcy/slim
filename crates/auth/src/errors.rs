@@ -175,4 +175,6 @@ pub enum AuthError {
     PublicKeyNotFound,
     #[error("subject not found in identity claims")]
     SubjectNotFound,
+    #[error("MLS key generation failed")]
+    MlsKeyGenerationFailed,
 }

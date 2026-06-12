@@ -18,8 +18,18 @@ default = []
 agntcy-slim-version = { workspace = true }
 base64 = { workspace = true }
 cfg-if = { workspace = true }
+ed25519-dalek = { version = "2.1", default-features = false, features = [
+  "rand_core",
+] }
 http = { workspace = true }
 itoa = "1"
+p256 = { version = "0.13", default-features = false, features = [
+  "ecdsa",
+  "pkcs8",
+  "std",
+] }
+mls-rs-core = { workspace = true }
+mls-rs-crypto-awslc = { workspace = true }
 parking_lot = { workspace = true }
 prost-types = { workspace = true }
 rand = { workspace = true }
@@ -64,7 +74,12 @@ sha2 = { workspace = true }
 agntcy-slim-config = { path = "../config" }
 agntcy-slim-testing = { path = "../testing" }
 criterion = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "fs"] }
+tokio = { workspace = true, features = [
+  "rt-multi-thread",
+  "macros",
+  "process",
+  "fs",
+] }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true }
 # uuid moved to optional dependency under [dependencies] for feature = "testutils"

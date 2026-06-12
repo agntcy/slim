@@ -48,7 +48,9 @@ where
     if e2e_integrity_required && msg.get_session_message_type().is_command_message() {
         let slim_header = msg.get_slim_header();
         let Some(sig) = &slim_header.e2e_header_sig else {
-            return Err(SessionError::Auth(slim_auth::errors::AuthError::TokenInvalid));
+            return Err(SessionError::Auth(
+                slim_auth::errors::AuthError::TokenInvalid,
+            ));
         };
 
         #[derive(serde::Deserialize)]
@@ -67,17 +69,24 @@ where
             tracing::error!("verify_identity: get_claims failed with: {:?}", e);
         }
         let claims: IdentityClaims = claims_res?;
-        let pubkey = claims.pubkey
+        let pubkey = claims
+            .pubkey
             .or_else(|| claims.custom_claims.and_then(|c| c.pubkey))
             .ok_or_else(|| {
-                tracing::error!("verify_identity: pubkey not found in claims. claims_json: {:?}", identity);
+                tracing::error!(
+                    "verify_identity: pubkey not found in claims. claims_json: {:?}",
+                    identity
+                );
                 SessionError::Auth(slim_auth::errors::AuthError::TokenInvalid)
             })?;
-        
+
         use base64::Engine as _;
         let pubkey_bytes_res = base64::engine::general_purpose::STANDARD.decode(&pubkey);
         if let Err(ref e) = pubkey_bytes_res {
-            tracing::error!("verify_identity: base64 decode of pubkey failed with: {:?}", e);
+            tracing::error!(
+                "verify_identity: base64 decode of pubkey failed with: {:?}",
+                e
+            );
         }
         let pubkey_bytes = pubkey_bytes_res
             .map_err(|_| SessionError::Auth(slim_auth::errors::AuthError::TokenMalformed))?;
@@ -254,24 +263,25 @@ impl SessionController {
                 | ProtoSessionMessageType::Ping
         );
         // Require E2E verification only when the sender included a signature (matches pre-session path).
-        let e2e_required = is_post_session_control && msg.get_slim_header().e2e_header_sig.is_some();
+        let e2e_required = is_post_session_control && settings.config.mls_settings.is_some();
 
         // 1. Verify E2E header signature and token
-        crate::session_controller::verify_identity(msg, &settings.identity_verifier, e2e_required).await?;
+        crate::session_controller::verify_identity(msg, &settings.identity_verifier, e2e_required)
+            .await?;
 
         // 2. Perform sequence number check for command messages
         if e2e_required && msg.get_session_message_type().is_command_message() {
             let sender = msg.get_source();
-            let seq = msg.get_slim_header().sequence_number;
-            if let Some(s) = seq {
-                let mut seen_control_seqs = settings.seen_control_seqs.lock();
-                let seen = seen_control_seqs.entry(sender.clone()).or_default();
-                if !seen.insert(s) {
-                    // Duplicate delivery (network retransmission or fanout). Handlers are idempotent.
-                    return Ok(());
-                }
-            } else {
-                return Err(SessionError::Auth(slim_auth::errors::AuthError::TokenInvalid));
+            let message_id = msg.get_session_header().get_message_id();
+            if message_id == 0 {
+                return Err(SessionError::Auth(
+                    slim_auth::errors::AuthError::TokenInvalid,
+                ));
+            }
+            let mut seen = settings.seen_control_message_ids.lock();
+            let seen = seen.entry(sender.clone()).or_default();
+            if !seen.insert(message_id) {
+                return Err(SessionError::ControlMessageReplay { message_id });
             }
         }
         Ok(())
@@ -718,9 +728,6 @@ pub(crate) struct SessionControllerCommon<
 
     /// Maps (kind, name, conn) → subscription_id for route/subscription tracking.
     subscription_ids: HashMap<(SubscriptionKind, ProtoName, u64), u64>,
-
-    /// Next sequence number to use for outbound control messages
-    pub(crate) next_control_seq: u64,
 }
 
 /// Distinguishes route entries from subscription entries in the subscription_ids map.
@@ -756,8 +763,32 @@ where
             sender: controller_sender,
             processing_state: ProcessingState::Active,
             subscription_ids: HashMap::new(),
-            next_control_seq: 1,
         }
+    }
+
+    pub(crate) fn sign_control_messages(
+        &self,
+        output: &mut SessionOutput,
+        identity_provider: &P,
+    ) -> Result<(), SessionError> {
+        let private_key = match identity_provider.get_signature_secret_key() {
+            Ok(k) if !k.is_empty() => k,
+            _ => return Ok(()),
+        };
+        let public_key = match identity_provider.get_signature_public_key() {
+            Ok(k) if !k.is_empty() => k,
+            _ => return Ok(()),
+        };
+        for msg in &mut output.messages {
+            if let OutboundMessage::ToSlim(m) = msg
+                && m.get_session_message_type().is_command_message()
+            {
+                let aad = crate::mls_state::build_aad(m);
+                let signature = slim_auth::utils::sign_header_aad(&aad, &private_key, &public_key)?;
+                m.get_slim_header_mut().e2e_header_sig = Some(signature);
+            }
+        }
+        Ok(())
     }
 
     /// Send control message through ControllerSender, returning the output.
@@ -1979,7 +2010,7 @@ mod tests {
             graceful_shutdown_timeout: Some(Duration::from_secs(10)),
             subscription_manager,
             service_id: String::new(),
-            seen_control_seqs: crate::session_settings::new_seen_control_seqs(),
+            seen_control_message_ids: crate::session_settings::new_seen_control_message_ids(),
         };
 
         let needs_drain = Arc::new(AtomicBool::new(true));
@@ -2156,7 +2187,7 @@ mod tests {
             graceful_shutdown_timeout,
             subscription_manager,
             service_id: String::new(),
-            seen_control_seqs: crate::session_settings::new_seen_control_seqs(),
+            seen_control_message_ids: crate::session_settings::new_seen_control_message_ids(),
         }
     }
 

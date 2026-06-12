@@ -82,11 +82,11 @@ where
     /// Service ID for tracing — identifies which service instance owns this session
     pub(crate) service_id: String,
 
-    /// Seen control-message sequence numbers per remote sender (E2E replay protection).
-    pub(crate) seen_control_seqs: Arc<Mutex<HashMap<ProtoName, HashSet<u64>>>>,
+    /// Seen control-message ids per remote sender (E2E replay protection).
+    pub(crate) seen_control_message_ids: Arc<Mutex<HashMap<ProtoName, HashSet<u32>>>>,
 }
 
-pub(crate) fn new_seen_control_seqs() -> Arc<Mutex<HashMap<ProtoName, HashSet<u64>>>> {
+pub(crate) fn new_seen_control_message_ids() -> Arc<Mutex<HashMap<ProtoName, HashSet<u32>>>> {
     Arc::new(Mutex::new(HashMap::new()))
 }
 
@@ -96,10 +96,10 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
     M: SubscriptionOps,
 {
-    /// Forget replay state for a participant that left or was removed so re-invites can restart seq.
-    pub(crate) fn clear_seen_control_seqs(&self, participant: &ProtoName) {
+    /// Forget replay state for a participant that left or was removed.
+    pub(crate) fn clear_seen_control_message_ids(&self, participant: &ProtoName) {
         let components = participant.str_components();
-        self.seen_control_seqs
+        self.seen_control_message_ids
             .lock()
             .retain(|k, _| k.str_components() != components);
     }

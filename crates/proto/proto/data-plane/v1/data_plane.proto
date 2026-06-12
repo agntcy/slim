@@ -237,7 +237,6 @@ message HeaderIntegrityAad {
   uint32 session_id = 7;
   uint32 message_id = 8;
   string payload_type = 9;
-  optional uint64 sequence_number = 10;
 }
 
 // Group Add Payload

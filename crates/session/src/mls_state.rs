@@ -277,11 +277,6 @@ where
             }
         }
     }
-
-    /// Builds the Authenticated Data (AAD) for header integrity checks
-    fn build_aad(&self, msg: &Message) -> Vec<u8> {
-        build_aad(msg)
-    }
 }
 
 /// Builds the Authenticated Data (AAD) for header integrity checks
@@ -309,7 +304,6 @@ pub(crate) fn build_aad(msg: &Message) -> Vec<u8> {
         session_id: session_header.get_session_id(),
         message_id: session_header.get_message_id(),
         payload_type,
-        sequence_number: slim_header.sequence_number,
     };
 
     aad.encode_to_vec()
@@ -374,7 +368,7 @@ where
         let payload = msg.get_payload().unwrap().as_application_payload()?;
 
         debug!("Encrypting message for group member");
-        let aad = self.build_aad(msg);
+        let aad = build_aad(msg);
         let encrypted_payload = self.mls.encrypt_message(&payload.blob, aad).await?;
 
         msg.set_payload(
@@ -411,7 +405,7 @@ where
             };
 
             if should_validate {
-                let expected_aad = self.build_aad(msg);
+                let expected_aad = build_aad(msg);
                 if expected_aad != auth_data {
                     let expected_decoded = HeaderIntegrityAad::decode(&expected_aad[..]);
                     let got_decoded = HeaderIntegrityAad::decode(&auth_data[..]);
@@ -1244,10 +1238,9 @@ mod tests {
     async fn test_build_aad_falls_back_to_empty_payload_type() {
         // A control message has no application payload, so build_aad must use
         // an empty payload_type rather than panicking.
-        let state = new_test_mls_state().await;
         let msg = control_msg(ProtoSessionMessageType::GroupAdd, 1);
 
-        let aad = state.build_aad(&msg);
+        let aad = build_aad(&msg);
 
         assert!(!aad.is_empty());
     }

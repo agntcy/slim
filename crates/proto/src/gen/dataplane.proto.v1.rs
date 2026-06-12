@@ -313,8 +313,6 @@ pub struct HeaderIntegrityAad {
     pub message_id: u32,
     #[prost(string, tag = "9")]
     pub payload_type: ::prost::alloc::string::String,
-    #[prost(uint64, optional, tag = "10")]
-    pub sequence_number: ::core::option::Option<u64>,
 }
 /// Group Add Payload
 /// sent when a new participant is added
