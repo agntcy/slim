@@ -16,8 +16,8 @@ the SLIM protocol.
 This documentation explains how SLIMRPC works and
 how you can implement it in your applications. For detailed instructions on
 compiling a protobuf file to obtain the necessary SLIMRPC stub code, please
-refer to the dedicated [SLIMRPC compiler
-documentation](./slim-slimrpc-compiler.md).
+refer to the dedicated [SLIMRPC compiler documentation](https://github.com/agntcy/slim-bindings/blob/main/slimrpc-compiler/README.md)
+in the [slim-bindings](https://github.com/agntcy/slim-bindings) repository.
 
 ## SLIM naming in SLIMRPC
 
@@ -102,8 +102,8 @@ folder.
 
 The foundation of this example is the `example.proto` file, which is a standard
 Protocol Buffers definition file. This file is compiled using the [SLIMRPC
-compiler](./slim-slimrpc-compiler.md) to generate the necessary Python stub
-code. The generated code is available in two files:
+compiler](https://github.com/agntcy/slim-bindings/blob/main/slimrpc-compiler/README.md)
+to generate the necessary Python stub code. The generated code is available in two files:
 [example_pb2.py](https://github.com/agntcy/slim-bindings/blob/main/python/examples/slimrpc/simple/types/example_pb2.py)
 and
 [example_pb2_slimrpc.py](https://github.com/agntcy/slim-bindings/blob/main/python/examples/slimrpc/simple/types/example_pb2_slimrpc.py).

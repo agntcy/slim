@@ -74,12 +74,6 @@ release = true
 changelog_update = true
 
 [[package]]
-name = "agntcy-protoc-slimrpc-plugin"
-publish = true
-release = true
-changelog_update = true
-
-[[package]]
 name = "agntcy-slimctl"
 publish = true
 release = true
