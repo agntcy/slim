@@ -469,7 +469,10 @@ impl super::RouteService {
         links: &[crate::db::Link],
         available_nodes: &[String],
     ) {
-        let new_gateway = &available_nodes[0];
+        use rand::seq::IndexedRandom;
+        let new_gateway = available_nodes
+            .choose(&mut rand::rng())
+            .expect("available_nodes must not be empty");
         tracing::info!(
             "reassign_gateway_links: moving links from {departing_node} to {new_gateway}"
         );

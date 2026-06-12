@@ -39,6 +39,7 @@ libsqlite3-sys = { workspace = true }
 parking_lot = { workspace = true }
 petgraph = { workspace = true }
 prost = { workspace = true }
+rand = { workspace = true }
 prost-types = { workspace = true }
 rlimit = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

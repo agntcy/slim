@@ -9,7 +9,7 @@ information is propagated to data-plane instances, and how failures are handled.
 
 1. [System Overview](#system-overview)
    - [Group-Based Routing](#group-based-routing)
-   - [Topology Policies](#topology-policies)
+   - [Topology](#topology)
    - [Architecture](#architecture)
 2. [Components](#components)
 3. [Node Lifecycle](#node-lifecycle)
@@ -50,41 +50,73 @@ desired state.
 
 The CP operates on **groups** (also called deployments), not individual nodes.
 Each DP node belongs to exactly one group. Intra-group connectivity is handled
-by the data plane directly (nodes within the same group discover each other via
-static peers). The CP is responsible only for **inter-group** connectivity:
+by the data plane directly (nodes within the same group discover each other). 
+The CP is responsible only for **inter-group** connectivity:
 creating links between groups and expanding routes across group boundaries.
 
-Within a group, one node is automatically elected as the **gateway** — the node
+Within a group, one node is randomly selected as the **gateway** — the node
 that holds the inter-group link and forwards traffic between its group and
-other groups. If the gateway crashes, the CP reassigns the link to a sibling
-node in the same group (see [Gateway Failover](#gateway-failover)).
+other groups. Gateway selection is randomized to distribute load across group
+members. If the gateway crashes, the CP reassigns the link to a randomly
+chosen sibling node in the same group (see [Gateway Failover](#gateway-failover)).
 
-### Topology Policies
+### Topology
 
-The CP supports configurable topology policies that control which groups are
-allowed to form inter-group links. This enables network partitioning — for
-example, two customer clusters connected to a shared cloud cluster where
-customers cannot see each other's agents.
+The CP supports configurable topology that controls which groups are
+allowed to form inter-group links. The topology is expressed as an
+**adjacency list**: each entry declares a group name and the peers it
+connects to. All links are **bidirectional** (if A lists B, then B↔A).
 
-Topology is configured via the `topology` section in the CP config file:
+The wildcard `"*"` matches all registered groups and is resolved dynamically
+at node registration time.
+
+If no topology is configured (empty `links` or `topology: {}`), the
+controller defaults to **full mesh**: every group links to every other group.
+
+#### Examples
+
+**Full mesh** (default — all groups interconnect):
+
+```yaml
+topology: {}
+```
+
+**Star** (hub connects to all, spokes only reach each other via hub):
 
 ```yaml
 topology:
-  type: full-mesh  # all groups can link to all other groups (default)
+  links:
+    - name: cloud
+      peers: ["*"]
 ```
+
+**Explicit pairs** (customer groups reach cloud but not each other):
 
 ```yaml
 topology:
-  type: custom
-  allowed_links:
-    - [customer-a, cloud]
-    - [customer-b, cloud]
-  # customer-a and customer-b cannot link directly
+  links:
+    - name: cloud
+      peers: [customer-a, customer-b]
 ```
 
-The topology policy is enforced during link creation (`ensure_links_for_node`):
-if `topology.can_link(src_group, dst_group)` returns false, the link is
-skipped.
+**Chain** (linear: a↔b↔c↔d, multi-hop):
+
+```yaml
+topology:
+  links:
+    - name: group-a
+      peers: [group-b]
+    - name: group-b
+      peers: [group-a, group-c]
+    - name: group-c
+      peers: [group-b, group-d]
+    - name: group-d
+      peers: [group-c]
+```
+
+The topology is enforced during link creation.
+The SPT routing algorithm uses the topology graph to compute
+shortest paths for route expansion across non-adjacent groups.
 
 ### Architecture
 
@@ -106,8 +138,8 @@ graph TD
     end
 ```
 
-Communication between the CP and DP nodes uses a bidirectional gRPC stream
-(`OpenControlChannel`). The CP sends `ConfigCommand` messages to instruct
+Communication between the CP and DP nodes uses a bidirectional gRPC stream.
+The CP sends `ConfigCommand` messages to instruct
 nodes to create/delete connections and subscriptions. Nodes send registration
 requests, config command acknowledgements, and DP-initiated subscription
 mutations back on the same stream.
@@ -187,12 +219,15 @@ lock (to serialize with concurrent deregistration):
      destination endpoint and connection config in the link record.
 
 2. **Ensure links exist** (`ensure_links_for_node`). For every other
-   registered node that does not yet have a link to/from this node:
-   - **Same group**: create a direct link using the first connection detail.
-   - **Different group**: create a group link using the `external_endpoint`.
-     The node with the external endpoint becomes the destination.
+   registered node in a **different group** that does not yet have a link
+   to/from this node's group:
+   - Create a group link using the `external_endpoint`. The node with the
+     external endpoint becomes the destination.
+   - The target node within the remote group is chosen randomly to distribute
+     gateway load.
    - If neither node has an external endpoint, log an error (cross-group
      connectivity requires at least one external endpoint).
+   - Same-group connectivity is handled by the data plane (not the CP).
 
 3. **Expand routes via SPT** (`expand_all_wildcard_routes`). For each unique
    name with wildcard route templates, compute the SPT rooted at the first
@@ -209,19 +244,16 @@ A node deregisters gracefully by sending a `DeregisterNodeRequest` on the
 stream. The CP sends a `DeregisterNodeResponse` *before* removing the stream
 (critical ordering -- once the stream is removed, sends fail). Then:
 
-1. **Source routes**: hard-delete all routes where the node is the source.
-   Wildcard template routes (`source=*`) are preserved.
-2. **Destination routes**: soft-delete (mark `deleted=true`) all non-wildcard
-   routes where the node is the destination. Enqueue source nodes for route
-   reconciliation so the subscriptions are cleaned up on the DP.
-3. **Outgoing links** (source = departing node): hard-delete immediately.
-   The node is gone, so the link reconciler cannot reach it to send a delete
-   command.
-4. **Incoming links** (dest = departing node): mark `deleted=true` and
-   enqueue the source node for link reconciliation so the peer tears down
-   the outgoing connection.
-5. **Node record**: delete from the database.
-6. **Per-node lock**: remove the entry (while the lock guard is still held,
+1. **Gateway failover** (`handle_links_for_departing_node`): if the node held
+   inter-group links and siblings exist, reassigns them to a random sibling.
+   If this was the last node in the group, all links are soft-deleted.
+2. **Route cleanup** (`cleanup_routes_for_node`):
+   - Source routes: hard-delete.
+   - Destination routes: mark-delete and enqueue source nodes for route
+     reconciliation so subscriptions are cleaned up on the DP.
+   - Wildcard templates targeting this node: hard-delete.
+3. **Node record**: delete from the database.
+4. **Per-node lock**: remove the entry (while the lock guard is still held,
    preventing a racing `node_registered` from losing its lock).
 
 ### Crash Disconnect
@@ -232,22 +264,24 @@ network failure), the stream read loop exits. The CP:
 1. Removes the stream (`remove_stream`), which closes all in-flight
    response waiters immediately (they receive a channel-closed error
    instead of blocking until the 90 s timeout).
-2. Removes the per-node lock entry to prevent unbounded growth in the
-   `node_locks` map.
-
-No link or route cleanup is performed on crash disconnect. The node's links
-and routes remain in the DB. When the node reconnects, `node_registered`
-syncs the state (see step 1 of Registration). The periodic reconciliation
-sweep also re-enqueues connected nodes to catch any drift.
+2. Calls `node_disconnected` which, under the per-node lock:
+   - **Gateway failover**: if the node held inter-group links, reassigns
+     them to a randomly chosen sibling (see [Gateway Failover](#gateway-failover)).
+   - **Route cleanup**: deletes source routes, mark-deletes destination
+     routes, and deletes wildcard templates targeting this node.
+3. Keeps the node record and per-node lock entry (the node is expected to
+   reconnect). When it does, `node_registered` re-syncs links and
+   re-expands routes.
 
 ### Gateway Failover
 
 When a node that serves as a group's gateway (the node holding inter-group
 links) departs, the CP performs gateway failover to maintain connectivity.
-This is handled by `reassign_gateway_links` in `node_lifecycle.rs`.
+This is handled by `reassign_gateway_links` in `node_lifecycle.rs`. The new
+gateway is chosen **randomly** from connected siblings to distribute load.
 
 **Outgoing links** (gateway is the source side of the link):
-1. The link's `source_node_id` is changed to a sibling node in the same group.
+1. The link's `source_node_id` is changed to a randomly chosen sibling node.
 2. The link keeps its `link_id` and is reset to `Pending`.
 3. Routes on the departing gateway are moved to the sibling (same `link_id`).
 4. The reconciler pushes the connection to the new gateway, which establishes it.
@@ -288,8 +322,7 @@ with status `Pending`. The link record includes:
 | `status` | `Pending`, `Connecting`, `Applied`, or `Failed` |
 | `deleted` | Soft-delete flag |
 
-**Connection detail selection.** For same-group links, the first connection
-detail's local endpoint is used with insecure TLS. For cross-group links, the
+**Connection detail selection.** For cross-group links, the
 `external_endpoint` is used with mTLS (SPIRE-based), and additional settings
 (backoff, keepalive, SPIRE socket path) are injected into the config.
 
@@ -582,6 +615,28 @@ when the service shuts down.
 ## Configuration Reference
 
 ```yaml
+tracing:
+  log_level: info  # trace, debug, info, warn, error
+
+northbound:
+  endpoint: "0.0.0.0:50051"
+  tls:
+    insecure: true  # or configure mTLS
+
+southbound:
+  endpoint: "0.0.0.0:50052"
+  tls:
+    insecure: true
+
+database:
+  type: in_memory  # or: type: sqlite, path: "/var/lib/slim/cp.db"
+
+topology:
+  links:
+    - name: cloud
+      peers: ["*"]  # star: cloud connects to all groups
+    # Omit topology section or use `topology: {}` for full mesh.
+
 reconciler:
   # Max retry attempts per item before dropping (re-enqueued on next sweep).
   max_requeues: 15

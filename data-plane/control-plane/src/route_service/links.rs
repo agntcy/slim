@@ -4,6 +4,7 @@
 use std::collections::HashSet;
 use std::time::SystemTime;
 
+use rand::seq::SliceRandom;
 use uuid::Uuid;
 
 use crate::db::LinkStatus;
@@ -75,7 +76,11 @@ impl super::RouteService {
                 .unwrap_or(false)
         });
 
-        for other in all_nodes {
+        // Shuffle nodes to randomly distribute the gateway role across group members.
+        let mut candidates: Vec<_> = all_nodes.to_vec();
+        candidates.shuffle(&mut rand::rng());
+
+        for other in &candidates {
             if other.id == node_id {
                 continue;
             }
