@@ -340,4 +340,6 @@ enum LinkConnectionType {
   LINK_CONNECTION_TYPE_REMOTE = 0;
   // Peer connection (intra-deployment replica).
   LINK_CONNECTION_TYPE_PEER = 1;
+  // Edge connection (app/SDK to first-hop SLIM node).
+  LINK_CONNECTION_TYPE_EDGE = 2;
 }

@@ -40,16 +40,25 @@ pub enum ConnType {
     /// Not exposed in configuration — only used internally.
     #[serde(skip)]
     Local,
-    /// Connection with a remote SLIM instance (other deployment, via controller).
+    /// Connection with a remote SLIM instance in other deployment.
+    /// Always handeled by the control plane.
     #[default]
     Remote,
     /// Connection with a peer replica in the same deployment.
     Peer,
+    /// Connection to the first SLIM node in the network
+    /// Edge connections are handled by the data plane
+    Edge,
 }
 
 impl ConnType {
     /// All variants, for iteration.
-    pub const ALL: [ConnType; 3] = [ConnType::Local, ConnType::Remote, ConnType::Peer];
+    pub const ALL: [ConnType; 4] = [
+        ConnType::Local,
+        ConnType::Remote,
+        ConnType::Peer,
+        ConnType::Edge,
+    ];
 
     /// Number of ConnType variants (derived automatically).
     pub const COUNT: usize = Self::ALL.len();
@@ -60,6 +69,7 @@ impl ConnType {
             ConnType::Local => 0,
             ConnType::Remote => 1,
             ConnType::Peer => 2,
+            ConnType::Edge => 3,
         }
     }
 
