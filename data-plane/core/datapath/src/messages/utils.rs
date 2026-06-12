@@ -403,6 +403,7 @@ impl SlimHeader {
     }
 
     // returns (incoming, recv_from, forward_to) for subscription processing
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn get_connections(&self) -> (u64, Option<u64>, Option<u64>) {
         // when calling this function, incoming connection is set
         let incoming = self

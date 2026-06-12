@@ -137,4 +137,72 @@ pub trait TokenProvider {
     fn rotate_signature_keys(&mut self) -> Result<(), AuthError> {
         Err(AuthError::MlsNotSupported)
     }
+
+    /// Replace the MLS signature key pair with externally-generated keys.
+    ///
+    /// Used when the keys must be produced by the MLS crypto provider rather
+    /// than the identity provider. This is always the case for the default
+    /// P-256 ciphersuite (and mandatory on wasm32, where WebCrypto owns key
+    /// generation). Returns `Err(AuthError::MlsNotSupported)` by default.
+    fn set_signature_keys(
+        &mut self,
+        _private_key: Vec<u8>,
+        _public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        Err(AuthError::MlsNotSupported)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Minimal provider that implements only the required methods, leaving the
+    /// MLS signature-key methods to their default `MlsNotSupported` impls.
+    struct MinimalProvider;
+
+    impl TokenProvider for MinimalProvider {
+        async fn initialize(&mut self) -> Result<(), AuthError> {
+            Ok(())
+        }
+
+        fn get_token(&self) -> Result<String, AuthError> {
+            Ok("token".to_string())
+        }
+
+        fn get_id(&self) -> Result<String, AuthError> {
+            Ok("id".to_string())
+        }
+    }
+
+    #[test]
+    fn default_mls_methods_return_not_supported() {
+        let mut p = MinimalProvider;
+        assert!(matches!(
+            p.get_signature_secret_key(),
+            Err(AuthError::MlsNotSupported)
+        ));
+        assert!(matches!(
+            p.get_signature_public_key(),
+            Err(AuthError::MlsNotSupported)
+        ));
+        assert!(matches!(
+            p.rotate_signature_keys(),
+            Err(AuthError::MlsNotSupported)
+        ));
+        assert!(matches!(
+            p.set_signature_keys(vec![1, 2, 3], vec![4, 5, 6]),
+            Err(AuthError::MlsNotSupported)
+        ));
+
+        // The required methods remain usable on the same minimal provider.
+        assert_eq!(p.get_token().unwrap(), "token");
+        assert_eq!(p.get_id().unwrap(), "id");
+    }
+
+    #[tokio::test]
+    async fn default_initialize_is_a_noop() {
+        let mut p = MinimalProvider;
+        assert!(p.initialize().await.is_ok());
+    }
 }

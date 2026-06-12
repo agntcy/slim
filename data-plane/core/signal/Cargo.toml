@@ -10,5 +10,7 @@ name = "slim_signal"
 
 [dependencies]
 agntcy-slim-version = { workspace = true }
-tokio = { version = "1", features = ["macros", "signal"] }
 tracing = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["macros", "signal"] }

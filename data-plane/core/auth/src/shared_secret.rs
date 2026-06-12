@@ -50,23 +50,40 @@ SPDX-License-Identifier: Apache-2.0
 //! * Interior mutability only for the replay cache (parking_lot::Mutex).
 //! * All other fields are immutable after construction.
 
-use aws_lc_rs::hmac;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as STANDARD_BASE64;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use parking_lot::Mutex;
 use rand::{Rng, distr::Alphanumeric};
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
     collections::{HashSet, VecDeque},
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
+use crate::mac::HmacKey;
 use crate::{
     errors::AuthError,
     traits::{TokenProvider, Verifier},
-    utils::generate_mls_signature_keys,
 };
+
+// MLS signature key generation. On native targets we defer to the AWS-LC MLS
+// crypto provider so the bytes are valid for the negotiated ciphersuite. On
+// wasm32 that provider is unavailable (and WebCrypto is async-only), so we emit
+// random placeholder bytes; the MLS layer always regenerates and installs the
+// ciphersuite-correct P-256 keys via `set_signature_keys` during init.
+#[cfg(not(target_arch = "wasm32"))]
+use crate::utils::generate_mls_signature_keys;
+
+#[cfg(target_arch = "wasm32")]
+fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), AuthError> {
+    let mut secret = vec![0u8; 32];
+    let mut public = vec![0u8; 32];
+    rand::rng().fill(&mut secret[..]);
+    rand::rng().fill(&mut public[..]);
+    Ok((secret, public))
+}
 
 /// Minimum length (in bytes) required for the shared secret (baseline 256 bits).
 const MIN_SECRET_LEN: usize = 32;
@@ -168,7 +185,7 @@ struct SharedSecretInternal {
     id: String,
     shared_secret: String,
     /// Precomputed HMAC key derived once from `shared_secret`.
-    hmac_key: hmac::Key,
+    hmac_key: HmacKey,
     validity_window: std::time::Duration,
     clock_skew: std::time::Duration,
     replay_cache_enabled: bool,
@@ -241,7 +258,7 @@ impl SharedSecret {
 
         let signature_keys = generate_mls_signature_keys()?;
         let claims_b64 = Self::compute_claims_b64(&signature_keys.1);
-        let hmac_key = hmac::Key::new(hmac::HMAC_SHA256, shared_secret.as_bytes());
+        let hmac_key = HmacKey::new(shared_secret.as_bytes());
         let internal = SharedSecretInternal {
             base_id: id.to_owned(),
             id: full_id,
@@ -332,7 +349,7 @@ impl SharedSecret {
             base_id: current.base_id.clone(),
             id: current.id.clone(),
             shared_secret: current.shared_secret.clone(),
-            hmac_key: hmac::Key::new(hmac::HMAC_SHA256, current.shared_secret.as_bytes()),
+            hmac_key: HmacKey::new(current.shared_secret.as_bytes()),
             validity_window: validity_window.unwrap_or(current.validity_window),
             clock_skew: clock_skew.unwrap_or(current.clock_skew),
             replay_cache_enabled: enable_flag,
@@ -387,9 +404,9 @@ impl SharedSecret {
         out.push_str(claims_b64);
 
         // Sign the canonical message "id:ts:nonce:claims_b64" which is the current buffer.
-        let tag = hmac::sign(&self.inner.hmac_key, out.as_bytes());
+        let tag = self.inner.hmac_key.sign(out.as_bytes());
         out.push(':');
-        URL_SAFE_NO_PAD.encode_string(tag.as_ref(), out);
+        URL_SAFE_NO_PAD.encode_string(tag, out);
 
         Ok(())
     }
@@ -457,11 +474,19 @@ impl SharedSecret {
         Ok(())
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn get_current_timestamp(&self) -> u64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs()
+    }
+
+    // On wasm32-unknown-unknown `std::time::SystemTime::now()` panics, so use
+    // the browser clock via `js_sys::Date::now()` (milliseconds since epoch).
+    #[cfg(target_arch = "wasm32")]
+    fn get_current_timestamp(&self) -> u64 {
+        (js_sys::Date::now() / 1000.0) as u64
     }
 
     fn parse_token(&self, token: &str) -> Result<(String, u64, String, String, String), AuthError> {
@@ -538,6 +563,16 @@ impl TokenProvider for SharedSecret {
         self.claims_b64 = Self::compute_claims_b64(&self.signature_keys.1);
         Ok(())
     }
+
+    fn set_signature_keys(
+        &mut self,
+        private_key: Vec<u8>,
+        public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        self.claims_b64 = Self::compute_claims_b64(&public_key);
+        self.signature_keys = (private_key, public_key);
+        Ok(())
+    }
 }
 
 impl Verifier for SharedSecret {
@@ -586,8 +621,9 @@ impl Verifier for SharedSecret {
                 base64::DecodeSliceError::OutputSliceTooSmall => AuthError::TokenMalformed,
             })?;
         let expected: &[u8] = &mac_buf;
-        hmac::verify(&self.inner.hmac_key, message.as_bytes(), expected)
-            .map_err(|_e| AuthError::TokenInvalid)?;
+        if !self.inner.hmac_key.verify(message.as_bytes(), expected) {
+            return Err(AuthError::TokenInvalid);
+        }
 
         self.record_replay(nonce, ts, now)
     }
@@ -661,14 +697,58 @@ mod tests {
     }
 
     fn forge_mac(s: &SharedSecret, message: &str) -> String {
-        let tag = hmac::sign(&s.inner.hmac_key, message.as_bytes());
-        URL_SAFE_NO_PAD.encode(tag.as_ref())
+        let tag = s.inner.hmac_key.sign(message.as_bytes());
+        URL_SAFE_NO_PAD.encode(tag)
     }
 
     #[test]
     fn test_secret_too_short() {
         let result = SharedSecret::new("svc", "shortsecret");
         assert!(result.is_err_and(|e| matches!(e, AuthError::HmacKeyTooShort)));
+    }
+
+    #[test]
+    fn test_set_signature_keys_updates_keys_and_claims() {
+        let mut s = SharedSecret::new("svc", &valid_secret()).unwrap();
+
+        let initial_pub = s.get_signature_public_key().unwrap();
+        let initial_token = s.get_token().unwrap();
+
+        let new_priv = vec![7u8; 32];
+        let new_pub = vec![9u8; 32];
+        s.set_signature_keys(new_priv.clone(), new_pub.clone())
+            .unwrap();
+
+        // The provider now reports the externally-supplied key pair.
+        assert_eq!(s.get_signature_secret_key().unwrap(), new_priv);
+        assert_eq!(s.get_signature_public_key().unwrap(), new_pub);
+        assert_ne!(s.get_signature_public_key().unwrap(), initial_pub);
+
+        // The embedded claims carry the public key, so a token minted after the
+        // swap differs from one minted before it.
+        let new_token = s.get_token().unwrap();
+        let claims_before = initial_token.split(':').nth(3).unwrap();
+        let claims_after = new_token.split(':').nth(3).unwrap();
+        assert_ne!(claims_before, claims_after);
+
+        // The token must still self-verify after the key swap.
+        assert!(s.try_verify(new_token).is_ok());
+    }
+
+    #[test]
+    fn test_rotate_signature_keys_changes_keys() {
+        let mut s = SharedSecret::new("svc", &valid_secret()).unwrap();
+        let before_pub = s.get_signature_public_key().unwrap();
+        let before_priv = s.get_signature_secret_key().unwrap();
+
+        s.rotate_signature_keys().unwrap();
+
+        assert_ne!(before_pub, s.get_signature_public_key().unwrap());
+        assert_ne!(before_priv, s.get_signature_secret_key().unwrap());
+
+        // The rotated identity still produces a verifiable token.
+        let token = s.get_token().unwrap();
+        assert!(s.try_verify(token).is_ok());
     }
 
     #[test]

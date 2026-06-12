@@ -565,6 +565,7 @@ impl LinkConnectionType {
     }
 }
 /// Generated client implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod data_plane_service_client {
     #![allow(
         unused_variables,
@@ -684,6 +685,7 @@ pub mod data_plane_service_client {
     }
 }
 /// Generated server implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod data_plane_service_server {
     #![allow(
         unused_variables,

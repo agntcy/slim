@@ -18,6 +18,12 @@ rustflags = ["-C", "link-arg=-mios-version-min=13.4"]
 linker = "clang-ios-linker-wrapper.sh"
 rustflags = ["-C", "link-arg=-mios-simulator-version-min=13.4"]
 
+# Enable `mls_build_async` for WASM targets so that mls-rs traits and methods
+# become async. This is required by `mls-rs-crypto-webcrypto`, which is built
+# on the browser SubtleCrypto API and is therefore async-only.
+[target.wasm32-unknown-unknown]
+rustflags = ["--cfg", "mls_build_async"]
+
 [env]
 # CFLAGS suppresses macro redefinition warnings that occur when system headers
 # are mixed with Zig's headers (common with Windows cross-compilation).

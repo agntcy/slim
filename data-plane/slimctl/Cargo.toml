@@ -21,7 +21,7 @@ name = "slimctl"
 path = "src/main.rs"
 
 [dependencies]
-# Local workspace
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim = { workspace = true }
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
@@ -64,5 +64,5 @@ agntcy-slim-version = { workspace = true }
 protoc-bin-vendored = { workspace = true }
 tonic-prost-build = { workspace = true }
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio-stream = { workspace = true, features = ["net"] }

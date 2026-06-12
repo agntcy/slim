@@ -43,6 +43,10 @@
 //! session.Publish(data, payloadType, metadata)
 //! ```
 
+// TODO(wasm32): implement browser bindings (wasm-bindgen / JS), replacing this gate.
+cfg_if::cfg_if! {
+    if #[cfg(not(target_arch = "wasm32"))] {
+
 // Module declarations
 mod app;
 mod build_info;
@@ -117,3 +121,6 @@ pub use slimrpc::{
 
 // UniFFI scaffolding setup (must be at crate root)
 uniffi::setup_scaffolding!();
+
+    } // end cfg_if not(wasm32)
+}

@@ -10,7 +10,10 @@ name = "slim_bindings"
 crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
-# Local workspace dependencies
+agntcy-slim-version = { workspace = true }
+cfg-if = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim = { workspace = true }
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
@@ -20,7 +23,6 @@ agntcy-slim-service = { workspace = true, features = ["session"] }
 agntcy-slim-session = { workspace = true }
 agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
-agntcy-slim-version = { workspace = true }
 
 # External dependencies
 async-stream = { workspace = true }
@@ -43,7 +45,7 @@ uuid = { workspace = true }
 agntcy-slim-version = { workspace = true }
 uniffi = { workspace = true, features = ["build"] }
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim-testing = { workspace = true }
 bincode = { workspace = true }
 clap = { workspace = true }

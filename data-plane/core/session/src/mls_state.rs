@@ -15,6 +15,7 @@ use slim_datapath::api::{
 
 use crate::{
     SessionError, common::MessageDirection, common::OutboundMessage, common::SessionOutput,
+    runtime::maybe_await,
 };
 use prost::Message as _;
 use slim_datapath::api::ProtoName;
@@ -52,11 +53,13 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    pub fn new(
+    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
+    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
+    pub async fn new(
         mut mls: Mls<P, V>,
         header_integrity_validation_percent: u32,
     ) -> Result<Self, SessionError> {
-        mls.initialize()?;
+        mls.initialize().await?;
 
         Ok(MlsState {
             mls,
@@ -67,12 +70,19 @@ where
         })
     }
 
-    pub(crate) fn generate_key_package(&mut self) -> Result<KeyPackageMsg, SessionError> {
-        let ret = self.mls.generate_key_package()?;
+    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
+    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
+    pub(crate) async fn generate_key_package(&mut self) -> Result<KeyPackageMsg, SessionError> {
+        let ret = self.mls.generate_key_package().await?;
         Ok(ret)
     }
 
-    pub(crate) fn process_welcome_message(&mut self, msg: &Message) -> Result<(), SessionError> {
+    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
+    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
+    pub(crate) async fn process_welcome_message(
+        &mut self,
+        msg: &Message,
+    ) -> Result<(), SessionError> {
         if self.last_mls_msg_id != 0 {
             debug!("Welcome message already received, drop");
             // we already got a welcome message, ignore this one
@@ -87,12 +97,14 @@ where
         self.last_mls_msg_id = mls_payload.commit_id;
         let welcome = &mls_payload.mls_content;
 
-        self.group = self.mls.process_welcome(welcome)?;
+        self.group = self.mls.process_welcome(welcome).await?;
 
         Ok(())
     }
 
-    pub(crate) fn process_control_message(
+    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
+    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
+    pub(crate) async fn process_control_message(
         &mut self,
         msg: Message,
         local_name: &ProtoName,
@@ -115,18 +127,18 @@ where
             // base on the message type, process it
             match msg.get_session_header().session_message_type() {
                 ProtoSessionMessageType::GroupProposal => {
-                    self.process_proposal_message(msg, local_name)?;
+                    self.process_proposal_message(msg, local_name).await?;
                 }
                 ProtoSessionMessageType::GroupAdd => {
                     let payload = msg.extract_group_add()?;
                     let mls_payload = payload.mls.as_ref().ok_or(MlsError::NoGroupAddPayload)?;
-                    self.process_commit_message(mls_payload)?;
+                    self.process_commit_message(mls_payload).await?;
                 }
                 ProtoSessionMessageType::GroupRemove => {
                     let payload = msg.extract_group_remove()?;
                     let mls_payload = payload.mls.as_ref().ok_or(MlsError::NoGroupRemovePayload)?;
 
-                    self.process_commit_message(mls_payload)?;
+                    self.process_commit_message(mls_payload).await?;
                 }
                 _type => {
                     error!(?_type, "unknown control message type, drop it");
@@ -140,16 +152,23 @@ where
         Ok(true)
     }
 
-    fn process_commit_message(&mut self, mls_payload: &MlsPayload) -> Result<(), SessionError> {
+    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
+    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
+    async fn process_commit_message(
+        &mut self,
+        mls_payload: &MlsPayload,
+    ) -> Result<(), SessionError> {
         trace!(id = %mls_payload.commit_id,  "processing stored commit",);
 
         // process the commit message
-        self.mls.process_commit(&mls_payload.mls_content)?;
+        self.mls.process_commit(&mls_payload.mls_content).await?;
 
         Ok(())
     }
 
-    fn process_proposal_message(
+    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
+    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
+    async fn process_proposal_message(
         &mut self,
         proposal: Message,
         local_name: &ProtoName,
@@ -171,7 +190,9 @@ where
             return Ok(());
         }
 
-        self.mls.process_proposal(&payload.mls_proposal, false)?;
+        self.mls
+            .process_proposal(&payload.mls_proposal, false)
+            .await?;
 
         Ok(())
     }
@@ -265,7 +286,9 @@ where
     /// # Returns
     /// * `Ok(())` if processing succeeds
     /// * `Err(SessionError)` if processing fails or message format is invalid
-    pub fn process_message(
+    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
+    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
+    pub async fn process_message(
         &mut self,
         msg: &mut Message,
         direction: MessageDirection,
@@ -273,20 +296,22 @@ where
         match direction {
             MessageDirection::South => {
                 // Encrypting message going to SLIM
-                self.encrypt_message(msg)
+                self.encrypt_message(msg).await
             }
             MessageDirection::North => {
                 // Decrypting message coming from SLIM
-                self.decrypt_message(msg)
+                self.decrypt_message(msg).await
             }
         }
     }
 
     /// Apply MLS encryption to all outbound ToSlim messages in the output.
-    pub fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
+    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
+    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
+    pub async fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
         for msg in &mut output.messages {
             if let OutboundMessage::ToSlim(m) = msg {
-                self.process_message(m, MessageDirection::South)?;
+                self.process_message(m, MessageDirection::South).await?;
             }
         }
         Ok(())
@@ -300,7 +325,9 @@ where
     /// # Returns
     /// * `Ok(())` if encryption succeeds
     /// * `Err(SessionError)` if encryption fails or message format is invalid
-    fn encrypt_message(&mut self, msg: &mut Message) -> Result<(), SessionError> {
+    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
+    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
+    async fn encrypt_message(&mut self, msg: &mut Message) -> Result<(), SessionError> {
         if !Self::should_process_message(msg) {
             return Ok(());
         }
@@ -309,7 +336,7 @@ where
 
         debug!("Encrypting message for group member");
         let aad = self.build_aad(msg);
-        let encrypted_payload = self.mls.encrypt_message(&payload.blob, aad)?;
+        let encrypted_payload = self.mls.encrypt_message(&payload.blob, aad).await?;
 
         msg.set_payload(
             ApplicationPayload::new(&payload.payload_type, encrypted_payload.to_vec()).as_content(),
@@ -326,7 +353,9 @@ where
     /// # Returns
     /// * `Ok(())` if decryption succeeds
     /// * `Err(SessionError)` if decryption fails or message format is invalid
-    fn decrypt_message(&mut self, msg: &mut Message) -> Result<(), SessionError> {
+    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
+    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
+    async fn decrypt_message(&mut self, msg: &mut Message) -> Result<(), SessionError> {
         if !Self::should_process_message(msg) {
             return Ok(());
         }
@@ -334,7 +363,7 @@ where
         let payload = msg.get_payload().unwrap().as_application_payload()?;
 
         debug!("Decrypting message for group member");
-        let (decrypted_payload, auth_data) = self.mls.decrypt_message(&payload.blob)?;
+        let (decrypted_payload, auth_data) = self.mls.decrypt_message(&payload.blob).await?;
 
         // Validate header integrity if enabled
         if self.header_integrity_validation_percent > 0 {
@@ -426,18 +455,20 @@ where
     }
 
     pub(crate) async fn init_moderator(&mut self) -> Result<(), SessionError> {
-        self.common.mls.create_group()?;
+        maybe_await!(self.common.mls.create_group())?;
         Ok(())
     }
 
-    pub(crate) fn add_participant(
+    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
+    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
+    pub(crate) async fn add_participant(
         &mut self,
         msg: &Message,
     ) -> Result<(CommitMsg, WelcomeMsg), SessionError> {
         let payload = msg.extract_join_reply()?;
 
         // Propagate MlsError directly (will become SessionError::MlsOp via #[from])
-        let ret = self.common.mls.add_member(payload.key_package())?;
+        let ret = self.common.mls.add_member(payload.key_package()).await?;
 
         // add participant to the list
         self.participants
@@ -446,7 +477,12 @@ where
         Ok((ret.commit_message, ret.welcome_message))
     }
 
-    pub(crate) fn remove_participant(&mut self, msg: &Message) -> Result<CommitMsg, SessionError> {
+    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
+    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
+    pub(crate) async fn remove_participant(
+        &mut self,
+        msg: &Message,
+    ) -> Result<CommitMsg, SessionError> {
         debug!("Remove participant from the MLS group");
         let name = msg.get_dst();
         let id = match self.participants.get(&name) {
@@ -457,7 +493,7 @@ where
             }
         };
 
-        let ret = self.common.mls.remove_member(id)?;
+        let ret = self.common.mls.remove_member(id).await?;
 
         // remove the participant from the list
         self.participants.remove(&name);
@@ -466,18 +502,24 @@ where
     }
 
     #[allow(dead_code)]
-    pub(crate) fn process_proposal_message(
+    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
+    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
+    pub(crate) async fn process_proposal_message(
         &mut self,
         proposal: &ProposalMsg,
     ) -> Result<CommitMsg, SessionError> {
-        let commit = self.common.mls.process_proposal(proposal, true)?;
+        let commit = self.common.mls.process_proposal(proposal, true).await?;
 
         Ok(commit)
     }
 
     #[allow(dead_code)]
-    pub(crate) fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, SessionError> {
-        let commit = self.common.mls.process_local_pending_proposal()?;
+    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
+    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
+    pub(crate) async fn process_local_pending_proposal(
+        &mut self,
+    ) -> Result<CommitMsg, SessionError> {
+        let commit = self.common.mls.process_local_pending_proposal().await?;
 
         Ok(commit)
     }
@@ -1003,5 +1045,204 @@ mod tests {
         // Decryption should fail because percent is clamped to behaves like 100%
         let decrypt_result = bob_state.decrypt_message(&mut tampered_msg);
         assert!(decrypt_result.is_err());
+    }
+
+    // ---- Control-message handling (no MLS crypto required) ----------------
+    //
+    // These exercise the participant-side ordering/dedup logic and the
+    // moderator error path that surround the maybe_async MLS seam, without
+    // needing a live MLS group.
+
+    fn new_test_mls_state() -> MlsState<SharedSecret, SharedSecret> {
+        let mut mls = Mls::new(
+            SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
+        );
+        mls.initialize().unwrap();
+        MlsState {
+            mls,
+            group: vec![],
+            last_mls_msg_id: 0,
+            stored_commits_proposals: BTreeMap::new(),
+            header_integrity_validation_percent: 100,
+        }
+    }
+
+    fn test_name(leaf: &str) -> ProtoName {
+        slim_datapath::api::ProtoName::from_strings(["org", "default", leaf])
+    }
+
+    /// Build a GroupAdd/GroupRemove control message carrying an MLS payload
+    /// with the given `commit_id` (the MLS content itself is empty, which is
+    /// fine because the ordering checks never inspect it).
+    fn control_msg(msg_type: ProtoSessionMessageType, commit_id: u32) -> Message {
+        use slim_datapath::api::{CommandPayload, Participant, ParticipantSettings};
+
+        let mls = Some(MlsPayload {
+            commit_id,
+            mls_content: vec![],
+        });
+        let payload = match msg_type {
+            ProtoSessionMessageType::GroupRemove => CommandPayload::builder()
+                .group_remove(test_name("rem"), vec![], mls)
+                .as_content(),
+            _ => {
+                let participant = Participant::new(
+                    test_name("new").with_id(9),
+                    ParticipantSettings::bidirectional(),
+                );
+                CommandPayload::builder()
+                    .group_add(participant, vec![], mls)
+                    .as_content()
+            }
+        };
+
+        Message::builder()
+            .source(test_name("mod").with_id(1))
+            .destination(test_name("grp"))
+            .session_id(1)
+            .message_id(1)
+            .session_type(slim_datapath::api::ProtoSessionType::Multicast)
+            .session_message_type(msg_type)
+            .payload(payload)
+            .build_publish()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_process_control_message_drops_before_welcome() {
+        // last_mls_msg_id == 0 means no welcome processed yet, so any commit
+        // must be dropped (it cannot be applied without the group state).
+        let mut state = new_test_mls_state();
+        let local = test_name("bob");
+        let msg = control_msg(ProtoSessionMessageType::GroupAdd, 5);
+
+        let processed = state.process_control_message(msg, &local).unwrap();
+
+        assert!(!processed);
+        assert_eq!(state.last_mls_msg_id, 0);
+        assert!(state.stored_commits_proposals.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_process_control_message_drops_already_processed_commit() {
+        // commit_id (5) <= last_mls_msg_id (10): a stale/replayed commit.
+        let mut state = new_test_mls_state();
+        state.last_mls_msg_id = 10;
+        let local = test_name("bob");
+        let msg = control_msg(ProtoSessionMessageType::GroupRemove, 5);
+
+        let processed = state.process_control_message(msg, &local).unwrap();
+
+        assert!(!processed);
+        assert!(state.stored_commits_proposals.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_process_control_message_buffers_out_of_order_and_dedups() {
+        // Expected next id is 2 but we receive 3: it must be buffered (not
+        // applied) and a duplicate of it must be ignored.
+        let mut state = new_test_mls_state();
+        state.last_mls_msg_id = 1;
+        let local = test_name("bob");
+        let msg = control_msg(ProtoSessionMessageType::GroupAdd, 3);
+
+        let processed = state.process_control_message(msg.clone(), &local).unwrap();
+        assert!(processed);
+        assert!(state.stored_commits_proposals.contains_key(&3));
+        assert_eq!(state.last_mls_msg_id, 1, "gap means nothing is applied yet");
+
+        let processed_again = state.process_control_message(msg, &local).unwrap();
+        assert!(!processed_again, "duplicate commit_id is ignored");
+        assert_eq!(state.stored_commits_proposals.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_process_welcome_message_ignored_when_already_joined() {
+        use slim_datapath::api::CommandPayload;
+
+        let mut state = new_test_mls_state();
+        state.last_mls_msg_id = 7;
+        let welcome = Message::builder()
+            .source(test_name("mod").with_id(1))
+            .destination(test_name("bob"))
+            .session_id(1)
+            .message_id(1)
+            .session_type(slim_datapath::api::ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupWelcome)
+            .payload(
+                CommandPayload::builder()
+                    .group_welcome(vec![], None)
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        state.process_welcome_message(&welcome).unwrap();
+
+        // A second welcome must not reset the already-established state.
+        assert_eq!(state.last_mls_msg_id, 7);
+    }
+
+    #[tokio::test]
+    async fn test_process_proposal_message_drops_local_origin() {
+        use slim_datapath::api::CommandPayload;
+
+        let mut state = new_test_mls_state();
+        let local = test_name("self").with_id(2);
+        let proposal = Message::builder()
+            .source(local.clone())
+            .destination(test_name("grp"))
+            .session_id(1)
+            .message_id(1)
+            .session_type(slim_datapath::api::ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupProposal)
+            .payload(
+                CommandPayload::builder()
+                    .group_proposal(Some(local.clone()), vec![])
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        // Proposal originated locally: it is dropped without touching MLS.
+        state.process_proposal_message(proposal, &local).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_moderator_remove_participant_not_found() {
+        use slim_datapath::api::CommandPayload;
+
+        let mut moderator = MlsModeratorState::new(new_test_mls_state());
+        let ghost = test_name("ghost");
+        let msg = Message::builder()
+            .source(test_name("mod").with_id(1))
+            .destination(ghost.clone())
+            .session_id(1)
+            .message_id(1)
+            .session_type(slim_datapath::api::ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupRemove)
+            .payload(
+                CommandPayload::builder()
+                    .group_remove(ghost, vec![], None)
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let err = moderator.remove_participant(&msg).unwrap_err();
+        assert!(matches!(err, SessionError::ParticipantNotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn test_build_aad_falls_back_to_empty_payload_type() {
+        // A control message has no application payload, so build_aad must use
+        // an empty payload_type rather than panicking.
+        let state = new_test_mls_state();
+        let msg = control_msg(ProtoSessionMessageType::GroupAdd, 1);
+
+        let aad = state.build_aad(&msg);
+
+        assert!(!aad.is_empty());
     }
 }

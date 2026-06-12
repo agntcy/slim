@@ -5,21 +5,52 @@ license = { workspace = true }
 version = "0.1.20"
 description = "Messaging Layer Security for SLIM data plane."
 
+[package.metadata.cargo-machete]
+# `async-trait` is invoked indirectly by the `maybe_async::must_be_async` macro
+# expansion (the wasm path), so cargo-machete cannot see it. `getrandom` only
+# enables its wasm_js backend so `rand`/mls-rs work in the browser.
+ignored = ["async-trait", "getrandom"]
+
 [lib]
 name = "slim_mls"
 
+[features]
+default = []
+# Use the legacy Curve25519 (X25519 + Ed25519) MLS ciphersuite instead of the
+# default NIST P-256 ciphersuite. Only meaningful on native targets: browser
+# WebCrypto (the wasm32 backend) does not support Curve25519. By default the
+# crate uses P256_AES128 so that native and wasm peers can join the same MLS
+# group. Propagates to `agntcy-slim-auth` so the signature keys it generates
+# match the selected ciphersuite.
+curve25519 = ["agntcy-slim-auth/curve25519"]
+
 [dependencies]
 agntcy-slim-auth = { workspace = true }
-agntcy-slim-datapath = { workspace = true }
 agntcy-slim-version = { workspace = true }
+async-trait = { workspace = true }
 base64 = { workspace = true }
 hex = "0.4"
+# `mls-rs` is sync on native and async on wasm32 (where `mls_build_async` is set
+# via rustflags in data-plane/.cargo/config.toml). `maybe-async` lets us write
+# each MLS method once and select the right shape per target.
+maybe-async = { workspace = true }
 mls-rs = { workspace = true }
 mls-rs-core = { workspace = true }
-mls-rs-crypto-awslc = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+mls-rs-crypto-awslc = { workspace = true }
+
+# Browser SubtleCrypto crypto provider (async-only) for wasm32.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { workspace = true }
+mls-rs-crypto-webcrypto = { workspace = true }
+
 [dev-dependencies]
 tempfile = "3.3"
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ["cfg(mls_build_async)"]

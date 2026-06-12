@@ -8,13 +8,22 @@ use mls_rs_core::crypto::CipherSuiteProvider;
 use mls_rs_core::crypto::CryptoProvider;
 use mls_rs_crypto_awslc::AwsLcCryptoProvider;
 
+// Must stay in sync with the ciphersuite selected by `slim_mls`: P-256 by
+// default, Curve25519 when the `curve25519` feature is enabled. The signature
+// keys generated here are consumed directly by the MLS stack, so the signature
+// scheme (ECDSA P-256 vs. Ed25519) must match the active MLS ciphersuite.
+#[cfg(not(feature = "curve25519"))]
+const CIPHERSUITE: mls_rs_core::crypto::CipherSuite = mls_rs_core::crypto::CipherSuite::P256_AES128;
+#[cfg(feature = "curve25519")]
 const CIPHERSUITE: mls_rs_core::crypto::CipherSuite =
     mls_rs_core::crypto::CipherSuite::CURVE25519_AES128;
 
-/// Generate an Ed25519 key pair for MLS use via the same crypto provider used by the MLS stack.
+/// Generate an MLS signature key pair via the same crypto provider used by the
+/// MLS stack.
 ///
 /// Returns `(secret_key_bytes, public_key_bytes)` in the format expected by
-/// `mls_rs_crypto_awslc` for `CURVE25519_AES128`.
+/// `mls_rs_crypto_awslc` for the active [`CIPHERSUITE`] (ECDSA P-256 by
+/// default, Ed25519 under the `curve25519` feature).
 pub fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), crate::errors::AuthError> {
     let crypto_provider = AwsLcCryptoProvider::default();
     let cipher_suite_provider = crypto_provider
