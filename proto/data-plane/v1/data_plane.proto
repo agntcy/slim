@@ -60,22 +60,14 @@ message SLIMHeader {
   string identity = 3;
   uint32 fanout = 4;
   string version = 5;
-<<<<<<< control-message-header-integrity
-  optional uint64 recv_from = 6;
-  optional uint64 forward_to = 7;
-  optional uint64 incoming_conn = 8;
-  optional bool error = 9;
-  optional bytes header_mac = 10;
-  optional uint64 sequence_number = 11;
-  optional bytes e2e_header_sig = 12;
-=======
   uint32 ttl = 6;
   optional uint64 recv_from = 7;
   optional uint64 forward_to = 8;
   optional uint64 incoming_conn = 9;
   optional bool error = 10;
   optional bytes header_mac = 11;
->>>>>>> main
+  optional uint64 sequence_number = 12;
+  optional bytes e2e_header_sig = 13;
 }
 
 message SessionHeader {

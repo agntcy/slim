@@ -299,12 +299,9 @@ impl SlimHeader {
             incoming_conn: flags.incoming_conn,
             error: flags.error,
             header_mac: None,
-<<<<<<< control-message-header-integrity
             sequence_number: None,
             e2e_header_sig: None,
-=======
             ttl: flags.ttl,
->>>>>>> main
         }
     }
 

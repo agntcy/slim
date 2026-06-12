@@ -321,12 +321,9 @@ mod tests {
             incoming_conn: Some(999),
             error: Some(false),
             header_mac: None,
-<<<<<<< control-message-header-integrity
             sequence_number: None,
             e2e_header_sig: None,
-=======
             ttl: DEFAULT_TTL,
->>>>>>> main
         }
     }
 

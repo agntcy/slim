@@ -96,9 +96,9 @@ pub struct SlimHeader {
     pub error: ::core::option::Option<bool>,
     #[prost(bytes = "vec", optional, tag = "11")]
     pub header_mac: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
-    #[prost(uint64, optional, tag = "11")]
+    #[prost(uint64, optional, tag = "12")]
     pub sequence_number: ::core::option::Option<u64>,
-    #[prost(bytes = "vec", optional, tag = "12")]
+    #[prost(bytes = "vec", optional, tag = "13")]
     pub e2e_header_sig: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]

@@ -48,7 +48,9 @@ where
     if e2e_integrity_required && msg.get_session_message_type().is_command_message() {
         let slim_header = msg.get_slim_header();
         let Some(sig) = &slim_header.e2e_header_sig else {
-            return Err(SessionError::Auth(slim_auth::errors::AuthError::TokenInvalid));
+            return Err(SessionError::Auth(
+                slim_auth::errors::AuthError::TokenInvalid,
+            ));
         };
 
         #[derive(serde::Deserialize)]
@@ -67,17 +69,24 @@ where
             tracing::error!("verify_identity: get_claims failed with: {:?}", e);
         }
         let claims: IdentityClaims = claims_res?;
-        let pubkey = claims.pubkey
+        let pubkey = claims
+            .pubkey
             .or_else(|| claims.custom_claims.and_then(|c| c.pubkey))
             .ok_or_else(|| {
-                tracing::error!("verify_identity: pubkey not found in claims. claims_json: {:?}", identity);
+                tracing::error!(
+                    "verify_identity: pubkey not found in claims. claims_json: {:?}",
+                    identity
+                );
                 SessionError::Auth(slim_auth::errors::AuthError::TokenInvalid)
             })?;
-        
+
         use base64::Engine as _;
         let pubkey_bytes_res = base64::engine::general_purpose::STANDARD.decode(&pubkey);
         if let Err(ref e) = pubkey_bytes_res {
-            tracing::error!("verify_identity: base64 decode of pubkey failed with: {:?}", e);
+            tracing::error!(
+                "verify_identity: base64 decode of pubkey failed with: {:?}",
+                e
+            );
         }
         let pubkey_bytes = pubkey_bytes_res
             .map_err(|_| SessionError::Auth(slim_auth::errors::AuthError::TokenMalformed))?;
@@ -254,10 +263,12 @@ impl SessionController {
                 | ProtoSessionMessageType::Ping
         );
         // Require E2E verification only when the sender included a signature (matches pre-session path).
-        let e2e_required = is_post_session_control && msg.get_slim_header().e2e_header_sig.is_some();
+        let e2e_required =
+            is_post_session_control && msg.get_slim_header().e2e_header_sig.is_some();
 
         // 1. Verify E2E header signature and token
-        crate::session_controller::verify_identity(msg, &settings.identity_verifier, e2e_required).await?;
+        crate::session_controller::verify_identity(msg, &settings.identity_verifier, e2e_required)
+            .await?;
 
         // 2. Perform sequence number check for command messages
         if e2e_required && msg.get_session_message_type().is_command_message() {
@@ -271,7 +282,9 @@ impl SessionController {
                     return Ok(());
                 }
             } else {
-                return Err(SessionError::Auth(slim_auth::errors::AuthError::TokenInvalid));
+                return Err(SessionError::Auth(
+                    slim_auth::errors::AuthError::TokenInvalid,
+                ));
             }
         }
         Ok(())

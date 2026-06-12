@@ -32,12 +32,15 @@ pub fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), crate::errors
 }
 
 /// Sign the header AAD bytes using an Ed25519 private key.
-pub fn sign_header_aad(aad_bytes: &[u8], private_key_bytes: &[u8]) -> Result<Vec<u8>, crate::errors::AuthError> {
+pub fn sign_header_aad(
+    aad_bytes: &[u8],
+    private_key_bytes: &[u8],
+) -> Result<Vec<u8>, crate::errors::AuthError> {
     use aws_lc_rs::signature::Ed25519KeyPair;
     let key_pair = Ed25519KeyPair::from_seed_and_public_key(
-            &private_key_bytes[..32],
-            &private_key_bytes[32..],
-        )
+        &private_key_bytes[..32],
+        &private_key_bytes[32..],
+    )
     .map_err(|_| crate::errors::AuthError::MlsKeyGenerationFailed)?;
     let signature = key_pair.sign(aad_bytes);
     Ok(signature.as_ref().to_vec())
