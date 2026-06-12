@@ -196,15 +196,8 @@ sequenceDiagram
 node ID becomes `{group_name}/{node_id}`. Otherwise, the bare `node_id` is
 used.
 
-**Connection details parsing.** The CP extracts `local_endpoint`,
-`external_endpoint`, `trust_domain`, and `client_config` from the proto
-metadata. The effective endpoint prefers `local_endpoint`; if absent, the
-peer's IP address is used combined with the port from the proto `endpoint`
-field.
-
 **`node_registered` orchestration.** After saving the node and registering
-the stream, the route service performs several operations under a per-node
-lock (to serialize with concurrent deregistration):
+the stream, the route service performs several operations:
 
 1. **Link state sync against DP-reported connections.** The DP sends its
    currently active connection IDs in the registration message. For each
@@ -253,8 +246,6 @@ stream. The CP sends a `DeregisterNodeResponse` *before* removing the stream
      reconciliation so subscriptions are cleaned up on the DP.
    - Wildcard templates targeting this node: hard-delete.
 3. **Node record**: delete from the database.
-4. **Per-node lock**: remove the entry (while the lock guard is still held,
-   preventing a racing `node_registered` from losing its lock).
 
 ### Crash Disconnect
 
@@ -264,12 +255,12 @@ network failure), the stream read loop exits. The CP:
 1. Removes the stream (`remove_stream`), which closes all in-flight
    response waiters immediately (they receive a channel-closed error
    instead of blocking until the 90 s timeout).
-2. Calls `node_disconnected` which, under the per-node lock:
+2. Calls `node_disconnected` which:
    - **Gateway failover**: if the node held inter-group links, reassigns
      them to a randomly chosen sibling (see [Gateway Failover](#gateway-failover)).
    - **Route cleanup**: deletes source routes, mark-deletes destination
      routes, and deletes wildcard templates targeting this node.
-3. Keeps the node record and per-node lock entry (the node is expected to
+3. Keeps the node record (the node is expected to
    reconnect). When it does, `node_registered` re-syncs links and
    re-expands routes.
 
@@ -277,8 +268,7 @@ network failure), the stream read loop exits. The CP:
 
 When a node that serves as a group's gateway (the node holding inter-group
 links) departs, the CP performs gateway failover to maintain connectivity.
-This is handled by `reassign_gateway_links` in `node_lifecycle.rs`. The new
-gateway is chosen **randomly** from connected siblings to distribute load.
+The new gateway is chosen **randomly** from connected siblings to distribute load.
 
 **Outgoing links** (gateway is the source side of the link):
 1. The link's `source_node_id` is changed to a randomly chosen sibling node.
@@ -307,26 +297,18 @@ are directional: the `source_node_id` initiates the connection to the
 
 ### Link Creation
 
-Links are created during node registration (`ensure_links_for_node`) or via
-the northbound API. Each link gets a unique `link_id` (UUID) and is stored
-with status `Pending`. The link record includes:
-
-| Field | Description |
-|---|---|
-| `link_id` | Unique identifier (UUID) |
-| `source_node_id` | Node that initiates the connection |
-| `dest_node_id` | Target node (empty until claimed) |
-| `dest_group` | Target group name |
-| `dest_endpoint` | gRPC endpoint address |
-| `conn_config_data` | JSON-serialized `ClientConfig` (TLS settings, backoff, keepalive, headers) |
-| `status` | `Pending`, `Connecting`, `Applied`, or `Failed` |
-| `deleted` | Soft-delete flag |
+Links are created during node registration (`ensure_links_for_node`). 
+Each link gets a unique `link_id` (UUID) and is stored
+with status `Pending`. 
 
 **Connection detail selection.** For cross-group links, the
 `external_endpoint` is used with mTLS (SPIRE-based), and additional settings
 (backoff, keepalive, SPIRE socket path) are injected into the config.
 
-**Link claim mechanism.** Inter-group links use a two-phase creation process:
+**Link claim mechanism.** Inter-group links use a two-phase creation process
+because the source node typically connects to a shared ingress (load balancer)
+rather than a specific destination node — the CP cannot know in advance which
+node will receive the connection:
 
 1. The CP creates the link record with `dest_node_id` empty and `dest_group`
    set. The reconciler pushes the connection config to the source node.
@@ -371,10 +353,10 @@ node is dequeued:
 ```mermaid
 stateDiagram-v2
     [*] --> Pending
-    Pending --> Sent: create
-    Sent --> Applied: success
-    Sent --> Failed: failure
-    Applied --> Pending: connection lost / endpoint changed\n(reset to Pending)
+    Pending --> Connecting: create sent to DP
+    Connecting --> Applied: success (DP ack + claim)
+    Connecting --> Failed: failure
+    Applied --> Pending: connection lost / endpoint changed
     Pending --> Deleted: mark deleted
     Deleted --> HardDeleted: delete sent\n(or not found)
     HardDeleted --> [*]
@@ -414,12 +396,6 @@ This produces a loop-free forwarding tree where:
 - Downward routes enable the root to fan out multicast traffic toward all
   other announcers.
 
-**On node registration**: all wildcard templates are re-expanded via
-`expand_all_wildcard_routes` (idempotent — `add_single_route` rejects
-duplicate routes).
-
-**On deletion**: the template and all its per-node expansions are deleted.
-
 Wildcard template records themselves are stored with status `Applied` (they
 don't correspond to a real subscription). The per-node expansions are stored
 with status `Pending` and go through normal reconciliation.
@@ -446,8 +422,8 @@ The route reconciler runs as parallel workers consuming from a shared
    - **Non-deleted route, link not yet Applied**: defer -- poke the link
      reconciler.
    - **Non-deleted route, link Applied but not live on node** (pre-flight
-     connection check): defer via `defer_link` -- reset link to `Pending`
-     and hand back to the link reconciler.
+     connection check): reset link to `Pending` and hand back to the link
+     reconciler.
    - **Non-deleted route, already active on node** (idempotency check): mark
      `Applied`, skip the send.
    - **Otherwise**: add to `subscriptions_to_set`.
@@ -457,7 +433,7 @@ The route reconciler runs as parallel workers consuming from a shared
    - Success + non-deleted route: `mark_route_applied`.
    - Success + deleted route: hard-delete from DB.
    - Failure + deleted route + "subscription not found": treat as success.
-   - Failure + "connection not found": `defer_link` (the pre-flight check
+   - Failure + "connection not found": requeue the node (the pre-flight check
      passed but the connection disappeared before the subscribe was sent).
    - Other failure: `mark_route_failed` with error message.
 
@@ -466,10 +442,10 @@ The route reconciler runs as parallel workers consuming from a shared
 ```mermaid
 stateDiagram-v2
     [*] --> Pending
-    Pending --> Sent: subscribe
-    Sent --> Applied: success
-    Sent --> Failed: failure
+    Pending --> Applied: subscribe sent + success
+    Pending --> Failed: subscribe sent + failure
     Pending --> Pending: link not ready / connection not found\n(defer to link reconciler)
+    Failed --> Pending: re-enqueued by reconciler
     Pending --> Deleted: mark deleted
     Deleted --> HardDeleted: unsub sent\n(or not found)
     HardDeleted --> [*]
@@ -585,15 +561,14 @@ mutex (`node_locks`) serializes these operations for the same node.
 **Pre-flight TOCTOU.** The route reconciler checks that a link's connection
 is live on the node before sending a subscription. However, the connection
 can disappear between the check and the send. If the subscription fails with
-"connection not found", the `defer_link` mechanism resets the link to
-`Pending` and hands it back to the link reconciler without consuming a retry
-slot.
+"connection not found", the reconciler requeues the node for another attempt
+without consuming a retry slot.
 
 **Concurrent DP-initiated config.** DP nodes can send `ConfigCommand`
-messages (for subscriptions without a `link_id`) on the stream. These are
-processed in background tasks gated by a semaphore (max 64 concurrent). If
-the semaphore is full, the command is processed synchronously in the stream
-loop rather than being dropped -- this prevents CP/DP state divergence.
+messages (subscriptions and link claims) on the stream. These are processed
+inline in the stream loop — subscriptions without a `link_id` are treated as
+wildcard route announcements, and `connections_received` entries trigger the
+link claim flow.
 
 **In-flight waiters on disconnect.** When a node's stream is removed, all
 pending request-response waiters (oneshot/mpsc channels) are closed
