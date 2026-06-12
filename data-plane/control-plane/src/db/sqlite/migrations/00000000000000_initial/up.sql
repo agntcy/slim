@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS links (
     link_id TEXT NOT NULL,
     source_node_id TEXT NOT NULL,
     dest_node_id TEXT NOT NULL,
+    dest_group TEXT NOT NULL,
     dest_endpoint TEXT NOT NULL,
     conn_config_data TEXT NOT NULL,
     status INTEGER NOT NULL,
@@ -70,9 +71,15 @@ CREATE INDEX IF NOT EXISTS idx_links_src_endpoint
     ON links (source_node_id, dest_endpoint);
 
 -- At most one non-deleted link between any ordered node pair (regardless of direction).
--- status=3 is LinkStatus::Deleted.
+-- Only applies to claimed links (dest_node_id != '').
+-- status=4 is LinkStatus::Deleted.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_links_unique_active_pair
     ON links (
         CASE WHEN source_node_id < dest_node_id THEN source_node_id ELSE dest_node_id END,
         CASE WHEN source_node_id < dest_node_id THEN dest_node_id ELSE source_node_id END
-    ) WHERE status != 3;
+    ) WHERE status != 4 AND dest_node_id != '';
+
+-- At most one unclaimed link per (source_node_id, dest_group) pair.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_links_unique_unclaimed
+    ON links (source_node_id, dest_group)
+    WHERE status != 4 AND dest_node_id = '';

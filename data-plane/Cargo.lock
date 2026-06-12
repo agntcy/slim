@@ -221,9 +221,11 @@ dependencies = [
  "libc",
  "libsqlite3-sys",
  "parking_lot",
+ "petgraph",
  "prost",
  "prost-types",
  "protoc-bin-vendored",
+ "rand 0.9.4",
  "rlimit",
  "serde",
  "serde_json",
@@ -2960,6 +2962,7 @@ dependencies = [
  "fixedbitset",
  "hashbrown 0.15.5",
  "indexmap 2.14.0",
+ "serde",
 ]
 
 [[package]]

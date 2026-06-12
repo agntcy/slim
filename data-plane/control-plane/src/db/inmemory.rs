@@ -195,6 +195,26 @@ impl InMemoryDb {
         latest.cloned()
     }
 
+    /// Find an unclaimed link (dest_node_id empty) from source to a given dest_group.
+    fn find_unclaimed_link_in_store(
+        store: &LinkStore,
+        source_node_id: &str,
+        dest_group: &str,
+    ) -> Option<Link> {
+        store
+            .by_src
+            .get(source_node_id)
+            .into_iter()
+            .flatten()
+            .filter_map(|key| store.primary.get(key))
+            .find(|link| {
+                link.status != LinkStatus::Deleted
+                    && link.dest_node_id.is_empty()
+                    && link.dest_group == dest_group
+            })
+            .cloned()
+    }
+
     pub fn shared() -> SharedDb {
         std::sync::Arc::new(Self::new())
     }
@@ -415,12 +435,13 @@ impl DataAccess for InMemoryDb {
             ids.iter()
                 .filter_map(|id| store.primary.get(id))
                 .filter(|r| {
-                    r.component0 == component0
+                    r.status != RouteStatus::Deleted
+                        && r.component0 == component0
                         && r.component1 == component1
                         && r.component2 == component2
                         && r.component_id.as_deref() == component_id
                 })
-                .max_by_key(|r| r.last_updated)
+                .min_by_key(|r| r.created_at)
                 .map(|r| r.dest_node_id.clone())
         }))
     }
@@ -511,32 +532,11 @@ impl DataAccess for InMemoryDb {
         Ok(())
     }
 
-    async fn restore_route(&self, route_id: &str, link_id: &str) -> Result<()> {
-        let mut store = self.routes.write();
-        let route = store
-            .primary
-            .get(route_id)
-            .ok_or_else(|| Error::RouteNotFound {
-                id: route_id.to_string(),
-            })?;
-        let old_snapshot = route.clone();
-        store.index_remove(&old_snapshot);
-        let route = store.primary.get_mut(route_id).unwrap();
-        route.status = RouteStatus::Pending;
-        route.status_msg = String::new();
-        route.link_id = Some(link_id.to_string());
-        route.last_updated = SystemTime::now();
-        let updated = route.clone();
-        store.index_add(&updated);
-        Ok(())
-    }
-
     // ── Links ──────────────────────────────────────────────────────────────
 
     async fn add_link(&self, mut link: Link) -> Result<Link> {
         if link.link_id.is_empty()
             || link.source_node_id.is_empty()
-            || link.dest_node_id.is_empty()
             || link.dest_endpoint.is_empty()
         {
             return Err(Error::LinkMissingFields);
@@ -555,7 +555,6 @@ impl DataAccess for InMemoryDb {
     async fn update_link(&self, mut link: Link) -> Result<()> {
         if link.link_id.is_empty()
             || link.source_node_id.is_empty()
-            || link.dest_node_id.is_empty()
             || link.dest_endpoint.is_empty()
         {
             return Err(Error::LinkMissingFields);
@@ -639,15 +638,20 @@ impl DataAccess for InMemoryDb {
     async fn find_or_create_link(&self, mut link: Link) -> Result<(Link, bool)> {
         if link.link_id.is_empty()
             || link.source_node_id.is_empty()
-            || link.dest_node_id.is_empty()
             || link.dest_endpoint.is_empty()
         {
             return Err(Error::LinkMissingFields);
         }
         let mut store = self.links.write();
 
-        // Check both directions under the write lock.
-        let existing = Self::find_link_in_store(&store, &link.source_node_id, &link.dest_node_id);
+        // Uniqueness depends on whether the link has a known destination node.
+        // Unclaimed (dest_node_id empty): unique by (source_node_id, dest_group)
+        // Claimed (dest_node_id set): unique by node pair (bidirectional)
+        let existing = if link.dest_node_id.is_empty() {
+            Self::find_unclaimed_link_in_store(&store, &link.source_node_id, &link.dest_group)
+        } else {
+            Self::find_link_in_store(&store, &link.source_node_id, &link.dest_node_id)
+        };
         if let Some(existing) = existing {
             return Ok((existing, false));
         }
@@ -749,6 +753,77 @@ impl DataAccess for InMemoryDb {
     async fn list_all_links(&self) -> Result<Vec<Link>> {
         Ok(self.links.read().primary.values().cloned().collect())
     }
+
+    async fn claim_link(
+        &self,
+        link_id: &str,
+        dest_group: &str,
+        claimant_node_id: &str,
+    ) -> Result<Option<Link>> {
+        let mut store = self.links.write();
+
+        // Find an unclaimed link with matching link_id and dest_group.
+        let old_key = {
+            let keys = match store.by_link_id.get(link_id) {
+                Some(keys) => keys,
+                None => return Ok(None),
+            };
+            let mut found = None;
+            for key in keys {
+                if let Some(link) = store.primary.get(key)
+                    && link.dest_node_id.is_empty()
+                    && link.dest_group == dest_group
+                    && link.status != LinkStatus::Deleted
+                {
+                    found = Some(key.clone());
+                    break;
+                }
+            }
+            match found {
+                Some(k) => k,
+                None => return Ok(None),
+            }
+        };
+
+        // Remove from indexes under old key.
+        let mut link = store.primary.remove(&old_key).unwrap();
+        if let Some(set) = store.by_src.get_mut(&link.source_node_id) {
+            set.remove(&old_key);
+        }
+        // old dest_node_id is "" — remove from by_dest[""]
+        if let Some(set) = store.by_dest.get_mut("") {
+            set.remove(&old_key);
+        }
+        if let Some(set) = store.by_link_id.get_mut(link_id) {
+            set.remove(&old_key);
+        }
+
+        // Update the link.
+        link.dest_node_id = claimant_node_id.to_string();
+        link.status = LinkStatus::Applied;
+        link.last_updated = SystemTime::now();
+
+        // Re-insert with new storage key.
+        let new_key = link.storage_key();
+        store
+            .by_src
+            .entry(link.source_node_id.clone())
+            .or_default()
+            .insert(new_key.clone());
+        store
+            .by_dest
+            .entry(link.dest_node_id.clone())
+            .or_default()
+            .insert(new_key.clone());
+        store
+            .by_link_id
+            .entry(link.link_id.clone())
+            .or_default()
+            .insert(new_key.clone());
+        store.primary.insert(new_key, link.clone());
+
+        Ok(Some(link))
+    }
 }
 
 #[cfg(test)]
@@ -797,6 +872,7 @@ mod tests {
             link_id: lid.to_string(),
             source_node_id: src.to_string(),
             dest_node_id: dst.to_string(),
+            dest_group: String::new(),
             dest_endpoint: ep.to_string(),
             conn_config_data: slim_config::grpc::client::ClientConfig::default(),
             status: LinkStatus::Pending,

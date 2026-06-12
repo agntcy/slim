@@ -65,9 +65,6 @@ pub trait DataAccess: Send + Sync {
     async fn mark_route_failed(&self, route_id: &str, msg: &str) -> Result<()>;
     /// Update the link_id on an existing route and reset status to Pending.
     async fn update_route_link_id(&self, route_id: &str, link_id: &str) -> Result<()>;
-    /// Restore a soft-deleted route: set deleted=false, status=Pending,
-    /// and update the link_id to the current link between the nodes.
-    async fn restore_route(&self, route_id: &str, link_id: &str) -> Result<()>;
 
     // ── Links ──────────────────────────────────────────────────────────────
 
@@ -117,6 +114,21 @@ pub trait DataAccess: Send + Sync {
     ) -> Result<Vec<Link>>;
     /// Return every link record in the store (no filtering).
     async fn list_all_links(&self) -> Result<Vec<Link>>;
+
+    /// Atomically claim an unclaimed link for a destination node.
+    ///
+    /// Succeeds only if the link exists with `dest_node_id == ""` and
+    /// `dest_group == dest_group`. On success, sets `dest_node_id` to
+    /// `claimant_node_id` and `status` to `Applied`.
+    ///
+    /// Returns `Ok(Some(link))` if claimed, `Ok(None)` if already claimed or
+    /// not found.
+    async fn claim_link(
+        &self,
+        link_id: &str,
+        dest_group: &str,
+        claimant_node_id: &str,
+    ) -> Result<Option<Link>>;
 }
 
 pub type SharedDb = Arc<dyn DataAccess>;

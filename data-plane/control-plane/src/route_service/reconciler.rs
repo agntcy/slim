@@ -105,12 +105,28 @@ async fn handle_request(
     }
 
     let mut links = db.get_links_for_node(node_id).await?;
+    // Also include inter-group links involving any node in the same group.
+    // A route on this node may reference a link claimed by another node in
+    // the same group (one link per group pair, not per node pair).
+    let node_group = node_id.split('/').next().unwrap_or("");
+    if !node_group.is_empty() {
+        let all_links = db.list_all_links().await?;
+        for link in all_links {
+            if links.iter().any(|l| l.link_id == link.link_id) {
+                continue;
+            }
+            let link_src_group = link.source_node_id.split('/').next().unwrap_or("");
+            if link_src_group == node_group || link.dest_group == node_group {
+                links.push(link);
+            }
+        }
+    }
     let routes = db.get_routes_for_node(node_id).await?;
 
     let (desired_connections, desired_link_ids, deleted_links) =
         build_desired_connections(&mut links, node_id)?;
     let (desired_routes, included_routes, mut needs_requeue) =
-        build_desired_routes(db, &routes, node_id).await?;
+        build_desired_routes(db, &routes, node_id, &links).await?;
 
     if desired_connections.is_empty() && desired_routes.is_empty() && deleted_links.is_empty() {
         if needs_requeue {
@@ -133,6 +149,7 @@ async fn handle_request(
             routes_to_delete: vec![],
             connections_to_delete: vec![],
             reconcile: true,
+            connections_received: vec![],
         })),
     };
 
@@ -215,6 +232,7 @@ async fn build_desired_routes<'a>(
     db: &SharedDb,
     routes: &'a [crate::db::Route],
     _node_id: &str,
+    node_links: &[crate::db::Link],
 ) -> Result<(Vec<Route>, HashMap<SubKey, &'a crate::db::Route>, bool)> {
     let mut desired_routes: Vec<Route> = Vec::new();
     let mut included_routes: HashMap<SubKey, &crate::db::Route> = HashMap::new();
@@ -228,12 +246,23 @@ async fn build_desired_routes<'a>(
         let link_id = match route.link_id.as_deref() {
             Some(id) => id,
             None => {
-                // No link_id yet, try to find a link in the database.
-                match db
-                    .find_link_between_nodes(&route.source_node_id, &route.dest_node_id)
-                    .await?
-                {
-                    Some(l) if l.status != LinkStatus::Deleted => {
+                // No link_id yet — find a link from this node to the dest node's group.
+                let dest_group = route.dest_node_id.split('/').next().unwrap_or("");
+                let found_link = node_links.iter().find(|l| {
+                    l.source_node_id == route.source_node_id
+                        && l.status != LinkStatus::Deleted
+                        && l.dest_group == dest_group
+                });
+                // Also check reverse direction (link where dest claimed by source's group).
+                let found_link = found_link.or_else(|| {
+                    node_links.iter().find(|l| {
+                        l.dest_node_id == route.source_node_id
+                            && l.status != LinkStatus::Deleted
+                            && l.source_node_id.starts_with(&format!("{dest_group}/"))
+                    })
+                });
+                match found_link {
+                    Some(l) if l.status == LinkStatus::Applied && !l.dest_node_id.is_empty() => {
                         if let Err(e) = db.update_route_link_id(&route.id, &l.link_id).await {
                             tracing::warn!(
                                 "reconciler: failed to update route {} link_id: {e}",
@@ -243,6 +272,7 @@ async fn build_desired_routes<'a>(
                         needs_requeue = true;
                     }
                     _ => {
+                        // No link available yet — defer until the link is established.
                         tracing::debug!(
                             "reconciler: no link yet for route {} ({}→{}), deferring",
                             route.id,
@@ -255,12 +285,13 @@ async fn build_desired_routes<'a>(
             }
         };
 
-        let link_lookup = db
-            .get_link(link_id, &route.source_node_id, &route.dest_node_id)
-            .await?
-            .or(db
-                .get_link(link_id, &route.dest_node_id, &route.source_node_id)
-                .await?);
+        // SPT routing sets link_id to the next-hop link (gateway → parent in SPT).
+        // The link connects route.source_node_id to its tree parent, NOT to
+        // route.dest_node_id (which is the final destination). Look up the link
+        // among this node's pre-loaded links.
+        let link_lookup = node_links
+            .iter()
+            .find(|l| l.link_id == link_id && l.status != LinkStatus::Deleted);
         if let Some(l) = link_lookup {
             if l.status == LinkStatus::Failed {
                 let msg = if l.status_msg.is_empty() {
@@ -274,6 +305,16 @@ async fn build_desired_routes<'a>(
                         route.id
                     );
                 }
+                continue;
+            }
+            // Only push routes over fully established links (Applied + claimed).
+            if l.status != LinkStatus::Applied || l.dest_node_id.is_empty() {
+                tracing::debug!(
+                    "reconciler: deferring route {} — link {link_id} not yet established (status={:?})",
+                    route.id,
+                    l.status
+                );
+                needs_requeue = true;
                 continue;
             }
         } else {
@@ -291,8 +332,8 @@ async fn build_desired_routes<'a>(
                         route
                             .component_id
                             .as_deref()
-                            .and_then(|s| uuid::Uuid::parse_str(s).ok())
-                            .map(|u| u.as_u128())
+                            .and_then(|s| NameId::try_from(s.to_string()).ok())
+                            .map(|nid| -> u128 { nid.into() })
                             .unwrap_or(NameId::NULL_COMPONENT),
                     ),
             ),
@@ -323,7 +364,7 @@ async fn process_connection_acks(
     desired_link_ids: &HashSet<String>,
     node_id: &str,
 ) -> Result<HashSet<String>> {
-    let mut enqueue_nodes: HashSet<String> = HashSet::new();
+    let enqueue_nodes: HashSet<String> = HashSet::new();
 
     let links_by_id: HashMap<&str, &crate::db::Link> = links
         .iter()
@@ -332,33 +373,43 @@ async fn process_connection_acks(
         .collect();
 
     for conn_ack in &ack.connections_status {
-        let link = match links_by_id.get(conn_ack.link_id.as_str()) {
-            Some(l) => *l,
+        // Use the snapshot to verify this ACK is relevant.
+        if !links_by_id.contains_key(conn_ack.link_id.as_str()) {
+            continue;
+        }
+
+        // Re-read from DB to get the latest state (may have been claimed concurrently).
+        let current_link = match db.get_link(&conn_ack.link_id, "", "").await? {
+            Some(l) => l,
             None => continue,
         };
 
-        let mut updated = link.clone();
+        let mut updated = current_link.clone();
         if conn_ack.success {
-            updated.status = LinkStatus::Applied;
+            if !current_link.dest_node_id.is_empty() {
+                // Link already claimed — keep it Applied.
+                updated.status = LinkStatus::Applied;
+            } else {
+                // Source confirmed the connection. Move to Connecting — the link
+                // becomes Applied only when the destination claims it.
+                updated.status = LinkStatus::Connecting;
+            }
             updated.status_msg = String::new();
             tracing::info!(
-                "reconciler: link {} ({}→{}) applied",
-                link.link_id,
-                link.source_node_id,
-                link.dest_node_id
+                "reconciler: link {} ({}→dest_group:{}) status={:?}",
+                current_link.link_id,
+                current_link.source_node_id,
+                current_link.dest_group,
+                updated.status
             );
-            enqueue_nodes.insert(link.dest_node_id.clone());
-            for r in db.get_routes_by_link_id(&link.link_id).await? {
-                enqueue_nodes.insert(r.source_node_id.clone());
-            }
         } else {
             updated.status = LinkStatus::Failed;
             updated.status_msg = conn_ack.error_msg.clone();
             tracing::warn!(
-                "reconciler: link {} ({}→{}) failed: {}",
-                link.link_id,
-                link.source_node_id,
-                link.dest_node_id,
+                "reconciler: link {} ({}→dest_group:{}) failed: {}",
+                current_link.link_id,
+                current_link.source_node_id,
+                current_link.dest_group,
                 conn_ack.error_msg
             );
         }

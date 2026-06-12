@@ -126,6 +126,7 @@ opentelemetry_sdk = { version = "0.31.0", default-features = false, features = [
 ] }
 parking_lot = "0.12.3"
 percent-encoding = "2.3"
+petgraph = "0.8"
 pin-project = "1.1.10"
 prost = "0.14"
 

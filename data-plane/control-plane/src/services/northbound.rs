@@ -319,6 +319,7 @@ impl ControlPlaneService for NorthboundApiService {
                 );
                 let link_status = match l.status {
                     crate::db::LinkStatus::Pending => LinkStatus::Pending as i32,
+                    crate::db::LinkStatus::Connecting => LinkStatus::Pending as i32,
                     crate::db::LinkStatus::Applied => LinkStatus::Applied as i32,
                     crate::db::LinkStatus::Failed => LinkStatus::Failed as i32,
                     crate::db::LinkStatus::Deleted => LinkStatus::Unspecified as i32,

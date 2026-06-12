@@ -1,0 +1,24 @@
+# Star topology: hub group links to all spokes, spokes link only to hub.
+# SPT handles transit routing automatically — spokes reach each other
+# through the hub without needing explicit routing_policy.
+
+tracing:
+  log_level: debug
+
+northbound:
+  endpoint: "127.0.0.1:50051"
+  tls:
+    insecure: true
+
+southbound:
+  endpoint: "127.0.0.1:50052"
+  tls:
+    insecure: true
+
+database:
+  type: in_memory
+
+topology:
+  links:
+    - name: deployment-a
+      peers: ["*"]

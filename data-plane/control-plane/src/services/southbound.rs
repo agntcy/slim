@@ -226,7 +226,7 @@ async fn build_node_connections(
             continue;
         }
         let mut config = match route_service
-            .get_connection_details(&link.source_node_id, &link.dest_node_id)
+            .get_client_config(&link.source_node_id, &link.dest_node_id)
             .await
         {
             Ok((_endpoint, cfg)) => cfg,
@@ -313,6 +313,12 @@ async fn handle_node_messages(
 
         match msg.payload {
             Some(Payload::ConfigCommand(cc)) => {
+                tracing::info!(
+                    "southbound: received ConfigCommand from {node_id}: routes_to_set={}, routes_to_delete={}, connections_received={}",
+                    cc.routes_to_set.len(),
+                    cc.routes_to_delete.len(),
+                    cc.connections_received.len()
+                );
                 for sub in &cc.routes_to_set {
                     if sub.link_id.is_none()
                         && let Err(e) = route_service.add_route(ALL_NODES_ID, node_id, sub).await
@@ -323,6 +329,11 @@ async fn handle_node_messages(
                 for sub in &cc.routes_to_delete {
                     if let Err(e) = route_service.delete_route(ALL_NODES_ID, node_id, sub).await {
                         tracing::debug!("southbound: error deleting route: {e}");
+                    }
+                }
+                for entry in &cc.connections_received {
+                    if let Some(link_id) = entry.link_id.as_deref().filter(|id| !id.is_empty()) {
+                        route_service.connection_received(node_id, link_id).await;
                     }
                 }
             }
@@ -363,14 +374,13 @@ async fn handle_node_messages(
         }
     }
 
-    // Stream ended or errored — mark disconnected and clean up.
-    // Only remove if our epoch is still current (a newer connection may have
-    // already replaced our stream).
+    // Stream ended or errored — clean up only if our epoch is still current.
     let _ = cmd_handler.remove_stream(node_id, stream_epoch).await;
-    // Do NOT call remove_node_lock here: if the node already reconnected, the
-    // new session may have re-created the lock entry, and removing it would
-    // defeat the disconnect-reconnect serialization.  The entry is cleaned up
-    // by node_deregistered on graceful deregister, or reused on reconnect.
+    // If status is Unknown, the stream was actually removed (epoch matched).
+    // If still Connected, a newer stream replaced it (rapid reconnect) — skip cleanup.
+    if cmd_handler.get_connection_status(node_id).await == NodeStatus::Unknown {
+        route_service.node_disconnected(node_id).await;
+    }
 }
 
 /// Parse proto `ConnectionDetails` into the DB model.
