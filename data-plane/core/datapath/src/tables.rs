@@ -35,7 +35,7 @@ impl MatchFilter {
 
     /// Exclude peers: used for Peer sources (1-hop rule)
     pub const EXCLUDE_PEER: Self = Self {
-        include: [true, true, false],
+        include: [true, true, false, true], // Local, Remote, Peer, Edge
     };
 
     /// Whether the given connection type is included in this filter.
