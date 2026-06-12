@@ -419,4 +419,171 @@ mod tests {
             "error must be AlreadyClosedError"
         );
     }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_edge_connection_reconnects_on_drop() {
+        use slim_config::client::ConnType;
+
+        let port = reserve_local_port();
+        let mut server_conf = ServerConfig::with_endpoint(&format!("127.0.0.1:{port}"));
+        server_conf.tls_setting.insecure = true;
+
+        // Use a separate processor for the server side
+        let server_processor = MessageProcessor::new();
+        let server_arc = Arc::new(server_processor);
+        let server_mp = server_arc.clone();
+
+        let ep_server = server_conf
+            .to_server_future(&[DataPlaneServiceServer::from_arc(server_arc)])
+            .await
+            .unwrap();
+
+        let server_handle = tokio::spawn(async move {
+            let _ = ep_server.await;
+        });
+
+        wait_for_server_ready(&format!("127.0.0.1:{port}"), 40).await;
+
+        // Client processor is separate
+        let client_processor = MessageProcessor::new();
+
+        // Connect with Edge connection type
+        let mut client_config = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{port}"));
+        client_config.tls_setting.insecure = true;
+        client_config.connection_type = ConnType::Edge;
+
+        let (_, conn_index) = client_processor
+            .connect(
+                client_config,
+                None,
+                Some(SocketAddr::from(([127, 0, 0, 1], port))),
+            )
+            .await
+            .expect("error creating channel");
+
+        assert!(
+            client_processor
+                .connection_table()
+                .get(conn_index)
+                .is_some()
+        );
+
+        // Shut down the server processor and abort the server to break the connection
+        server_mp.shutdown().await.ok();
+        server_handle.abort();
+
+        // Give time for the client to detect the broken connection and attempt reconnect
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+        // Edge connection should attempt to reconnect
+        assert!(logs_contain(
+            "connection lost with remote endpoint, attempting to reconnect"
+        ));
+
+        client_processor.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_remote_connection_does_not_reconnect_on_drop() {
+        use slim_config::client::ConnType;
+
+        let port = reserve_local_port();
+        let mut server_conf = ServerConfig::with_endpoint(&format!("127.0.0.1:{port}"));
+        server_conf.tls_setting.insecure = true;
+
+        // Use a separate processor for the server side
+        let server_processor = MessageProcessor::new();
+        let server_arc = Arc::new(server_processor);
+        let server_mp = server_arc.clone();
+
+        let ep_server = server_conf
+            .to_server_future(&[DataPlaneServiceServer::from_arc(server_arc)])
+            .await
+            .unwrap();
+
+        let server_handle = tokio::spawn(async move {
+            let _ = ep_server.await;
+        });
+
+        wait_for_server_ready(&format!("127.0.0.1:{port}"), 40).await;
+
+        // Client processor is separate
+        let client_processor = MessageProcessor::new();
+
+        // Connect with Remote connection type (controller-managed)
+        let mut client_config = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{port}"));
+        client_config.tls_setting.insecure = true;
+        client_config.connection_type = ConnType::Remote;
+
+        let (_, conn_index) = client_processor
+            .connect(
+                client_config,
+                None,
+                Some(SocketAddr::from(([127, 0, 0, 1], port))),
+            )
+            .await
+            .expect("error creating channel");
+
+        assert!(
+            client_processor
+                .connection_table()
+                .get(conn_index)
+                .is_some()
+        );
+
+        // Shut down the server processor and abort the server to break the connection
+        server_mp.shutdown().await.ok();
+        server_handle.abort();
+
+        // Give time for the client to detect the broken connection
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+        // Remote connection should NOT attempt to reconnect
+        assert!(!logs_contain(
+            "connection lost with remote endpoint, attempting to reconnect"
+        ));
+
+        // Connection should be cleaned up
+        assert!(
+            client_processor
+                .connection_table()
+                .get(conn_index)
+                .is_none(),
+            "remote connection should be removed without reconnection"
+        );
+
+        client_processor.shutdown().await.ok();
+    }
+
+    #[test]
+    fn test_conn_type_index_stability() {
+        use slim_config::client::ConnType;
+
+        assert_eq!(ConnType::Local.index(), 0);
+        assert_eq!(ConnType::Remote.index(), 1);
+        assert_eq!(ConnType::Peer.index(), 2);
+        assert_eq!(ConnType::Edge.index(), 3);
+        assert_eq!(ConnType::ALL.len(), 4);
+        assert_eq!(ConnType::COUNT, 4);
+    }
+
+    #[test]
+    fn test_conn_type_edge_proto_mapping() {
+        use slim_datapath::api::proto::dataplane::v1::LinkConnectionType;
+        use slim_datapath::tables::ConnType;
+
+        // ConnType::Edge -> LinkConnectionType::Edge
+        let proto: LinkConnectionType = ConnType::Edge.into();
+        assert_eq!(proto, LinkConnectionType::Edge);
+
+        // ConnType::Remote -> LinkConnectionType::Remote (unchanged)
+        let proto: LinkConnectionType = ConnType::Remote.into();
+        assert_eq!(proto, LinkConnectionType::Remote);
+
+        // ConnType::Peer -> LinkConnectionType::Peer (unchanged)
+        let proto: LinkConnectionType = ConnType::Peer.into();
+        assert_eq!(proto, LinkConnectionType::Peer);
+    }
 }

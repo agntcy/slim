@@ -41,7 +41,7 @@ pub enum ConnType {
     #[serde(skip)]
     Local,
     /// Connection with a remote SLIM instance in other deployment.
-    /// Always handeled by the control plane.
+    /// Always handled by the control plane.
     #[default]
     Remote,
     /// Connection with a peer replica in the same deployment.
