@@ -1,66 +1,66 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-// TODO(wasm32): introduce a wasm-friendly session layer.
-cfg_if::cfg_if! {
-    if #[cfg(not(target_arch = "wasm32"))] {
-        mod common;
-        pub mod completion_handle;
-        pub mod context;
-        pub mod controller_sender;
-        pub mod errors;
+mod common;
+pub mod completion_handle;
+pub mod context;
+pub mod controller_sender;
+pub mod errors;
 
-        pub mod mls_state;
-        mod moderator_task;
-        pub mod notification;
-        pub mod producer_buffer;
-        pub mod receiver_buffer;
-        pub mod session;
-        mod session_builder;
-        pub mod session_config;
-        pub mod session_controller;
-        mod session_layer;
-        mod session_moderator;
-        mod session_participant;
-        pub mod session_receiver;
-        pub mod session_sender;
-        pub mod session_settings;
-        pub mod subscription_manager;
-        pub mod timer;
-        pub mod timer_factory;
-        pub mod traits;
+pub mod mls_state;
+mod moderator_task;
+pub mod notification;
+pub mod producer_buffer;
+pub mod receiver_buffer;
+pub mod session;
+mod session_builder;
+pub mod session_config;
+pub mod session_controller;
+mod session_layer;
+mod session_moderator;
+mod session_participant;
+pub mod session_receiver;
+pub mod session_sender;
+pub mod session_settings;
+pub mod subscription_manager;
+pub mod timer;
+pub mod timer_factory;
+pub mod traits;
 
-        // Test utilities (only available during tests)
-        #[cfg(test)]
-        pub mod test_utils;
+// Runtime-agnostic helpers (await seam for the MLS sync/async split) shared by
+// the modules above so the same source compiles for native tokio and the wasm32
+// browser runtime. Imported by path: `use crate::runtime::maybe_await;`.
+mod runtime;
 
-        // Traits
-        pub use traits::MessageHandler;
+// Test utilities (only available during tests)
+#[cfg(test)]
+pub mod test_utils;
 
-        // Re-export the unified builder for convenience
-        pub use session_builder::{ForController, ForModerator, ForParticipant, SessionBuilder};
+// Traits
+pub use traits::MessageHandler;
 
-        // Session Errors
-        pub use errors::SessionError;
+// Re-export the unified builder for convenience
+pub use session_builder::{ForController, ForModerator, ForParticipant, SessionBuilder};
 
-        // Session Config
-        pub use session_config::SessionConfig;
+// Session Errors
+pub use errors::SessionError;
 
-        // Session Layer
-        pub use session_layer::{Direction, SessionLayer};
+// Session Config
+pub use session_config::SessionConfig;
 
-        // Common Session Types - internal use
-        pub use common::{MessageDirection, SESSION_RANGE, SessionMessage, SlimChannelSender};
+// Session Layer
+pub use session_layer::{Direction, SessionLayer};
 
-        // Session output types
-        pub use common::{OutboundMessage, SessionOutput};
+// Common Session Types - internal use
+pub use common::{MessageDirection, SESSION_RANGE, SessionMessage, SlimChannelSender};
 
-        // Public exports for external crates (like Python bindings)
-        pub use common::{AppChannelReceiver, SESSION_UNSPECIFIED};
+// Session output types
+pub use common::{OutboundMessage, SessionOutput};
 
-        // Re-export specific items that need to be publicly accessible
-        pub use completion_handle::CompletionHandle;
-        pub use notification::Notification;
-        pub use subscription_manager::{AutoAckManager, SubscriptionOps};
-    }
-}
+// Public exports for external crates (like Python bindings)
+pub use common::{AppChannelReceiver, SESSION_UNSPECIFIED};
+
+// Re-export specific items that need to be publicly accessible
+pub use completion_handle::CompletionHandle;
+pub use notification::Notification;
+pub use subscription_manager::{AutoAckManager, SubscriptionOps};

@@ -38,6 +38,33 @@ jobs:
     with:
       working-directory: ./data-plane
 
+  data-plane-wasm32:
+    name: Data plane - wasm32 check & clippy
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./data-plane
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ./data-plane
+
+      - name: Add wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: wasm32 check (lib only)
+        run: task data-plane:wasm32:check
+
+      - name: wasm32 clippy (lib only)
+        run: task data-plane:wasm32:clippy
+
   data-plane-docker-build:
     name: Build SLIM docker image
     uses: ./.github/workflows/reusable-docker-build-push.yaml

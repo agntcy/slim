@@ -9,28 +9,40 @@ description = "SLIM session internal implementation."
 name = "slim_session"
 
 [dependencies]
-agntcy-slim-version = { workspace = true }
-cfg-if = { workspace = true }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-mls = { workspace = true }
+agntcy-slim-version = { workspace = true }
 async-trait = { workspace = true }
 display-error-chain = { workspace = true }
 futures = { workspace = true }
 futures-timer = { workspace = true }
+# Bridges the MLS sync (native) / async (wasm32 SubtleCrypto) split
+maybe-async = { workspace = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 smallvec = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
 tokio-util = { workspace = true }
-tonic = { workspace = true }
 tracing = { workspace = true }
 trait-variant = { workspace = true }
+
+# tokio: full default features on native; on wasm32 only the runtime-agnostic
+# pieces compile (no net/process/signal). tonic: only `Status`/codec is needed
+# here, so drop the native-only transport stack on wasm32.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true }
+tonic = { workspace = true }
+
+# tokio has no default features, so listing features here yields exactly the
+# runtime-agnostic subset that builds on wasm32 (no net/process/signal driver).
+# tonic is declared directly (not inherited) so we can drop its native-only
+# `transport` stack; only `Status` is used here.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { workspace = true, features = ["sync", "macros", "rt", "time"] }
+tonic = { version = "0.14", default-features = false }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim-testing = { workspace = true }

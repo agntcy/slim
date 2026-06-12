@@ -108,7 +108,7 @@ impl SessionController {
             session_type = ?config.session_type
         );
 
-        let handle = tokio::spawn(
+        let handle = crate::runtime::spawn(
             Self::processing_loop(inner, rx, cancellation_token.clone(), settings).instrument(span),
         );
 
