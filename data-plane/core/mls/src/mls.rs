@@ -183,7 +183,7 @@ where
     /// Always defers to the MLS crypto provider so the produced bytes are
     /// guaranteed to be valid for the negotiated ciphersuite (P-256 by
     /// default, or Curve25519 when the `curve25519` feature is enabled).
-    async fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
+    pub async fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
         let crypto_provider = crate::crypto::default_crypto_provider();
         let cipher_suite_provider = crypto_provider
             .cipher_suite_provider(CIPHERSUITE)
@@ -193,63 +193,6 @@ where
             .signature_key_generate()
             .await
             .map_err(MlsError::crypto_provider)
-    }
-
-    /// Generate a fresh ciphersuite-correct key pair via the MLS crypto
-    /// provider, push it into the identity provider via `set_signature_keys`,
-    /// and assemble the corresponding `SigningIdentity`.
-    async fn generate_and_install_signing_identity(
-        &mut self,
-        is_rotation: bool,
-    ) -> Result<(SignatureSecretKey, SigningIdentity), MlsError> {
-        let (priv_key, pub_key) = Self::generate_key_pair().await?;
-
-        // Push the ciphersuite-correct keys into the identity provider so
-        // that get_token() embeds the matching public key in the credential.
-        self.identity_provider
-            .set_signature_keys(priv_key.as_bytes().to_vec(), pub_key.as_bytes().to_vec())?;
-
-        self.create_signing_identity(is_rotation)
-            .map(|(_, identity)| (priv_key, identity))
-    }
-
-    pub async fn initialize(&mut self) -> Result<(), MlsError> {
-        debug!("Initializing MLS");
-
-        self.identity = Some(self.identity_provider.get_id()?);
-
-        let stored_identity = InMemoryIdentity {
-            identifier: self
-                .identity
-                .clone()
-                .map(|id| id.to_string())
-                .expect("MLS identity could not be determined from identity provider"),
-            public_key_bytes: vec![],
-            private_key_bytes: vec![],
-            last_credential: None,
-            credential_version: 1,
-        };
-
-        self.stored_identity = Some(stored_identity);
-
-        // Generate ciphersuite-correct keys via the MLS crypto provider and
-        // install them into the identity provider.
-        let (private_key, signing_identity) =
-            self.generate_and_install_signing_identity(false).await?;
-
-        let crypto_provider = crate::crypto::default_crypto_provider();
-
-        let identity_provider = SlimIdentityProvider::new(self.identity_verifier.clone());
-
-        let client = Client::builder()
-            .identity_provider(identity_provider)
-            .crypto_provider(crypto_provider)
-            .signing_identity(signing_identity, private_key, CIPHERSUITE)
-            .build();
-
-        self.client = Some(client);
-        debug!("MLS client initialization completed successfully");
-        Ok(())
     }
 
     pub async fn create_group(&mut self) -> Result<Vec<u8>, MlsError> {
@@ -464,6 +407,77 @@ where
         group.write_to_storage().await?;
         Ok(())
     }
+}
+
+/// Always-async methods that interact with the `TokenProvider` trait (which is
+/// always-async via `trait_variant`). These cannot live inside `#[maybe_async]`
+/// because `is_sync` would strip `.await` on native while the trait methods
+/// always return futures.
+impl<P, V> Mls<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    /// Generate a fresh ciphersuite-correct key pair via the MLS crypto
+    /// provider, push it into the identity provider via `set_signature_keys`,
+    /// and assemble the corresponding `SigningIdentity`.
+    async fn generate_and_install_signing_identity(
+        &mut self,
+        is_rotation: bool,
+    ) -> Result<(SignatureSecretKey, SigningIdentity), MlsError> {
+        #[cfg(not(target_arch = "wasm32"))]
+        let (priv_key, pub_key) = Self::generate_key_pair()?;
+        #[cfg(target_arch = "wasm32")]
+        let (priv_key, pub_key) = Self::generate_key_pair().await?;
+
+        // Push the ciphersuite-correct keys into the identity provider so
+        // that get_token() embeds the matching public key in the credential.
+        self.identity_provider
+            .set_signature_keys(priv_key.as_bytes().to_vec(), pub_key.as_bytes().to_vec())
+            .await?;
+
+        self.create_signing_identity(is_rotation)
+            .map(|(_, identity)| (priv_key, identity))
+    }
+
+    pub async fn initialize(&mut self) -> Result<(), MlsError> {
+        debug!("Initializing MLS");
+
+        self.identity = Some(self.identity_provider.get_id()?);
+
+        let stored_identity = InMemoryIdentity {
+            identifier: self
+                .identity
+                .clone()
+                .map(|id| id.to_string())
+                .expect("MLS identity could not be determined from identity provider"),
+            public_key_bytes: vec![],
+            private_key_bytes: vec![],
+            last_credential: None,
+            credential_version: 1,
+        };
+
+        self.stored_identity = Some(stored_identity);
+
+        // Generate ciphersuite-correct keys via the MLS crypto provider and
+        // install them into the identity provider.
+        let (private_key, signing_identity) =
+            self.generate_and_install_signing_identity(false).await?;
+
+        let crypto_provider = crate::crypto::default_crypto_provider();
+
+        let identity_provider = SlimIdentityProvider::new(self.identity_verifier.clone());
+
+        let client = Client::builder()
+            .identity_provider(identity_provider)
+            .crypto_provider(crypto_provider)
+            .signing_identity(signing_identity, private_key, CIPHERSUITE)
+            .build();
+
+        self.client = Some(client);
+        debug!("MLS client initialization completed successfully");
+        Ok(())
+    }
 
     pub async fn create_rotation_proposal(&mut self) -> Result<ProposalMsg, MlsError> {
         // Generate a fresh ciphersuite-correct key pair and install it into
@@ -474,6 +488,13 @@ where
         // Now get mutable reference to group after creating signing identity
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
+        #[cfg(not(target_arch = "wasm32"))]
+        let update_proposal = group.propose_update_with_identity(
+            new_private_key.clone(),
+            new_signing_identity,
+            vec![],
+        )?;
+        #[cfg(target_arch = "wasm32")]
         let update_proposal = group
             .propose_update_with_identity(new_private_key.clone(), new_signing_identity, vec![])
             .await?;
@@ -560,48 +581,48 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_mls_creation() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_mls_creation() -> Result<(), Box<dyn std::error::Error>> {
         let mut mls = Mls::new(
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
         );
 
-        mls.initialize()?;
+        mls.initialize().await?;
         assert!(mls.client.is_some());
         assert!(mls.group.is_none());
         Ok(())
     }
 
-    #[test]
-    fn test_group_creation() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_group_creation() -> Result<(), Box<dyn std::error::Error>> {
         let mut mls = Mls::new(
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
         );
 
-        mls.initialize()?;
+        mls.initialize().await?;
         let _group_id = mls.create_group()?;
         assert!(mls.client.is_some());
         assert!(mls.group.is_some());
         Ok(())
     }
 
-    #[test]
-    fn test_key_package_generation() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_key_package_generation() -> Result<(), Box<dyn std::error::Error>> {
         let mut mls = Mls::new(
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
         );
 
-        mls.initialize()?;
+        mls.initialize().await?;
         let key_package = mls.generate_key_package()?;
         assert!(!key_package.is_empty());
         Ok(())
     }
 
-    #[test]
-    fn test_messaging() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_messaging() -> Result<(), Box<dyn std::error::Error>> {
         // alice will work as moderator
         let mut alice = Mls::new(
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
@@ -620,10 +641,10 @@ mod tests {
             SharedSecret::new("daniel", SHARED_SECRET).unwrap(),
         );
 
-        alice.initialize()?;
-        bob.initialize()?;
-        charlie.initialize()?;
-        daniel.initialize()?;
+        alice.initialize().await?;
+        bob.initialize().await?;
+        charlie.initialize().await?;
+        daniel.initialize().await?;
 
         let group_id = alice.create_group()?;
 
@@ -737,8 +758,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_decrypt_message() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_decrypt_message() -> Result<(), Box<dyn std::error::Error>> {
         let mut alice = Mls::new(
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
@@ -748,8 +769,8 @@ mod tests {
             SharedSecret::new("bob", SHARED_SECRET).unwrap(),
         );
 
-        alice.initialize()?;
-        bob.initialize()?;
+        alice.initialize().await?;
+        bob.initialize().await?;
         let _group_id = alice.create_group()?;
 
         let bob_key_package = bob.generate_key_package()?;
@@ -765,8 +786,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_shared_secret_rotation_same_identity() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_shared_secret_rotation_same_identity() -> Result<(), Box<dyn std::error::Error>> {
         let identity_a = SharedSecret::new("alice", SHARED_SECRET).unwrap();
 
         // make sure the token provider is rotating the tokens
@@ -779,8 +800,8 @@ mod tests {
         let identity_b = SharedSecret::new("bob", SHARED_SECRET).unwrap();
         let mut bob = Mls::new(identity_b.clone(), identity_b.clone());
 
-        alice.initialize()?;
-        bob.initialize()?;
+        alice.initialize().await?;
+        bob.initialize().await?;
         let _group_id = alice.create_group()?;
 
         let bob_key_package = bob.generate_key_package()?;
@@ -805,7 +826,7 @@ mod tests {
             )
             .unwrap(),
         );
-        alice_rotated_secret.initialize()?;
+        alice_rotated_secret.initialize().await?;
 
         let message2 = b"Message with rotated secret";
         let encrypted2_result = alice_rotated_secret.encrypt_message(message2, vec![]);
@@ -819,20 +840,20 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_full_credential_rotation_flow() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_full_credential_rotation_flow() -> Result<(), Box<dyn std::error::Error>> {
         let secret_m = SharedSecret::new("moderator", SHARED_SECRET).unwrap();
         let mut moderator = Mls::new(secret_m.clone(), secret_m.clone());
-        moderator.initialize()?;
+        moderator.initialize().await?;
         let _group_id = moderator.create_group()?;
 
         let secret_a = SharedSecret::new("alice", SHARED_SECRET).unwrap();
         let mut alice = Mls::new(secret_a.clone(), secret_a.clone());
-        alice.initialize()?;
+        alice.initialize().await?;
 
         let secret_b = SharedSecret::new("bob", SHARED_SECRET).unwrap();
         let mut bob = Mls::new(secret_b.clone(), secret_b.clone());
-        bob.initialize()?;
+        bob.initialize().await?;
 
         // Moderator adds Alice to the group
         let alice_key_package = alice.generate_key_package()?;
@@ -856,7 +877,7 @@ mod tests {
         assert_eq!(decrypted1, message1);
 
         // Alice create a proposal
-        let rotation_proposal = alice.create_rotation_proposal()?;
+        let rotation_proposal = alice.create_rotation_proposal().await?;
 
         // send proposal to the moderator
         let commit = moderator.process_proposal(&rotation_proposal, true)?;
@@ -899,7 +920,7 @@ mod tests {
     // -------------------------------------------------------------------------
     // Test Helpers
     // -------------------------------------------------------------------------
-    fn init_identity(
+    async fn init_identity(
         name: &str,
         _path: &str,
     ) -> Result<Mls<SharedSecret, SharedSecret>, Box<dyn std::error::Error>> {
@@ -907,7 +928,7 @@ mod tests {
             SharedSecret::new(name, SHARED_SECRET).unwrap(),
             SharedSecret::new(name, SHARED_SECRET).unwrap(),
         );
-        mls.initialize()?;
+        mls.initialize().await?;
         Ok(mls)
     }
 
@@ -947,12 +968,12 @@ mod tests {
     // -------------------------------------------------------------------------
     // TEST: Token-only theft with different attacker key triggers PublicKeyMismatch
     // -------------------------------------------------------------------------
-    #[test]
-    fn test_security_identity_theft_attack() -> Result<(), Box<dyn std::error::Error>> {
+    #[tokio::test]
+    async fn test_security_identity_theft_attack() -> Result<(), Box<dyn std::error::Error>> {
         // Threat model: attacker steals Alice's token, NOT her private key.
 
-        let mut alice = init_identity("alice", "/tmp/mls_test_security_alice")?;
-        let mut charlie = init_identity("charlie", "/tmp/mls_test_security_charlie")?;
+        let mut alice = init_identity("alice", "/tmp/mls_test_security_alice").await?;
+        let mut charlie = init_identity("charlie", "/tmp/mls_test_security_charlie").await?;
 
         // Group setup
         let _group_id = alice.create_group()?;
@@ -1006,12 +1027,12 @@ mod tests {
     // -------------------------------------------------------------------------
     // TEST: Token + correct public key but wrong private key => MLS signature failure
     // -------------------------------------------------------------------------
-    #[test]
-    fn test_signature_mismatch_stolen_token_wrong_private_key()
+    #[tokio::test]
+    async fn test_signature_mismatch_stolen_token_wrong_private_key()
     -> Result<(), Box<dyn std::error::Error>> {
         // Attacker has Alice's token + public key, but not her private key.
 
-        let alice = init_identity("alice", "/tmp/mls_test_sig_mismatch_alice")?;
+        let alice = init_identity("alice", "/tmp/mls_test_sig_mismatch_alice").await?;
         let (alice_token, alice_pub_bytes) = extract_token_and_pubkey(&alice);
 
         // Verify token correctness
@@ -1056,11 +1077,11 @@ mod tests {
 
     /// Build a genuine `SigningIdentity` whose embedded token matches its
     /// public key, plus a provider that can verify it.
-    fn genuine_identity(
+    async fn genuine_identity(
         name: &str,
     ) -> Result<(SlimIdentityProvider<SharedSecret>, SigningIdentity), Box<dyn std::error::Error>>
     {
-        let mls = init_identity(name, "")?;
+        let mls = init_identity(name, "").await?;
         let (token, pub_bytes) = extract_token_and_pubkey(&mls);
         let pubkey = SignaturePublicKey::new(pub_bytes.clone());
         let cred = BasicCredential::new(token.as_bytes().to_vec());
@@ -1069,17 +1090,18 @@ mod tests {
         Ok((provider, signing_identity))
     }
 
-    #[test]
-    fn test_identity_provider_validate_member_ok() -> Result<(), Box<dyn std::error::Error>> {
-        let (provider, signing_identity) = genuine_identity("alice")?;
+    #[tokio::test]
+    async fn test_identity_provider_validate_member_ok() -> Result<(), Box<dyn std::error::Error>> {
+        let (provider, signing_identity) = genuine_identity("alice").await?;
         let res = provider.validate_member(&signing_identity, None, MemberValidationContext::None);
         assert!(res.is_ok(), "genuine identity must validate: {:?}", res);
         Ok(())
     }
 
-    #[test]
-    fn test_identity_provider_identity_returns_subject() -> Result<(), Box<dyn std::error::Error>> {
-        let (provider, signing_identity) = genuine_identity("alice")?;
+    #[tokio::test]
+    async fn test_identity_provider_identity_returns_subject()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (provider, signing_identity) = genuine_identity("alice").await?;
         let identity = provider.identity(&signing_identity, &ExtensionList::default())?;
         let subject = String::from_utf8(identity)?;
         assert!(
@@ -1089,9 +1111,10 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_identity_provider_external_sender_rejected() -> Result<(), Box<dyn std::error::Error>> {
-        let (provider, signing_identity) = genuine_identity("alice")?;
+    #[tokio::test]
+    async fn test_identity_provider_external_sender_rejected()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (provider, signing_identity) = genuine_identity("alice").await?;
         let res = provider.validate_external_sender(&signing_identity, None, None);
         assert!(
             matches!(res, Err(MlsError::ExternalCommitNotSupported)),
@@ -1101,10 +1124,10 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_identity_provider_valid_successor_same_subject()
+    #[tokio::test]
+    async fn test_identity_provider_valid_successor_same_subject()
     -> Result<(), Box<dyn std::error::Error>> {
-        let (provider, signing_identity) = genuine_identity("alice")?;
+        let (provider, signing_identity) = genuine_identity("alice").await?;
         // Same identity => same subject => valid succession.
         let ok = provider.valid_successor(
             &signing_identity,
@@ -1115,23 +1138,24 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_identity_provider_valid_successor_different_subject()
+    #[tokio::test]
+    async fn test_identity_provider_valid_successor_different_subject()
     -> Result<(), Box<dyn std::error::Error>> {
         // The provider verifies tokens via the shared secret, so a "bob" token
         // signed with the same secret verifies but resolves to a different
         // subject, which must be rejected as a successor for "alice".
-        let (provider, alice_identity) = genuine_identity("alice")?;
-        let (_bob_provider, bob_identity) = genuine_identity("bob")?;
+        let (provider, alice_identity) = genuine_identity("alice").await?;
+        let (_bob_provider, bob_identity) = genuine_identity("bob").await?;
         let ok =
             provider.valid_successor(&alice_identity, &bob_identity, &ExtensionList::default())?;
         assert!(!ok, "different-subject succession must be rejected");
         Ok(())
     }
 
-    #[test]
-    fn test_identity_provider_supported_types_is_basic() -> Result<(), Box<dyn std::error::Error>> {
-        let (provider, _id) = genuine_identity("alice")?;
+    #[tokio::test]
+    async fn test_identity_provider_supported_types_is_basic()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (provider, _id) = genuine_identity("alice").await?;
         assert_eq!(
             provider.supported_types(),
             vec![mls_rs::identity::CredentialType::BASIC]

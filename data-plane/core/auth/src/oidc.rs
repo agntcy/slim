@@ -357,6 +357,14 @@ impl TokenProvider for OidcTokenProvider {
         let token = self.get_token()?;
         extract_sub_claim_unsafe(&token)
     }
+
+    async fn set_signature_keys(
+        &mut self,
+        _private_key: Vec<u8>,
+        _public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        Err(AuthError::MlsNotSupported)
+    }
 }
 
 impl Drop for OidcTokenProvider {

@@ -258,19 +258,21 @@ impl TokenProvider for AuthProvider {
         }
     }
 
-    fn set_signature_keys(
+    async fn set_signature_keys(
         &mut self,
         private_key: Vec<u8>,
         public_key: Vec<u8>,
     ) -> Result<(), AuthError> {
         match self {
-            AuthProvider::JwtSigner(signer) => signer.set_signature_keys(private_key, public_key),
+            AuthProvider::JwtSigner(signer) => {
+                signer.set_signature_keys(private_key, public_key).await
+            }
             AuthProvider::StaticToken(_provider) => Err(AuthError::MlsNotSupported),
             AuthProvider::SharedSecret(secret) => {
-                secret.set_signature_keys(private_key, public_key)
+                secret.set_signature_keys(private_key, public_key).await
             }
             #[cfg(not(target_family = "windows"))]
-            AuthProvider::Spire(spire) => spire.set_signature_keys(private_key, public_key),
+            AuthProvider::Spire(spire) => spire.set_signature_keys(private_key, public_key).await,
         }
     }
 }

@@ -531,7 +531,7 @@ impl TokenProvider for SharedSecret {
         Ok(self.signature_keys.1.clone())
     }
 
-    fn set_signature_keys(
+    async fn set_signature_keys(
         &mut self,
         private_key: Vec<u8>,
         public_key: Vec<u8>,
@@ -674,8 +674,8 @@ mod tests {
         assert!(result.is_err_and(|e| matches!(e, AuthError::HmacKeyTooShort)));
     }
 
-    #[test]
-    fn test_set_signature_keys_updates_keys_and_claims() {
+    #[tokio::test]
+    async fn test_set_signature_keys_updates_keys_and_claims() {
         let mut s = SharedSecret::new("svc", &valid_secret()).unwrap();
 
         let initial_pub = s.get_signature_public_key().unwrap();
@@ -684,6 +684,7 @@ mod tests {
         let new_priv = vec![7u8; 32];
         let new_pub = vec![9u8; 32];
         s.set_signature_keys(new_priv.clone(), new_pub.clone())
+            .await
             .unwrap();
 
         // The provider now reports the externally-supplied key pair.
@@ -702,8 +703,8 @@ mod tests {
         assert!(s.try_verify(new_token).is_ok());
     }
 
-    #[test]
-    fn test_set_signature_keys_changes_keys() {
+    #[tokio::test]
+    async fn test_set_signature_keys_changes_keys() {
         let mut s = SharedSecret::new("svc", &valid_secret()).unwrap();
         let before_pub = s.get_signature_public_key().unwrap();
         let before_priv = s.get_signature_secret_key().unwrap();
@@ -711,6 +712,7 @@ mod tests {
         let new_priv = vec![42u8; 32];
         let new_pub = vec![43u8; 32];
         s.set_signature_keys(new_priv.clone(), new_pub.clone())
+            .await
             .unwrap();
 
         assert_ne!(before_pub, s.get_signature_public_key().unwrap());
@@ -1085,6 +1087,7 @@ mod tests {
         let new_priv = vec![11u8; 32];
         let new_pub = vec![22u8; 32];
         s.set_signature_keys(new_priv.clone(), new_pub.clone())
+            .await
             .unwrap();
         let pk_after = s.get_signature_public_key().unwrap();
         assert_ne!(pk_before, pk_after);

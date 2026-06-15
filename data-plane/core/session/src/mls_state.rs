@@ -48,7 +48,6 @@ where
     pub(crate) header_integrity_validation_percent: u32,
 }
 
-#[maybe_async::maybe_async]
 impl<P, V> MlsState<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -68,7 +67,14 @@ where
             header_integrity_validation_percent,
         })
     }
+}
 
+#[maybe_async::maybe_async]
+impl<P, V> MlsState<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     pub(crate) async fn generate_key_package(&mut self) -> Result<KeyPackageMsg, SessionError> {
         let ret = self.mls.generate_key_package().await?;
         Ok(ret)
@@ -536,7 +542,7 @@ mod tests {
             SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
             SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
         );
-        mls.initialize().unwrap();
+        mls.initialize().await.unwrap();
 
         let mut mls_state = MlsState {
             mls,
@@ -576,8 +582,8 @@ mod tests {
             SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
         );
 
-        alice_mls.initialize().unwrap();
-        bob_mls.initialize().unwrap();
+        alice_mls.initialize().await.unwrap();
+        bob_mls.initialize().await.unwrap();
 
         let _group_id = alice_mls.create_group().unwrap();
         let bob_key_package = bob_mls.generate_key_package().unwrap();
@@ -649,7 +655,7 @@ mod tests {
             SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
             SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
         );
-        mls.initialize().unwrap();
+        mls.initialize().await.unwrap();
         let _group_id = mls.create_group().unwrap();
 
         let mut mls_state = MlsState {
@@ -709,8 +715,8 @@ mod tests {
             SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
         );
 
-        alice_mls.initialize().unwrap();
-        bob_mls.initialize().unwrap();
+        alice_mls.initialize().await.unwrap();
+        bob_mls.initialize().await.unwrap();
 
         let _group_id = alice_mls.create_group().unwrap();
         let bob_key_package = bob_mls.generate_key_package().unwrap();
@@ -780,8 +786,8 @@ mod tests {
             SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
         );
 
-        alice_mls.initialize().unwrap();
-        bob_mls.initialize().unwrap();
+        alice_mls.initialize().await.unwrap();
+        bob_mls.initialize().await.unwrap();
 
         let _group_id = alice_mls.create_group().unwrap();
         let bob_key_package = bob_mls.generate_key_package().unwrap();
@@ -842,8 +848,8 @@ mod tests {
             SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
         );
 
-        alice_mls.initialize().unwrap();
-        bob_mls.initialize().unwrap();
+        alice_mls.initialize().await.unwrap();
+        bob_mls.initialize().await.unwrap();
 
         let _group_id = alice_mls.create_group().unwrap();
         let bob_key_package = bob_mls.generate_key_package().unwrap();
@@ -919,8 +925,8 @@ mod tests {
                 SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
             );
 
-            alice_mls.initialize().unwrap();
-            bob_mls.initialize().unwrap();
+            alice_mls.initialize().await.unwrap();
+            bob_mls.initialize().await.unwrap();
 
             let _group_id = alice_mls.create_group().unwrap();
             let bob_key_package = bob_mls.generate_key_package().unwrap();
@@ -990,8 +996,8 @@ mod tests {
             SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
         );
 
-        alice_mls.initialize().unwrap();
-        bob_mls.initialize().unwrap();
+        alice_mls.initialize().await.unwrap();
+        bob_mls.initialize().await.unwrap();
 
         let _group_id = alice_mls.create_group().unwrap();
         let bob_key_package = bob_mls.generate_key_package().unwrap();
@@ -1047,12 +1053,12 @@ mod tests {
     // moderator error path that surround the maybe_async MLS seam, without
     // needing a live MLS group.
 
-    fn new_test_mls_state() -> MlsState<SharedSecret, SharedSecret> {
+    async fn new_test_mls_state() -> MlsState<SharedSecret, SharedSecret> {
         let mut mls = Mls::new(
             SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
             SharedSecret::new("test", TEST_VALID_SECRET).unwrap(),
         );
-        mls.initialize().unwrap();
+        mls.initialize().await.unwrap();
         MlsState {
             mls,
             group: vec![],
@@ -1107,7 +1113,7 @@ mod tests {
     async fn test_process_control_message_drops_before_welcome() {
         // last_mls_msg_id == 0 means no welcome processed yet, so any commit
         // must be dropped (it cannot be applied without the group state).
-        let mut state = new_test_mls_state();
+        let mut state = new_test_mls_state().await;
         let local = test_name("bob");
         let msg = control_msg(ProtoSessionMessageType::GroupAdd, 5);
 
@@ -1121,7 +1127,7 @@ mod tests {
     #[tokio::test]
     async fn test_process_control_message_drops_already_processed_commit() {
         // commit_id (5) <= last_mls_msg_id (10): a stale/replayed commit.
-        let mut state = new_test_mls_state();
+        let mut state = new_test_mls_state().await;
         state.last_mls_msg_id = 10;
         let local = test_name("bob");
         let msg = control_msg(ProtoSessionMessageType::GroupRemove, 5);
@@ -1136,7 +1142,7 @@ mod tests {
     async fn test_process_control_message_buffers_out_of_order_and_dedups() {
         // Expected next id is 2 but we receive 3: it must be buffered (not
         // applied) and a duplicate of it must be ignored.
-        let mut state = new_test_mls_state();
+        let mut state = new_test_mls_state().await;
         state.last_mls_msg_id = 1;
         let local = test_name("bob");
         let msg = control_msg(ProtoSessionMessageType::GroupAdd, 3);
@@ -1155,7 +1161,7 @@ mod tests {
     async fn test_process_welcome_message_ignored_when_already_joined() {
         use slim_datapath::api::CommandPayload;
 
-        let mut state = new_test_mls_state();
+        let mut state = new_test_mls_state().await;
         state.last_mls_msg_id = 7;
         let welcome = Message::builder()
             .source(test_name("mod").with_id(1))
@@ -1182,7 +1188,7 @@ mod tests {
     async fn test_process_proposal_message_drops_local_origin() {
         use slim_datapath::api::CommandPayload;
 
-        let mut state = new_test_mls_state();
+        let mut state = new_test_mls_state().await;
         let local = test_name("self").with_id(2);
         let proposal = Message::builder()
             .source(local.clone())
@@ -1207,7 +1213,7 @@ mod tests {
     async fn test_moderator_remove_participant_not_found() {
         use slim_datapath::api::CommandPayload;
 
-        let mut moderator = MlsModeratorState::new(new_test_mls_state());
+        let mut moderator = MlsModeratorState::new(new_test_mls_state().await);
         let ghost = test_name("ghost");
         let msg = Message::builder()
             .source(test_name("mod").with_id(1))
@@ -1232,7 +1238,7 @@ mod tests {
     async fn test_build_aad_falls_back_to_empty_payload_type() {
         // A control message has no application payload, so build_aad must use
         // an empty payload_type rather than panicking.
-        let state = new_test_mls_state();
+        let state = new_test_mls_state().await;
         let msg = control_msg(ProtoSessionMessageType::GroupAdd, 1);
 
         let aad = state.build_aad(&msg);

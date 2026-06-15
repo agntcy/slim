@@ -136,14 +136,12 @@ pub trait TokenProvider {
     ///
     /// The MLS layer always generates ciphersuite-correct keys via its crypto
     /// provider and pushes them here so the identity provider can embed the
-    /// public key in tokens. Returns `Err(AuthError::MlsNotSupported)` by default.
-    fn set_signature_keys(
+    /// public key in tokens.
+    async fn set_signature_keys(
         &mut self,
-        _private_key: Vec<u8>,
-        _public_key: Vec<u8>,
-    ) -> Result<(), AuthError> {
-        Err(AuthError::MlsNotSupported)
-    }
+        private_key: Vec<u8>,
+        public_key: Vec<u8>,
+    ) -> Result<(), AuthError>;
 }
 
 #[cfg(test)]
@@ -166,10 +164,18 @@ mod tests {
         fn get_id(&self) -> Result<String, AuthError> {
             Ok("id".to_string())
         }
+
+        async fn set_signature_keys(
+            &mut self,
+            _private_key: Vec<u8>,
+            _public_key: Vec<u8>,
+        ) -> Result<(), AuthError> {
+            Err(AuthError::MlsNotSupported)
+        }
     }
 
-    #[test]
-    fn default_mls_methods_return_not_supported() {
+    #[tokio::test]
+    async fn default_mls_methods_return_not_supported() {
         let mut p = MinimalProvider;
         assert!(matches!(
             p.get_signature_secret_key(),
@@ -180,7 +186,7 @@ mod tests {
             Err(AuthError::MlsNotSupported)
         ));
         assert!(matches!(
-            p.set_signature_keys(vec![1, 2, 3], vec![4, 5, 6]),
+            p.set_signature_keys(vec![1, 2, 3], vec![4, 5, 6]).await,
             Err(AuthError::MlsNotSupported)
         ));
 

@@ -42,6 +42,7 @@ mls-rs-crypto-webcrypto = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.3"
+tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lints.rust.unexpected_cfgs]
 level = "warn"

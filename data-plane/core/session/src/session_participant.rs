@@ -93,13 +93,14 @@ where
     async fn init(&mut self) -> Result<(), SessionError> {
         // Initialize MLS
         self.mls_state = if let Some(mls_settings) = &self.common.settings.config.mls_settings {
-            let mls_state = maybe_await!(MlsState::new(
+            let mls_state = MlsState::new(
                 Mls::new(
                     self.common.settings.identity_provider.clone(),
                     self.common.settings.identity_verifier.clone(),
                 ),
                 mls_settings.header_integrity_validation_percent,
-            ))
+            )
+            .await
             .expect("failed to create MLS state");
             Some(mls_state)
         } else {

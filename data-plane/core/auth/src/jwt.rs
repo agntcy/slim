@@ -590,7 +590,7 @@ impl TokenProvider for SignerJwt {
         Ok(self.signature_keys.1.clone())
     }
 
-    fn set_signature_keys(
+    async fn set_signature_keys(
         &mut self,
         private_key: Vec<u8>,
         public_key: Vec<u8>,
@@ -616,6 +616,14 @@ impl TokenProvider for StaticTokenProvider {
     fn get_id(&self) -> Result<String, AuthError> {
         let token = self.get_token()?;
         extract_sub_claim_unsafe(&token)
+    }
+
+    async fn set_signature_keys(
+        &mut self,
+        _private_key: Vec<u8>,
+        _public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        Err(AuthError::MlsNotSupported)
     }
 }
 
