@@ -16,9 +16,9 @@ use slim_datapath::{
     },
     messages::utils::{DELETE_GROUP, DISCONNECTION_DETECTED, LEAVING_SESSION, TRUE_VAL},
 };
+use slim_mls::mls::Mls;
 use tokio::sync::oneshot;
 
-use slim_mls::mls::Mls;
 use tracing::debug;
 
 use crate::{

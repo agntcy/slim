@@ -3,13 +3,6 @@
 
 //! Runtime-agnostic seams that let the session layer share a single source tree
 //! across the native (tokio, multi-threaded) build and the wasm32 browser build.
-//!
-//! The MLS crypto provider is synchronous on native targets (aws-lc-rs) but
-//! asynchronous on wasm32, where `mls-rs-crypto-webcrypto` is built on the
-//! browser SubtleCrypto API (see the `mls_build_async` cfg in `.cargo/config.toml`).
-//! Because of that, every `slim_mls::mls::Mls` method is a plain call on native
-//! and an `.await` point on wasm32. [`maybe_await!`] hides that difference so the
-//! surrounding session code stays identical for both targets.
 
 /// Await the expression on wasm32 (where MLS is async) and evaluate it directly
 /// on every other target (where MLS is synchronous).

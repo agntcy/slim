@@ -281,6 +281,7 @@ version = "0.1.20"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-version",
+ "async-trait",
  "base64 0.22.1",
  "getrandom 0.3.4",
  "hex",

@@ -11,8 +11,8 @@ use slim_datapath::{
     },
     messages::utils::{LEAVING_SESSION, TRUE_VAL},
 };
-
 use slim_mls::mls::Mls;
+
 use tracing::debug;
 
 use crate::{

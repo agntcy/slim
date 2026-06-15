@@ -35,6 +35,7 @@ mls-rs-crypto-awslc = { workspace = true }
 
 # Browser SubtleCrypto crypto provider (async-only) for wasm32.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+async-trait = { workspace = true }
 getrandom = { workspace = true }
 maybe-async = { workspace = true }
 mls-rs-crypto-webcrypto = { workspace = true }
