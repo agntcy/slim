@@ -86,7 +86,6 @@ nav:
           - Overview: slim/slim-integrations.md
           - SLIMRPC:
               - Overview: slim/slim-rpc.md
-              - Protoc Plugin: slim/slim-slimrpc-compiler.md
           - SLIM A2A: slim/slim-a2a.md
           - MCP over SLIM: slim/slim-mcp.md
           - OpenTelemetry over SLIM: slim/slim-otel.md
