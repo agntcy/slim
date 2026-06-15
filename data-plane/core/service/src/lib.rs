@@ -33,23 +33,19 @@
 //! # })
 //! ```
 
-// TODO(wasm32): expose a wasm-friendly Service once its deps land.
-cfg_if::cfg_if! {
-    if #[cfg(not(target_arch = "wasm32"))] {
-        pub mod errors;
-        #[macro_use]
-        pub mod service;
+#![cfg(not(target_arch = "wasm32"))]
 
-        #[cfg(feature = "session")]
-        pub mod app;
+pub mod errors;
+pub mod service;
 
-        // Third-party crates
-        pub use slim_datapath::messages::utils::SlimHeaderFlags;
+#[cfg(feature = "session")]
+pub mod app;
 
-        // Local crate
-        pub use errors::ServiceError;
-        #[cfg(feature = "session")]
-        pub use errors::SubscriptionAckError;
-        pub use service::{KIND, Service, ServiceBuilder, ServiceConfiguration};
-    }
-}
+// Third-party crates
+pub use slim_datapath::messages::utils::SlimHeaderFlags;
+
+// Local crate
+pub use errors::ServiceError;
+#[cfg(feature = "session")]
+pub use errors::SubscriptionAckError;
+pub use service::{KIND, Service, ServiceBuilder, ServiceConfiguration};

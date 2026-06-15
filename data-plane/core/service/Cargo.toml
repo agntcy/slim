@@ -15,7 +15,6 @@ session = ["agntcy-slim-session"]
 
 [dependencies]
 agntcy-slim-version = { workspace = true }
-cfg-if = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim-auth = { workspace = true }

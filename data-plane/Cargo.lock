@@ -308,7 +308,6 @@ dependencies = [
  "agntcy-slim-testing",
  "agntcy-slim-version",
  "async-trait",
- "cfg-if",
  "display-error-chain",
  "futures",
  "parking_lot",
