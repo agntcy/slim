@@ -55,7 +55,6 @@ dependencies = [
  "hmac",
  "http",
  "itoa",
- "js-sys",
  "jsonwebtoken",
  "notify",
  "oauth2",
@@ -80,6 +79,7 @@ dependencies = [
  "tracing-test",
  "trait-variant",
  "url",
+ "web-time",
  "wiremock",
 ]
 
@@ -257,7 +257,6 @@ dependencies = [
  "agntcy-slim-signal",
  "agntcy-slim-tracing",
  "agntcy-slim-version",
- "cfg-if",
  "display-error-chain",
  "drain",
  "futures",

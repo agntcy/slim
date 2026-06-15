@@ -5,11 +5,6 @@ license = { workspace = true }
 edition = { workspace = true }
 description = "Authentication utilities for the Agntcy Slim framework"
 
-[package.metadata.cargo-machete]
-# `getrandom` is pulled in only to enable its `wasm_js` backend so that `rand`
-# works on wasm32; it is never referenced directly.
-ignored = ["getrandom"]
-
 [lib]
 name = "slim_auth"
 
@@ -34,6 +29,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 trait-variant = { workspace = true }
+web-time = { workspace = true }
 
 [target.'cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))'.dependencies]
 spiffe = { workspace = true }
@@ -62,7 +58,6 @@ wiremock = { workspace = true }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true }
 hmac = { workspace = true }
-js-sys = { workspace = true }
 sha2 = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
@@ -77,4 +72,3 @@ tracing-test = { workspace = true }
 [[bench]]
 name = "shared_secret_benchmark"
 harness = false
-

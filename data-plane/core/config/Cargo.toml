@@ -15,7 +15,6 @@ path = "src/schema/generate_schema.rs"
 [dependencies]
 agntcy-slim-version = { workspace = true }
 cfg-if = { workspace = true }
-# Required by the transport-agnostic `conn_type` module on every target.
 schemars = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 

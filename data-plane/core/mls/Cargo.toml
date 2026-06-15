@@ -5,12 +5,6 @@ license = { workspace = true }
 version = "0.1.20"
 description = "Messaging Layer Security for SLIM data plane."
 
-[package.metadata.cargo-machete]
-# `async-trait` is invoked indirectly by `maybe_async::maybe_async` (the wasm
-# path where `is_sync` is absent), so cargo-machete cannot see it. `getrandom`
-# only enables its wasm_js backend so `rand`/mls-rs work in the browser.
-ignored = ["async-trait", "getrandom"]
-
 [lib]
 name = "slim_mls"
 

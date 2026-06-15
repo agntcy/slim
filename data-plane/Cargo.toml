@@ -196,6 +196,7 @@ twox-hash = "2.1.1"
 uniffi = { version = "0.31.1", features = ["cli"] }
 url = "2.5.0"
 uuid = { version = "1.15.1", features = ["v4"] }
+web-time = "1"
 
 wiremock = "0.6"
 

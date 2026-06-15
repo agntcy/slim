@@ -253,17 +253,17 @@ where
     }
 
     pub async fn create_group(&mut self) -> Result<Vec<u8>, MlsError> {
-        tracing::info!("Creating new MLS group");
+        tracing::debug!("Creating new MLS group");
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
 
-        tracing::info!("calling mls-rs client.create_group");
+        tracing::debug!("calling mls-rs client.create_group");
         let group = client
             .create_group(ExtensionList::default(), Default::default(), None)
             .await?;
 
         let group_id = group.group_id().to_vec();
         self.group = Some(group);
-        tracing::info!(
+        tracing::debug!(
             id = ?hex::encode(&group_id),
             "MLS group created successfully",
         );

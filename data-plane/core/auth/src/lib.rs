@@ -22,5 +22,4 @@ pub mod resolver;
 #[cfg(not(target_family = "windows"))]
 pub mod spire;
 pub mod utils;
-}
-}
+}}

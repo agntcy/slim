@@ -55,8 +55,6 @@ use base64::engine::general_purpose::STANDARD as STANDARD_BASE64;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use parking_lot::Mutex;
 use rand::{Rng, distr::Alphanumeric};
-#[cfg(not(target_arch = "wasm32"))]
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
     collections::{HashSet, VecDeque},
     sync::Arc,
@@ -457,19 +455,11 @@ impl SharedSecret {
         Ok(())
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     fn get_current_timestamp(&self) -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
+        web_time::SystemTime::now()
+            .duration_since(web_time::SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs()
-    }
-
-    // On wasm32-unknown-unknown `std::time::SystemTime::now()` panics, so use
-    // the browser clock via `js_sys::Date::now()` (milliseconds since epoch).
-    #[cfg(target_arch = "wasm32")]
-    fn get_current_timestamp(&self) -> u64 {
-        (js_sys::Date::now() / 1000.0) as u64
     }
 
     fn parse_token(&self, token: &str) -> Result<(String, u64, String, String, String), AuthError> {

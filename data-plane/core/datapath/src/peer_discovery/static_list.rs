@@ -10,7 +10,7 @@
 
 use std::collections::VecDeque;
 
-use slim_config::client::ConnType;
+use slim_config::conn_type::ConnType;
 
 use super::config::StaticPeerEntry;
 use super::{PeerDiscovery, PeerDiscoveryError, PeerEvent, PeerInfo};

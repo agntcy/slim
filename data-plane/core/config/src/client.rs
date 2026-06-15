@@ -29,12 +29,8 @@ use crate::backoff::Strategy;
 use crate::backoff::exponential::Config as ExponentialBackoff;
 use crate::backoff::fixedinterval::Config as FixedIntervalBackoff;
 
-// `ConnType` lives in its own transport-agnostic module so it can be shared
-// with the datapath on every target (including wasm32). Re-exported here to
-// preserve the existing `slim_config::client::ConnType` path.
-pub use crate::conn_type::ConnType;
-
 use crate::component::configuration::Configuration;
+use crate::conn_type::ConnType;
 use crate::errors::ConfigError;
 use crate::grpc::compression::CompressionType;
 use crate::grpc::proxy::ProxyConfig;
