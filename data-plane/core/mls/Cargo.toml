@@ -10,17 +10,13 @@ name = "slim_mls"
 
 [features]
 default = []
-# Use the legacy Curve25519 (X25519 + Ed25519) MLS ciphersuite instead of the
-# default NIST P-256 ciphersuite. Only meaningful on native targets: browser
-# WebCrypto (the wasm32 backend) does not support Curve25519. By default the
-# crate uses P256_AES128 so that native and wasm peers can join the same MLS
-# group.
+# Use Curve25519 (X25519 + Ed25519) MLS ciphersuite instead of the
+# default NIST P-256 ciphersuite.
 curve25519 = []
 
 [dependencies]
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-version = { workspace = true }
-async-trait = { workspace = true }
 base64 = { workspace = true }
 hex = "0.4"
 mls-rs = { workspace = true }
