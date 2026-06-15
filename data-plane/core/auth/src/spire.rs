@@ -192,7 +192,7 @@ struct CachedJwtSvid {
     /// Shared audiences — the background task reads these on each refresh so
     /// that callers can update them (e.g. when MLS keys rotate) without
     /// rebuilding the entire source.
-    audiences: Arc<std::sync::RwLock<Vec<String>>>,
+    audiences: Arc<RwLock<Vec<String>>>,
     /// Parsed target SPIFFE ID for SVID fetching.
     target_spiffe_id: Option<SpiffeId>,
     /// Signal the background task to refresh immediately (e.g. after audience change).
@@ -213,7 +213,7 @@ impl CachedJwtSvid {
     ) -> Result<Self, AuthError> {
         let cached_svid = Arc::new(RwLock::new(None));
         let cancellation_token = CancellationToken::new();
-        let shared_audiences = Arc::new(std::sync::RwLock::new(audiences.clone()));
+        let shared_audiences = Arc::new(RwLock::new(audiences.clone()));
         let refresh_notify = Arc::new(tokio::sync::Notify::new());
 
         let parsed_target: Option<SpiffeId> =
@@ -272,7 +272,7 @@ impl CachedJwtSvid {
     /// refresh so the cached token reflects the new audiences.
     async fn update_audiences(&self, new_audiences: Vec<String>) -> Result<(), AuthError> {
         // Update the shared audiences that the background task reads.
-        *self.audiences.write().unwrap() = new_audiences.clone();
+        *self.audiences.write() = new_audiences.clone();
 
         // Fetch a fresh SVID immediately with the new audiences so callers
         // don't have to wait for the background loop.
@@ -300,7 +300,7 @@ impl CachedJwtSvid {
     /// backoff on failure (capped to avoid letting the token expire).
     async fn background_refresh(
         source: SpiffeJwtSource,
-        audiences: Arc<std::sync::RwLock<Vec<String>>>,
+        audiences: Arc<RwLock<Vec<String>>>,
         target_spiffe_id: Option<SpiffeId>,
         cache: Arc<RwLock<Option<JwtSvid>>>,
         cancel: CancellationToken,
@@ -332,7 +332,7 @@ impl CachedJwtSvid {
             }
 
             // Read the current audiences from the shared state.
-            let current_audiences = audiences.read().unwrap().clone();
+            let current_audiences = audiences.read().clone();
 
             match source
                 .get_jwt_svid_with_id(&current_audiences, target_spiffe_id.as_ref())
