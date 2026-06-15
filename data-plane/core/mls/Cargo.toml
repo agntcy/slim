@@ -20,9 +20,8 @@ default = []
 # default NIST P-256 ciphersuite. Only meaningful on native targets: browser
 # WebCrypto (the wasm32 backend) does not support Curve25519. By default the
 # crate uses P256_AES128 so that native and wasm peers can join the same MLS
-# group. Propagates to `agntcy-slim-auth` so the signature keys it generates
-# match the selected ciphersuite.
-curve25519 = ["agntcy-slim-auth/curve25519"]
+# group.
+curve25519 = []
 
 [dependencies]
 agntcy-slim-auth = { workspace = true }

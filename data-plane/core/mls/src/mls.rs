@@ -8,10 +8,6 @@ use mls_rs::{
     group::ReceivedMessage,
     identity::{SigningIdentity, basic::BasicCredential},
 };
-// `CipherSuiteProvider` / `CryptoProvider` are only referenced by
-// `generate_key_pair`, which is gated to WASM and test builds. Importing them
-// unconditionally would produce an `unused_imports` warning on native.
-#[cfg(any(test, target_arch = "wasm32"))]
 use mls_rs::{CipherSuiteProvider, CryptoProvider};
 
 use crate::crypto::CryptoProviderImpl;
@@ -130,16 +126,7 @@ where
     }
 
     /// Creates a signing identity from the keys stored in the identity provider.
-    /// The provider must have had its MLS keys generated (done automatically at construction).
-    ///
-    /// This is the native path for both ciphersuites: the auth provider's
-    /// `generate_mls_signature_keys` produces ciphersuite-correct key
-    /// material (ECDSA P-256 by default, or Ed25519 under the `curve25519`
-    /// feature) via aws-lc-rs, so we can read it back and wrap it directly
-    /// into an MLS signing identity. WASM instead uses
-    /// `install_generated_signing_identity`, because WebCrypto owns key
-    /// generation there.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// The provider must have had its MLS keys set via `set_signature_keys`.
     fn create_signing_identity(
         &mut self,
         is_rotation: bool,
@@ -196,11 +183,6 @@ where
     /// Always defers to the MLS crypto provider so the produced bytes are
     /// guaranteed to be valid for the negotiated ciphersuite (P-256 by
     /// default, or Curve25519 when the `curve25519` feature is enabled).
-    ///
-    /// Only compiled on WASM (where it backs `install_generated_signing_identity`)
-    /// or under `cfg(test)`; native builds read ciphersuite-correct keys from
-    /// the auth provider via `create_signing_identity` and never call this helper.
-    #[cfg(any(test, target_arch = "wasm32"))]
     async fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
         let crypto_provider = crate::crypto::default_crypto_provider();
         let cipher_suite_provider = crypto_provider
@@ -214,61 +196,28 @@ where
     }
 
     /// Generate a fresh ciphersuite-correct key pair via the MLS crypto
-    /// provider, push it into the identity provider so the next token
-    /// embeds the matching public key, and assemble the corresponding
-    /// `SigningIdentity`.
-    ///
-    /// Used on WASM only: there the auth provider's `rotate_signature_keys`
-    /// produces random placeholder bytes (no aws-lc-rs), so the MLS crypto
-    /// provider (WebCrypto) must be the source of truth for the key pair and
-    /// we push it back into the identity provider via `set_signature_keys`.
-    /// Native builds read the provider's own ciphersuite-correct keys via
-    /// `create_signing_identity` instead.
-    #[cfg(target_arch = "wasm32")]
-    async fn install_generated_signing_identity(
+    /// provider, push it into the identity provider via `set_signature_keys`,
+    /// and assemble the corresponding `SigningIdentity`.
+    async fn generate_and_install_signing_identity(
         &mut self,
         is_rotation: bool,
     ) -> Result<(SignatureSecretKey, SigningIdentity), MlsError> {
         let (priv_key, pub_key) = Self::generate_key_pair().await?;
 
         // Push the ciphersuite-correct keys into the identity provider so
-        // that get_token() embeds the matching public key in the
-        // credential. This is required: SlimIdentityProvider's
-        // validate_member() checks that the signing identity's public key
-        // equals the one bound to the token.
+        // that get_token() embeds the matching public key in the credential.
         self.identity_provider
             .set_signature_keys(priv_key.as_bytes().to_vec(), pub_key.as_bytes().to_vec())?;
 
-        let token = self.identity_provider.get_token()?;
-        let basic_cred = BasicCredential::new(token.as_bytes().to_vec());
-        let signing_identity = SigningIdentity::new(basic_cred.into_credential(), pub_key.clone());
-
-        if let Some(stored) = self.stored_identity.as_mut() {
-            stored.last_credential = Some(token);
-            stored.public_key_bytes = pub_key.as_bytes().to_vec();
-            stored.private_key_bytes = priv_key.as_bytes().to_vec();
-
-            if is_rotation {
-                stored.credential_version = stored.credential_version.saturating_add(1);
-            }
-        }
-
-        Ok((priv_key, signing_identity))
+        self.create_signing_identity(is_rotation)
+            .map(|(_, identity)| (priv_key, identity))
     }
 
     pub async fn initialize(&mut self) -> Result<(), MlsError> {
         debug!("Initializing MLS");
 
-        // Generate fresh MLS signature keys before first use. This ensures that
-        // even if the identity provider was cloned (e.g. Jwt<T> deep-copies keys
-        // on Clone), each MLS instance starts with unique keys independent of any
-        // sibling clones.
-        self.identity_provider.rotate_signature_keys()?;
-
         self.identity = Some(self.identity_provider.get_id()?);
 
-        // Initialize stored_identity with placeholder key bytes; they are filled in by
-        // create_signing_identity() below which reads the keys from the identity provider.
         let stored_identity = InMemoryIdentity {
             identifier: self
                 .identity
@@ -283,18 +232,10 @@ where
 
         self.stored_identity = Some(stored_identity);
 
-        // Native path (both ciphersuites): the auth provider already
-        // generated ciphersuite-correct keys via rotate_signature_keys()
-        // above, so read them back into a signing identity.
-        #[cfg(not(target_arch = "wasm32"))]
-        let (private_key, signing_identity) = self.create_signing_identity(false)?;
-
-        // WASM path: WebCrypto owns key generation, so produce a
-        // ciphersuite-correct pair via the MLS crypto provider and install
-        // it into the identity provider.
-        #[cfg(target_arch = "wasm32")]
+        // Generate ciphersuite-correct keys via the MLS crypto provider and
+        // install them into the identity provider.
         let (private_key, signing_identity) =
-            self.install_generated_signing_identity(false).await?;
+            self.generate_and_install_signing_identity(false).await?;
 
         let crypto_provider = crate::crypto::default_crypto_provider();
 
@@ -525,21 +466,10 @@ where
     }
 
     pub async fn create_rotation_proposal(&mut self) -> Result<ProposalMsg, MlsError> {
-        // Native path (both ciphersuites): ask the auth provider to rotate
-        // its ciphersuite-correct keys internally and read them back.
-        #[cfg(not(target_arch = "wasm32"))]
-        let (new_private_key, new_signing_identity) = {
-            self.identity_provider.rotate_signature_keys()?;
-            self.create_signing_identity(true)?
-        };
-
-        // WASM path: generate the new key pair via the MLS crypto provider
-        // (WebCrypto) so it is valid for the negotiated ciphersuite, and
-        // install it into the identity provider so the rotated token embeds
-        // the matching public key.
-        #[cfg(target_arch = "wasm32")]
+        // Generate a fresh ciphersuite-correct key pair and install it into
+        // the identity provider so the rotated token embeds the new public key.
         let (new_private_key, new_signing_identity) =
-            self.install_generated_signing_identity(true).await?;
+            self.generate_and_install_signing_identity(true).await?;
 
         // Now get mutable reference to group after creating signing identity
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;

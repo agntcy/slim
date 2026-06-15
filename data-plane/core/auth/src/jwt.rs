@@ -24,7 +24,6 @@ use crate::file_watcher::FileWatcher;
 use crate::metadata::MetadataMap;
 use crate::resolver::KeyResolver;
 use crate::traits::{Signer, StandardClaims, TokenProvider, Verifier};
-use crate::utils::generate_mls_signature_keys;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -206,7 +205,6 @@ impl<T> Jwt<T> {
         token_duration: Duration,
         validation: Validation,
     ) -> Result<Self, AuthError> {
-        let (secret_key, public_key) = generate_mls_signature_keys()?;
         Ok(Self {
             claims,
             token_duration,
@@ -217,7 +215,7 @@ impl<T> Jwt<T> {
             watchers: Arc::new(Vec::new()),
             static_token: None,
             token_cache: std::sync::Arc::new(TokenCache::new()),
-            signature_keys: (secret_key, public_key),
+            signature_keys: (vec![], vec![]),
             _phantom: std::marker::PhantomData,
         })
     }
@@ -592,8 +590,12 @@ impl TokenProvider for SignerJwt {
         Ok(self.signature_keys.1.clone())
     }
 
-    fn rotate_signature_keys(&mut self) -> Result<(), AuthError> {
-        self.signature_keys = generate_mls_signature_keys()?;
+    fn set_signature_keys(
+        &mut self,
+        private_key: Vec<u8>,
+        public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        self.signature_keys = (private_key, public_key);
         Ok(())
     }
 }

@@ -132,18 +132,11 @@ pub trait TokenProvider {
         Err(AuthError::MlsNotSupported)
     }
 
-    /// Rotate the MLS signature key pair, generating new keys internally.
-    /// Returns `Err(AuthError::MlsNotSupported)` by default.
-    fn rotate_signature_keys(&mut self) -> Result<(), AuthError> {
-        Err(AuthError::MlsNotSupported)
-    }
-
     /// Replace the MLS signature key pair with externally-generated keys.
     ///
-    /// Used when the keys must be produced by the MLS crypto provider rather
-    /// than the identity provider. This is always the case for the default
-    /// P-256 ciphersuite (and mandatory on wasm32, where WebCrypto owns key
-    /// generation). Returns `Err(AuthError::MlsNotSupported)` by default.
+    /// The MLS layer always generates ciphersuite-correct keys via its crypto
+    /// provider and pushes them here so the identity provider can embed the
+    /// public key in tokens. Returns `Err(AuthError::MlsNotSupported)` by default.
     fn set_signature_keys(
         &mut self,
         _private_key: Vec<u8>,
@@ -184,10 +177,6 @@ mod tests {
         ));
         assert!(matches!(
             p.get_signature_public_key(),
-            Err(AuthError::MlsNotSupported)
-        ));
-        assert!(matches!(
-            p.rotate_signature_keys(),
             Err(AuthError::MlsNotSupported)
         ));
         assert!(matches!(

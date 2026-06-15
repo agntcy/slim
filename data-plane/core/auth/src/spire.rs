@@ -78,7 +78,7 @@ use crate::errors::AuthError;
 use crate::identity_claims::IdentityClaims;
 use crate::metadata::MetadataMap;
 use crate::traits::{TokenProvider, Verifier};
-use crate::utils::{bytes_to_pem, generate_mls_signature_keys};
+use crate::utils::bytes_to_pem;
 
 /// Helper for encoding/decoding custom claims in JWT audiences
 ///
@@ -366,7 +366,7 @@ impl SpireIdentityManagerBuilder {
     }
 
     pub fn build(self) -> Result<SpireIdentityManager, crate::errors::AuthError> {
-        let signature_keys = generate_mls_signature_keys()?;
+        let signature_keys = (vec![], vec![]);
         let internal = SpireIdentityManagerInternal {
             socket_path: self.socket_path,
             target_spiffe_id: self.target_spiffe_id,
@@ -600,8 +600,12 @@ impl TokenProvider for SpireIdentityManager {
         Ok(self.signature_keys.1.clone())
     }
 
-    fn rotate_signature_keys(&mut self) -> Result<(), AuthError> {
-        self.signature_keys = generate_mls_signature_keys()?;
+    fn set_signature_keys(
+        &mut self,
+        private_key: Vec<u8>,
+        public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        self.signature_keys = (private_key, public_key);
 
         // Rebuild the CachedJwtSvid so the next get_token() call returns a fresh
         // SVID with the new pubkey embedded in its audiences.

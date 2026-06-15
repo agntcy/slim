@@ -15,9 +15,6 @@ name = "slim_auth"
 
 [features]
 default = []
-# Generate Curve25519 (Ed25519) MLS signature keys instead of the default
-# NIST P-256 keys. Must match the ciphersuite selected in `slim_mls`.
-curve25519 = []
 
 # Dependencies shared by the always-available core modules (errors,
 # identity_claims, metadata, shared_secret, traits) on every target,
@@ -47,8 +44,6 @@ display-error-chain = { workspace = true }
 futures = { workspace = true }
 headers = { workspace = true }
 jsonwebtoken = { workspace = true }
-mls-rs-core = { workspace = true }
-mls-rs-crypto-awslc = { workspace = true }
 notify = { workspace = true }
 oauth2 = { workspace = true, features = ["reqwest"] }
 pin-project = { workspace = true }
