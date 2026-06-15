@@ -555,8 +555,9 @@ where
             )
             .await
             {
+                let err = e.chain();
                 error!(
-                    error = %e.chain(),
+                    error = %err,
                     msg_type = %session_message_type.as_str_name(),
                     "dropping pre-session message: identity verification failed",
                 );
