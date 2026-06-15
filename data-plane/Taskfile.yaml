@@ -19,34 +19,10 @@ vars:
   CARGO_COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete cargo-deny typos-cli"
 
 tasks:
-  data-plane:bindings:python:lint:
-    desc: "Python linter"
-    internal: true
-    dir: ./bindings/python
-    cmds:
-      - task python:bindings:lint
-
-  data-plane:bindings:go:lint:
-    desc: "Go linter"
-    internal: true
-    dir: ./bindings/go
-    cmds:
-      - task lint
-
-  data-plane:bindings:dotnet:lint:
-    desc: ".NET linter"
-    internal: true
-    dir: ./bindings/dotnet
-    cmds:
-      - task lint
-
   data-plane:lint:
     desc: "Run the linter"
     cmds:
       - task: data-plane:lintall
-      - task: data-plane:bindings:python:lint
-      - task: data-plane:bindings:go:lint
-      - task: data-plane:bindings:dotnet:lint
 
   data-plane:build:strip:
     desc: "Build the project and strip the debug symbols"
@@ -108,23 +84,6 @@ tasks:
     desc: "Start telemetry stack"
     cmds:
       - docker compose -f ./config/telemetry/docker-compose.yml up
-
-  data-plane:python:packaging:
-    desc: "Generate python packages"
-    dir: ./python
-    cmds:
-      - task python:bindings:packaging PROFILE={{.PROFILE}} TARGET={{.TARGET}}
-    vars:
-      PROFILE: '{{.PROFILE | default "debug"}}'
-      TARGET: '{{.TARGET | default ""}}'
-
-  data-plane:bindings:test:
-    desc: "Test the Python bindings"
-    dir: ./bindings/python
-    cmds:
-      - task python:bindings:test TESTS={{.TESTS}}
-    vars:
-      TESTS: '{{.TESTS | default ""}}'
 
   data-plane:core:test:
     desc: "Run core end to end tests"
