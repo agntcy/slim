@@ -20,9 +20,6 @@ path = "src/lib.rs"
 name = "slim-control-plane"
 path = "src/main.rs"
 
-[dependencies]
-cfg-if = { workspace = true }
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
