@@ -48,13 +48,12 @@ where
     pub(crate) header_integrity_validation_percent: u32,
 }
 
+#[maybe_async::maybe_async]
 impl<P, V> MlsState<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
-    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
-    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
     pub async fn new(
         mut mls: Mls<P, V>,
         header_integrity_validation_percent: u32,
@@ -70,15 +69,11 @@ where
         })
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
-    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
     pub(crate) async fn generate_key_package(&mut self) -> Result<KeyPackageMsg, SessionError> {
         let ret = self.mls.generate_key_package().await?;
         Ok(ret)
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
-    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
     pub(crate) async fn process_welcome_message(
         &mut self,
         msg: &Message,
@@ -102,8 +97,6 @@ where
         Ok(())
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
-    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
     pub(crate) async fn process_control_message(
         &mut self,
         msg: Message,
@@ -152,8 +145,6 @@ where
         Ok(true)
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
-    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
     async fn process_commit_message(
         &mut self,
         mls_payload: &MlsPayload,
@@ -166,8 +157,6 @@ where
         Ok(())
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
-    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
     async fn process_proposal_message(
         &mut self,
         proposal: Message,
@@ -196,7 +185,13 @@ where
 
         Ok(())
     }
+}
 
+impl<P, V> MlsState<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     fn is_valid_msg_id(&mut self, msg: Message) -> Result<bool, SessionError> {
         // the first message to be received should be a welcome message
         // this message will init the last_mls_msg_id. so if last_mls_msg_id = 0
@@ -277,6 +272,44 @@ where
         }
     }
 
+    /// Builds the Authenticated Data (AAD) for header integrity checks
+    fn build_aad(&self, msg: &Message) -> Vec<u8> {
+        let slim_header = msg.get_slim_header();
+        let session_header = msg.get_session_header();
+
+        let payload_type = if let Some(payload) = msg.get_payload() {
+            if let Ok(app_payload) = payload.as_application_payload() {
+                app_payload.payload_type.clone()
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
+        let aad = HeaderIntegrityAad {
+            version: 1,
+            source: Some(slim_header.get_source().clone()),
+            destination: Some(slim_header.get_dst().clone()),
+            identity: slim_header.get_identity().to_string(),
+            session_type: session_header.session_type() as i32,
+            session_message_type: session_header.session_message_type() as i32,
+            session_id: session_header.get_session_id(),
+            message_id: session_header.get_message_id(),
+            payload_type,
+        };
+
+        aad.encode_to_vec()
+    }
+}
+
+/// Async MLS state operations (sync on native via `is_sync`, async on wasm32).
+#[maybe_async::maybe_async]
+impl<P, V> MlsState<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     /// Processes a message based on direction (encrypt for South, decrypt for North)
     ///
     /// # Arguments
@@ -286,8 +319,6 @@ where
     /// # Returns
     /// * `Ok(())` if processing succeeds
     /// * `Err(SessionError)` if processing fails or message format is invalid
-    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
-    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
     pub async fn process_message(
         &mut self,
         msg: &mut Message,
@@ -306,8 +337,6 @@ where
     }
 
     /// Apply MLS encryption to all outbound ToSlim messages in the output.
-    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
-    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
     pub async fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
         for msg in &mut output.messages {
             if let OutboundMessage::ToSlim(m) = msg {
@@ -325,8 +354,6 @@ where
     /// # Returns
     /// * `Ok(())` if encryption succeeds
     /// * `Err(SessionError)` if encryption fails or message format is invalid
-    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
-    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
     async fn encrypt_message(&mut self, msg: &mut Message) -> Result<(), SessionError> {
         if !Self::should_process_message(msg) {
             return Ok(());
@@ -353,8 +380,6 @@ where
     /// # Returns
     /// * `Ok(())` if decryption succeeds
     /// * `Err(SessionError)` if decryption fails or message format is invalid
-    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
-    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
     async fn decrypt_message(&mut self, msg: &mut Message) -> Result<(), SessionError> {
         if !Self::should_process_message(msg) {
             return Ok(());
@@ -391,36 +416,6 @@ where
             ApplicationPayload::new(&payload.payload_type, decrypted_payload.to_vec()).as_content(),
         );
         Ok(())
-    }
-
-    /// Builds the Authenticated Data (AAD) for header integrity checks
-    fn build_aad(&self, msg: &Message) -> Vec<u8> {
-        let slim_header = msg.get_slim_header();
-        let session_header = msg.get_session_header();
-
-        let payload_type = if let Some(payload) = msg.get_payload() {
-            if let Ok(app_payload) = payload.as_application_payload() {
-                app_payload.payload_type.clone()
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
-
-        let aad = HeaderIntegrityAad {
-            version: 1,
-            source: Some(slim_header.get_source().clone()),
-            destination: Some(slim_header.get_dst().clone()),
-            identity: slim_header.get_identity().to_string(),
-            session_type: session_header.session_type() as i32,
-            session_message_type: session_header.session_message_type() as i32,
-            session_id: session_header.get_session_id(),
-            message_id: session_header.get_message_id(),
-            payload_type,
-        };
-
-        aad.encode_to_vec()
     }
 }
 
@@ -459,8 +454,18 @@ where
         Ok(())
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
-    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
+    pub(crate) fn get_next_mls_mgs_id(&mut self) -> u32 {
+        self.next_msg_id += 1;
+        self.next_msg_id
+    }
+}
+
+#[maybe_async::maybe_async]
+impl<P, V> MlsModeratorState<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     pub(crate) async fn add_participant(
         &mut self,
         msg: &Message,
@@ -477,8 +482,6 @@ where
         Ok((ret.commit_message, ret.welcome_message))
     }
 
-    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
-    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
     pub(crate) async fn remove_participant(
         &mut self,
         msg: &Message,
@@ -502,8 +505,6 @@ where
     }
 
     #[allow(dead_code)]
-    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
-    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
     pub(crate) async fn process_proposal_message(
         &mut self,
         proposal: &ProposalMsg,
@@ -514,19 +515,12 @@ where
     }
 
     #[allow(dead_code)]
-    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
-    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
     pub(crate) async fn process_local_pending_proposal(
         &mut self,
     ) -> Result<CommitMsg, SessionError> {
         let commit = self.common.mls.process_local_pending_proposal().await?;
 
         Ok(commit)
-    }
-
-    pub(crate) fn get_next_mls_mgs_id(&mut self) -> u32 {
-        self.next_msg_id += 1;
-        self.next_msg_id
     }
 }
 

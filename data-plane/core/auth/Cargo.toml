@@ -82,3 +82,4 @@ tracing-test = { workspace = true }
 [[bench]]
 name = "shared_secret_benchmark"
 harness = false
+

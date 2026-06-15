@@ -18,7 +18,6 @@ multicore = ["tokio/rt-multi-thread", "num_cpus"]
 
 [dependencies]
 agntcy-slim-version = { workspace = true }
-cfg-if = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim-config = { workspace = true }

@@ -22,7 +22,6 @@ dependencies = [
  "agntcy-slim-tracing",
  "agntcy-slim-version",
  "anyhow",
- "cfg-if",
  "clap",
  "duration-string",
  "indexmap 2.14.0",
@@ -138,7 +137,6 @@ dependencies = [
  "agntcy-slim-testing",
  "agntcy-slim-tracing",
  "anyhow",
- "cfg-if",
  "clap",
  "prost",
  "protoc-bin-vendored",
@@ -431,7 +429,6 @@ dependencies = [
  "aws-lc-rs",
  "base64 0.22.1",
  "bollard",
- "cfg-if",
  "clap",
  "futures",
  "jsonwebtoken",
@@ -465,6 +462,7 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "tracing-web",
  "uuid",
 ]
 
@@ -4779,6 +4777,19 @@ checksum = "ad06847b7afb65c7866a36664b75c40b895e318cea4f71299f013fb22965329d"
 dependencies = [
  "quote",
  "syn",
+]
+
+[[package]]
+name = "tracing-web"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9e6a141feebd51f8d91ebfd785af50fca223c570b86852166caa3b141defe7c"
+dependencies = [
+ "js-sys",
+ "tracing-core",
+ "tracing-subscriber",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

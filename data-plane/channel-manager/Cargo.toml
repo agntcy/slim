@@ -14,9 +14,6 @@ path = "src/bin/channel_manager.rs"
 name = "cmctl"
 path = "src/bin/cmctl.rs"
 
-[dependencies]
-cfg-if = { workspace = true }
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }

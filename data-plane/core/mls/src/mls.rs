@@ -168,6 +168,29 @@ where
         Ok((private_key, signing_identity))
     }
 
+    pub fn get_group_id(&self) -> Option<Vec<u8>> {
+        self.group.as_ref().map(|g| g.group_id().to_vec())
+    }
+
+    pub fn get_epoch(&self) -> Option<u64> {
+        self.group.as_ref().map(|g| g.current_epoch())
+    }
+
+    /// Get a token from the identity provider
+    pub fn get_token(&self) -> Result<String, MlsError> {
+        let ret = self.identity_provider.get_token()?;
+
+        Ok(ret)
+    }
+}
+
+/// Async MLS operations (sync on native via `is_sync`, async on wasm32).
+#[maybe_async::maybe_async]
+impl<P, V> Mls<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
     /// Generate a fresh signature key pair for the active MLS ciphersuite.
     ///
     /// Always defers to the MLS crypto provider so the produced bytes are
@@ -178,8 +201,6 @@ where
     /// or under `cfg(test)`; native builds read ciphersuite-correct keys from
     /// the auth provider via `create_signing_identity` and never call this helper.
     #[cfg(any(test, target_arch = "wasm32"))]
-    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
-    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     async fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
         let crypto_provider = crate::crypto::default_crypto_provider();
         let cipher_suite_provider = crypto_provider
@@ -204,8 +225,6 @@ where
     /// Native builds read the provider's own ciphersuite-correct keys via
     /// `create_signing_identity` instead.
     #[cfg(target_arch = "wasm32")]
-    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
-    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     async fn install_generated_signing_identity(
         &mut self,
         is_rotation: bool,
@@ -237,8 +256,6 @@ where
         Ok((priv_key, signing_identity))
     }
 
-    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
-    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     pub async fn initialize(&mut self) -> Result<(), MlsError> {
         debug!("Initializing MLS");
 
@@ -294,8 +311,6 @@ where
         Ok(())
     }
 
-    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
-    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     pub async fn create_group(&mut self) -> Result<Vec<u8>, MlsError> {
         tracing::info!("Creating new MLS group");
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
@@ -315,8 +330,6 @@ where
         Ok(group_id)
     }
 
-    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
-    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     pub async fn generate_key_package(&self) -> Result<KeyPackageMsg, MlsError> {
         debug!("Generating key package");
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
@@ -330,8 +343,6 @@ where
         Ok(ret)
     }
 
-    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
-    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     pub async fn add_member(
         &mut self,
         key_package_bytes: &[u8],
@@ -389,8 +400,6 @@ where
         Ok(ret)
     }
 
-    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
-    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     pub async fn remove_member(&mut self, identity: &[u8]) -> Result<CommitMsg, MlsError> {
         debug!("Removing member from the MLS group");
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
@@ -407,8 +416,6 @@ where
         Ok(commit_msg)
     }
 
-    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
-    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     pub async fn process_commit(&mut self, commit_message: &[u8]) -> Result<(), MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
         let commit = MlsMessage::from_bytes(commit_message)?;
@@ -418,8 +425,6 @@ where
         Ok(())
     }
 
-    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
-    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     pub async fn process_welcome(&mut self, welcome_message: &[u8]) -> Result<Vec<u8>, MlsError> {
         debug!("Processing welcome message and joining MLS group");
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
@@ -438,8 +443,6 @@ where
         Ok(group_id)
     }
 
-    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
-    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     pub async fn process_proposal(
         &mut self,
         proposal_message: &[u8],
@@ -466,8 +469,6 @@ where
         Ok(commit_msg)
     }
 
-    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
-    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     pub async fn process_local_pending_proposal(&mut self) -> Result<CommitMsg, MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
@@ -482,8 +483,6 @@ where
         Ok(commit_msg)
     }
 
-    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
-    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     pub async fn encrypt_message(
         &mut self,
         message: &[u8],
@@ -499,8 +498,6 @@ where
         Ok(msg)
     }
 
-    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
-    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     pub async fn decrypt_message(
         &mut self,
         encrypted_message: &[u8],
@@ -521,24 +518,12 @@ where
         }
     }
 
-    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
-    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     pub async fn write_to_storage(&mut self) -> Result<(), MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
         group.write_to_storage().await?;
         Ok(())
     }
 
-    pub fn get_group_id(&self) -> Option<Vec<u8>> {
-        self.group.as_ref().map(|g| g.group_id().to_vec())
-    }
-
-    pub fn get_epoch(&self) -> Option<u64> {
-        self.group.as_ref().map(|g| g.current_epoch())
-    }
-
-    #[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
-    #[cfg_attr(mls_build_async, maybe_async::must_be_async)]
     pub async fn create_rotation_proposal(&mut self) -> Result<ProposalMsg, MlsError> {
         // Native path (both ciphersuites): ask the auth provider to rotate
         // its ciphersuite-correct keys internally and read them back.
@@ -568,13 +553,6 @@ where
         );
 
         let ret = update_proposal.to_bytes()?;
-
-        Ok(ret)
-    }
-
-    /// Get a token from the identity provider
-    pub fn get_token(&self) -> Result<String, MlsError> {
-        let ret = self.identity_provider.get_token()?;
 
         Ok(ret)
     }

@@ -28,9 +28,6 @@ path = "src/bin/stress_publish.rs"
 name = "stress-session"
 path = "src/bin/stress_session.rs"
 
-[dependencies]
-cfg-if = { workspace = true }
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim = { workspace = true }
 agntcy-slim-auth = { workspace = true }

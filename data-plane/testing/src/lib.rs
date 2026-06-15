@@ -1,13 +1,12 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-// TODO(wasm32): test harness depends on the entire native data plane.
-cfg_if::cfg_if! {
-    if #[cfg(not(target_arch = "wasm32"))] {
-        pub mod common;
-        pub mod stress;
-        pub mod stress_session;
-        pub mod utils;
+#![cfg(not(target_arch = "wasm32"))]
+
+pub mod common;
+pub mod stress;
+pub mod stress_session;
+pub mod utils;
 
 use std::{num::ParseIntError, str::SplitWhitespace};
 
@@ -168,7 +167,4 @@ pub fn parse_line(line: &str) -> Result<ParsedMessage, ParsingError> {
         "PUB" => parse_pub(iter),
         _ => Err(ParsingError::UnknownType),
     }
-}
-
-    } // end cfg_if not(wasm32)
 }

@@ -344,8 +344,7 @@ where
     I: MessageHandler + Send + Sync + 'static,
     M: SubscriptionOps,
 {
-    #[cfg_attr(not(target_arch = "wasm32"), maybe_async::must_be_sync)]
-    #[cfg_attr(target_arch = "wasm32", maybe_async::must_be_async)]
+    #[maybe_async::maybe_async]
     async fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
         crate::session_controller::SessionController::apply_identity_to_slim_output(
             output,

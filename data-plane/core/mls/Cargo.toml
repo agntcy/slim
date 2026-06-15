@@ -6,9 +6,9 @@ version = "0.1.20"
 description = "Messaging Layer Security for SLIM data plane."
 
 [package.metadata.cargo-machete]
-# `async-trait` is invoked indirectly by the `maybe_async::must_be_async` macro
-# expansion (the wasm path), so cargo-machete cannot see it. `getrandom` only
-# enables its wasm_js backend so `rand`/mls-rs work in the browser.
+# `async-trait` is invoked indirectly by `maybe_async::maybe_async` (the wasm
+# path where `is_sync` is absent), so cargo-machete cannot see it. `getrandom`
+# only enables its wasm_js backend so `rand`/mls-rs work in the browser.
 ignored = ["async-trait", "getrandom"]
 
 [lib]
@@ -30,22 +30,24 @@ agntcy-slim-version = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 hex = "0.4"
-# `mls-rs` is sync on native and async on wasm32 (where `mls_build_async` is set
-# via rustflags in data-plane/.cargo/config.toml). `maybe-async` lets us write
-# each MLS method once and select the right shape per target.
-maybe-async = { workspace = true }
 mls-rs = { workspace = true }
 mls-rs-core = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 
+# `mls-rs` is sync on native and async on wasm32 (where `mls_build_async` is set
+# via rustflags in data-plane/.cargo/config.toml). `maybe-async` lets us write
+# each MLS method once and select the right shape per target: the `is_sync`
+# feature strips `async`/`await` on native, keeping the async form on wasm32.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+maybe-async = { workspace = true, features = ["is_sync"] }
 mls-rs-crypto-awslc = { workspace = true }
 
 # Browser SubtleCrypto crypto provider (async-only) for wasm32.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true }
+maybe-async = { workspace = true }
 mls-rs-crypto-webcrypto = { workspace = true }
 
 [dev-dependencies]

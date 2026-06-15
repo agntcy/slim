@@ -50,6 +50,7 @@ tonic-prost = { workspace = true }
 # rand / uuid transitively need getrandom; on wasm32 the `wasm_js` backend must be enabled.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true }
+uuid = { workspace = true, features = ["v4", "js"] }
 
 [build-dependencies]
 protoc-bin-vendored = { workspace = true }

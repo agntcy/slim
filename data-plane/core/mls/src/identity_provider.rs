@@ -40,7 +40,7 @@ where
             .ok_or(MlsError::NotBasicCredential)?;
         let credential_data = std::str::from_utf8(&basic_cred.identifier)?;
 
-        // Verify token and extract claims (sync only — mls_build_async is not set)
+        // Verify token and extract claims (sync on native, async on wasm32)
         let claims: serde_json::Value = self
             .identity_verifier
             .try_get_claims(credential_data)
@@ -74,15 +74,10 @@ where
     }
 }
 
-// The `IdentityProvider` trait declared in `mls-rs-core` is wrapped by
-// `maybe_async` so it is sync on native (no `mls_build_async`) and async on
-// wasm (where `mls_build_async` is set in `data-plane/.cargo/config.toml`
-// because `mls-rs-crypto-webcrypto` is async-only). We mirror the same
-// `cfg_attr` pair on this impl so it picks up the matching shape on both
-// sides; the methods themselves are written `async fn` and `must_be_sync`
-// strips that on native.
-#[cfg_attr(not(mls_build_async), maybe_async::must_be_sync)]
-#[cfg_attr(mls_build_async, maybe_async::must_be_async)]
+// The `IdentityProvider` trait from `mls-rs-core` is sync on native and async
+// on wasm32. `#[maybe_async::maybe_async]` selects the matching form via the
+// `is_sync` feature (enabled per-target in Cargo.toml).
+#[maybe_async::maybe_async]
 impl<V> IdentityProvider for SlimIdentityProvider<V>
 where
     V: Verifier + Send + Sync + Clone + 'static,

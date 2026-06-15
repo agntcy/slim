@@ -8,14 +8,12 @@
 //! supports initial channel setup from a YAML configuration file.
 
 // TODO(wasm32): channel-manager wraps tonic gRPC + the native session layer.
-cfg_if::cfg_if! {
-    if #[cfg(not(target_arch = "wasm32"))] {
-        pub mod config;
-        pub mod service;
-        pub mod sessions;
+#![cfg(not(target_arch = "wasm32"))]
 
-        pub mod proto {
-            include!("gen/channel_manager.proto.v1.rs");
-        }
-    }
+pub mod config;
+pub mod service;
+pub mod sessions;
+
+pub mod proto {
+    include!("gen/channel_manager.proto.v1.rs");
 }
