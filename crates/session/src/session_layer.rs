@@ -547,11 +547,18 @@ where
             };
 
             if let Err(e) =
-                crate::session_controller::verify_identity(&message, &layer.identity_verifier, true)
-                    .await
+                // For Discovery messages header validation is always turned on because at this
+                // point there is no Session to collect the MlsSettings from.
+                crate::session_controller::verify_identity(
+                    &message,
+                    &layer.identity_verifier,
+                    true,
+                )
+                .await
             {
+                let err = e.chain();
                 error!(
-                    error = %e.chain(),
+                    error = %err,
                     msg_type = %ProtoSessionMessageType::DiscoveryRequest.as_str_name(),
                     "dropping pre-session message: identity verification failed",
                 );
