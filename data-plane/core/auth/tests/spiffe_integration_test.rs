@@ -102,7 +102,7 @@ async fn assert_verifier_uninitialized(verifier: &SpireIdentityManager) {
     assert!(verify_result.is_err(), "Should fail without initialization");
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 #[tracing_test::traced_test]
 async fn test_spiffe_provider_initialization() {
     require_docker!();
