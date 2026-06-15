@@ -3,9 +3,9 @@
 
 use std::{sync::Arc, time::Duration};
 
+use async_trait::async_trait;
 use slim_datapath::api::{EncodedName, ProtoSessionMessageType};
 use tokio::sync::mpsc::Sender;
-use tonic::async_trait;
 use tracing::debug;
 
 use crate::{

@@ -102,3 +102,42 @@ tasks:
     desc: "Generate the gRPC schema"
     cmds:
       - cargo run --bin generate-schema
+
+  # wasm32-unknown-unknown only compiles library crates (binaries and tests pull
+  # in native-only deps and stay gated). The tasks below invoke cargo directly so
+  # the shared rust.yaml's `--all-targets` default does not leak in.
+  data-plane:wasm32:install-target:
+    desc: "Ensure the wasm32-unknown-unknown rustup target is installed"
+    internal: true
+    cmds:
+      - rustup target add wasm32-unknown-unknown
+
+  data-plane:wasm32:check:
+    desc: "cargo check the workspace for wasm32-unknown-unknown (lib only)"
+    deps:
+      - task: data-plane:wasm32:install-target
+    cmds:
+      - cargo check --target wasm32-unknown-unknown --workspace --lib --locked
+
+  data-plane:wasm32:build:
+    desc: "Build all workspace libs for wasm32-unknown-unknown"
+    deps:
+      - task: data-plane:wasm32:install-target
+    cmds:
+      - cargo build --target wasm32-unknown-unknown --workspace --lib --locked
+
+  data-plane:wasm32:clippy:
+    desc: "Run clippy against the wasm32-unknown-unknown target (lib only)"
+    deps:
+      - task: data-plane:wasm32:install-target
+    cmds:
+      - cargo clippy --target wasm32-unknown-unknown --workspace --lib --locked -- -D warnings
+
+  # Enhanced coverage task that includes Python bindings coverage
+  data-plane:coverage-full:
+    desc: "Run full tests coverage including Python bindings"
+    cmds:
+      - task: data-plane:test:coverage
+        vars:
+          ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"
+      - task: data-plane:core:test

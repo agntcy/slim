@@ -1,6 +1,11 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod conn_type;
+
+// TODO(wasm32): expose a browser-friendly transport (tonic-web-wasm-client + browser WS).
+cfg_if::cfg_if! {
+if #[cfg(not(target_arch = "wasm32"))] {
 pub mod auth;
 pub mod backoff;
 pub mod client;
@@ -23,5 +28,8 @@ mod test_env;
 
 pub use server_handler::ServerHandler;
 
-pub const CLIENT_CONFIG_SCHEMA_JSON: &str = include_str!("./schema/client-config.schema.json");
-pub const SERVER_CONFIG_SCHEMA_JSON: &str = include_str!("./schema/server-config.schema.json");
+pub const CLIENT_CONFIG_SCHEMA_JSON: &str =
+    include_str!("./schema/client-config.schema.json");
+pub const SERVER_CONFIG_SCHEMA_JSON: &str =
+    include_str!("./schema/server-config.schema.json");
+}}

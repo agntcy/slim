@@ -11,14 +11,15 @@ use slim_datapath::{
     },
     messages::utils::{LEAVING_SESSION, TRUE_VAL},
 };
-
 use slim_mls::mls::Mls;
+
 use tracing::debug;
 
 use crate::{
     common::{MessageDirection, SessionMessage, SessionOutput},
     errors::SessionError,
     mls_state::MlsState,
+    runtime::maybe_await,
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
@@ -99,6 +100,7 @@ where
                 ),
                 mls_settings.header_integrity_validation_percent,
             )
+            .await
             .expect("failed to create MLS state");
             Some(mls_state)
         } else {
@@ -128,7 +130,7 @@ where
                     if direction == MessageDirection::North
                         && let Some(mls_state) = &mut self.mls_state
                     {
-                        mls_state.process_message(&mut message, direction)?;
+                        maybe_await!(mls_state.process_message(&mut message, direction))?;
                     }
 
                     let inner_output = self
@@ -249,7 +251,7 @@ where
             }
         }
 
-        self.encrypt_output(&mut output)?;
+        maybe_await!(self.encrypt_output(&mut output))?;
 
         Ok(output)
     }
@@ -296,13 +298,14 @@ where
     I: MessageHandler + Send + Sync + 'static,
     M: SubscriptionOps,
 {
-    fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
+    #[maybe_async::maybe_async]
+    async fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
         crate::session_controller::SessionController::apply_identity_to_slim_output(
             output,
             &self.common.settings.identity_provider,
         )?;
         if let Some(mls_state) = &mut self.mls_state {
-            mls_state.encrypt_output(output)?;
+            mls_state.encrypt_output(output).await?;
         }
         Ok(())
     }
@@ -395,7 +398,7 @@ where
 
         let key_package = if let Some(mls_state) = &mut self.mls_state {
             debug!("mls enabled, create the package key");
-            let key = mls_state.generate_key_package()?;
+            let key = maybe_await!(mls_state.generate_key_package())?;
             Some(key)
         } else {
             None
@@ -430,7 +433,7 @@ where
         );
 
         if let Some(mls_state) = &mut self.mls_state {
-            mls_state.process_welcome_message(&msg)?;
+            maybe_await!(mls_state.process_welcome_message(&msg))?;
         }
 
         self.join(&msg).await?;
@@ -483,7 +486,7 @@ where
         if let Some(mls_state) = &mut self.mls_state {
             debug!("process mls control update");
             let source_proto = self.common.settings.source.clone();
-            let ret = mls_state.process_control_message(msg.clone(), &source_proto)?;
+            let ret = maybe_await!(mls_state.process_control_message(msg.clone(), &source_proto))?;
 
             if !ret {
                 debug!(

@@ -13,8 +13,13 @@ name = "generate-schema"
 path = "src/schema/generate_schema.rs"
 
 [dependencies]
-agntcy-slim-auth = { workspace = true }
 agntcy-slim-version = { workspace = true }
+cfg-if = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+agntcy-slim-auth = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
@@ -36,8 +41,6 @@ regex = { workspace = true }
 rustls = { workspace = true }
 rustls-native-certs = { workspace = true }
 rustls-pki-types = { workspace = true }
-schemars = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 sha1 = "0.10"
@@ -62,7 +65,7 @@ uuid = { workspace = true, features = ["v4"] }
 protoc-bin-vendored = { workspace = true }
 tonic-prost-build = { workspace = true }
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim-testing = { workspace = true }
 rand = { workspace = true }
 serde_json = { workspace = true }

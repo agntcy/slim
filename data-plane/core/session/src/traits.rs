@@ -20,7 +20,11 @@ pub enum ProcessingState {
 ///
 /// Layers return `SessionOutput` containing outbound messages instead of sending them internally.
 /// The processing loop is the single orchestration point for identity-setting and channel sends.
-#[trait_variant::make(Send)]
+// On native the layer futures must be `Send` (multi-threaded tokio runtime).
+// On wasm32 the MLS crypto provider (SubtleCrypto) yields `!Send` futures and
+// the runtime is single-threaded, so the `Send` bound is dropped there.
+#[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(Send))]
+#[cfg_attr(target_arch = "wasm32", trait_variant::make())]
 pub trait MessageHandler {
     /// Init the layer.
     async fn init(&mut self) -> Result<(), SessionError>;
