@@ -2,18 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 
 slim:
-  # Deploy as DaemonSet instead of StatefulSet
-  daemonset: false
+  # Deploy one instance per node (uses pod anti-affinity + hostPort)
+  onePerNode: false
   # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
-  replicaCount: 1
+  replicaCount: 10
 
   # This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
   image:
-    repository: ghcr.io/agntcy/slim
+    repository: localhost:5001/slim
     # This sets the pull policy for images.
     pullPolicy: IfNotPresent
     # Overrides the image tag whose default is the chart appVersion.
-    tag: ""
+    tag: "test8"
 
   # This is for overriding the default config below
   overrideConfig:
@@ -22,7 +22,7 @@ slim:
   # Automatically enabled when replicaCount > 1.
   peers:
     # Shared group identity for mutual peer authentication.
-    peerGroup: "slim-peers"
+    deploymentName: "slim-peers"
     # Topology for peer connections: "full_mesh" or "hub_and_spoke"
     topology: "full_mesh"
 
@@ -81,17 +81,16 @@ slim:
           #       key_file: "/svids/tls.key"
           #       ca_file: "/svids/svid_bundle.pem"
 
-  # StatefulSet-specific settings
-  # DaemonSet-specific settings
+  # onePerNode-specific settings (used when onePerNode: true)
   hostNetwork: false
   dnsPolicy: "ClusterFirst"  # or "ClusterFirstWithHostNet" if hostNetwork: true
 
-  # Updated updateStrategy to support DaemonSet maxUnavailable
+  # Update strategy configuration
   updateStrategy:
-    type: "RollingUpdate"  # or "OnDelete"
+    type: "RollingUpdate"  # or "Recreate"
     rollingUpdate:
-      partition: 0  # StatefulSet only
-      maxUnavailable: 1  # DaemonSet only
+      maxUnavailable: 1
+      maxSurge: 1
 
   # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
   service:

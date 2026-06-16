@@ -17,7 +17,7 @@ data:
     {{- $config := deepCopy .Values.slim.config }}
     {{- if gt (int .Values.slim.replicaCount) 1 }}
     {{- $labelSelector := printf "app.kubernetes.io/name=%s,app.kubernetes.io/instance=%s" (include "slim.name" .) .Release.Name }}
-    {{- $peers := dict "peer_group" .Values.slim.peers.peerGroup "topology" .Values.slim.peers.topology "discovery" (dict "type" "kubernetes" "namespace" .Release.Namespace "label_selector" $labelSelector "port" (int (index .Values.slim.service.data 0).port)) }}
+    {{- $peers := dict "deployment_name" .Values.slim.peers.deploymentName "topology" .Values.slim.peers.topology "discovery" (dict "type" "kubernetes" "namespace" .Release.Namespace "label_selector" $labelSelector "port" (int (index .Values.slim.service.data 0).port)) }}
     {{- $_ := set (index $config "services" "slim/0") "peers" $peers }}
     {{- end }}
     {{- tpl (toYaml $config) . | nindent 4 }}

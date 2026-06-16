@@ -29,7 +29,7 @@ spec:
     {{- end }}
   selector:
     {{- include "slim.selectorLabels" . | nindent 4 }}
-{{- if eq .Values.slim.daemonset true }}
+{{- if .Values.slim.onePerNode }}
 ---
 apiVersion: v1
 kind: Service
