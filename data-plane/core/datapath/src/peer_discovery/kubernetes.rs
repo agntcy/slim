@@ -9,6 +9,9 @@
 //!
 //! Each discovered pod is identified by its pod name (used as `node_id`) and
 //! its pod IP combined with the configured port forms the endpoint URL.
+//!
+//! **Topology:** Only `FullMesh` is supported. `HubAndSpoke` requires static
+//! discovery because hub election needs all peers to be known upfront.
 
 use std::collections::HashMap;
 
@@ -61,7 +64,7 @@ impl KubernetesPeerDiscovery {
     }
 
     /// Extract peer info from a pod, if it is ready and has an IP.
-    fn peer_info_from_pod(pod: &Pod, port: u16) -> Option<PeerInfo> {
+    fn peer_info_from_pod(pod: &Pod, port: u16, self_node_id: &str) -> Option<PeerInfo> {
         let name = pod.metadata.name.as_deref()?;
         let status = pod.status.as_ref()?;
         let pod_ip = status.pod_ip.as_deref()?;
@@ -85,6 +88,7 @@ impl KubernetesPeerDiscovery {
         let config = ClientConfig {
             endpoint,
             connection_type: ConnType::Peer,
+            link_id: super::peer_link_id(self_node_id, name),
             ..Default::default()
         };
 
@@ -105,13 +109,42 @@ impl PeerDiscovery for KubernetesPeerDiscovery {
             PeerDiscoveryError::Backend(format!("failed to create k8s client: {e}"))
         })?;
 
-        let pods: Api<Pod> = Api::namespaced(client, &self.namespace);
+        let pods: Api<Pod> = Api::namespaced(client.clone(), &self.namespace);
+
+        // Read own pod's pod-template-hash label so we only discover peers
+        // from the same ReplicaSet (avoids cross-RS connections during rolling updates).
+        let label_selector = {
+            let self_pod = pods
+                .get(&self.self_node_id)
+                .await
+                .map_err(|e| PeerDiscoveryError::Backend(format!("failed to get own pod: {e}")))?;
+            let hash = self_pod
+                .metadata
+                .labels
+                .as_ref()
+                .and_then(|l| l.get("pod-template-hash"))
+                .cloned();
+
+            match hash {
+                Some(h) => {
+                    let selector = format!("{},pod-template-hash={}", self.label_selector, h);
+                    info!(
+                        selector = %selector,
+                        "scoping k8s peer discovery to same ReplicaSet"
+                    );
+                    selector
+                }
+                None => {
+                    warn!("pod-template-hash label not found, using base label selector");
+                    self.label_selector.clone()
+                }
+            }
+        };
 
         let (event_tx, event_rx) = mpsc::channel(64);
         self.event_rx = Some(event_rx);
 
         let self_node_id = self.self_node_id.clone();
-        let label_selector = self.label_selector.clone();
         let port = self.port;
 
         // Spawn a background task that watches pods and produces PeerEvents.
@@ -121,6 +154,8 @@ impl PeerDiscovery for KubernetesPeerDiscovery {
 
             // Track which pods we've emitted Joined for (pod_name → PeerInfo).
             let mut known_peers: HashMap<String, PeerInfo> = HashMap::new();
+            // During re-list (Init phase), track which peers are still present.
+            let mut init_seen: Option<HashMap<String, PeerInfo>> = None;
 
             loop {
                 match stream.try_next().await {
@@ -137,7 +172,14 @@ impl PeerDiscovery for KubernetesPeerDiscovery {
                                     continue;
                                 }
 
-                                if let Some(info) = Self::peer_info_from_pod(&pod, port) {
+                                if let Some(info) =
+                                    Self::peer_info_from_pod(&pod, port, &self_node_id)
+                                {
+                                    // During init phase, track seen peers.
+                                    if let Some(ref mut seen) = init_seen {
+                                        seen.insert(pod_name.clone(), info.clone());
+                                    }
+
                                     if let std::collections::hash_map::Entry::Vacant(e) =
                                         known_peers.entry(pod_name.clone())
                                     {
@@ -182,8 +224,31 @@ impl PeerDiscovery for KubernetesPeerDiscovery {
                             }
                             WatcherEvent::Init => {
                                 debug!("k8s watcher initializing");
+                                init_seen = Some(HashMap::new());
                             }
                             WatcherEvent::InitDone => {
+                                // Reconcile: emit Left for peers that were known but
+                                // not seen during this re-list.
+                                if let Some(seen) = init_seen.take() {
+                                    let stale: Vec<String> = known_peers
+                                        .keys()
+                                        .filter(|k| !seen.contains_key(*k))
+                                        .cloned()
+                                        .collect();
+
+                                    for peer_name in stale {
+                                        if let Some(info) = known_peers.remove(&peer_name) {
+                                            info!(
+                                                peer_id = %peer_name,
+                                                "k8s peer gone after re-list"
+                                            );
+                                            if event_tx.send(PeerEvent::Left(info)).await.is_err() {
+                                                return;
+                                            }
+                                        }
+                                    }
+                                }
+
                                 info!(
                                     num_peers = known_peers.len(),
                                     "k8s watcher initial sync complete"

@@ -19,7 +19,9 @@ use slim_config::server::ServerConfig;
 use slim_config::tls::client::TlsClientConfig;
 use slim_config::tls::server::TlsServerConfig;
 use slim_datapath::api::{ApplicationPayload, ProtoMessage as Message, ProtoName as Name};
-use slim_datapath::peer_discovery::{PeerConfig, PeerTopology, StaticPeerEntry};
+use slim_datapath::peer_discovery::{
+    PeerConfig, PeerDiscoveryConfig, PeerTopology, StaticPeerEntry,
+};
 use slim_datapath::tables::{ConnType, SubscriptionTable};
 use slim_service::{Service, ServiceConfiguration};
 use slim_testing::utils::TEST_VALID_SECRET;
@@ -58,7 +60,7 @@ struct PeerNode {
 }
 
 /// Build a set of peer nodes with the given topology.
-/// Each node gets a server on a unique port, and static_peers listing all other nodes.
+/// Each node gets a server on a unique port, and peers listing all other nodes.
 fn build_peer_configs(count: usize) -> Vec<(u16, String, PeerConfig)> {
     build_peer_configs_with_topology(count, PeerTopology::FullMesh)
 }
@@ -72,7 +74,7 @@ fn build_peer_configs_with_topology(
     let node_ids: Vec<String> = (0..count).map(|i| format!("peer-{}", ports[i])).collect();
 
     // Static peers: all endpoints (including self — will be filtered by node_id)
-    let static_peers: Vec<StaticPeerEntry> = ports
+    let peers: Vec<StaticPeerEntry> = ports
         .iter()
         .zip(node_ids.iter())
         .map(|(&port, node_id)| StaticPeerEntry {
@@ -85,8 +87,7 @@ fn build_peer_configs_with_topology(
     let peer_config = PeerConfig {
         deployment_name: "test-group".to_string(),
         topology,
-        static_peers,
-        discovery: None,
+        discovery: PeerDiscoveryConfig::Static { peers },
     };
 
     let mut configs = Vec::new();
@@ -921,7 +922,7 @@ async fn test_no_duplicate_subscriptions_on_peer_reconnect() {
     let port_a = reserve_port();
     let port_b = reserve_port();
 
-    let static_peers = vec![
+    let peers = vec![
         StaticPeerEntry {
             node_id: "node-a".to_string(),
             config: ClientConfig::with_endpoint(&format!("http://127.0.0.1:{port_a}"))
@@ -936,8 +937,7 @@ async fn test_no_duplicate_subscriptions_on_peer_reconnect() {
     let peer_config = PeerConfig {
         deployment_name: "test-reconnect".to_string(),
         topology: PeerTopology::FullMesh,
-        static_peers,
-        discovery: None,
+        discovery: PeerDiscoveryConfig::Static { peers },
     };
 
     // Start node A (the dialer)
@@ -1022,7 +1022,7 @@ async fn test_multiple_subscriptions_restored_on_reconnect() {
     let port_a = reserve_port();
     let port_b = reserve_port();
 
-    let static_peers = vec![
+    let peers = vec![
         StaticPeerEntry {
             node_id: "node-a".to_string(),
             config: ClientConfig::with_endpoint(&format!("http://127.0.0.1:{port_a}"))
@@ -1037,8 +1037,7 @@ async fn test_multiple_subscriptions_restored_on_reconnect() {
     let peer_config = PeerConfig {
         deployment_name: "test-multi-reconnect".to_string(),
         topology: PeerTopology::FullMesh,
-        static_peers,
-        discovery: None,
+        discovery: PeerDiscoveryConfig::Static { peers },
     };
 
     let node_a = start_peer_node(port_a, "node-a".to_string(), peer_config.clone()).await;

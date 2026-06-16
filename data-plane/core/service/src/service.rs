@@ -363,19 +363,10 @@ impl Service {
     fn start_peer_sync(&self, peer_config: &PeerConfig) {
         let self_id = self.config.node_id.clone();
 
-        // Determine if we are the hub (smallest node_id among all peers including self).
-        let is_hub = peer_config
-            .static_peers
-            .iter()
-            .map(|entry| entry.node_id.as_str())
-            .all(|peer_id| self_id.as_str() <= peer_id);
-
         info!(
             %self_id,
-            %is_hub,
             topology = ?peer_config.topology,
             deployment_name = %peer_config.deployment_name,
-            num_static_peers = peer_config.static_peers.len(),
             "starting peer sync"
         );
 
@@ -386,7 +377,6 @@ impl Service {
             self_id: self_id.clone(),
             deployment_name: peer_config.deployment_name.clone(),
             topology: peer_config.topology.clone(),
-            is_hub,
         };
 
         let mp = self.message_processor.clone();
@@ -399,12 +389,20 @@ impl Service {
         self.message_processor.set_peer_sync(peer_sync.clone());
 
         match &peer_config.discovery {
+            PeerDiscoveryConfig::Static { peers } => {
+                let discovery = StaticPeerDiscovery::from_static_peers(peers, &self_id);
+                tokio::spawn(async move {
+                    peer_sync
+                        .run_discovery(&mp, sync_config, discovery, cancel)
+                        .await;
+                });
+            }
             #[cfg(feature = "kubernetes")]
-            Some(PeerDiscoveryConfig::Kubernetes {
+            PeerDiscoveryConfig::Kubernetes {
                 namespace,
                 label_selector,
                 port,
-            }) => {
+            } => {
                 info!(
                     %namespace,
                     %label_selector,
@@ -424,19 +422,10 @@ impl Service {
                 });
             }
             #[cfg(not(feature = "kubernetes"))]
-            Some(PeerDiscoveryConfig::Kubernetes { .. }) => {
+            PeerDiscoveryConfig::Kubernetes { .. } => {
                 warn!(
                     "kubernetes peer discovery configured but the 'kubernetes' feature is not enabled"
                 );
-            }
-            None => {
-                let discovery =
-                    StaticPeerDiscovery::from_static_peers(&peer_config.static_peers, &self_id);
-                tokio::spawn(async move {
-                    peer_sync
-                        .run_discovery(&mp, sync_config, discovery, cancel)
-                        .await;
-                });
             }
         }
     }

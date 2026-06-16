@@ -22,7 +22,7 @@ agntcy-slim-version = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim-config = { workspace = true }
-agntcy-slim-service = { workspace = true }
+agntcy-slim-service = { workspace = true, features = ["kubernetes"] }
 agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 anyhow = { workspace = true }
