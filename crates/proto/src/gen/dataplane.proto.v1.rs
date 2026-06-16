@@ -139,12 +139,12 @@ pub struct EncodedName {
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct StringName {
-    #[prost(string, tag = "1")]
-    pub str_component_0: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
-    pub str_component_1: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
-    pub str_component_2: ::prost::alloc::string::String,
+    #[prost(bytes = "bytes", tag = "1")]
+    pub str_component_0: ::prost::bytes::Bytes,
+    #[prost(bytes = "bytes", tag = "2")]
+    pub str_component_1: ::prost::bytes::Bytes,
+    #[prost(bytes = "bytes", tag = "3")]
+    pub str_component_2: ::prost::bytes::Bytes,
 }
 /// SLIM message content
 #[derive(Clone, PartialEq, ::prost::Message)]

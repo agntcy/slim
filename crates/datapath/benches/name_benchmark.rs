@@ -17,9 +17,9 @@ fn make_proto_name() -> ProtoName {
             name_id: Some(NameId::from(u128::MAX)),
         }),
         str_name: Some(StringName {
-            str_component_0: "org".to_string(),
-            str_component_1: "namespace".to_string(),
-            str_component_2: "agent".to_string(),
+            str_component_0: bytes::Bytes::from_static(b"org"),
+            str_component_1: bytes::Bytes::from_static(b"namespace"),
+            str_component_2: bytes::Bytes::from_static(b"agent"),
         }),
     }
 }

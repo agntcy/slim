@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use bytes::Bytes;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -684,7 +685,9 @@ impl MessageProcessor {
                             && let Some(dest) = header.destination.as_mut()
                             && let Some(sn) = dest.str_name.as_mut()
                         {
-                            sn.str_component_2.push_str("-integrity-test-tamper");
+                            sn.str_component_2 = Bytes::from(
+                                [sn.str_component_2.as_ref(), b"-integrity-test-tamper"].concat(),
+                            );
                         }
                     } else {
                         return Err(DataPathError::HeaderMacAwaitingLinkNegotiation(out_conn));
@@ -2254,7 +2257,9 @@ mod tests {
         if let Some(dest) = header.destination.as_mut()
             && let Some(sn) = dest.str_name.as_mut()
         {
-            sn.str_component_2.push_str("-integrity-test-tamper");
+            sn.str_component_2 = Bytes::from(
+                [sn.str_component_2.as_ref(), b"-integrity-test-tamper"].concat(),
+            );
         }
 
         let err = processor
@@ -2295,7 +2300,7 @@ mod tests {
         let require_header_mac = true;
 
         // The tampering happens in send_msg_raw if the env var is set.
-        assert!(str_name.str_component_2.ends_with("-integrity-test-tamper"));
+        assert!(str_name.str_component_2.ends_with(b"-integrity-test-tamper"));
 
         // Also verify that verify_remote_header_mac rejects it.
         let err = processor
