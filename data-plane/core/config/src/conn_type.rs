@@ -23,12 +23,12 @@ pub enum ConnType {
     Local,
     /// Connection with a remote SLIM instance in other deployment.
     /// Always handled by the control plane.
-    #[default]
     Remote,
     /// Connection with a peer replica in the same deployment.
     Peer,
     /// Connection to the first SLIM node in the network
     /// Edge connections are handled by the data plane
+    #[default]
     Edge,
 }
 
@@ -74,8 +74,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_is_remote() {
-        assert_eq!(ConnType::default(), ConnType::Remote);
+    fn default_is_edge() {
+        assert_eq!(ConnType::default(), ConnType::Edge);
     }
 
     #[test]
