@@ -1883,58 +1883,6 @@ impl MessageProcessor {
         Ok((handle, conn_index_rx))
     }
 
-    /// Process a single message received from an inbound stream.
-    ///
-    /// Returns `true` if the calling loop should continue, or `false` if it
-    /// should break (fatal [`DataPathError::NegotiationError`]).
-    async fn process_stream_message(
-        &self,
-        msg: Message,
-        conn_index: u64,
-        category: ConnType,
-        is_local: bool,
-        from_control_plane: bool,
-        require_header_mac: bool,
-        tx_cp: &Option<Sender<Result<Message, Status>>>,
-    ) -> bool {
-        if !is_local
-            && !msg.is_link()
-            && !msg.is_subscription_ack()
-            && let Err(e) = self.verify_remote_header_mac(conn_index, &msg, require_header_mac)
-        {
-            error!(
-                %conn_index,
-                error = %e.chain(),
-                "SLIM header integrity verification failed",
-            );
-            return true;
-        }
-
-        // Forward subscriptions and unsubscriptions to the control plane
-        // (remote messages only, excluding messages originating from the CP itself).
-        if !is_local && !from_control_plane && let Some(txcp) = tx_cp {
-            match msg.get_type() {
-                PublishType(_) | LinkType(_) | SubscriptionAckType(_) => {}
-                _ => {
-                    let _ = txcp.send(Ok(msg.clone())).await;
-                }
-            }
-        }
-
-        if let Err(e) = self.handle_new_message(conn_index, category, msg).await {
-            if matches!(e, DataPathError::NegotiationError(_)) {
-                error!(%conn_index, "fatal link negotiation error, closing connection");
-                return false;
-            }
-            debug!(%conn_index, error = %e.chain(), "error processing incoming message");
-            if is_local {
-                self.send_error_to_local_app(conn_index, e).await;
-            }
-        }
-
-        true
-    }
-
     fn match_for_io_error(err_status: &Status) -> Option<&std::io::Error> {
         let mut err: &(dyn std::error::Error + 'static) = err_status;
 
