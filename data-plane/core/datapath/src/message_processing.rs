@@ -1804,6 +1804,11 @@ impl MessageProcessor {
         &self.internal.service_id
     }
 
+    /// Whether peer-originated publishes are relayed to other peers.
+    pub fn relay_peer_publishes(&self) -> bool {
+        self.internal.relay_peer_publishes
+    }
+
     /// Set the peer sync component.
     pub fn set_peer_sync(&self, peer_sync: crate::sync::PeerSync) {
         *self.internal.peer_sync.write() = peer_sync;

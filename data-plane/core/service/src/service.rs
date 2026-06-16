@@ -332,6 +332,9 @@ impl Service {
 
         // Peer sync manager
         if let Some(ref peer_config) = self.config.peers.clone() {
+            peer_config
+                .validate()
+                .map_err(ServiceError::InvalidConfig)?;
             self.start_peer_sync(peer_config);
         }
 
@@ -731,10 +734,14 @@ mod tests {
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
+    use slim_config::client::ClientConfig;
     use slim_config::server::ServerConfig;
     use slim_config::tls::server::TlsServerConfig;
     use slim_datapath::api::MessageType;
     use slim_datapath::api::ProtoName;
+    use slim_datapath::peer_discovery::{
+        PeerConfig, PeerDiscoveryConfig, PeerTopology, StaticPeerEntry,
+    };
     use slim_session::SessionConfig;
     use slim_session::session_config::MlsSettings;
     use slim_testing::utils::TEST_VALID_SECRET;
@@ -1174,5 +1181,141 @@ mod tests {
             }),
             "Session creation should fail for non-existent destination"
         );
+    }
+
+    // ── relay_peer_publishes topology tests ─────────────────────────────
+
+    #[test]
+    fn test_relay_peer_publishes_full_mesh_is_false() {
+        let tls_config = TlsServerConfig::new().with_insecure(true);
+        let server_config = ServerConfig::with_endpoint("0.0.0.0:0").with_tls_settings(tls_config);
+        let config = ServiceConfiguration::new()
+            .with_dataplane_server(vec![server_config])
+            .with_peers(PeerConfig {
+                deployment_name: "test".to_string(),
+                topology: PeerTopology::FullMesh,
+                discovery: PeerDiscoveryConfig::Static {
+                    peers: vec![StaticPeerEntry {
+                        node_id: "peer-1".to_string(),
+                        config: ClientConfig::with_endpoint("http://127.0.0.1:9999"),
+                    }],
+                },
+            });
+        let service = config
+            .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test-fm").unwrap())
+            .unwrap();
+
+        // In FullMesh, peers receive subscriptions directly, so relay is disabled.
+        assert!(!service.message_processor().relay_peer_publishes());
+    }
+
+    #[test]
+    fn test_relay_peer_publishes_hub_and_spoke_is_true() {
+        let tls_config = TlsServerConfig::new().with_insecure(true);
+        let server_config = ServerConfig::with_endpoint("0.0.0.0:0").with_tls_settings(tls_config);
+        let config = ServiceConfiguration::new()
+            .with_dataplane_server(vec![server_config])
+            .with_peers(PeerConfig {
+                deployment_name: "test".to_string(),
+                topology: PeerTopology::HubAndSpoke,
+                discovery: PeerDiscoveryConfig::Static {
+                    peers: vec![StaticPeerEntry {
+                        node_id: "peer-1".to_string(),
+                        config: ClientConfig::with_endpoint("http://127.0.0.1:9999"),
+                    }],
+                },
+            });
+        let service = config
+            .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test-hs").unwrap())
+            .unwrap();
+
+        // In HubAndSpoke, the hub must relay publishes between spokes.
+        assert!(service.message_processor().relay_peer_publishes());
+    }
+
+    #[test]
+    fn test_relay_peer_publishes_no_peers_is_true() {
+        let tls_config = TlsServerConfig::new().with_insecure(true);
+        let server_config = ServerConfig::with_endpoint("0.0.0.0:0").with_tls_settings(tls_config);
+        let config = ServiceConfiguration::new().with_dataplane_server(vec![server_config]);
+        let service = config
+            .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test-no-peers").unwrap())
+            .unwrap();
+
+        // Without peer config (standalone), relay is enabled.
+        assert!(service.message_processor().relay_peer_publishes());
+    }
+
+    // ── kubernetes + HubAndSpoke rejection ──────────────────────────────
+
+    #[tokio::test]
+    async fn test_k8s_hub_and_spoke_rejected() {
+        let tls_config = TlsServerConfig::new().with_insecure(true);
+        let server_config = ServerConfig::with_endpoint("0.0.0.0:0").with_tls_settings(tls_config);
+        let peer_config = PeerConfig {
+            deployment_name: "test".to_string(),
+            topology: PeerTopology::HubAndSpoke,
+            discovery: PeerDiscoveryConfig::Kubernetes {
+                namespace: "default".to_string(),
+                label_selector: "app=slim".to_string(),
+                port: 46357,
+            },
+        };
+        let config = ServiceConfiguration::new()
+            .with_dataplane_server(vec![server_config])
+            .with_peers(peer_config);
+
+        let service = config
+            .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test-k8s-reject").unwrap())
+            .unwrap();
+
+        let result = service.run().await;
+        assert!(result.is_err(), "run() should fail with k8s + HubAndSpoke");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("kubernetes discovery only supports FullMesh"),
+            "error should mention topology mismatch, got: {err}"
+        );
+    }
+
+    // ── peer sync config construction ───────────────────────────────────
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_peer_sync_starts_with_static_discovery() {
+        let port = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap().port()
+        };
+
+        let tls_config = TlsServerConfig::new().with_insecure(true);
+        let server_config =
+            ServerConfig::with_endpoint(&format!("0.0.0.0:{port}")).with_tls_settings(tls_config);
+        let peer_config = PeerConfig {
+            deployment_name: "test-deploy".to_string(),
+            topology: PeerTopology::FullMesh,
+            discovery: PeerDiscoveryConfig::Static {
+                peers: vec![StaticPeerEntry {
+                    node_id: "other-node".to_string(),
+                    config: ClientConfig::with_endpoint("http://127.0.0.1:19999"),
+                }],
+            },
+        };
+        let mut svc_config = ServiceConfiguration::new();
+        svc_config.node_id = "self-node".to_string();
+        let svc_config = svc_config
+            .with_dataplane_server(vec![server_config])
+            .with_peers(peer_config);
+
+        let service = svc_config
+            .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test-static").unwrap())
+            .unwrap();
+
+        service.run().await.expect("service should start");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        assert!(logs_contain("starting peer sync"));
+
+        service.shutdown().await.ok();
     }
 }

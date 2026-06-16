@@ -141,6 +141,10 @@ struct PeerSyncInner {
     /// Shared peer state (if discovery is active).
     /// Used to register incoming peers directly without a channel.
     peer_state: Option<Arc<RwLock<PeerState>>>,
+    /// All peer IDs ever discovered (used for hub election in HubAndSpoke).
+    /// Unlike peer_state which only tracks connected peers, this tracks
+    /// every peer ID we've heard about from discovery.
+    discovered_peers: RwLock<HashSet<String>>,
 }
 
 impl PeerSync {
@@ -159,6 +163,7 @@ impl PeerSync {
                 subscription_ttl,
                 sync_filter,
                 peer_state: None,
+                discovered_peers: RwLock::new(HashSet::new()),
             }),
         }
     }
@@ -178,6 +183,7 @@ impl PeerSync {
                 subscription_ttl,
                 sync_filter,
                 peer_state: Some(peer_state),
+                discovered_peers: RwLock::new(HashSet::new()),
             }),
         }
     }
@@ -195,6 +201,7 @@ impl PeerSync {
                 subscription_ttl: DEFAULT_TTL,
                 sync_filter: crate::tables::MatchFilter::ALL,
                 peer_state: None,
+                discovered_peers: RwLock::new(HashSet::new()),
             }),
         }
     }
@@ -366,11 +373,27 @@ impl PeerSync {
             return;
         }
 
+        // Track all discovered peers (for hub election in HubAndSpoke).
+        self.inner.discovered_peers.write().insert(peer.id.clone());
+
         // Determine whether to dial based on topology.
-        // In both topologies, only the node with the lexicographically smaller ID
-        // initiates the connection. For HubAndSpoke this means the hub (smallest ID)
-        // dials all spokes, which is the desired behavior.
-        let should_dial = config.self_id < peer.id;
+        let should_dial = match config.topology {
+            PeerTopology::FullMesh => {
+                // In full mesh, only the node with the smaller ID initiates
+                // each pairwise connection (avoids duplicate links).
+                config.self_id < peer.id
+            }
+            PeerTopology::HubAndSpoke => {
+                // In hub-and-spoke, only the hub (globally smallest ID) dials.
+                // A node is the hub if it has a smaller ID than ALL discovered peers.
+                !self
+                    .inner
+                    .discovered_peers
+                    .read()
+                    .iter()
+                    .any(|p| p.as_str() < config.self_id.as_str())
+            }
+        };
 
         if !should_dial {
             debug!(

@@ -82,6 +82,25 @@ pub struct PeerConfig {
     pub discovery: PeerDiscoveryConfig,
 }
 
+impl PeerConfig {
+    /// Validate the peer configuration for unsupported combinations.
+    ///
+    /// Returns an error if Kubernetes discovery is used with a topology
+    /// other than FullMesh.
+    pub fn validate(&self) -> Result<(), String> {
+        if matches!(self.discovery, PeerDiscoveryConfig::Kubernetes { .. })
+            && self.topology != PeerTopology::FullMesh
+        {
+            return Err(format!(
+                "kubernetes discovery only supports FullMesh topology, \
+                 but {:?} was configured",
+                self.topology
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Peer discovery backend configuration.
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(tag = "type")]
@@ -270,5 +289,64 @@ mod tests {
 
         let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.topology, PeerTopology::FullMesh);
+    }
+
+    #[test]
+    fn test_validate_static_full_mesh_ok() {
+        let config = PeerConfig {
+            deployment_name: "test".to_string(),
+            topology: PeerTopology::FullMesh,
+            discovery: PeerDiscoveryConfig::Static {
+                peers: vec![StaticPeerEntry {
+                    node_id: "peer-1".to_string(),
+                    config: ClientConfig::with_endpoint("http://peer-1:8080"),
+                }],
+            },
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_static_hub_and_spoke_ok() {
+        let config = PeerConfig {
+            deployment_name: "test".to_string(),
+            topology: PeerTopology::HubAndSpoke,
+            discovery: PeerDiscoveryConfig::Static {
+                peers: vec![StaticPeerEntry {
+                    node_id: "peer-1".to_string(),
+                    config: ClientConfig::with_endpoint("http://peer-1:8080"),
+                }],
+            },
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_k8s_full_mesh_ok() {
+        let config = PeerConfig {
+            deployment_name: "test".to_string(),
+            topology: PeerTopology::FullMesh,
+            discovery: PeerDiscoveryConfig::Kubernetes {
+                namespace: "default".to_string(),
+                label_selector: "app=slim".to_string(),
+                port: 46357,
+            },
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_k8s_hub_and_spoke_fails() {
+        let config = PeerConfig {
+            deployment_name: "test".to_string(),
+            topology: PeerTopology::HubAndSpoke,
+            discovery: PeerDiscoveryConfig::Kubernetes {
+                namespace: "default".to_string(),
+                label_selector: "app=slim".to_string(),
+                port: 46357,
+            },
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("kubernetes discovery only supports FullMesh"));
     }
 }
