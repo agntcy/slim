@@ -171,10 +171,10 @@ pub enum AuthError {
     // MLS
     #[error("MLS is not supported by this provider")]
     MlsNotSupported,
+    #[error("MLS signature key generation failed")]
+    MlsKeyGenerationFailed,
     #[error("public key not found in identity claims")]
     PublicKeyNotFound,
     #[error("subject not found in identity claims")]
     SubjectNotFound,
-    #[error("MLS key generation failed")]
-    MlsKeyGenerationFailed,
 }

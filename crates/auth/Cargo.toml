@@ -66,8 +66,10 @@ wiremock = { workspace = true }
 # native-only). `getrandom` with the wasm_js backend is required so that
 # `rand` works in the browser.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+ed25519-dalek = { version = "2.1", default-features = false, features = ["rand_core"] }
 getrandom = { workspace = true }
 hmac = { workspace = true }
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "pkcs8", "std"] }
 sha2 = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
