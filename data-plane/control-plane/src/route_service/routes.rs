@@ -460,6 +460,7 @@ impl super::RouteService {
 mod tests {
     use std::time::SystemTime;
 
+    use slim_config::conn_type::ConnType;
     use slim_config::grpc::client::ClientConfig;
     use slim_datapath::api::ProtoName;
 
@@ -563,7 +564,7 @@ mod tests {
             dest_node_id: "spoke-a".to_string(),
             dest_group: String::new(),
             dest_endpoint: "spoke-a:8080".to_string(),
-            conn_config_data: ClientConfig::default(),
+            conn_config_data: ClientConfig::default().with_connection_type(ConnType::Remote),
             status: LinkStatus::Applied,
             status_msg: String::new(),
             created_at: SystemTime::now(),
@@ -575,7 +576,7 @@ mod tests {
             dest_node_id: "spoke-b".to_string(),
             dest_group: String::new(),
             dest_endpoint: "spoke-b:8080".to_string(),
-            conn_config_data: ClientConfig::default(),
+            conn_config_data: ClientConfig::default().with_connection_type(ConnType::Remote),
             status: LinkStatus::Applied,
             status_msg: String::new(),
             created_at: SystemTime::now(),
@@ -667,7 +668,7 @@ mod tests {
             dest_node_id: "hub-node".to_string(),
             dest_group: String::new(),
             dest_endpoint: "hub:8080".to_string(),
-            conn_config_data: ClientConfig::default(),
+            conn_config_data: ClientConfig::default().with_connection_type(ConnType::Remote),
             status: LinkStatus::Applied,
             status_msg: String::new(),
             created_at: SystemTime::now(),
@@ -682,7 +683,7 @@ mod tests {
             dest_node_id: "spoke-b".to_string(),
             dest_group: String::new(),
             dest_endpoint: "spoke-b:8080".to_string(),
-            conn_config_data: ClientConfig::default(),
+            conn_config_data: ClientConfig::default().with_connection_type(ConnType::Remote),
             status: LinkStatus::Applied,
             status_msg: String::new(),
             created_at: SystemTime::now(),
@@ -768,7 +769,7 @@ mod tests {
             dest_node_id: "spoke-a".to_string(),
             dest_group: String::new(),
             dest_endpoint: "spoke-a:8080".to_string(),
-            conn_config_data: ClientConfig::default(),
+            conn_config_data: ClientConfig::default().with_connection_type(ConnType::Remote),
             status: LinkStatus::Applied,
             status_msg: String::new(),
             created_at: SystemTime::now(),
@@ -825,7 +826,7 @@ mod tests {
                 dest_node_id: dst.to_string(),
                 dest_group: String::new(),
                 dest_endpoint: format!("{dst}:8080"),
-                conn_config_data: ClientConfig::default(),
+                conn_config_data: ClientConfig::default().with_connection_type(ConnType::Remote),
                 status: LinkStatus::Applied,
                 status_msg: String::new(),
                 created_at: SystemTime::now(),
@@ -896,7 +897,7 @@ mod tests {
             dest_node_id: "node-b".to_string(),
             dest_group: String::new(),
             dest_endpoint: "node-b:8080".to_string(),
-            conn_config_data: ClientConfig::default(),
+            conn_config_data: ClientConfig::default().with_connection_type(ConnType::Remote),
             status: LinkStatus::Applied,
             status_msg: String::new(),
             created_at: SystemTime::now(),
@@ -908,7 +909,7 @@ mod tests {
             dest_node_id: "node-c".to_string(),
             dest_group: String::new(),
             dest_endpoint: "node-c:8080".to_string(),
-            conn_config_data: ClientConfig::default(),
+            conn_config_data: ClientConfig::default().with_connection_type(ConnType::Remote),
             status: LinkStatus::Applied,
             status_msg: String::new(),
             created_at: SystemTime::now(),

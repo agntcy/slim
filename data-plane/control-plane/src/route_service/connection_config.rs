@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use slim_config::conn_type::ConnType;
 use slim_config::grpc::client::ClientConfig;
 
 use crate::error::{Error, Result};
@@ -177,6 +178,7 @@ pub(super) fn generate_config_data(
             keep_alive_while_idle: false,
         }),
         link_id: String::new(),
+        connection_type: ConnType::Remote,
         ..Default::default()
     };
 
