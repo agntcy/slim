@@ -96,9 +96,9 @@ message EncodedName {
 }
 
 message StringName {
-  string str_component_0 = 1;
-  string str_component_1 = 2;
-  string str_component_2 = 3;
+  bytes str_component_0 = 1;
+  bytes str_component_1 = 2;
+  bytes str_component_2 = 3;
 }
 
 enum SessionType {

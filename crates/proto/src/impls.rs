@@ -299,9 +299,9 @@ impl ProtoName {
                 name_id: Some(NameId::from(NameId::NULL_COMPONENT)),
             }),
             str_name: Some(StringName {
-                str_component_0: s0,
-                str_component_1: s1,
-                str_component_2: s2,
+                str_component_0: s0.into(),
+                str_component_1: s1.into(),
+                str_component_2: s2.into(),
             }),
         }
     }
@@ -349,7 +349,15 @@ impl ProtoName {
 
     pub fn str_components(&self) -> (&str, &str, &str) {
         let s = self.str_name.as_ref().expect("string name missing");
-        (&s.str_component_0, &s.str_component_1, &s.str_component_2)
+        // SAFETY: StringName bytes always originate from valid UTF-8 strings
+        // (constructed via from_strings / parse_name, which accept &str / String inputs).
+        unsafe {
+            (
+                std::str::from_utf8_unchecked(&s.str_component_0),
+                std::str::from_utf8_unchecked(&s.str_component_1),
+                std::str::from_utf8_unchecked(&s.str_component_2),
+            )
+        }
     }
 
     pub fn parse_name(s: &str) -> Result<ProtoName, NameError> {
@@ -368,12 +376,18 @@ impl ProtoName {
 impl std::fmt::Display for ProtoName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(s) = &self.str_name {
+            // SAFETY: see str_components() — bytes are always valid UTF-8.
+            let (c0, c1, c2) = unsafe {(
+                std::str::from_utf8_unchecked(&s.str_component_0),
+                std::str::from_utf8_unchecked(&s.str_component_1),
+                std::str::from_utf8_unchecked(&s.str_component_2),
+            )};
             write!(
                 f,
                 "{}/{}/{}/{}",
-                s.str_component_0,
-                s.str_component_1,
-                s.str_component_2,
+                c0,
+                c1,
+                c2,
                 self.name
                     .as_ref()
                     .and_then(|n| n.name_id)

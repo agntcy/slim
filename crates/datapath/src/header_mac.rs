@@ -249,9 +249,9 @@ fn push_encoded_name(buf: &mut Vec<u8>, n: &Option<Name>) {
             }
             if let Some(sn) = name.str_name.as_ref() {
                 buf.push(1);
-                push_bytes(buf, sn.str_component_0.as_bytes());
-                push_bytes(buf, sn.str_component_1.as_bytes());
-                push_bytes(buf, sn.str_component_2.as_bytes());
+                push_bytes(buf, &sn.str_component_0);
+                push_bytes(buf, &sn.str_component_1);
+                push_bytes(buf, &sn.str_component_2);
             } else {
                 buf.push(0);
             }
@@ -295,9 +295,9 @@ mod tests {
                     name_id: Some(NameId { id_0: 0, id_1: 4 }),
                 }),
                 str_name: Some(StringName {
-                    str_component_0: "a".into(),
-                    str_component_1: "b".into(),
-                    str_component_2: "c".into(),
+                    str_component_0: bytes::Bytes::from_static(b"a"),
+                    str_component_1: bytes::Bytes::from_static(b"b"),
+                    str_component_2: bytes::Bytes::from_static(b"c"),
                 }),
             }),
             destination: Some(Name {
@@ -308,9 +308,9 @@ mod tests {
                     name_id: Some(NameId { id_0: 0, id_1: 8 }),
                 }),
                 str_name: Some(StringName {
-                    str_component_0: "x".into(),
-                    str_component_1: "y".into(),
-                    str_component_2: "z".into(),
+                    str_component_0: bytes::Bytes::from_static(b"x"),
+                    str_component_1: bytes::Bytes::from_static(b"y"),
+                    str_component_2: bytes::Bytes::from_static(b"z"),
                 }),
             }),
             identity: "id1".into(),

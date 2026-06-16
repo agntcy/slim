@@ -34,6 +34,9 @@ fn main() {
     // Gate tonic client/server modules to non-wasm32 targets.
     tonic_prost_build::configure()
         .out_dir("src/gen")
+        // Generate bytes::Bytes (zero-copy) for all bytes fields in StringName
+        // instead of the default Vec<u8>.
+        .bytes(".dataplane.proto.v1.StringName")
         .client_mod_attribute(".", "#[cfg(not(target_arch = \"wasm32\"))]")
         .server_mod_attribute(".", "#[cfg(not(target_arch = \"wasm32\"))]")
         .compile_protos(
