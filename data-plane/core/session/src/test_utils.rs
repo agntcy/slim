@@ -31,6 +31,14 @@ impl TokenProvider for MockTokenProvider {
     fn get_id(&self) -> Result<String, AuthError> {
         Ok("mock_id".to_string())
     }
+
+    async fn set_signature_keys(
+        &mut self,
+        _private_key: Vec<u8>,
+        _public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        Ok(())
+    }
 }
 
 /// Mock verifier for testing.

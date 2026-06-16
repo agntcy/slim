@@ -33,8 +33,9 @@
 //! # })
 //! ```
 
+#![cfg(not(target_arch = "wasm32"))]
+
 pub mod errors;
-#[macro_use]
 pub mod service;
 
 #[cfg(feature = "session")]

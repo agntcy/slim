@@ -135,9 +135,6 @@ control-plane/control-plane/db/controlplane.db
 **/*.a
 artifacts
 
-libslim_bindings.dylib
-libslim_bindings.a
-
 # Maven
 .flattened-pom.xml
 

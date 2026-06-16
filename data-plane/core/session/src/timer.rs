@@ -5,9 +5,9 @@
 use std::sync::Arc;
 
 // Third-party crates
+use async_trait::async_trait;
 use tokio::time::{self, Duration};
 use tokio_util::sync::CancellationToken;
-use tonic::async_trait;
 use tracing::trace;
 
 #[async_trait]

@@ -553,7 +553,8 @@ mod tests {
             dest_node_id: "dst".to_string(),
             dest_group: "grp".to_string(),
             dest_endpoint: "ep:9000".to_string(),
-            conn_config_data: ClientConfig::default(),
+            conn_config_data: ClientConfig::default()
+                .with_connection_type(slim_config::conn_type::ConnType::Remote),
             status: LinkStatus::Pending,
             status_msg: String::new(),
             created_at: std::time::SystemTime::now(),
@@ -570,7 +571,8 @@ mod tests {
             dest_node_id: "dst".to_string(),
             dest_group: "grp".to_string(),
             dest_endpoint: "ep:9000".to_string(),
-            conn_config_data: ClientConfig::default(),
+            conn_config_data: ClientConfig::default()
+                .with_connection_type(slim_config::conn_type::ConnType::Remote),
             status: LinkStatus::Applied,
             status_msg: String::new(),
             created_at: std::time::SystemTime::now(),

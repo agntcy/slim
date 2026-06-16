@@ -78,7 +78,7 @@ use crate::errors::AuthError;
 use crate::identity_claims::IdentityClaims;
 use crate::metadata::MetadataMap;
 use crate::traits::{TokenProvider, Verifier};
-use crate::utils::{bytes_to_pem, generate_mls_signature_keys};
+use crate::utils::bytes_to_pem;
 
 /// Helper for encoding/decoding custom claims in JWT audiences
 ///
@@ -189,6 +189,14 @@ struct CachedJwtSvid {
     source: SpiffeJwtSource,
     /// Background-refreshed SVID cache for sync access.
     cached_svid: Arc<RwLock<Option<JwtSvid>>>,
+    /// Shared audiences — the background task reads these on each refresh so
+    /// that callers can update them (e.g. when MLS keys rotate) without
+    /// rebuilding the entire source.
+    audiences: Arc<RwLock<Vec<String>>>,
+    /// Parsed target SPIFFE ID for SVID fetching.
+    target_spiffe_id: Option<SpiffeId>,
+    /// Signal the background task to refresh immediately (e.g. after audience change).
+    refresh_notify: Arc<tokio::sync::Notify>,
     /// Cancellation token for the background refresh task.
     cancellation_token: CancellationToken,
 }
@@ -205,6 +213,8 @@ impl CachedJwtSvid {
     ) -> Result<Self, AuthError> {
         let cached_svid = Arc::new(RwLock::new(None));
         let cancellation_token = CancellationToken::new();
+        let shared_audiences = Arc::new(RwLock::new(audiences.clone()));
+        let refresh_notify = Arc::new(tokio::sync::Notify::new());
 
         let parsed_target: Option<SpiffeId> =
             target_spiffe_id.as_deref().map(|s| s.parse()).transpose()?;
@@ -229,11 +239,21 @@ impl CachedJwtSvid {
         let bg_source = source.clone();
         let bg_cache = cached_svid.clone();
         let bg_cancel = cancellation_token.clone();
+        let bg_audiences = shared_audiences.clone();
+        let bg_notify = refresh_notify.clone();
         let bg_span = tracing::Span::current();
+        let bg_target = parsed_target.clone();
         tokio::spawn(
             async move {
-                Self::background_refresh(bg_source, audiences, parsed_target, bg_cache, bg_cancel)
-                    .await;
+                Self::background_refresh(
+                    bg_source,
+                    bg_audiences,
+                    bg_target,
+                    bg_cache,
+                    bg_cancel,
+                    bg_notify,
+                )
+                .await;
             }
             .instrument(bg_span),
         );
@@ -241,8 +261,38 @@ impl CachedJwtSvid {
         Ok(Self {
             source,
             cached_svid,
+            audiences: shared_audiences,
+            target_spiffe_id: parsed_target,
+            refresh_notify,
             cancellation_token,
         })
+    }
+
+    /// Update the audiences used for SVID fetching and trigger an immediate
+    /// refresh so the cached token reflects the new audiences.
+    async fn update_audiences(&self, new_audiences: Vec<String>) -> Result<(), AuthError> {
+        // Update the shared audiences that the background task reads.
+        *self.audiences.write() = new_audiences.clone();
+
+        // Fetch a fresh SVID immediately with the new audiences so callers
+        // don't have to wait for the background loop.
+        match self
+            .source
+            .get_jwt_svid_with_id(&new_audiences, self.target_spiffe_id.as_ref())
+            .await
+        {
+            Ok(svid) => {
+                *self.cached_svid.write() = Some(svid);
+            }
+            Err(err) => {
+                return Err(AuthError::SpiffeJwtSourceError(err));
+            }
+        }
+
+        // Notify the background task to reset its timer (it will pick up the
+        // new audiences on next iteration).
+        self.refresh_notify.notify_one();
+        Ok(())
     }
 
     /// Background task: periodically fetches a fresh JWT SVID and updates the
@@ -250,10 +300,11 @@ impl CachedJwtSvid {
     /// backoff on failure (capped to avoid letting the token expire).
     async fn background_refresh(
         source: SpiffeJwtSource,
-        audiences: Vec<String>,
+        audiences: Arc<RwLock<Vec<String>>>,
         target_spiffe_id: Option<SpiffeId>,
         cache: Arc<RwLock<Option<JwtSvid>>>,
         cancel: CancellationToken,
+        refresh_notify: Arc<tokio::sync::Notify>,
     ) {
         let min_backoff = Duration::from_secs(1);
         let max_backoff = Duration::from_secs(30);
@@ -268,14 +319,23 @@ impl CachedJwtSvid {
         loop {
             tokio::select! {
                 _ = &mut next_refresh => {}
+                _ = refresh_notify.notified() => {
+                    // Audiences changed — reset timer and refresh immediately.
+                    let deadline = tokio::time::Instant::now();
+                    next_refresh.as_mut().reset(deadline);
+                    continue;
+                }
                 _ = cancel.cancelled() => {
                     debug!("jwt_source: background refresh cancelled");
                     return;
                 }
             }
 
+            // Read the current audiences from the shared state.
+            let current_audiences = audiences.read().clone();
+
             match source
-                .get_jwt_svid_with_id(&audiences, target_spiffe_id.as_ref())
+                .get_jwt_svid_with_id(&current_audiences, target_spiffe_id.as_ref())
                 .await
             {
                 Ok(svid) => {
@@ -366,7 +426,7 @@ impl SpireIdentityManagerBuilder {
     }
 
     pub fn build(self) -> Result<SpireIdentityManager, crate::errors::AuthError> {
-        let signature_keys = generate_mls_signature_keys()?;
+        let signature_keys = (vec![], vec![]);
         let internal = SpireIdentityManagerInternal {
             socket_path: self.socket_path,
             target_spiffe_id: self.target_spiffe_id,
@@ -600,24 +660,22 @@ impl TokenProvider for SpireIdentityManager {
         Ok(self.signature_keys.1.clone())
     }
 
-    fn rotate_signature_keys(&mut self) -> Result<(), AuthError> {
-        self.signature_keys = generate_mls_signature_keys()?;
+    async fn set_signature_keys(
+        &mut self,
+        private_key: Vec<u8>,
+        public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        self.signature_keys = (private_key, public_key);
 
-        // Rebuild the CachedJwtSvid so the next get_token() call returns a fresh
-        // SVID with the new pubkey embedded in its audiences.
+        // Update the audiences (which include the pubkey) in the existing
+        // CachedJwtSvid and trigger an immediate refresh — no need to tear
+        // down and rebuild the entire SPIFFE source connection.
         let new_audiences = self.jwt_audiences_with_pubkey()?;
-        let target_spiffe_id = self.inner.target_spiffe_id.clone();
-        let socket_path = self.inner.socket_path.clone();
 
-        let new_jwt_source = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(Self::build_jwt_source(
-                new_audiences,
-                target_spiffe_id,
-                socket_path,
-            ))
-        })?;
-
-        *self.inner.jwt_source.write() = Some(Arc::new(new_jwt_source));
+        let cached = self.inner.jwt_source.read().clone();
+        if let Some(cached) = cached.as_ref() {
+            cached.update_audiences(new_audiences).await?;
+        }
 
         Ok(())
     }

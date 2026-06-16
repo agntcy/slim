@@ -20,7 +20,7 @@ path = "src/lib.rs"
 name = "slim-control-plane"
 path = "src/main.rs"
 
-[dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-signal = { workspace = true }
@@ -59,7 +59,7 @@ libsqlite3-sys = { workspace = true }
 protoc-bin-vendored = { workspace = true }
 tonic-prost-build = { workspace = true }
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }

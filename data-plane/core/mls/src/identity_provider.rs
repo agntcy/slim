@@ -40,7 +40,7 @@ where
             .ok_or(MlsError::NotBasicCredential)?;
         let credential_data = std::str::from_utf8(&basic_cred.identifier)?;
 
-        // Verify token and extract claims (sync only — mls_build_async is not set)
+        // Verify token and extract claims (sync on native, async on wasm32)
         let claims: serde_json::Value = self
             .identity_verifier
             .try_get_claims(credential_data)
@@ -74,13 +74,17 @@ where
     }
 }
 
+// The `IdentityProvider` trait from `mls-rs-core` is sync on native and async
+// on wasm32. `#[maybe_async::maybe_async]` selects the matching form via the
+// `is_sync` feature (enabled per-target in Cargo.toml).
+#[maybe_async::maybe_async]
 impl<V> IdentityProvider for SlimIdentityProvider<V>
 where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     type Error = MlsError;
 
-    fn validate_member(
+    async fn validate_member(
         &self,
         signing_identity: &SigningIdentity,
         _timestamp: Option<MlsTime>,
@@ -102,7 +106,7 @@ where
         Ok(())
     }
 
-    fn validate_external_sender(
+    async fn validate_external_sender(
         &self,
         _signing_identity: &SigningIdentity,
         _timestamp: Option<MlsTime>,
@@ -112,7 +116,7 @@ where
         Err(MlsError::ExternalCommitNotSupported)
     }
 
-    fn identity(
+    async fn identity(
         &self,
         signing_identity: &SigningIdentity,
         _extensions: &ExtensionList,
@@ -122,7 +126,7 @@ where
         Ok(identity_claims.subject.into_bytes())
     }
 
-    fn valid_successor(
+    async fn valid_successor(
         &self,
         predecessor: &SigningIdentity,
         successor: &SigningIdentity,

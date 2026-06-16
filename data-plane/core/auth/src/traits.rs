@@ -132,9 +132,72 @@ pub trait TokenProvider {
         Err(AuthError::MlsNotSupported)
     }
 
-    /// Rotate the MLS signature key pair, generating new keys internally.
-    /// Returns `Err(AuthError::MlsNotSupported)` by default.
-    fn rotate_signature_keys(&mut self) -> Result<(), AuthError> {
-        Err(AuthError::MlsNotSupported)
+    /// Replace the MLS signature key pair with externally-generated keys.
+    ///
+    /// The MLS layer always generates ciphersuite-correct keys via its crypto
+    /// provider and pushes them here so the identity provider can embed the
+    /// public key in tokens.
+    async fn set_signature_keys(
+        &mut self,
+        private_key: Vec<u8>,
+        public_key: Vec<u8>,
+    ) -> Result<(), AuthError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Minimal provider that implements only the required methods, leaving the
+    /// MLS signature-key methods to their default `MlsNotSupported` impls.
+    struct MinimalProvider;
+
+    impl TokenProvider for MinimalProvider {
+        async fn initialize(&mut self) -> Result<(), AuthError> {
+            Ok(())
+        }
+
+        fn get_token(&self) -> Result<String, AuthError> {
+            Ok("token".to_string())
+        }
+
+        fn get_id(&self) -> Result<String, AuthError> {
+            Ok("id".to_string())
+        }
+
+        async fn set_signature_keys(
+            &mut self,
+            _private_key: Vec<u8>,
+            _public_key: Vec<u8>,
+        ) -> Result<(), AuthError> {
+            Err(AuthError::MlsNotSupported)
+        }
+    }
+
+    #[tokio::test]
+    async fn default_mls_methods_return_not_supported() {
+        let mut p = MinimalProvider;
+        assert!(matches!(
+            p.get_signature_secret_key(),
+            Err(AuthError::MlsNotSupported)
+        ));
+        assert!(matches!(
+            p.get_signature_public_key(),
+            Err(AuthError::MlsNotSupported)
+        ));
+        assert!(matches!(
+            p.set_signature_keys(vec![1, 2, 3], vec![4, 5, 6]).await,
+            Err(AuthError::MlsNotSupported)
+        ));
+
+        // The required methods remain usable on the same minimal provider.
+        assert_eq!(p.get_token().unwrap(), "token");
+        assert_eq!(p.get_id().unwrap(), "id");
+    }
+
+    #[tokio::test]
+    async fn default_initialize_is_a_noop() {
+        let mut p = MinimalProvider;
+        assert!(p.initialize().await.is_ok());
     }
 }
