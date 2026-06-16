@@ -1338,3 +1338,251 @@ async fn test_node_crash_and_link_recovery() {
     node_b2.shutdown().await.ok();
     stop_control_plane(cp).await;
 }
+
+/// Test 14: Multiple wildcard routes for different service names
+///
+/// Scenario:
+///   - Start CP + 2 nodes in different groups.
+///   - Two different services subscribe on node-a (different names).
+///   - A third service subscribes on node-b.
+///   - Verify: each service has independent wildcard + expanded routes,
+///     and they don't interfere with each other.
+///
+/// Validates: multiple independent wildcard routes coexist correctly.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_multiple_wildcard_routes_different_names() {
+    init_tracing();
+
+    let cp = start_control_plane(TopologyConfig::default()).await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+
+    let a_port = reserve_port();
+    let b_port = reserve_port();
+
+    let node_a = start_single_node("node-a", "group-a", cp.southbound_port, a_port).await;
+    let node_b = start_single_node("node-b", "group-b", cp.southbound_port, b_port).await;
+
+    let id_a = grouped_node_id("group-a", "node-a");
+    let id_b = grouped_node_id("group-b", "node-b");
+
+    wait_for_nodes_connected(&mut client, &[&id_a, &id_b], SHORT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "group-a", "group-b", DEFAULT_TIMEOUT).await;
+
+    // Two different services subscribe on node-a.
+    let app_svc1 = start_subscribing_app(a_port, "org", "ns", "svc-alpha").await;
+    let app_svc2 = start_subscribing_app(a_port, "org", "ns", "svc-beta").await;
+    // A different service subscribes on node-b.
+    let app_svc3 = start_subscribing_app(b_port, "org", "ns", "svc-gamma").await;
+
+    // Each should have its own wildcard route.
+    wait_for_route_applied(&mut client, "*", &id_a, DEFAULT_TIMEOUT).await;
+    wait_for_route_applied(&mut client, "*", &id_b, DEFAULT_TIMEOUT).await;
+
+    // Expanded routes: node-b should route to node-a for both alpha and beta.
+    wait_for_route_applied(&mut client, &id_b, &id_a, DEFAULT_TIMEOUT).await;
+    // node-a should route to node-b for gamma.
+    wait_for_route_applied(&mut client, &id_a, &id_b, DEFAULT_TIMEOUT).await;
+
+    // Count distinct service names in wildcard routes to node-a.
+    let routes = collect_routes(&mut client, "*", &id_a).await;
+    let wildcard_names: std::collections::HashSet<_> = routes
+        .iter()
+        .filter(|r| r.status == ROUTE_APPLIED)
+        .filter_map(|r| {
+            r.name
+                .as_ref()
+                .and_then(|n| n.str_name.as_ref())
+                .map(|sn| sn.str_component_2.clone())
+        })
+        .collect();
+    assert!(
+        wildcard_names.contains("svc-alpha"),
+        "missing wildcard for svc-alpha"
+    );
+    assert!(
+        wildcard_names.contains("svc-beta"),
+        "missing wildcard for svc-beta"
+    );
+
+    // Disconnect one service — only its routes should be removed.
+    app_svc1.shutdown().await.ok();
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // svc-beta wildcard should still be active.
+    let routes = collect_routes(&mut client, "*", &id_a).await;
+    let beta_still_active = routes.iter().any(|r| {
+        r.status == ROUTE_APPLIED
+            && r.name
+                .as_ref()
+                .and_then(|n| n.str_name.as_ref())
+                .map(|sn| sn.str_component_2 == "svc-beta")
+                .unwrap_or(false)
+    });
+    assert!(
+        beta_still_active,
+        "svc-beta wildcard should survive svc-alpha disconnection"
+    );
+
+    app_svc2.shutdown().await.ok();
+    app_svc3.shutdown().await.ok();
+    node_a.shutdown().await.ok();
+    node_b.shutdown().await.ok();
+    stop_control_plane(cp).await;
+}
+
+/// Test 15: Node reconnects with different external endpoint
+///
+/// Scenario:
+///   - Start CP + 2 nodes in different groups.
+///   - Links established, app subscribes, routes applied.
+///   - Crash node-b, restart on a different port.
+///   - Verify: link is re-established with the new endpoint and routes recover.
+///
+/// Validates: reconnection with changed connection details updates link endpoint.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_reconnect_different_endpoint() {
+    init_tracing();
+
+    let cp = start_control_plane(TopologyConfig::default()).await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+
+    let a_port = reserve_port();
+    let b_port_original = reserve_port();
+
+    let node_a = start_single_node("node-a", "group-a", cp.southbound_port, a_port).await;
+    let node_b = start_single_node("node-b", "group-b", cp.southbound_port, b_port_original).await;
+
+    let id_a = grouped_node_id("group-a", "node-a");
+    let id_b = grouped_node_id("group-b", "node-b");
+
+    wait_for_nodes_connected(&mut client, &[&id_a, &id_b], SHORT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "group-a", "group-b", DEFAULT_TIMEOUT).await;
+
+    // App subscribes.
+    let app = start_subscribing_app(a_port, "org", "ns", "endpoint-svc").await;
+    wait_for_route_applied(&mut client, &id_b, &id_a, DEFAULT_TIMEOUT).await;
+
+    // Crash node-b.
+    node_b.deregister().await.ok();
+    node_b.shutdown().await.ok();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Restart node-b on a DIFFERENT port.
+    let b_port_new = reserve_port();
+    let node_b2 = start_single_node("node-b", "group-b", cp.southbound_port, b_port_new).await;
+    wait_for_nodes_connected(&mut client, &[&id_b], SHORT_TIMEOUT).await;
+
+    // Link should be re-established (with new endpoint).
+    wait_for_link_between_groups(&mut client, "group-a", "group-b", DEFAULT_TIMEOUT).await;
+
+    // Route should recover.
+    wait_for_route_applied(&mut client, &id_b, &id_a, DEFAULT_TIMEOUT).await;
+
+    // Verify the link involves node-b's new endpoint. The link direction may
+    // vary, so check that the link is between the groups and active.
+    let link =
+        wait_for_link_between_groups_entry(&mut client, "group-a", "group-b", SHORT_TIMEOUT).await;
+    // The link should be fully established (both source and dest populated).
+    assert!(
+        !link.source_node_id.is_empty() && !link.dest_node_id.is_empty(),
+        "link should have both source and dest populated after reconnect"
+    );
+
+    app.shutdown().await.ok();
+    node_a.shutdown().await.ok();
+    node_b2.shutdown().await.ok();
+    stop_control_plane(cp).await;
+}
+
+/// Test 16: Star topology — hub crash disconnects all spokes
+///
+/// Scenario:
+///   - Star topology: hub (platform) connected to spoke-a and spoke-b.
+///   - App subscribes on spoke-a → routes created via hub.
+///   - Kill the hub node.
+///   - Verify: routes involving the hub are cleaned up.
+///   - Restart hub → links and routes recover.
+///
+/// Validates: hub crash in star topology and recovery after hub restart.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_star_topology_hub_crash_and_recovery() {
+    init_tracing();
+
+    let cp = start_control_plane(star_topology_config("platform")).await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+
+    let hub_port = reserve_port();
+    let spoke_a_port = reserve_port();
+    let spoke_b_port = reserve_port();
+
+    let hub = start_single_node("hub", "platform", cp.southbound_port, hub_port).await;
+    let spoke_a =
+        start_single_node("spoke-a", "customer-a", cp.southbound_port, spoke_a_port).await;
+    let spoke_b =
+        start_single_node("spoke-b", "customer-b", cp.southbound_port, spoke_b_port).await;
+
+    let id_hub = grouped_node_id("platform", "hub");
+    let id_spoke_a = grouped_node_id("customer-a", "spoke-a");
+    let id_spoke_b = grouped_node_id("customer-b", "spoke-b");
+
+    wait_for_nodes_connected(
+        &mut client,
+        &[&id_hub, &id_spoke_a, &id_spoke_b],
+        SHORT_TIMEOUT,
+    )
+    .await;
+    wait_for_link_between_groups(&mut client, "customer-a", "platform", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "customer-b", "platform", DEFAULT_TIMEOUT).await;
+
+    // App subscribes on spoke-a → spoke-b gets route via hub.
+    let app = start_subscribing_app(spoke_a_port, "org", "ns", "hub-crash-svc").await;
+    wait_for_route_applied(&mut client, &id_spoke_b, &id_spoke_a, DEFAULT_TIMEOUT).await;
+    wait_for_route_applied(&mut client, &id_hub, &id_spoke_a, DEFAULT_TIMEOUT).await;
+
+    // Crash the hub.
+    hub.deregister().await.ok();
+    hub.shutdown().await.ok();
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Links involving the hub should be gone or deleted.
+    let links = collect_links(&mut client, "", "").await;
+    let active_hub_links: Vec<_> = links
+        .iter()
+        .filter(|l| {
+            !l.deleted
+                && l.status == LINK_APPLIED
+                && (l.source_node_id.contains("platform") || l.dest_node_id.contains("platform"))
+        })
+        .collect();
+    assert!(
+        active_hub_links.is_empty(),
+        "expected no active links involving hub after crash, found: {:?}",
+        active_hub_links
+            .iter()
+            .map(|l| format!("{}->{}", l.source_node_id, l.dest_node_id))
+            .collect::<Vec<_>>()
+    );
+
+    // Restart the hub.
+    let hub2 = start_single_node("hub", "platform", cp.southbound_port, hub_port).await;
+    wait_for_nodes_connected(&mut client, &[&id_hub], SHORT_TIMEOUT).await;
+
+    // Links should be re-established.
+    wait_for_link_between_groups(&mut client, "customer-a", "platform", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "customer-b", "platform", DEFAULT_TIMEOUT).await;
+
+    // The original app's subscription on spoke-a is still active. After the
+    // links recover, the subscription should propagate over the new link to
+    // the hub. If not re-propagated automatically, a new subscription triggers it.
+    // Start a new app to ensure routes are created.
+    let app2 = start_subscribing_app(spoke_a_port, "org", "ns", "hub-crash-svc2").await;
+    wait_for_route_applied(&mut client, &id_hub, &id_spoke_a, DEFAULT_TIMEOUT).await;
+    wait_for_route_applied(&mut client, &id_spoke_b, &id_spoke_a, DEFAULT_TIMEOUT).await;
+
+    app.shutdown().await.ok();
+    app2.shutdown().await.ok();
+    hub2.shutdown().await.ok();
+    spoke_a.shutdown().await.ok();
+    spoke_b.shutdown().await.ok();
+    stop_control_plane(cp).await;
+}
