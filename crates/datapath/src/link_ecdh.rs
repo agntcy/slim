@@ -3,8 +3,6 @@
 
 //! X25519 ECDH + HKDF-SHA256 for per-inter-node-link HMAC keys (`aws_lc_rs` only).
 
-use std::sync::Arc;
-
 use aws_lc_rs::agreement::{self, EphemeralPrivateKey, UnparsedPublicKey, agree_ephemeral};
 use aws_lc_rs::hkdf;
 use aws_lc_rs::rand::SystemRandom;
@@ -37,7 +35,7 @@ pub fn derive_header_mac_from_ecdh(
     my_private: EphemeralPrivateKey,
     peer_public: &[u8],
     link_id: &str,
-) -> Result<Arc<HeaderMacSession>, HeaderMacError> {
+) -> Result<HeaderMacSession, HeaderMacError> {
     if peer_public.len() != X25519_PUBLIC_KEY_LEN {
         return Err(HeaderMacError::KeyAgreement);
     }
@@ -53,12 +51,13 @@ pub fn derive_header_mac_from_ecdh(
             .map_err(|_| HeaderMacError::KeyAgreement)?;
         Ok(())
     })?;
-    Ok(Arc::new(HeaderMacSession::new(&okm)?))
+    HeaderMacSession::new(&okm)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::messages::utils::DEFAULT_TTL;
 
     #[test]
     fn ecdh_hkdf_matches_between_initiator_and_responder() {
@@ -79,6 +78,7 @@ mod tests {
             incoming_conn: None,
             error: None,
             header_mac: None,
+            ttl: DEFAULT_TTL,
         };
         a.sign_slim_header(&mut h, &lid).unwrap();
         b.verify_slim_header(&h, &lid).unwrap();

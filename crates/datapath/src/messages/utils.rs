@@ -5,13 +5,14 @@ use std::fmt::Display;
 use std::{collections::HashMap, time::Duration};
 
 use crate::api::proto::dataplane::v1::{
-    GroupClosePayload, GroupNackPayload, Participant, ParticipantSettings, PingPayload,
+    GroupClosePayload, GroupNackPayload, LinkConnectionType, Participant, ParticipantSettings,
+    PingPayload,
 };
 use crate::api::{
     Content, LinkNegotiationPayload, MessageType, ProtoLink, ProtoLinkMessageType, ProtoLinkType,
-    ProtoMessage, ProtoName, ProtoPublish, ProtoPublishType, ProtoSessionType, ProtoSubscribe,
-    ProtoSubscribeType, ProtoSubscriptionAck, ProtoSubscriptionAckType, ProtoUnsubscribe,
-    ProtoUnsubscribeType, SessionHeader, SlimHeader,
+    ProtoMessage, ProtoMlsSettings as MlsSettings, ProtoName, ProtoPublish, ProtoPublishType,
+    ProtoSessionType, ProtoSubscribe, ProtoSubscribeType, ProtoSubscriptionAck,
+    ProtoSubscriptionAckType, ProtoUnsubscribe, ProtoUnsubscribeType, SessionHeader, SlimHeader,
     proto::dataplane::v1::{
         ApplicationPayload, CommandPayload, DiscoveryReplyPayload, DiscoveryRequestPayload,
         EncodedName, GroupAckPayload, GroupAddPayload, GroupProposalPayload, GroupRemovePayload,
@@ -23,6 +24,17 @@ use crate::api::{
 
 use slim_version::version;
 use thiserror::Error;
+
+use crate::tables::ConnType;
+
+impl From<ConnType> for LinkConnectionType {
+    fn from(ct: ConnType) -> Self {
+        match ct {
+            ConnType::Peer => LinkConnectionType::Peer,
+            _ => LinkConnectionType::Remote,
+        }
+    }
+}
 
 /// DELETE_GROUP indicates that the entire group is being closed.
 /// The moderator sets this metadata on the leave message sent to all participants
@@ -56,6 +68,9 @@ pub const FALSE_VAL: &str = "FALSE";
 /// Messages with IDs > MAX_PUBLISH_ID (used for `PUBLISH_TO` messages) bypass sequencing.
 /// Value: Half of u32::MAX to allow a separate ID space for out-of-band messages.
 pub const MAX_PUBLISH_ID: u32 = u32::MAX / 2;
+
+/// Default TTL value for messages that do not have an explicit TTL set.
+pub const DEFAULT_TTL: u32 = 8;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum MessageError {
@@ -181,6 +196,7 @@ pub struct SlimHeaderFlags {
     pub forward_to: Option<u64>,
     pub incoming_conn: Option<u64>,
     pub error: Option<bool>,
+    pub ttl: u32,
 }
 
 impl Default for SlimHeaderFlags {
@@ -191,6 +207,7 @@ impl Default for SlimHeaderFlags {
             forward_to: None,
             incoming_conn: None,
             error: None,
+            ttl: DEFAULT_TTL,
         }
     }
 }
@@ -199,8 +216,8 @@ impl Display for SlimHeaderFlags {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "fanout: {}, recv_from: {:?}, forward_to: {:?}, incoming_conn: {:?}, error: {:?}",
-            self.fanout, self.recv_from, self.forward_to, self.incoming_conn, self.error
+            "fanout: {}, recv_from: {:?}, forward_to: {:?}, incoming_conn: {:?}, error: {:?}, ttl: {:?}",
+            self.fanout, self.recv_from, self.forward_to, self.incoming_conn, self.error, self.ttl
         )
     }
 }
@@ -219,6 +236,7 @@ impl SlimHeaderFlags {
             forward_to,
             incoming_conn,
             error,
+            ttl: DEFAULT_TTL,
         }
     }
 
@@ -253,6 +271,10 @@ impl SlimHeaderFlags {
             ..self
         }
     }
+
+    pub fn with_ttl(self, ttl: u32) -> Self {
+        Self { ttl, ..self }
+    }
 }
 
 /// SLIM Header
@@ -277,6 +299,7 @@ impl SlimHeader {
             incoming_conn: flags.incoming_conn,
             error: flags.error,
             header_mac: None,
+            ttl: flags.ttl,
         }
     }
 
@@ -365,6 +388,21 @@ impl SlimHeader {
         self.error = error;
     }
 
+    pub fn get_ttl(&self) -> u32 {
+        self.ttl
+    }
+
+    pub fn set_ttl(&mut self, ttl: u32) {
+        self.ttl = ttl;
+    }
+
+    /// Decrements TTL by 1. Returns the new value.
+    pub fn decrement_ttl(&mut self) -> u32 {
+        self.ttl = self.ttl.saturating_sub(1);
+        self.ttl
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     // returns (incoming, recv_from, forward_to) for subscription processing
     pub(crate) fn get_connections(&self) -> (u64, Option<u64>, Option<u64>) {
         // when calling this function, incoming connection is set
@@ -865,6 +903,19 @@ impl ProtoMessage {
         self.get_slim_header_mut().set_error_flag(error);
     }
 
+    pub fn get_ttl(&self) -> u32 {
+        self.get_slim_header().get_ttl()
+    }
+
+    pub fn set_ttl(&mut self, ttl: u32) {
+        self.get_slim_header_mut().set_ttl(ttl);
+    }
+
+    /// Decrements TTL by 1. Returns the new value.
+    pub fn decrement_ttl(&mut self) -> u32 {
+        self.get_slim_header_mut().decrement_ttl()
+    }
+
     pub fn set_session_message_type(&mut self, message_type: SessionMessageType) {
         self.get_session_header_mut()
             .set_session_message_type(message_type);
@@ -896,6 +947,17 @@ impl ProtoMessage {
 
     pub fn is_link(&self) -> bool {
         matches!(self.get_type(), MessageType::Link(_))
+    }
+
+    /// Extract the [`LinkNegotiationPayload`] from a Link message, if present.
+    pub fn get_link_negotiation_payload(&self) -> Option<LinkNegotiationPayload> {
+        match &self.message_type {
+            Some(ProtoLinkMessageType(link)) => match &link.link_type {
+                Some(ProtoLinkType::LinkNegotiation(payload)) => Some(payload.clone()),
+                _ => None,
+            },
+            _ => None,
+        }
     }
 
     pub fn is_subscription_ack(&self) -> bool {
@@ -1086,10 +1148,10 @@ impl AsRef<ProtoPublish> for ProtoMessage {
 ///
 /// let channel = ProtoName::from_strings(["org", "namespace", "channel"]);
 /// let payload = CommandPayload::builder().join_request(
-///     true,  // enable_mls
 ///     Some(5),  // max_retries
 ///     Some(Duration::from_secs(10)),  // timeout
 ///     Some(channel),
+///     None, // mls_settings
 /// );
 /// ```
 ///
@@ -1136,12 +1198,13 @@ impl CommandPayloadBuilder {
     }
 
     /// Creates a join request payload
+    #[allow(deprecated)]
     pub fn join_request(
         self,
-        enable_mls: bool,
         max_retries: Option<u32>,
         timer_duration: Option<Duration>,
         channel: Option<ProtoName>,
+        mls_settings: Option<MlsSettings>,
     ) -> CommandPayload {
         let proto_channel = channel;
 
@@ -1157,9 +1220,9 @@ impl CommandPayloadBuilder {
         };
 
         let payload = JoinRequestPayload {
-            enable_mls,
             timer_settings,
             channel: proto_channel,
+            mls_settings,
         };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::JoinRequest(payload)),
@@ -1447,36 +1510,37 @@ impl ProtoMessageBuilder {
 
     /// Sets the fanout value
     pub fn fanout(mut self, fanout: u32) -> Self {
-        let flags = self.flags.take().unwrap_or_default();
-        self.flags = Some(flags.with_fanout(fanout));
+        self.flags.get_or_insert_default().fanout = fanout;
         self
     }
 
     /// Sets the recv_from connection
     pub fn recv_from(mut self, recv_from: u64) -> Self {
-        let flags = self.flags.take().unwrap_or_default();
-        self.flags = Some(flags.with_recv_from(recv_from));
+        self.flags.get_or_insert_default().recv_from = Some(recv_from);
         self
     }
 
     /// Sets the forward_to connection
     pub fn forward_to(mut self, forward_to: u64) -> Self {
-        let flags = self.flags.take().unwrap_or_default();
-        self.flags = Some(flags.with_forward_to(forward_to));
+        self.flags.get_or_insert_default().forward_to = Some(forward_to);
         self
     }
 
     /// Sets the incoming connection
     pub fn incoming_conn(mut self, incoming_conn: u64) -> Self {
-        let flags = self.flags.take().unwrap_or_default();
-        self.flags = Some(flags.with_incoming_conn(incoming_conn));
+        self.flags.get_or_insert_default().incoming_conn = Some(incoming_conn);
         self
     }
 
     /// Sets the error flag
     pub fn error(mut self, error: bool) -> Self {
-        let flags = self.flags.take().unwrap_or_default();
-        self.flags = Some(flags.with_error(error));
+        self.flags.get_or_insert_default().error = Some(error);
+        self
+    }
+
+    /// Sets the TTL (time-to-live) value
+    pub fn ttl(mut self, ttl: u32) -> Self {
+        self.flags.get_or_insert_default().ttl = ttl;
         self
     }
 
@@ -1546,6 +1610,7 @@ impl ProtoMessageBuilder {
             forward_to: header.forward_to,
             incoming_conn: header.incoming_conn,
             error: header.error,
+            ttl: header.ttl,
         };
         self.flags = Some(flags);
         self
@@ -1680,12 +1745,16 @@ impl ProtoMessageBuilder {
 
     /// Builds a link negotiation message.
     /// Link messages are link-local and never routed; they carry no SLIM header.
+    #[allow(clippy::too_many_arguments)]
     pub fn build_link_negotiation(
         self,
         link_id: impl Into<String>,
         slim_version: impl Into<String>,
         is_reply: bool,
         link_ecdh_public_key: Option<Vec<u8>>,
+        connection_type: LinkConnectionType,
+        node_id: impl Into<String>,
+        deployment_name: impl Into<String>,
     ) -> ProtoMessage {
         let link_ecdh_public_key = link_ecdh_public_key.unwrap_or_default();
         let link = ProtoLink {
@@ -1694,6 +1763,9 @@ impl ProtoMessageBuilder {
                 slim_version: slim_version.into(),
                 is_reply,
                 link_ecdh_public_key,
+                connection_type: connection_type.into(),
+                node_id: node_id.into(),
+                deployment_name: deployment_name.into(),
             })),
         };
         ProtoMessage::new(self.metadata, ProtoLinkMessageType(link))
@@ -2010,6 +2082,7 @@ mod tests {
             incoming_conn: None,
             error: None,
             header_mac: None,
+            ttl: DEFAULT_TTL,
         };
 
         // the operations to retrieve source and destination should fail with panic
@@ -2181,13 +2254,13 @@ mod tests {
 
         // Test join request
         let payload = CommandPayload::builder().join_request(
-            true,
             Some(5),
             Some(Duration::from_secs(10)),
             Some(dest.clone()),
+            Some(MlsSettings::default()),
         );
         let extracted = payload.as_join_request_payload().unwrap();
-        assert!(extracted.enable_mls);
+        assert!(extracted.mls_settings.is_some());
         assert!(extracted.timer_settings.is_some());
 
         // Test join reply
@@ -2283,6 +2356,9 @@ mod tests {
                 slim_version: "1.0.0".into(),
                 is_reply: false,
                 link_ecdh_public_key: vec![],
+                connection_type: 0,
+                node_id: String::new(),
+                deployment_name: String::new(),
             })),
         };
         let msg = ProtoMessage::new(HashMap::new(), ProtoLinkMessageType(link));
@@ -2291,7 +2367,15 @@ mod tests {
 
     #[test]
     fn test_build_link_negotiation_request() {
-        let msg = ProtoMessage::builder().build_link_negotiation("my-id", "1.2.3", false, None);
+        let msg = ProtoMessage::builder().build_link_negotiation(
+            "my-id",
+            "1.2.3",
+            false,
+            None,
+            LinkConnectionType::Remote,
+            "",
+            "",
+        );
         assert!(msg.is_link());
         assert!(!msg.is_publish());
         assert!(!msg.is_subscribe());
@@ -2300,7 +2384,15 @@ mod tests {
 
     #[test]
     fn test_build_link_negotiation_reply() {
-        let msg = ProtoMessage::builder().build_link_negotiation("my-id", "1.2.3", true, None);
+        let msg = ProtoMessage::builder().build_link_negotiation(
+            "my-id",
+            "1.2.3",
+            true,
+            None,
+            LinkConnectionType::Remote,
+            "",
+            "",
+        );
         assert!(msg.is_link());
         assert!(msg.validate().is_ok());
     }

@@ -5,7 +5,6 @@ use crate::errors::AuthError;
 use crate::jwt::extract_sub_claim_unsafe;
 use crate::resolver::JwksCache;
 use crate::traits::{TokenProvider, Verifier};
-use async_trait::async_trait;
 use display_error_chain::ErrorChainExt;
 use futures::executor::block_on;
 use jsonwebtoken::jwk::JwkSet;
@@ -342,7 +341,6 @@ impl OidcTokenProvider {
     }
 }
 
-#[async_trait]
 impl TokenProvider for OidcTokenProvider {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         OidcTokenProvider::initialize(self).await
@@ -358,6 +356,14 @@ impl TokenProvider for OidcTokenProvider {
     fn get_id(&self) -> Result<String, AuthError> {
         let token = self.get_token()?;
         extract_sub_claim_unsafe(&token)
+    }
+
+    async fn set_signature_keys(
+        &mut self,
+        _private_key: Vec<u8>,
+        _public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        Err(AuthError::MlsNotSupported)
     }
 }
 
@@ -494,7 +500,6 @@ impl OidcVerifier {
     }
 }
 
-#[async_trait]
 impl Verifier for OidcVerifier {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         Ok(()) // no-op

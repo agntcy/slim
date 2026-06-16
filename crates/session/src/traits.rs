@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Local crate
-use crate::{common::SessionMessage, errors::SessionError};
+use crate::{
+    common::{SessionMessage, SessionOutput},
+    errors::SessionError,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProcessingState {
@@ -14,7 +17,14 @@ pub enum ProcessingState {
 ///
 /// Each layer implements this trait and can hold an inner layer.
 /// The layer decides whether to pass messages to its inner layer or handle them itself (or both).
-#[trait_variant::make(Send)]
+///
+/// Layers return `SessionOutput` containing outbound messages instead of sending them internally.
+/// The processing loop is the single orchestration point for identity-setting and channel sends.
+// On native the layer futures must be `Send` (multi-threaded tokio runtime).
+// On wasm32 the MLS crypto provider (SubtleCrypto) yields `!Send` futures and
+// the runtime is single-threaded, so the `Send` bound is dropped there.
+#[cfg_attr(not(target_arch = "wasm32"), trait_variant::make(Send))]
+#[cfg_attr(target_arch = "wasm32", trait_variant::make())]
 pub trait MessageHandler {
     /// Init the layer.
     async fn init(&mut self) -> Result<(), SessionError>;
@@ -23,20 +33,19 @@ pub trait MessageHandler {
     ///
     /// # Arguments
     /// * `message` - The session message. It can be an actual message or an event.
-    /// * `direction` - Whether the message is incoming (from network) or outgoing (from app)
     ///
     /// # Returns
-    /// * `Ok(())` - If processing succeeded
+    /// * `Ok(SessionOutput)` - Outbound messages to send (may be empty)
     /// * `Err(SessionError)` - If processing failed
-    async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError>;
+    async fn on_message(&mut self, message: SessionMessage) -> Result<SessionOutput, SessionError>;
 
     /// Add an endpoint to the session.
     /// Default implementation does nothing for layers that don't manage endpoints.
     async fn add_endpoint(
         &mut self,
         _endpoint: &slim_datapath::api::Participant,
-    ) -> Result<(), SessionError> {
-        async { Ok(()) }
+    ) -> Result<SessionOutput, SessionError> {
+        async { Ok(SessionOutput::new()) }
     }
 
     /// Remove an endpoint from the session.
@@ -68,4 +77,15 @@ pub trait MessageHandler {
     fn participants_list(&self) -> Vec<slim_datapath::api::ProtoName> {
         vec![]
     }
+}
+
+pub trait MlsStateSelector<P, V>: Send + Sync
+where
+    P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+    V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
+{
+    fn set_mls_state(
+        &mut self,
+        mls_state: std::sync::Arc<parking_lot::Mutex<crate::mls_state::MlsState<P, V>>>,
+    );
 }

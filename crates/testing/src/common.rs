@@ -19,14 +19,27 @@ pub const DEFAULT_DATAPLANE_PORT: u16 = 46357;
 pub const DEFAULT_SERVICE_ID: &str = "slim/0";
 
 /// Reserve a local TCP port for a test server.
+///
+/// Uses a process-wide set to ensure the same port is never returned twice,
+/// preventing races between parallel tests within the same binary.
 pub fn reserve_local_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind test port");
-    let port = listener
-        .local_addr()
-        .expect("failed to read test port")
-        .port();
-    drop(listener);
-    port
+    use std::collections::HashSet;
+    use std::sync::LazyLock;
+
+    use parking_lot::Mutex;
+
+    static ALLOCATED: LazyLock<Mutex<HashSet<u16>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+
+    loop {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind test port");
+        let port = listener
+            .local_addr()
+            .expect("failed to read test port")
+            .port();
+        if ALLOCATED.lock().insert(port) {
+            return port;
+        }
+    }
 }
 
 /// Runs a SLIM node server that listens on the provided dataplane port.

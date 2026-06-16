@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use http::StatusCode;
+#[cfg(not(target_arch = "wasm32"))]
 use jsonwebtoken::jwk::KeyAlgorithm;
 
-#[cfg(not(target_family = "windows"))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_family = "windows")))]
 use spiffe::{
     JwtSourceError, JwtSvidError, SpiffeIdError, TrustDomain, WorkloadApiError, X509SourceError,
 };
@@ -14,6 +15,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum AuthError {
     // JWT errors
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("unsupported key algorithm: {0}")]
     JwtUnsupportedKeyAlgorithm(KeyAlgorithm),
     #[error("JWK does not contain the key algorithm (alg) field")]
@@ -62,6 +64,7 @@ pub enum AuthError {
     TimeError(#[from] std::time::SystemTimeError),
 
     // URL parsing
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("URL parse error")]
     UrlParseError(#[from] url::ParseError),
 
@@ -72,6 +75,7 @@ pub enum AuthError {
     HeaderValueError(#[from] http::header::InvalidHeaderValue),
 
     // File watcher
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("file watcher error")]
     FileWatcherError(#[from] crate::file_watcher::FileWatcherError),
 
@@ -86,12 +90,14 @@ pub enum AuthError {
     TokenInvalidMissingSub,
     #[error("token invalid: replay")]
     TokenInvalidReplay,
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("token invalid")]
     JwtTokenInvalid(#[from] jsonwebtoken::errors::Error),
     #[error("token invalid - missing or invalid exp claim")]
     TokenInvalidMissingExp,
 
     // HTTP / networking
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("HTTP request error")]
     HttpError(#[from] reqwest::Error),
 
@@ -110,46 +116,46 @@ pub enum AuthError {
     // SPIFFE / SPIRE integration
     #[error("spire integration is not supported on Windows")]
     SpireUnsupportedOnWindows,
-    #[cfg(not(target_family = "windows"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_family = "windows")))]
     #[error("serde error while encoding audience: {source}")]
     SpiffeCustomClaimsSerialize { source: serde_json::Error },
-    #[cfg(not(target_family = "windows"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_family = "windows")))]
     #[error("spiffe error")]
     SpiffeError(#[from] SpiffeIdError),
-    #[cfg(not(target_family = "windows"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_family = "windows")))]
     #[error("spiffe grpc error")]
     SpiffeGrpcError(#[from] WorkloadApiError),
-    #[cfg(not(target_family = "windows"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_family = "windows")))]
     #[error("spiffe workload api unavailable")]
     SpiffeWorkloadApiUnavailable,
-    #[cfg(not(target_family = "windows"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_family = "windows")))]
     #[error("spiffe x509 source error")]
     SpiffeX509SourceError(#[from] X509SourceError),
-    #[cfg(not(target_family = "windows"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_family = "windows")))]
     #[error("spiffe jwt source error")]
     SpiffeJwtSourceError(#[from] JwtSourceError),
-    #[cfg(not(target_family = "windows"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_family = "windows")))]
     #[error("jwt source not initialized")]
     SpiffeJwtSourceNotInitialized,
-    #[cfg(not(target_family = "windows"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_family = "windows")))]
     #[error("missing jwt svid")]
     SpiffeJwtSvidMissing,
-    #[cfg(not(target_family = "windows"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_family = "windows")))]
     #[error("missing jwt bundle")]
     SpiffeJwtBundleMissing,
-    #[cfg(not(target_family = "windows"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_family = "windows")))]
     #[error("invalid JWT svid")]
     SpiffeInvalidJwtSvid(#[from] JwtSvidError),
-    #[cfg(not(target_family = "windows"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_family = "windows")))]
     #[error("failed to fetch x509 SVID")]
     SpiffeX509SvidMissing,
-    #[cfg(not(target_family = "windows"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_family = "windows")))]
     #[error("x509 source not initialized")]
     SpiffeX509SourceNotInitialized,
-    #[cfg(not(target_family = "windows"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_family = "windows")))]
     #[error("x509 trust bundle not available: {0}")]
     SpiffeX509BundleMissing(TrustDomain),
-    #[cfg(not(target_family = "windows"))]
+    #[cfg(all(not(target_arch = "wasm32"), not(target_family = "windows")))]
     #[error("spire x509 empty certificate chain")]
     SpiffeX509EmptyCertChain,
     // Serialization
@@ -165,8 +171,6 @@ pub enum AuthError {
     // MLS
     #[error("MLS is not supported by this provider")]
     MlsNotSupported,
-    #[error("MLS signature key generation failed")]
-    MlsKeyGenerationFailed,
     #[error("public key not found in identity claims")]
     PublicKeyNotFound,
     #[error("subject not found in identity claims")]

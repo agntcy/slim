@@ -64,3 +64,9 @@ artifacts
 
 # Backup files
 *.bak
+
+# Docs build output (task docs:build / mkdocs)
+.build/
+docs/mkdocs/site/
+docs/mkdocs/.venv/
+docs/.task/

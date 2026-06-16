@@ -23,7 +23,7 @@ use slim_datapath::{
 // Local crate
 use crate::{
     MessageDirection, SessionError,
-    common::SessionMessage,
+    common::{OutboundMessage, SessionMessage, SessionOutput},
     completion_handle::CompletionHandle,
     controller_sender::{ControllerSender, PING_INTERVAL},
     session_builder::{ForController, SessionBuilder},
@@ -31,6 +31,17 @@ use crate::{
     session_settings::SessionSettings,
     traits::{MessageHandler, ProcessingState},
 };
+
+pub(crate) async fn verify_identity<V>(msg: &Message, verifier: &V) -> Result<(), SessionError>
+where
+    V: Verifier + Send + Sync,
+{
+    let identity = msg.get_slim_header().get_identity();
+    if verifier.try_verify(&identity).is_err() {
+        verifier.verify(&identity).await?;
+    }
+    Ok(())
+}
 
 pub struct SessionController {
     /// session id
@@ -97,7 +108,7 @@ impl SessionController {
             session_type = ?config.session_type
         );
 
-        let handle = tokio::spawn(
+        let handle = crate::runtime::spawn(
             Self::processing_loop(inner, rx, cancellation_token.clone(), settings).instrument(span),
         );
 
@@ -129,6 +140,48 @@ impl SessionController {
             .reset(tokio::time::Instant::now() + shutdown_timeout);
     }
 
+    /// Apply the identity token to all outbound ToSlim messages.
+    /// Must run before MLS encryption so header-integrity AAD matches the on-wire header.
+    pub(crate) fn apply_identity_to_slim_output<P>(
+        output: &mut SessionOutput,
+        identity_provider: &P,
+    ) -> Result<(), SessionError>
+    where
+        P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+    {
+        let identity = identity_provider.get_token()?;
+        for msg in &mut output.messages {
+            if let OutboundMessage::ToSlim(m) = msg {
+                m.get_slim_header_mut().set_identity(identity.clone());
+            }
+        }
+        Ok(())
+    }
+
+    /// Dispatch outbound messages from SessionOutput to actual channels.
+    /// Sends ToApp messages directly to the application channel.
+    async fn dispatch_output<P, V, M>(output: SessionOutput, settings: &SessionSettings<P, V, M>)
+    where
+        P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+        V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
+        M: crate::subscription_manager::SubscriptionOps,
+    {
+        for msg in output.messages {
+            match msg {
+                OutboundMessage::ToSlim(message) => {
+                    if let Err(e) = settings.slim_tx.send(Ok(message)).await {
+                        tracing::error!(error = %e, "failed to send message to SLIM");
+                    }
+                }
+                OutboundMessage::ToApp(result) => {
+                    if let Err(e) = settings.app_tx.send(result) {
+                        tracing::error!(error = %e, "failed to send message to application");
+                    }
+                }
+            }
+        }
+    }
+
     async fn processing_loop<P, V, M>(
         mut inner: impl MessageHandler + 'static,
         mut rx: sync::mpsc::Receiver<SessionMessage>,
@@ -158,22 +211,28 @@ impl SessionController {
                     debug!("consuming pending messages before entering draining state");
                     while let Ok(msg) = rx.try_recv() {
                         if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &msg
-                            && let Err(e) = crate::transmitter::verify_identity(message, &settings.identity_verifier).await {
+                            && let Err(e) = crate::session_controller::verify_identity(message, &settings.identity_verifier).await {
                             debug!(error = %e.chain(), "dropping inbound message during drain: identity verification failed");
                             continue;
                         }
-                        if let Err(e) = inner.on_message(msg).await {
-                            tracing::error!(error = %e.chain(), "error processing message during draining - close immediately.");
-                            break;
+                        match inner.on_message(msg).await {
+                            Ok(output) => Self::dispatch_output(output, &settings).await,
+                            Err(e) => {
+                                tracing::error!(error = %e.chain(), "error processing message during draining - close immediately.");
+                                break;
+                            }
                         }
                     }
 
                     // Send drain to message to the inner to notify the beginning of the drain
-                    if let Err(e) = inner.on_message(SessionMessage::StartDrain {
+                    match inner.on_message(SessionMessage::StartDrain {
                         grace_period: shutdown_timeout
                     }).await {
-                        tracing::error!(error = %e.chain(),  "error during start drain");
-                        break;
+                        Ok(output) => Self::dispatch_output(output, &settings).await,
+                        Err(e) => {
+                            tracing::error!(error = %e.chain(),  "error during start drain");
+                            break;
+                        }
                     }
 
                     Self::enter_draining_state(&mut shutdown_deadline, &settings);
@@ -195,7 +254,7 @@ impl SessionController {
                             }
 
                             if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &session_message
-                                && let Err(e) = crate::transmitter::verify_identity(message, &settings.identity_verifier).await {
+                                && let Err(e) = crate::session_controller::verify_identity(message, &settings.identity_verifier).await {
                                 debug!(
                                     error = %e.chain(),
                                     msg_type = %message.get_session_message_type().as_str_name(),
@@ -216,22 +275,26 @@ impl SessionController {
                                 continue;
                             }
 
-                            if let Err(e) = inner.on_message(session_message).await {
-                                debug!(
-                                    error=%e,
-                                    "Error processing message{}",
-                                    if draining { " during graceful shutdown" } else { "" }
-                                );
-                                if draining {
-                                    debug!("Exiting processing loop due to error while draining");
-                                    break;
+                            match inner.on_message(session_message).await {
+                                Ok(output) => {
+                                    Self::dispatch_output(output, &settings).await;
+                                    // If we were active before processing and the handler switched to draining,
+                                    // start (or reset) the graceful shutdown deadline just like on cancellation.
+                                    if !draining && inner.processing_state() == ProcessingState::Draining {
+                                        debug!("internal component requested draining, entering draining state");
+                                        Self::enter_draining_state(&mut shutdown_deadline, &settings);
+                                    }
                                 }
-                            } else {
-                                // If we were active before processing and the handler switched to draining,
-                                // start (or reset) the graceful shutdown deadline just like on cancellation.
-                                if !draining && inner.processing_state() == ProcessingState::Draining {
-                                    debug!("internal component requested draining, entering draining state");
-                                    Self::enter_draining_state(&mut shutdown_deadline, &settings);
+                                Err(e) => {
+                                    debug!(
+                                        error=%e,
+                                        "Error processing message{}",
+                                        if draining { " during graceful shutdown" } else { "" }
+                                    );
+                                    if draining {
+                                        debug!("Exiting processing loop due to error while draining");
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -554,7 +617,7 @@ pub(crate) struct SessionControllerCommon<
     pub(crate) settings: SessionSettings<P, V, M>,
 
     /// sender for command messages
-    pub(crate) sender: ControllerSender<P>,
+    pub(crate) sender: ControllerSender,
 
     /// processing state
     pub(crate) processing_state: ProcessingState,
@@ -588,9 +651,6 @@ where
             settings.id,
             Some(PING_INTERVAL),
             settings.config.initiator,
-            // send messages to slim/app
-            settings.tx.clone(),
-            // send signal to the controller
             settings.tx_session.clone(),
         );
 
@@ -602,19 +662,12 @@ where
         }
     }
 
-    /// internal and helper functions
-    pub(crate) async fn send_to_slim(&self, message: Message) -> Result<(), SessionError> {
-        self.settings.tx.send_to_slim(Ok(message)).await
-    }
-
-    /// Send error message to the application
-    pub(crate) async fn send_to_app(&self, error: SessionError) -> Result<(), SessionError> {
-        self.settings.tx.send_to_app(Err(error)).await
-    }
-
-    /// Send control message without creating ack channel (for internal use by moderator)
-    pub(crate) async fn send_with_timer(&mut self, message: Message) -> Result<(), SessionError> {
-        self.sender.on_message(&message).await
+    /// Send control message through ControllerSender, returning the output.
+    pub(crate) fn send_with_timer(
+        &mut self,
+        message: Message,
+    ) -> Result<SessionOutput, SessionError> {
+        self.sender.on_message(&message)
     }
 
     async fn await_subscription_ack(
@@ -776,7 +829,7 @@ where
     }
 
     /// Send control message without creating ack channel (for internal use by moderator)
-    pub(crate) async fn send_control_message(
+    pub(crate) fn send_control_message(
         &mut self,
         dst: &ProtoName,
         message_type: ProtoSessionMessageType,
@@ -784,13 +837,13 @@ where
         payload: Content,
         metadata: Option<HashMap<String, String>>,
         broadcast: bool,
-    ) -> Result<(), SessionError> {
+    ) -> Result<SessionOutput, SessionError> {
         let mut msg =
             self.create_control_message(dst, message_type, message_id, payload, broadcast)?;
         if let Some(m) = metadata {
             msg.set_metadata_map(m);
         }
-        self.send_with_timer(msg).await
+        self.send_with_timer(msg)
     }
 }
 
@@ -805,8 +858,8 @@ mod tests {
     // Removed broken test_internal_draining_via_leave_request (incompatible mock trait implementation)
 
     use crate::Direction;
+    use crate::session_config::MlsSettings;
     use crate::subscription_manager::{SpySubscriptionManager, SubscriptionCall};
-    use crate::transmitter::SessionTransmitter;
     use slim_auth::shared_secret::SharedSecret;
 
     use std::sync::Arc;
@@ -830,7 +883,7 @@ mod tests {
         source: ProtoName,
         destination: ProtoName,
         session_type: ProtoSessionType,
-        mls_enabled: bool,
+        mls_settings: Option<MlsSettings>,
         initiator: bool,
         max_retries: Option<u32>,
         interval: Option<Duration>,
@@ -846,7 +899,7 @@ mod tests {
                 source: ProtoName::from_strings(["org", "ns", "source"]).with_id(1),
                 destination: ProtoName::from_strings(["org", "ns", "dest"]).with_id(2),
                 session_type: ProtoSessionType::PointToPoint,
-                mls_enabled: false,
+                mls_settings: None,
                 initiator: true,
                 max_retries: Some(5),
                 interval: Some(Duration::from_millis(200)),
@@ -878,7 +931,11 @@ mod tests {
         }
 
         fn with_mls_enabled(mut self, enabled: bool) -> Self {
-            self.mls_enabled = enabled;
+            self.mls_settings = if enabled {
+                Some(MlsSettings::default())
+            } else {
+                None
+            };
             self
         }
 
@@ -908,7 +965,7 @@ mod tests {
                 session_type: self.session_type,
                 max_retries: self.max_retries,
                 interval: self.interval,
-                mls_enabled: self.mls_enabled,
+                mls_settings: self.mls_settings,
                 initiator: self.initiator,
                 metadata: self.metadata,
             };
@@ -917,12 +974,6 @@ mod tests {
             let (tx_app, rx_app) = tokio::sync::mpsc::unbounded_channel();
             let (tx_session_layer, _rx_session_layer) = tokio::sync::mpsc::channel(10);
 
-            let tx = SessionTransmitter::new(
-                tx_slim,
-                tx_app,
-                SharedSecret::new("test", SHARED_SECRET).unwrap(),
-            );
-
             let controller = SessionController::builder()
                 .with_id(self.session_id)
                 .with_source(self.source.clone())
@@ -930,7 +981,8 @@ mod tests {
                 .with_config(config)
                 .with_identity_provider(SharedSecret::new("test", SHARED_SECRET).unwrap())
                 .with_identity_verifier(SharedSecret::new("test", SHARED_SECRET).unwrap())
-                .with_tx(tx)
+                .with_slim_tx(tx_slim)
+                .with_app_tx(tx_app)
                 .with_tx_to_session_layer(tx_session_layer)
                 .ready()
                 .expect("failed to validate builder")
@@ -1301,17 +1353,11 @@ mod tests {
         let (tx_session_layer_moderator, _rx_session_layer_moderator) =
             tokio::sync::mpsc::channel(10);
 
-        let tx_moderator = SessionTransmitter::new(
-            tx_slim_moderator.clone(),
-            tx_app_moderator.clone(),
-            SharedSecret::new("moderator", SHARED_SECRET).unwrap(),
-        );
-
         let moderator_config = SessionConfig {
             session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(1000)),
-            mls_enabled: true,
+            mls_settings: Some(MlsSettings::default()),
             initiator: true,
             metadata: std::collections::HashMap::new(),
         };
@@ -1324,7 +1370,8 @@ mod tests {
             .with_config(moderator_config)
             .with_identity_provider(SharedSecret::new("moderator", SHARED_SECRET).unwrap())
             .with_identity_verifier(SharedSecret::new("moderator", SHARED_SECRET).unwrap())
-            .with_tx(tx_moderator.clone())
+            .with_slim_tx(tx_slim_moderator.clone())
+            .with_app_tx(tx_app_moderator.clone())
             .with_tx_to_session_layer(tx_session_layer_moderator)
             .with_subscription_manager(spy_moderator_mgr)
             .ready()
@@ -1338,17 +1385,11 @@ mod tests {
         let (tx_session_layer_participant, _rx_session_layer_participant) =
             tokio::sync::mpsc::channel(10);
 
-        let tx_participant = SessionTransmitter::new(
-            tx_slim_participant.clone(),
-            tx_app_participant.clone(),
-            SharedSecret::new("participant", SHARED_SECRET).unwrap(),
-        );
-
         let participant_config = SessionConfig {
             session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
-            mls_enabled: true,
+            mls_settings: Some(MlsSettings::default()),
             initiator: false,
             metadata: std::collections::HashMap::new(),
         };
@@ -1361,7 +1402,8 @@ mod tests {
             .with_config(participant_config)
             .with_identity_provider(SharedSecret::new("participant", SHARED_SECRET).unwrap())
             .with_identity_verifier(SharedSecret::new("participant", SHARED_SECRET).unwrap())
-            .with_tx(tx_participant.clone())
+            .with_slim_tx(tx_slim_participant.clone())
+            .with_app_tx(tx_app_participant.clone())
             .with_tx_to_session_layer(tx_session_layer_participant)
             .with_subscription_manager(spy_participant_mgr)
             .ready()
@@ -1778,7 +1820,10 @@ mod tests {
                 Ok(())
             }
 
-            async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
+            async fn on_message(
+                &mut self,
+                message: SessionMessage,
+            ) -> Result<SessionOutput, SessionError> {
                 debug!(?self.state, "internal-drain-handler received message");
                 self.messages.push(message);
 
@@ -1788,7 +1833,7 @@ mod tests {
                     self.state = ProcessingState::Draining;
                 }
 
-                Ok(())
+                Ok(SessionOutput::new())
             }
 
             fn needs_drain(&self) -> bool {
@@ -1822,16 +1867,13 @@ mod tests {
                 session_type: ProtoSessionType::PointToPoint,
                 max_retries: Some(3),
                 interval: Some(Duration::from_millis(150)),
-                mls_enabled: false,
+                mls_settings: None,
                 initiator: true,
                 metadata: HashMap::new(),
             },
             direction: Direction::Bidirectional,
-            tx: SessionTransmitter::new(
-                tx_slim,
-                tx_app,
-                SharedSecret::new("src", SHARED_SECRET).unwrap(),
-            ),
+            slim_tx: tx_slim,
+            app_tx: tx_app,
             tx_session: tx_session.clone(),
             tx_to_session_layer: tx_session_layer,
             identity_provider: SharedSecret::new("src", SHARED_SECRET).unwrap(),
@@ -1960,9 +2002,12 @@ mod tests {
             Ok(())
         }
 
-        async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
+        async fn on_message(
+            &mut self,
+            message: SessionMessage,
+        ) -> Result<SessionOutput, SessionError> {
             self.messages_received.lock().await.push(message);
-            Ok(())
+            Ok(SessionOutput::new())
         }
 
         fn needs_drain(&self) -> bool {
@@ -1998,16 +2043,13 @@ mod tests {
                 session_type: ProtoSessionType::PointToPoint,
                 max_retries: Some(5),
                 interval: Some(Duration::from_millis(200)),
-                mls_enabled: false,
+                mls_settings: None,
                 initiator: true,
                 metadata: HashMap::new(),
             },
             direction: Direction::Bidirectional,
-            tx: SessionTransmitter::new(
-                tx_slim,
-                tx_app,
-                SharedSecret::new("src", SHARED_SECRET).unwrap(),
-            ),
+            slim_tx: tx_slim,
+            app_tx: tx_app,
             tx_session,
             tx_to_session_layer: tx_session_layer,
             identity_provider: SharedSecret::new("test", SHARED_SECRET).unwrap(),

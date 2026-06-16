@@ -1,6 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+#![cfg(not(target_arch = "wasm32"))]
+
 pub mod common;
 pub mod stress;
 pub mod stress_session;

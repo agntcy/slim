@@ -6,7 +6,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use slim_bindings::{App, Name, SessionConfig, SessionType};
+use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+use slim_datapath::api::{ProtoName, ProtoSessionType};
+use slim_service::app::App;
+use slim_session::completion_handle::CompletionHandle;
+use slim_session::{SessionConfig, SessionError, session_config::MlsSettings};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
 
@@ -20,14 +24,18 @@ use crate::sessions::SessionsList;
 
 /// gRPC server for the Channel Manager service
 pub struct ChannelManagerServer {
-    app: Arc<App>,
+    app: Arc<App<AuthProvider, AuthVerifier>>,
     conn_id: u64,
     sessions: Arc<SessionsList>,
 }
 
 impl ChannelManagerServer {
     /// Create a new server instance
-    pub fn new(app: Arc<App>, conn_id: u64, sessions: Arc<SessionsList>) -> Self {
+    pub fn new(
+        app: Arc<App<AuthProvider, AuthVerifier>>,
+        conn_id: u64,
+        sessions: Arc<SessionsList>,
+    ) -> Self {
         Self {
             app,
             conn_id,
@@ -49,6 +57,19 @@ impl ChannelManagerServer {
         }
     }
 
+    /// Await a two-step session operation (call + completion).
+    async fn await_session_op(
+        op: Result<CompletionHandle, SessionError>,
+        error_context: &str,
+    ) -> Result<(), String> {
+        match op {
+            Ok(completion) => completion
+                .await
+                .map_err(|e| format!("{error_context}: {e}")),
+            Err(e) => Err(format!("{error_context}: {e}")),
+        }
+    }
+
     async fn handle_create_channel(&self, req: CreateChannelRequest) -> CommandResponse {
         let channel_name = &req.channel_name;
 
@@ -58,7 +79,7 @@ impl ChannelManagerServer {
         }
 
         // Parse the channel name
-        let name = match Name::from_string(channel_name.clone()) {
+        let name = match ProtoName::parse_name(channel_name) {
             Ok(n) => n,
             Err(e) => {
                 return self.error_response(format!("invalid channel name: {e}"));
@@ -67,17 +88,19 @@ impl ChannelManagerServer {
 
         // Create a new session for the channel
         let session_config = SessionConfig {
-            session_type: SessionType::Group,
-            enable_mls: req.mls_enabled,
+            session_type: ProtoSessionType::Multicast,
+            mls_settings: if req.mls_enabled {
+                Some(MlsSettings::default())
+            } else {
+                None
+            },
             max_retries: Some(10),
             interval: Some(Duration::from_millis(1000)),
+            initiator: true,
             metadata: std::collections::HashMap::new(),
         };
 
-        let session = match self
-            .app
-            .create_session_and_wait_async(session_config, Arc::new(name))
-            .await
+        let (session, completion) = match self.app.create_session(session_config, name, None).await
         {
             Ok(s) => s,
             Err(e) => {
@@ -86,14 +109,25 @@ impl ChannelManagerServer {
             }
         };
 
+        if let Err(e) = completion.await {
+            error!("Failed to create channel {channel_name}: {e}");
+            return self.error_response(format!("failed to create channel {channel_name}"));
+        }
+
+        // Keep a handle for cleanup in case of race condition
+        let session_handle = session.session_arc();
+
         // Atomically check-and-insert to avoid race conditions
-        if !self
+        if self
             .sessions
-            .try_insert_session(channel_name.clone(), session.clone())
+            .add_session(channel_name.clone(), session)
             .await
+            .is_err()
         {
             // Channel was created by another concurrent request — clean up
-            if let Err(e) = self.app.delete_session_and_wait_async(session).await {
+            if let Some(s) = session_handle
+                && let Err(e) = self.app.delete_session(&s)
+            {
                 error!("Failed to clean up duplicate session for {channel_name}: {e}");
             }
             return self.error_response(format!("channel {channel_name} already exists"));
@@ -126,7 +160,7 @@ impl ChannelManagerServer {
             }
         };
 
-        let participant_name = match Name::from_string(participant_name_str.clone()) {
+        let participant_name = match ProtoName::parse_name(participant_name_str) {
             Ok(n) => n,
             Err(e) => {
                 return self.error_response(format!("invalid participant name: {e}"));
@@ -134,24 +168,23 @@ impl ChannelManagerServer {
         };
 
         // Set route for the participant
-        if let Err(e) = self
-            .app
-            .set_route_async(Arc::new(participant_name.clone()), self.conn_id)
-            .await
-        {
+        if let Err(e) = self.app.set_route(&participant_name, self.conn_id).await {
             return self.error_response(format!(
                 "failed to set route for participant {participant_name_str}: {e}"
             ));
         }
 
         // Invite the participant
-        if let Err(e) = session
-            .invite_and_wait_async(Arc::new(participant_name))
-            .await
+        let op = session.invite_participant(&participant_name).await;
+        if let Err(msg) = Self::await_session_op(
+            op,
+            &format!(
+                "failed to invite participant {participant_name_str} to channel {channel_name}"
+            ),
+        )
+        .await
         {
-            return self.error_response(format!(
-                "failed to invite participant {participant_name_str} to channel {channel_name}: {e}"
-            ));
+            return self.error_response(msg);
         }
 
         info!("Added participant {participant_name_str} to channel {channel_name}");
@@ -169,22 +202,23 @@ impl ChannelManagerServer {
             }
         };
 
-        let participant_name = match Name::from_string(participant_name_str.clone()) {
+        let participant_name = match ProtoName::parse_name(participant_name_str) {
             Ok(n) => n,
             Err(e) => {
                 return self.error_response(format!("invalid participant name: {e}"));
             }
         };
 
-        if let Err(e) = session
-            .remove_and_wait_async(Arc::new(participant_name))
-            .await
+        let op = session.remove_participant(&participant_name).await;
+        if let Err(msg) = Self::await_session_op(
+            op,
+            &format!(
+                "failed to remove participant {participant_name_str} from channel {channel_name}"
+            ),
+        )
+        .await
         {
-            return self.error_response(
-                format!(
-                    "failed to remove participant {participant_name_str} from channel {channel_name}: {e}"
-                ),
-            );
+            return self.error_response(msg);
         }
 
         info!("Removed participant {participant_name_str} from channel {channel_name}");
@@ -219,7 +253,7 @@ impl ChannelManagerServer {
             }
         };
 
-        let participants = match session.participants_list_async().await {
+        let participants = match session.participants_list().await {
             Ok(p) => p,
             Err(e) => {
                 return ListParticipantsResponse {

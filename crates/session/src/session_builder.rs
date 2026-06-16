@@ -7,8 +7,8 @@ use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{NameId, ProtoName};
 
 use crate::{
-    Direction,
-    common::SessionMessage,
+    Direction, SlimChannelSender,
+    common::{AppChannelSender, SessionMessage},
     errors::SessionError,
     session_config::SessionConfig,
     session_controller::SessionController,
@@ -17,7 +17,6 @@ use crate::{
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
     traits::MessageHandler,
-    transmitter::SessionTransmitter,
 };
 
 // Marker types for builder states
@@ -122,7 +121,8 @@ where
     config: Option<SessionConfig>,
     identity_provider: Option<P>,
     identity_verifier: Option<V>,
-    tx: Option<SessionTransmitter<P>>,
+    slim_tx: Option<SlimChannelSender>,
+    app_tx: Option<AppChannelSender>,
     tx_to_session_layer: Option<tokio::sync::mpsc::Sender<Result<SessionMessage, SessionError>>>,
     graceful_shutdown_timeout: Option<std::time::Duration>,
     direction: Direction,
@@ -148,7 +148,8 @@ where
             config: None,
             identity_provider: None,
             identity_verifier: None,
-            tx: None,
+            slim_tx: None,
+            app_tx: None,
             tx_to_session_layer: None,
             graceful_shutdown_timeout: None,
             direction: Direction::Bidirectional,
@@ -189,8 +190,22 @@ where
         self
     }
 
-    pub fn with_tx(mut self, tx: SessionTransmitter<P>) -> Self {
-        self.tx = Some(tx);
+    pub fn with_slim_tx(mut self, slim_tx: SlimChannelSender) -> Self {
+        self.slim_tx = Some(slim_tx);
+        self
+    }
+
+    pub fn with_app_tx(mut self, app_tx: AppChannelSender) -> Self {
+        self.app_tx = Some(app_tx);
+        self
+    }
+
+    #[cfg(test)]
+    fn with_test_channels(mut self) -> Self {
+        let (slim_tx, _) = tokio::sync::mpsc::channel(10);
+        let (app_tx, _) = tokio::sync::mpsc::unbounded_channel();
+        self.slim_tx = Some(slim_tx);
+        self.app_tx = Some(app_tx);
         self
     }
 
@@ -227,7 +242,8 @@ where
             config: self.config,
             identity_provider: self.identity_provider,
             identity_verifier: self.identity_verifier,
-            tx: self.tx,
+            slim_tx: self.slim_tx,
+            app_tx: self.app_tx,
             tx_to_session_layer: self.tx_to_session_layer,
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
             direction: self.direction,
@@ -251,7 +267,8 @@ where
             || self.config.is_none()
             || self.identity_provider.is_none()
             || self.identity_verifier.is_none()
-            || self.tx.is_none()
+            || self.slim_tx.is_none()
+            || self.app_tx.is_none()
             || self.tx_to_session_layer.is_none()
         {
             return Err(SessionError::SessionBuilderIncomplete);
@@ -285,7 +302,8 @@ where
             config: self.config,
             identity_provider: self.identity_provider,
             identity_verifier: self.identity_verifier,
-            tx: self.tx,
+            slim_tx: self.slim_tx,
+            app_tx: self.app_tx,
             tx_to_session_layer: self.tx_to_session_layer,
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
             direction: self.direction,
@@ -382,7 +400,7 @@ where
     /// between moderator and participant stack building.
     fn build_session_stack<W>(
         self,
-        wrapper_constructor: impl FnOnce(crate::session::Session<P>, SessionSettings<P, V, M>) -> W,
+        wrapper_constructor: impl FnOnce(crate::session::Session, SessionSettings<P, V, M>) -> W,
     ) -> Result<
         (
             W,
@@ -402,15 +420,15 @@ where
             self.id.unwrap(),
             self.config.clone().unwrap(),
             &self.source.clone().unwrap(),
-            self.tx.clone().unwrap(),
             tx_session.clone(),
             self.direction,
         );
 
-        let tx = self.tx.unwrap();
+        let slim_tx = self.slim_tx.unwrap();
+        let app_tx = self.app_tx.unwrap();
         let subscription_manager = self
             .subscription_manager
-            .or_else(|| M::from_slim_tx(&tx.slim_tx))
+            .or_else(|| M::from_slim_tx(&slim_tx))
             .expect("subscription_manager must be provided or M must implement from_slim_tx");
         let settings = SessionSettings {
             id: self.id.unwrap(),
@@ -419,7 +437,8 @@ where
             control: self.control.unwrap(),
             config: self.config.unwrap(),
             direction: self.direction,
-            tx,
+            slim_tx,
+            app_tx,
             tx_session: tx_session.clone(),
             tx_to_session_layer: self.tx_to_session_layer.unwrap(),
             identity_provider: self.identity_provider.unwrap(),
@@ -440,8 +459,8 @@ mod tests {
     use super::*;
     use crate::{
         SessionError,
+        session_config::MlsSettings,
         test_utils::{MockTokenProvider, MockVerifier},
-        transmitter::SessionTransmitter,
     };
     use slim_datapath::api::ProtoSessionType;
     use std::collections::HashMap;
@@ -452,7 +471,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator,
             metadata: HashMap::new(),
         }
@@ -462,10 +481,10 @@ mod tests {
         ProtoName::from_strings([prefix, "test", "name"]).with_id(1)
     }
 
-    fn create_test_transmitter() -> SessionTransmitter<MockTokenProvider> {
+    fn create_test_channels() -> (SlimChannelSender, AppChannelSender) {
         let (slim_tx, _) = mpsc::channel(10);
         let (app_tx, _) = mpsc::unbounded_channel();
-        SessionTransmitter::new(slim_tx, app_tx, MockTokenProvider)
+        (slim_tx, app_tx)
     }
 
     #[test]
@@ -550,12 +569,14 @@ mod tests {
     }
 
     #[test]
-    fn test_builder_with_tx() {
-        let tx = create_test_transmitter();
+    fn test_builder_with_slim_tx_and_app_tx() {
+        let (slim_tx, app_tx) = create_test_channels();
         let builder =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
-                .with_tx(tx);
-        assert!(builder.tx.is_some());
+                .with_slim_tx(slim_tx)
+                .with_app_tx(app_tx);
+        assert!(builder.slim_tx.is_some());
+        assert!(builder.app_tx.is_some());
     }
 
     #[test]
@@ -578,7 +599,7 @@ mod tests {
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-                .with_tx(create_test_transmitter())
+                .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
         let ready_result = builder.ready();
@@ -595,7 +616,7 @@ mod tests {
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-                .with_tx(create_test_transmitter())
+                .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
         let ready_result = builder.ready();
@@ -612,7 +633,7 @@ mod tests {
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-                .with_tx(create_test_transmitter())
+                .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
         let ready_result = builder.ready();
         assert!(ready_result.is_err());
@@ -628,7 +649,7 @@ mod tests {
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-                .with_tx(create_test_transmitter())
+                .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
         let ready_result = builder.ready();
@@ -645,7 +666,7 @@ mod tests {
                 .with_destination(create_test_name("dest"))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-                .with_tx(create_test_transmitter())
+                .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
         let ready_result = builder.ready();
@@ -662,7 +683,7 @@ mod tests {
                 .with_destination(create_test_name("dest"))
                 .with_config(create_test_config(true))
                 .with_identity_verifier(MockVerifier)
-                .with_tx(create_test_transmitter())
+                .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
         let ready_result = builder.ready();
@@ -679,7 +700,7 @@ mod tests {
                 .with_destination(create_test_name("dest"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
-                .with_tx(create_test_transmitter())
+                .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
         let ready_result = builder.ready();
@@ -713,7 +734,7 @@ mod tests {
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-                .with_tx(create_test_transmitter());
+                .with_test_channels();
 
         let ready_result = builder.ready();
         assert!(ready_result.is_err());
@@ -730,7 +751,7 @@ mod tests {
                 .with_config(create_test_config(false))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-                .with_tx(create_test_transmitter())
+                .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
         assert_eq!(builder.id, Some(123));
@@ -739,7 +760,8 @@ mod tests {
         assert!(builder.config.is_some());
         assert!(builder.identity_provider.is_some());
         assert!(builder.identity_verifier.is_some());
-        assert!(builder.tx.is_some());
+        assert!(builder.slim_tx.is_some());
+        assert!(builder.app_tx.is_some());
         assert!(builder.tx_to_session_layer.is_some());
     }
 
@@ -754,7 +776,7 @@ mod tests {
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-                .with_tx(create_test_transmitter())
+                .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
         let ready_builder = builder.ready().unwrap();
@@ -766,7 +788,8 @@ mod tests {
         assert!(ready_builder.config.is_some());
         assert!(ready_builder.identity_provider.is_some());
         assert!(ready_builder.identity_verifier.is_some());
-        assert!(ready_builder.tx.is_some());
+        assert!(ready_builder.slim_tx.is_some());
+        assert!(ready_builder.app_tx.is_some());
         assert!(ready_builder.tx_to_session_layer.is_some());
     }
 
@@ -827,13 +850,15 @@ mod tests {
     #[test]
     fn test_builder_with_mls_enabled() {
         let mut config = create_test_config(true);
-        config.mls_enabled = true;
+        config.mls_settings = Some(MlsSettings {
+            header_integrity_validation_percent: 100,
+        });
 
         let builder =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_config(config);
 
-        assert!(builder.config.unwrap().mls_enabled);
+        assert!(builder.config.unwrap().mls_settings.is_some());
     }
 
     #[test]
@@ -917,7 +942,7 @@ mod tests {
             .with_config(create_test_config(true))
             .with_identity_provider(MockTokenProvider)
             .with_identity_verifier(MockVerifier)
-            .with_tx(create_test_transmitter())
+            .with_test_channels()
             .with_tx_to_session_layer(tx_to_session);
 
         assert!(builder.ready().is_ok());
@@ -939,7 +964,9 @@ mod tests {
         builder.config = Some(create_test_config(true));
         builder.identity_provider = Some(MockTokenProvider);
         builder.identity_verifier = Some(MockVerifier);
-        builder.tx = Some(create_test_transmitter());
+        let (slim_tx, app_tx) = create_test_channels();
+        builder.slim_tx = Some(slim_tx);
+        builder.app_tx = Some(app_tx);
         builder.tx_to_session_layer = Some(tx_to_session);
 
         // This should succeed
@@ -1053,7 +1080,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: None,
             interval: None,
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: HashMap::new(),
         };
@@ -1071,7 +1098,7 @@ mod tests {
             session_type: ProtoSessionType::Multicast,
             max_retries: None,
             interval: None,
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: HashMap::new(),
         };
@@ -1093,7 +1120,7 @@ mod tests {
             session_type: ProtoSessionType::Unspecified,
             max_retries: None,
             interval: None,
-            mls_enabled: false,
+            mls_settings: None,
             initiator: false,
             metadata: HashMap::new(),
         };
@@ -1127,7 +1154,7 @@ mod tests {
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-                .with_tx(create_test_transmitter())
+                .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
         let controller = builder.ready().unwrap().build();
@@ -1144,7 +1171,6 @@ mod tests {
         let (tx_to_session, _rx_from_session) = mpsc::channel(10);
         let (slim_tx, mut slim_rx) = mpsc::channel(10);
         let (app_tx, _app_rx) = mpsc::unbounded_channel();
-        let tx = SessionTransmitter::new(slim_tx, app_tx, MockTokenProvider);
 
         let mut config = create_test_config(true); // moderator (initiator)
         config.session_type = ProtoSessionType::PointToPoint;
@@ -1158,7 +1184,8 @@ mod tests {
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-                .with_tx(tx)
+                .with_slim_tx(slim_tx)
+                .with_app_tx(app_tx)
                 .with_tx_to_session_layer(tx_to_session);
 
         let controller = builder.ready().unwrap().build();
@@ -1181,7 +1208,6 @@ mod tests {
         let (tx_to_session, _rx_from_session) = mpsc::channel(10);
         let (slim_tx, mut slim_rx) = mpsc::channel(10);
         let (app_tx, _app_rx) = mpsc::unbounded_channel();
-        let tx = SessionTransmitter::new(slim_tx, app_tx, MockTokenProvider);
 
         let mut config = create_test_config(true); // moderator (initiator)
         config.session_type = ProtoSessionType::Multicast;
@@ -1196,7 +1222,8 @@ mod tests {
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-                .with_tx(tx)
+                .with_slim_tx(slim_tx)
+                .with_app_tx(app_tx)
                 .with_tx_to_session_layer(tx_to_session);
 
         let controller = builder.ready().unwrap().build();
@@ -1219,7 +1246,7 @@ mod tests {
     async fn test_builder_build_with_mls_disabled() {
         let (tx_to_session, _) = mpsc::channel(10);
         let mut config = create_test_config(false);
-        config.mls_enabled = false;
+        config.mls_settings = None;
 
         let dest = create_test_name("dest");
         let builder =
@@ -1230,7 +1257,7 @@ mod tests {
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-                .with_tx(create_test_transmitter())
+                .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
         let controller = builder.ready().unwrap().build();
@@ -1253,7 +1280,7 @@ mod tests {
                 .with_config(config.clone())
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-                .with_tx(create_test_transmitter())
+                .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
         let controller = builder.ready().unwrap().build();
@@ -1286,7 +1313,7 @@ mod tests {
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-                .with_tx(create_test_transmitter())
+                .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
         let controller = builder.ready().unwrap().build();
@@ -1315,7 +1342,7 @@ mod tests {
                 .with_config(create_test_config(false))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-                .with_tx(create_test_transmitter())
+                .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
         let controller = builder.ready().unwrap().build();
@@ -1340,7 +1367,7 @@ mod tests {
                 .with_config(create_test_config(false))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-                .with_tx(create_test_transmitter())
+                .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session1);
 
         let dest2 = create_test_name("dest2");
@@ -1352,7 +1379,7 @@ mod tests {
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-                .with_tx(create_test_transmitter())
+                .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session2);
 
         let controller1 = builder1.ready().unwrap().build();
@@ -1384,7 +1411,7 @@ mod tests {
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
-                .with_tx(create_test_transmitter())
+                .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
         // Unspecified session types are rejected in ready()
@@ -1414,7 +1441,7 @@ mod tests {
         .with_config(config)
         .with_identity_provider(MockTokenProvider)
         .with_identity_verifier(MockVerifier)
-        .with_tx(create_test_transmitter())
+        .with_test_channels()
         .with_tx_to_session_layer(tx_to_session)
         .ready()
         .unwrap();
@@ -1449,7 +1476,7 @@ mod tests {
         .with_config(config)
         .with_identity_provider(MockTokenProvider)
         .with_identity_verifier(MockVerifier)
-        .with_tx(create_test_transmitter())
+        .with_test_channels()
         .with_tx_to_session_layer(tx_to_session)
         .ready()
         .unwrap();

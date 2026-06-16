@@ -11,7 +11,7 @@ service DataPlaneService {
 // SLIM messages
 message Subscribe {
   SLIMHeader header = 1;
-  // Globally unique identifier for this subscription.
+  // Identifier for this subscription.
   // Non-zero when the sender wants a SubscriptionAck back.
   uint64 subscription_id = 2;
 }
@@ -60,11 +60,12 @@ message SLIMHeader {
   string identity = 3;
   uint32 fanout = 4;
   string version = 5;
-  optional uint64 recv_from = 6;
-  optional uint64 forward_to = 7;
-  optional uint64 incoming_conn = 8;
-  optional bool error = 9;
-  optional bytes header_mac = 10;
+  uint32 ttl = 6;
+  optional uint64 recv_from = 7;
+  optional uint64 forward_to = 8;
+  optional uint64 incoming_conn = 9;
+  optional bool error = 10;
+  optional bytes header_mac = 11;
 }
 
 message SessionHeader {
@@ -179,13 +180,13 @@ message DiscoveryReplyPayload {}
 
 // Join Request
 message JoinRequestPayload {
-  // true if mls is enabled
-  bool enable_mls = 1;
   // settings for timers for rtx and acks
-  optional TimerSettings timer_settings = 2;
+  optional TimerSettings timer_settings = 1;
   // name where to send the messages
   // it can be a channel or none
-  optional Name channel = 3;
+  optional Name channel = 2;
+  // MLS related settings
+  optional MlsSettings mls_settings = 3;
 }
 
 message TimerSettings {
@@ -215,6 +216,26 @@ message MlsPayload {
   uint32 commit_id = 1;
   // commit or welcome mls message
   bytes mls_content = 2;
+}
+
+// MLS specific settings
+message MlsSettings {
+  // 0 = disable header-integrity checks (still may send AAD for forward compat)
+  // 1-100 = percent of messages to verify after decrypt
+  uint32 header_integrity_validation_percent = 1;
+}
+
+// Fields to include in E2E header integrity check
+message HeaderIntegrityAad {
+  uint32 version = 1;
+  Name source = 2;
+  Name destination = 3;
+  string identity = 4;
+  SessionType session_type = 5;
+  SessionMessageType session_message_type = 6;
+  uint32 session_id = 7;
+  uint32 message_id = 8;
+  string payload_type = 9;
 }
 
 // Group Add Payload
@@ -301,4 +322,22 @@ message LinkNegotiationPayload {
   // X25519 ephemeral public key (32 bytes) for per-link HMAC key agreement between nodes.
   // Empty when absent (legacy peers); both sides must send a valid key to enable header HMAC.
   bytes link_ecdh_public_key = 4;
+  // Connection type advertised by the initiator.
+  LinkConnectionType connection_type = 5;
+  // Unique node identifier of the sender.
+  // Used by peer replicas to identify which node is on the other end of a connection.
+  // Empty for legacy peers that don't send this field.
+  string node_id = 6;
+  // Peer group identifier. When non-empty and connection_type is LINK_CONNECTION_TYPE_PEER,
+  // the server verifies both sides belong to the same peer group before
+  // upgrading the connection. Empty for non-peer connections.
+  string deployment_name = 7;
+}
+
+// Connection type for link negotiation.
+enum LinkConnectionType {
+  // Remote connection (default, backward compatible with peers that don't send this field).
+  LINK_CONNECTION_TYPE_REMOTE = 0;
+  // Peer connection (intra-deployment replica).
+  LINK_CONNECTION_TYPE_PEER = 1;
 }

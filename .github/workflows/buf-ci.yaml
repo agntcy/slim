@@ -15,6 +15,15 @@ on:
       - "**/LICENSE"
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
+    paths:
+      # Keep PR trigger aligned with push trigger to avoid running on docs-only changes.
+      - "**.proto"
+      - "**/buf.yaml"
+      - "**/buf.lock"
+      - "**/buf.md"
+      - "**/README.md"
+      - "**/LICENSE"
+      - ".github/workflows/buf-ci.yaml"
   delete:
 permissions:
   contents: read

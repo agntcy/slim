@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<!--
+  Copyright AGNTCY Contributors (https://github.com/agntcy)
+  SPDX-License-Identifier: Apache-2.0
+-->
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Redirecting...</title>
+    <script>
+        (function () {
+            const basePath = '/slim/';
+            const latestVersion = 'latest';
+
+            const path = window.location.pathname;
+            const redirected = sessionStorage.getItem('redirected');
+
+            if (redirected) {
+                sessionStorage.removeItem('redirected');
+                console.warn('Redirect loop detected. Stopping redirect.');
+                return;
+            }
+
+            // Skip assets and already-versioned paths (e.g. /slim/latest/ or /slim/1.2.0/).
+            const isAsset = path.includes('/assets/') || path.includes('/stylesheets/');
+            const isVersioned = new RegExp(`${basePath}(v?(\\d+\\.\\d+(\\.\\d+)?)|${latestVersion})/`).test(path);
+
+            if (!isVersioned && !isAsset) {
+                // Example: /slim/slim-howto/ -> /slim/latest/slim-howto/
+                const newPath = path.replace(basePath, basePath + latestVersion + '/');
+                sessionStorage.setItem('redirected', 'true');
+                window.location.replace(newPath + window.location.search + window.location.hash);
+            } else {
+                window.location.replace('https://agntcy.github.io/slim/');
+            }
+        })();
+    </script>
+</head>
+
+<body>
+    <h1>SLIM - Page Not Found</h1>
+    <p>We are attempting to redirect you to the latest version of this page.</p>
+    <p>If you are not redirected automatically, please navigate to the
+        <a href="https://agntcy.github.io/slim/">SLIM documentation homepage</a>.</p>
+</body>
+
+</html>

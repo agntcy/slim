@@ -91,6 +91,7 @@ message RouteEntry {
 enum ConnectionType {
   CONNECTION_TYPE_LOCAL = 0;
   CONNECTION_TYPE_REMOTE = 1;
+  CONNECTION_TYPE_PEER = 2;
 }
 
 enum ConnectionDirection {
@@ -104,6 +105,8 @@ message ConnectionEntry {
   string config_data = 3;
   optional string link_id = 4;
   ConnectionDirection direction = 5;
+  // Remote peer's node identifier (set after link negotiation).
+  optional string peer_node_id = 6;
 }
 
 message ConnectionListRequest {}

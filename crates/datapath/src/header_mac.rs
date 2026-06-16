@@ -15,7 +15,6 @@ use std::cell::RefCell;
 
 use aws_lc_rs::hmac;
 use thiserror::Error;
-use uuid::Uuid;
 
 use crate::api::proto::dataplane::v1::{Name, SlimHeader};
 
@@ -31,8 +30,8 @@ const TAG_LEN: usize = 32;
 pub enum HeaderMacError {
     #[error("header_mac key must be at least {MIN_KEY_LEN} bytes")]
     KeyTooShort,
-    #[error("invalid link_id for header MAC")]
-    InvalidLinkId,
+    #[error("link_id must not be empty")]
+    EmptyLinkId,
     #[error("missing SLIM header integrity tag")]
     MissingTag,
     #[error("invalid integrity tag length")]
@@ -46,6 +45,7 @@ pub enum HeaderMacError {
 }
 
 /// Per-link HMAC state: only the key material. Preimage buffers are thread-local (see module docs).
+#[derive(Clone)]
 pub struct HeaderMacSession {
     key: hmac::Key,
 }
@@ -73,13 +73,15 @@ impl HeaderMacSession {
         header: &mut SlimHeader,
         link_id: &str,
     ) -> Result<(), HeaderMacError> {
+        if link_id.is_empty() {
+            return Err(HeaderMacError::EmptyLinkId);
+        }
         header.header_mac = None;
-        let uuid = link_uuid_bytes(link_id)?;
         PREIMAGE_BUF.with(|cell| {
             let mut buf = cell.borrow_mut();
             buf.clear();
-            reserve_preimage_upper_bound(&mut buf, header);
-            write_preimage(&mut buf, header, &uuid);
+            reserve_preimage_upper_bound(&mut buf, header, link_id);
+            write_preimage(&mut buf, header, link_id.as_bytes());
             let tag = hmac::sign(&self.key, buf.as_slice());
             header.header_mac = Some(Vec::from(tag.as_ref()));
             Ok(())
@@ -92,6 +94,9 @@ impl HeaderMacSession {
         header: &SlimHeader,
         link_id: &str,
     ) -> Result<(), HeaderMacError> {
+        if link_id.is_empty() {
+            return Err(HeaderMacError::EmptyLinkId);
+        }
         let tag = header
             .header_mac
             .as_deref()
@@ -99,12 +104,11 @@ impl HeaderMacSession {
         if tag.len() != TAG_LEN {
             return Err(HeaderMacError::InvalidTagLength);
         }
-        let uuid = link_uuid_bytes(link_id)?;
         PREIMAGE_BUF.with(|cell| {
             let mut buf = cell.borrow_mut();
             buf.clear();
-            reserve_preimage_upper_bound(&mut buf, header);
-            write_preimage(&mut buf, header, &uuid);
+            reserve_preimage_upper_bound(&mut buf, header, link_id);
+            write_preimage(&mut buf, header, link_id.as_bytes());
             hmac::verify(&self.key, buf.as_slice(), tag)
                 .map_err(|_| HeaderMacError::VerificationFailed)
         })
@@ -113,8 +117,8 @@ impl HeaderMacSession {
 
 /// Ensure `buf` can hold the worst-case preimage without reallocation during `write_preimage`.
 #[inline]
-fn reserve_preimage_upper_bound(buf: &mut Vec<u8>, hdr: &SlimHeader) {
-    let need = preimage_upper_bound(hdr);
+fn reserve_preimage_upper_bound(buf: &mut Vec<u8>, hdr: &SlimHeader, link_id: &str) {
+    let need = preimage_upper_bound(hdr, link_id);
     let cap = buf.capacity();
     if need > cap {
         buf.reserve(need - cap);
@@ -122,10 +126,9 @@ fn reserve_preimage_upper_bound(buf: &mut Vec<u8>, hdr: &SlimHeader) {
 }
 
 #[inline]
-fn preimage_upper_bound(header: &SlimHeader) -> usize {
-    /// Byte size of `link_uuid` field.
-    /// * 16 bytes for `&[u8; 16]`.
-    const LINK_UUID_SIZE: usize = 16;
+fn preimage_upper_bound(header: &SlimHeader, link_id: &str) -> usize {
+    /// Byte size of the link_id length prefix (u32).
+    const LINK_ID_LEN_PREFIX: usize = 4;
 
     /// Byte size of `fanout`, serialized by [`to_le_bytes`]
     /// * 4 bytes for `u32`
@@ -148,12 +151,17 @@ fn preimage_upper_bound(header: &SlimHeader) -> usize {
     /// Byte size of error: Option<bool> encoded by [`push_bool_opt`]
     const ERROR_SIZE: usize = 2;
 
+    /// Byte size of TTL: u32 serialized by [`to_le_bytes`]
+    const TTL_SIZE: usize = 4;
+
     DOMAIN_V1.len()
-        + LINK_UUID_SIZE
+        + LINK_ID_LEN_PREFIX
+        + link_id.len()
         + FANOUT_SIZE
         + RECV_FROM_SIZE
         + FORWARD_TO_SIZE
         + ERROR_SIZE
+        + TTL_SIZE
         + encoded_name_upper_bound(&header.source)
         + encoded_name_upper_bound(&header.destination)
 }
@@ -188,12 +196,6 @@ fn encoded_name_upper_bound(name_opt: &Option<Name>) -> usize {
             encoded_name_bound
         }
     }
-}
-
-fn link_uuid_bytes(link_id: &str) -> Result<[u8; 16], HeaderMacError> {
-    Uuid::parse_str(link_id)
-        .map(|u| *u.as_bytes())
-        .map_err(|_| HeaderMacError::InvalidLinkId)
 }
 
 #[inline]
@@ -257,10 +259,11 @@ fn push_encoded_name(buf: &mut Vec<u8>, n: &Option<Name>) {
     }
 }
 
-/// Canonical preimage: domain || link_uuid || routing header fields (no incoming_conn, no tag).
-fn write_preimage(buf: &mut Vec<u8>, hdr: &SlimHeader, link_uuid: &[u8; 16]) {
+/// Canonical preimage: domain || len(link_id) || link_id || routing header fields (no incoming_conn, no tag).
+fn write_preimage(buf: &mut Vec<u8>, hdr: &SlimHeader, link_id_bytes: &[u8]) {
     buf.extend_from_slice(DOMAIN_V1);
-    buf.extend_from_slice(link_uuid);
+    buf.extend_from_slice(&(link_id_bytes.len() as u32).to_le_bytes());
+    buf.extend_from_slice(link_id_bytes);
     push_encoded_name(buf, &hdr.source);
     push_encoded_name(buf, &hdr.destination);
     push_bytes(buf, hdr.identity.as_bytes());
@@ -268,12 +271,15 @@ fn write_preimage(buf: &mut Vec<u8>, hdr: &SlimHeader, link_uuid: &[u8; 16]) {
     push_u64_opt(buf, hdr.recv_from);
     push_u64_opt(buf, hdr.forward_to);
     push_bool_opt(buf, hdr.error);
+    buf.extend_from_slice(&hdr.ttl.to_le_bytes());
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::api::proto::dataplane::v1::{EncodedName, Name, NameId, StringName};
+    use crate::messages::utils::DEFAULT_TTL;
+    use uuid::Uuid;
 
     fn test_key() -> Vec<u8> {
         b"01234567890123456789012345678901".to_vec()
@@ -315,6 +321,7 @@ mod tests {
             incoming_conn: Some(999),
             error: Some(false),
             header_mac: None,
+            ttl: DEFAULT_TTL,
         }
     }
 

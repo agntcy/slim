@@ -1,7 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use slim_auth::traits::TokenProvider;
 use slim_datapath::api::{
     EncodedName, Participant, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
 };
@@ -11,34 +10,26 @@ use tracing::debug;
 
 use crate::{
     Direction, MessageDirection,
-    common::SessionMessage,
+    common::{SessionMessage, SessionOutput},
     errors::SessionError,
     session_config::SessionConfig,
     session_receiver::SessionReceiver,
     session_sender::SessionSender,
     traits::{MessageHandler, ProcessingState},
-    transmitter::SessionTransmitter,
 };
 
-pub(crate) struct Session<P>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-{
+pub(crate) struct Session {
     local_name: ProtoName,
-    sender: Option<SessionSender<P>>,
-    receiver: Option<SessionReceiver<P>>,
+    sender: Option<SessionSender>,
+    receiver: Option<SessionReceiver>,
     processing_state: ProcessingState,
 }
 
-impl<P> Session<P>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-{
+impl Session {
     pub(crate) fn new(
         session_id: u32,
         session_config: SessionConfig,
         local_name: &ProtoName,
-        tx: SessionTransmitter<P>,
         tx_signals: mpsc::Sender<SessionMessage>,
         direction: Direction,
     ) -> Self {
@@ -61,7 +52,6 @@ where
                 timer_settings.clone(),
                 session_id,
                 session_config.session_type,
-                tx.clone(),
                 Some(tx_signals.clone()),
             ))
         };
@@ -74,7 +64,6 @@ where
                 session_id,
                 local_name.clone(),
                 session_config.session_type,
-                tx.clone(),
                 Some(tx_signals.clone()),
             ))
         };
@@ -87,7 +76,7 @@ where
         }
     }
 
-    pub async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
+    pub fn on_message(&mut self, message: SessionMessage) -> Result<SessionOutput, SessionError> {
         match message {
             SessionMessage::OnMessage {
                 message,
@@ -103,29 +92,30 @@ where
                     "received message",
                 );
                 self.on_application_message(message, direction, ack_tx)
-                    .await
             }
             SessionMessage::MessageError { error } => {
-                // Received error from lower layer. Cancel any pending timers for this message and send error up
                 debug!(
                     name = %self.local_name,
                     "received message error: {:?}", error,
                 );
 
-                self.with_sender_without_ack(|sender| sender.on_slim_failure(error))
+                match self.sender.as_mut() {
+                    Some(sender) => sender.on_slim_failure(error),
+                    None => Err(SessionError::SessionSenderShutdown),
+                }
             }
             SessionMessage::TimerTimeout {
                 message_id,
                 message_type,
                 name,
                 timeouts: _,
-            } => self.on_timer_timeout(message_id, message_type, name).await,
+            } => self.on_timer_timeout(message_id, message_type, name),
             SessionMessage::TimerFailure {
                 message_id,
                 message_type,
                 name,
                 timeouts: _,
-            } => self.on_timer_failure(message_id, message_type, name).await,
+            } => self.on_timer_failure(message_id, message_type, name),
             SessionMessage::StartDrain { grace_period: _ } => {
                 self.processing_state = ProcessingState::Draining;
                 if let Some(sender) = self.sender.as_mut() {
@@ -134,7 +124,7 @@ where
                 if let Some(receiver) = self.receiver.as_mut() {
                     receiver.start_drain();
                 }
-                Ok(())
+                Ok(SessionOutput::new())
             }
             _ => Err(SessionError::SessionMessageInternalUnexpected(Box::new(
                 message,
@@ -142,13 +132,14 @@ where
         }
     }
 
-    pub async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
+    pub fn add_endpoint(&mut self, endpoint: &Participant) -> Result<SessionOutput, SessionError> {
         let name = endpoint.get_name()?;
         debug!(%name, local_name = %self.local_name, "add participant");
         if let Some(sender) = self.sender.as_mut() {
-            sender.add_endpoint(endpoint).await?;
+            sender.add_endpoint(endpoint)
+        } else {
+            Ok(SessionOutput::new())
         }
-        Ok(())
     }
 
     pub fn remove_endpoint(&mut self, endpoint: &ProtoName) {
@@ -170,80 +161,48 @@ where
         }
     }
 
-    /// Helper to call sender methods with ack_tx error handling
-    async fn with_sender<'a, F, Fut>(
-        &'a mut self,
-        ack_tx: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
-        f: F,
-    ) -> Result<(), SessionError>
-    where
-        F: FnOnce(
-            &'a mut SessionSender<P>,
-            Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
-        ) -> Fut,
-        Fut: std::future::Future<Output = Result<(), SessionError>> + 'a,
-    {
-        match self.sender {
-            Some(ref mut sender) => f(sender, ack_tx).await,
-            None => {
-                let error = SessionError::SessionSenderShutdown;
-                if let Some(tx) = ack_tx {
-                    let _ = tx.send(Err(error));
-                }
-                Err(SessionError::SessionSenderShutdown)
-            }
-        }
-    }
-
-    /// Helper to call sender methods without ack_tx
-    fn with_sender_without_ack<F, R>(&mut self, f: F) -> Result<R, SessionError>
-    where
-        F: FnOnce(&mut SessionSender<P>) -> Result<R, SessionError>,
-    {
-        match self.sender {
-            Some(ref mut sender) => f(sender),
-            None => Err(SessionError::SessionSenderShutdown),
-        }
-    }
-
-    /// Helper to call receiver methods
-    async fn with_receiver<'a, F, Fut>(&'a mut self, f: F) -> Result<(), SessionError>
-    where
-        F: FnOnce(&'a mut SessionReceiver<P>) -> Fut,
-        Fut: std::future::Future<Output = Result<(), SessionError>> + 'a,
-    {
-        match self.receiver {
-            Some(ref mut receiver) => f(receiver).await,
-            None => Err(SessionError::SessionReceiverShutdown),
-        }
-    }
-
-    async fn on_application_message(
+    fn on_application_message(
         &mut self,
         message: Message,
         direction: MessageDirection,
         ack_tx: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<SessionOutput, SessionError> {
         match message.get_session_message_type() {
             ProtoSessionMessageType::Msg => {
                 if direction == MessageDirection::South {
-                    // message from the app to slim, give it to the sender
-                    self.with_sender(ack_tx, |sender, ack_tx| sender.on_message(message, ack_tx))
-                        .await
+                    match self.sender.as_mut() {
+                        Some(sender) => sender.on_message(message, ack_tx),
+                        None => {
+                            let error = SessionError::SessionSenderShutdown;
+                            if let Some(tx) = ack_tx {
+                                let _ = tx.send(Err(error));
+                            }
+                            Err(SessionError::SessionSenderShutdown)
+                        }
+                    }
                 } else {
-                    // message from slim to the app, give it to the receiver
-                    self.with_receiver(|receiver| receiver.on_message(message))
-                        .await
+                    match self.receiver.as_mut() {
+                        Some(receiver) => receiver.on_message(message),
+                        None => Err(SessionError::SessionReceiverShutdown),
+                    }
                 }
             }
             ProtoSessionMessageType::MsgAck | ProtoSessionMessageType::RtxRequest => {
-                self.with_sender(ack_tx, |sender, ack_tx| sender.on_message(message, ack_tx))
-                    .await
+                match self.sender.as_mut() {
+                    Some(sender) => sender.on_message(message, ack_tx),
+                    None => {
+                        let error = SessionError::SessionSenderShutdown;
+                        if let Some(tx) = ack_tx {
+                            let _ = tx.send(Err(error));
+                        }
+                        Err(SessionError::SessionSenderShutdown)
+                    }
+                }
             }
-            ProtoSessionMessageType::RtxReply => {
-                self.with_receiver(|receiver| receiver.on_message(message))
-                    .await
-            }
+            ProtoSessionMessageType::RtxReply => match self.receiver.as_mut() {
+                Some(receiver) => receiver.on_message(message),
+                None => Err(SessionError::SessionReceiverShutdown),
+            },
             _ => {
                 if let Some(tx) = ack_tx {
                     let _ = tx.send(Ok(()));
@@ -255,21 +214,23 @@ where
         }
     }
 
-    async fn on_timer_timeout(
+    fn on_timer_timeout(
         &mut self,
         id: u32,
         message_type: ProtoSessionMessageType,
         name: Option<EncodedName>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<SessionOutput, SessionError> {
         match message_type {
-            ProtoSessionMessageType::Msg => {
-                self.with_sender(None, |sender, _| sender.on_timer_timeout(id))
-                    .await
-            }
+            ProtoSessionMessageType::Msg => match self.sender.as_mut() {
+                Some(sender) => sender.on_timer_timeout(id),
+                None => Err(SessionError::SessionSenderShutdown),
+            },
             ProtoSessionMessageType::RtxRequest => {
                 if let Some(name) = name {
-                    self.with_receiver(|receiver| receiver.on_timer_timeout(id, name))
-                        .await
+                    match self.receiver.as_mut() {
+                        Some(receiver) => receiver.on_timer_timeout(id, name),
+                        None => Err(SessionError::SessionReceiverShutdown),
+                    }
                 } else {
                     Err(SessionError::MissingParticipantNameOnTimer)
                 }
@@ -278,20 +239,23 @@ where
         }
     }
 
-    async fn on_timer_failure(
+    fn on_timer_failure(
         &mut self,
         id: u32,
         message_type: ProtoSessionMessageType,
         name: Option<EncodedName>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<SessionOutput, SessionError> {
         match message_type {
-            ProtoSessionMessageType::Msg => {
-                self.with_sender_without_ack(|sender| sender.on_timer_failure(id))
-            }
+            ProtoSessionMessageType::Msg => match self.sender.as_mut() {
+                Some(sender) => sender.on_timer_failure(id),
+                None => Err(SessionError::SessionSenderShutdown),
+            },
             ProtoSessionMessageType::RtxRequest => {
                 if let Some(name) = name {
-                    self.with_receiver(|receiver| receiver.on_timer_failure(id, name))
-                        .await
+                    match self.receiver.as_mut() {
+                        Some(receiver) => receiver.on_timer_failure(id, name),
+                        None => Err(SessionError::SessionReceiverShutdown),
+                    }
                 } else {
                     Err(SessionError::MissingParticipantNameOnTimer)
                 }
@@ -303,27 +267,24 @@ where
 
 /// Implementation of MessageHandler trait for Session
 /// This allows Session to be used as a layer in the generic layer system
-impl<P> MessageHandler for Session<P>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-{
+impl MessageHandler for Session {
     async fn init(&mut self) -> Result<(), SessionError> {
-        // Session is the innermost layer, no initialization needed
         Ok(())
     }
 
-    async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
-        // Process through the session's existing on_message method
-        // Session is the innermost layer, so it doesn't delegate to anything
-        self.on_message(message).await
+    async fn on_message(&mut self, message: SessionMessage) -> Result<SessionOutput, SessionError> {
+        Session::on_message(self, message)
     }
 
-    async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
-        self.add_endpoint(endpoint).await
+    async fn add_endpoint(
+        &mut self,
+        endpoint: &Participant,
+    ) -> Result<SessionOutput, SessionError> {
+        Session::add_endpoint(self, endpoint)
     }
 
     fn remove_endpoint(&mut self, endpoint: &slim_datapath::api::ProtoName) {
-        self.remove_endpoint(endpoint);
+        Session::remove_endpoint(self, endpoint);
     }
 
     fn needs_drain(&self) -> bool {
@@ -344,8 +305,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::MockTokenProvider;
-    use crate::transmitter::SessionTransmitter;
+    use crate::common::OutboundMessage;
 
     use super::*;
     use slim_datapath::api::{ParticipantSettings, ProtoSessionType};
@@ -356,11 +316,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_send_message() {
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, _rx_app) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
-
-        let tx = SessionTransmitter::new(tx_slim.clone(), tx_app.clone(), MockTokenProvider);
         let session_id = 10;
 
         let local_name = ProtoName::from_strings(["org", "ns", "local"]);
@@ -370,29 +326,27 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: false,
             metadata: HashMap::new(),
         };
 
-        // create session
         let mut session = Session::new(
             session_id,
             session_config,
             &local_name,
-            tx.clone(),
             tx_signal.clone(),
             Direction::Bidirectional,
         );
 
-        // Add the remote endpoint to the session sender (should receive messages)
-        session
+        // Add the remote endpoint
+        let output = session
             .add_endpoint(&Participant::new(
                 remote_name.clone(),
-                ParticipantSettings::receive_only(), // Receives data only
+                ParticipantSettings::receive_only(),
             ))
-            .await
             .expect("error adding participant");
+        assert!(output.messages.is_empty());
 
         // Create a test message from app to slim (south direction)
         let mut message = Message::builder()
@@ -404,29 +358,28 @@ mod tests {
         message.set_session_message_type(ProtoSessionMessageType::Msg);
 
         // Send the message
-        session
+        let output = session
             .on_message(SessionMessage::OnMessage {
                 message: message.clone(),
                 direction: MessageDirection::South,
                 ack_tx: None,
             })
-            .await
             .expect("error sending message");
 
-        // Check that the message is received on slim
-        let received = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for message")
-            .expect("channel closed")
-            .expect("error in received message");
+        // Check that the output contains a ToSlim message
+        assert_eq!(output.messages.len(), 1);
+        let sent_msg = match &output.messages[0] {
+            OutboundMessage::ToSlim(m) => m.clone(),
+            _ => panic!("Expected ToSlim message"),
+        };
 
-        // update the message and check that it was received correctly
+        // Update the message and check it was sent correctly
         message.set_message_id(1);
         message.set_session_type(ProtoSessionType::PointToPoint);
         message.get_session_header_mut().set_session_id(session_id);
-        assert_eq!(received, message);
+        assert_eq!(sent_msg, message);
 
-        // check that a timer is triggered and is received on rx_signals
+        // Check that a timer is triggered and received on rx_signals
         let timer_signal = timeout(Duration::from_millis(300), rx_signal.recv())
             .await
             .expect("timeout waiting for timer signal")
@@ -445,23 +398,20 @@ mod tests {
             _ => panic!("Expected TimerTimeout signal, got: {:?}", timer_signal),
         }
 
-        // send the timeout message to the session
-        session
+        // Send the timeout message to the session
+        let output = session
             .on_message(timer_signal)
-            .await
             .expect("error handling timer timeout");
 
-        // check that the message is sent again correctly to slim
-        let retransmitted = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for retransmitted message")
-            .expect("channel closed")
-            .expect("error in retransmitted message");
-
-        // Verify the retransmitted message
+        // Check that the message is sent again correctly
+        assert_eq!(output.messages.len(), 1);
+        let retransmitted = match &output.messages[0] {
+            OutboundMessage::ToSlim(m) => m.clone(),
+            _ => panic!("Expected ToSlim message on retransmit"),
+        };
         assert_eq!(retransmitted, message);
 
-        // get a message ack
+        // Get a message ack
         let mut ack_message = Message::builder()
             .source(remote_name.clone())
             .destination(local_name.clone())
@@ -476,17 +426,16 @@ mod tests {
         ack_message.get_slim_header_mut().set_incoming_conn(Some(1));
 
         // Send the ack to the session
-        session
+        let output = session
             .on_message(SessionMessage::OnMessage {
                 message: ack_message,
                 direction: MessageDirection::North,
                 ack_tx: None,
             })
-            .await
             .expect("error sending ack");
+        assert!(output.messages.is_empty());
 
         // After receiving the ack, no more timer signals should be sent
-        // Wait a bit to ensure no timer signal arrives
         let no_timer = timeout(Duration::from_millis(300), rx_signal.recv()).await;
         assert!(
             no_timer.is_err(),
@@ -497,12 +446,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_receive_message() {
-        // Create the session
-        let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(10);
-        let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
-
-        let tx = SessionTransmitter::new(tx_slim.clone(), tx_app.clone(), MockTokenProvider);
         let session_id = 10;
 
         let local_name = ProtoName::from_strings(["org", "ns", "local"]);
@@ -512,7 +456,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: false,
             metadata: HashMap::new(),
         };
@@ -521,7 +465,6 @@ mod tests {
             session_id,
             session_config,
             &local_name,
-            tx.clone(),
             tx_signal.clone(),
             Direction::Bidirectional,
         );
@@ -538,41 +481,45 @@ mod tests {
         message1.get_session_header_mut().set_session_id(session_id);
         message1.get_slim_header_mut().set_incoming_conn(Some(1));
 
-        session
+        let output = session
             .on_message(SessionMessage::OnMessage {
                 message: message1.clone(),
                 direction: MessageDirection::North,
                 ack_tx: None,
             })
-            .await
             .expect("error receiving message1");
 
-        // Check that the message goes to the application on rx_app
-        let received1 = timeout(Duration::from_millis(100), rx_app.recv())
-            .await
-            .expect("timeout waiting for message1 on rx_app")
-            .expect("channel closed")
-            .expect("error in received message1");
+        // Should produce: ToApp(message1) + ToSlim(ack)
+        assert_eq!(output.messages.len(), 2);
 
-        // Check that the message is the right one
-        assert_eq!(received1, message1);
+        // Find the ToApp message
+        let app_msg = output
+            .messages
+            .iter()
+            .find_map(|m| match m {
+                OutboundMessage::ToApp(Ok(msg)) => Some(msg.clone()),
+                _ => None,
+            })
+            .expect("Expected ToApp message");
+        assert_eq!(app_msg, message1);
 
-        // Check that an ack was sent to SLIM
-        let ack1 = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for ack1")
-            .expect("channel closed")
-            .expect("error in received ack1");
-
-        // Check that the ack is correct
+        // Find the ToSlim (ack) message
+        let ack_msg = output
+            .messages
+            .iter()
+            .find_map(|m| match m {
+                OutboundMessage::ToSlim(msg) => Some(msg.clone()),
+                _ => None,
+            })
+            .expect("Expected ToSlim ack message");
         assert_eq!(
-            ack1.get_session_message_type(),
+            ack_msg.get_session_message_type(),
             ProtoSessionMessageType::MsgAck
         );
-        assert_eq!(ack1.get_session_header().get_message_id(), 1);
-        assert_eq!(ack1.get_dst(), local_name);
+        assert_eq!(ack_msg.get_session_header().get_message_id(), 1);
+        assert_eq!(ack_msg.get_dst(), local_name);
 
-        // receive message 3 from slim direction north (skipping message 2)
+        // Receive message 3 from slim direction north (skipping message 2)
         let mut message3 = Message::builder()
             .source(local_name.clone())
             .destination(remote_name.clone())
@@ -584,34 +531,40 @@ mod tests {
         message3.get_session_header_mut().set_session_id(session_id);
         message3.get_slim_header_mut().set_incoming_conn(Some(1));
 
-        session
+        let output = session
             .on_message(SessionMessage::OnMessage {
                 message: message3.clone(),
                 direction: MessageDirection::North,
                 ack_tx: None,
             })
-            .await
             .expect("error receiving message3");
 
-        // check that the message does not go to the app (it's buffered waiting for message 2)
-        let no_message = timeout(Duration::from_millis(100), rx_app.recv()).await;
-        assert!(
-            no_message.is_err(),
-            "Expected no message on rx_app, but got one"
-        );
+        // Should produce: ToSlim(ack for msg3) + ToSlim(rtx request for msg2)
+        // message3 is buffered waiting for message2
+        assert_eq!(output.messages.len(), 2);
+        let slim_msgs: Vec<_> = output
+            .messages
+            .iter()
+            .filter_map(|m| match m {
+                OutboundMessage::ToSlim(msg) => Some(msg.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(slim_msgs.len(), 2);
 
-        // Check that an ack was sent for message 3
-        let ack3 = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for ack3")
-            .expect("channel closed")
-            .expect("error in received ack3");
-
-        assert_eq!(
-            ack3.get_session_message_type(),
-            ProtoSessionMessageType::MsgAck
-        );
+        // Find the ack for message 3
+        let ack3 = slim_msgs
+            .iter()
+            .find(|m| m.get_session_message_type() == ProtoSessionMessageType::MsgAck)
+            .expect("Expected ack message");
         assert_eq!(ack3.get_session_header().get_message_id(), 3);
+
+        // Find the RTX request for message 2
+        let rtx_req = slim_msgs
+            .iter()
+            .find(|m| m.get_session_message_type() == ProtoSessionMessageType::RtxRequest)
+            .expect("Expected RTX request message");
+        assert_eq!(rtx_req.get_session_header().get_message_id(), 2);
 
         // Wait for the RTX timer to trigger
         let timer_signal = timeout(Duration::from_millis(600), rx_signal.recv())
@@ -635,18 +588,16 @@ mod tests {
         }
 
         // Send the timer signal to the session to trigger RTX request
-        session
+        let output = session
             .on_message(timer_signal)
-            .await
             .expect("error handling RTX timer");
 
-        // Verify that an RTX request is sent to SLIM
-        let rtx_request = timeout(Duration::from_millis(100), rx_slim.recv())
-            .await
-            .expect("timeout waiting for RTX request")
-            .expect("channel closed")
-            .expect("error in RTX request");
-
+        // Verify that an RTX request is produced
+        assert_eq!(output.messages.len(), 1);
+        let rtx_request = match &output.messages[0] {
+            OutboundMessage::ToSlim(m) => m.clone(),
+            _ => panic!("Expected ToSlim RTX request"),
+        };
         assert_eq!(
             rtx_request.get_session_message_type(),
             ProtoSessionMessageType::RtxRequest
@@ -666,14 +617,26 @@ mod tests {
         message2.get_session_header_mut().set_session_id(session_id);
         message2.get_slim_header_mut().set_incoming_conn(Some(1));
 
-        session
+        let output = session
             .on_message(SessionMessage::OnMessage {
                 message: message2.clone(),
                 direction: MessageDirection::North,
                 ack_tx: None,
             })
-            .await
             .expect("error receiving message2 as RtxReply");
+
+        // Should deliver message 2 and 3 in order to the app
+        let app_messages: Vec<_> = output
+            .messages
+            .iter()
+            .filter_map(|m| match m {
+                OutboundMessage::ToApp(Ok(msg)) => Some(msg.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(app_messages.len(), 2);
+        assert_eq!(app_messages[0].get_id(), 2);
+        assert_eq!(app_messages[1].get_id(), 3);
 
         // Check that no other timeout is sent to rx_signal
         let no_timer = timeout(Duration::from_millis(300), rx_signal.recv()).await;
@@ -681,27 +644,6 @@ mod tests {
             no_timer.is_err(),
             "Expected no timer signal after receiving RTX reply, but got one"
         );
-
-        // Check that both message 2 and 3 are delivered in order to the application
-        // Message 2 should be delivered first
-        let received2 = timeout(Duration::from_millis(100), rx_app.recv())
-            .await
-            .expect("timeout waiting for message2 on rx_app")
-            .expect("channel closed")
-            .expect("error in received message2");
-
-        assert_eq!(received2.get_id(), 2);
-        assert_eq!(received2.get_source(), local_name);
-
-        // Message 3 should be delivered next (it was buffered)
-        let received3 = timeout(Duration::from_millis(100), rx_app.recv())
-            .await
-            .expect("timeout waiting for message3 on rx_app")
-            .expect("channel closed")
-            .expect("error in received message3");
-
-        assert_eq!(received3.get_id(), 3);
-        assert_eq!(received3.get_source(), local_name);
     }
 
     #[tokio::test]
@@ -711,15 +653,7 @@ mod tests {
         let session_id = 10;
 
         // Sender session setup
-        let (tx_slim_sender, mut rx_slim_sender) = tokio::sync::mpsc::channel(10);
-        let (tx_app_sender, _rx_app_sender) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal_sender, mut rx_signal_sender) = tokio::sync::mpsc::channel(10);
-
-        let tx_sender = SessionTransmitter::new(
-            tx_slim_sender.clone(),
-            tx_app_sender.clone(),
-            MockTokenProvider,
-        );
 
         let sender_name = ProtoName::from_strings(["org", "ns", "sender"]);
         let receiver_name = ProtoName::from_strings(["org", "ns", "receiver"]);
@@ -728,7 +662,7 @@ mod tests {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: HashMap::new(),
         };
@@ -737,36 +671,26 @@ mod tests {
             session_id,
             sender_config,
             &sender_name,
-            tx_sender.clone(),
             tx_signal_sender.clone(),
             Direction::Bidirectional,
         );
 
-        // Add receiver as endpoint for sender (receiver should receive data)
+        // Add receiver as endpoint for sender
         sender_session
             .add_endpoint(&Participant::new(
                 receiver_name.clone(),
                 ParticipantSettings::bidirectional(),
             ))
-            .await
             .expect("error adding participant");
 
         // Receiver session setup
-        let (tx_slim_receiver, mut rx_slim_receiver) = tokio::sync::mpsc::channel(10);
-        let (tx_app_receiver, mut rx_app_receiver) = tokio::sync::mpsc::unbounded_channel();
         let (tx_signal_receiver, _rx_signal_receiver) = tokio::sync::mpsc::channel(10);
-
-        let tx_receiver = SessionTransmitter::new(
-            tx_slim_receiver.clone(),
-            tx_app_receiver.clone(),
-            MockTokenProvider,
-        );
 
         let receiver_config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(5),
             interval: Some(Duration::from_millis(200)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: false,
             metadata: HashMap::new(),
         };
@@ -775,18 +699,16 @@ mod tests {
             session_id,
             receiver_config,
             &receiver_name,
-            tx_receiver.clone(),
             tx_signal_receiver.clone(),
             Direction::Bidirectional,
         );
 
-        // Add sender as endpoint for receiver (sender can send and receive)
+        // Add sender as endpoint for receiver
         receiver_session
             .add_endpoint(&Participant::new(
                 sender_name.clone(),
                 ParticipantSettings::bidirectional(),
             ))
-            .await
             .expect("error adding participant");
 
         // Send message 1 from the application
@@ -798,22 +720,20 @@ mod tests {
             .unwrap();
         message1.set_session_message_type(ProtoSessionMessageType::Msg);
 
-        sender_session
+        let output = sender_session
             .on_message(SessionMessage::OnMessage {
                 message: message1.clone(),
                 direction: MessageDirection::South,
                 ack_tx: None,
             })
-            .await
             .expect("error sending message from sender");
 
-        // Check that is received on the slim side
-        let sent_message = timeout(Duration::from_millis(100), rx_slim_sender.recv())
-            .await
-            .expect("timeout waiting for message on sender slim channel")
-            .expect("channel closed")
-            .expect("error in sent message");
-
+        // Check output from sender
+        assert_eq!(output.messages.len(), 1);
+        let sent_message = match &output.messages[0] {
+            OutboundMessage::ToSlim(m) => m.clone(),
+            _ => panic!("Expected ToSlim message"),
+        };
         assert_eq!(
             sent_message.get_session_message_type(),
             ProtoSessionMessageType::Msg
@@ -821,28 +741,29 @@ mod tests {
         assert_eq!(sent_message.get_id(), 1);
         assert_eq!(sent_message.get_dst(), receiver_name);
 
-        // Call the on message on the receiver side
+        // Deliver to receiver
         let mut received_message = sent_message.clone();
         received_message
             .get_slim_header_mut()
             .set_incoming_conn(Some(1));
 
-        receiver_session
+        let output = receiver_session
             .on_message(SessionMessage::OnMessage {
                 message: received_message.clone(),
                 direction: MessageDirection::North,
                 ack_tx: None,
             })
-            .await
             .expect("error receiving message on receiver");
 
-        // Check that an ack is received on slim
-        let ack_message = timeout(Duration::from_millis(100), rx_slim_receiver.recv())
-            .await
-            .expect("timeout waiting for ack on receiver slim channel")
-            .expect("channel closed")
-            .expect("error in ack message");
-
+        // Should produce ToApp(message) + ToSlim(ack)
+        let ack_message = output
+            .messages
+            .iter()
+            .find_map(|m| match m {
+                OutboundMessage::ToSlim(msg) => Some(msg.clone()),
+                _ => None,
+            })
+            .expect("Expected ack from receiver");
         assert_eq!(
             ack_message.get_session_message_type(),
             ProtoSessionMessageType::MsgAck
@@ -850,40 +771,34 @@ mod tests {
         assert_eq!(ack_message.get_session_header().get_message_id(), 1);
         assert_eq!(ack_message.get_dst(), sender_name);
 
-        // Check that the message is delivered to the app
-        let app_message = timeout(Duration::from_millis(100), rx_app_receiver.recv())
-            .await
-            .expect("timeout waiting for message on receiver app channel")
-            .expect("channel closed")
-            .expect("error in app message");
-
+        let app_message = output
+            .messages
+            .iter()
+            .find_map(|m| match m {
+                OutboundMessage::ToApp(Ok(msg)) => Some(msg.clone()),
+                _ => None,
+            })
+            .expect("Expected app message from receiver");
         assert_eq!(app_message.get_id(), 1);
         assert_eq!(app_message.get_source(), sender_name);
 
-        // Call the on message on the sender side with the ack
+        // Send ack back to sender
         let mut ack_to_sender = ack_message.clone();
         ack_to_sender
             .get_slim_header_mut()
             .set_incoming_conn(Some(1));
 
-        sender_session
+        let output = sender_session
             .on_message(SessionMessage::OnMessage {
                 message: ack_to_sender,
                 direction: MessageDirection::North,
                 ack_tx: None,
             })
-            .await
             .expect("error processing ack on sender");
+        assert!(output.messages.is_empty());
 
         // Wait to ensure the timer is stopped and no retransmission occurs
-        let no_retransmit = timeout(Duration::from_millis(300), rx_slim_sender.recv()).await;
-        assert!(
-            no_retransmit.is_err(),
-            "Expected no retransmission after ack, but got one"
-        );
-
-        // Also verify no timer signal is generated
-        let no_timer = timeout(Duration::from_millis(100), rx_signal_sender.recv()).await;
+        let no_timer = timeout(Duration::from_millis(300), rx_signal_sender.recv()).await;
         assert!(
             no_timer.is_err(),
             "Expected no timer signal after ack, but got one"

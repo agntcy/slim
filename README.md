@@ -11,12 +11,12 @@ AI agent protocols like [A2A (Agent-to-Agent)](https://a2a.ai) and
 
 - 📖 **[Read the full documentation](https://docs.agntcy.org/slim/overview/)**
 - 🎓 **[Get Started](https://docs.agntcy.org/slim/slim-howto)**
-- 💻 **[Code Examples](./data-plane/bindings)** - 
-  [Python](./data-plane/bindings/python/examples) | 
-  [Go](./data-plane/bindings/go/examples) |
-  [Dotnet](./data-plane/bindings/dotnet) |
-  [Java](./data-plane/bindings/java/examples) |
-  [Kotlin](./data-plane/bindings/kotlin/examples)
+- 💻 **[Code Examples](https://github.com/agntcy/slim-bindings)** -
+  [Python](https://github.com/agntcy/slim-bindings/tree/main/python/examples) |
+  [Go](https://github.com/agntcy/slim-bindings/tree/main/go/examples) |
+  [Dotnet](https://github.com/agntcy/slim-bindings/tree/main/dotnet) |
+  [Java](https://github.com/agntcy/slim-bindings/tree/main/java/examples) |
+  [Kotlin](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples)
 - 🔌 **[Integrations](https://docs.agntcy.org/slim/slim-rpc/)** - 
   [A2A](https://github.com/agntcy/slim-a2a-python) | 
   [MCP](https://github.com/agntcy/slim-mcp-python) | 
@@ -94,12 +94,13 @@ options including TLS, authentication, and mTLS.
     - Session layer with MLS encryption
     - Control plane
     - SRPC (SLIMRPC) for request-response patterns
-    - Language bindings:
-      [Python](./data-plane/bindings/python),
-      [Go](./data-plane/bindings/go),
-      [Dotnet](./data-plane/bindings/dotnet),
-      [Kotlin](./data-plane/bindings/kotlin),
-      [Java](./data-plane/bindings/java)
+    - Language bindings live in
+      [slim-bindings](https://github.com/agntcy/slim-bindings):
+      [Python](https://github.com/agntcy/slim-bindings/tree/main/python),
+      [Go](https://github.com/agntcy/slim-bindings/tree/main/go),
+      [Dotnet](https://github.com/agntcy/slim-bindings/tree/main/dotnet),
+      [Kotlin](https://github.com/agntcy/slim-bindings/tree/main/kotlin),
+      [Java](https://github.com/agntcy/slim-bindings/tree/main/java)
 
 - **[charts](./charts)**: Kubernetes deployment
     - [slim](./charts/slim): Helm chart for data-plane nodes

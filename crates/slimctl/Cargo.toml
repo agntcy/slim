@@ -3,7 +3,7 @@
 
 [package]
 name = "agntcy-slimctl"
-version = "1.4.0"
+version.workspace = true
 edition = { workspace = true }
 license = { workspace = true }
 description = "SLIM control CLI"
@@ -21,12 +21,13 @@ name = "slimctl"
 path = "src/main.rs"
 
 [dependencies]
-# Local workspace
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim = { workspace = true }
-agntcy-slim-bindings = { workspace = true }
+agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
-agntcy-slim-service = { workspace = true }
+agntcy-slim-service = { workspace = true, features = ["session"] }
+agntcy-slim-session = { workspace = true }
 agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 agntcy-slim-version = { workspace = true }
@@ -63,5 +64,5 @@ agntcy-slim-version = { workspace = true }
 protoc-bin-vendored = { workspace = true }
 tonic-prost-build = { workspace = true }
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio-stream = { workspace = true, features = ["net"] }

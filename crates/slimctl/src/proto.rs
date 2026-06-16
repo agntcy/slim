@@ -11,7 +11,7 @@ pub mod controlplane {
     pub mod proto {
         #[allow(dead_code)]
         pub mod v1 {
-            tonic::include_proto!("controlplane.proto.v1");
+            include!("api/gen/controlplane.proto.v1.rs");
         }
     }
 }
@@ -19,7 +19,7 @@ pub mod controlplane {
 pub mod controller {
     pub mod proto {
         pub mod v1 {
-            tonic::include_proto!("controller.proto.v1");
+            include!("api/gen/controller.proto.v1.rs");
         }
     }
 }
@@ -27,7 +27,7 @@ pub mod controller {
 pub mod channel_manager {
     pub mod proto {
         pub mod v1 {
-            tonic::include_proto!("channel_manager.proto.v1");
+            include!("api/gen/channel_manager.proto.v1.rs");
         }
     }
 }

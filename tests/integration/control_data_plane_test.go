@@ -47,12 +47,14 @@ var _ = Describe("Routing", func() {
 			"0.0.0.0:46358":          fmt.Sprintf("0.0.0.0:%d", controllerAPort),
 			"http://localhost:46357": fmt.Sprintf("http://localhost:%d", dataPlaneAPort),
 			"http://127.0.0.1:46357": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneAPort),
+			"slim/node-0":           "slim/node-a",
 		}
 		replacementsB := map[string]string{
 			"0.0.0.0:46357":          fmt.Sprintf("0.0.0.0:%d", dataPlaneBPort),
 			"0.0.0.0:46358":          fmt.Sprintf("0.0.0.0:%d", controllerBPort),
 			"http://localhost:46357": fmt.Sprintf("http://localhost:%d", dataPlaneBPort),
 			"http://127.0.0.1:46357": fmt.Sprintf("http://127.0.0.1:%d", dataPlaneBPort),
+			"slim/node-0":           "slim/node-b",
 		}
 		clientReplacementsA := map[string]string{
 			"http://localhost:46357": fmt.Sprintf("http://localhost:%d", dataPlaneAPort),
@@ -112,7 +114,7 @@ var _ = Describe("Routing", func() {
 	Describe("message routing", func() {
 		// getRouteWithID queries a SLIM node's route list and returns the full
 		// route name including the runtime-assigned app ID for the given prefix.
-		// The route list output format is: "org/ns/agent/<uuid> connections=[...]"
+		// The route list output format is: "org/ns/agent id=<id> local=[...] remote=[...]"
 		getRouteWithID := func(controllerPort int, routePrefix string) string {
 			var routeName string
 			re := regexp.MustCompile(fmt.Sprintf(`(%s/[0-9a-f-]+)`, regexp.QuoteMeta(routePrefix)))

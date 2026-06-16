@@ -1,0 +1,28 @@
+plugins:
+  md013:
+    enabled: false
+    line_length: 120
+    code_blocks: false
+    tables: false
+  md024:
+    enabled: true
+    siblings_only: true
+  md030:
+    enabled: false
+  md031:
+    enabled: false
+  md033:
+    enabled: false
+    allowed_elements: [details, summary, img, br, sub, sup, div]
+  md041:
+    enabled: false
+  md046:
+    enabled: false
+  md051:
+    enabled: false
+  md007:
+    enabled: false
+  md034:
+    enabled: true
+  md036:
+    enabled: false

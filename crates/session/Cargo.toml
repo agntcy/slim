@@ -2,7 +2,7 @@
 name = "agntcy-slim-session"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.1.15"
+version = "0.2.1"
 description = "SLIM session internal implementation."
 
 [lib]
@@ -18,15 +18,31 @@ display-error-chain = { workspace = true }
 futures = { workspace = true }
 futures-timer = { workspace = true }
 parking_lot = { workspace = true }
+prost = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
+smallvec = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
 tokio-util = { workspace = true }
-tonic = { workspace = true }
 tracing = { workspace = true }
 trait-variant = { workspace = true }
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+maybe-async = { workspace = true, features = ["is_sync"] }
+tokio = { workspace = true }
+tonic = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+maybe-async = { workspace = true }
+tokio = { workspace = true, features = ["sync", "macros", "rt", "time"] }
+tonic = { version = "0.14", default-features = false }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim-testing = { workspace = true }
+criterion = { workspace = true }
 tracing-test = { workspace = true }
+
+[[bench]]
+name = "header_integrity"
+harness = false
+

@@ -2,24 +2,48 @@
 name = "agntcy-slim-mls"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.1.18"
+version = "0.1.20"
 description = "Messaging Layer Security for SLIM data plane."
 
 [lib]
 name = "slim_mls"
 
+[features]
+default = []
+# Use Curve25519 (X25519 + Ed25519) MLS ciphersuite instead of the
+# default NIST P-256 ciphersuite.
+curve25519 = []
+
 [dependencies]
 agntcy-slim-auth = { workspace = true }
-agntcy-slim-datapath = { workspace = true }
 agntcy-slim-version = { workspace = true }
 base64 = { workspace = true }
 hex = "0.4"
 mls-rs = { workspace = true }
 mls-rs-core = { workspace = true }
-mls-rs-crypto-awslc = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 
+# `mls-rs` is sync on native and async on wasm32 (where `mls_build_async` is set
+# via rustflags in data-plane/.cargo/config.toml). `maybe-async` lets us write
+# each MLS method once and select the right shape per target: the `is_sync`
+# feature strips `async`/`await` on native, keeping the async form on wasm32.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+maybe-async = { workspace = true, features = ["is_sync"] }
+mls-rs-crypto-awslc = { workspace = true }
+
+# Browser SubtleCrypto crypto provider (async-only) for wasm32.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+async-trait = { workspace = true }
+getrandom = { workspace = true }
+maybe-async = { workspace = true }
+mls-rs-crypto-webcrypto = { workspace = true }
+
 [dev-dependencies]
 tempfile = "3.3"
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ["cfg(mls_build_async)"]

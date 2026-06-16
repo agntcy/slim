@@ -7,6 +7,7 @@ use crate::api::ProtoName;
 use crate::api::ProtoSessionMessageType;
 use crate::api::proto::dataplane::v1::Message;
 use crate::messages::utils::MessageError;
+#[cfg(not(target_arch = "wasm32"))]
 use slim_config::errors::ConfigError;
 use thiserror::Error;
 
@@ -18,6 +19,7 @@ pub enum DataPathError {
     ConnectionError,
     #[error("disconnection error")]
     DisconnectionError(u64),
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("grpc error")]
     GrpcError(#[from] tonic::Status),
     #[error("link negotiation error")]
@@ -30,6 +32,8 @@ pub enum DataPathError {
     InvalidMessage(MessageError),
     #[error("invalid name id format: {0}")]
     InvalidNameIdFormat(String),
+    #[error("invalid name format: {0}")]
+    InvalidNameFormat(String),
 
     // Subscription / matching
     #[error("no matching found for [{:x}, {:x}, {:x}, {}]", .0, .1, .2, .3)]
@@ -52,6 +56,8 @@ pub enum DataPathError {
     MalformedMessage(#[from] MessageError),
     #[error("message processing error: {0}")]
     ProcessingError(MessageError),
+    #[error("connection send error")]
+    ConnectionSendError,
     #[error("error adding connection to connection table")]
     ConnectionTableAddError,
     #[error("message processing error: {source}")]
@@ -62,6 +68,7 @@ pub enum DataPathError {
     },
 
     // Configuration error
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("configuration error")]
     ConfigurationError(#[from] ConfigError),
 
@@ -69,7 +76,7 @@ pub enum DataPathError {
     #[error("remote subscription ack timed out after {0} retries")]
     RemoteSubscriptionAckTimeout(u32),
 
-    #[error("remote subscription ack returned error: {0}")]
+    #[error("remote subscription ack error")]
     RemoteSubscriptionAckError(String),
 
     // Shutdown errors
@@ -80,6 +87,7 @@ pub enum DataPathError {
     #[error("timeout during shutdown")]
     ShutdownTimeoutError,
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("SLIM header integrity: {0}")]
     HeaderIntegrity(#[from] crate::header_mac::HeaderMacError),
 
@@ -88,6 +96,9 @@ pub enum DataPathError {
 
     #[error("inter-node ephemeral key generation failed")]
     LinkKeyGeneration,
+
+    #[error("message TTL expired")]
+    TtlExpired,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

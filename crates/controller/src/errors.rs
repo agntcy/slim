@@ -19,6 +19,8 @@ pub enum ControllerError {
     AlreadyStopped,
     #[error("timeout waiting for shutdown to complete")]
     ShutdownTimeout,
+    #[error("connection canceled")]
+    Canceled,
     #[error("grpc error")]
     GrpcError(#[from] Status),
 

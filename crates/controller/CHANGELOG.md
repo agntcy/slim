@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/agntcy/slim/compare/slim-controller-v0.6.2...slim-controller-v0.7.0) - 2026-06-03
+
+### Added
+
+- increase Name ID from u64 to u128 ([#1680](https://github.com/agntcy/slim/pull/1680))
+- *(websocket)* add WebSocket transport for data-plane ([#1638](https://github.com/agntcy/slim/pull/1638))
+- *(dataplane)* remove group creation ([#1594](https://github.com/agntcy/slim/pull/1594))
+
+### Other
+
+- *(datapath)* replace is_local bool with ConnType enum ([#1689](https://github.com/agntcy/slim/pull/1689))
+- remove unused code from controller service ([#1682](https://github.com/agntcy/slim/pull/1682))
+- control plane in rust ([#1581](https://github.com/agntcy/slim/pull/1581))
+- *(data-plane)* replace encoder::Name with ProtoName throughout ([#1596](https://github.com/agntcy/slim/pull/1596))
+
 ## [0.6.2](https://github.com/agntcy/slim/compare/slim-controller-v0.6.1...slim-controller-v0.6.2) - 2026-05-13
 
 ### Other

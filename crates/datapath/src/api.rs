@@ -19,6 +19,7 @@ pub use proto::dataplane::v1::GroupNackPayload;
 pub use proto::dataplane::v1::GroupProposalPayload;
 pub use proto::dataplane::v1::GroupRemovePayload;
 pub use proto::dataplane::v1::GroupWelcomePayload;
+pub use proto::dataplane::v1::HeaderIntegrityAad;
 pub use proto::dataplane::v1::JoinReplyPayload;
 pub use proto::dataplane::v1::JoinRequestPayload;
 pub use proto::dataplane::v1::LeaveReplyPayload;
@@ -27,6 +28,7 @@ pub use proto::dataplane::v1::Link as ProtoLink;
 pub use proto::dataplane::v1::LinkNegotiationPayload;
 pub use proto::dataplane::v1::Message as ProtoMessage;
 pub use proto::dataplane::v1::MlsPayload;
+pub use proto::dataplane::v1::MlsSettings as ProtoMlsSettings;
 pub use proto::dataplane::v1::Name as ProtoName;
 pub use proto::dataplane::v1::NameId;
 pub use proto::dataplane::v1::Participant;
@@ -40,7 +42,9 @@ pub use proto::dataplane::v1::StringName;
 pub use proto::dataplane::v1::Subscribe as ProtoSubscribe;
 pub use proto::dataplane::v1::SubscriptionAck as ProtoSubscriptionAck;
 pub use proto::dataplane::v1::Unsubscribe as ProtoUnsubscribe;
+#[cfg(not(target_arch = "wasm32"))]
 pub use proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
+#[cfg(not(target_arch = "wasm32"))]
 pub use proto::dataplane::v1::data_plane_service_server::DataPlaneServiceServer;
 pub use proto::dataplane::v1::link::LinkType as ProtoLinkType;
 pub use proto::dataplane::v1::message::MessageType;
@@ -211,6 +215,19 @@ impl ProtoName {
     pub fn str_components(&self) -> (&str, &str, &str) {
         let s = self.str_name.as_ref().unwrap();
         (&s.str_component_0, &s.str_component_1, &s.str_component_2)
+    }
+
+    /// Parse a name string in "org/namespace/app" format into a `ProtoName`.
+    pub fn parse_name(s: &str) -> Result<ProtoName, DataPathError> {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            return Err(DataPathError::InvalidNameFormat(s.to_string()));
+        }
+        let parts: Vec<&str> = trimmed.split('/').map(str::trim).collect();
+        if parts.len() != 3 || parts.iter().any(|p| p.is_empty()) {
+            return Err(DataPathError::InvalidNameFormat(s.to_string()));
+        }
+        Ok(ProtoName::from_strings([parts[0], parts[1], parts[2]]))
     }
 }
 
@@ -401,5 +418,47 @@ mod tests {
         };
         assert_eq!(enc.id(), NameId::NULL_COMPONENT);
         assert_eq!(enc.string_id(), "NULL_COMPONENT");
+    }
+
+    #[test]
+    fn test_parse_name_valid() {
+        let n = ProtoName::parse_name("org/ns/app").unwrap();
+        let (a, b, c) = n.str_components();
+        assert_eq!(a, "org");
+        assert_eq!(b, "ns");
+        assert_eq!(c, "app");
+    }
+
+    #[test]
+    fn test_parse_name_trims_whitespace() {
+        let n = ProtoName::parse_name(" org / ns / app ").unwrap();
+        let (a, b, c) = n.str_components();
+        assert_eq!(a, "org");
+        assert_eq!(b, "ns");
+        assert_eq!(c, "app");
+    }
+
+    #[test]
+    fn test_parse_name_empty_string() {
+        assert!(ProtoName::parse_name("").is_err());
+        assert!(ProtoName::parse_name("   ").is_err());
+    }
+
+    #[test]
+    fn test_parse_name_too_few_parts() {
+        assert!(ProtoName::parse_name("org/ns").is_err());
+        assert!(ProtoName::parse_name("org").is_err());
+    }
+
+    #[test]
+    fn test_parse_name_too_many_parts() {
+        assert!(ProtoName::parse_name("a/b/c/d").is_err());
+    }
+
+    #[test]
+    fn test_parse_name_empty_component() {
+        assert!(ProtoName::parse_name("org//app").is_err());
+        assert!(ProtoName::parse_name("/ns/app").is_err());
+        assert!(ProtoName::parse_name("org/ns/").is_err());
     }
 }

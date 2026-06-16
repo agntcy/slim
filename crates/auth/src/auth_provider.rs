@@ -65,7 +65,6 @@
 
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::errors::AuthError;
@@ -208,7 +207,6 @@ impl std::fmt::Debug for AuthVerifier {
     }
 }
 
-#[async_trait]
 impl TokenProvider for AuthProvider {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         match self {
@@ -260,18 +258,25 @@ impl TokenProvider for AuthProvider {
         }
     }
 
-    fn rotate_signature_keys(&mut self) -> Result<(), AuthError> {
+    async fn set_signature_keys(
+        &mut self,
+        private_key: Vec<u8>,
+        public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
         match self {
-            AuthProvider::JwtSigner(signer) => signer.rotate_signature_keys(),
-            AuthProvider::StaticToken(provider) => provider.rotate_signature_keys(),
-            AuthProvider::SharedSecret(secret) => secret.rotate_signature_keys(),
+            AuthProvider::JwtSigner(signer) => {
+                signer.set_signature_keys(private_key, public_key).await
+            }
+            AuthProvider::StaticToken(_provider) => Err(AuthError::MlsNotSupported),
+            AuthProvider::SharedSecret(secret) => {
+                secret.set_signature_keys(private_key, public_key).await
+            }
             #[cfg(not(target_family = "windows"))]
-            AuthProvider::Spire(spire) => spire.rotate_signature_keys(),
+            AuthProvider::Spire(spire) => spire.set_signature_keys(private_key, public_key).await,
         }
     }
 }
 
-#[async_trait]
 impl Verifier for AuthVerifier {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         match self {

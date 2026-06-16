@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 // Third-party crates
+use smallvec::SmallVec;
 use tonic::Status;
 
 use slim_datapath::api::{
@@ -39,6 +40,64 @@ pub enum State {
 pub enum MessageDirection {
     North,
     South,
+}
+
+/// A message to be sent outbound from the session layers.
+#[derive(Debug)]
+pub enum OutboundMessage {
+    /// Send to SLIM (network-bound). Identity will be applied by the processing loop.
+    ToSlim(Message),
+    /// Send to the application.
+    ToApp(Result<Message, SessionError>),
+}
+
+/// The result of processing a session message.
+/// Layers return this instead of sending messages internally.
+/// Uses SmallVec since most operations produce 1-2 outbound messages.
+#[derive(Debug, Default)]
+pub struct SessionOutput {
+    pub messages: SmallVec<[OutboundMessage; 2]>,
+}
+
+impl SessionOutput {
+    pub fn new() -> Self {
+        Self {
+            messages: SmallVec::new(),
+        }
+    }
+
+    /// Create a new SessionOutput containing a single ToSlim message.
+    pub fn to_slim(message: Message) -> Self {
+        let mut s = Self::new();
+        s.messages.push(OutboundMessage::ToSlim(message));
+        s
+    }
+
+    /// Create a new SessionOutput containing a single ToApp message.
+    pub fn to_app(message: Result<Message, SessionError>) -> Self {
+        let mut s = Self::new();
+        s.messages.push(OutboundMessage::ToApp(message));
+        s
+    }
+
+    /// Push a ToSlim message onto an existing output.
+    pub fn push_slim(&mut self, message: Message) {
+        self.messages.push(OutboundMessage::ToSlim(message));
+    }
+
+    /// Push a ToApp message onto an existing output.
+    pub fn push_app(&mut self, message: Result<Message, SessionError>) {
+        self.messages.push(OutboundMessage::ToApp(message));
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.messages.is_empty()
+    }
+
+    /// Merge another output into this one.
+    pub fn extend(&mut self, other: SessionOutput) {
+        self.messages.extend(other.messages);
+    }
 }
 
 /// Message types for communication between session components
@@ -82,4 +141,8 @@ pub enum SessionMessage {
     GetParticipantsList {
         tx: tokio::sync::oneshot::Sender<Vec<ProtoName>>,
     },
+    /// Deferred cleanup after leave reply has been dispatched.
+    /// Performs route/subscription cleanup that must happen after the LeaveReply
+    /// is sent (in the return-based output model, dispatch happens after on_message returns).
+    LeaveCleanup,
 }

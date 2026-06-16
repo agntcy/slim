@@ -1,13 +1,9 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
-
 use crate::api::proto::dataplane::v1::Message;
-use aws_lc_rs::agreement::EphemeralPrivateKey;
-use parking_lot::RwLock;
 use semver::Version;
-use slim_config::client::{ClientConfig, is_valid_uuid_v4};
+use slim_config::client::ClientConfig;
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -15,38 +11,16 @@ use tonic::Status;
 
 use crate::header_mac::HeaderMacSession;
 
-/// Negotiation state shared between link negotiation fields.
-/// Kept under one lock so that the check-and-set is atomic.
-#[derive(Debug, Default)]
-struct NegotiationState {
-    link_id: Option<String>,
-    remote_slim_version: Option<Version>,
-    pub(crate) header_hmac: Option<Arc<HeaderMacSession>>,
-    outbound_ecdh_private: Option<EphemeralPrivateKey>,
-}
-
 #[derive(Debug, Clone)]
-pub(crate) enum Channel {
+pub enum Channel {
     Server(mpsc::Sender<Result<Message, Status>>),
     Client(mpsc::Sender<Message>),
 }
 
-/// Connection type
-#[derive(Debug, Clone, Default)]
-pub(crate) enum Type {
-    /// Connection with local application
-    Local,
-
-    /// Connection with remote slim instance
-    Remote,
-
-    /// Unknown connection type
-    #[default]
-    Unknown,
-}
+use crate::tables::ConnType;
 
 #[derive(Clone)]
-/// Connection information
+/// Connection information.
 pub struct Connection {
     /// Remote address and port. Not available for local connections
     remote_addr: Option<SocketAddr>,
@@ -61,16 +35,25 @@ pub struct Connection {
     config_data: Option<ClientConfig>,
 
     /// Connection type
-    connection_type: Type,
+    connection_type: ConnType,
 
     /// cancellation token to stop the receiving loop on this connection
     cancellation_token: Option<CancellationToken>,
 
-    /// Link negotiation state (link_id + remote_slim_version) under one lock for atomic check-and-set.
-    negotiation: Arc<RwLock<NegotiationState>>,
+    /// Link identifier shared between both sides of a remote link.
+    link_id: Option<String>,
+
+    /// SLIM version of the remote peer (set during negotiation).
+    remote_slim_version: Option<Version>,
+
+    /// HMAC session derived from the ECDH key exchange (set during negotiation).
+    header_hmac: Option<HeaderMacSession>,
 
     /// Strict header MAC policy for this connection (fixed at establishment).
     require_header_mac: bool,
+
+    /// Remote node identifier, set during link negotiation.
+    peer_node_id: Option<String>,
 }
 
 impl std::fmt::Debug for Connection {
@@ -81,8 +64,9 @@ impl std::fmt::Debug for Connection {
             .field("channel", &self.channel)
             .field("config_data", &self.config_data)
             .field("connection_type", &self.connection_type)
-            // Not printing sensitive data
-            .field("negotiation", &"NegotiationState")
+            .field("link_id", &self.link_id)
+            .field("remote_slim_version", &self.remote_slim_version)
+            .field("header_hmac", &self.header_hmac.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -90,7 +74,7 @@ impl std::fmt::Debug for Connection {
 /// Implementation of Connection
 impl Connection {
     /// Create a new Connection
-    pub(crate) fn new(connection_type: Type, channel: Channel) -> Self {
+    pub fn new(connection_type: ConnType, channel: Channel) -> Self {
         Self {
             remote_addr: None,
             local_addr: None,
@@ -98,8 +82,11 @@ impl Connection {
             config_data: None,
             connection_type,
             cancellation_token: None,
-            negotiation: Arc::new(RwLock::new(NegotiationState::default())),
+            link_id: None,
+            remote_slim_version: None,
+            header_hmac: None,
             require_header_mac: false,
+            peer_node_id: None,
         }
     }
 
@@ -136,20 +123,12 @@ impl Connection {
         }
     }
 
-    pub(crate) fn header_hmac(&self) -> Option<Arc<HeaderMacSession>> {
-        self.negotiation.read().header_hmac.clone()
+    pub(crate) fn header_hmac(&self) -> Option<&HeaderMacSession> {
+        self.header_hmac.as_ref()
     }
 
-    pub(crate) fn take_outbound_ecdh_private(&self) -> Option<EphemeralPrivateKey> {
-        self.negotiation.write().outbound_ecdh_private.take()
-    }
-
-    pub(crate) fn set_outbound_ecdh_private(&self, key: EphemeralPrivateKey) {
-        self.negotiation.write().outbound_ecdh_private = Some(key);
-    }
-
-    pub(crate) fn install_header_hmac(&self, mac: Arc<HeaderMacSession>) {
-        self.negotiation.write().header_hmac = Some(mac);
+    pub(crate) fn install_header_hmac(&mut self, mac: HeaderMacSession) {
+        self.header_hmac = Some(mac);
     }
 
     /// Get the remote address
@@ -172,14 +151,24 @@ impl Connection {
     }
 
     /// Get the connection type
-    #[allow(dead_code)]
-    pub(crate) fn connection_type(&self) -> &Type {
-        &self.connection_type
+    pub fn connection_type(&self) -> ConnType {
+        self.connection_type
+    }
+
+    /// Upgrade the connection type (e.g., from Remote to Peer after negotiation).
+    pub(crate) fn set_connection_type(&mut self, conn_type: ConnType) {
+        self.connection_type = conn_type;
     }
 
     /// Return true if is a local connection
     pub(crate) fn is_local_connection(&self) -> bool {
-        matches!(self.connection_type, Type::Local)
+        matches!(self.connection_type, ConnType::Local)
+    }
+
+    /// Return true if is a peer connection (same deployment replica)
+    #[allow(dead_code)]
+    pub(crate) fn is_peer_connection(&self) -> bool {
+        matches!(self.connection_type, ConnType::Peer)
     }
 
     /// Return true if this node initiated the connection (outbound dial).
@@ -210,67 +199,99 @@ impl Connection {
         self.cancellation_token.as_ref()
     }
 
-    /// Set the link identifier at construction time so it is available the moment the
-    /// connection enters the table, before the negotiation message is sent.
-    pub(crate) fn with_link_id(self, link_id: String) -> Self {
-        self.negotiation.write().link_id = Some(link_id);
+    /// Set the link identifier at construction time (client side).
+    pub(crate) fn with_link_id(mut self, link_id: String) -> Self {
+        self.link_id = Some(link_id);
         self
     }
 
     /// Set the shared link identifier for this connection.
-    /// Used by the client before sending the initial negotiation request.
-    pub fn set_link_id(&self, link_id: String) {
-        self.negotiation.write().link_id = Some(link_id);
+    pub fn set_link_id(&mut self, link_id: String) {
+        self.link_id = Some(link_id);
     }
 
     /// Get the shared link identifier for this connection.
     pub fn link_id(&self) -> Option<String> {
-        self.negotiation.read().link_id.clone()
+        self.link_id.clone()
     }
 
     /// Get the SLIM version of the remote peer.
     pub fn remote_slim_version(&self) -> Option<Version> {
-        self.negotiation.read().remote_slim_version.clone()
+        self.remote_slim_version.clone()
     }
 
-    /// Atomically complete link negotiation on the server (incoming) path.
+    /// Get the remote peer's node identifier (set during link negotiation).
+    pub fn peer_node_id(&self) -> Option<&str> {
+        self.peer_node_id.as_deref()
+    }
+
+    /// Set the remote peer's node identifier.
+    pub(crate) fn set_peer_node_id(&mut self, node_id: String) {
+        self.peer_node_id = Some(node_id);
+    }
+
+    /// Returns true if link negotiation has completed (remote_slim_version is set).
+    pub fn is_negotiated(&self) -> bool {
+        self.remote_slim_version.is_some()
+    }
+
+    /// Complete link negotiation on the server (incoming) path.
     ///
-    /// Validates `link_id` as a UUID v4 and stores it together with `version` under one lock.
-    /// Returns `false` if `link_id` is not a valid UUID v4 or negotiation is already complete
-    /// (replay protection).
-    pub fn complete_negotiation_as_server(&self, link_id: &str, version: Version) -> bool {
-        let mut state = self.negotiation.write();
-        if state.remote_slim_version.is_some() {
+    /// Stores `link_id` and `version`. Returns `false` if `link_id` is empty or
+    /// negotiation is already complete (replay protection).
+    pub fn complete_negotiation_as_server(&mut self, link_id: &str, version: Version) -> bool {
+        if self.remote_slim_version.is_some() {
             return false;
         }
-        if !is_valid_uuid_v4(link_id) {
+        if link_id.is_empty() {
             return false;
         }
-        state.link_id = Some(link_id.to_string());
-        state.remote_slim_version = Some(version);
+        self.link_id = Some(link_id.to_string());
+        self.remote_slim_version = Some(version);
         true
     }
 
-    /// Atomically complete link negotiation on the client (outgoing) path.
+    /// Complete link negotiation on the client (outgoing) path.
     ///
-    /// Verifies the echoed `link_id` matches what was stored by `set_link_id`, then stores
-    /// `version`, all under one lock.  Returns `false` if there is a mismatch or negotiation
-    /// is already complete (replay protection).
-    pub fn complete_negotiation_as_client(&self, link_id: &str, version: Version) -> bool {
-        let mut state = self.negotiation.write();
-        if state.remote_slim_version.is_some() {
+    /// Verifies the echoed `link_id` matches what was set, then stores `version`.
+    /// Returns `false` if there is a mismatch or negotiation is already complete.
+    pub fn complete_negotiation_as_client(&mut self, link_id: &str, version: Version) -> bool {
+        if self.remote_slim_version.is_some() {
             return false;
         }
-        if state.link_id.as_deref() != Some(link_id) {
+        if self.link_id.as_deref() != Some(link_id) {
             return false;
         }
-        state.remote_slim_version = Some(version);
+        self.remote_slim_version = Some(version);
         true
     }
 
+    /// Send a message directly through this connection's channel.
+    pub(crate) async fn send(&self, msg: Message) -> Result<(), crate::errors::DataPathError> {
+        match &self.channel {
+            Channel::Server(tx) => tx
+                .send(Ok(msg))
+                .await
+                .map_err(|_| crate::errors::DataPathError::ConnectionSendError),
+            Channel::Client(tx) => tx
+                .send(msg)
+                .await
+                .map_err(|_| crate::errors::DataPathError::ConnectionSendError),
+        }
+    }
+
+    /// Set negotiation state at construction time.
+    pub fn with_negotiation(mut self, link_id: &str, version: &str) -> Self {
+        self.link_id = Some(link_id.to_string());
+        self.remote_slim_version = version.parse().ok();
+        self
+    }
+
+    /// Set header HMAC at construction time (for testing).
     #[cfg(test)]
-    pub(crate) fn test_install_header_mac(&self, mac: Arc<HeaderMacSession>) {
-        self.install_header_hmac(mac);
+    pub(crate) fn with_header_hmac(mut self, mac: HeaderMacSession) -> Self {
+        self.header_hmac = Some(mac);
+        self
     }
 }
 
@@ -283,12 +304,12 @@ mod tests {
 
     fn server_conn() -> Connection {
         let (tx, _rx) = mpsc::channel(1);
-        Connection::new(Type::Remote, Channel::Server(tx))
+        Connection::new(ConnType::Remote, Channel::Server(tx))
     }
 
     fn client_conn() -> Connection {
         let (tx, _rx) = mpsc::channel(1);
-        Connection::new(Type::Remote, Channel::Client(tx))
+        Connection::new(ConnType::Remote, Channel::Client(tx))
             .with_config_data(Some(ClientConfig::default()))
     }
 
@@ -305,7 +326,7 @@ mod tests {
     #[test]
     fn test_is_outgoing_websocket_inbound() {
         let (tx, _rx) = mpsc::channel(1);
-        let conn = Connection::new(Type::Remote, Channel::Client(tx));
+        let conn = Connection::new(ConnType::Remote, Channel::Client(tx));
         assert!(!conn.is_outgoing());
     }
 
@@ -337,13 +358,11 @@ mod tests {
         assert!(debug.contains("connection_type: Remote"));
         assert!(debug.contains("remote_addr: Some"));
         assert!(debug.contains("local_addr: Some"));
-        // Sensitive fields are reducted
-        assert!(debug.contains(r#"negotiation: "NegotiationState""#));
     }
 
     #[test]
     fn test_set_and_get_link_id() {
-        let conn = server_conn();
+        let mut conn = server_conn();
         conn.set_link_id("my-link".to_string());
         assert_eq!(conn.link_id(), Some("my-link".to_string()));
     }
@@ -354,28 +373,48 @@ mod tests {
     }
 
     #[test]
-    fn test_complete_negotiation_as_server_stores_valid_uuid() {
-        let conn = server_conn();
+    fn test_is_negotiated_initially_false() {
+        assert!(!server_conn().is_negotiated());
+        assert!(!client_conn().is_negotiated());
+    }
+
+    #[test]
+    fn test_is_negotiated_true_after_server_negotiation() {
+        let mut conn = server_conn();
+        conn.complete_negotiation_as_server("link-id", Version::parse("1.0.0").unwrap());
+        assert!(conn.is_negotiated());
+    }
+
+    #[test]
+    fn test_is_negotiated_true_after_client_negotiation() {
+        let mut conn = client_conn();
         let id = uuid::Uuid::new_v4().to_string();
+        conn.set_link_id(id.clone());
+        conn.complete_negotiation_as_client(&id, Version::parse("1.0.0").unwrap());
+        assert!(conn.is_negotiated());
+    }
+
+    #[test]
+    fn test_complete_negotiation_as_server_stores_link_id() {
+        let mut conn = server_conn();
+        let id = "my-custom-link-id";
         let v = Version::parse("1.2.3").unwrap();
-        assert!(conn.complete_negotiation_as_server(&id, v.clone()));
-        assert_eq!(conn.link_id(), Some(id));
+        assert!(conn.complete_negotiation_as_server(id, v.clone()));
+        assert_eq!(conn.link_id(), Some(id.to_string()));
         assert_eq!(conn.remote_slim_version(), Some(v));
     }
 
     #[test]
-    fn test_complete_negotiation_as_server_rejects_invalid_uuid() {
-        let conn = server_conn();
-        assert!(
-            !conn.complete_negotiation_as_server("not-a-uuid", Version::parse("1.0.0").unwrap())
-        );
+    fn test_complete_negotiation_as_server_rejects_empty_link_id() {
+        let mut conn = server_conn();
+        assert!(!conn.complete_negotiation_as_server("", Version::parse("1.0.0").unwrap()));
         assert!(conn.link_id().is_none());
         assert!(conn.remote_slim_version().is_none());
     }
 
     #[test]
     fn test_complete_negotiation_as_server_replay_returns_false() {
-        let conn = server_conn();
+        let mut conn = server_conn();
         let id = uuid::Uuid::new_v4().to_string();
         let v1 = Version::parse("1.0.0").unwrap();
         assert!(conn.complete_negotiation_as_server(&id, v1.clone()));
@@ -386,7 +425,7 @@ mod tests {
 
     #[test]
     fn test_complete_negotiation_as_client_accepts_matching_link_id() {
-        let conn = client_conn();
+        let mut conn = client_conn();
         let id = uuid::Uuid::new_v4().to_string();
         conn.set_link_id(id.clone());
         let v = Version::parse("1.0.0").unwrap();
@@ -396,7 +435,7 @@ mod tests {
 
     #[test]
     fn test_complete_negotiation_as_client_rejects_mismatched_link_id() {
-        let conn = client_conn();
+        let mut conn = client_conn();
         conn.set_link_id(uuid::Uuid::new_v4().to_string());
         assert!(!conn.complete_negotiation_as_client("wrong-id", Version::parse("1.0.0").unwrap()));
         assert!(conn.remote_slim_version().is_none());
@@ -404,7 +443,7 @@ mod tests {
 
     #[test]
     fn test_complete_negotiation_as_client_replay_returns_false() {
-        let conn = client_conn();
+        let mut conn = client_conn();
         let id = uuid::Uuid::new_v4().to_string();
         conn.set_link_id(id.clone());
         let v1 = Version::parse("1.0.0").unwrap();

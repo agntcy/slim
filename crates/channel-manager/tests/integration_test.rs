@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpStream;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,26 +14,22 @@ use agntcy_slim_channel_manager::proto::{
 use agntcy_slim_channel_manager::service::ChannelManagerServer;
 use agntcy_slim_channel_manager::sessions::SessionsList;
 
-use slim_bindings::{
-    IdentityProviderConfig, IdentityVerifierConfig, Name, get_global_service,
-    initialize_with_defaults, new_insecure_client_config,
-};
+use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+use slim_auth::traits::{TokenProvider, Verifier};
+use slim_config::client::ClientConfig;
+use slim_config::component::ComponentBuilder;
 use slim_config::grpc::server::ServerConfig;
+use slim_config::tls::client::TlsClientConfig;
 use slim_config::tls::server::TlsServerConfig;
+use slim_datapath::api::ProtoName;
+use slim_service::app::App;
+use slim_service::{Service, ServiceBuilder};
+use slim_session::Direction;
+use slim_testing::common::reserve_local_port;
 
 const SHARED_SECRET: &str = "integration-test-shared-secret-0123456789-abcdef";
 
 // --- Helpers ---
-
-fn reserve_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind local test port");
-    let port = listener
-        .local_addr()
-        .expect("failed to read local address")
-        .port();
-    drop(listener);
-    port
-}
 
 async fn wait_for_port(host: &str, port: u16, timeout: Duration, label: &str) {
     let deadline = tokio::time::Instant::now() + timeout;
@@ -95,39 +91,61 @@ services:
         .expect("failed to spawn slim runtime thread")
 }
 
+/// Create a SLIM service and connect it to the running node.
+/// Returns the service and the connection ID.
+async fn create_service_and_connect(slim_port: u16) -> (Arc<Service>, u64) {
+    slim_config::tls::provider::initialize_crypto_provider();
+
+    let service = ServiceBuilder::new()
+        .build("test-service".to_string())
+        .expect("failed to build service");
+    let service = Arc::new(service);
+
+    let client_config = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{slim_port}"))
+        .with_tls_setting(TlsClientConfig::insecure());
+
+    let conn_id = service
+        .connect(&client_config)
+        .await
+        .expect("failed to connect to SLIM node");
+
+    (service, conn_id)
+}
+
+/// Create an app with shared secret authentication.
+async fn create_app_with_shared_secret(
+    service: &Service,
+    name: &str,
+) -> (
+    App<AuthProvider, AuthVerifier>,
+    tokio::sync::mpsc::Receiver<Result<slim_session::Notification, slim_session::SessionError>>,
+) {
+    let app_name = ProtoName::parse_name(name).expect("invalid app name");
+
+    let mut provider =
+        AuthProvider::shared_secret_from_str(name, SHARED_SECRET).expect("provider creation");
+    let mut verifier =
+        AuthVerifier::shared_secret_from_str(name, SHARED_SECRET).expect("verifier creation");
+
+    provider.initialize().await.expect("provider init");
+    verifier.initialize().await.expect("verifier init");
+
+    service
+        .create_app_with_direction(&app_name, provider, verifier, Direction::None)
+        .expect("failed to create app")
+}
+
 /// Start the channel-manager gRPC server in-process.
-/// Uses an already-established connection to the SLIM node.
 async fn start_channel_manager(
+    service: &Arc<Service>,
     conn_id: u64,
     cm_port: u16,
-) -> (Arc<slim_bindings::App>, Arc<SessionsList>) {
-    let service = get_global_service();
-
-    // Create the SLIM app with shared secret auth
-    let app_name = Arc::new(
-        Name::from_string("org/ns/channel-manager".to_string())
-            .expect("invalid channel-manager name"),
-    );
-    let provider = IdentityProviderConfig::SharedSecret {
-        id: "org/ns/channel-manager".to_string(),
-        data: SHARED_SECRET.to_string(),
-    };
-    let verifier = IdentityVerifierConfig::SharedSecret {
-        id: "org/ns/channel-manager".to_string(),
-        data: SHARED_SECRET.to_string(),
-    };
-    let app = service
-        .create_app_with_direction_async(
-            app_name.clone(),
-            provider,
-            verifier,
-            slim_bindings::Direction::None,
-        )
-        .await
-        .expect("failed to create SLIM app");
+) -> (Arc<App<AuthProvider, AuthVerifier>>, Arc<SessionsList>) {
+    let (app, _rx) = create_app_with_shared_secret(service, "org/ns/channel-manager").await;
+    let app = Arc::new(app);
 
     // Subscribe to the local name
-    app.subscribe_async(app.name(), Some(conn_id))
+    app.subscribe(app.app_name(), Some(conn_id))
         .await
         .expect("failed to subscribe");
 
@@ -152,18 +170,16 @@ async fn start_channel_manager(
 }
 
 /// Start a receiver app in-process (simulates a channel participant).
-/// Uses an already-established connection to the SLIM node.
-async fn start_receiver(local_name: &str, conn_id: u64) -> Arc<slim_bindings::App> {
-    let service = get_global_service();
-
-    let name = Arc::new(Name::from_string(local_name.to_string()).expect("invalid receiver name"));
-    let app = service
-        .create_app_with_secret_async(name.clone(), SHARED_SECRET.to_string())
-        .await
-        .expect("failed to create receiver app");
+async fn start_receiver(
+    service: &Arc<Service>,
+    local_name: &str,
+    conn_id: u64,
+) -> App<AuthProvider, AuthVerifier> {
+    let (app, _rx) = create_app_with_shared_secret(service, local_name).await;
+    let app_name = app.app_name().clone();
 
     // Subscribe to local name
-    app.subscribe_async(name, Some(conn_id))
+    app.subscribe(&app_name, Some(conn_id))
         .await
         .expect("failed to subscribe receiver");
 
@@ -179,25 +195,19 @@ async fn create_cm_client(cm_port: u16) -> ChannelManagerServiceClient<tonic::tr
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_channel_manager_via_cmctl() {
-    let slim_port = reserve_port();
-    let cm_port = reserve_port();
+    let slim_port = reserve_local_port();
+    let cm_port = reserve_local_port();
 
     // Start a SLIM node in-process (separate thread with its own runtime).
     let _slim_handle = start_slim_node(slim_port);
 
     wait_for_port("127.0.0.1", slim_port, Duration::from_secs(60), "SLIM node").await;
 
-    // Initialize SLIM bindings and connect to the SLIM node once (shared by all apps).
-    initialize_with_defaults();
-    let service = get_global_service();
-    let client_config = new_insecure_client_config(format!("http://127.0.0.1:{slim_port}"));
-    let conn_id = service
-        .connect_async(client_config)
-        .await
-        .expect("failed to connect to SLIM node");
+    // Create a service and connect to the SLIM node.
+    let (service, conn_id) = create_service_and_connect(slim_port).await;
 
     // Start channel-manager in-process.
-    let (_cm_app, _cm_sessions) = start_channel_manager(conn_id, cm_port).await;
+    let (_cm_app, _cm_sessions) = start_channel_manager(&service, conn_id, cm_port).await;
 
     wait_for_port(
         "127.0.0.1",
@@ -230,8 +240,8 @@ async fn test_channel_manager_via_cmctl() {
     assert!(resp.success, "create-channel failed: {:?}", resp.error_msg);
 
     // Start 2 receiver apps that act as channel participants.
-    let _receiver_1 = start_receiver("org/ns/p1", conn_id).await;
-    let _receiver_2 = start_receiver("org/ns/p2", conn_id).await;
+    let _receiver_1 = start_receiver(&service, "org/ns/p1", conn_id).await;
+    let _receiver_2 = start_receiver(&service, "org/ns/p2", conn_id).await;
 
     // Give receivers time to register
     tokio::time::sleep(Duration::from_secs(10)).await;

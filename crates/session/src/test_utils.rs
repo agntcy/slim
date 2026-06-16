@@ -12,14 +12,13 @@ use slim_datapath::api::{Participant, ProtoName};
 use std::sync::Arc;
 
 use crate::SessionError;
-use crate::common::SessionMessage;
+use crate::common::{SessionMessage, SessionOutput};
 use crate::traits::MessageHandler;
 
 /// Mock token provider for testing.
 #[derive(Clone, Default)]
 pub struct MockTokenProvider;
 
-#[async_trait::async_trait]
 impl TokenProvider for MockTokenProvider {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         Ok(())
@@ -32,13 +31,20 @@ impl TokenProvider for MockTokenProvider {
     fn get_id(&self) -> Result<String, AuthError> {
         Ok("mock_id".to_string())
     }
+
+    async fn set_signature_keys(
+        &mut self,
+        _private_key: Vec<u8>,
+        _public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        Ok(())
+    }
 }
 
 /// Mock verifier for testing.
 #[derive(Clone, Default)]
 pub struct MockVerifier;
 
-#[async_trait::async_trait]
 impl Verifier for MockVerifier {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         Ok(())
@@ -107,14 +113,17 @@ impl MessageHandler for MockInnerHandler {
         Ok(())
     }
 
-    async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
+    async fn on_message(&mut self, message: SessionMessage) -> Result<SessionOutput, SessionError> {
         self.messages_received.lock().await.push(message);
-        Ok(())
+        Ok(SessionOutput::new())
     }
 
-    async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
+    async fn add_endpoint(
+        &mut self,
+        endpoint: &Participant,
+    ) -> Result<SessionOutput, SessionError> {
         self.endpoints_added.lock().await.push(endpoint.get_name()?);
-        Ok(())
+        Ok(SessionOutput::new())
     }
 
     fn remove_endpoint(&mut self, endpoint: &ProtoName) {
@@ -131,5 +140,17 @@ impl MessageHandler for MockInnerHandler {
 
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
         Ok(())
+    }
+}
+
+impl<P, V> crate::traits::MlsStateSelector<P, V> for MockInnerHandler
+where
+    P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+    V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
+{
+    fn set_mls_state(
+        &mut self,
+        _mls_state: std::sync::Arc<parking_lot::Mutex<crate::mls_state::MlsState<P, V>>>,
+    ) {
     }
 }

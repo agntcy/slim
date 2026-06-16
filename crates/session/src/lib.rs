@@ -7,7 +7,7 @@ pub mod context;
 pub mod controller_sender;
 pub mod errors;
 
-mod mls_state;
+pub mod mls_state;
 mod moderator_task;
 pub mod notification;
 pub mod producer_buffer;
@@ -21,12 +21,16 @@ mod session_moderator;
 mod session_participant;
 pub mod session_receiver;
 pub mod session_sender;
-mod session_settings;
+pub mod session_settings;
 pub mod subscription_manager;
 pub mod timer;
 pub mod timer_factory;
 pub mod traits;
-pub mod transmitter;
+
+// Runtime-agnostic helpers (await seam for the MLS sync/async split) shared by
+// the modules above so the same source compiles for native tokio and the wasm32
+// browser runtime. Imported by path: `use crate::runtime::maybe_await;`.
+mod runtime;
 
 // Test utilities (only available during tests)
 #[cfg(test)]
@@ -49,6 +53,9 @@ pub use session_layer::{Direction, SessionLayer};
 
 // Common Session Types - internal use
 pub use common::{MessageDirection, SESSION_RANGE, SessionMessage, SlimChannelSender};
+
+// Session output types
+pub use common::{OutboundMessage, SessionOutput};
 
 // Public exports for external crates (like Python bindings)
 pub use common::{AppChannelReceiver, SESSION_UNSPECIFIED};

@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/agntcy/slim/compare/slim-session-v0.2.0...slim-session-v0.2.1) - 2026-06-03
+
+### Other
+
+- updated the following local packages: agntcy-slim-datapath, agntcy-slim-mls
+
+## [0.2.0](https://github.com/agntcy/slim/compare/slim-session-v0.1.15...slim-session-v0.2.0) - 2026-06-03
+
+### Added
+
+- increase Name ID from u64 to u128 ([#1680](https://github.com/agntcy/slim/pull/1680))
+- *(dataplane)* remove group creation ([#1594](https://github.com/agntcy/slim/pull/1594))
+- split data and control channel ([#1418](https://github.com/agntcy/slim/pull/1418))
+
+### Fixed
+
+- *(session)* skip buffer clone in unreliable mode ([#1673](https://github.com/agntcy/slim/pull/1673))
+- *(session)* apply backpressure on outbound channel send ([#1669](https://github.com/agntcy/slim/pull/1669))
+- *(session)* fix need_drains with app direction set to None ([#1574](https://github.com/agntcy/slim/pull/1574))
+- *(session)* guard against late GroupAck after task completion ([#1628](https://github.com/agntcy/slim/pull/1628))
+
+### Other
+
+- Replace async-trait with trait-variant in auth module ([#1684](https://github.com/agntcy/slim/pull/1684))
+- *(auth)* cache HMAC key and claims, drop per-call allocations in SharedSecret ([#1671](https://github.com/agntcy/slim/pull/1671))
+- *(session)* drop AppTransmitter, Transmitter trait, and MockTransmitter ([#1679](https://github.com/agntcy/slim/pull/1679))
+- *(session)* replace interceptor layer with direct identity handling ([#1676](https://github.com/agntcy/slim/pull/1676))
+- *(session)* drop async_trait from MessageHandler and Transmitter ([#1667](https://github.com/agntcy/slim/pull/1667))
+- *(data-plane)* replace encoder::Name with ProtoName throughout ([#1596](https://github.com/agntcy/slim/pull/1596))
+
 ## [0.1.15](https://github.com/agntcy/slim/compare/slim-session-v0.1.14...slim-session-v0.1.15) - 2026-05-13
 
 ### Other

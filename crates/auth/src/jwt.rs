@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as STANDARD_BASE64;
 use jsonwebtoken::jwk::KeyAlgorithm;
@@ -25,7 +24,6 @@ use crate::file_watcher::FileWatcher;
 use crate::metadata::MetadataMap;
 use crate::resolver::KeyResolver;
 use crate::traits::{Signer, StandardClaims, TokenProvider, Verifier};
-use crate::utils::generate_mls_signature_keys;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -207,7 +205,6 @@ impl<T> Jwt<T> {
         token_duration: Duration,
         validation: Validation,
     ) -> Result<Self, AuthError> {
-        let (secret_key, public_key) = generate_mls_signature_keys()?;
         Ok(Self {
             claims,
             token_duration,
@@ -218,7 +215,7 @@ impl<T> Jwt<T> {
             watchers: Arc::new(Vec::new()),
             static_token: None,
             token_cache: std::sync::Arc::new(TokenCache::new()),
-            signature_keys: (secret_key, public_key),
+            signature_keys: (vec![], vec![]),
             _phantom: std::marker::PhantomData,
         })
     }
@@ -565,7 +562,6 @@ impl Signer for SignerJwt {
     }
 }
 
-#[async_trait]
 impl TokenProvider for SignerJwt {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         // SignerJwt has no asynchronous initialization requirements.
@@ -594,13 +590,16 @@ impl TokenProvider for SignerJwt {
         Ok(self.signature_keys.1.clone())
     }
 
-    fn rotate_signature_keys(&mut self) -> Result<(), AuthError> {
-        self.signature_keys = generate_mls_signature_keys()?;
+    async fn set_signature_keys(
+        &mut self,
+        private_key: Vec<u8>,
+        public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        self.signature_keys = (private_key, public_key);
         Ok(())
     }
 }
 
-#[async_trait]
 impl TokenProvider for StaticTokenProvider {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         // StaticTokenProvider exposes a statically loaded token; nothing async to perform.
@@ -618,9 +617,16 @@ impl TokenProvider for StaticTokenProvider {
         let token = self.get_token()?;
         extract_sub_claim_unsafe(&token)
     }
+
+    async fn set_signature_keys(
+        &mut self,
+        _private_key: Vec<u8>,
+        _public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        Err(AuthError::MlsNotSupported)
+    }
 }
 
-#[async_trait]
 impl Verifier for VerifierJwt {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         Ok(()) // no-op

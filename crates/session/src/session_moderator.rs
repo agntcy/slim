@@ -11,23 +11,24 @@ use display_error_chain::ErrorChainExt;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, MlsPayload, NameId, Participant, ProtoMessage as Message, ProtoName,
-        ProtoSessionMessageType, ProtoSessionType,
+        CommandPayload, MlsPayload, NameId, Participant, ProtoMessage as Message, ProtoMlsSettings,
+        ProtoName, ProtoSessionMessageType, ProtoSessionType,
     },
     messages::utils::{DELETE_GROUP, DISCONNECTION_DETECTED, LEAVING_SESSION, TRUE_VAL},
 };
+use slim_mls::mls::Mls;
 use tokio::sync::oneshot;
 
-use slim_mls::mls::Mls;
 use tracing::debug;
 
 use crate::{
-    common::{MessageDirection, SessionMessage},
+    common::{MessageDirection, SessionMessage, SessionOutput},
     errors::SessionError,
     mls_state::{MlsModeratorState, MlsState},
     moderator_task::{
         AddParticipant, ModeratorTask, NotifyParticipants, RemoveParticipant, TaskUpdate,
     },
+    runtime::maybe_await,
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
@@ -107,13 +108,16 @@ where
 {
     async fn init(&mut self) -> Result<(), SessionError> {
         // Initialize MLS
-        self.mls_state = if self.common.settings.config.mls_enabled {
-            let mls_state = MlsState::new(Mls::new(
-                self.common.settings.identity_provider.clone(),
-                self.common.settings.identity_verifier.clone(),
-            ))
+        self.mls_state = if let Some(mls_settings) = &self.common.settings.config.mls_settings {
+            let mls_state = MlsState::new(
+                Mls::new(
+                    self.common.settings.identity_provider.clone(),
+                    self.common.settings.identity_verifier.clone(),
+                ),
+                mls_settings.header_integrity_validation_percent,
+            )
+            .await
             .expect("failed to create MLS state");
-
             Some(MlsModeratorState::new(mls_state))
         } else {
             None
@@ -122,7 +126,9 @@ where
         Ok(())
     }
 
-    async fn on_message(&mut self, message: SessionMessage) -> Result<(), SessionError> {
+    async fn on_message(&mut self, message: SessionMessage) -> Result<SessionOutput, SessionError> {
+        let mut output = SessionOutput::new();
+
         match message {
             SessionMessage::OnMessage {
                 mut message,
@@ -135,11 +141,8 @@ where
                         source = %message.get_source(),
                         "received  message",
                     );
-                    self.process_control_message(message, ack_tx).await
+                    output.extend(self.process_control_message(message, ack_tx).await?);
                 } else {
-                    // this is a application message. if direction (needs to go to the remote endpoint) and
-                    // the session is p2p, update the destination of the message with the destination in
-                    // the self.common. In this way we always add the right id to the name
                     if direction == MessageDirection::South
                         && self.common.settings.config.session_type
                             == ProtoSessionType::PointToPoint
@@ -149,21 +152,27 @@ where
                             .set_destination(self.common.settings.destination.clone());
                     }
 
-                    // Apply MLS encryption/decryption if enabled
-                    if let Some(mls_state) = &mut self.mls_state {
-                        mls_state.common.process_message(&mut message, direction)?;
+                    if direction == MessageDirection::North
+                        && let Some(mls_state) = &mut self.mls_state
+                    {
+                        maybe_await!(mls_state.common.process_message(&mut message, direction))?;
                     }
 
-                    self.inner
+                    let inner_output = self
+                        .inner
                         .on_message(SessionMessage::OnMessage {
                             message,
                             direction,
                             ack_tx,
                         })
-                        .await
+                        .await?;
+
+                    output.extend(inner_output);
                 }
             }
-            SessionMessage::MessageError { error } => self.handle_message_error(error).await,
+            SessionMessage::MessageError { error } => {
+                output.extend(self.handle_message_error(error).await?);
+            }
             SessionMessage::TimerTimeout {
                 message_id,
                 message_type,
@@ -171,19 +180,23 @@ where
                 timeouts,
             } => {
                 if message_type.is_command_message() {
-                    self.common
-                        .sender
-                        .on_timer_timeout(message_id, message_type)
-                        .await
+                    output.extend(
+                        self.common
+                            .sender
+                            .on_timer_timeout(message_id, message_type)?,
+                    );
                 } else {
-                    self.inner
+                    let inner_output = self
+                        .inner
                         .on_message(SessionMessage::TimerTimeout {
                             message_id,
                             message_type,
                             name,
                             timeouts,
                         })
-                        .await
+                        .await?;
+
+                    output.extend(inner_output);
                 }
             }
             SessionMessage::TimerFailure {
@@ -198,24 +211,23 @@ where
                         message_type,
                         SessionError::MessageSendRetryFailed { id: message_id },
                     )
-                    .await
+                    .await?;
                 } else {
-                    self.inner
-                        .on_message(SessionMessage::TimerFailure {
-                            message_id,
-                            message_type,
-                            name,
-                            timeouts,
-                        })
-                        .await
+                    output.extend(
+                        self.inner
+                            .on_message(SessionMessage::TimerFailure {
+                                message_id,
+                                message_type,
+                                name,
+                                timeouts,
+                            })
+                            .await?,
+                    );
                 }
             }
             SessionMessage::StartDrain { grace_period: _ } => {
                 debug!("start draining by calling delete_all");
-                // Set processing state to draining
                 self.common.processing_state = ProcessingState::Draining;
-                // We need to close the session for all the participants
-                // Create the leave message
                 let p = CommandPayload::builder().leave_request().as_content();
                 let destination = self.common.settings.control.clone();
                 let mut leave_msg = self.common.create_control_message(
@@ -227,8 +239,7 @@ where
                 )?;
                 leave_msg.insert_metadata(DELETE_GROUP.to_string(), TRUE_VAL.to_string());
 
-                // send it to all the participants
-                self.delete_all(None).await
+                output.extend(self.delete_all(None).await?);
             }
             SessionMessage::ParticipantDisconnected {
                 name: opt_participant,
@@ -240,8 +251,6 @@ where
                     "Participant not anymore connected to the current session",
                 );
 
-                // create a leave request message for the participant that
-                // got disconnected and add the metadata to the message
                 let mut msg = self.common.create_control_message(
                     &participant.clone(),
                     ProtoSessionMessageType::LeaveRequest,
@@ -251,16 +260,24 @@ where
                 )?;
                 msg.insert_metadata(DISCONNECTION_DETECTED.to_string(), TRUE_VAL.to_string());
 
-                // process the leave request message
-                self.on_disconnection_detected(msg, None).await
+                output.extend(self.on_disconnection_detected(msg, None).await?);
             }
-            _ => Err(SessionError::SessionMessageInternalUnexpected(Box::new(
-                message,
-            ))),
+            _ => {
+                return Err(SessionError::SessionMessageInternalUnexpected(Box::new(
+                    message,
+                )));
+            }
         }
+
+        maybe_await!(self.encrypt_output(&mut output))?;
+
+        Ok(output)
     }
 
-    async fn add_endpoint(&mut self, endpoint: &Participant) -> Result<(), SessionError> {
+    async fn add_endpoint(
+        &mut self,
+        endpoint: &Participant,
+    ) -> Result<SessionOutput, SessionError> {
         self.inner.add_endpoint(endpoint).await
     }
 
@@ -328,9 +345,24 @@ where
     I: MessageHandler + Send + Sync + 'static,
     M: SubscriptionOps,
 {
+    #[maybe_async::maybe_async]
+    async fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
+        crate::session_controller::SessionController::apply_identity_to_slim_output(
+            output,
+            &self.common.settings.identity_provider,
+        )?;
+        if let Some(mls_state) = &mut self.mls_state {
+            mls_state.common.encrypt_output(output).await?;
+        }
+        Ok(())
+    }
+
     /// Helper method to handle MessageError
     /// Extracts context from the error and routes to appropriate handler
-    async fn handle_message_error(&mut self, error: SessionError) -> Result<(), SessionError> {
+    async fn handle_message_error(
+        &mut self,
+        error: SessionError,
+    ) -> Result<SessionOutput, SessionError> {
         let Some(session_ctx) = error.session_context() else {
             tracing::warn!("Received MessageError without session context");
             return self
@@ -340,15 +372,14 @@ where
         };
 
         if error.is_command_message_error() {
-            // Handle command message failure
             self.handle_failure(
                 session_ctx.message_id,
                 session_ctx.get_session_message_type(),
                 error,
             )
-            .await
+            .await?;
+            Ok(SessionOutput::new())
         } else {
-            // Pass non-command errors to inner handler
             self.inner
                 .on_message(SessionMessage::MessageError { error })
                 .await
@@ -448,8 +479,7 @@ where
         // Compute MLS payload if needed
         let mls_payload = match self.mls_state.as_mut() {
             Some(state) => {
-                let mls_content = state
-                    .remove_participant(msg)
+                let mls_content = maybe_await!(state.remove_participant(msg))
                     .map_err(|e| self.handle_task_error(e))?;
                 let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
                 Some(MlsPayload {
@@ -470,31 +500,29 @@ where
         removed_participant: ProtoName,
         participants: Vec<ProtoName>,
         mls_payload: Option<MlsPayload>,
-    ) -> Result<u32, SessionError> {
+    ) -> Result<(u32, SessionOutput), SessionError> {
         let update_payload = CommandPayload::builder()
             .group_remove(removed_participant, participants, mls_payload)
             .as_content();
         let msg_id = rand::random::<u32>();
 
-        self.common
-            .send_control_message(
-                &self.common.settings.control.clone(),
-                ProtoSessionMessageType::GroupRemove,
-                msg_id,
-                update_payload,
-                None,
-                true,
-            )
-            .await?;
+        let output = self.common.send_control_message(
+            &self.common.settings.control.clone(),
+            ProtoSessionMessageType::GroupRemove,
+            msg_id,
+            update_payload,
+            None,
+            true,
+        )?;
 
-        Ok(msg_id)
+        Ok((msg_id, output))
     }
 
     async fn process_control_message(
         &mut self,
         message: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<SessionOutput, SessionError> {
         match message.get_session_message_type() {
             ProtoSessionMessageType::DiscoveryRequest => {
                 self.on_discovery_request(message, ack_tx).await
@@ -516,7 +544,7 @@ where
             }
             ProtoSessionMessageType::LeaveReply => self.on_leave_reply(message).await,
             ProtoSessionMessageType::GroupAck => self.on_group_ack(message).await,
-            ProtoSessionMessageType::Ping => self.common.sender.on_message(&message).await,
+            ProtoSessionMessageType::Ping => self.common.sender.on_message(&message),
             ProtoSessionMessageType::GroupProposal => todo!(),
             ProtoSessionMessageType::JoinRequest
             | ProtoSessionMessageType::GroupAdd
@@ -537,7 +565,7 @@ where
         &mut self,
         mut msg: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<SessionOutput, SessionError> {
         debug!(%self.common.settings.id, "received discovery request");
         // the channel discovery starts a new participant invite.
         // process the request only if not busy
@@ -547,7 +575,7 @@ where
             );
             // if busy postpone the task and add it to the todo list with its ack_tx
             self.tasks_todo.push_back((msg, ack_tx));
-            return Ok(());
+            return Ok(SessionOutput::new());
         }
 
         // now the moderator is busy - create the task first
@@ -577,18 +605,17 @@ where
         );
         self.common
             .send_with_timer(msg)
-            .await
             .map_err(|e| self.handle_task_error(e))
     }
 
-    async fn on_discovery_reply(&mut self, msg: Message) -> Result<(), SessionError> {
+    async fn on_discovery_reply(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {
         debug!(
             source = %msg.get_source(),
             id = msg.get_id(),
             "discovery reply",
         );
         // update sender status to stop timers
-        self.common.sender.on_message(&msg).await?;
+        let mut output = self.common.sender.on_message(&msg)?;
 
         // evolve the current task state
         // the discovery phase is completed
@@ -635,12 +662,22 @@ where
             None
         };
 
+        let mls_settings =
+            self.common
+                .settings
+                .config
+                .mls_settings
+                .as_ref()
+                .map(|s| ProtoMlsSettings {
+                    header_integrity_validation_percent: s.header_integrity_validation_percent,
+                });
+
         let payload = CommandPayload::builder()
             .join_request(
-                self.mls_state.is_some(),
                 self.common.settings.config.max_retries,
                 self.common.settings.config.interval,
                 channel,
+                mls_settings,
             )
             .as_content();
 
@@ -649,30 +686,30 @@ where
             id = msg_id,
             "send join request",
         );
-        self.common
-            .send_control_message(
-                &msg.get_slim_header().get_source(),
-                ProtoSessionMessageType::JoinRequest,
-                msg_id,
-                payload,
-                Some(self.common.settings.config.metadata.clone()),
-                false,
-            )
-            .await?;
+        output.extend(self.common.send_control_message(
+            &msg.get_slim_header().get_source(),
+            ProtoSessionMessageType::JoinRequest,
+            msg_id,
+            payload,
+            Some(self.common.settings.config.metadata.clone()),
+            false,
+        )?);
 
         // evolve the current task state
         // start the join phase
-        self.current_task.as_mut().unwrap().join_start(msg_id)
+        self.current_task.as_mut().unwrap().join_start(msg_id)?;
+
+        Ok(output)
     }
 
-    async fn on_join_reply(&mut self, msg: Message) -> Result<(), SessionError> {
+    async fn on_join_reply(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {
         debug!(
             source = %msg.get_source(),
             id = msg.get_id(),
             "join reply",
         );
         // stop the timer for the join request
-        self.common.sender.on_message(&msg).await?;
+        let mut output = self.common.sender.on_message(&msg)?;
 
         // evolve the current task state
         // the join phase is completed
@@ -697,7 +734,7 @@ where
 
         // get mls data if MLS is enabled
         let (commit, welcome) = if let Some(mls_state) = &mut self.mls_state {
-            let (commit_payload, welcome_payload) = mls_state.add_participant(&msg)?;
+            let (commit_payload, welcome_payload) = maybe_await!(mls_state.add_participant(&msg))?;
 
             // get the id of the commit, the welcome message has a random id
             let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
@@ -727,16 +764,14 @@ where
                 .as_content();
             let add_msg_id = rand::random::<u32>();
             debug!(id = %add_msg_id, "send add update to channel");
-            self.common
-                .send_control_message(
-                    &self.common.settings.control.clone(),
-                    ProtoSessionMessageType::GroupAdd,
-                    add_msg_id,
-                    update_payload,
-                    None,
-                    true,
-                )
-                .await?;
+            output.extend(self.common.send_control_message(
+                &self.common.settings.control.clone(),
+                ProtoSessionMessageType::GroupAdd,
+                add_msg_id,
+                update_payload,
+                None,
+                true,
+            )?);
             self.current_task
                 .as_mut()
                 .unwrap()
@@ -762,16 +797,14 @@ where
             id = %welcome_msg_id,
             "send welcome message",
         );
-        self.common
-            .send_control_message(
-                &msg.get_slim_header().get_source(),
-                ProtoSessionMessageType::GroupWelcome,
-                welcome_msg_id,
-                welcome_payload,
-                None,
-                false,
-            )
-            .await?;
+        output.extend(self.common.send_control_message(
+            &msg.get_slim_header().get_source(),
+            ProtoSessionMessageType::GroupWelcome,
+            welcome_msg_id,
+            welcome_payload,
+            None,
+            false,
+        )?);
 
         // evolve the current task state
         // welcome start
@@ -780,19 +813,19 @@ where
             .unwrap()
             .welcome_start(welcome_msg_id)?;
 
-        Ok(())
+        Ok(output)
     }
 
     async fn on_leave_request(
         &mut self,
         mut msg: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<SessionOutput, SessionError> {
         if self.current_task.is_some() {
             // if busy postpone the task and add it to the todo list with its ack_tx
             debug!("Moderator is busy. Add leave request task to the list and process it later");
             self.tasks_todo.push_back((msg, ack_tx));
-            return Ok(());
+            return Ok(SessionOutput::new());
         }
 
         debug!("Create RemoveParticipant task");
@@ -827,7 +860,7 @@ where
 
         if participants_vec.len() > 2 {
             // in this case we need to send first the group update and later the leave message
-            let msg_id = self
+            let (msg_id, output) = self
                 .send_group_remove(leave_message.get_dst(), participants_vec, mls_payload)
                 .await?;
             self.current_task.as_mut().unwrap().commit_start(msg_id)?;
@@ -836,6 +869,7 @@ where
             // the reception of all the acks for the group update message
             // see on_group_ack for postponed_message handling
             self.postponed_message = Some(leave_message);
+            Ok(output)
         } else {
             // no commit message will be sent so update the task state to consider the commit as received
             // the timer id is not important here, it just need to be consistent
@@ -846,22 +880,21 @@ where
                 .update_phase_completed(12345)?;
 
             // just send the leave message in this case
-            self.common.sender.on_message(&leave_message).await?;
+            let output = self.common.sender.on_message(&leave_message)?;
 
             self.current_task
                 .as_mut()
                 .unwrap()
                 .leave_start(leave_message.get_id())?;
+            Ok(output)
         }
-
-        Ok(())
     }
 
     async fn on_disconnection_detected(
         &mut self,
         mut msg: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<SessionOutput, SessionError> {
         // if the disconnection was detected (no metadata in the message) the leave message is
         // sent toward the participant that was disconnected. Otherwise the leave message is sent
         // from the participant that wants to disconnect
@@ -880,14 +913,14 @@ where
                 "detected disconnection of participant {} that is not part of the group, ignore the message",
                 disconnected
             );
-            return Ok(());
+            return Ok(SessionOutput::new());
         }
 
         debug!(%disconnected, "disconnection detected");
 
         // Send error notification to the application
         let error = SessionError::ParticipantDisconnected(disconnected.clone());
-        let _ = self.common.send_to_app(error).await;
+        let mut output = SessionOutput::to_app(Err(error));
 
         // if the disconnection was detected nothing to do here,
         // otherwise we need to reply, change the metadata and swap
@@ -907,7 +940,7 @@ where
             // the participant will be removed from the group so we need to remove
             // it from the local sender.
             self.common.sender.remove_participant(&disconnected);
-            self.common.send_to_slim(reply).await?;
+            output.extend(SessionOutput::to_slim(reply));
 
             // replace LEAVING_SESSION with DISCONNECTION_DETECTED so that if the process of the
             // message needs to be delayed because the moderator is busy we do not send the reply twice
@@ -933,7 +966,7 @@ where
 
             // the control will exit and call the shutdown
             // no need to do it here
-            return Ok(());
+            return Ok(output);
         }
 
         if self.current_task.is_some() {
@@ -942,7 +975,7 @@ where
                 "Moderator is busy. Add disconnection handling task to the list and process it later"
             );
             self.tasks_todo.push_back((msg, ack_tx));
-            return Ok(());
+            return Ok(output);
         }
 
         debug!("Create disconnected task for the disconnection handling");
@@ -963,16 +996,19 @@ where
             .await?;
 
         // Notify all the participants left and update the MLS state if needed
-        let msg_id = self
+        let (msg_id, remove_output) = self
             .send_group_remove(disconnected, participants_vec, mls_payload)
             .await?;
-        self.current_task.as_mut().unwrap().commit_start(msg_id)
+        output.extend(remove_output);
+        self.current_task.as_mut().unwrap().commit_start(msg_id)?;
+
+        Ok(output)
     }
 
     async fn delete_all(
         &mut self,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
-    ) -> Result<(), SessionError> {
+    ) -> Result<SessionOutput, SessionError> {
         debug!("receive a close channel message, send signals to all participants");
         self.prepare_shutdown().await?;
 
@@ -986,7 +1022,7 @@ where
         if participants.len() == 1 {
             // in this case the moderator is the only one remained
             // in the group so there is nothing to do
-            return Ok(());
+            return Ok(SessionOutput::new());
         }
 
         let destination = self.common.settings.control.clone();
@@ -1008,10 +1044,10 @@ where
         self.current_task.as_mut().unwrap().commit_start(close_id)?;
 
         // sent the message
-        self.common.sender.on_message(&close).await
+        self.common.sender.on_message(&close)
     }
 
-    async fn on_leave_reply(&mut self, msg: Message) -> Result<(), SessionError> {
+    async fn on_leave_reply(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {
         debug!(
             from = %msg.get_source(),
             id = %msg.get_id(),
@@ -1025,22 +1061,23 @@ where
             .await?;
 
         // notify the sender and see if we can pick another task
-        self.common.sender.on_message(&msg).await?;
+        let output = self.common.sender.on_message(&msg)?;
         if !self.common.sender.is_still_pending(msg_id) {
             self.current_task.as_mut().unwrap().leave_complete(msg_id)?;
         }
 
-        self.task_done().await
+        self.task_done().await?;
+        Ok(output)
     }
 
-    async fn on_group_ack(&mut self, msg: Message) -> Result<(), SessionError> {
+    async fn on_group_ack(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {
         debug!(
             from = %msg.get_source(),
             id = %msg.get_id(),
             "received group ack",
         );
         // notify the sender
-        self.common.sender.on_message(&msg).await?;
+        let mut output = self.common.sender.on_message(&msg)?;
 
         // check if the timer is done
         let msg_id = msg.get_id();
@@ -1059,7 +1096,7 @@ where
                     id = %msg_id,
                     "received group ack for completed/unknown task, ignoring",
                 );
-                return Ok(());
+                return Ok(output);
             };
             // we received all the messages related to this timer
             // check if we are done and move on
@@ -1073,7 +1110,7 @@ where
                     && matches!(self.current_task, Some(ModeratorTask::Remove(_)))
                 {
                     // send the leave message an progress
-                    self.common.sender.on_message(leave_message).await?;
+                    output.extend(self.common.sender.on_message(leave_message)?);
                     self.current_task
                         .as_mut()
                         .unwrap()
@@ -1092,7 +1129,7 @@ where
             );
         }
 
-        Ok(())
+        Ok(output)
     }
 
     /// task handling functions
@@ -1218,6 +1255,7 @@ where
 mod tests {
     use super::*;
     use crate::Direction;
+    use crate::common::OutboundMessage;
     use crate::session_config::SessionConfig;
     use crate::session_settings::SessionSettings;
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
@@ -1274,13 +1312,12 @@ mod tests {
 
         let subscription_manager =
             crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
-        let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let config = SessionConfig {
             session_type: ProtoSessionType::Multicast,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };
@@ -1292,7 +1329,8 @@ mod tests {
             control,
             config,
             direction: Direction::Bidirectional,
-            tx,
+            slim_tx: tx_slim,
+            app_tx: tx_app,
             tx_session,
             tx_to_session_layer: tx_session_layer,
             identity_provider,
@@ -1331,7 +1369,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_moderator_discovery_request_starts_task() {
-        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
         moderator.init().await.unwrap();
 
         let source = make_name(&["requester", "app", "v1"]).with_id(300);
@@ -1362,9 +1400,12 @@ mod tests {
         ));
 
         // Should have sent a discovery request
-        let sent_msg = rx_slim.try_recv();
-        assert!(sent_msg.is_ok());
-        let msg = sent_msg.unwrap().unwrap();
+        let output = result.unwrap();
+        assert!(!output.is_empty());
+        let msg = match &output.messages[0] {
+            OutboundMessage::ToSlim(m) => m,
+            _ => panic!("Expected ToSlim message"),
+        };
         assert_eq!(
             msg.get_session_header().session_message_type(),
             ProtoSessionMessageType::DiscoveryRequest
@@ -1423,12 +1464,7 @@ mod tests {
             .message_id(100)
             .payload(
                 CommandPayload::builder()
-                    .join_request(
-                        false,
-                        Some(3),
-                        Some(std::time::Duration::from_secs(1)),
-                        None,
-                    )
+                    .join_request(Some(3), Some(std::time::Duration::from_secs(1)), None, None)
                     .as_content(),
             )
             .build_publish()
@@ -1640,13 +1676,12 @@ mod tests {
 
         let subscription_manager =
             crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
-        let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };
@@ -1658,7 +1693,8 @@ mod tests {
             control: destination.clone(),
             config,
             direction: Direction::Bidirectional,
-            tx,
+            slim_tx: tx_slim,
+            app_tx: tx_app,
             tx_session,
             tx_to_session_layer: tx_session_layer,
             identity_provider,
@@ -1715,19 +1751,18 @@ mod tests {
         let identity_verifier = MockVerifier;
 
         let (tx_slim, mut rx_slim) = mpsc::channel(16);
-        let (tx_app, mut rx_app) = mpsc::unbounded_channel();
+        let (tx_app, _rx_app) = mpsc::unbounded_channel();
         let (tx_session, _rx_session) = mpsc::channel(16);
         let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
 
         let subscription_manager =
             crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
-        let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let config = SessionConfig {
             session_type: ProtoSessionType::Multicast,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };
@@ -1739,7 +1774,8 @@ mod tests {
             control,
             config,
             direction: Direction::Bidirectional,
-            tx,
+            slim_tx: tx_slim,
+            app_tx: tx_app,
             tx_session,
             tx_to_session_layer: tx_session_layer,
             identity_provider,
@@ -1815,14 +1851,23 @@ mod tests {
 
         let result = moderator.on_disconnection_detected(leave_msg, None).await;
 
-        // Verify that the ParticipantDisconnected error was sent to the app channel
-        let app_error = rx_app.try_recv();
+        // The function should succeed now that app channel is open
+        assert!(result.is_ok(), "Should succeed with open app channel");
+
+        // Verify that the ParticipantDisconnected error was sent to the output
+        let output = result.unwrap();
+        let app_error = output
+            .messages
+            .iter()
+            .find(|m| matches!(m, OutboundMessage::ToApp(_)));
         assert!(
-            app_error.is_ok(),
-            "Expected error to be sent to app channel"
+            app_error.is_some(),
+            "Expected error to be sent to app output"
         );
 
-        if let Ok(Err(SessionError::ParticipantDisconnected(name))) = app_error {
+        if let Some(OutboundMessage::ToApp(Err(SessionError::ParticipantDisconnected(name)))) =
+            app_error
+        {
             let name_str = name.to_string();
             assert!(
                 name_str.contains("agntcy/ns/participant"),
@@ -1832,9 +1877,6 @@ mod tests {
         } else {
             panic!("Expected ParticipantDisconnected error");
         }
-
-        // The function should succeed now that app channel is open
-        assert!(result.is_ok(), "Should succeed with open app channel");
 
         // Verify shutdown was triggered when only 2 participants remained
         assert_eq!(
@@ -1865,13 +1907,12 @@ mod tests {
 
         let subscription_manager =
             crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
-        let tx = crate::transmitter::SessionTransmitter::new(tx_slim, tx_app, MockTokenProvider);
 
         let config = SessionConfig {
             session_type: ProtoSessionType::Multicast,
             max_retries: Some(3),
             interval: Some(std::time::Duration::from_secs(1)),
-            mls_enabled: false,
+            mls_settings: None,
             initiator: true,
             metadata: Default::default(),
         };
@@ -1883,7 +1924,8 @@ mod tests {
             control: control.clone(),
             config,
             direction: Direction::Bidirectional,
-            tx,
+            slim_tx: tx_slim,
+            app_tx: tx_app,
             tx_session,
             tx_to_session_layer: tx_session_layer,
             identity_provider,

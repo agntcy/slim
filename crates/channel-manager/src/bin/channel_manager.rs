@@ -15,12 +15,14 @@ use agntcy_slim_channel_manager::proto::channel_manager_service_server::ChannelM
 use agntcy_slim_channel_manager::service::ChannelManagerServer;
 use agntcy_slim_channel_manager::sessions::SessionsList;
 
+use anyhow::Context;
 use clap::Parser;
-use slim_bindings::ClientConfig as BindingsClientConfig;
-use slim_bindings::{
-    IdentityProviderConfig, IdentityVerifierConfig, Name, SessionConfig, SessionType,
-    get_global_service, initialize_with_defaults, shutdown,
-};
+use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+use slim_auth::traits::{TokenProvider, Verifier};
+use slim_config::component::ComponentBuilder;
+use slim_datapath::api::{ProtoName, ProtoSessionType};
+use slim_service::app::App;
+use slim_session::{Direction, SessionConfig, session_config::MlsSettings};
 use slim_tracing::TracingConfiguration;
 use tracing::{error, info, warn};
 
@@ -36,35 +38,49 @@ struct Args {
 
 /// Create channels from the configuration file
 async fn create_channels_from_config(
-    app: &Arc<slim_bindings::App>,
+    app: &Arc<App<AuthProvider, AuthVerifier>>,
     conn_id: u64,
     sessions: &Arc<SessionsList>,
     config: &Config,
 ) -> anyhow::Result<()> {
     for channel_cfg in &config.manager.channels {
         let channel_name =
-            Name::from_string(channel_cfg.name.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
+            ProtoName::parse_name(&channel_cfg.name).map_err(|e| anyhow::anyhow!("{e}"))?;
 
+        // Create a new session for the channel
         let session_config = SessionConfig {
-            session_type: SessionType::Group,
-            enable_mls: channel_cfg.mls_enabled,
+            session_type: ProtoSessionType::Multicast,
+            mls_settings: if channel_cfg.mls_enabled {
+                Some(MlsSettings::default())
+            } else {
+                None
+            },
             max_retries: Some(10),
             interval: Some(Duration::from_millis(1000)),
+            initiator: true,
             metadata: std::collections::HashMap::new(),
         };
 
-        let session = app
-            .create_session_and_wait_async(session_config, Arc::new(channel_name))
+        let (session, completion) = app
+            .create_session(session_config, channel_name, None)
             .await
             .map_err(|e| {
                 anyhow::anyhow!("failed to create session for {}: {e}", channel_cfg.name)
             })?;
+        completion.await.map_err(|e| {
+            anyhow::anyhow!("session creation failed for {}: {e}", channel_cfg.name)
+        })?;
+
+        // Get the session controller for participant invitations
+        let controller = session
+            .session_arc()
+            .ok_or_else(|| anyhow::anyhow!("session already closed for {}", channel_cfg.name))?;
 
         for participant in &channel_cfg.participants {
             let participant_name =
-                Name::from_string(participant.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
+                ProtoName::parse_name(participant).map_err(|e| anyhow::anyhow!("{e}"))?;
 
-            app.set_route_async(Arc::new(participant_name.clone()), conn_id)
+            app.set_route(&participant_name, conn_id)
                 .await
                 .map_err(|e| {
                     anyhow::anyhow!(
@@ -74,8 +90,16 @@ async fn create_channels_from_config(
                     )
                 })?;
 
-            session
-                .invite_and_wait_async(Arc::new(participant_name))
+            controller
+                .invite_participant(&participant_name)
+                .await
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "failed to invite {} to channel {}: {e}",
+                        participant,
+                        channel_cfg.name
+                    )
+                })?
                 .await
                 .map_err(|e| {
                     anyhow::anyhow!(
@@ -116,16 +140,20 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::load(&args.config_file)?;
     info!(config_file = %args.config_file.display(), "Configuration loaded");
 
-    // Initialize SLIM (also sets up crypto provider; tracing subscriber already set so it reuses ours)
-    initialize_with_defaults();
-    let service = get_global_service();
+    // Initialize crypto provider (required before any TLS operations)
+    slim_config::tls::provider::initialize_crypto_provider();
 
-    // Connect to the SLIM node using the full ClientConfig
-    let client_config: BindingsClientConfig = config.manager.slim_connection.clone().into();
+    // Create a SLIM service
+    let service = slim_service::ServiceBuilder::new()
+        .build("channel-manager-service".to_string())
+        .map_err(|e| anyhow::anyhow!("failed to create SLIM service: {e}"))?;
+
+    // Connect to the SLIM node
     let conn_id = service
-        .connect_async(client_config)
+        .connect(&config.manager.slim_connection)
         .await
         .map_err(|e| anyhow::anyhow!("failed to connect to SLIM node: {e}"))?;
+
     info!(
         endpoint = %config.manager.slim_connection.endpoint,
         conn_id,
@@ -133,47 +161,55 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Create the SLIM app with configured authentication
-    let app_name = Arc::new(
-        Name::from_string(config.manager.local_name.clone())
-            .map_err(|e| anyhow::anyhow!("invalid local-name: {e}"))?,
-    );
+    let app_name = ProtoName::parse_name(&config.manager.local_name)
+        .map_err(|e| anyhow::anyhow!("invalid local-name: {e}"))?;
     let (core_provider, core_verifier) = config
         .manager
         .auth
         .to_identity_configs(&config.manager.local_name);
-    let provider: IdentityProviderConfig = core_provider.into();
-    let verifier: IdentityVerifierConfig = core_verifier.into();
-    let app = service
-        .create_app_with_direction_async(
-            app_name.clone(),
-            provider,
-            verifier,
-            slim_bindings::Direction::None,
-        )
+
+    let mut provider = core_provider
+        .build_auth_provider()
+        .context("failed to build auth provider")?;
+    let mut verifier = core_verifier
+        .build_auth_verifier()
+        .context("failed to build auth verifier")?;
+
+    // Initialize auth (required before use)
+    provider
+        .initialize()
         .await
-        .map_err(|e| anyhow::anyhow!("failed to create SLIM app: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("failed to initialize identity provider: {e}"))?;
+    verifier
+        .initialize()
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to initialize identity verifier: {e}"))?;
+
+    let (app, _rx) =
+        service.create_app_with_direction(&app_name, provider, verifier, Direction::None)?;
 
     // Subscribe to the local name
-    app.subscribe_async(app.name(), Some(conn_id))
+    app.subscribe(app.app_name(), Some(conn_id))
         .await
         .map_err(|e| anyhow::anyhow!("failed to subscribe: {e}"))?;
 
     info!(
-        local_name = %app.name(),
+        local_name = %app.app_name(),
         "SLIM app created"
     );
 
     // Create sessions list
     let sessions = Arc::new(SessionsList::new());
+    let arc_app = Arc::new(app);
 
     // Create channels from configuration
-    if let Err(e) = create_channels_from_config(&app, conn_id, &sessions, &config).await {
+    if let Err(e) = create_channels_from_config(&arc_app, conn_id, &sessions, &config).await {
         error!("Failed to create channels from config: {e}");
         return Err(e);
     }
 
     // Create gRPC server
-    let server = ChannelManagerServer::new(app.clone(), conn_id, sessions.clone());
+    let server = ChannelManagerServer::new(arc_app.clone(), conn_id, sessions.clone());
     let svc = ChannelManagerServiceServer::new(server);
 
     info!(
@@ -201,13 +237,14 @@ async fn main() -> anyhow::Result<()> {
 
     // Cleanup with timeout to avoid hanging on shutdown
     info!("Shutting down...");
-    match tokio::time::timeout(Duration::from_secs(5), sessions.delete_all(&app)).await {
+    match tokio::time::timeout(Duration::from_secs(5), sessions.delete_all(&arc_app)).await {
         Ok(()) => info!("All sessions cleaned up"),
         Err(_) => warn!("Session cleanup timed out, forcing shutdown"),
     }
-    shutdown()
+    service
+        .shutdown()
         .await
-        .map_err(|e| anyhow::anyhow!("shutdown failed: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("service shutdown failed: {e}"))?;
     info!("Shutdown complete");
 
     Ok(())

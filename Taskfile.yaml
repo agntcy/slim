@@ -3,14 +3,17 @@
 
 version: "3"
 
-silent: true
-set: [pipefail]
-shopt: [globstar]
-
 includes:
   tools:
     taskfile: ./tasks/tools.yaml
     internal: true
+  docs:
+    taskfile: docs/Taskfile.yml
+    excludes: [default]
+
+silent: true
+set: [pipefail]
+shopt: [globstar]
 
 vars:
   GLOBAL_ARGS: '{{.GLOBAL_ARGS | default "--workspace"}}'
