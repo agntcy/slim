@@ -222,6 +222,14 @@ pub struct ClientConfig {
     /// ReadBufferSize.
     pub buffer_size: Option<usize>,
 
+    /// HTTP/2 per-stream initial flow control window size (bytes).
+    /// Defaults to 4 MiB when unset.
+    pub initial_stream_window_size: Option<u32>,
+
+    /// HTTP/2 per-connection initial flow control window size (bytes).
+    /// Defaults to 16 MiB when unset.
+    pub initial_connection_window_size: Option<u32>,
+
     /// The headers associated with gRPC requests.
     #[serde(default)]
     pub headers: HashMap<String, String>,
@@ -268,6 +276,8 @@ impl Default for ClientConfig {
             connect_timeout: default_connect_timeout(),
             request_timeout: default_request_timeout(),
             buffer_size: None,
+            initial_stream_window_size: Some(4 * 1024 * 1024),
+            initial_connection_window_size: Some(16 * 1024 * 1024),
             headers: HashMap::new(),
             auth: AuthenticationConfig::None,
             backoff: BackoffConfig::default(),
@@ -300,7 +310,7 @@ impl std::fmt::Display for ClientConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ClientConfig {{ endpoint: {}, transport: {:?}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, backoff: {:?}, metadata: {:?}, link_id: {:?}, connection_type: {:?} }}",
+            "ClientConfig {{ endpoint: {}, transport: {:?}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, initial_stream_window_size: {:?}, initial_connection_window_size: {:?}, headers: {:?}, auth: {:?}, backoff: {:?}, metadata: {:?}, link_id: {:?}, connection_type: {:?} }}",
             self.endpoint,
             self.resolved_transport(),
             self.origin,
@@ -313,6 +323,8 @@ impl std::fmt::Display for ClientConfig {
             self.connect_timeout,
             self.request_timeout,
             self.buffer_size,
+            self.initial_stream_window_size,
+            self.initial_connection_window_size,
             self.headers,
             self.auth,
             self.backoff,
@@ -554,6 +566,11 @@ mod tests {
         assert_eq!(client.connect_timeout, Duration::from_secs(0));
         assert_eq!(client.request_timeout, Duration::from_secs(0));
         assert_eq!(client.buffer_size, None);
+        assert_eq!(client.initial_stream_window_size, Some(4 * 1024 * 1024));
+        assert_eq!(
+            client.initial_connection_window_size,
+            Some(16 * 1024 * 1024)
+        );
         assert_eq!(client.headers, HashMap::new());
         assert_eq!(client.auth, AuthenticationConfig::None);
     }

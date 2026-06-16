@@ -113,6 +113,14 @@ pub struct ServerConfig {
     // TODO(msardara): not implemented yet
     pub write_buffer_size: Option<usize>,
 
+    /// HTTP/2 per-stream initial flow control window size (bytes).
+    /// Defaults to 4 MiB when unset.
+    pub initial_stream_window_size: Option<u32>,
+
+    /// HTTP/2 per-connection initial flow control window size (bytes).
+    /// Defaults to 16 MiB when unset.
+    pub initial_connection_window_size: Option<u32>,
+
     /// Keepalive anchor for all the settings related to keepalive.
     #[serde(default)]
     pub keepalive: KeepaliveServerParameters,
@@ -188,6 +196,8 @@ impl Default for ServerConfig {
             max_header_list_size: None,
             read_buffer_size: Some(1024 * 1024),
             write_buffer_size: Some(1024 * 1024),
+            initial_stream_window_size: Some(4 * 1024 * 1024),
+            initial_connection_window_size: Some(16 * 1024 * 1024),
             keepalive: KeepaliveServerParameters::default(),
             auth: AuthenticationConfig::default(),
             metadata: None,
@@ -219,7 +229,7 @@ impl std::fmt::Display for ServerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ServerConfig {{ endpoint: {}, transport: {:?}, tls_setting: {}, http2_only: {}, max_frame_size: {:?}, max_concurrent_streams: {:?}, max_header_list_size: {:?}, read_buffer_size: {:?}, write_buffer_size: {:?}, keepalive: {:?}, auth: {:?}, metadata: {:?}, require_header_mac: {}, negotiation_timeout_secs: {}, link_hmac_poll_interval_ms: {} }}",
+            "ServerConfig {{ endpoint: {}, transport: {:?}, tls_setting: {}, http2_only: {}, max_frame_size: {:?}, max_concurrent_streams: {:?}, max_header_list_size: {:?}, read_buffer_size: {:?}, write_buffer_size: {:?}, initial_stream_window_size: {:?}, initial_connection_window_size: {:?}, keepalive: {:?}, auth: {:?}, metadata: {:?}, require_header_mac: {}, negotiation_timeout_secs: {}, link_hmac_poll_interval_ms: {} }}",
             self.endpoint,
             self.resolved_transport(),
             self.tls_setting,
@@ -229,6 +239,8 @@ impl std::fmt::Display for ServerConfig {
             self.max_header_list_size,
             self.read_buffer_size,
             self.write_buffer_size,
+            self.initial_stream_window_size,
+            self.initial_connection_window_size,
             self.keepalive,
             self.auth,
             self.metadata,
@@ -424,6 +436,14 @@ mod tests {
         assert_eq!(server_config.max_header_list_size, None);
         assert_eq!(server_config.read_buffer_size, Some(1024 * 1024));
         assert_eq!(server_config.write_buffer_size, Some(1024 * 1024));
+        assert_eq!(
+            server_config.initial_stream_window_size,
+            Some(4 * 1024 * 1024)
+        );
+        assert_eq!(
+            server_config.initial_connection_window_size,
+            Some(16 * 1024 * 1024)
+        );
         assert_eq!(
             server_config.keepalive,
             KeepaliveServerParameters::default()

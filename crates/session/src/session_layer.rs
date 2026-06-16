@@ -470,7 +470,6 @@ where
 
     /// Handle a message from the message processor, and pass it to the
     /// corresponding session
-    #[tracing::instrument(skip_all, fields(service_id = %self.service_id))]
     pub async fn handle_message_from_slim(
         self: &Arc<Self>,
         message: Message,
