@@ -427,7 +427,7 @@ pub struct LinkNegotiationPayload {
     /// the server verifies both sides belong to the same peer group before
     /// upgrading the connection. Empty for non-peer connections.
     #[prost(string, tag = "7")]
-    pub peer_group: ::prost::alloc::string::String,
+    pub deployment_name: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -565,6 +565,7 @@ impl LinkConnectionType {
     }
 }
 /// Generated client implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod data_plane_service_client {
     #![allow(
         unused_variables,
@@ -684,6 +685,7 @@ pub mod data_plane_service_client {
     }
 }
 /// Generated server implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod data_plane_service_server {
     #![allow(
         unused_variables,

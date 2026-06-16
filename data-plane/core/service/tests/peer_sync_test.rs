@@ -19,9 +19,7 @@ use slim_config::server::ServerConfig;
 use slim_config::tls::client::TlsClientConfig;
 use slim_config::tls::server::TlsServerConfig;
 use slim_datapath::api::{ApplicationPayload, ProtoMessage as Message, ProtoName as Name};
-use slim_datapath::peer_discovery::{
-    PeerConfig, PeerDiscoveryConfig, PeerTopology, StaticPeerEntry,
-};
+use slim_datapath::peer_discovery::{PeerConfig, PeerTopology, StaticPeerEntry};
 use slim_datapath::tables::{ConnType, SubscriptionTable};
 use slim_service::{Service, ServiceConfiguration};
 use slim_testing::utils::TEST_VALID_SECRET;
@@ -85,11 +83,10 @@ fn build_peer_configs_with_topology(
         .collect();
 
     let peer_config = PeerConfig {
-        peer_group: "test-group".to_string(),
+        deployment_name: "test-group".to_string(),
         topology,
-        discovery: PeerDiscoveryConfig::StaticPeers {
-            peers: static_peers,
-        },
+        static_peers,
+        discovery: None,
     };
 
     let mut configs = Vec::new();
@@ -937,11 +934,10 @@ async fn test_no_duplicate_subscriptions_on_peer_reconnect() {
         },
     ];
     let peer_config = PeerConfig {
-        peer_group: "test-reconnect".to_string(),
+        deployment_name: "test-reconnect".to_string(),
         topology: PeerTopology::FullMesh,
-        discovery: PeerDiscoveryConfig::StaticPeers {
-            peers: static_peers,
-        },
+        static_peers,
+        discovery: None,
     };
 
     // Start node A (the dialer)
@@ -1039,11 +1035,10 @@ async fn test_multiple_subscriptions_restored_on_reconnect() {
         },
     ];
     let peer_config = PeerConfig {
-        peer_group: "test-multi-reconnect".to_string(),
+        deployment_name: "test-multi-reconnect".to_string(),
         topology: PeerTopology::FullMesh,
-        discovery: PeerDiscoveryConfig::StaticPeers {
-            peers: static_peers,
-        },
+        static_peers,
+        discovery: None,
     };
 
     let node_a = start_peer_node(port_a, "node-a".to_string(), peer_config.clone()).await;

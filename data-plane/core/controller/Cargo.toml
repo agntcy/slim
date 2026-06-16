@@ -11,15 +11,16 @@ include = ["src/**", "build.rs", "proto/**"]
 name = "slim_controller"
 
 [dependencies]
+agntcy-slim-version = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-session = { workspace = true }
 agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
-agntcy-slim-version = { workspace = true }
 display-error-chain = { workspace = true }
 drain = { workspace = true }
-duration-string = { workspace = true }
 futures = { workspace = true }
 h2 = { workspace = true }
 parking_lot = { workspace = true }

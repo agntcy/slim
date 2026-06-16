@@ -16,9 +16,9 @@ use slim_datapath::{
     },
     messages::utils::{DELETE_GROUP, DISCONNECTION_DETECTED, LEAVING_SESSION, TRUE_VAL},
 };
+use slim_mls::mls::Mls;
 use tokio::sync::oneshot;
 
-use slim_mls::mls::Mls;
 use tracing::debug;
 
 use crate::{
@@ -28,6 +28,7 @@ use crate::{
     moderator_task::{
         AddParticipant, ModeratorTask, NotifyParticipants, RemoveParticipant, TaskUpdate,
     },
+    runtime::maybe_await,
     session_controller::SessionControllerCommon,
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
@@ -115,6 +116,7 @@ where
                 ),
                 mls_settings.header_integrity_validation_percent,
             )
+            .await
             .expect("failed to create MLS state");
             Some(MlsModeratorState::new(mls_state))
         } else {
@@ -153,7 +155,7 @@ where
                     if direction == MessageDirection::North
                         && let Some(mls_state) = &mut self.mls_state
                     {
-                        mls_state.common.process_message(&mut message, direction)?;
+                        maybe_await!(mls_state.common.process_message(&mut message, direction))?;
                     }
 
                     let inner_output = self
@@ -267,7 +269,7 @@ where
             }
         }
 
-        self.encrypt_output(&mut output)?;
+        maybe_await!(self.encrypt_output(&mut output))?;
 
         Ok(output)
     }
@@ -343,13 +345,14 @@ where
     I: MessageHandler + Send + Sync + 'static,
     M: SubscriptionOps,
 {
-    fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
+    #[maybe_async::maybe_async]
+    async fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
         crate::session_controller::SessionController::apply_identity_to_slim_output(
             output,
             &self.common.settings.identity_provider,
         )?;
         if let Some(mls_state) = &mut self.mls_state {
-            mls_state.common.encrypt_output(output)?;
+            mls_state.common.encrypt_output(output).await?;
         }
         Ok(())
     }
@@ -476,8 +479,7 @@ where
         // Compute MLS payload if needed
         let mls_payload = match self.mls_state.as_mut() {
             Some(state) => {
-                let mls_content = state
-                    .remove_participant(msg)
+                let mls_content = maybe_await!(state.remove_participant(msg))
                     .map_err(|e| self.handle_task_error(e))?;
                 let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
                 Some(MlsPayload {
@@ -732,7 +734,7 @@ where
 
         // get mls data if MLS is enabled
         let (commit, welcome) = if let Some(mls_state) = &mut self.mls_state {
-            let (commit_payload, welcome_payload) = mls_state.add_participant(&msg)?;
+            let (commit_payload, welcome_payload) = maybe_await!(mls_state.add_participant(&msg))?;
 
             // get the id of the commit, the welcome message has a random id
             let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();

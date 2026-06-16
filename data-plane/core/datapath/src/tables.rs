@@ -13,7 +13,7 @@ pub mod pool;
 
 use crate::api::{EncodedName, ProtoName};
 
-pub use slim_config::client::ConnType;
+pub use slim_config::conn_type::ConnType;
 
 /// Determines which connection categories to include when matching publish messages.
 ///

@@ -137,56 +137,7 @@ above.
 - Adding new service methods
 - Marking fields as deprecated (with migration path)
 
-### 3. Public Binding APIs
-
-Changes to the public APIs exposed by the Rust bindings in
-`data-plane/bindings/rust/`.
-
-**Note**: Language bindings (Python, Go, etc.) are **automatically
-generated** from the Rust bindings using
-[UniFFI](https://mozilla.github.io/uniffi-rs/). Therefore, any breaking
-change to the Rust bindings API will propagate to all generated language
-bindings.
-
-#### Rust Bindings (`data-plane/bindings/rust/`)
-
-The Rust bindings serve as the source of truth for all language bindings.
-Focus on items marked with UniFFI attributes (`#[uniffi::export]`,
-`#[derive(uniffi::Record)]`, `#[derive(uniffi::Object)]`, etc.).
-
-**Breaking**:
-
-- Removing public functions, structs, enums, or traits marked with UniFFI
-  attributes
-- Changing function signatures (parameter types, return types, or order)
-- Changing struct field types in UniFFI records
-- Removing enum variants from UniFFI enums
-- Renaming public items exposed through UniFFI
-- Changing error types in function return values
-- Removing or changing methods on UniFFI objects
-
-**Non-breaking** (can be MINOR):
-
-- Adding new public functions, structs, enums, or traits with UniFFI
-  attributes
-- Adding new optional parameters with defaults
-- Adding new enum variants (with proper default handling)
-- Adding new methods to UniFFI objects
-- Adding new struct fields (with defaults or optional fields)
-- Adding new error variants (as long as existing ones remain)
-
-#### Generated Language Bindings Impact
-
-Since Python, Go, and other language bindings are generated from Rust:
-
-- Breaking changes in Rust bindings automatically become breaking changes
-  in **all** language bindings
-- New Rust API additions automatically become available in **all** language
-  bindings
-- No separate versioning needed for individual language bindings - they
-  track the Rust bindings version
-
-### 4. Configuration Schema Changes
+### 3. Configuration Schema Changes
 
 **Breaking**:
 
@@ -209,7 +160,6 @@ The following changes warrant a **MINOR** version bump:
     - New session types or messaging patterns
     - New authentication methods
     - New configuration options (optional)
-    - New API methods in bindings (additive only)
 
 2. **Protocol Extensions**:
     - New optional proto fields
@@ -272,10 +222,12 @@ The following components define the versioning for SLIM:
 
 - `agntcy-slim` - Defines the version of the SLIM node executable (the
   data plane)
-- `agntcy-slim-bindings` - Defines the version of all language bindings
-  (source for UniFFI-generated bindings)
 - `control-plane` - Defines the version of the SLIM control plane server
 - `slimctl` - Defines the version of the SLIM CLI tool
+
+Language bindings are maintained in the
+[slim-bindings](https://github.com/agntcy/slim-bindings) repository and
+follow their own versioning policy defined there.
 
 **Version Synchronization**: All core components listed above **must be
 versioned together** and keep their versions in sync. Different versions
@@ -289,18 +241,6 @@ users. However, these internal crates are still published on crates.io and
 follow semantic versioning policies if they are used as dependencies by
 external projects.
 
-### Language Bindings
-
-All language bindings are **generated from** `agntcy-slim-bindings` using
-UniFFI and track its version:
-
-- Python: `slim-bindings` (PyPI) - generated via UniFFI
-- Go: Go module - generated via UniFFI
-- Others as available - all generated from the same Rust source
-
-The version of language binding packages should match the
-`agntcy-slim-bindings` version they were generated from.
-
 ### Release Coordination
 
 When breaking changes occur:
@@ -309,11 +249,7 @@ When breaking changes occur:
    components due to loss of interoperability
 2. **Proto schema changes**: Trigger MAJOR version bump across all
    components
-3. **Binding API changes**: Trigger MAJOR version bump across **all
-   components** including data plane, control plane, and all language
-   bindings. This maintains version synchronization and avoids confusion
-   about which versions can communicate with each other.
-4. **Internal changes**: May only affect specific crates
+3. **Internal changes**: May only affect specific crates
 
 ## Migration Path Requirements
 
@@ -340,12 +276,9 @@ Before releasing, reviewers should verify:
    control plane communication
 2. **Proto Files**: Compare `data-plane/core/datapath/proto/v1/data_plane.proto`
    and `proto/controller/v1/controller.proto` with previous versions
-3. **Rust Bindings API**: Review changes in
-   `data-plane/bindings/rust/src/lib.rs` and all public modules marked
-   with UniFFI attributes
-4. **Configuration**: Check `ServiceConfiguration` and related config
+3. **Configuration**: Check `ServiceConfiguration` and related config
    structs
-5. **Core Service**: Review `data-plane/core/service/src/lib.rs` public
+4. **Core Service**: Review `data-plane/core/service/src/lib.rs` public
    exports
 
 ## Additional Considerations
@@ -386,15 +319,14 @@ Security fixes may be backported to older MAJOR versions when feasible:
 
 ## Summary Table
 
-| Change Type                | Version | Examples                |
-| -------------------------- | ------- | ----------------------- |
-| Remove proto fields        | MAJOR   | Deleting message fields |
-| Change proto field types   | MAJOR   | `string` → `bytes`      |
-| Remove public API          | MAJOR   | Delete binding function |
-| Change function signature  | MAJOR   | Add required parameter  |
-| Add proto field (optional) | MINOR   | New optional field      |
-| Add new API method         | MINOR   | New binding function    |
-| Add new feature            | MINOR   | New session type        |
-| Fix bug                    | PATCH   | Correct error handling  |
-| Update documentation       | PATCH   | README improvements     |
-| Performance improvement    | PATCH   | Optimize internal code  |
+| Change Type                | Version | Examples                       |
+| -------------------------- | ------- | ------------------------------ |
+| Remove proto fields        | MAJOR   | Deleting message fields        |
+| Change proto field types   | MAJOR   | `string` → `bytes`             |
+| Remove configuration field | MAJOR   | Delete required config option  |
+| Change function signature  | MAJOR   | Add required parameter         |
+| Add proto field (optional) | MINOR   | New optional field             |
+| Add new feature            | MINOR   | New session type               |
+| Fix bug                    | PATCH   | Correct error handling         |
+| Update documentation       | PATCH   | README improvements            |
+| Performance improvement    | PATCH   | Optimize internal code         |

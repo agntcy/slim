@@ -331,7 +331,7 @@ message LinkNegotiationPayload {
   // Peer group identifier. When non-empty and connection_type is LINK_CONNECTION_TYPE_PEER,
   // the server verifies both sides belong to the same peer group before
   // upgrading the connection. Empty for non-peer connections.
-  string peer_group = 7;
+  string deployment_name = 7;
 }
 
 // Connection type for link negotiation.

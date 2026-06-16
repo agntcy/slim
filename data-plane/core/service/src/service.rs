@@ -26,8 +26,7 @@ use slim_datapath::peer_discovery::KubernetesPeerDiscovery;
 use slim_datapath::peer_discovery::{
     PeerConfig, PeerDiscoveryConfig, PeerTopology, StaticPeerDiscovery,
 };
-use slim_datapath::sync::PeerSyncConfig;
-use slim_datapath::sync::PeerSyncManager;
+use slim_datapath::sync::{PeerSync, PeerSyncConfig};
 use slim_datapath::tables::ConnType;
 
 // Local crate
@@ -116,6 +115,11 @@ impl ServiceConfiguration {
         ServiceConfiguration::default()
     }
 
+    pub fn with_node_id(mut self, node_id: impl Into<String>) -> Self {
+        self.node_id = node_id.into();
+        self
+    }
+
     pub fn with_dataplane_server(mut self, server: Vec<ServerConfig>) -> Self {
         self.dataplane.servers = server;
         self
@@ -192,7 +196,7 @@ pub struct Service {
     id: ID,
 
     /// underlying message processor
-    message_processor: Arc<MessageProcessor>,
+    message_processor: MessageProcessor,
 
     /// controller service
     controller: tokio::sync::RwLock<Option<ControlPlane>>,
@@ -257,11 +261,10 @@ impl Service {
 
     /// Create a new Service with configuration
     pub fn new_with_config(id: ID, config: ServiceConfiguration) -> Self {
-        let recovery_ttl = config.dataplane.recovery_ttl.as_ref().map(|d| (*d).into());
-        let peer_group = config
+        let deployment_name = config
             .peers
             .as_ref()
-            .map(|p| p.peer_group.clone())
+            .map(|p| p.deployment_name.clone())
             .unwrap_or_default();
         let service_id = config.node_id.clone();
 
@@ -275,18 +278,16 @@ impl Service {
             None => true,
         };
 
-        let message_processor =
-            Arc::new(if let Some(server) = config.dataplane_servers().first() {
-                MessageProcessor::new_with_server_config(
-                    service_id,
-                    peer_group,
-                    server,
-                    recovery_ttl,
-                    relay_peer_publishes,
-                )
-            } else {
-                MessageProcessor::new_with_options(service_id, recovery_ttl)
-            });
+        let message_processor = if let Some(server) = config.dataplane_servers().first() {
+            MessageProcessor::new_with_server_config(
+                service_id,
+                deployment_name,
+                server,
+                relay_peer_publishes,
+            )
+        } else {
+            MessageProcessor::new_with_service_id(service_id)
+        };
 
         Service {
             id,
@@ -343,7 +344,7 @@ impl Service {
         // run the controller
         debug!("starting controller service");
         let mut controller = self.config.controller.into_service(
-            self.id.clone(),
+            self.config.node_id.clone(),
             self.config.group_name.clone(),
             self.message_processor.clone(),
             self.config.dataplane_servers(),
@@ -362,86 +363,80 @@ impl Service {
     fn start_peer_sync(&self, peer_config: &PeerConfig) {
         let self_id = self.config.node_id.clone();
 
+        // Determine if we are the hub (smallest node_id among all peers including self).
+        let is_hub = peer_config
+            .static_peers
+            .iter()
+            .map(|entry| entry.node_id.as_str())
+            .all(|peer_id| self_id.as_str() <= peer_id);
+
+        info!(
+            %self_id,
+            %is_hub,
+            topology = ?peer_config.topology,
+            deployment_name = %peer_config.deployment_name,
+            num_static_peers = peer_config.static_peers.len(),
+            "starting peer sync"
+        );
+
         let cancel = CancellationToken::new();
         *self.peer_sync_cancel.lock() = Some(cancel.clone());
 
-        let incoming_peer_rx = self
-            .message_processor
-            .take_incoming_peer_rx()
-            .expect("incoming_peer_rx already taken");
-        let mp = (*self.message_processor).clone();
+        let sync_config = PeerSyncConfig {
+            self_id: self_id.clone(),
+            deployment_name: peer_config.deployment_name.clone(),
+            topology: peer_config.topology.clone(),
+            is_hub,
+        };
+
+        let mp = self.message_processor.clone();
+        let peer_sync = PeerSync::with_peer_state(
+            &peer_config.topology,
+            Arc::new(parking_lot::RwLock::new(
+                slim_datapath::sync::PeerState::new(),
+            )),
+        );
+        self.message_processor.set_peer_sync(peer_sync.clone());
 
         match &peer_config.discovery {
-            PeerDiscoveryConfig::StaticPeers { peers } => {
-                // Determine if we are the hub (smallest node_id among all peers including self).
-                let is_hub = peers
-                    .iter()
-                    .map(|entry| entry.node_id.as_str())
-                    .all(|peer_id| self_id.as_str() <= peer_id);
-
-                info!(
-                    %self_id,
-                    %is_hub,
-                    topology = ?peer_config.topology,
-                    peer_group = %peer_config.peer_group,
-                    num_peers = peers.len(),
-                    "starting peer sync manager (static peers)"
-                );
-
-                let sync_config = PeerSyncConfig {
-                    self_id: self_id.clone(),
-                    peer_group: peer_config.peer_group.clone(),
-                    topology: peer_config.topology.clone(),
-                    is_hub,
-                };
-
-                let discovery = StaticPeerDiscovery::from_static_peers(peers, &self_id);
-                let mut manager =
-                    PeerSyncManager::new(sync_config, mp, discovery, incoming_peer_rx);
-                tokio::spawn(async move {
-                    manager.run(cancel).await;
-                });
-            }
             #[cfg(feature = "kubernetes")]
-            PeerDiscoveryConfig::Kubernetes {
+            Some(PeerDiscoveryConfig::Kubernetes {
                 namespace,
                 label_selector,
                 port,
-            } => {
+            }) => {
                 info!(
-                    %self_id,
                     %namespace,
                     %label_selector,
                     %port,
-                    topology = ?peer_config.topology,
-                    peer_group = %peer_config.peer_group,
-                    "starting peer sync manager (kubernetes discovery)"
+                    "starting peer sync (kubernetes discovery)"
                 );
-
-                let sync_config = PeerSyncConfig {
-                    self_id: self_id.clone(),
-                    peer_group: peer_config.peer_group.clone(),
-                    topology: peer_config.topology.clone(),
-                    is_hub: false,
-                };
-
                 let discovery = KubernetesPeerDiscovery::new(
                     namespace.clone(),
                     label_selector.clone(),
                     *port,
                     self_id,
                 );
-                let mut manager =
-                    PeerSyncManager::new(sync_config, mp, discovery, incoming_peer_rx);
                 tokio::spawn(async move {
-                    manager.run(cancel).await;
+                    peer_sync
+                        .run_discovery(&mp, sync_config, discovery, cancel)
+                        .await;
                 });
             }
             #[cfg(not(feature = "kubernetes"))]
-            PeerDiscoveryConfig::Kubernetes { .. } => {
-                panic!(
+            Some(PeerDiscoveryConfig::Kubernetes { .. }) => {
+                warn!(
                     "kubernetes peer discovery configured but the 'kubernetes' feature is not enabled"
                 );
+            }
+            None => {
+                let discovery =
+                    StaticPeerDiscovery::from_static_peers(&peer_config.static_peers, &self_id);
+                tokio::spawn(async move {
+                    peer_sync
+                        .run_discovery(&mp, sync_config, discovery, cancel)
+                        .await;
+                });
             }
         }
     }
@@ -679,7 +674,7 @@ impl Service {
     }
 
     /// Get a reference to the underlying message processor.
-    pub fn message_processor(&self) -> &Arc<MessageProcessor> {
+    pub fn message_processor(&self) -> &MessageProcessor {
         &self.message_processor
     }
 }

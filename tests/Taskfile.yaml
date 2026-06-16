@@ -49,7 +49,6 @@ tasks:
           --bins \
           -p agntcy-slim \
           -p slim-examples \
-          -p agntcy-slim-bindings \
           --examples
 
         mkdir -p .dist/bin
@@ -63,29 +62,8 @@ tasks:
 
   tests:integration:
     desc: "Run integration tests"
-    vars:
-      USE_LOCAL_BINDINGS: '{{.USE_LOCAL_BINDINGS | default "false"}}'
-      FORCE_LOCAL_BINDINGS: '{{.FORCE_LOCAL_BINDINGS | default "false"}}'
     deps:
       - data-plane:build
       #- tests:build-legacy-binaries
     cmds:
-      - task: tests:build-slimrpc-examples
       - go -C ./integration test -v -failfast -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m .
-
-  tests:build-slimrpc-examples:
-    desc: "Build all slimrpc example binaries for cross-language testing"
-    cmds:
-      # Rebuild the UniFFI cdylib after datapath proto changes (JoinRequestPayload wire layout).
-      - task -d ../data-plane/bindings/rust bindings:build:all PROFILE=debug
-      - task -d ../data-plane/bindings/go build PROFILE=debug
-      - task -d ../data-plane/bindings/java build
-      - task -d ../data-plane/bindings/dotnet build
-      - task -d ../data-plane/bindings/python python:build
-
-  tests:integration:slimrpc:
-    desc: "Run cross-language slimrpc integration tests"
-    deps:
-      - tests:build-slimrpc-examples
-    cmds:
-      - go -C ./integration test -v -failfast -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m -ginkgo.focus "SlimRPC cross-language" .

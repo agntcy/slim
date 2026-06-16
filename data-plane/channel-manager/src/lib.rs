@@ -7,6 +7,9 @@
 //! Provides a gRPC API for dynamic channel and participant management, and
 //! supports initial channel setup from a YAML configuration file.
 
+// TODO(wasm32): channel-manager wraps tonic gRPC + the native session layer.
+#![cfg(not(target_arch = "wasm32"))]
+
 pub mod config;
 pub mod service;
 pub mod sessions;

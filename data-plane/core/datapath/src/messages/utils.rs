@@ -70,7 +70,7 @@ pub const FALSE_VAL: &str = "FALSE";
 pub const MAX_PUBLISH_ID: u32 = u32::MAX / 2;
 
 /// Default TTL value for messages that do not have an explicit TTL set.
-pub const DEFAULT_TTL: u32 = 16;
+pub const DEFAULT_TTL: u32 = 8;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum MessageError {
@@ -402,6 +402,7 @@ impl SlimHeader {
         self.ttl
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     // returns (incoming, recv_from, forward_to) for subscription processing
     pub(crate) fn get_connections(&self) -> (u64, Option<u64>, Option<u64>) {
         // when calling this function, incoming connection is set
@@ -946,6 +947,17 @@ impl ProtoMessage {
 
     pub fn is_link(&self) -> bool {
         matches!(self.get_type(), MessageType::Link(_))
+    }
+
+    /// Extract the [`LinkNegotiationPayload`] from a Link message, if present.
+    pub fn get_link_negotiation_payload(&self) -> Option<LinkNegotiationPayload> {
+        match &self.message_type {
+            Some(ProtoLinkMessageType(link)) => match &link.link_type {
+                Some(ProtoLinkType::LinkNegotiation(payload)) => Some(payload.clone()),
+                _ => None,
+            },
+            _ => None,
+        }
     }
 
     pub fn is_subscription_ack(&self) -> bool {
@@ -1742,7 +1754,7 @@ impl ProtoMessageBuilder {
         link_ecdh_public_key: Option<Vec<u8>>,
         connection_type: LinkConnectionType,
         node_id: impl Into<String>,
-        peer_group: impl Into<String>,
+        deployment_name: impl Into<String>,
     ) -> ProtoMessage {
         let link_ecdh_public_key = link_ecdh_public_key.unwrap_or_default();
         let link = ProtoLink {
@@ -1753,7 +1765,7 @@ impl ProtoMessageBuilder {
                 link_ecdh_public_key,
                 connection_type: connection_type.into(),
                 node_id: node_id.into(),
-                peer_group: peer_group.into(),
+                deployment_name: deployment_name.into(),
             })),
         };
         ProtoMessage::new(self.metadata, ProtoLinkMessageType(link))
@@ -2346,7 +2358,7 @@ mod tests {
                 link_ecdh_public_key: vec![],
                 connection_type: 0,
                 node_id: String::new(),
-                peer_group: String::new(),
+                deployment_name: String::new(),
             })),
         };
         let msg = ProtoMessage::new(HashMap::new(), ProtoLinkMessageType(link));

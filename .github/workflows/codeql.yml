@@ -9,6 +9,11 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+    paths-ignore:
+      - 'docs/**'
+      - '.github/workflows/docs-ci.yaml'
+      - '.github/workflows/docs-deploy.yml'
+      - '.github/workflows/reusable-docs.yml'
   schedule:
     - cron: '42 5 * * 6'
   workflow_dispatch:
@@ -40,8 +45,6 @@ jobs:
         - language: go
           build-mode: autobuild
         - language: rust
-          build-mode: none
-        - language: python
           build-mode: none
         # CodeQL supports the following values keywords for 'language': 'actions', 'c-cpp', 'csharp', 'go', 'java-kotlin', 'javascript-typescript', 'python', 'ruby', 'rust', 'swift'
         # Use `c-cpp` to analyze code written in C, C++ or both
@@ -87,12 +90,6 @@ jobs:
       with:
         workspace: ./data-plane
 
-    - name: Set up Python
-      if: matrix.language == 'python'
-      uses: ./.github/actions/setup-python
-      with:
-        uv-install: 'true'
-
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
       uses: github/codeql-action/init@c10b8064de6f491fea524254123dbe5e09572f13 # v4.35.1
@@ -112,8 +109,6 @@ jobs:
           paths-ignore:
             - "**/*.pb.go"
             - "**/mock_*.go"
-            - "**/*_pb2.py"
-            - "**/*_pb2_grpc.py"
             - "**/testdata/**"
             - "**/vendor/**"
             - "**/target/**"
@@ -121,20 +116,6 @@ jobs:
             - "**/testing/**"
             - "**/tests/**"
             - "**/*_test.go"
-            - "**/test_*.py"
-
-    - name: Install Python dependencies
-      if: matrix.language == 'python'
-      shell: bash
-      run: |
-        echo "📦 Installing Python dependencies..."
-        # Install dependencies for Python bindings
-        if [ -f "data-plane/python/bindings/pyproject.toml" ]; then
-          cd data-plane/python/bindings
-          uv sync || echo "Failed to sync Python bindings dependencies"
-          cd ../../..
-        fi
-        echo "✅ Python dependencies installed"
 
     - name: Prepare Go environment for autobuild
       if: matrix.language == 'go'

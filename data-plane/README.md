@@ -91,10 +91,9 @@ If everything goes well you should see an output similar to:
 
 ## Run SLIM
 
-SLIM can be run in 2 main ways:
-
-- directly as binary (preferred way when deployed as workload in k8s)
-- via the [bindings APIs](./bindings)
+SLIM is run as a binary (typically deployed as a workload in k8s). Language
+bindings are maintained separately in the
+[slim-bindings](https://github.com/agntcy/slim-bindings) repository.
 
 SLIM can run in server mode, in client mode or both (i.e. spawning a
 server and connecting to another SLIM instance at the same time).
@@ -197,5 +196,3 @@ Run the linter for Rust code:
 ```bash
 task data-plane:lint
 ```
-
-This will run linting on both the Rust workspace and language bindings.

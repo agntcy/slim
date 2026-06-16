@@ -25,24 +25,22 @@ services:
           tls:
             insecure: true
     peers:
-      peer_group: "thegroup"
+      deployment_name: "thegroup"
       topology: "hub_and_spoke"
-      discovery:
-        type: static_peers
-        peers:
-          - node_id: "slim-1"
-            endpoint: "http://127.0.0.1:46357"
-            tls:
-              insecure: true
-          - node_id: "slim-2"
-            endpoint: "http://127.0.0.1:46358"
-            tls:
-              insecure: true
-          - node_id: "slim-3"
-            endpoint: "http://127.0.0.1:46359"
-            tls:
-              insecure: true
-          - node_id: "slim-4"
-            endpoint: "http://127.0.0.1:46360"
-            tls:
-              insecure: true
+      static_peers:
+        - node_id: "slim-1"
+          endpoint: "http://127.0.0.1:46357"
+          tls:
+            insecure: true
+        - node_id: "slim-2"
+          endpoint: "http://127.0.0.1:46358"
+          tls:
+            insecure: true
+        - node_id: "slim-3"
+          endpoint: "http://127.0.0.1:46359"
+          tls:
+            insecure: true
+        - node_id: "slim-4"
+          endpoint: "http://127.0.0.1:46360"
+          tls:
+            insecure: true

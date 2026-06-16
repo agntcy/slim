@@ -8,43 +8,59 @@ description = "Authentication utilities for the Agntcy Slim framework"
 [lib]
 name = "slim_auth"
 
+[features]
+default = []
+
+# Dependencies shared by the always-available core modules (errors,
+# identity_claims, metadata, shared_secret, traits) on every target,
+# including wasm32.
 [dependencies]
 agntcy-slim-version = { workspace = true }
-aws-lc-rs = { workspace = true }
 base64 = { workspace = true }
+cfg-if = { workspace = true }
+http = { workspace = true }
+itoa = "1"
+parking_lot = { workspace = true }
+prost-types = { workspace = true }
+rand = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+trait-variant = { workspace = true }
+web-time = { workspace = true }
+
+[target.'cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))'.dependencies]
+spiffe = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+aws-lc-rs = { workspace = true }
 display-error-chain = { workspace = true }
 futures = { workspace = true }
 headers = { workspace = true }
-http = { workspace = true }
-itoa = "1"
 jsonwebtoken = { workspace = true }
-mls-rs-core = { workspace = true }
-mls-rs-crypto-awslc = { workspace = true }
 notify = { workspace = true }
 oauth2 = { workspace = true, features = ["reqwest"] }
-parking_lot = { workspace = true }
 pin-project = { workspace = true }
-prost-types = { workspace = true }
-rand = { workspace = true }
 reqwest = { workspace = true }
-schemars = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tokio-util = { workspace = true }
 tower = { workspace = true }
 tower-layer = { workspace = true }
 tower-service = { workspace = true }
-tracing = { workspace = true }
-trait-variant = { workspace = true }
 url = { workspace = true }
 wiremock = { workspace = true }
 
-[target.'cfg(not(target_family = "windows"))'.dependencies]
-spiffe = { workspace = true }
+# Pure-Rust HMAC-SHA256 backend for SharedSecret on wasm32 (aws-lc-rs is
+# native-only). `getrandom` with the wasm_js backend is required so that
+# `rand` works in the browser.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim-config = { path = "../config" }
 agntcy-slim-testing = { path = "../../testing" }
 criterion = { workspace = true }

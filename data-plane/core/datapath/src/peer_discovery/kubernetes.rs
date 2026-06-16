@@ -21,7 +21,8 @@ use kube::runtime::watcher::Event as WatcherEvent;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
-use slim_config::client::{ClientConfig, ConnType};
+use slim_config::client::ClientConfig;
+use slim_config::conn_type::ConnType;
 
 use super::{PeerDiscovery, PeerDiscoveryError, PeerEvent, PeerInfo};
 

@@ -7,34 +7,19 @@
 //!   peers exchange their complete routing table.
 //! - [`remote`]: Restore mechanism for remote/controller connections. On reconnect,
 //!   only the previously-forwarded subscription set is replayed.
-//! - [`forwarder`]: Subscription forwarding logic (loop prevention, ACK tracking).
-//! - [`manager`]: Peer lifecycle management (discovery, connect/disconnect).
+//! - [`forwarder`]: Peer sync component (discovery, forwarding, ACK tracking).
 
 pub(crate) mod forwarder;
-mod manager;
 pub mod peer;
-pub(crate) mod recovery;
 pub mod remote;
 mod state;
 
-pub use forwarder::{ForwardTargets, PeerTarget, SubscriptionForwarder};
-pub use manager::{PeerSyncConfig, PeerSyncManager};
+pub use forwarder::{ForwardTargets, PeerSync, PeerSyncConfig, PeerTarget};
 pub use state::PeerState;
-
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::api::proto::dataplane::v1::Message;
 use crate::api::{ProtoMessage, ProtoName};
 use crate::messages::utils::MessageError;
-
-/// Monotonically increasing counter for generating unique sync subscription IDs.
-/// These IDs are distinct from application-level subscription IDs.
-static SYNC_SUB_ID: AtomicU64 = AtomicU64::new(1_000_000);
-
-/// Generate a unique subscription ID for sync messages.
-pub fn next_subscription_id() -> u64 {
-    SYNC_SUB_ID.fetch_add(1, Ordering::Relaxed)
-}
 
 /// Build a Subscribe message for a given name.
 pub fn build_subscribe_msg(
@@ -67,13 +52,6 @@ pub fn build_unsubscribe_msg(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_subscription_id_monotonic() {
-        let id1 = next_subscription_id();
-        let id2 = next_subscription_id();
-        assert!(id2 > id1);
-    }
 
     #[test]
     fn test_build_subscribe_msg() {

@@ -194,7 +194,6 @@ tasks:
     desc: "Run the tests"
     cmds:
       - ulimit -n 4096 2>/dev/null || true; cargo test {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
-      - task: bindings:test
       - task: core:test
     vars:
       ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
@@ -305,15 +304,6 @@ tasks:
       - "{{.COMMAND}}"
     vars:
       COMMAND: '{{.COMMAND | default ""}}'
-
-  install-uniffi-bindgen:
-    desc: "Install uniffi-bindgen CLI tool (Mozilla package exposes binary as uniffi-bindgen-cli)"
-    status:
-      - which uniffi-bindgen-cli
-    cmds:
-      - echo "📦 Installing uniffi-bindgen-cli..."
-      - cargo install uniffi-bindgen-cli --git https://github.com/mozilla/uniffi-rs.git --tag v0.31.1
-      - echo "✅ uniffi-bindgen-cli installed"
 
   install-target:
     desc: "Install the target"

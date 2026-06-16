@@ -2,13 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: ci-publish-prokect-coverage
+name: ci-publish-project-coverage
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '.github/workflows/docs-ci.yaml'
+      - '.github/workflows/docs-deploy.yml'
+      - '.github/workflows/reusable-docs.yml'
 
 jobs:
   coverage:
@@ -36,21 +41,15 @@ jobs:
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov
 
-      - name: Setup UV
-        id: setup-uv
-        uses: ./.github/actions/setup-python
-        with:
-          uv-install: true
+      - name: Generate data plane coverage report
+        run: task data-plane:test:coverage ARGS="--all-targets --locked --all-features"
 
-      - name: Generate data plane coverage report (Rust + Python)
-        run: task data-plane:coverage-full
-
-      - name: Upload combined coverage to Codecov
+      - name: Upload coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
-          files: data-plane/lcov.info,data-plane/python/bindings/coverage.lcov
-          flags: rust,python
-          name: combined-coverage
+          files: data-plane/lcov.info
+          flags: rust
+          name: rust-coverage
           fail_ci_if_error: true
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

@@ -8,7 +8,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use display_error_chain::ErrorChainExt;
-use slim_config::component::id::ID;
 use slim_config::server::ServerConfig;
 use slim_session::subscription_manager::SubscriptionManager;
 use tokio::sync::mpsc;
@@ -53,8 +52,8 @@ const SUBSCRIPTION_ACK_TIMEOUT: Duration = Duration::from_secs(30);
 /// Settings struct for creating a ControlPlane instance
 #[derive(Clone)]
 pub struct ControlPlaneSettings {
-    /// ID of this SLIM instance
-    pub id: ID,
+    /// Node ID of this SLIM instance
+    pub id: String,
     /// Optional group name
     pub group_name: Option<String>,
     /// Server configurations
@@ -62,7 +61,7 @@ pub struct ControlPlaneSettings {
     /// Client configurations
     pub clients: Vec<ClientConfig>,
     /// Message processor instance
-    pub message_processor: Arc<MessageProcessor>,
+    pub message_processor: MessageProcessor,
     /// array of connection details used by the control
     /// plane to store the connection settings (e.g., TLS settings).
     pub connection_details: Vec<ConnectionDetails>,
@@ -73,14 +72,14 @@ pub struct ControlPlaneSettings {
 /// including the ID, message processor, connections, and channels.
 /// It is normally wrapped in an Arc to allow shared ownership across multiple threads.
 struct ControllerServiceInternal {
-    /// ID of this SLIM instance
-    id: ID,
+    /// Node ID of this SLIM instance
+    id: String,
 
     /// optional group name
     group_name: Option<String>,
 
     /// underlying message processor
-    message_processor: Arc<MessageProcessor>,
+    message_processor: MessageProcessor,
 
     /// channel to send messages into the datapath
     tx_slim: mpsc::Sender<Result<DataPlaneMessage, Status>>,
@@ -312,7 +311,7 @@ impl ControlPlane {
     }
 
     pub async fn deregister(&self) -> Result<(), ControllerError> {
-        let node_id = self.controller.inner.id.to_string();
+        let node_id = self.controller.inner.id.clone();
         let deregister_msg = ControlMessage {
             message_id: uuid::Uuid::new_v4().to_string(),
             payload: Some(Payload::DeregisterNodeRequest(v1::DeregisterNodeRequest {
@@ -1259,7 +1258,7 @@ impl ControllerService {
                                             } else {
                                                 ConnectionDirection::Incoming as i32
                                             },
-                                            peer_node_id: conn.peer_node_id(),
+                                            peer_node_id: conn.peer_node_id().map(str::to_string),
                                         });
                                     } else {
                                         error!(%cid, "no connection entry for id");
@@ -1278,7 +1277,7 @@ impl ControllerService {
                                             } else {
                                                 ConnectionDirection::Incoming as i32
                                             },
-                                            peer_node_id: conn.peer_node_id(),
+                                            peer_node_id: conn.peer_node_id().map(str::to_string),
                                         });
                                     } else {
                                         error!(%cid, "no connection entry for id (peer)");
@@ -1347,7 +1346,7 @@ impl ControllerService {
                                     } else {
                                         ConnectionDirection::Incoming as i32
                                     },
-                                    peer_node_id: conn.peer_node_id(),
+                                    peer_node_id: conn.peer_node_id().map(str::to_string),
                                 });
                             });
 
@@ -1661,7 +1660,7 @@ impl ControllerService {
                         } else {
                             v1::ConnectionDirection::Incoming as i32
                         },
-                        peer_node_id: conn.peer_node_id(),
+                        peer_node_id: conn.peer_node_id().map(str::to_string),
                     });
                 });
 
@@ -1688,7 +1687,7 @@ impl ControllerService {
             let register_request = ControlMessage {
                 message_id: uuid::Uuid::new_v4().to_string(),
                 payload: Some(Payload::RegisterNodeRequest(v1::RegisterNodeRequest {
-                    node_id: this.inner.id.to_string(),
+                    node_id: this.inner.id.clone(),
                     group_name: this.inner.group_name.clone(),
                     connection_details: this.inner.connection_details.clone(),
                     connections: active_connections,
@@ -1863,27 +1862,45 @@ impl ControllerService {
         self.inner.route_subscription_ids.lock().clear();
         self.inner.link_id_to_conn_id.write().clear();
 
-        let channel = match config.to_channel().await? {
-            TransportChannel::Grpc(c) => c,
-            TransportChannel::Websocket(_) => {
-                return Err(ControllerError::ConfigError(
-                    slim_config::errors::ConfigError::GrpcChannelUnsupportedTransport,
-                ));
-            }
+        // Obtain drain watch to handle graceful shutdown during connection
+        let watch = self.drain_watch()?;
+
+        let connect_fut = async {
+            let channel = match config.to_channel().await? {
+                TransportChannel::Grpc(c) => c,
+                TransportChannel::Websocket(_) => {
+                    return Err(ControllerError::ConfigError(
+                        slim_config::errors::ConfigError::GrpcChannelUnsupportedTransport,
+                    ));
+                }
+            };
+
+            let mut client = ControllerServiceClient::new(channel.clone());
+            let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
+            let out_stream = ReceiverStream::new(rx).filter_map(|res| match res {
+                Ok(msg) => Some(msg),
+                Err(e) => {
+                    error!(error = %e, "dropping outbound control message due to error");
+                    None
+                }
+            });
+            let stream = client
+                .open_control_channel(Request::new(out_stream))
+                .await?;
+            Ok((tx, stream))
         };
 
-        let mut client = ControllerServiceClient::new(channel.clone());
-        let (tx, rx) = mpsc::channel::<Result<ControlMessage, Status>>(128);
-        let out_stream = ReceiverStream::new(rx).filter_map(|res| match res {
-            Ok(msg) => Some(msg),
-            Err(e) => {
-                error!(error = %e, "dropping outbound control message due to error");
-                None
+        let (tx, stream) = tokio::select! {
+            result = connect_fut => { result? }
+            _ = cancellation_token.cancelled() => {
+                debug!("connection cancelled during setup");
+                return Err(ControllerError::Canceled);
             }
-        });
-        let stream = client
-            .open_control_channel(Request::new(out_stream))
-            .await?;
+            _ = watch.signaled() => {
+                debug!("drain signal received during connection setup");
+                return Err(ControllerError::Canceled);
+            }
+        };
 
         // start processing the incoming stream
         let endpoint_key = config.endpoint.clone();
@@ -1979,7 +1996,6 @@ impl GrpcControllerService for ControllerService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slim_config::component::id::Kind;
     use tracing_test::traced_test;
 
     async fn setup_control_planes(
@@ -1987,9 +2003,6 @@ mod tests {
         server_name: &str,
         client_name: &str,
     ) -> (ControlPlane, ControlPlane, ClientConfig) {
-        let id_server = ID::new_with_name(Kind::new("slim").unwrap(), server_name).unwrap();
-        let id_client = ID::new_with_name(Kind::new("slim").unwrap(), client_name).unwrap();
-
         let server_config = ServerConfig::with_endpoint(server_endpoint)
             .with_tls_settings(slim_config::tls::server::TlsServerConfig::insecure());
         let client_config = ClientConfig::with_endpoint(&format!("http://{}", server_endpoint))
@@ -1999,20 +2012,20 @@ mod tests {
         let message_processor_client = MessageProcessor::new();
 
         let control_plane_server = ControlPlane::new(ControlPlaneSettings {
-            id: id_server,
+            id: server_name.to_string(),
             group_name: None,
             servers: vec![server_config.clone()],
             clients: vec![],
-            message_processor: Arc::new(message_processor_server),
+            message_processor: message_processor_server,
             connection_details: vec![from_server_config(&server_config)],
         });
 
         let control_plane_client = ControlPlane::new(ControlPlaneSettings {
-            id: id_client,
+            id: client_name.to_string(),
             group_name: None,
             servers: vec![],
             clients: vec![client_config.clone()],
-            message_processor: Arc::new(message_processor_client),
+            message_processor: message_processor_client,
             connection_details: vec![],
         });
 
@@ -2112,27 +2125,20 @@ mod tests {
 
         let controller = control_plane_client.controller.clone();
         let link_id = "test-delete-link-id".to_string();
-        let mut assigned = false;
-        for _ in 0..50 {
-            controller
-                .inner
-                .message_processor
-                .connection_table()
-                .for_each(|_, conn| {
-                    if !assigned {
-                        conn.set_link_id(link_id.clone());
-                        assigned = true;
-                    }
-                });
-            if assigned {
-                break;
-            }
-            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
-        }
-        assert!(
-            assigned,
-            "expected at least one connection to assign link_id"
-        );
+
+        // Insert a pre-negotiated remote connection with a known link_id for testing.
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+        let conn = slim_datapath::connection::Connection::new(
+            slim_datapath::tables::ConnType::Remote,
+            slim_datapath::connection::Channel::Server(tx),
+        )
+        .with_negotiation(&link_id, "1.0.0");
+        controller
+            .inner
+            .message_processor
+            .forwarder()
+            .on_connection_established(conn, None)
+            .unwrap();
 
         let ctrl_msg = ControlMessage {
             message_id: uuid::Uuid::new_v4().to_string(),
@@ -2226,27 +2232,20 @@ mod tests {
 
         let controller = control_plane_client.controller.clone();
         let link_id = "test-create-link-id".to_string();
-        let mut assigned = false;
-        for _ in 0..50 {
-            controller
-                .inner
-                .message_processor
-                .connection_table()
-                .for_each(|_, conn| {
-                    if !assigned {
-                        conn.set_link_id(link_id.clone());
-                        assigned = true;
-                    }
-                });
-            if assigned {
-                break;
-            }
-            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
-        }
-        assert!(
-            assigned,
-            "expected at least one connection to assign link_id"
-        );
+
+        // Insert a pre-negotiated remote connection with a known link_id for testing.
+        let (tx, _rx) = tokio::sync::mpsc::channel(16);
+        let conn = slim_datapath::connection::Connection::new(
+            slim_datapath::tables::ConnType::Remote,
+            slim_datapath::connection::Channel::Server(tx),
+        )
+        .with_negotiation(&link_id, "1.0.0");
+        controller
+            .inner
+            .message_processor
+            .forwarder()
+            .on_connection_established(conn, None)
+            .unwrap();
 
         let endpoint = "http://127.0.0.1:59999";
         let connection_config = serde_json::json!({

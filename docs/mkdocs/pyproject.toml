@@ -1,0 +1,23 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+[project]
+name = "slim-docs"
+version = "0.1.0"
+description = "SLIM documentation (MkDocs)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.7,<10",
+    "mkdocs-material-extensions>=1.0.3",
+    "markdown>=3.2",
+    "pymdown-extensions>=10.21.3",
+    "pygments>=2.12",
+    "mkdocs-include-markdown-plugin>=7.2.0",
+    "mkdocs-redirects>=1.2.0",
+    "mike>=2.1",
+    "certifi>=2025.1.31",
+    "codespell>=2.2.0",
+    "pymarkdownlnt>=0.9.0",
+]

@@ -42,7 +42,9 @@ pub use proto::dataplane::v1::StringName;
 pub use proto::dataplane::v1::Subscribe as ProtoSubscribe;
 pub use proto::dataplane::v1::SubscriptionAck as ProtoSubscriptionAck;
 pub use proto::dataplane::v1::Unsubscribe as ProtoUnsubscribe;
+#[cfg(not(target_arch = "wasm32"))]
 pub use proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
+#[cfg(not(target_arch = "wasm32"))]
 pub use proto::dataplane::v1::data_plane_service_server::DataPlaneServiceServer;
 pub use proto::dataplane::v1::link::LinkType as ProtoLinkType;
 pub use proto::dataplane::v1::message::MessageType;

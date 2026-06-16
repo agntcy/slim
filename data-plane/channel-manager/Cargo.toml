@@ -14,7 +14,7 @@ path = "src/bin/channel_manager.rs"
 name = "cmctl"
 path = "src/bin/cmctl.rs"
 
-[dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
@@ -36,10 +36,11 @@ tracing = { workspace = true }
 protoc-bin-vendored = { workspace = true }
 tonic-prost-build = { workspace = true }
 
-[dev-dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
+agntcy-slim-testing = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tonic = { workspace = true }
