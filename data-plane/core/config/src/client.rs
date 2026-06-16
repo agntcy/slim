@@ -246,7 +246,8 @@ pub struct ClientConfig {
     pub require_header_mac: bool,
 
     /// The type of connection this client establishes.
-    /// Defaults to `remote`. Set to `peer` for intra-deployment peer connections.
+    /// Defaults to `edge`. Set to `peer` for intra-deployment peer connections,
+    /// or `remote` for control-plane-managed inter-deployment links.
     #[serde(default)]
     pub connection_type: ConnType,
 }
