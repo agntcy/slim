@@ -360,7 +360,7 @@ async fn test_subscription_not_propagated_to_remote() {
     let remote_server = ServerConfig::with_endpoint(&format!("127.0.0.1:{remote_port}"))
         .with_tls_settings(TlsServerConfig::default().with_insecure(true));
 
-    // Remote node connects to node 0 as a regular client (connection_type = Remote)
+    // Remote node connects to node 0 as a regular client (connection_type = Edge by default)
     let remote_client = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{}", nodes[0].port))
         .with_tls_setting(TlsClientConfig::default().with_insecure(true));
 

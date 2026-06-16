@@ -1271,6 +1271,7 @@ fn generate_config_data(
     dest_node: &crate::db::Node,
     src_node: &crate::db::Node,
 ) -> Result<(String, ClientConfig)> {
+    use slim_config::conn_type::ConnType;
     use slim_config::grpc::client::{BackoffConfig, KeepaliveConfig};
     use slim_config::tls::client::TlsClientConfig;
     use slim_config::tls::common::{CaSource, Config as TlsConfig, TlsSource};
@@ -1351,6 +1352,7 @@ fn generate_config_data(
             keep_alive_while_idle: false,
         }),
         link_id: String::new(),
+        connection_type: ConnType::Remote,
         ..Default::default()
     };
 

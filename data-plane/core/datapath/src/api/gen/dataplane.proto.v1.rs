@@ -543,6 +543,8 @@ pub enum LinkConnectionType {
     Remote = 0,
     /// Peer connection (intra-deployment replica).
     Peer = 1,
+    /// Edge connection (app/SDK to first-hop SLIM node).
+    Edge = 2,
 }
 impl LinkConnectionType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -553,6 +555,7 @@ impl LinkConnectionType {
         match self {
             Self::Remote => "LINK_CONNECTION_TYPE_REMOTE",
             Self::Peer => "LINK_CONNECTION_TYPE_PEER",
+            Self::Edge => "LINK_CONNECTION_TYPE_EDGE",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -560,6 +563,7 @@ impl LinkConnectionType {
         match value {
             "LINK_CONNECTION_TYPE_REMOTE" => Some(Self::Remote),
             "LINK_CONNECTION_TYPE_PEER" => Some(Self::Peer),
+            "LINK_CONNECTION_TYPE_EDGE" => Some(Self::Edge),
             _ => None,
         }
     }

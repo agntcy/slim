@@ -153,6 +153,7 @@ where
     let remote_deployment_name = payload.deployment_name.clone();
     let remote_conn_type = match LinkConnectionType::try_from(payload.connection_type) {
         Ok(LinkConnectionType::Peer) => ConnType::Peer,
+        Ok(LinkConnectionType::Edge) => ConnType::Edge,
         _ => ConnType::Remote,
     };
 
@@ -293,6 +294,7 @@ where
 fn conn_type_to_link(ct: ConnType) -> LinkConnectionType {
     match ct {
         ConnType::Peer => LinkConnectionType::Peer,
+        ConnType::Edge => LinkConnectionType::Edge,
         _ => LinkConnectionType::Remote,
     }
 }
