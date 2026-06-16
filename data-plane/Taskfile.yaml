@@ -19,34 +19,10 @@ vars:
   CARGO_COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete cargo-deny typos-cli"
 
 tasks:
-  data-plane:bindings:python:lint:
-    desc: "Python linter"
-    internal: true
-    dir: ./bindings/python
-    cmds:
-      - task python:bindings:lint
-
-  data-plane:bindings:go:lint:
-    desc: "Go linter"
-    internal: true
-    dir: ./bindings/go
-    cmds:
-      - task lint
-
-  data-plane:bindings:dotnet:lint:
-    desc: ".NET linter"
-    internal: true
-    dir: ./bindings/dotnet
-    cmds:
-      - task lint
-
   data-plane:lint:
     desc: "Run the linter"
     cmds:
       - task: data-plane:lintall
-      - task: data-plane:bindings:python:lint
-      - task: data-plane:bindings:go:lint
-      - task: data-plane:bindings:dotnet:lint
 
   data-plane:build:strip:
     desc: "Build the project and strip the debug symbols"
@@ -109,23 +85,6 @@ tasks:
     cmds:
       - docker compose -f ./config/telemetry/docker-compose.yml up
 
-  data-plane:python:packaging:
-    desc: "Generate python packages"
-    dir: ./python
-    cmds:
-      - task python:bindings:packaging PROFILE={{.PROFILE}} TARGET={{.TARGET}}
-    vars:
-      PROFILE: '{{.PROFILE | default "debug"}}'
-      TARGET: '{{.TARGET | default ""}}'
-
-  data-plane:bindings:test:
-    desc: "Test the Python bindings"
-    dir: ./bindings/python
-    cmds:
-      - task python:bindings:test TESTS={{.TESTS}}
-    vars:
-      TESTS: '{{.TESTS | default ""}}'
-
   data-plane:core:test:
     desc: "Run core end to end tests"
     dir: ./testing
@@ -143,6 +102,36 @@ tasks:
     desc: "Generate the gRPC schema"
     cmds:
       - cargo run --bin generate-schema
+
+  # wasm32-unknown-unknown only compiles library crates (binaries and tests pull
+  # in native-only deps and stay gated). The tasks below invoke cargo directly so
+  # the shared rust.yaml's `--all-targets` default does not leak in.
+  data-plane:wasm32:install-target:
+    desc: "Ensure the wasm32-unknown-unknown rustup target is installed"
+    internal: true
+    cmds:
+      - rustup target add wasm32-unknown-unknown
+
+  data-plane:wasm32:check:
+    desc: "cargo check the workspace for wasm32-unknown-unknown (lib only)"
+    deps:
+      - task: data-plane:wasm32:install-target
+    cmds:
+      - cargo check --target wasm32-unknown-unknown --workspace --lib --locked
+
+  data-plane:wasm32:build:
+    desc: "Build all workspace libs for wasm32-unknown-unknown"
+    deps:
+      - task: data-plane:wasm32:install-target
+    cmds:
+      - cargo build --target wasm32-unknown-unknown --workspace --lib --locked
+
+  data-plane:wasm32:clippy:
+    desc: "Run clippy against the wasm32-unknown-unknown target (lib only)"
+    deps:
+      - task: data-plane:wasm32:install-target
+    cmds:
+      - cargo clippy --target wasm32-unknown-unknown --workspace --lib --locked -- -D warnings
 
   # Enhanced coverage task that includes Python bindings coverage
   data-plane:coverage-full:

@@ -3,7 +3,7 @@
 This document explains the SLIM session layer and the two supported session
 types. It helps you understand the two session interfaces, reliability, and security trade‑offs.
 
-The SLIM repository ships with practical, runnable examples for both [Python](https://github.com/agntcy/slim/tree/slim-v1.1.0/data-plane/bindings/python/examples) and [Go](https://github.com/agntcy/slim/tree/slim-v1.1.0/data-plane/bindings/go/examples) that demonstrate how to create sessions and exchange messages between applications. This document uses Python examples as reference.
+The [slim-bindings repository](https://github.com/agntcy/slim-bindings) ships with practical, runnable examples for both [Python](https://github.com/agntcy/slim-bindings/tree/main/python/examples) and [Go](https://github.com/agntcy/slim-bindings/tree/main/go/examples) that demonstrate how to create sessions and exchange messages between applications. This document uses Python examples as reference.
 
 ## Point-to-Point Session
 
@@ -136,7 +136,7 @@ await session.publish_async(reply, None, None)  # payload, payload_type, metadat
 
 ### Point-to-Point Example
 
-This [example](https://github.com/agntcy/slim/blob/slim-v1.1.0/data-plane/bindings/python/examples/point_to_point.py) walks through the creation of a point-to-point session. When running the point-to-point example multiple times, the session binds to different running instances, while the message stream always sticks to the same endpoint.
+This [example](https://github.com/agntcy/slim-bindings/blob/main/python/examples/point_to_point.py) walks through the creation of a point-to-point session. When running the point-to-point example multiple times, the session binds to different running instances, while the message stream always sticks to the same endpoint.
 
 The example demonstrates how to publish messages, enable reliability, and enable MLS for end‑to‑end security. Run the example using the Taskfile provided in the repository.
 
@@ -395,4 +395,4 @@ stops, all participants are removed from the group.
 
 ### Group Example
 
-This [example](https://github.com/agntcy/slim/blob/slim-v1.1.0/data-plane/bindings/python/examples/group.py) demonstrates how to create a group session, invite participants, and (if enabled) establish an MLS group for end-to-end encryption. It also shows how to broadcast messages to all current members and handle inbound group messages. Run the example using the Taskfile provided in the repository.
+This [example](https://github.com/agntcy/slim-bindings/blob/main/python/examples/group.py) demonstrates how to create a group session, invite participants, and (if enabled) establish an MLS group for end-to-end encryption. It also shows how to broadcast messages to all current members and handle inbound group messages. Run the example using the Taskfile provided in the repository.

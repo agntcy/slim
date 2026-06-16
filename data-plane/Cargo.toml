@@ -1,7 +1,6 @@
 [workspace]
 
 members = [
-    "bindings/rust",
     "channel-manager",
     "control-plane",
     "core/auth",
@@ -17,12 +16,10 @@ members = [
     "core/version",
     "examples",
     "slimctl",
-    "slimrpc-compiler",
     "testing",
 ]
 
 default-members = [
-    "bindings/rust",
     "control-plane",
     "channel-manager",
     "core/config",
@@ -34,7 +31,6 @@ default-members = [
     "core/version",
     "examples",
     "slimctl",
-    "slimrpc-compiler",
     "testing",
 ]
 
@@ -44,7 +40,6 @@ resolver = "2"
 # Local dependencies
 agntcy-slim = { path = "core/slim", version = "2.0.0-alpha.0" }
 agntcy-slim-auth = { path = "core/auth", version = "0.9.0" }
-agntcy-slim-bindings = { path = "bindings/rust", version = "2.0.0-alpha.0" }
 agntcy-slim-config = { path = "core/config", version = "0.10.0" }
 agntcy-slim-controller = { path = "core/controller", version = "0.7.0" }
 agntcy-slim-datapath = { path = "core/datapath", version = "0.14.1" }
@@ -66,6 +61,7 @@ aws-lc-rs = { version = "1.16", features = ["bindgen"] }
 base64 = "0.22"
 bincode = "2.0.1"
 bytes = "1.9.0"
+cfg-if = "1.0"
 chrono = "0.4"
 clap = { version = "4.5.23", features = ["derive", "env"] }
 
@@ -86,9 +82,14 @@ fastwebsockets = { version = "0.10.0", features = [
 ] }
 futures = "0.3.31"
 futures-timer = "3.0.3"
+
+getrandom = { version = "0.3", features = ["wasm_js"] }
 h2 = "0.4.7"
 headers = "0.4.1"
 hex = "0.4.3"
+# Pure-Rust HMAC-SHA256 for the wasm32 build of SharedSecret (aws-lc-rs is
+# native-only).
+hmac = "0.12"
 http = "1.2.0"
 http-body-util = "0.1.3"
 hyper = { version = "1.8.1", features = ["http1", "server", "client"] }
@@ -100,13 +101,17 @@ hyper-util = "0.1.10"
 indexmap = "2"
 indicatif = "0.17.11"
 jemallocator = { version = "0.5" }
+js-sys = "0.3"
 jsonwebtoken = { version = "10.3.0", features = ["aws_lc_rs"] }
 
 lazy_static = "1.5.0"
 libsqlite3-sys = { version = ">=0.17.2, <0.38.0", features = ["bundled"] }
+maybe-async = "0.2.10"
 mls-rs = { version = "0.54" }
 mls-rs-core = { version = "0.26" }
 mls-rs-crypto-awslc = { version = "0.23" }
+# wasm32-only MLS crypto provider (browser SubtleCrypto, async-only).
+mls-rs-crypto-webcrypto = { version = "0.14" }
 notify = "8.0.0"
 num_cpus = "1.16"
 oauth2 = { version = "5", default-features = false, features = ["reqwest"] }
@@ -132,9 +137,6 @@ prost = "0.14"
 prost-types = "0.14"
 
 protoc-bin-vendored = "3.1.0"
-pyo3 = { version = "0.26" }
-pyo3-async-runtimes = { version = "0.26", features = ["tokio-runtime"] }
-pyo3-stub-gen = "0.14"
 rand = "0.9.0"
 regex = "1.11.1"
 
@@ -154,9 +156,9 @@ rustls-pki-types = "1.10.0"
 schemars = "1.0.3"
 semver = "1"
 serde = "1.0.217"
-serde-pyobject = "0.7"
 serde_json = "1.0"
 serde_yaml = "0.9.34"
+sha2 = "0.10"
 smallvec = "1"
 spiffe = { version = "0.12.0", features = ["x509-source", "jwt-source", "jwt-verify-aws-lc-rs"] }
 tempfile = "3"
@@ -182,9 +184,9 @@ tracing-subscriber = "0.3.19"
 tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
 trait-variant = "0.1"
 twox-hash = "2.1.1"
-uniffi = { version = "0.31.1", features = ["cli"] }
 url = "2.5.0"
 uuid = { version = "1.15.1", features = ["v4"] }
+web-time = "1"
 
 wiremock = "0.6"
 
@@ -198,7 +200,6 @@ repository = "https://github.com/agntcy/slim"
 ignored = [
     "agntcy-slim",
     "agntcy-slim-auth",
-    "agntcy-slim-bindings",
     "agntcy-slim-config",
     "agntcy-slim-controller",
     "agntcy-slim-datapath",
@@ -210,5 +211,4 @@ ignored = [
     "agntcy-slim-tracing",
     "agntcy-slim-version",
     "agntcy-slimctl",
-    "agntcy-slimrpc",
 ]

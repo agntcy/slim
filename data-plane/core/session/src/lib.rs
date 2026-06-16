@@ -27,6 +27,11 @@ pub mod timer;
 pub mod timer_factory;
 pub mod traits;
 
+// Runtime-agnostic helpers (await seam for the MLS sync/async split) shared by
+// the modules above so the same source compiles for native tokio and the wasm32
+// browser runtime. Imported by path: `use crate::runtime::maybe_await;`.
+mod runtime;
+
 // Test utilities (only available during tests)
 #[cfg(test)]
 pub mod test_utils;

@@ -423,7 +423,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_edge_connection_reconnects_on_drop() {
-        use slim_config::client::ConnType;
+        use slim_config::conn_type::ConnType;
 
         let port = reserve_local_port();
         let mut server_conf = ServerConfig::with_endpoint(&format!("127.0.0.1:{port}"));
@@ -487,7 +487,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_remote_connection_does_not_reconnect_on_drop() {
-        use slim_config::client::ConnType;
+        use slim_config::conn_type::ConnType;
 
         let port = reserve_local_port();
         let mut server_conf = ServerConfig::with_endpoint(&format!("127.0.0.1:{port}"));
@@ -559,7 +559,7 @@ mod tests {
 
     #[test]
     fn test_conn_type_index_stability() {
-        use slim_config::client::ConnType;
+        use slim_config::conn_type::ConnType;
 
         assert_eq!(ConnType::Local.index(), 0);
         assert_eq!(ConnType::Remote.index(), 1);

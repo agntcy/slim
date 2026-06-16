@@ -4,7 +4,6 @@
 use display_error_chain::ErrorChainExt;
 use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::trace::TraceContextExt;
-use slim_tracing::utils::INSTANCE_ID;
 use tracing::{Span, error};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -65,7 +64,6 @@ fn create_span(function: &str, service_id: &str, msg: &Message, target: SpanTarg
             service_id = %service_id,
             source = %msg.get_source(),
             destination = %msg.get_dst(),
-            instance_id = %INSTANCE_ID.as_str(),
             connection_id = connection_id,
             message_type = %msg.get_type(),
             telemetry = true
@@ -77,7 +75,6 @@ fn create_span(function: &str, service_id: &str, msg: &Message, target: SpanTarg
             service_id = %service_id,
             source = %msg.get_source(),
             destination = %msg.get_dst(),
-            instance_id = %INSTANCE_ID.as_str(),
             fanout_subscribers = subscribers,
             connection_id = 0u64,
             message_type = %msg.get_type(),

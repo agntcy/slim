@@ -1,6 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+#![cfg(not(target_arch = "wasm32"))]
+
 pub mod api;
 pub mod backoff;
 pub mod config;
