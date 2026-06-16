@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::api::DataPlaneServiceServer;
 use display_error_chain::ErrorChainExt;
@@ -16,6 +17,7 @@ use slim_config::server::ServerConfig;
 use slim_config::server_handler::ServerHandler;
 use slim_config::websocket::server as websocket_server;
 use slim_config::websocket::server::AcceptedWebSocketConnection;
+use futures::future::try_join_all;
 use tokio::sync::mpsc::{self, Sender};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -130,6 +132,15 @@ enum StreamSetup {
         connection: Box<Connection>,
         existing_index: Option<u64>,
     },
+}
+
+/// Per-connection metrics collected by the `process_stream` loop and
+/// reported once per second by a companion task.
+#[derive(Default)]
+struct StreamMetrics {
+    count: AtomicU64,
+    sum_inbound_wait_us: AtomicU64,
+    sum_elapsed_us: AtomicU64,
 }
 
 impl MessageProcessor {
@@ -394,7 +405,7 @@ impl MessageProcessor {
         match channel {
             TransportChannel::Grpc(grpc_channel) => {
                 let mut client = DataPlaneServiceClient::new(grpc_channel);
-                let (tx, rx) = mpsc::channel(128);
+                let (tx, rx) = mpsc::channel(1024);
                 let stream = client
                     .open_channel(Request::new(ReceiverStream::new(rx)))
                     .await?;
@@ -760,12 +771,15 @@ impl MessageProcessor {
                     len as u32,
                 );
 
-                let mut i = 0usize;
-                while i < len - 1 {
-                    self.send_msg_raw(msg.clone(), out_vec[i]).await?;
-                    i += 1;
-                }
-                self.send_msg_raw(msg, out_vec[i]).await?;
+                // Send to all subscribers concurrently: a single slow/full
+                // outbound channel no longer blocks delivery to the others.
+                let last = len - 1;
+                let mut sends: Vec<_> = out_vec[..last]
+                    .iter()
+                    .map(|&conn| self.send_msg_raw(msg.clone(), conn))
+                    .collect();
+                sends.push(self.send_msg_raw(msg, out_vec[last]));
+                try_join_all(sends).await?;
                 Ok(())
             }
             Err(e) => {
@@ -1636,7 +1650,44 @@ impl MessageProcessor {
                 return;
             };
 
+            // Metrics shared with the reporter task.
+            let metrics = Arc::new(StreamMetrics::default());
+            let reporter_cancel = CancellationToken::new();
+            {
+                let m = metrics.clone();
+                let cancel = reporter_cancel.clone();
+                tokio::spawn(async move {
+                    loop {
+                        tokio::select! {
+                            _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+                                let count = m.count.swap(0, Ordering::Relaxed);
+                                if count > 0 {
+                                    let avg_inbound_wait_us =
+                                        m.sum_inbound_wait_us.swap(0, Ordering::Relaxed) / count;
+                                    let avg_elapsed_us =
+                                        m.sum_elapsed_us.swap(0, Ordering::Relaxed) / count;
+                                    info!(
+                                        %conn_index,
+                                        msgs_per_sec = count,
+                                        avg_inbound_wait_us,
+                                        avg_elapsed_us,
+                                        "process_stream metrics",
+                                    );
+                                }
+                            }
+                            _ = cancel.cancelled() => break,
+                        }
+                    }
+                });
+            }
+
             let mut watch = std::pin::pin!(watch.signaled());
+            // Tracks the wall-clock instant at which we last finished processing
+            // a message (or entered the loop for the first time). The elapsed
+            // time when stream.next() returns is the inbound stream wait time:
+            // near-zero means messages were already buffered in the h2 receive
+            // window; a larger value means the loop was idle waiting for data.
+            let mut inbound_wait_start = std::time::Instant::now();
             loop {
                 tokio::select! {
                     next = stream.next() => {
@@ -1644,6 +1695,10 @@ impl MessageProcessor {
                             Some(result) => {
                                 match result {
                                     Ok(msg) => {
+                                        let inbound_wait_us =
+                                            inbound_wait_start.elapsed().as_micros() as u64;
+                                        let iter_start = std::time::Instant::now();
+
                                         if !is_local
                                             && !msg.is_link()
                                             && !msg.is_subscription_ack()
@@ -1697,6 +1752,13 @@ impl MessageProcessor {
                                                 self_clone.send_error_to_local_app(conn_index, e).await;
                                             }
                                         }
+
+                                        let elapsed_us =
+                                            iter_start.elapsed().as_micros() as u64;
+                                        metrics.count.fetch_add(1, Ordering::Relaxed);
+                                        metrics.sum_inbound_wait_us.fetch_add(inbound_wait_us, Ordering::Relaxed);
+                                        metrics.sum_elapsed_us.fetch_add(elapsed_us, Ordering::Relaxed);
+                                        inbound_wait_start = std::time::Instant::now();
                                     }
                                     Err(e) => {
                                         if e.code() == tonic::Code::PermissionDenied {
@@ -1735,6 +1797,8 @@ impl MessageProcessor {
                     }
                 }
             }
+
+            reporter_cancel.cancel();
 
             // we drop rx now as otherwise the connection will be closed only
             // when the task is dropped and we want to make sure that the rx
@@ -1819,6 +1883,58 @@ impl MessageProcessor {
         Ok((handle, conn_index_rx))
     }
 
+    /// Process a single message received from an inbound stream.
+    ///
+    /// Returns `true` if the calling loop should continue, or `false` if it
+    /// should break (fatal [`DataPathError::NegotiationError`]).
+    async fn process_stream_message(
+        &self,
+        msg: Message,
+        conn_index: u64,
+        category: ConnType,
+        is_local: bool,
+        from_control_plane: bool,
+        require_header_mac: bool,
+        tx_cp: &Option<Sender<Result<Message, Status>>>,
+    ) -> bool {
+        if !is_local
+            && !msg.is_link()
+            && !msg.is_subscription_ack()
+            && let Err(e) = self.verify_remote_header_mac(conn_index, &msg, require_header_mac)
+        {
+            error!(
+                %conn_index,
+                error = %e.chain(),
+                "SLIM header integrity verification failed",
+            );
+            return true;
+        }
+
+        // Forward subscriptions and unsubscriptions to the control plane
+        // (remote messages only, excluding messages originating from the CP itself).
+        if !is_local && !from_control_plane && let Some(txcp) = tx_cp {
+            match msg.get_type() {
+                PublishType(_) | LinkType(_) | SubscriptionAckType(_) => {}
+                _ => {
+                    let _ = txcp.send(Ok(msg.clone())).await;
+                }
+            }
+        }
+
+        if let Err(e) = self.handle_new_message(conn_index, category, msg).await {
+            if matches!(e, DataPathError::NegotiationError(_)) {
+                error!(%conn_index, "fatal link negotiation error, closing connection");
+                return false;
+            }
+            debug!(%conn_index, error = %e.chain(), "error processing incoming message");
+            if is_local {
+                self.send_error_to_local_app(conn_index, e).await;
+            }
+        }
+
+        true
+    }
+
     fn match_for_io_error(err_status: &Status) -> Option<&std::io::Error> {
         let mut err: &(dyn std::error::Error + 'static) = err_status;
 
@@ -1895,7 +2011,7 @@ impl DataPlaneService for MessageProcessor {
         let local_addr = request.local_addr();
 
         let stream = request.into_inner();
-        let (tx, rx) = mpsc::channel(128);
+        let (tx, rx) = mpsc::channel(1024);
 
         let connection = Connection::new(ConnType::Remote, Channel::Server(tx))
             .with_remote_addr(remote_addr)
