@@ -21,16 +21,25 @@ pub enum ConnType {
     /// Not exposed in configuration — only used internally.
     #[serde(skip)]
     Local,
-    /// Connection with a remote SLIM instance (other deployment, via controller).
-    #[default]
+    /// Connection with a remote SLIM instance in other deployment.
+    /// Always handled by the control plane.
     Remote,
     /// Connection with a peer replica in the same deployment.
     Peer,
+    /// Connection to the first SLIM node in the network
+    /// Edge connections are handled by the data plane
+    #[default]
+    Edge,
 }
 
 impl ConnType {
     /// All variants, for iteration.
-    pub const ALL: [ConnType; 3] = [ConnType::Local, ConnType::Remote, ConnType::Peer];
+    pub const ALL: [ConnType; 4] = [
+        ConnType::Local,
+        ConnType::Remote,
+        ConnType::Peer,
+        ConnType::Edge,
+    ];
 
     /// Number of ConnType variants (derived automatically).
     pub const COUNT: usize = Self::ALL.len();
@@ -41,6 +50,7 @@ impl ConnType {
             ConnType::Local => 0,
             ConnType::Remote => 1,
             ConnType::Peer => 2,
+            ConnType::Edge => 3,
         }
     }
 
@@ -64,17 +74,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_is_remote() {
-        assert_eq!(ConnType::default(), ConnType::Remote);
+    fn default_is_edge() {
+        assert_eq!(ConnType::default(), ConnType::Edge);
     }
 
     #[test]
     fn all_and_count_are_consistent() {
-        assert_eq!(ConnType::COUNT, 3);
+        assert_eq!(ConnType::COUNT, 4);
         assert_eq!(ConnType::ALL.len(), ConnType::COUNT);
         assert_eq!(
             ConnType::ALL,
-            [ConnType::Local, ConnType::Remote, ConnType::Peer]
+            [
+                ConnType::Local,
+                ConnType::Remote,
+                ConnType::Peer,
+                ConnType::Edge
+            ]
         );
     }
 
@@ -83,6 +98,7 @@ mod tests {
         assert_eq!(ConnType::Local.index(), 0);
         assert_eq!(ConnType::Remote.index(), 1);
         assert_eq!(ConnType::Peer.index(), 2);
+        assert_eq!(ConnType::Edge.index(), 3);
 
         // Every variant maps to its position in ALL.
         for (i, ct) in ConnType::ALL.iter().enumerate() {
@@ -101,16 +117,18 @@ mod tests {
         assert!(ConnType::Local.is_local());
         assert!(!ConnType::Remote.is_local());
         assert!(!ConnType::Peer.is_local());
+        assert!(!ConnType::Edge.is_local());
     }
 
     #[test]
     fn serde_roundtrip_lowercase() {
-        // Local is `#[serde(skip)]`, so only Remote and Peer are wire-visible.
+        // Local is `#[serde(skip)]`, so only Remote, Peer, and Edge are wire-visible.
         assert_eq!(
             serde_json::to_string(&ConnType::Remote).unwrap(),
             "\"remote\""
         );
         assert_eq!(serde_json::to_string(&ConnType::Peer).unwrap(), "\"peer\"");
+        assert_eq!(serde_json::to_string(&ConnType::Edge).unwrap(), "\"edge\"");
 
         assert_eq!(
             serde_json::from_str::<ConnType>("\"remote\"").unwrap(),
@@ -120,13 +138,17 @@ mod tests {
             serde_json::from_str::<ConnType>("\"peer\"").unwrap(),
             ConnType::Peer
         );
+        assert_eq!(
+            serde_json::from_str::<ConnType>("\"edge\"").unwrap(),
+            ConnType::Edge
+        );
     }
 
     #[test]
     fn copy_and_eq_semantics() {
-        let a = ConnType::Peer;
+        let a = ConnType::Edge;
         let b = a; // Copy
         assert_eq!(a, b);
-        assert_ne!(ConnType::Local, ConnType::Peer);
+        assert_ne!(ConnType::Local, ConnType::Edge);
     }
 }

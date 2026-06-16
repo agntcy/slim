@@ -448,6 +448,7 @@ impl Display for SubscriptionTableImpl {
                         ConnType::Local => "Local",
                         ConnType::Remote => "Remote",
                         ConnType::Peer => "Peer",
+                        ConnType::Edge => "Edge",
                     };
                     writeln!(f, "       {} Connections:", label)?;
                     let slot = &prefix_entry.slots[ct.index()][i];
