@@ -90,6 +90,8 @@ pub trait DataAccess: Send + Sync {
         source_node_id: &str,
         dest_node_id: &str,
     ) -> Result<Option<Link>>;
+    /// Find a non-deleted link between two groups (in either direction).
+    async fn find_link_between_groups(&self, group_a: &str, group_b: &str) -> Result<Option<Link>>;
 
     /// Atomically check for an existing non-deleted link between the two nodes
     /// (in either direction) and insert `link` only if none exists.

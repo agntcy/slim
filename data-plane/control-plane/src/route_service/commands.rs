@@ -50,7 +50,30 @@ impl super::RouteService {
             None
         };
 
-        let db_route = route.to_db_route(source_node_id, dest_node_id);
+        // Resolve groups for route record.
+        let source_group = if source_node_id == ALL_NODES_ID {
+            ALL_NODES_ID.to_string()
+        } else {
+            self.0
+                .db
+                .get_node(source_node_id)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|n| n.group_name)
+                .unwrap_or_default()
+        };
+        let dest_group = self
+            .0
+            .db
+            .get_node(dest_node_id)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|n| n.group_name)
+            .unwrap_or_default();
+
+        let db_route = route.to_db_route(source_node_id, &source_group, dest_node_id, &dest_group);
         let route_id = self.add_single_route(db_route).await?;
 
         if source_node_id == ALL_NODES_ID {
@@ -152,7 +175,25 @@ impl super::RouteService {
         let link_id = match route.link_id.as_deref().filter(|s| !s.is_empty()) {
             Some(id) => id.to_string(),
             None => {
-                self.find_matching_link(source_node_id, dest_node_id)
+                let src_group = self
+                    .0
+                    .db
+                    .get_node(source_node_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|n| n.group_name)
+                    .unwrap_or_default();
+                let dst_group = self
+                    .0
+                    .db
+                    .get_node(dest_node_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|n| n.group_name)
+                    .unwrap_or_default();
+                self.find_matching_link(source_node_id, &src_group, dest_node_id, &dst_group)
                     .await?
             }
         };
@@ -253,8 +294,14 @@ impl super::RouteService {
                 );
 
                 // Re-expand wildcard routes now that a new link is fully established.
-                let all_nodes = self.0.db.list_nodes().await.unwrap_or_default();
-                let all_links = self.0.db.list_all_links().await.unwrap_or_default();
+                let all_nodes = self.0.db.list_nodes().await.unwrap_or_else(|e| {
+                    tracing::error!("failed to list nodes for route expansion: {e}");
+                    vec![]
+                });
+                let all_links = self.0.db.list_all_links().await.unwrap_or_else(|e| {
+                    tracing::error!("failed to list links for route expansion: {e}");
+                    vec![]
+                });
                 self.expand_all_wildcard_routes(&all_nodes, &all_links)
                     .await;
 

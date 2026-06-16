@@ -747,6 +747,31 @@ impl DataAccess for SqliteDb {
             })
     }
 
+    async fn find_link_between_groups(&self, group_a: &str, group_b: &str) -> Result<Option<Link>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "find_link_between_groups pool",
+            msg: e.to_string(),
+        })?;
+        links::table
+            .filter(links::status.ne(LinkStatus::Deleted))
+            .filter(
+                links::source_group
+                    .eq(group_a)
+                    .and(links::dest_group.eq(group_b))
+                    .or(links::source_group
+                        .eq(group_b)
+                        .and(links::dest_group.eq(group_a))),
+            )
+            .order(links::last_updated.desc())
+            .first::<Link>(&mut conn)
+            .await
+            .optional()
+            .map_err(|e| Error::DbError {
+                context: "find_link_between_groups",
+                msg: e.to_string(),
+            })
+    }
+
     async fn find_or_create_link(&self, mut link: Link) -> Result<(Link, bool)> {
         if link.link_id.is_empty()
             || link.source_node_id.is_empty()
@@ -1036,7 +1061,9 @@ mod tests {
         Route {
             id: String::new(),
             source_node_id: src.to_string(),
+            source_group: String::new(),
             dest_node_id: dst.to_string(),
+            dest_group: String::new(),
             link_id: Some(link.to_string()),
             component0: "org".to_string(),
             component1: "ns".to_string(),
@@ -1053,6 +1080,7 @@ mod tests {
         Link {
             link_id: lid.to_string(),
             source_node_id: src.to_string(),
+            source_group: String::new(),
             dest_node_id: dst.to_string(),
             dest_group: String::new(),
             dest_endpoint: ep.to_string(),

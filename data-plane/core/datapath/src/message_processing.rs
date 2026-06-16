@@ -1655,17 +1655,13 @@ impl MessageProcessor {
                                         // we send the message if
                                         // 1. the message is not coming from a local connection
                                         // 2. the connection is currently Remote (inter-group).
-                                        //    We read the live connection type because incoming
-                                        //    connections start as Remote and may be upgraded to
-                                        //    Peer after link negotiation — the captured `category`
-                                        //    would be stale in that case.
                                         // 3. it is not coming from the control plane itself
                                         // 4. the control plane exists
                                         let is_remote = !is_local
                                             && self_clone
                                                 .forwarder()
                                                 .get_connection(conn_index)
-                                                .map(|c| c.connection_type() == ConnType::Remote)
+                                                .map(|c| matches!(c.connection_type(), ConnType::Remote | ConnType::Edge))
                                                 .unwrap_or(false);
                                         if is_remote
                                             && !from_control_plane

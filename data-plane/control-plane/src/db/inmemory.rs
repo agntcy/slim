@@ -635,6 +635,19 @@ impl DataAccess for InMemoryDb {
         ))
     }
 
+    async fn find_link_between_groups(&self, group_a: &str, group_b: &str) -> Result<Option<Link>> {
+        let store = self.links.read();
+        Ok(store
+            .primary
+            .values()
+            .find(|l| {
+                l.status != LinkStatus::Deleted
+                    && ((l.source_group == group_a && l.dest_group == group_b)
+                        || (l.source_group == group_b && l.dest_group == group_a))
+            })
+            .cloned())
+    }
+
     async fn find_or_create_link(&self, mut link: Link) -> Result<(Link, bool)> {
         if link.link_id.is_empty()
             || link.source_node_id.is_empty()
@@ -854,7 +867,9 @@ mod tests {
         Route {
             id: String::new(),
             source_node_id: src.to_string(),
+            source_group: String::new(),
             dest_node_id: dst.to_string(),
+            dest_group: String::new(),
             link_id: Some(link.to_string()),
             component0: "org".to_string(),
             component1: "ns".to_string(),
@@ -871,6 +886,7 @@ mod tests {
         Link {
             link_id: lid.to_string(),
             source_node_id: src.to_string(),
+            source_group: String::new(),
             dest_node_id: dst.to_string(),
             dest_group: String::new(),
             dest_endpoint: ep.to_string(),

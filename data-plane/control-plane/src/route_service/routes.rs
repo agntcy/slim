@@ -15,9 +15,12 @@ use super::spt;
 use super::*;
 
 /// Build a route struct for a gateway node in SPT expansion.
+#[allow(clippy::too_many_arguments)]
 fn build_route_for_gateway(
     source_node_id: &str,
+    source_group: &str,
     dest_node_id: &str,
+    dest_group: &str,
     link_id: String,
     component0: &str,
     component1: &str,
@@ -27,7 +30,9 @@ fn build_route_for_gateway(
     Route {
         id: String::new(),
         source_node_id: source_node_id.to_string(),
+        source_group: source_group.to_string(),
         dest_node_id: dest_node_id.to_string(),
+        dest_group: dest_group.to_string(),
         link_id: Some(link_id),
         component0: component0.to_string(),
         component1: component1.to_string(),
@@ -44,30 +49,22 @@ impl super::RouteService {
     /// Rebuild the runtime link graph from the given set of nodes.
     /// Extracts distinct group names and calls `build_graph()` on the topology config.
     /// Returns true if the set of groups changed (a group was added or removed).
-    ///
-    /// NOTE: There is a race between the read (line checking current groups) and
-    /// the write (updating the graph). Two concurrent callers may both see
-    /// `groups_changed == true` and both write. This is benign because
-    /// `build_graph` is deterministic — both writers produce the same graph.
     pub(super) async fn rebuild_link_graph(&self, nodes: &[crate::db::Node]) -> bool {
         let new_groups: HashSet<&str> = nodes
             .iter()
             .map(|n| n.group_name.as_deref().unwrap_or(""))
             .collect();
 
-        // Check if the group set changed compared to the current graph.
-        let current_graph = self.0.link_graph.read().await;
+        let mut current_graph = self.0.link_graph.write().await;
         let current_groups: HashSet<&str> = current_graph
             .node_indices()
             .map(|idx| current_graph[idx].as_str())
             .collect();
         let groups_changed = new_groups != current_groups;
-        drop(current_graph);
 
         if groups_changed {
             let group_vec: Vec<&str> = new_groups.into_iter().collect();
-            let graph = self.0.topology.build_graph(&group_vec);
-            *self.0.link_graph.write().await = graph;
+            *current_graph = self.0.topology.build_graph(&group_vec);
         }
 
         groups_changed
@@ -204,7 +201,9 @@ impl super::RouteService {
             // Create the per-gateway route pointing toward the parent group.
             let per_node = build_route_for_gateway(
                 &source_node_id,
+                child_group,
                 dest_node_id,
+                dest_group,
                 link_id,
                 component0,
                 component1,
@@ -303,7 +302,9 @@ impl super::RouteService {
             ) {
                 let per_node = build_route_for_gateway(
                     &gateway_node_id,
+                    parent_group,
                     new_announcer_node_id,
+                    announcer_group,
                     link_id,
                     component0,
                     component1,
@@ -331,7 +332,12 @@ impl super::RouteService {
         // store with link_id=None — the reconciler will resolve it later.
         if db_route.source_node_id != ALL_NODES_ID && db_route.link_id.is_none() {
             db_route.link_id = self
-                .find_matching_link(&db_route.source_node_id, &db_route.dest_node_id)
+                .find_matching_link(
+                    &db_route.source_node_id,
+                    &db_route.source_group,
+                    &db_route.dest_node_id,
+                    &db_route.dest_group,
+                )
                 .await
                 .ok();
         }
@@ -561,6 +567,7 @@ mod tests {
         let link_hub_a = crate::db::Link {
             link_id: "link-hub-a".to_string(),
             source_node_id: "hub-node".to_string(),
+            source_group: String::new(),
             dest_node_id: "spoke-a".to_string(),
             dest_group: String::new(),
             dest_endpoint: "spoke-a:8080".to_string(),
@@ -573,6 +580,7 @@ mod tests {
         let link_hub_b = crate::db::Link {
             link_id: "link-hub-b".to_string(),
             source_node_id: "hub-node".to_string(),
+            source_group: String::new(),
             dest_node_id: "spoke-b".to_string(),
             dest_group: String::new(),
             dest_endpoint: "spoke-b:8080".to_string(),
@@ -648,7 +656,9 @@ mod tests {
         let wildcard_route = crate::db::Route {
             id: "wildcard-1".to_string(),
             source_node_id: ALL_NODES_ID.to_string(),
+            source_group: String::new(),
             dest_node_id: "spoke-b".to_string(),
+            dest_group: String::new(),
             link_id: None,
             component0: "org".to_string(),
             component1: "name".to_string(),
@@ -665,6 +675,7 @@ mod tests {
         let link_a_hub = crate::db::Link {
             link_id: "link-a-hub".to_string(),
             source_node_id: "spoke-a".to_string(),
+            source_group: String::new(),
             dest_node_id: "hub-node".to_string(),
             dest_group: String::new(),
             dest_endpoint: "hub:8080".to_string(),
@@ -680,6 +691,7 @@ mod tests {
         let link_hub_b = crate::db::Link {
             link_id: "link-hub-b".to_string(),
             source_node_id: "hub-node".to_string(),
+            source_group: String::new(),
             dest_node_id: "spoke-b".to_string(),
             dest_group: String::new(),
             dest_endpoint: "spoke-b:8080".to_string(),
@@ -766,6 +778,7 @@ mod tests {
         let link = crate::db::Link {
             link_id: "link-1".to_string(),
             source_node_id: "hub-node".to_string(),
+            source_group: String::new(),
             dest_node_id: "spoke-a".to_string(),
             dest_group: String::new(),
             dest_endpoint: "spoke-a:8080".to_string(),
@@ -823,6 +836,7 @@ mod tests {
             let link = crate::db::Link {
                 link_id: lid.to_string(),
                 source_node_id: src.to_string(),
+                source_group: String::new(),
                 dest_node_id: dst.to_string(),
                 dest_group: String::new(),
                 dest_endpoint: format!("{dst}:8080"),
@@ -894,6 +908,7 @@ mod tests {
         let link_ab = crate::db::Link {
             link_id: "link-ab".to_string(),
             source_node_id: "node-a".to_string(),
+            source_group: String::new(),
             dest_node_id: "node-b".to_string(),
             dest_group: String::new(),
             dest_endpoint: "node-b:8080".to_string(),
@@ -906,6 +921,7 @@ mod tests {
         let link_bc = crate::db::Link {
             link_id: "link-bc".to_string(),
             source_node_id: "node-b".to_string(),
+            source_group: String::new(),
             dest_node_id: "node-c".to_string(),
             dest_group: String::new(),
             dest_endpoint: "node-c:8080".to_string(),

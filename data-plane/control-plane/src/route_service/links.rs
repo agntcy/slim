@@ -23,6 +23,7 @@ impl super::RouteService {
         node_id: &str,
         existing_links: &[crate::db::Link],
         all_nodes: &[crate::db::Node],
+        all_links: &[crate::db::Link],
         reported: &[ReportedConnection],
     ) -> (Vec<String>, Vec<crate::db::Link>) {
         let src_node = match all_nodes.iter().find(|n| n.id == node_id) {
@@ -50,14 +51,13 @@ impl super::RouteService {
         // Track which destination groups already have an active inter-group link
         // from or to the source group (across ALL nodes in the group, not just this one).
         let src_group = src_node.group_name.as_deref().unwrap_or("");
-        let all_links = self.0.db.list_all_links().await.unwrap_or_default();
         let mut linked_groups: HashSet<String> = all_links
             .iter()
             .filter(|l| l.status != LinkStatus::Deleted)
             .filter_map(|l| {
                 let dg = l.dest_group.as_str();
+                let src_grp = l.source_group.as_str();
                 // Outgoing link from any node in src_group to another group.
-                let src_grp = l.source_node_id.split('/').next().unwrap_or("");
                 if src_grp == src_group && !dg.is_empty() && dg != src_group {
                     Some(dg.to_string())
                 } else if dg == src_group && !src_grp.is_empty() && src_grp != src_group {
@@ -195,6 +195,7 @@ impl super::RouteService {
         let link = crate::db::Link {
             link_id,
             source_node_id: src_node.id.clone(),
+            source_group: src_node.group_name.clone().unwrap_or_default(),
             // dest_node_id is left empty — resolved when the remote node claims the link.
             dest_node_id: String::new(),
             dest_group,
@@ -225,7 +226,13 @@ impl super::RouteService {
         }
     }
 
-    pub(super) async fn find_matching_link(&self, source: &str, dest: &str) -> Result<String> {
+    pub(super) async fn find_matching_link(
+        &self,
+        source: &str,
+        source_group: &str,
+        dest: &str,
+        dest_group: &str,
+    ) -> Result<String> {
         // First try exact node-to-node match (legacy / direct links).
         if let Some(l) = self.0.db.find_link_between_nodes(source, dest).await?
             && l.status != LinkStatus::Deleted
@@ -234,26 +241,14 @@ impl super::RouteService {
         }
 
         // For inter-group links: find a link between the groups of source and dest.
-        // Inter-group links have source_node_id in one group and dest_group pointing
-        // to the other group (dest_node_id is the claiming node in that group).
-        let source_group = source.split('/').next().unwrap_or(source);
-        let dest_group = dest.split('/').next().unwrap_or(dest);
-        if source_group != dest_group {
-            let all_links = self.0.db.list_all_links().await?;
-            for link in &all_links {
-                if link.status == LinkStatus::Deleted {
-                    continue;
-                }
-                let link_src_group = link.source_node_id.split('/').next().unwrap_or("");
-                // Link from dest_group → source_group (source node uses this link)
-                if link_src_group == dest_group && link.dest_group == source_group {
-                    return Ok(link.link_id.clone());
-                }
-                // Link from source_group → dest_group
-                if link_src_group == source_group && link.dest_group == dest_group {
-                    return Ok(link.link_id.clone());
-                }
-            }
+        if source_group != dest_group
+            && let Some(link) = self
+                .0
+                .db
+                .find_link_between_groups(source_group, dest_group)
+                .await?
+        {
+            return Ok(link.link_id);
         }
 
         Err(Error::InvalidInput(format!(
@@ -295,7 +290,7 @@ mod tests {
         let svc = make_route_service_with_topology(db.clone(), star_topology());
         let all_nodes = db.list_nodes().await.unwrap();
         let (affected, new_links) = svc
-            .ensure_links_for_node("spoke-a", &[], &all_nodes, &[])
+            .ensure_links_for_node("spoke-a", &[], &all_nodes, &[], &[])
             .await;
 
         // spoke-a should link to hub's group (platform) but NOT to spoke-b's group
@@ -338,7 +333,7 @@ mod tests {
         let svc = make_route_service(db.clone());
         let all_nodes = db.list_nodes().await.unwrap();
         let (_, new_links) = svc
-            .ensure_links_for_node("node-a", &[], &all_nodes, &[])
+            .ensure_links_for_node("node-a", &[], &all_nodes, &[], &[])
             .await;
 
         // node-a should link to both node-b and node-c

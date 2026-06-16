@@ -9,7 +9,9 @@ CREATE TABLE IF NOT EXISTS nodes (
 CREATE TABLE IF NOT EXISTS routes (
     id TEXT NOT NULL PRIMARY KEY,
     source_node_id TEXT NOT NULL,
+    source_group TEXT NOT NULL DEFAULT '',
     dest_node_id TEXT NOT NULL,
+    dest_group TEXT NOT NULL DEFAULT '',
     link_id TEXT,
     component0 TEXT NOT NULL,
     component1 TEXT NOT NULL,
@@ -24,6 +26,7 @@ CREATE TABLE IF NOT EXISTS routes (
 CREATE TABLE IF NOT EXISTS links (
     link_id TEXT NOT NULL,
     source_node_id TEXT NOT NULL,
+    source_group TEXT NOT NULL DEFAULT '',
     dest_node_id TEXT NOT NULL,
     dest_group TEXT NOT NULL,
     dest_endpoint TEXT NOT NULL,

@@ -73,6 +73,7 @@ impl super::RouteService {
                 return;
             }
         };
+        let mut node_links: Vec<crate::db::Link> = Vec::with_capacity(links.len());
         for mut link in links {
             if link.status == LinkStatus::Deleted {
                 self.restore_deleted_link(node_id, &mut link, &mut link_reconcile_nodes)
@@ -93,6 +94,7 @@ impl super::RouteService {
                 self.adopt_static_connection(node_id, &mut link, &reported)
                     .await;
             }
+            node_links.push(link);
         }
 
         let all_nodes = match self.0.db.list_nodes().await {
@@ -105,15 +107,12 @@ impl super::RouteService {
 
         self.rebuild_link_graph(&all_nodes).await;
 
-        let mut node_links = match self.0.db.get_links_for_node(node_id).await {
-            Ok(l) => l,
-            Err(e) => {
-                tracing::error!("node_registered: get_links_for_node: {e}");
-                return;
-            }
-        };
+        let all_links = self.0.db.list_all_links().await.unwrap_or_else(|e| {
+            tracing::error!("failed to list all links: {e}");
+            vec![]
+        });
         let (affected_nodes, new_links) = self
-            .ensure_links_for_node(node_id, &node_links, &all_nodes, &reported)
+            .ensure_links_for_node(node_id, &node_links, &all_nodes, &all_links, &reported)
             .await;
         for nid in affected_nodes {
             link_reconcile_nodes.insert(nid);
@@ -122,7 +121,6 @@ impl super::RouteService {
 
         // Re-expand wildcard routes via SPT. This is idempotent — duplicates
         // are rejected by add_single_route.
-        let all_links = self.0.db.list_all_links().await.unwrap_or_default();
         self.expand_all_wildcard_routes(&all_nodes, &all_links)
             .await;
 
@@ -373,7 +371,10 @@ impl super::RouteService {
         });
         // Wildcard templates where this node is the destination.
         let wildcard_dest: Vec<_> = wildcard_routes
-            .unwrap_or_default()
+            .unwrap_or_else(|e| {
+                tracing::error!("cleanup_routes: failed to get wildcard routes: {e}");
+                vec![]
+            })
             .into_iter()
             .filter(|r| r.dest_node_id == node_id)
             .collect();
@@ -433,22 +434,44 @@ impl super::RouteService {
             return;
         }
 
-        let group = node_id.split('/').next().unwrap_or("");
-        let other_nodes = self.find_connected_nodes_in_group(group, node_id).await;
+        // Determine the group from the link records (node may already be deleted).
+        let group = links
+            .iter()
+            .map(|l| {
+                if l.source_node_id == node_id {
+                    l.source_group.as_str()
+                } else {
+                    l.dest_group.as_str()
+                }
+            })
+            .next()
+            .unwrap_or("");
+
+        let all_nodes = self.0.db.list_nodes().await.unwrap_or_else(|e| {
+            tracing::error!("failed to list nodes: {e}");
+            vec![]
+        });
+        let other_nodes = self
+            .find_connected_nodes_in_group(group, node_id, &all_nodes)
+            .await;
 
         if other_nodes.is_empty() {
             self.handle_last_node_in_group(&links, node_id).await;
         } else {
-            self.reassign_gateway_links(node_id, &links, &other_nodes)
+            self.reassign_gateway_links(node_id, &links, &other_nodes, &all_nodes)
                 .await;
         }
     }
 
     /// Find connected nodes in a group, excluding a specific node.
-    async fn find_connected_nodes_in_group(&self, group: &str, exclude_node: &str) -> Vec<String> {
-        let all_nodes = self.0.db.list_nodes().await.unwrap_or_default();
+    async fn find_connected_nodes_in_group(
+        &self,
+        group: &str,
+        exclude_node: &str,
+        all_nodes: &[crate::db::Node],
+    ) -> Vec<String> {
         let mut result = Vec::new();
-        for node in &all_nodes {
+        for node in all_nodes {
             if node.id == exclude_node {
                 continue;
             }
@@ -468,6 +491,7 @@ impl super::RouteService {
         departing_node: &str,
         links: &[crate::db::Link],
         available_nodes: &[String],
+        all_nodes: &[crate::db::Node],
     ) {
         use rand::seq::IndexedRandom;
         let new_gateway = available_nodes
@@ -530,25 +554,30 @@ impl super::RouteService {
         if !sources_needing_links.is_empty() {
             // Exclude the departing node so ensure_links_for_node picks
             // the sibling's endpoint instead of the dead node's.
-            let all_nodes: Vec<_> = self
-                .0
-                .db
-                .list_nodes()
-                .await
-                .unwrap_or_default()
-                .into_iter()
+            let filtered_nodes: Vec<_> = all_nodes
+                .iter()
                 .filter(|n| n.id != departing_node)
+                .cloned()
                 .collect();
-            let all_links = self.0.db.list_all_links().await.unwrap_or_default();
+            let all_links = self.0.db.list_all_links().await.unwrap_or_else(|e| {
+                tracing::error!("failed to list links for reassignment: {e}");
+                vec![]
+            });
             for src_node_id in &sources_needing_links {
                 let (affected, _new_links) = self
-                    .ensure_links_for_node(src_node_id, &all_links, &all_nodes, &[])
+                    .ensure_links_for_node(
+                        src_node_id,
+                        &all_links,
+                        &filtered_nodes,
+                        &all_links,
+                        &[],
+                    )
                     .await;
                 for nid in affected {
                     self.0.queue.add(nid);
                 }
             }
-            self.rebuild_link_graph(&all_nodes).await;
+            self.rebuild_link_graph(&filtered_nodes).await;
         }
 
         // Handle routes on the departing node.
@@ -561,7 +590,10 @@ impl super::RouteService {
             .db
             .get_routes_for_node(departing_node)
             .await
-            .unwrap_or_default();
+            .unwrap_or_else(|e| {
+                tracing::error!("failed to get routes for departing node: {e}");
+                vec![]
+            });
         for route in &src_routes {
             if sources_needing_links.is_empty() {
                 // Outgoing-link case: move route to new gateway (link_id stays same).
@@ -603,17 +635,16 @@ impl super::RouteService {
         self.0.queue.add(new_gateway.clone());
 
         // Re-expand wildcard routes with new gateway (excluding departing node).
-        let all_nodes: Vec<_> = self
-            .0
-            .db
-            .list_nodes()
-            .await
-            .unwrap_or_default()
-            .into_iter()
+        let filtered_nodes: Vec<_> = all_nodes
+            .iter()
             .filter(|n| n.id != departing_node)
+            .cloned()
             .collect();
-        let all_links = self.0.db.list_all_links().await.unwrap_or_default();
-        self.expand_all_wildcard_routes(&all_nodes, &all_links)
+        let all_links = self.0.db.list_all_links().await.unwrap_or_else(|e| {
+            tracing::error!("failed to list links for route expansion: {e}");
+            vec![]
+        });
+        self.expand_all_wildcard_routes(&filtered_nodes, &all_links)
             .await;
     }
 
@@ -650,10 +681,16 @@ impl super::RouteService {
         }
 
         // Rebuild link graph and re-expand wildcard routes.
-        let remaining_nodes = self.0.db.list_nodes().await.unwrap_or_default();
+        let remaining_nodes = self.0.db.list_nodes().await.unwrap_or_else(|e| {
+            tracing::error!("failed to list remaining nodes: {e}");
+            vec![]
+        });
         let groups_changed = self.rebuild_link_graph(&remaining_nodes).await;
         if groups_changed {
-            let all_links = self.0.db.list_all_links().await.unwrap_or_default();
+            let all_links = self.0.db.list_all_links().await.unwrap_or_else(|e| {
+                tracing::error!("failed to list links for route expansion: {e}");
+                vec![]
+            });
             self.expand_all_wildcard_routes(&remaining_nodes, &all_links)
                 .await;
         }

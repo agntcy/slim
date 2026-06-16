@@ -284,7 +284,9 @@ where
 pub struct Route {
     pub id: String,
     pub source_node_id: String,
+    pub source_group: String,
     pub dest_node_id: String,
+    pub dest_group: String,
     pub link_id: Option<String>,
     pub component0: String,
     pub component1: String,
@@ -385,6 +387,7 @@ where
 pub struct Link {
     pub link_id: String,
     pub source_node_id: String,
+    pub source_group: String,
     pub dest_node_id: String,
     pub dest_group: String,
     pub dest_endpoint: String,
@@ -433,7 +436,9 @@ mod tests {
         Route {
             id: String::new(),
             source_node_id: src.to_string(),
+            source_group: String::new(),
             dest_node_id: dest.to_string(),
+            dest_group: String::new(),
             link_id: Some(link.to_string()),
             component0: "org".to_string(),
             component1: "ns".to_string(),
@@ -550,6 +555,7 @@ mod tests {
         let link = Link {
             link_id: "lid".to_string(),
             source_node_id: "src".to_string(),
+            source_group: "grp".to_string(),
             dest_node_id: "dst".to_string(),
             dest_group: "grp".to_string(),
             dest_endpoint: "ep:9000".to_string(),
@@ -568,6 +574,7 @@ mod tests {
         let link = Link {
             link_id: "lid".to_string(),
             source_node_id: "src".to_string(),
+            source_group: "grp".to_string(),
             dest_node_id: "dst".to_string(),
             dest_group: "grp".to_string(),
             dest_endpoint: "ep:9000".to_string(),

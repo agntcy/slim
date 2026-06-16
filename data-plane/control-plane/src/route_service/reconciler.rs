@@ -104,23 +104,26 @@ async fn handle_request(
         return Ok(());
     }
 
-    let mut links = db.get_links_for_node(node_id).await?;
-    // Also include inter-group links involving any node in the same group.
-    // A route on this node may reference a link claimed by another node in
-    // the same group (one link per group pair, not per node pair).
-    let node_group = node_id.split('/').next().unwrap_or("");
-    if !node_group.is_empty() {
-        let all_links = db.list_all_links().await?;
-        for link in all_links {
-            if links.iter().any(|l| l.link_id == link.link_id) {
-                continue;
-            }
-            let link_src_group = link.source_node_id.split('/').next().unwrap_or("");
-            if link_src_group == node_group || link.dest_group == node_group {
-                links.push(link);
-            }
-        }
-    }
+    let node_group = db
+        .get_node(node_id)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|n| n.group_name)
+        .unwrap_or_default();
+
+    // Single query for all links, then filter to those relevant to this node
+    // or its group (avoids separate get_links_for_node + list_all_links calls).
+    let all_links = db.list_all_links().await?;
+    let mut links: Vec<_> = all_links
+        .into_iter()
+        .filter(|l| {
+            l.source_node_id == node_id
+                || l.dest_node_id == node_id
+                || (!node_group.is_empty()
+                    && (l.source_group == node_group || l.dest_group == node_group))
+        })
+        .collect();
     let routes = db.get_routes_for_node(node_id).await?;
 
     let (desired_connections, desired_link_ids, deleted_links) =
@@ -247,18 +250,17 @@ async fn build_desired_routes<'a>(
             Some(id) => id,
             None => {
                 // No link_id yet — find a link from this node to the dest node's group.
-                let dest_group = route.dest_node_id.split('/').next().unwrap_or("");
                 let found_link = node_links.iter().find(|l| {
                     l.source_node_id == route.source_node_id
                         && l.status != LinkStatus::Deleted
-                        && l.dest_group == dest_group
+                        && l.dest_group == route.dest_group
                 });
                 // Also check reverse direction (link where dest claimed by source's group).
                 let found_link = found_link.or_else(|| {
                     node_links.iter().find(|l| {
                         l.dest_node_id == route.source_node_id
                             && l.status != LinkStatus::Deleted
-                            && l.source_node_id.starts_with(&format!("{dest_group}/"))
+                            && l.source_group == route.dest_group
                     })
                 });
                 match found_link {
