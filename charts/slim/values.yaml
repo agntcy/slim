@@ -5,7 +5,7 @@ slim:
   # Workload kind: "Deployment" (default) or "DaemonSet"
   # DaemonSet runs one instance per node (hostPort enabled automatically).
   # Deployment supports replicaCount and HPA.
-  deploymentMode: "DaemonSet"
+  deploymentMode: "Deployment"
 
   # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
   replicaCount: 15
