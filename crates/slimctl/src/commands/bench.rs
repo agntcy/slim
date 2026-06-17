@@ -982,6 +982,8 @@ async fn run_pub(args: &BenchPubArgs, service: &Arc<Service>) -> Result<()> {
         }
     }
 
+    tokio::time::sleep(Duration::from_secs(5)).await; // give message processing tasks time to complete
+
     if group.has_samples() {
         println!("\n{}", group.report("Pub stats"));
 
@@ -1078,6 +1080,8 @@ async fn run_pub_worker(
             latencies.push(t0.elapsed());
         }
     }
+
+    controller.close()?.await?;
 
     let end = Instant::now();
 
