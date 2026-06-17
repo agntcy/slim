@@ -494,20 +494,38 @@ impl SampleGroup {
         let mut out = String::new();
         if self.samples.len() > 1 {
             for (s, lbl) in self.samples.iter().zip(self.labels.iter()) {
-                out.push_str(&format!(
-                    "  [{}] {} ({} msgs)\n",
-                    lbl,
-                    s,
-                    comma_format(s.job_msg_cnt as i64),
-                ));
+                let count_str = if s.msg_cnt == s.job_msg_cnt {
+                    format!("{} msgs", comma_format(s.msg_cnt as i64))
+                } else {
+                    let dropped = s.job_msg_cnt.saturating_sub(s.msg_cnt);
+                    format!(
+                        "{}/{} msgs, {} dropped",
+                        comma_format(s.msg_cnt as i64),
+                        comma_format(s.job_msg_cnt as i64),
+                        comma_format(dropped as i64),
+                    )
+                };
+                out.push_str(&format!("  [{}] {} ({})\n", lbl, s, count_str));
             }
             out.push_str(&format!("  {}\n", self.statistics()));
         }
+        let agg_count_str = if self.total_msgs == self.job_msg_cnt {
+            format!("{} msgs", comma_format(self.total_msgs as i64))
+        } else {
+            let dropped = self.job_msg_cnt.saturating_sub(self.total_msgs);
+            format!(
+                "{}/{} msgs, {} dropped",
+                comma_format(self.total_msgs as i64),
+                comma_format(self.job_msg_cnt as i64),
+                comma_format(dropped as i64),
+            )
+        };
         out.push_str(&format!(
-            "{}: {} msgs/sec ~ {}/sec\n",
+            "{}: {} msgs/sec ~ {}/sec ({})\n",
             label,
             comma_format(self.aggregate_rate() as i64),
             human_bytes(self.aggregate_throughput()),
+            agg_count_str,
         ));
         out
     }
@@ -849,6 +867,8 @@ async fn run_sub_worker(
     let mut msg_cnt = 0u64;
     let mut msg_bytes = 0u64;
 
+    println!("[sub-{i}] expecting {} messages", if job_msg_cnt == 0 { "unlimited".to_string() } else { job_msg_cnt.to_string() });
+
     while let Some(msg) = recv_session_message(&mut session_rx, recv_timeout).await {
         if start.is_none() {
             start = Some(Instant::now());
@@ -867,9 +887,12 @@ async fn run_sub_worker(
         }
 
         if job_msg_cnt > 0 && msg_cnt >= job_msg_cnt {
+            println!("[sub-{i}] received all expected messages, exiting");
             break;
         }
     }
+
+    println!("[sub-{i}] received {} messages", msg_cnt);
 
     Ok(build_sample(start, msg_cnt, msg_bytes, job_msg_cnt, size))
 }
