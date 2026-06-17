@@ -20,6 +20,6 @@ database:
 topology:
   links:
     - name: deployment-a
-      peers: [deployment-b, deployment-c]
+      neighbors: [deployment-b, deployment-c]
     - name: deployment-c
-      peers: [deployment-d]
+      neighbors: [deployment-d]

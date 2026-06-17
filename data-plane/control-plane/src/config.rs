@@ -3,6 +3,7 @@
 
 use duration_string::DurationString;
 use serde::Deserialize;
+use serde::de::{self, MapAccess, Visitor};
 use std::time::Duration;
 
 use slim_config::grpc::server::ServerConfig;
@@ -108,7 +109,7 @@ impl Default for ReconcilerConfig {
 /// Topology configuration: defines the physical link graph between node groups.
 ///
 /// The topology is expressed as an adjacency list. Each entry declares
-/// a group name and the peers it connects to. All links are **bidirectional**:
+/// a group name and the neighbors it connects to. All links are **bidirectional**:
 /// if group A lists B as a peer, then B↔A is implied.
 ///
 /// The wildcard `"*"` matches all registered groups and is resolved dynamically
@@ -117,108 +118,219 @@ impl Default for ReconcilerConfig {
 /// If no topology is configured (empty links), the controller defaults to
 /// **full mesh**: every group links to every other group.
 ///
-/// # Example
+/// Topology configuration: controls link creation and route visibility.
 ///
-/// ```yaml
-/// topology:
-///   links:
-///     - name: hub
-///       peers: ["*"]      # hub connects to all groups
-///     - name: node-b
-///       peers: [node-c]   # explicit link between node-b and node-c
-/// ```
-#[derive(Debug, Clone, Deserialize, Default, PartialEq)]
-#[serde(default)]
-pub struct TopologyConfig {
-    /// Adjacency list: defines which groups create links to each other.
-    /// If empty, all groups can link to all groups (full mesh).
+/// The topology mode is determined by which field is present in YAML:
+/// - Neither `links` nor `segments` → full mesh (default)
+/// - `links` → single routing domain with custom link graph
+/// - `segments` → multiple independent routing domains
+/// - Both → deserialization error
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum TopologyConfig {
+    /// No topology configured: all groups can link to all groups.
+    #[default]
+    FullMesh,
+    /// Single routing domain with a custom link graph.
+    Links(Vec<AdjacencyEntry>),
+    /// Multiple independent routing domains, each with its own link graph.
+    Segments(Vec<SegmentConfig>),
+}
+
+/// A segment defines an independent routing domain.
+/// Each segment has its own link graph and SPT computation.
+///
+/// The `name` and link entries can use `$group` as a template variable.
+/// When present, the segment is expanded at runtime into one concrete
+/// segment per registered group (excluding groups already named explicitly).
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct SegmentConfig {
+    /// Segment name. May contain `$group` for template expansion.
+    pub name: String,
+    /// Link graph within this segment.
     pub links: Vec<AdjacencyEntry>,
 }
 
 /// An adjacency list entry: nodes in group `name` connect to nodes
-/// in any of the groups listed in `peers`. Links are bidirectional.
+/// in any of the groups listed in `neighbors`. Links are bidirectional.
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct AdjacencyEntry {
-    /// Group name (or `"*"` to match any group).
+    /// Group name (or `"*"` to match any group, or `$group` for template expansion).
     pub name: String,
-    /// Groups this group connects to. `"*"` matches any group.
-    pub peers: Vec<String>,
+    /// Groups this group connects to. `"*"` matches any, `$group` for template.
+    pub neighbors: Vec<String>,
+}
+
+impl<'de> Deserialize<'de> for TopologyConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct TopologyVisitor;
+
+        impl<'de> Visitor<'de> for TopologyVisitor {
+            type Value = TopologyConfig;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a topology config with either 'links' or 'segments' (not both)")
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let mut links: Option<Vec<AdjacencyEntry>> = None;
+                let mut segments: Option<Vec<SegmentConfig>> = None;
+
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "links" => {
+                            if links.is_some() {
+                                return Err(de::Error::duplicate_field("links"));
+                            }
+                            links = Some(map.next_value()?);
+                        }
+                        "segments" => {
+                            if segments.is_some() {
+                                return Err(de::Error::duplicate_field("segments"));
+                            }
+                            segments = Some(map.next_value()?);
+                        }
+                        _ => {
+                            map.next_value::<de::IgnoredAny>()?;
+                        }
+                    }
+                }
+
+                match (links, segments) {
+                    (Some(_), Some(_)) => Err(de::Error::custom(
+                        "'links' and 'segments' are mutually exclusive in topology config",
+                    )),
+                    (Some(l), None) => {
+                        if l.is_empty() {
+                            Ok(TopologyConfig::FullMesh)
+                        } else {
+                            Ok(TopologyConfig::Links(l))
+                        }
+                    }
+                    (None, Some(s)) => {
+                        if s.is_empty() {
+                            Ok(TopologyConfig::FullMesh)
+                        } else {
+                            Ok(TopologyConfig::Segments(s))
+                        }
+                    }
+                    (None, None) => Ok(TopologyConfig::FullMesh),
+                }
+            }
+        }
+
+        deserializer.deserialize_map(TopologyVisitor)
+    }
 }
 
 impl TopologyConfig {
     /// Returns true if group `a` is allowed to create a link to group `b`.
-    /// Links are bidirectional: if any entry allows a→b or b→a, both are linked.
-    /// If no entries are configured, defaults to allow (full mesh).
+    /// Links are bidirectional. For Segments, true if ANY segment connects a↔b.
     pub fn can_link(&self, a: &str, b: &str) -> bool {
-        if self.links.is_empty() {
-            return true;
+        match self {
+            Self::FullMesh => true,
+            Self::Links(links) => Self::can_link_in(links, a, b),
+            Self::Segments(segments) => segments
+                .iter()
+                .any(|seg| Self::can_link_in(&seg.links, a, b)),
         }
-        self.links.iter().any(|entry| {
-            (matches_group(&entry.name, a) && entry.peers.iter().any(|p| matches_group(p, b)))
+    }
+
+    /// Check if two groups are linked within a set of adjacency entries.
+    fn can_link_in(links: &[AdjacencyEntry], a: &str, b: &str) -> bool {
+        links.iter().any(|entry| {
+            (matches_group(&entry.name, a) && entry.neighbors.iter().any(|p| matches_group(p, b)))
                 || (matches_group(&entry.name, b)
-                    && entry.peers.iter().any(|p| matches_group(p, a)))
+                    && entry.neighbors.iter().any(|p| matches_group(p, a)))
         })
     }
 
-    /// Resolve the link graph for a set of known groups.
-    /// Returns a petgraph `UnGraph` with group names as node weights and
-    /// edge weight 1 (uniform cost for now, future-proofed for weighted links).
-    ///
-    /// Wildcard `"*"` in entries is expanded to all groups in `known_groups`.
-    pub fn build_graph(&self, known_groups: &[&str]) -> petgraph::graph::UnGraph<String, u32> {
+    /// Build one graph per segment. For FullMesh/Links returns a single "default" entry.
+    /// Wildcard `"*"` is expanded to all groups in `known_groups`.
+    pub fn build_graph(
+        &self,
+        known_groups: &[&str],
+    ) -> Vec<(String, petgraph::graph::UnGraph<String, u32>)> {
+        match self {
+            Self::FullMesh => {
+                let full_mesh_links = vec![AdjacencyEntry {
+                    name: "*".to_string(),
+                    neighbors: vec!["*".to_string()],
+                }];
+                vec![(
+                    "default".to_string(),
+                    Self::build_graph_from_links(&full_mesh_links, known_groups),
+                )]
+            }
+            Self::Links(links) => {
+                vec![(
+                    "default".to_string(),
+                    Self::build_graph_from_links(links, known_groups),
+                )]
+            }
+            Self::Segments(segments) => segments
+                .iter()
+                .map(|seg| {
+                    (
+                        seg.name.clone(),
+                        Self::build_graph_from_links(&seg.links, known_groups),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    fn build_graph_from_links(
+        links: &[AdjacencyEntry],
+        known_groups: &[&str],
+    ) -> petgraph::graph::UnGraph<String, u32> {
         use petgraph::graph::UnGraph;
         use std::collections::HashMap;
 
         let mut graph = UnGraph::<String, u32>::new_undirected();
         let mut indices: HashMap<&str, petgraph::graph::NodeIndex> = HashMap::new();
 
-        // Add all known groups as nodes
         for &group in known_groups {
             let idx = graph.add_node(group.to_string());
             indices.insert(group, idx);
         }
 
-        if self.links.is_empty() {
-            // Full mesh: connect everything to everything
-            for (i, &a) in known_groups.iter().enumerate() {
-                for &b in &known_groups[i + 1..] {
-                    graph.add_edge(indices[a], indices[b], 1);
-                }
-            }
-        } else {
-            // Apply adjacency entries with wildcard expansion
-            for entry in &self.links {
-                let sources: Vec<&str> = if entry.name == "*" {
-                    known_groups.to_vec()
-                } else {
-                    known_groups
-                        .iter()
-                        .filter(|&&g| g == entry.name)
-                        .copied()
-                        .collect()
-                };
+        for entry in links {
+            let sources: Vec<&str> = if entry.name == "*" {
+                known_groups.to_vec()
+            } else {
+                known_groups
+                    .iter()
+                    .filter(|&&g| g == entry.name)
+                    .copied()
+                    .collect()
+            };
 
-                for &src in &sources {
-                    for peer_pattern in &entry.peers {
-                        let targets: Vec<&str> = if peer_pattern == "*" {
-                            known_groups.to_vec()
-                        } else {
-                            known_groups
-                                .iter()
-                                .filter(|&&g| g == *peer_pattern)
-                                .copied()
-                                .collect()
-                        };
+            for &src in &sources {
+                for peer_pattern in &entry.neighbors {
+                    let targets: Vec<&str> = if peer_pattern == "*" {
+                        known_groups.to_vec()
+                    } else {
+                        known_groups
+                            .iter()
+                            .filter(|&&g| g == *peer_pattern)
+                            .copied()
+                            .collect()
+                    };
 
-                        for &dst in &targets {
-                            if src == dst {
-                                continue;
-                            }
-                            let src_idx = indices[src];
-                            let dst_idx = indices[dst];
-                            if graph.find_edge(src_idx, dst_idx).is_none() {
-                                graph.add_edge(src_idx, dst_idx, 1);
-                            }
+                    for &dst in &targets {
+                        if src == dst {
+                            continue;
+                        }
+                        let src_idx = indices[src];
+                        let dst_idx = indices[dst];
+                        if graph.find_edge(src_idx, dst_idx).is_none() {
+                            graph.add_edge(src_idx, dst_idx, 1);
                         }
                     }
                 }
@@ -267,18 +379,16 @@ mod tests {
 
     #[test]
     fn topology_can_link_star() {
-        let t = TopologyConfig {
-            links: vec![
-                AdjacencyEntry {
-                    name: "platform".to_string(),
-                    peers: vec!["*".to_string()],
-                },
-                AdjacencyEntry {
-                    name: "*".to_string(),
-                    peers: vec!["platform".to_string()],
-                },
-            ],
-        };
+        let t = TopologyConfig::Links(vec![
+            AdjacencyEntry {
+                name: "platform".to_string(),
+                neighbors: vec!["*".to_string()],
+            },
+            AdjacencyEntry {
+                name: "*".to_string(),
+                neighbors: vec!["platform".to_string()],
+            },
+        ]);
         assert!(t.can_link("platform", "customer-a"));
         assert!(t.can_link("customer-a", "platform"));
         assert!(!t.can_link("customer-a", "customer-b"));
@@ -286,12 +396,10 @@ mod tests {
 
     #[test]
     fn topology_can_link_explicit_pair() {
-        let t = TopologyConfig {
-            links: vec![AdjacencyEntry {
-                name: "node-a".to_string(),
-                peers: vec!["node-b".to_string()],
-            }],
-        };
+        let t = TopologyConfig::Links(vec![AdjacencyEntry {
+            name: "node-a".to_string(),
+            neighbors: vec!["node-b".to_string()],
+        }]);
         // Bidirectional
         assert!(t.can_link("node-a", "node-b"));
         assert!(t.can_link("node-b", "node-a"));
@@ -304,8 +412,11 @@ mod tests {
     fn build_graph_full_mesh() {
         let t = TopologyConfig::default();
         let groups = vec!["a", "b", "c", "d"];
-        let graph = t.build_graph(&groups);
+        let segments = t.build_graph(&groups);
 
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].0, "default");
+        let graph = &segments[0].1;
         assert_eq!(graph.node_count(), 4);
         // Full mesh with 4 nodes = 6 edges
         assert_eq!(graph.edge_count(), 6);
@@ -313,15 +424,14 @@ mod tests {
 
     #[test]
     fn build_graph_star() {
-        let t = TopologyConfig {
-            links: vec![AdjacencyEntry {
-                name: "hub".to_string(),
-                peers: vec!["*".to_string()],
-            }],
-        };
+        let t = TopologyConfig::Links(vec![AdjacencyEntry {
+            name: "hub".to_string(),
+            neighbors: vec!["*".to_string()],
+        }]);
         let groups = vec!["hub", "a", "b", "c"];
-        let graph = t.build_graph(&groups);
+        let segments = t.build_graph(&groups);
 
+        let graph = &segments[0].1;
         assert_eq!(graph.node_count(), 4);
         // Star: hub connects to a, b, c = 3 edges
         assert_eq!(graph.edge_count(), 3);
@@ -329,25 +439,24 @@ mod tests {
 
     #[test]
     fn build_graph_chain() {
-        let t = TopologyConfig {
-            links: vec![
-                AdjacencyEntry {
-                    name: "a".to_string(),
-                    peers: vec!["b".to_string()],
-                },
-                AdjacencyEntry {
-                    name: "b".to_string(),
-                    peers: vec!["c".to_string()],
-                },
-                AdjacencyEntry {
-                    name: "c".to_string(),
-                    peers: vec!["d".to_string()],
-                },
-            ],
-        };
+        let t = TopologyConfig::Links(vec![
+            AdjacencyEntry {
+                name: "a".to_string(),
+                neighbors: vec!["b".to_string()],
+            },
+            AdjacencyEntry {
+                name: "b".to_string(),
+                neighbors: vec!["c".to_string()],
+            },
+            AdjacencyEntry {
+                name: "c".to_string(),
+                neighbors: vec!["d".to_string()],
+            },
+        ]);
         let groups = vec!["a", "b", "c", "d"];
-        let graph = t.build_graph(&groups);
+        let segments = t.build_graph(&groups);
 
+        let graph = &segments[0].1;
         assert_eq!(graph.node_count(), 4);
         // Chain: a-b, b-c, c-d = 3 edges
         assert_eq!(graph.edge_count(), 3);
@@ -355,15 +464,14 @@ mod tests {
 
     #[test]
     fn build_graph_no_self_links() {
-        let t = TopologyConfig {
-            links: vec![AdjacencyEntry {
-                name: "*".to_string(),
-                peers: vec!["*".to_string()],
-            }],
-        };
+        let t = TopologyConfig::Links(vec![AdjacencyEntry {
+            name: "*".to_string(),
+            neighbors: vec!["*".to_string()],
+        }]);
         let groups = vec!["a", "b"];
-        let graph = t.build_graph(&groups);
+        let segments = t.build_graph(&groups);
 
+        let graph = &segments[0].1;
         // 2 nodes, 1 edge (no self-links)
         assert_eq!(graph.node_count(), 2);
         assert_eq!(graph.edge_count(), 1);
@@ -372,35 +480,32 @@ mod tests {
     #[test]
     fn build_graph_no_duplicate_edges() {
         // Both entries create a↔b, but should only be 1 edge
-        let t = TopologyConfig {
-            links: vec![
-                AdjacencyEntry {
-                    name: "a".to_string(),
-                    peers: vec!["b".to_string()],
-                },
-                AdjacencyEntry {
-                    name: "b".to_string(),
-                    peers: vec!["a".to_string()],
-                },
-            ],
-        };
+        let t = TopologyConfig::Links(vec![
+            AdjacencyEntry {
+                name: "a".to_string(),
+                neighbors: vec!["b".to_string()],
+            },
+            AdjacencyEntry {
+                name: "b".to_string(),
+                neighbors: vec!["a".to_string()],
+            },
+        ]);
         let groups = vec!["a", "b"];
-        let graph = t.build_graph(&groups);
+        let segments = t.build_graph(&groups);
 
-        assert_eq!(graph.edge_count(), 1);
+        assert_eq!(segments[0].1.edge_count(), 1);
     }
 
     #[test]
     fn build_graph_unknown_group_ignored() {
-        let t = TopologyConfig {
-            links: vec![AdjacencyEntry {
-                name: "a".to_string(),
-                peers: vec!["unknown".to_string()],
-            }],
-        };
+        let t = TopologyConfig::Links(vec![AdjacencyEntry {
+            name: "a".to_string(),
+            neighbors: vec!["unknown".to_string()],
+        }]);
         let groups = vec!["a", "b"];
-        let graph = t.build_graph(&groups);
+        let segments = t.build_graph(&groups);
 
+        let graph = &segments[0].1;
         // "unknown" not in known_groups, so no edge created
         assert_eq!(graph.node_count(), 2);
         assert_eq!(graph.edge_count(), 0);

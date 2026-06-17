@@ -64,7 +64,12 @@ impl super::RouteService {
 
         if groups_changed {
             let group_vec: Vec<&str> = new_groups.into_iter().collect();
-            *current_graph = self.0.topology.build_graph(&group_vec);
+            let segment_graphs = self.0.topology.build_graph(&group_vec);
+            // TODO(segments): store all segment graphs for per-segment SPT.
+            // For now, use the first (and typically only) segment graph.
+            if let Some((_name, graph)) = segment_graphs.into_iter().next() {
+                *current_graph = graph;
+            }
         }
 
         groups_changed
@@ -637,18 +642,16 @@ mod tests {
         db.save_node(spoke_b).await.unwrap();
 
         // Star topology: platform links to all, spokes link only to platform.
-        let topology = TopologyConfig {
-            links: vec![
-                AdjacencyEntry {
-                    name: "platform".to_string(),
-                    peers: vec!["*".to_string()],
-                },
-                AdjacencyEntry {
-                    name: "*".to_string(),
-                    peers: vec!["platform".to_string()],
-                },
-            ],
-        };
+        let topology = TopologyConfig::Links(vec![
+            AdjacencyEntry {
+                name: "platform".to_string(),
+                neighbors: vec!["*".to_string()],
+            },
+            AdjacencyEntry {
+                name: "*".to_string(),
+                neighbors: vec!["platform".to_string()],
+            },
+        ]);
 
         let svc = make_route_service_with_topology(db.clone(), topology);
 
@@ -884,22 +887,20 @@ mod tests {
         db.save_node(node_c).await.unwrap();
 
         // Chain topology: a↔b, b↔c (no direct a↔c).
-        let topology = TopologyConfig {
-            links: vec![
-                AdjacencyEntry {
-                    name: "group-a".to_string(),
-                    peers: vec!["group-b".to_string()],
-                },
-                AdjacencyEntry {
-                    name: "group-b".to_string(),
-                    peers: vec!["group-a".to_string(), "group-c".to_string()],
-                },
-                AdjacencyEntry {
-                    name: "group-c".to_string(),
-                    peers: vec!["group-b".to_string()],
-                },
-            ],
-        };
+        let topology = TopologyConfig::Links(vec![
+            AdjacencyEntry {
+                name: "group-a".to_string(),
+                neighbors: vec!["group-b".to_string()],
+            },
+            AdjacencyEntry {
+                name: "group-b".to_string(),
+                neighbors: vec!["group-a".to_string(), "group-c".to_string()],
+            },
+            AdjacencyEntry {
+                name: "group-c".to_string(),
+                neighbors: vec!["group-b".to_string()],
+            },
+        ]);
         let svc = make_route_service_with_topology(db.clone(), topology);
         let all_nodes = db.list_nodes().await.unwrap();
         svc.rebuild_link_graph(&all_nodes).await;

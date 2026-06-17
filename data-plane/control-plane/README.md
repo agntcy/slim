@@ -64,7 +64,7 @@ chosen sibling node in the same group (see [Gateway Failover](#gateway-failover)
 
 The CP supports configurable topology that controls which groups are
 allowed to form inter-group links. The topology is expressed as an
-**adjacency list**: each entry declares a group name and the peers it
+**adjacency list**: each entry declares a group name and the neighbors it
 connects to. All links are **bidirectional** (if A lists B, then B↔A).
 
 The wildcard `"*"` matches all registered groups and is resolved dynamically
@@ -87,7 +87,7 @@ topology: {}
 topology:
   links:
     - name: cloud
-      peers: ["*"]
+      neighbors: ["*"]
 ```
 
 **Explicit pairs** (customer groups reach cloud but not each other):
@@ -96,7 +96,7 @@ topology:
 topology:
   links:
     - name: cloud
-      peers: [customer-a, customer-b]
+      neighbors: [customer-a, customer-b]
 ```
 
 **Chain** (linear: a↔b↔c↔d, multi-hop):
@@ -105,13 +105,13 @@ topology:
 topology:
   links:
     - name: group-a
-      peers: [group-b]
+      neighbors: [group-b]
     - name: group-b
-      peers: [group-a, group-c]
+      neighbors: [group-a, group-c]
     - name: group-c
-      peers: [group-b, group-d]
+      neighbors: [group-b, group-d]
     - name: group-d
-      peers: [group-c]
+      neighbors: [group-c]
 ```
 
 The topology is enforced during link creation.
@@ -609,7 +609,7 @@ database:
 topology:
   links:
     - name: cloud
-      peers: ["*"]  # star: cloud connects to all groups
+      neighbors: ["*"]  # star: cloud connects to all groups
     # Omit topology section or use `topology: {}` for full mesh.
 
 reconciler:

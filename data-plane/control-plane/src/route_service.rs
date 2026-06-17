@@ -202,17 +202,15 @@ pub(crate) mod test_utils {
     }
 
     pub(super) fn star_topology() -> TopologyConfig {
-        TopologyConfig {
-            links: vec![
-                AdjacencyEntry {
-                    name: "platform".to_string(),
-                    peers: vec!["*".to_string()],
-                },
-                AdjacencyEntry {
-                    name: "*".to_string(),
-                    peers: vec!["platform".to_string()],
-                },
-            ],
-        }
+        TopologyConfig::Links(vec![
+            AdjacencyEntry {
+                name: "platform".to_string(),
+                neighbors: vec!["*".to_string()],
+            },
+            AdjacencyEntry {
+                name: "*".to_string(),
+                neighbors: vec!["platform".to_string()],
+            },
+        ])
     }
 }

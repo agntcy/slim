@@ -21,4 +21,4 @@ database:
 topology:
   links:
     - name: deployment-a
-      peers: ["*"]
+      neighbors: ["*"]

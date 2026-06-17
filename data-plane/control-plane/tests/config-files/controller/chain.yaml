@@ -21,10 +21,10 @@ database:
 topology:
   links:
     - name: deployment-a
-      peers: [deployment-b]
+      neighbors: [deployment-b]
     - name: deployment-b
-      peers: [deployment-a, deployment-c]
+      neighbors: [deployment-a, deployment-c]
     - name: deployment-c
-      peers: [deployment-b, deployment-d]
+      neighbors: [deployment-b, deployment-d]
     - name: deployment-d
-      peers: [deployment-c]
+      neighbors: [deployment-c]
