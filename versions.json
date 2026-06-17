@@ -5,11 +5,16 @@
     "aliases": []
   },
   {
-    "version": "slim-auth-v0.10.0",
-    "title": "slim-auth-v0.10.0",
+    "version": "slim-config-v0.11.0",
+    "title": "slim-config-v0.11.0",
     "aliases": [
       "latest"
     ]
+  },
+  {
+    "version": "slim-auth-v0.10.0",
+    "title": "slim-auth-v0.10.0",
+    "aliases": []
   },
   {
     "version": "2.0.0-alpha.0",
