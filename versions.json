@@ -7,6 +7,11 @@
   {
     "version": "slim-signal-v0.1.10",
     "title": "slim-signal-v0.1.10",
+    "aliases": []
+  },
+  {
+    "version": "slim-service-v0.10.0",
+    "title": "slim-service-v0.10.0",
     "aliases": [
       "latest"
     ]
