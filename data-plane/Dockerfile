@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Build container
-FROM --platform=${BUILDPLATFORM} rust:1.90-slim-bookworm AS rust
+FROM --platform=${BUILDPLATFORM} rust:1.93-slim-bookworm AS rust
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
@@ -50,7 +50,10 @@ EOF
 COPY . /app
 WORKDIR /app/data-plane
 
-RUN <<EOF
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/app/data-plane/target,sharing=locked \
+    <<EOF
 case ${TARGETARCH} in
     "amd64")
         RUSTARCH=x86_64-unknown-linux-gnu
@@ -68,14 +71,15 @@ esac
 task -v data-plane:fetch TARGET=${RUSTARCH}
 
 # Build application
-task -v data-plane:build:strip TARGET=${RUSTARCH} PROFILE=release
-mv target/${RUSTARCH}/release/slim /slim
-mv target/${RUSTARCH}/release/slim.dbg /slim.dbg
+task -v data-plane:build:strip TARGET=${RUSTARCH} PROFILE=release ARGS="--locked --bin slim --bin slim-control-plane"
+cp target/${RUSTARCH}/release/slim /slim
+cp target/${RUSTARCH}/release/slim.dbg /slim.dbg
 
 # Strip and export control plane binary
 task -v data-plane:strip TARGET_BIN=target/${RUSTARCH}/release/slim-control-plane
-mv target/${RUSTARCH}/release/slim-control-plane /slim-control-plane
-mv target/${RUSTARCH}/release/slim-control-plane.dbg /slim-control-plane.dbg
+cp target/${RUSTARCH}/release/slim-control-plane /slim-control-plane
+cp target/${RUSTARCH}/release/slim-control-plane.dbg /slim-control-plane.dbg
+
 EOF
 
 # Grab libgcc from the CC image
