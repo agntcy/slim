@@ -1962,7 +1962,7 @@ impl DataPlaneService for MessageProcessor {
         let local_addr = request.local_addr();
 
         let stream = request.into_inner();
-        let (tx, rx) = mpsc::channel(1024);
+        let (tx, rx) = mpsc::channel(128);
 
         let connection = Connection::new(ConnType::Remote, Channel::Server(tx))
             .with_remote_addr(remote_addr)
