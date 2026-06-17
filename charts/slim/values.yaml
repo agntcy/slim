@@ -9,22 +9,14 @@ slim:
 
   # This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
   image:
-    repository: ghcr.io/agntcy/slim
+    repository: localhost:5001/slim
     # This sets the pull policy for images.
     pullPolicy: IfNotPresent
     # Overrides the image tag whose default is the chart appVersion.
-    tag: ""
+    tag: "test8"
 
   # This is for overriding the default config below
   overrideConfig:
-
-  # Peer configuration for multi-replica deployments.
-  # Automatically enabled when replicaCount > 1.
-  peers:
-    # Shared group identity for mutual peer authentication.
-    deploymentName: "slim-peers"
-    # Topology for peer connections: "full_mesh" or "hub_and_spoke"
-    topology: "full_mesh"
 
   config:
     tracing:
@@ -48,9 +40,16 @@ slim:
         # SLIM nodes in the same group are connected directly, via local_endpoint.
         # SLIM nodes in different groups are connected via external_endpoint. See 'metadata' below.
         # group_name: "cluster-a"
+        peers:
+          deployment_name: "slim-peers"
+          topology: full_mesh
+          discovery:
+            type: kubernetes
+            namespace: '{{ .Release.Namespace }}'
+            label_selector: 'app.kubernetes.io/name={{ include "slim.name" . }},app.kubernetes.io/instance={{ .Release.Name }}'
         dataplane:
           servers:
-            - endpoint: "0.0.0.0:{{ (index .Values.slim.service.data 0).port }}"
+            - endpoint: '0.0.0.0:{{ (index .Values.slim.service.data 0).port }}'
               tls:
                 insecure: true
                 # Uncomment below to connect to control plane with MTLS by Spire
@@ -63,14 +62,14 @@ slim:
               #   # can use to connect to this node.
               #   local_endpoint: ${env:MY_POD_IP}
               #   # external_endpoint is required to be set when SLIM nodes are behind a NAT or Load Balancer
-              #   external_endpoint: "slim.example.com:{{ (index .Values.slim.service.data 0).port }}"
+              #   external_endpoint: 'slim.example.com:{{ (index .Values.slim.service.data 0).port }}'
               #   # trust_domain is used to properly setup spire mtls. By default is the same as the group_name (cluster name),
               #   # but can be overridden in case of trust domain names different then group name (cluster name).
               #   trust_domain: "cluster-a"
           clients: []
         controller:
           servers:
-            - endpoint: "0.0.0.0:{{ (index .Values.slim.service.control 0).port }}"
+            - endpoint: '0.0.0.0:{{ (index .Values.slim.service.control 0).port }}'
               tls:
                 insecure: true
           # Uncomment below to connect to control plane with MTLS by Spire

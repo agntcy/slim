@@ -3,7 +3,6 @@ Copyright AGNTCY Contributors (https://github.com/agntcy)
 SPDX-License-Identifier: Apache-2.0
 */}}
 
-{{- if gt (int .Values.slim.replicaCount) 1 }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -29,4 +28,3 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "slim.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
-{{- end }}
