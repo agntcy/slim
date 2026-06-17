@@ -1,9 +1,14 @@
 [
   {
-    "version": "2.0.0-alpha.0",
-    "title": "2.0.0-alpha.0",
+    "version": "slim-version-v2.0.0-alpha.1",
+    "title": "slim-version-v2.0.0-alpha.1",
     "aliases": [
       "latest"
     ]
+  },
+  {
+    "version": "2.0.0-alpha.0",
+    "title": "2.0.0-alpha.0",
+    "aliases": []
   }
 ]
