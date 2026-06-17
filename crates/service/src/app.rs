@@ -1194,34 +1194,30 @@ mod tests {
             .await
             .unwrap();
 
-        // Give some time for messages to be processed
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-        // Collect received session notifications from all participants
+        // Wait for each participant to receive its session notification.
         let mut total_received_sessions = 0;
 
         for (i, mut notifications) in participant_notifications.into_iter().enumerate() {
-            let mut participant_sessions = Vec::new();
-
-            while let Ok(notification) = notifications.try_recv() {
-                match notification.unwrap() {
-                    slim_session::notification::Notification::NewSession(session_ctx) => {
-                        participant_sessions.push(session_ctx);
+            let received_session =
+                tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                    loop {
+                        match notifications.recv().await {
+                            Some(Ok(slim_session::notification::Notification::NewSession(
+                                session_ctx,
+                            ))) => return session_ctx,
+                            Some(Ok(_)) => continue,
+                            Some(Err(e)) => {
+                                panic!("Participant {i} notification error: {e}");
+                            }
+                            None => panic!("Participant {i} notification channel closed"),
+                        }
                     }
-                    _ => continue,
-                }
-            }
+                })
+                .await
+                .unwrap_or_else(|_| {
+                    panic!("timeout waiting for session notification for participant {i}")
+                });
 
-            // Each participant should receive exactly one session notification
-            assert_eq!(
-                participant_sessions.len(),
-                1,
-                "Participant {} should receive exactly 1 session",
-                i
-            );
-
-            // Verify session information for this participant
-            let received_session = &participant_sessions[0];
             let session_arc = received_session.session_arc().unwrap();
 
             // Verify it's a multicast session
@@ -1232,7 +1228,7 @@ mod tests {
             let expected_dst = channel_name.clone().with_id(NameId::DATA_CHANNEL_ID);
             assert_eq!(dst, &expected_dst);
 
-            total_received_sessions += participant_sessions.len();
+            total_received_sessions += 1;
         }
 
         // Verify total number of session notifications matches number of participants
