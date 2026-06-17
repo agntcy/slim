@@ -64,7 +64,7 @@ pub struct StaticPeerEntry {
 ///   discovery:
 ///     type: kubernetes
 ///     namespace: "default"
-///     label_selector: "app=slim"
+///     service_name: "my-service"
 ///     port: 8080
 /// ```
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -115,7 +115,7 @@ pub enum PeerDiscoveryConfig {
         peers: Vec<StaticPeerEntry>,
     },
 
-    /// Kubernetes-based peer discovery (watches pods by label selector).
+    /// Kubernetes-based peer discovery (watches EndpointSlices for a Service).
     ///
     /// **Note:** Only the `FullMesh` topology is supported with Kubernetes discovery.
     /// `HubAndSpoke` requires all peers to be known upfront and is only supported
@@ -124,8 +124,8 @@ pub enum PeerDiscoveryConfig {
     Kubernetes {
         /// Kubernetes namespace to watch.
         namespace: String,
-        /// Label selector to filter peer pods (e.g., "app=slim").
-        label_selector: String,
+        /// Kubernetes Service name whose EndpointSlices to watch.
+        service_name: String,
         /// Port number on which peer pods listen for dataplane connections.
         port: u16,
     },
@@ -204,7 +204,7 @@ mod tests {
             discovery:
               type: kubernetes
               namespace: "default"
-              label_selector: "app=slim"
+              service_name: "slim-svc"
               port: 8080
         "#;
 
@@ -214,11 +214,11 @@ mod tests {
         match &config.discovery {
             PeerDiscoveryConfig::Kubernetes {
                 namespace,
-                label_selector,
+                service_name,
                 port,
             } => {
                 assert_eq!(namespace, "default");
-                assert_eq!(label_selector, "app=slim");
+                assert_eq!(service_name, "slim-svc");
                 assert_eq!(*port, 8080);
             }
             _ => panic!("expected kubernetes config"),
@@ -328,7 +328,7 @@ mod tests {
             topology: PeerTopology::FullMesh,
             discovery: PeerDiscoveryConfig::Kubernetes {
                 namespace: "default".to_string(),
-                label_selector: "app=slim".to_string(),
+                service_name: "slim-svc".to_string(),
                 port: 46357,
             },
         };
@@ -342,7 +342,7 @@ mod tests {
             topology: PeerTopology::HubAndSpoke,
             discovery: PeerDiscoveryConfig::Kubernetes {
                 namespace: "default".to_string(),
-                label_selector: "app=slim".to_string(),
+                service_name: "slim-svc".to_string(),
                 port: 46357,
             },
         };

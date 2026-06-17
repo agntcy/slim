@@ -3,19 +3,31 @@ Copyright AGNTCY Contributors (https://github.com/agntcy)
 SPDX-License-Identifier: Apache-2.0
 */}}
 
+{{- $isDaemonSet := eq .Values.slim.deploymentMode "DaemonSet" }}
+
 apiVersion: apps/v1
-kind: Deployment
+kind: {{ .Values.slim.deploymentMode | default "Deployment" }}
 metadata:
   name: {{ include "slim.fullname" . }}
   labels:
     {{- include "slim.labels" . | nindent 4 }}
 spec:
+  {{- if not $isDaemonSet }}
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.slim.replicaCount }}
+  {{- end }}
   {{- end }}
   selector:
     matchLabels:
       {{- include "slim.selectorLabels" . | nindent 6 }}
+  {{- if $isDaemonSet }}
+  updateStrategy:
+    type: {{ .Values.slim.updateStrategy.type | default "RollingUpdate" }}
+    {{- if eq (.Values.slim.updateStrategy.type | default "RollingUpdate") "RollingUpdate" }}
+    rollingUpdate:
+      maxUnavailable: {{ .Values.slim.updateStrategy.rollingUpdate.maxUnavailable | default 1 }}
+    {{- end }}
+  {{- else }}
   strategy:
     type: {{ .Values.slim.updateStrategy.type | default "RollingUpdate" }}
     {{- if eq (.Values.slim.updateStrategy.type | default "RollingUpdate") "RollingUpdate" }}
@@ -23,6 +35,7 @@ spec:
       maxUnavailable: {{ .Values.slim.updateStrategy.rollingUpdate.maxUnavailable | default 1 }}
       maxSurge: {{ .Values.slim.updateStrategy.rollingUpdate.maxSurge | default 1 }}
     {{- end }}
+  {{- end }}
   template:
     metadata:
       annotations:
@@ -55,14 +68,10 @@ spec:
             - "--config"
             - "/config.yaml"
           env:
-            - name: SLIM_SVC_ID
+            - name: SLIM_NODE_ID
               valueFrom:
                 fieldRef:
-                  {{- if .Values.slim.onePerNode }}
-                  fieldPath: spec.nodeName
-                  {{- else }}
                   fieldPath: metadata.name
-                  {{- end }}
             - name: MY_POD_IP
               valueFrom:
                 fieldRef:
@@ -75,7 +84,7 @@ spec:
             - name: {{ $data.name | default (printf "data-plane-%d" $i) }}
               containerPort: {{ $data.port }}
               protocol: TCP
-              {{- if $.Values.slim.onePerNode }}
+              {{- if $isDaemonSet }}
               hostPort: {{ $data.port }}
               {{- end }}
             {{- end }}
@@ -83,7 +92,7 @@ spec:
             - name: controller-{{ $i }}
               containerPort: {{ $ctrl.port }}
               protocol: TCP
-              {{- if $.Values.slim.onePerNode }}
+              {{- if $isDaemonSet }}
               hostPort: {{ $ctrl.port }}
               {{- end }}
             {{- end }}
@@ -123,25 +132,14 @@ spec:
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if or .Values.slim.onePerNode .Values.affinity }}
+      {{- with .Values.affinity }}
       affinity:
-        {{- if .Values.slim.onePerNode }}
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  {{- include "slim.selectorLabels" . | nindent 18 }}
-              topologyKey: kubernetes.io/hostname
-        {{- end }}
-        {{- with .Values.affinity }}
         {{- toYaml . | nindent 8 }}
-        {{- end }}
       {{- end }}
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.slim.onePerNode }}
-      hostNetwork: {{ .Values.slim.hostNetwork | default false }}
+      {{- if $isDaemonSet }}
       dnsPolicy: {{ .Values.slim.dnsPolicy | default "ClusterFirst" }}
       {{- end }}

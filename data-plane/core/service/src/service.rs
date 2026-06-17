@@ -403,18 +403,18 @@ impl Service {
             #[cfg(feature = "kubernetes")]
             PeerDiscoveryConfig::Kubernetes {
                 namespace,
-                label_selector,
+                service_name,
                 port,
             } => {
                 info!(
                     %namespace,
-                    %label_selector,
+                    %service_name,
                     %port,
-                    "starting peer sync (kubernetes discovery)"
+                    "starting peer sync (kubernetes EndpointSlice discovery)"
                 );
                 let discovery = KubernetesPeerDiscovery::new(
                     namespace.clone(),
-                    label_selector.clone(),
+                    service_name.clone(),
                     *port,
                     self_id,
                 );
@@ -1257,7 +1257,7 @@ mod tests {
             topology: PeerTopology::HubAndSpoke,
             discovery: PeerDiscoveryConfig::Kubernetes {
                 namespace: "default".to_string(),
-                label_selector: "app=slim".to_string(),
+                service_name: "slim-svc".to_string(),
                 port: 46357,
             },
         };

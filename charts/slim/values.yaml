@@ -2,18 +2,21 @@
 # SPDX-License-Identifier: Apache-2.0
 
 slim:
-  # Deploy one instance per node (uses pod anti-affinity + hostPort)
-  onePerNode: false
+  # Workload kind: "Deployment" (default) or "DaemonSet"
+  # DaemonSet runs one instance per node (hostPort enabled automatically).
+  # Deployment supports replicaCount and HPA.
+  deploymentMode: "DaemonSet"
+
   # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
-  replicaCount: 1
+  replicaCount: 15
 
   # This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
   image:
-    repository: localhost:5001/slim
+    repository: ghcr.io/agntcy/slim
     # This sets the pull policy for images.
     pullPolicy: IfNotPresent
     # Overrides the image tag whose default is the chart appVersion.
-    tag: "test8"
+    tag: ""
 
   # This is for overriding the default config below
   overrideConfig:
@@ -33,7 +36,7 @@ slim:
       slim/0:
         # Required when running multiple replicas connected to the same Controller.
         # Should be unique for each SLIM instance.
-        node_id: ${env:SLIM_SVC_ID}
+        node_id: ${env:SLIM_NODE_ID}
         # Required in case of multi-cluster setup or when SLIM nodes are behind a NAT or Load Balancer.
         # Used by the Controller to identify which group a SLIM node belongs to.
         # Controller sets up connections between nodes using group names.
@@ -46,7 +49,7 @@ slim:
           discovery:
             type: kubernetes
             namespace: '{{ .Release.Namespace }}'
-            label_selector: 'app.kubernetes.io/name={{ include "slim.name" . }},app.kubernetes.io/instance={{ .Release.Name }}'
+            service_name: '{{ include "slim.fullname" . }}'
         dataplane:
           servers:
             - endpoint: '0.0.0.0:{{ (index .Values.slim.service.data 0).port }}'
@@ -80,9 +83,8 @@ slim:
           #       key_file: "/svids/tls.key"
           #       ca_file: "/svids/svid_bundle.pem"
 
-  # onePerNode-specific settings (used when onePerNode: true)
-  hostNetwork: false
-  dnsPolicy: "ClusterFirst"  # or "ClusterFirstWithHostNet" if hostNetwork: true
+  # dnsPolicy setting (used when deploymentMode is "DaemonSet")
+  dnsPolicy: "ClusterFirst"
 
   # Update strategy configuration
   updateStrategy:
@@ -95,7 +97,6 @@ slim:
   service:
     # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
     type: ClusterIP
-    headless: false
     # List of dataplane server ports to expose. One entry per dataplane server.
     # Each entry may include an optional 'name' field (max 15 chars, lowercase alphanumeric and dashes).
     # If omitted, the port is named data-plane-{index}.

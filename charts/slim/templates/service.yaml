@@ -11,9 +11,6 @@ metadata:
     {{- include "slim.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.slim.service.type }}
-  {{- if eq .Values.slim.service.headless true }}
-  clusterIP: None
-  {{- end }}
   ports:
     {{- range $i, $data := .Values.slim.service.data }}
     - port: {{ $data.port }}
@@ -29,7 +26,7 @@ spec:
     {{- end }}
   selector:
     {{- include "slim.selectorLabels" . | nindent 4 }}
-{{- if .Values.slim.onePerNode }}
+{{- if eq .Values.slim.deploymentMode "DaemonSet" }}
 ---
 apiVersion: v1
 kind: Service
