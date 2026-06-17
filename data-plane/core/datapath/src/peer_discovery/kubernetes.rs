@@ -69,11 +69,27 @@ impl KubernetesPeerDiscovery {
     ///
     /// Returns a map of pod_name → PeerInfo for all ready endpoints
     /// that have a pod targetRef and at least one address.
+    /// The port is resolved from the slice's ports list, matching the configured port.
     fn peers_from_slice(
         slice: &EndpointSlice,
         port: u16,
         self_node_id: &str,
     ) -> HashMap<String, PeerInfo> {
+        // Verify the slice exposes our configured port.
+        let slice_port = slice
+            .ports
+            .as_ref()
+            .and_then(|ports| ports.iter().find(|p| p.port == Some(port as i32)));
+        if slice_port.is_none() {
+            let slice_name = slice.metadata.name.as_deref().unwrap_or("<unknown>");
+            tracing::warn!(
+                slice = slice_name,
+                expected_port = port,
+                "EndpointSlice does not expose the configured port, skipping"
+            );
+            return HashMap::new();
+        }
+
         let mut peers = HashMap::new();
 
         for ep in &slice.endpoints {
@@ -97,7 +113,6 @@ impl KubernetesPeerDiscovery {
                 continue;
             }
 
-            // Use the first address.
             let addr = match ep.addresses.first() {
                 Some(a) => a.as_str(),
                 None => continue,
@@ -330,7 +345,7 @@ impl PeerDiscovery for KubernetesPeerDiscovery {
 mod tests {
     use super::*;
     use k8s_openapi::api::core::v1::ObjectReference;
-    use k8s_openapi::api::discovery::v1::{Endpoint, EndpointConditions};
+    use k8s_openapi::api::discovery::v1::{Endpoint, EndpointConditions, EndpointPort};
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 
     /// Helper: build an Endpoint with target pod ref, address, and readiness.
@@ -351,8 +366,13 @@ mod tests {
         }
     }
 
-    /// Helper: build an EndpointSlice with the given name and endpoints.
+    /// Helper: build an EndpointSlice with the given name, endpoints, and port.
     fn make_slice(name: &str, endpoints: Vec<Endpoint>) -> EndpointSlice {
+        make_slice_with_port(name, endpoints, 46357)
+    }
+
+    /// Helper: build an EndpointSlice with a specific port.
+    fn make_slice_with_port(name: &str, endpoints: Vec<Endpoint>, port: i32) -> EndpointSlice {
         EndpointSlice {
             metadata: ObjectMeta {
                 name: Some(name.to_string()),
@@ -360,7 +380,11 @@ mod tests {
             },
             address_type: "IPv4".to_string(),
             endpoints,
-            ports: None,
+            ports: Some(vec![EndpointPort {
+                port: Some(port),
+                protocol: Some("TCP".to_string()),
+                ..Default::default()
+            }]),
         }
     }
 
@@ -442,6 +466,21 @@ mod tests {
         let slice = make_slice("svc-abc", vec![ep]);
         let peers = KubernetesPeerDiscovery::peers_from_slice(&slice, 46357, "self-pod");
         assert_eq!(peers.len(), 1);
+    }
+
+    #[test]
+    fn test_peers_from_slice_skips_if_port_not_in_slice() {
+        let slice = make_slice_with_port(
+            "svc-abc",
+            vec![make_endpoint("peer-a", "10.0.0.1", true)],
+            9090, // slice has port 9090
+        );
+        // Requesting port 46357 which doesn't exist in this slice
+        let peers = KubernetesPeerDiscovery::peers_from_slice(&slice, 46357, "self-pod");
+        assert!(
+            peers.is_empty(),
+            "should skip slice that doesn't expose the configured port"
+        );
     }
 
     // ── constructor ─────────────────────────────────────────────────────
