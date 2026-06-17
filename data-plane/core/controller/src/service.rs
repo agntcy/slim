@@ -620,7 +620,11 @@ impl ControllerService {
             .message_processor
             .connection_table()
             .for_each(|_id, conn| {
+                // Only manage Remote connections (CP-managed inter-group links).
+                // Peer connections are managed by the peer sync system and must not
+                // be deleted by the reconciler.
                 if conn.is_outgoing()
+                    && conn.connection_type() == slim_datapath::tables::ConnType::Remote
                     && let Some(lid) = conn.link_id()
                     && !lid.is_empty()
                 {

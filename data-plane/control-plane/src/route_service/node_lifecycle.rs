@@ -539,6 +539,18 @@ impl super::RouteService {
                     );
                     continue;
                 }
+                // Also delete any routes referencing this link — they'll be
+                // re-expanded once the new link is claimed.
+                if let Ok(stale_routes) = self.0.db.get_routes_by_link_id(&link.link_id).await {
+                    for route in &stale_routes {
+                        if let Err(e) = self.0.db.delete_route(&route.id).await {
+                            tracing::warn!(
+                                "reassign_gateway_links: failed to delete stale route {}: {e}",
+                                route.id
+                            );
+                        }
+                    }
+                }
                 tracing::info!(
                     "reassign_gateway_links: deleted incoming link {} (source {}), will be recreated targeting {new_gateway}",
                     link.link_id,

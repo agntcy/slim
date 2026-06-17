@@ -376,6 +376,7 @@ dependencies = [
  "agntcy-slim-service",
  "agntcy-slim-session",
  "agntcy-slim-tracing",
+ "anyhow",
  "aws-lc-rs",
  "base64 0.22.1",
  "bollard",
