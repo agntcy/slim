@@ -2,6 +2,11 @@
   {
     "version": "slim-version-v2.0.0-alpha.1",
     "title": "slim-version-v2.0.0-alpha.1",
+    "aliases": []
+  },
+  {
+    "version": "slim-auth-v0.10.0",
+    "title": "slim-auth-v0.10.0",
     "aliases": [
       "latest"
     ]
