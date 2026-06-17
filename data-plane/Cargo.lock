@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agntcy-slim"
-version = "2.0.0-alpha.0"
+version = "2.0.0-alpha.1"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-service",
@@ -416,11 +416,11 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-version"
-version = "2.0.0-alpha.0"
+version = "2.0.0-alpha.1"
 
 [[package]]
 name = "agntcy-slimctl"
-version = "2.0.0-alpha.0"
+version = "2.0.0-alpha.1"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
