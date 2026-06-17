@@ -1,0 +1,454 @@
+/* Copyright AGNTCY Contributors (https://github.com/agntcy) */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: rgb(243, 246, 253);
+  --md-primary-bg-color: rgb(2, 81, 175);
+  --md-primary-fg-color--dark: rgb(243, 246, 253);
+
+  --md-accent-fg-color: rgb(2, 81, 175);
+
+  --md-default-fg-color: rgb(28, 30, 33);
+  --md-default-fg-color--light: rgb(28, 30, 33);
+  --md-default-fg-color--lighter: #00000052;
+  --md-default-fg-color--lightest: #00000012;
+
+  --md-default-bg-color: rgb(239, 243, 252);
+  --md-default-bg-color--light: #e8eefb;
+  --md-default-bg-color--lighter: #eff3fc;
+  --md-default-bg-color--lightest: #f5f8fd;
+
+  --md-footer-fg-color: rgb(2, 81, 175);
+  --md-footer-fg-color--light: rgb(28, 30, 33);
+  --md-footer-fg-color--lighter: rgb(28, 30, 33);
+  --md-footer-bg-color: rgb(232, 238, 251);
+  --md-footer-bg-color--dark: #00000052;
+  --md-typeset-a-color: rgb(2, 81, 175);
+
+  --md-typeset-table-color--light: #e8eefb;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: rgb(3, 20, 43);
+  --md-primary-bg-color: rgb(251, 175, 70);
+
+  --md-accent-fg-color: rgb(251, 175, 70);
+
+  --md-default-fg-color: rgb(227, 227, 227);
+  --md-default-fg-color--light: rgb(227, 227, 227);
+  --md-default-fg-color--lighter: rgb(237, 237, 237);
+  --md-default-fg-color--lightest: rgb(3, 20, 43);
+
+  --md-default-bg-color: rgb(3, 20, 43);
+  --md-code-bg-color: rgb(0, 42, 77);
+  --md-typeset-color: rgb(227, 227, 227);
+
+  --md-footer-fg-color: rgb(251, 175, 70);
+  --md-footer-fg-color--light: rgb(227, 227, 227);
+  --md-footer-fg-color--lighter: rgb(227, 227, 227);
+  --md-footer-bg-color: rgb(3, 20, 43);
+  --md-footer-bg-color--dark: #00000052;
+  --md-typeset-a-color: rgb(2, 81, 175);
+
+  --md-typeset-a-color: rgb(251, 175, 70) !important;
+  --md-typeset-a-color--hover: rgb(251, 175, 70) !important;
+
+  --md-footer-meta-bg-color: rgb(232, 238, 251);
+
+  --md-typeset-table-color--light: rgb(0, 42, 77);
+
+  --md-code-fg-color: rgb(248, 248, 242);
+}
+
+[data-md-color-primary=black] .md-header {
+  background-color: var(--md-primary-fg-color) !important;
+}
+
+/* Announcement banner */
+.md-banner__inner {
+  text-align: center;
+  padding-inline: 2.5rem;
+}
+
+[data-md-color-scheme="default"] .md-banner {
+  background-color: rgb(2, 81, 175);
+  color: rgb(243, 246, 253);
+}
+
+[data-md-color-scheme="default"] .md-banner a {
+  color: rgb(243, 246, 253);
+  text-decoration: underline;
+  font-weight: 600;
+}
+
+[data-md-color-scheme="default"] .md-banner__button {
+  color: rgb(243, 246, 253);
+}
+
+[data-md-color-scheme="slate"] .md-banner {
+  background-color: rgb(251, 175, 70);
+  color: rgb(3, 20, 43);
+}
+
+[data-md-color-scheme="slate"] .md-banner a {
+  color: rgb(3, 20, 43);
+  text-decoration: underline;
+  font-weight: 600;
+}
+
+[data-md-color-scheme="slate"] .md-banner__button {
+  color: rgb(3, 20, 43);
+}
+
+/* Tab bar: match header (Material defaults tabs to --md-primary-fg-color--dark) */
+.md-tabs {
+  background-color: var(--md-primary-fg-color);
+  color: var(--md-primary-bg-color);
+}
+
+[data-md-color-primary=black] .md-tabs {
+  background-color: var(--md-primary-fg-color) !important;
+}
+
+.md-tabs__link {
+  color: var(--md-primary-bg-color);
+  opacity: 0.7;
+}
+
+.md-tabs__link--active,
+.md-tabs__link:hover {
+  color: var(--md-primary-bg-color);
+  opacity: 1;
+}
+
+.md-tabs__item--active .md-tabs__link {
+  border-bottom-color: var(--md-primary-bg-color);
+}
+
+[data-md-color-scheme="default"] .md-search__form {
+  background-color: rgb(236, 237, 240);
+  color: var(--md-primary-bg-color);
+}
+
+[data-md-color-scheme="default"] .md-search__form:hover {
+  background-color: rgb(236, 237, 240);
+}
+
+[data-md-color-scheme="slate"] .md-search__form {
+  background-color: rgb(0, 42, 77);
+  color: var(--md-primary-bg-color) !important;
+}
+
+[data-md-color-scheme="slate"] .md-search__form:hover {
+  background-color: rgb(0, 42, 77);
+}
+
+[data-md-color-scheme="default"] .md-search__input::placeholder {
+  color: #9ea2a8;
+}
+
+[data-md-color-scheme="slate"] .md-search__input::placeholder {
+  color: #59616b;
+}
+
+.md-footer {
+  box-shadow: 0 0 .2rem #0000001a, 0 .2rem .4rem #0003;
+  background-color: var(--md-footer-bg-color);
+  color: var(--md-default-fg-color);
+}
+
+.md-footer-meta {
+  background-color: var(--md-footer-bg-color);
+}
+
+.md-footer__link {
+  color: var(--md-default-fg-color);
+}
+
+.md-footer__link:hover {
+  color: var(--md-typeset-a-color);
+}
+
+html [data-md-color-primary=black] .md-nav--primary .md-nav__title[for=__drawer],
+html [data-md-color-primary=black] .md-nav--primary .md-nav__source {
+  background-color: var(--md-default-bg-color);
+}
+
+[data-md-color-scheme="default"] .logo-dark {
+  display: none !important;
+}
+
+[data-md-color-scheme="slate"] .logo-light {
+  display: none !important;
+}
+
+/* Header: show site name beside the AGNTCY logo */
+.md-header__button.md-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: auto;
+  max-width: none;
+  padding: 0 0.6rem 0 0.2rem;
+}
+
+.md-header__button.md-logo .md-logo__brand-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--md-primary-bg-color);
+  white-space: nowrap;
+}
+
+/* Drawer logo: image only (site name follows in nav title) */
+.md-nav__button.md-logo .md-logo__brand-name {
+  display: none;
+}
+
+.md-sidebar--primary .md-nav__link--active {
+  font-weight: bold;
+  border: 0px solid transparent;
+  border-radius: 0.25rem;
+}
+
+.md-sidebar--primary .md-nav__link {
+  padding-left: 10px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+[data-md-color-scheme="default"] .md-sidebar--primary .md-nav__link--active {
+  background-color: rgb(220, 226, 238);
+}
+
+[data-md-color-scheme="slate"] .md-sidebar--primary .md-nav__link--active {
+  background-color: rgb(12, 31, 54);
+}
+
+.md-nav__title {
+  font-size: 0 !important;
+}
+
+.md-nav__title img {
+  font-size: initial !important;
+}
+
+/* Hide the duplicate site name in the header; do NOT hide the whole first
+   .md-header__topic — Material appends the mike version selector there. */
+.md-header__ellipsis > .md-header__topic:first-child > .md-ellipsis {
+  display: none !important;
+}
+
+[data-md-color-scheme="default"] code {
+  background-color: rgb(246, 248, 250) !important;
+}
+
+/* mkdocs-macros: {{ var_tag('NAME') }} */
+.doc-var-tag {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 0.15em;
+  vertical-align: baseline;
+  border-radius: 0.25rem;
+  padding: 0.05em 0.35em;
+  font-size: 0.92em;
+  line-height: 1.35;
+  border: 1px solid var(--md-default-fg-color--lighter);
+  background-color: var(--md-default-bg-color--lightest);
+}
+
+.doc-var-tag code {
+  background-color: transparent !important;
+  padding: 0 !important;
+  font-size: inherit !important;
+}
+
+[data-md-color-scheme="slate"] .doc-var-tag {
+  border-color: var(--md-default-fg-color--lightest);
+  background-color: var(--md-code-bg-color);
+}
+
+/* External hub: same palette as logo / header accents (see :root in this file) */
+.md-nav__agntcy-docs {
+  margin: 0.75rem 0.5rem 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+}
+
+.md-nav__agntcy-docs-link {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+  transition: background-color 0.15s, color 0.15s, filter 0.15s;
+}
+
+[data-md-color-scheme="default"] .md-nav__agntcy-docs-link {
+  background-color: rgb(2, 81, 175);
+  color: rgb(243, 246, 253);
+  box-shadow: 0 1px 2px rgba(2, 81, 175, 0.25);
+}
+
+[data-md-color-scheme="default"] .md-nav__agntcy-docs-link:hover {
+  background-color: rgb(1, 65, 145);
+  color: rgb(255, 255, 255);
+  filter: brightness(1.05);
+}
+
+[data-md-color-scheme="slate"] .md-nav__agntcy-docs-link {
+  background-color: rgb(251, 175, 70);
+  color: rgb(3, 20, 43);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+[data-md-color-scheme="slate"] .md-nav__agntcy-docs-link:hover {
+  background-color: rgb(255, 195, 110);
+  color: rgb(3, 20, 43);
+  filter: brightness(1.05);
+}
+
+/* Landing and community pages (A2A-style layout) */
+
+.md-grid {
+  max-width: 80%;
+}
+
+.landing-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 1.5em;
+}
+
+.centered-logo-text-group {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5em;
+  vertical-align: middle;
+}
+
+.centered-logo-text-group h1 {
+  margin: 0;
+  text-align: center;
+}
+
+.lf-partner-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0;
+}
+
+.lf-partner-badge__text {
+  font-size: 0.85rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--md-default-fg-color--light);
+  text-transform: lowercase;
+  white-space: nowrap;
+}
+
+.lf-partner-badge a {
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
+}
+
+.md-typeset .lf-partner-badge img {
+  display: block;
+  height: 0.7rem;
+  width: auto;
+  max-width: none;
+}
+
+h1#agent-directory-service {
+  display: none;
+}
+
+.md-typeset .grid.cards > ul > li {
+  border-color: var(--md-default-fg-color--lightest);
+}
+
+[data-md-color-scheme="default"] .md-typeset .grid.cards > ul > li {
+  background-color: var(--md-default-bg-color--lightest);
+}
+
+[data-md-color-scheme="default"] .md-typeset .grid.cards > ul > li:hover {
+  border-color: rgb(2, 81, 175);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .grid.cards > ul > li {
+  background-color: rgb(0, 42, 77);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .grid.cards > ul > li:hover {
+  border-color: rgb(251, 175, 70);
+}
+
+.md-typeset .grid.cards > ul > li > hr {
+  border-color: var(--md-default-fg-color--lightest);
+}
+
+/* Featured card: Federation Testbed call-to-action */
+.md-typeset .grid.cards > ul > li.card-featured {
+  border-width: 2px;
+}
+
+[data-md-color-scheme="default"] .md-typeset .grid.cards > ul > li.card-featured {
+  border-color: rgb(2, 81, 175);
+  background-color: rgb(232, 238, 251);
+  box-shadow: 0 2px 12px rgb(2, 81, 175, 0.12);
+}
+
+[data-md-color-scheme="default"] .md-typeset .grid.cards > ul > li.card-featured:hover {
+  box-shadow: 0 4px 20px rgb(2, 81, 175, 0.2);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .grid.cards > ul > li.card-featured {
+  border-color: rgb(251, 175, 70);
+  background-color: rgb(0, 52, 92);
+  box-shadow: 0 0 0 1px rgb(251, 175, 70, 0.3);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .grid.cards > ul > li.card-featured:hover {
+  box-shadow: 0 0 24px rgb(251, 175, 70, 0.18);
+}
+
+@media screen and (min-width: 30em) {
+  .md-typeset .grid.cards > ul > li.card-featured {
+    grid-column: span 2;
+  }
+}
+
+/* Single-link cards: stretch the lone anchor across the full card */
+.md-typeset .grid.cards > ul > li.card-single-link {
+  position: relative;
+  cursor: pointer;
+}
+
+.md-typeset .grid.cards > ul > li.card-single-link > a[href]::after,
+.md-typeset .grid.cards > ul > li.card-single-link a[href]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.md-typeset .grid.cards > ul > li.card-single-link a[href] {
+  position: static;
+}
+
+.md-version,
+.md-content--community .md-sidebar--secondary,
+.md-content--home .md-sidebar--secondary {
+  display: none;
+}
