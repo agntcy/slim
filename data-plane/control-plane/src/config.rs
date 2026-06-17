@@ -341,6 +341,106 @@ impl TopologyConfig {
     }
 }
 
+impl SegmentConfig {
+    /// Returns true if this segment uses `$group` in its name or links.
+    pub fn has_group_template(&self) -> bool {
+        if self.name.contains("$group") {
+            return true;
+        }
+        self.links
+            .iter()
+            .any(|e| e.name == "$group" || e.neighbors.iter().any(|n| n == "$group"))
+    }
+
+    /// Expand this template segment for a specific group value.
+    /// Replaces all `$group` occurrences with the concrete group name.
+    pub fn expand_for_group(&self, group: &str) -> SegmentConfig {
+        SegmentConfig {
+            name: self.name.replace("$group", group),
+            links: self
+                .links
+                .iter()
+                .map(|e| AdjacencyEntry {
+                    name: if e.name == "$group" {
+                        group.to_string()
+                    } else {
+                        e.name.clone()
+                    },
+                    neighbors: e
+                        .neighbors
+                        .iter()
+                        .map(|n| {
+                            if n == "$group" {
+                                group.to_string()
+                            } else {
+                                n.clone()
+                            }
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
+}
+
+impl TopologyConfig {
+    /// Returns true if this config uses `$group` template expansion.
+    pub fn has_group_template(&self) -> bool {
+        match self {
+            Self::FullMesh | Self::Links(_) => false,
+            Self::Segments(segments) => segments.iter().any(|seg| seg.has_group_template()),
+        }
+    }
+
+    /// Expand `$group` templates into concrete segments for the given groups.
+    /// Groups already explicitly named in a template segment's links are excluded
+    /// from expansion. Non-template segments pass through unchanged.
+    pub fn expand_segments(&self, known_groups: &[&str]) -> Vec<SegmentConfig> {
+        match self {
+            Self::FullMesh => vec![],
+            Self::Links(links) => vec![SegmentConfig {
+                name: "default".to_string(),
+                links: links.clone(),
+            }],
+            Self::Segments(segments) => {
+                let mut result = Vec::new();
+                for seg in segments {
+                    if seg.has_group_template() {
+                        // Find groups explicitly named (not templates/wildcards)
+                        let explicit: Vec<&str> = seg
+                            .links
+                            .iter()
+                            .flat_map(|e| {
+                                let mut names = vec![];
+                                if e.name != "*" && e.name != "$group" {
+                                    names.push(e.name.as_str());
+                                }
+                                for n in &e.neighbors {
+                                    if n != "*" && n != "$group" {
+                                        names.push(n.as_str());
+                                    }
+                                }
+                                names
+                            })
+                            .collect();
+
+                        // Expand for each group NOT explicitly named
+                        for &group in known_groups {
+                            if explicit.contains(&group) {
+                                continue;
+                            }
+                            result.push(seg.expand_for_group(group));
+                        }
+                    } else {
+                        result.push(seg.clone());
+                    }
+                }
+                result
+            }
+        }
+    }
+}
+
 /// Returns true if `pattern` matches `group`. `"*"` matches any group.
 fn matches_group(pattern: &str, group: &str) -> bool {
     pattern == "*" || pattern == group
@@ -509,5 +609,219 @@ mod tests {
         // "unknown" not in known_groups, so no edge created
         assert_eq!(graph.node_count(), 2);
         assert_eq!(graph.edge_count(), 0);
+    }
+
+    // --- Deserialization tests ---
+
+    #[test]
+    fn deserialize_empty_topology_is_full_mesh() {
+        let t: TopologyConfig = serde_yaml::from_str("{}").unwrap();
+        assert_eq!(t, TopologyConfig::FullMesh);
+    }
+
+    #[test]
+    fn deserialize_links_topology() {
+        let yaml = r#"
+links:
+  - name: hub
+    neighbors: ["*"]
+"#;
+        let t: TopologyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            t,
+            TopologyConfig::Links(vec![AdjacencyEntry {
+                name: "hub".to_string(),
+                neighbors: vec!["*".to_string()],
+            }])
+        );
+    }
+
+    #[test]
+    fn deserialize_segments_topology() {
+        let yaml = r#"
+segments:
+  - name: seg-$group
+    links:
+      - name: hub
+        neighbors: [$group]
+"#;
+        let t: TopologyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(t, TopologyConfig::Segments(_)));
+    }
+
+    #[test]
+    fn deserialize_both_links_and_segments_errors() {
+        let yaml = r#"
+links:
+  - name: hub
+    neighbors: ["*"]
+segments:
+  - name: seg
+    links:
+      - name: a
+        neighbors: [b]
+"#;
+        let result: Result<TopologyConfig, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err());
+    }
+
+    // --- $group expansion tests ---
+
+    #[test]
+    fn segment_has_group_template() {
+        let seg = SegmentConfig {
+            name: "seg-$group".to_string(),
+            links: vec![AdjacencyEntry {
+                name: "hub".to_string(),
+                neighbors: vec!["$group".to_string()],
+            }],
+        };
+        assert!(seg.has_group_template());
+
+        let seg_no_template = SegmentConfig {
+            name: "static-seg".to_string(),
+            links: vec![AdjacencyEntry {
+                name: "a".to_string(),
+                neighbors: vec!["b".to_string()],
+            }],
+        };
+        assert!(!seg_no_template.has_group_template());
+    }
+
+    #[test]
+    fn segment_expand_for_group() {
+        let seg = SegmentConfig {
+            name: "seg-$group".to_string(),
+            links: vec![AdjacencyEntry {
+                name: "hub".to_string(),
+                neighbors: vec!["$group".to_string()],
+            }],
+        };
+        let expanded = seg.expand_for_group("customer-a");
+        assert_eq!(expanded.name, "seg-customer-a");
+        assert_eq!(expanded.links[0].name, "hub");
+        assert_eq!(expanded.links[0].neighbors, vec!["customer-a"]);
+    }
+
+    #[test]
+    fn expand_segments_star_isolation() {
+        let t = TopologyConfig::Segments(vec![SegmentConfig {
+            name: "seg-$group".to_string(),
+            links: vec![AdjacencyEntry {
+                name: "hub".to_string(),
+                neighbors: vec!["$group".to_string()],
+            }],
+        }]);
+
+        let groups = vec!["hub", "customer-a", "customer-b"];
+        let expanded = t.expand_segments(&groups);
+
+        // hub is explicitly named in links, so only customer-a and customer-b expand
+        assert_eq!(expanded.len(), 2);
+        assert_eq!(expanded[0].name, "seg-customer-a");
+        assert_eq!(expanded[1].name, "seg-customer-b");
+    }
+
+    #[test]
+    fn expand_segments_no_template_passes_through() {
+        let t = TopologyConfig::Segments(vec![SegmentConfig {
+            name: "static".to_string(),
+            links: vec![AdjacencyEntry {
+                name: "a".to_string(),
+                neighbors: vec!["b".to_string()],
+            }],
+        }]);
+
+        let groups = vec!["a", "b", "c"];
+        let expanded = t.expand_segments(&groups);
+
+        assert_eq!(expanded.len(), 1);
+        assert_eq!(expanded[0].name, "static");
+    }
+
+    #[test]
+    fn expand_segments_mixed_template_and_static() {
+        let t = TopologyConfig::Segments(vec![
+            SegmentConfig {
+                name: "seg-$group".to_string(),
+                links: vec![AdjacencyEntry {
+                    name: "hub".to_string(),
+                    neighbors: vec!["$group".to_string()],
+                }],
+            },
+            SegmentConfig {
+                name: "shared".to_string(),
+                links: vec![AdjacencyEntry {
+                    name: "hub".to_string(),
+                    neighbors: vec!["monitoring".to_string()],
+                }],
+            },
+        ]);
+
+        let groups = vec!["hub", "customer-a", "monitoring"];
+        let expanded = t.expand_segments(&groups);
+
+        // Template expands for customer-a and monitoring (only hub is explicit in template)
+        // Plus the static segment
+        assert_eq!(expanded.len(), 3);
+        assert_eq!(expanded[0].name, "seg-customer-a");
+        assert_eq!(expanded[1].name, "seg-monitoring");
+        assert_eq!(expanded[2].name, "shared");
+    }
+
+    // --- Segments build_graph tests ---
+
+    #[test]
+    fn build_graph_segments_returns_per_segment() {
+        let t = TopologyConfig::Segments(vec![
+            SegmentConfig {
+                name: "seg-a".to_string(),
+                links: vec![AdjacencyEntry {
+                    name: "hub".to_string(),
+                    neighbors: vec!["a".to_string()],
+                }],
+            },
+            SegmentConfig {
+                name: "seg-b".to_string(),
+                links: vec![AdjacencyEntry {
+                    name: "hub".to_string(),
+                    neighbors: vec!["b".to_string()],
+                }],
+            },
+        ]);
+
+        let groups = vec!["hub", "a", "b"];
+        let segment_graphs = t.build_graph(&groups);
+
+        assert_eq!(segment_graphs.len(), 2);
+        assert_eq!(segment_graphs[0].0, "seg-a");
+        assert_eq!(segment_graphs[0].1.edge_count(), 1); // hub↔a
+        assert_eq!(segment_graphs[1].0, "seg-b");
+        assert_eq!(segment_graphs[1].1.edge_count(), 1); // hub↔b
+    }
+
+    #[test]
+    fn can_link_segments_union() {
+        let t = TopologyConfig::Segments(vec![
+            SegmentConfig {
+                name: "seg-a".to_string(),
+                links: vec![AdjacencyEntry {
+                    name: "hub".to_string(),
+                    neighbors: vec!["a".to_string()],
+                }],
+            },
+            SegmentConfig {
+                name: "seg-b".to_string(),
+                links: vec![AdjacencyEntry {
+                    name: "hub".to_string(),
+                    neighbors: vec!["b".to_string()],
+                }],
+            },
+        ]);
+
+        assert!(t.can_link("hub", "a"));
+        assert!(t.can_link("hub", "b"));
+        // a and b not in any common segment link
+        assert!(!t.can_link("a", "b"));
     }
 }

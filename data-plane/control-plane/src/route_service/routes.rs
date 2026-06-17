@@ -46,8 +46,9 @@ fn build_route_for_gateway(
 }
 
 impl super::RouteService {
-    /// Rebuild the runtime link graph from the given set of nodes.
-    /// Extracts distinct group names and calls `build_graph()` on the topology config.
+    /// Rebuild the runtime segment graphs from the given set of nodes.
+    /// Extracts distinct group names, expands `$group` templates, and builds
+    /// one graph per segment.
     /// Returns true if the set of groups changed (a group was added or removed).
     pub(super) async fn rebuild_link_graph(&self, nodes: &[crate::db::Node]) -> bool {
         let new_groups: HashSet<&str> = nodes
@@ -55,20 +56,23 @@ impl super::RouteService {
             .map(|n| n.group_name.as_deref().unwrap_or(""))
             .collect();
 
-        let mut current_graph = self.0.link_graph.write().await;
-        let current_groups: HashSet<&str> = current_graph
-            .node_indices()
-            .map(|idx| current_graph[idx].as_str())
+        let mut current_segments = self.0.segment_graphs.write().await;
+        let current_groups: HashSet<&str> = current_segments
+            .iter()
+            .flat_map(|(_, g)| g.node_indices().map(|idx| g[idx].as_str()))
             .collect();
         let groups_changed = new_groups != current_groups;
 
         if groups_changed {
             let group_vec: Vec<&str> = new_groups.into_iter().collect();
-            let segment_graphs = self.0.topology.build_graph(&group_vec);
-            // TODO(segments): store all segment graphs for per-segment SPT.
-            // For now, use the first (and typically only) segment graph.
-            if let Some((_name, graph)) = segment_graphs.into_iter().next() {
-                *current_graph = graph;
+
+            // If the topology has $group templates, expand them first
+            if self.0.topology.has_group_template() {
+                let expanded = self.0.topology.expand_segments(&group_vec);
+                let expanded_config = crate::config::TopologyConfig::Segments(expanded);
+                *current_segments = expanded_config.build_graph(&group_vec);
+            } else {
+                *current_segments = self.0.topology.build_graph(&group_vec);
             }
         }
 
@@ -141,82 +145,81 @@ impl super::RouteService {
             .and_then(|n| n.group_name.as_deref())
             .unwrap_or("");
 
-        // Clone the graph to release the read lock before the async loop,
+        // Clone the segment graphs to release the read lock before the async loop,
         // preventing potential deadlocks with concurrent write lock acquisitions.
-        let graph = self.0.link_graph.read().await.clone();
+        let segment_graphs = self.0.segment_graphs.read().await.clone();
 
-        // If the link graph has no inter-group edges, there is nothing for the
-        // control plane to expand (same-group routing is handled by the data plane).
-        if graph.node_count() <= 1 {
-            return;
-        }
-
-        let root_idx = match graph.node_indices().find(|&idx| graph[idx] == dest_group) {
-            Some(idx) => idx,
-            None => {
-                tracing::debug!(
-                    "expand_route_via_spt: dest group '{dest_group}' not in link graph"
-                );
-                return;
-            }
-        };
-
-        // Compute the SPT rooted at the destination group.
-        let spt = match spt::compute_spt(root_idx, &graph) {
-            Some(t) => t,
-            None => return,
-        };
-
-        // For each non-root group in the SPT, install a route on the gateway
-        // node pointing toward the parent group.
-        for (&orig_idx, &tree_idx) in &spt.index_map {
-            if orig_idx == root_idx {
+        for (_seg_name, graph) in &segment_graphs {
+            // If the link graph has no inter-group edges, there is nothing for the
+            // control plane to expand (same-group routing is handled by the data plane).
+            if graph.node_count() <= 1 {
                 continue;
             }
 
-            let child_group = &graph[orig_idx];
-
-            // Find the parent group in the directed tree (incoming edge = from parent).
-            let parent_tree_idx = match spt
-                .tree
-                .edges_directed(tree_idx, petgraph::Direction::Incoming)
-                .next()
-            {
-                Some(edge) => edge.source(),
+            let root_idx = match graph.node_indices().find(|&idx| graph[idx] == dest_group) {
+                Some(idx) => idx,
                 None => continue,
             };
-            let parent_group = &spt.tree[parent_tree_idx];
 
-            // Find the inter-group link from pre-loaded links (O(n) scan, no DB query).
-            let (source_node_id, link_id) = match Self::find_inter_group_link_from_cache(
-                child_group,
-                parent_group,
-                all_nodes,
-                all_links,
-            ) {
-                Some(pair) => pair,
-                None => {
-                    tracing::debug!(
-                        "expand_route_via_spt: no link between '{child_group}' and '{parent_group}', skipping"
-                    );
-                    continue;
-                }
+            // Compute the SPT rooted at the destination group.
+            let spt = match spt::compute_spt(root_idx, graph) {
+                Some(t) => t,
+                None => continue,
             };
 
-            // Create the per-gateway route pointing toward the parent group.
-            let per_node = build_route_for_gateway(
-                &source_node_id,
-                child_group,
-                dest_node_id,
-                dest_group,
-                link_id,
-                component0,
-                component1,
-                component2,
-                component_id,
-            );
-            if let Err(e) = self.add_single_route(per_node).await {
-                tracing::debug!("expand_route_via_spt: route for {source_node_id} skipped: {e}");
+            // For each non-root group in the SPT, install a route on the gateway
+            // node pointing toward the parent group.
+            for (&orig_idx, &tree_idx) in &spt.index_map {
+                if orig_idx == root_idx {
+                    continue;
+                }
+
+                let child_group = &graph[orig_idx];
+
+                // Find the parent group in the directed tree (incoming edge = from parent).
+                let parent_tree_idx = match spt
+                    .tree
+                    .edges_directed(tree_idx, petgraph::Direction::Incoming)
+                    .next()
+                {
+                    Some(edge) => edge.source(),
+                    None => continue,
+                };
+                let parent_group = &spt.tree[parent_tree_idx];
+
+                // Find the inter-group link from pre-loaded links (O(n) scan, no DB query).
+                let (source_node_id, link_id) = match Self::find_inter_group_link_from_cache(
+                    child_group,
+                    parent_group,
+                    all_nodes,
+                    all_links,
+                ) {
+                    Some(pair) => pair,
+                    None => {
+                        tracing::debug!(
+                            "expand_route_via_spt: no link between '{child_group}' and '{parent_group}', skipping"
+                        );
+                        continue;
+                    }
+                };
+
+                // Create the per-gateway route pointing toward the parent group.
+                let per_node = build_route_for_gateway(
+                    &source_node_id,
+                    child_group,
+                    dest_node_id,
+                    dest_group,
+                    link_id,
+                    component0,
+                    component1,
+                    component2,
+                    component_id,
+                );
+                if let Err(e) = self.add_single_route(per_node).await {
+                    tracing::debug!(
+                        "expand_route_via_spt: route for {source_node_id} skipped: {e}"
+                    );
+                }
             }
         }
     }
@@ -251,83 +254,89 @@ impl super::RouteService {
             .and_then(|n| n.group_name.as_deref())
             .unwrap_or("");
 
-        // Clone the graph to release the read lock before the async loop.
-        let graph = self.0.link_graph.read().await.clone();
+        // Clone the segment graphs to release the read lock before the async loop.
+        let segment_graphs = self.0.segment_graphs.read().await.clone();
 
         // If root and announcer are in the same group, the data plane handles
         // routing within that group — nothing for the control plane to do.
-        if graph.node_count() <= 1 || root_group == announcer_group {
+        if root_group == announcer_group {
             return;
         }
 
-        let root_idx = match graph.node_indices().find(|&idx| graph[idx] == root_group) {
-            Some(idx) => idx,
-            None => return,
-        };
-        let announcer_idx = match graph
-            .node_indices()
-            .find(|&idx| graph[idx] == announcer_group)
-        {
-            Some(idx) => idx,
-            None => return,
-        };
-
-        let spt = match spt::compute_spt(root_idx, &graph) {
-            Some(t) => t,
-            None => return,
-        };
-
-        // Walk from announcer up to root in the tree, collecting (parent, child) pairs.
-        let mut current = match spt.index_map.get(&announcer_idx) {
-            Some(&idx) => idx,
-            None => return,
-        };
-        let tree_root = spt.index_map[&root_idx];
-
-        while current != tree_root {
-            // Find parent (incoming edge source).
-            let parent_tree_idx = match spt
-                .tree
-                .edges_directed(current, petgraph::Direction::Incoming)
-                .next()
-            {
-                Some(edge) => edge.source(),
-                None => break,
-            };
-
-            let parent_group = &spt.tree[parent_tree_idx];
-            let child_group = &spt.tree[current];
-
-            // Install route on the parent group's gateway pointing toward child.
-            if let Some((gateway_node_id, link_id)) = Self::find_inter_group_link_from_cache(
-                parent_group,
-                child_group,
-                all_nodes,
-                all_links,
-            ) {
-                let per_node = build_route_for_gateway(
-                    &gateway_node_id,
-                    parent_group,
-                    new_announcer_node_id,
-                    announcer_group,
-                    link_id,
-                    component0,
-                    component1,
-                    component2,
-                    component_id,
-                );
-                if let Err(e) = self.add_single_route(per_node).await {
-                    tracing::debug!(
-                        "install_downward_path: route for {gateway_node_id} skipped: {e}"
-                    );
-                }
-            } else {
-                tracing::debug!(
-                    "install_downward_path: no link between '{parent_group}' and '{child_group}', skipping"
-                );
+        for (_seg_name, graph) in &segment_graphs {
+            if graph.node_count() <= 1 {
+                continue;
             }
 
-            current = parent_tree_idx;
+            let root_idx = match graph.node_indices().find(|&idx| graph[idx] == root_group) {
+                Some(idx) => idx,
+                None => continue,
+            };
+            let announcer_idx = match graph
+                .node_indices()
+                .find(|&idx| graph[idx] == announcer_group)
+            {
+                Some(idx) => idx,
+                None => continue,
+            };
+
+            let spt = match spt::compute_spt(root_idx, graph) {
+                Some(t) => t,
+                None => continue,
+            };
+
+            // Walk from announcer up to root in the tree, collecting (parent, child) pairs.
+            let mut current = match spt.index_map.get(&announcer_idx) {
+                Some(&idx) => idx,
+                None => continue,
+            };
+            let tree_root = spt.index_map[&root_idx];
+
+            while current != tree_root {
+                // Find parent (incoming edge source).
+                let parent_tree_idx = match spt
+                    .tree
+                    .edges_directed(current, petgraph::Direction::Incoming)
+                    .next()
+                {
+                    Some(edge) => edge.source(),
+                    None => break,
+                };
+
+                let parent_group = &spt.tree[parent_tree_idx];
+                let child_group = &spt.tree[current];
+
+                // Install route on the parent group's gateway pointing toward child.
+                if let Some((gateway_node_id, link_id)) = Self::find_inter_group_link_from_cache(
+                    parent_group,
+                    child_group,
+                    all_nodes,
+                    all_links,
+                ) {
+                    let per_node = build_route_for_gateway(
+                        &gateway_node_id,
+                        parent_group,
+                        new_announcer_node_id,
+                        announcer_group,
+                        link_id,
+                        component0,
+                        component1,
+                        component2,
+                        component_id,
+                    );
+                    if let Err(e) = self.add_single_route(per_node).await {
+                        tracing::debug!(
+                            "install_downward_path: route for {gateway_node_id} skipped: {e}"
+                        );
+                    }
+                } else {
+                    tracing::debug!(
+                        "install_downward_path: no link between '{parent_group}' and '{child_group}', skipping"
+                    );
+                }
+
+                current = parent_tree_idx;
+            }
         }
     }
 
