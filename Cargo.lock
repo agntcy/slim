@@ -246,6 +246,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "aws-lc-rs",
+ "bytes",
  "cfg-if",
  "criterion",
  "display-error-chain",
