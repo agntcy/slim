@@ -11,33 +11,9 @@ metadata:
     {{- include "slim.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.slim.service.type }}
-  ports:
-    {{- range $i, $data := .Values.slim.service.data }}
-    - port: {{ $data.port }}
-      targetPort: {{ $data.name | default (printf "data-plane-%d" $i) }}
-      protocol: TCP
-      name: {{ $data.name | default (printf "data-plane-%d" $i) }}
-    {{- end }}
-    {{- range $i, $ctrl := .Values.slim.service.control }}
-    - port: {{ $ctrl.port }}
-      targetPort: controller-{{ $i }}
-      protocol: TCP
-      name: controller-{{ $i }}
-    {{- end }}
-  selector:
-    {{- include "slim.selectorLabels" . | nindent 4 }}
-{{- if eq .Values.slim.deploymentMode "DaemonSet" }}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "slim.fullname" . }}-local
-  labels:
-    {{- include "slim.labels" . | nindent 4 }}
-    local: "true"
-spec:
-  type: ClusterIP
+  {{- if eq .Values.slim.deploymentMode "DaemonSet" }}
   internalTrafficPolicy: Local
+  {{- end }}
   ports:
     {{- range $i, $data := .Values.slim.service.data }}
     - port: {{ $data.port }}
@@ -53,4 +29,3 @@ spec:
     {{- end }}
   selector:
     {{- include "slim.selectorLabels" . | nindent 4 }}
-{{- end }}

@@ -1246,12 +1246,10 @@ mod tests {
         assert!(service.message_processor().relay_peer_publishes());
     }
 
-    // ── kubernetes + HubAndSpoke rejection ──────────────────────────────
+    // ── kubernetes + HubAndSpoke accepted ──────────────────────────────
 
     #[tokio::test]
-    async fn test_k8s_hub_and_spoke_rejected() {
-        let tls_config = TlsServerConfig::new().with_insecure(true);
-        let server_config = ServerConfig::with_endpoint("0.0.0.0:0").with_tls_settings(tls_config);
+    async fn test_k8s_hub_and_spoke_accepted() {
         let peer_config = PeerConfig {
             deployment_name: "test".to_string(),
             topology: PeerTopology::HubAndSpoke,
@@ -1261,21 +1259,8 @@ mod tests {
                 port: 46357,
             },
         };
-        let config = ServiceConfiguration::new()
-            .with_dataplane_server(vec![server_config])
-            .with_peers(peer_config);
-
-        let service = config
-            .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test-k8s-reject").unwrap())
-            .unwrap();
-
-        let result = service.run().await;
-        assert!(result.is_err(), "run() should fail with k8s + HubAndSpoke");
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("kubernetes discovery only supports FullMesh"),
-            "error should mention topology mismatch, got: {err}"
-        );
+        // Validation should pass (no longer restricted to FullMesh).
+        assert!(peer_config.validate().is_ok());
     }
 
     // ── peer sync config construction ───────────────────────────────────

@@ -84,17 +84,11 @@ spec:
             - name: {{ $data.name | default (printf "data-plane-%d" $i) }}
               containerPort: {{ $data.port }}
               protocol: TCP
-              {{- if $isDaemonSet }}
-              hostPort: {{ $data.port }}
-              {{- end }}
             {{- end }}
             {{- range $i, $ctrl := .Values.slim.service.control }}
             - name: controller-{{ $i }}
               containerPort: {{ $ctrl.port }}
               protocol: TCP
-              {{- if $isDaemonSet }}
-              hostPort: {{ $ctrl.port }}
-              {{- end }}
             {{- end }}
           resources:
             {{- toYaml .Values.slim.resources | nindent 12 }}

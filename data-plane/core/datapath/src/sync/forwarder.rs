@@ -386,12 +386,42 @@ impl PeerSync {
             PeerTopology::HubAndSpoke => {
                 // In hub-and-spoke, only the hub (globally smallest ID) dials.
                 // A node is the hub if it has a smaller ID than ALL discovered peers.
-                !self
+                let is_hub = !self
                     .inner
                     .discovered_peers
                     .read()
                     .iter()
-                    .any(|p| p.as_str() < config.self_id.as_str())
+                    .any(|p| p.as_str() < config.self_id.as_str());
+
+                if !is_hub {
+                    // We just discovered a peer smaller than us (or already knew one).
+                    // Disconnect any outgoing connections we made when we incorrectly
+                    // thought we were the hub (race during incremental discovery).
+                    if let Some(ref state) = self.inner.peer_state {
+                        let outgoing: Vec<_> = {
+                            let guard = state.read();
+                            guard
+                                .iter()
+                                .filter(|(_, entry)| entry.is_outgoing)
+                                .map(|(id, entry)| (id.to_string(), entry.conn_id))
+                                .collect()
+                        };
+                        for (peer_id, conn_id) in outgoing {
+                            info!(
+                                peer_id = %peer_id,
+                                conn_id,
+                                "demoting from hub: disconnecting outgoing peer connection"
+                            );
+                            self.remove_peer_conn(conn_id);
+                            if let Err(e) = mp.disconnect(conn_id) {
+                                warn!(peer_id = %peer_id, error = %e, "error disconnecting");
+                            }
+                            state.write().remove(&peer_id);
+                        }
+                    }
+                }
+
+                is_hub
             }
         };
 
@@ -433,11 +463,9 @@ impl PeerSync {
                 self.add_peer_conn(conn_id);
 
                 // Perform full sync: send subscriptions to the new peer.
-                // In HubAndSpoke, only the hub dials (self_id < peer.id), so if we
-                // reached here with HubAndSpoke topology, we are the hub.
+                // If we reached here with HubAndSpoke topology, we are the hub.
                 let ttl = self.inner.subscription_ttl;
-                let is_hub = config.self_id < peer.id;
-                let sync_result = if is_hub && config.topology == PeerTopology::HubAndSpoke {
+                let sync_result = if config.topology == PeerTopology::HubAndSpoke {
                     peer::send_full_sync(mp, conn_id, ttl).await
                 } else {
                     peer::send_local_remote_sync(mp, conn_id, ttl).await

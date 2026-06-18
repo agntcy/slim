@@ -88,15 +88,6 @@ impl PeerConfig {
     /// Returns an error if Kubernetes discovery is used with a topology
     /// other than FullMesh.
     pub fn validate(&self) -> Result<(), String> {
-        if matches!(self.discovery, PeerDiscoveryConfig::Kubernetes { .. })
-            && self.topology != PeerTopology::FullMesh
-        {
-            return Err(format!(
-                "kubernetes discovery only supports FullMesh topology, \
-                 but {:?} was configured",
-                self.topology
-            ));
-        }
         Ok(())
     }
 }
@@ -117,9 +108,8 @@ pub enum PeerDiscoveryConfig {
 
     /// Kubernetes-based peer discovery (watches EndpointSlices for a Service).
     ///
-    /// **Note:** Only the `FullMesh` topology is supported with Kubernetes discovery.
-    /// `HubAndSpoke` requires all peers to be known upfront and is only supported
-    /// with static discovery.
+    /// Supports both `FullMesh` and `HubAndSpoke` topologies. In `HubAndSpoke`,
+    /// hub election is handled dynamically as peers are discovered.
     #[serde(rename = "kubernetes")]
     Kubernetes {
         /// Kubernetes namespace to watch.
@@ -336,7 +326,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_k8s_hub_and_spoke_fails() {
+    fn test_validate_k8s_hub_and_spoke_ok() {
         let config = PeerConfig {
             deployment_name: "test".to_string(),
             topology: PeerTopology::HubAndSpoke,
@@ -346,7 +336,6 @@ mod tests {
                 port: 46357,
             },
         };
-        let err = config.validate().unwrap_err();
-        assert!(err.contains("kubernetes discovery only supports FullMesh"));
+        assert!(config.validate().is_ok());
     }
 }
