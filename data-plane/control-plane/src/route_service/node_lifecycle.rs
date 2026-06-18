@@ -593,10 +593,15 @@ impl super::RouteService {
         }
 
         // Handle routes on the departing node.
-        // - If there are NO incoming links being recreated (sources_needing_links is empty),
-        //   all links were outgoing and kept their link_id. Move routes to new gateway.
-        // - If there ARE incoming links being recreated, the old link_ids are gone.
-        //   Delete those routes; they'll be re-expanded after the new link is claimed.
+        // For each route, check whether its link_id belongs to a preserved outgoing
+        // link (can be moved to new gateway) or a deleted incoming link (must be
+        // dropped and re-expanded after the new link is claimed).
+        let preserved_link_ids: HashSet<String> = links
+            .iter()
+            .filter(|l| l.source_node_id == departing_node)
+            .map(|l| l.link_id.clone())
+            .collect();
+
         let src_routes = self
             .0
             .db
@@ -607,8 +612,12 @@ impl super::RouteService {
                 vec![]
             });
         for route in &src_routes {
-            if sources_needing_links.is_empty() {
-                // Outgoing-link case: move route to new gateway (link_id stays same).
+            if route
+                .link_id
+                .as_ref()
+                .is_some_and(|id| preserved_link_ids.contains(id))
+            {
+                // Outgoing-link case: link_id is preserved, move route to new gateway.
                 let mut moved = route.clone();
                 moved.source_node_id = new_gateway.clone();
                 moved.status = RouteStatus::Pending;
