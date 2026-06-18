@@ -70,6 +70,98 @@ body:has(.slim-landing) .md-tabs__item--active .md-tabs__link {
 }
 
 /* ----------------------------------------------------------------------------
+   Why use SLIM (Phoenix design)
+---------------------------------------------------------------------------- */
+.slim-why {
+  max-width: 73.75rem;
+  margin: 0 auto 3.5rem;
+  padding: 0 1rem;
+}
+
+.md-typeset .slim-why .slim-section-title {
+  margin: 0 0 1.75rem;
+  font-size: 1.5rem;
+}
+
+.slim-why-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.625rem;
+  align-items: stretch;
+}
+
+.slim-why-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+  height: 100%;
+  padding: 1.875rem 1.25rem;
+  text-align: center;
+  background: rgb(245, 248, 253);
+  border: 1px solid rgb(230, 231, 237);
+}
+
+.slim-why-card__icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0.9375rem;
+  background: rgb(255, 255, 255);
+  border: 1px solid rgb(213, 223, 247);
+  border-radius: 4px;
+}
+
+.slim-why-card__icon {
+  display: block;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.md-typeset .slim-why-card__title {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.6;
+  color: var(--md-default-fg-color);
+}
+
+.md-typeset .slim-why-card__desc {
+  margin: 0;
+  flex: 1;
+  font-size: 0.9375rem;
+  font-weight: 400;
+  line-height: 1.6;
+  color: var(--md-default-fg-color--light);
+}
+
+[data-md-color-scheme="slate"] .slim-why-card {
+  background: rgb(0, 42, 77);
+  border-color: rgb(13, 39, 77);
+}
+
+[data-md-color-scheme="slate"] .slim-why-card__icon-wrap {
+  background: rgb(12, 31, 54);
+  border-color: rgb(13, 39, 77);
+}
+
+@media screen and (max-width: 59.9375em) {
+  .slim-why-cards {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .slim-why-card {
+    max-width: 24.125rem;
+    margin: 0 auto;
+    width: 100%;
+    height: auto;
+  }
+}
+
+/* ----------------------------------------------------------------------------
    Architecture visualizer (embedded slim-graph)
 ---------------------------------------------------------------------------- */
 .slim-graph-wrap {
