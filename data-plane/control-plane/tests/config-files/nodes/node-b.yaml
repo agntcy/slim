@@ -1,0 +1,23 @@
+# SLIM node-b
+tracing:
+  log_level: debug
+
+services:
+  slim/node-b:
+    group_name: deployment-b
+    dataplane:
+      servers:
+        - endpoint: "127.0.0.1:46101"
+          tls:
+            insecure: true
+          metadata:
+            external_endpoint: "127.0.0.1:46101"
+    controller:
+      servers:
+        - endpoint: "127.0.0.1:47101"
+          tls:
+            insecure: true
+      clients:
+        - endpoint: "http://127.0.0.1:50052"
+          tls:
+            insecure: true

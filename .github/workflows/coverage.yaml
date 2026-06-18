@@ -2,13 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-name: ci-publish-prokect-coverage
+name: ci-publish-project-coverage
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '.github/workflows/docs-ci.yaml'
+      - '.github/workflows/docs-deploy.yml'
+      - '.github/workflows/reusable-docs.yml'
 
 jobs:
   coverage:

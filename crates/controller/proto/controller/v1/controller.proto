@@ -61,6 +61,9 @@ message ConfigurationCommand {
   repeated Route routes_to_delete = 3;
   repeated string connections_to_delete = 4;
   bool reconcile = 5;
+  // Incoming connections received by the node (after link negotiation).
+  // Sent node→controller so the controller can claim the unclaimed link.
+  repeated ConnectionEntry connections_received = 6;
 }
 
 message ConfigurationCommandAck {
