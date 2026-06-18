@@ -99,6 +99,46 @@ body:has(.slim-landing) .md-tabs__item--active .md-tabs__link {
   }
 }
 
+.slim-graph-tooltip-portal {
+  position: fixed;
+  z-index: 200;
+  width: 260px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid rgb(213, 223, 247);
+  background: rgb(245, 248, 253);
+  box-shadow: 0 4px 24px rgba(2, 81, 175, 0.1);
+  pointer-events: none;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: rgb(28, 30, 33);
+}
+
+.slim-graph-tooltip-portal__title {
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: rgb(2, 81, 175);
+}
+
+.slim-graph-tooltip-portal__desc {
+  color: rgba(28, 30, 33, 0.68);
+}
+
+[data-md-color-scheme="slate"] .slim-graph-tooltip-portal {
+  border-color: rgb(13, 39, 77);
+  background: rgba(0, 42, 77, 0.96);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+  color: rgb(227, 227, 227);
+}
+
+[data-md-color-scheme="slate"] .slim-graph-tooltip-portal__title {
+  color: rgb(77, 143, 212);
+}
+
+[data-md-color-scheme="slate"] .slim-graph-tooltip-portal__desc {
+  color: rgba(227, 227, 227, 0.72);
+}
+
 /* ----------------------------------------------------------------------------
    Hero
 ---------------------------------------------------------------------------- */

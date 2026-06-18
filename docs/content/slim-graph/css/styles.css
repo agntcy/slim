@@ -1,5 +1,5 @@
-:root,
 [data-theme="light"] {
+  color-scheme: light;
   --bg-page: rgb(239, 243, 252);
   --bg-panel: rgb(245, 248, 253);
   --bg-panel-muted: rgb(232, 238, 251);
@@ -25,6 +25,8 @@
   --color-text-muted: rgba(28, 30, 33, 0.45);
   --color-node-bg: rgb(255, 255, 255);
   --color-path-idle: rgb(213, 223, 247);
+  --diagram-surface: rgb(245, 248, 253);
+  --grid-stroke: rgba(2, 81, 175, 0.08);
 
   --journey-btn-bg: rgb(239, 243, 252);
   --journey-btn-bg-hover: rgb(255, 255, 255);
@@ -41,6 +43,7 @@
 }
 
 [data-theme="dark"] {
+  color-scheme: dark;
   --bg-page: rgb(3, 20, 43);
   --bg-panel: rgba(0, 42, 77, 0.88);
   --bg-panel-muted: rgb(12, 31, 54);
@@ -62,6 +65,8 @@
   --color-text-muted: rgba(227, 227, 227, 0.45);
   --color-node-bg: rgb(0, 42, 77);
   --color-path-idle: rgb(30, 50, 75);
+  --diagram-surface: rgb(3, 20, 43);
+  --grid-stroke: rgba(255, 255, 255, 0.05);
 
   --journey-btn-bg: rgb(0, 42, 77);
   --journey-btn-bg-hover: rgb(12, 31, 54);
@@ -81,9 +86,12 @@ body {
   font-family: var(--font-primary);
   background-color: var(--bg-page);
   color: var(--color-text-primary);
-  overflow: hidden;
+  overflow: visible;
   height: 100vh;
   width: 100vw;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 /* Layout structure */
@@ -103,6 +111,10 @@ body {
   border: 1px solid var(--panel-border);
   border-radius: 10px;
   box-shadow: var(--shadow-panel);
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 /* Header styling */
@@ -163,8 +175,8 @@ header.main-header {
 
 /* Journey selector (top bar above diagram) */
 .journey-list {
-  position: static;
-  z-index: 10;
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
@@ -243,51 +255,217 @@ header.main-header {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
 }
 
-/* Info Card Overlay in lower-left of viewport */
-.info-card {
-  position: absolute;
-  bottom: 20px;
-  left: 20px;
-  z-index: 10;
-  width: 320px;
-  background: var(--bg-panel);
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  padding: 16px;
-  box-shadow: var(--shadow-panel);
-  pointer-events: none;
+/* Step track panel — connected detail cards (above diagram) */
+.step-track-panel {
+  flex-shrink: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 0.85rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--panel-border);
+  background: var(--bg-panel-muted);
+  position: relative;
+  z-index: 1;
 }
 
-.info-card-content {
+.step-track-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0.25rem 0;
+}
+
+.step-transport-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.15rem;
+  height: 2.15rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 50%;
+  background: var(--journey-btn-bg);
+  color: var(--journey-btn-text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.step-transport-btn:hover:not(:disabled) {
+  background: var(--journey-btn-bg-hover);
+  border-color: var(--color-blue);
+  transform: translateY(-1px);
+}
+
+.step-transport-btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.step-transport-btn--primary {
+  width: 2.45rem;
+  height: 2.45rem;
+  border: 2px solid transparent;
+  background:
+    linear-gradient(var(--journey-btn-bg-active), var(--journey-btn-bg-active)) padding-box,
+    var(--hero-gradient) border-box;
+  color: var(--color-blue);
+}
+
+.step-transport-btn--primary.is-paused {
+  color: var(--color-amber);
+}
+
+.step-track-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  display: flex;
+  align-items: stretch;
+}
+
+.step-track {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  min-width: min-content;
+  padding: 0.1rem 0.15rem;
+}
+
+.step-card-bridge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 1.5rem;
+  color: var(--panel-border);
+  font-size: 0.65rem;
+  transition: color 0.2s ease;
+}
+
+.step-card-bridge.completed {
+  color: var(--color-blue);
+}
+
+.step-card {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  align-items: flex-start;
+  gap: 0.35rem;
+  flex: 1 1 14rem;
+  min-width: 13.5rem;
+  max-width: 17rem;
+  padding: 0.75rem 0.9rem;
+  border: 2px solid var(--journey-btn-border);
+  border-radius: 10px;
+  background: var(--journey-btn-bg);
+  color: var(--journey-btn-text);
+  font-family: var(--font-primary);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease,
+    transform 0.2s ease;
 }
 
-.info-card-meta {
-  width: 100%;
+.step-card + .step-card-bridge + .step-card,
+.step-card-bridge + .step-card {
+  margin-left: 0;
 }
 
-.step-indicator {
-  font-size: 0.72rem;
+.step-card:hover {
+  border-color: var(--color-blue);
+  transform: translateY(-1px);
+}
+
+.step-card.completed {
+  border-color: rgba(2, 81, 175, 0.35);
+  background: var(--bg-panel);
+}
+
+.step-card.active {
+  border: 2px solid transparent;
+  background:
+    linear-gradient(var(--journey-btn-bg-active), var(--journey-btn-bg-active)) padding-box,
+    var(--hero-gradient) border-box;
+  box-shadow: 0 6px 18px rgba(2, 81, 175, 0.14);
+  transform: translateY(-2px);
+  z-index: 1;
+}
+
+.step-card:not(.active):not(.completed) {
+  opacity: 0.78;
+}
+
+.step-card-indicator {
+  font-size: 0.68rem;
   font-weight: 700;
   color: var(--color-blue);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  margin-bottom: 2px;
 }
 
-.step-title {
+.step-card.completed .step-card-indicator {
+  color: var(--color-text-secondary);
+}
+
+.step-card-title {
   font-family: var(--font-title);
-  font-size: 0.95rem;
+  font-size: 0.88rem;
   font-weight: 700;
+  line-height: 1.25;
   color: var(--color-text-primary);
 }
 
-.step-desc {
-  font-size: 0.82rem;
-  color: var(--color-text-secondary);
+.step-card-desc {
+  font-size: 0.76rem;
   line-height: 1.45;
+  color: var(--color-text-secondary);
+}
+
+.step-card-desc code {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  background: var(--bg-panel-muted);
+  border: 1px solid var(--panel-border);
+}
+
+.step-card-desc strong {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .step-card.active {
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+}
+
+@media (max-width: 720px) {
+  .step-track-panel {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.55rem;
+    padding: 0.55rem 0.75rem;
+  }
+
+  .step-track-controls {
+    justify-content: flex-start;
+  }
+
+  .step-card {
+    min-width: 11.5rem;
+    max-width: 14rem;
+  }
 }
 
 /* 2D Canvas / SVG Pipeline Viewport */
@@ -298,9 +476,11 @@ header.main-header {
   align-items: stretch;
   justify-content: flex-start;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   background: linear-gradient(180deg, var(--bg-panel) 0%, var(--bg-panel-muted) 100%);
   min-height: 300px;
+  transition: background 0.2s ease;
+  z-index: 0;
 }
 
 [data-theme="dark"] .viewport {
@@ -315,16 +495,28 @@ header.main-header {
   justify-content: center;
   min-height: 0;
   overflow: hidden;
+  background: var(--diagram-surface);
+  transition: background-color 0.2s ease;
+  z-index: 0;
 }
 
 svg.visual-graph {
   width: 100%;
   height: 100%;
+  color: var(--color-text-primary);
+}
+
+.visual-graph .diagram-backdrop {
+  fill: var(--diagram-surface);
+}
+
+.visual-graph #grid path {
+  stroke: var(--grid-stroke);
 }
 
 /* Bottom panel for packet log terminal */
 .terminal-container {
-  height: 160px;
+  height: 140px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -421,7 +613,7 @@ svg.visual-graph {
   stroke-width: 1.5;
   rx: 10px;
   ry: 10px;
-  transition: all 0.3s ease;
+  transition: fill 0.2s ease, stroke 0.2s ease;
 }
 
 .node-rect.agent {
@@ -453,12 +645,14 @@ svg.visual-graph {
   font-size: 0.92rem;
   font-weight: 600;
   fill: var(--color-text-primary);
+  transition: fill 0.2s ease;
 }
 
 .node-desc {
   font-family: var(--font-primary);
   font-size: 0.72rem;
   fill: var(--color-text-secondary);
+  transition: fill 0.2s ease;
 }
 
 .node-badge {
@@ -466,6 +660,7 @@ svg.visual-graph {
   font-size: 0.68rem;
   font-weight: 500;
   fill: var(--color-text-secondary);
+  transition: fill 0.2s ease;
 }
 
 /* Session layer outer shield */
@@ -491,7 +686,7 @@ svg.visual-graph {
   fill: none;
   stroke: var(--color-path-idle);
   stroke-width: 2.5;
-  transition: stroke 0.3s ease, filter 0.3s ease;
+  transition: stroke 0.2s ease, filter 0.2s ease;
 }
 
 .connection-path.active {
@@ -543,19 +738,22 @@ svg.visual-graph {
 
 /* Interactive 2D Tooltip */
 .tooltip-2d {
-  position: absolute;
+  position: fixed;
   background: var(--bg-panel);
   border: 1px solid var(--panel-border);
   border-radius: 8px;
   padding: 12px;
   pointer-events: none;
-  z-index: 100;
-  display: none;
+  z-index: 9999;
   width: 260px;
   box-shadow: var(--shadow-panel);
   font-size: 0.8rem;
   line-height: 1.4;
   animation: fadeIn 0.15s ease-out;
+}
+
+.tooltip-2d[hidden] {
+  display: none !important;
 }
 
 .tooltip-title {
@@ -599,12 +797,22 @@ svg.visual-graph {
   filter: drop-shadow(0 0 2px var(--color-purple));
 }
 
-[data-theme="dark"] .opencode-logo {
-  filter: invert(1) drop-shadow(0 0 2px var(--color-purple));
-}
 .langchain-logo {
   filter: drop-shadow(0 0 2px var(--color-green));
 }
+
 .mcp-logo {
   filter: drop-shadow(0 0 2px var(--color-teal));
+}
+
+[data-theme="dark"] .opencode-logo,
+[data-theme="dark"] .claude-logo,
+[data-theme="dark"] .crewai-logo,
+[data-theme="dark"] .langgraph-logo,
+[data-theme="dark"] .langchain-logo {
+  filter: brightness(0) invert(1) drop-shadow(0 0 2px var(--color-blue));
+}
+
+[data-theme="dark"] .mcp-logo {
+  filter: brightness(1.2) drop-shadow(0 0 2px var(--color-teal));
 }

@@ -102,6 +102,7 @@ const SCENARIOS = {
   p2p: [
     {
       title: "Publish P2P Message",
+      shortTitle: "Publish",
       desc: "Agent A publishes a Point-to-Point message targeting Agent B (<code>agntcy/ns/AgentB</code>). The payload is pushed to the local **SLIM Node 1** over an HTTP/2 gRPC channel.",
       action: () => {
         logToTerminal('Agent A', 'info', 'slim_dataplane::service', 'Sending message');
@@ -113,6 +114,7 @@ const SCENARIOS = {
     },
     {
       title: "Second Node Forwarding (Node 1 -> Node 2)",
+      shortTitle: "Forward",
       desc: "The local **SLIM Node 1** receives the envelope. It checks its routing table and forwards it to the second node (**SLIM Node 2**) in the cloud.",
       action: () => {
         flashNode('core_Node1', 'flash-amber');
@@ -126,6 +128,7 @@ const SCENARIOS = {
     },
     {
       title: "Cloud Node Routing (Node 2 -> Agent B)",
+      shortTitle: "Route",
       desc: "The cloud **SLIM Node 2** receives the envelope and routes it directly to its peer connection destination, Agent B.",
       action: () => {
         flashNode('core_Node2', 'flash-orange');
@@ -139,6 +142,7 @@ const SCENARIOS = {
     },
     {
       title: "Message Delivery & Acknowledgment",
+      shortTitle: "ACK",
       desc: "Agent B processes the incoming packet. It generates a transaction acknowledgment (ACK) flowing back along the connection paths in reverse to Agent A.",
       action: () => {
         flashNode('core_Agent_B', 'flash-green');
@@ -162,6 +166,7 @@ const SCENARIOS = {
   multicast: [
     {
       title: "Publish Multicast Payload",
+      shortTitle: "Publish",
       desc: "Agent A publishes a multicast payload to channel <code>agntcy/ns/chat</code>. The message is pushed to the local **SLIM Node 1** over HTTP/2.",
       action: () => {
         logToTerminal('Agent A', 'info', 'slim_dataplane::service', 'publish');
@@ -173,6 +178,7 @@ const SCENARIOS = {
     },
     {
       title: "Multicast Forwarding (Node 1 -> Node 2)",
+      shortTitle: "Forward",
       desc: "Local **SLIM Node 1** receives the publication and forwards the multicast envelope to the cloud **SLIM Node 2**.",
       action: () => {
         flashNode('core_Node1', 'flash-amber');
@@ -186,6 +192,7 @@ const SCENARIOS = {
     },
     {
       title: "Cloud Multicast Fanout",
+      shortTitle: "Fanout",
       desc: "The cloud **SLIM Node 2** receives the envelope. It matches the channel name against its routing table, replicates the packet, and streams it to all active subscribers (Agent B, Agent C, Agent D).",
       action: () => {
         flashNode('core_Node2', 'flash-orange');
@@ -204,6 +211,7 @@ const SCENARIOS = {
     },
     {
       title: "Subscribers Receive Payload",
+      shortTitle: "Receive",
       desc: "Subscribed client nodes receive and parse the payload, returning acknowledgments back to Agent A.",
       action: () => {
         flashNode('core_Agent_B', 'flash-green');

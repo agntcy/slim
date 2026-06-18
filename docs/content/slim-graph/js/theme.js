@@ -3,37 +3,34 @@
 
 /* Sync visualizer theme with the parent MkDocs Material palette. */
 (function () {
-  var GRID_STROKES = {
-    light: "rgba(2, 81, 175, 0.08)",
-    dark: "rgba(255, 255, 255, 0.04)"
-  };
+  function readParentScheme() {
+    try {
+      var parentDoc = window.parent.document;
+      return (
+        parentDoc.documentElement.getAttribute("data-md-color-scheme") ||
+        parentDoc.body.getAttribute("data-md-color-scheme")
+      );
+    } catch (_error) {
+      return null;
+    }
+  }
 
   function resolveTheme() {
-    try {
-      var scheme = window.parent.document.documentElement.getAttribute("data-md-color-scheme");
-      if (scheme === "slate") {
-        return "dark";
-      }
-      if (scheme === "default") {
-        return "light";
-      }
-    } catch (_error) {
-      /* Standalone open or cross-origin parent — fall back locally. */
+    var scheme = readParentScheme();
+    if (scheme === "slate") {
+      return "dark";
+    }
+    if (scheme === "default") {
+      return "light";
     }
 
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
 
-  function updateGridPattern(theme) {
-    var gridPath = document.querySelector("#grid path");
-    if (gridPath) {
-      gridPath.setAttribute("stroke", GRID_STROKES[theme] || GRID_STROKES.light);
-    }
-  }
-
   function applyTheme(theme) {
-    document.documentElement.setAttribute("data-theme", theme);
-    updateGridPattern(theme);
+    var root = document.documentElement;
+    root.setAttribute("data-theme", theme);
+    root.style.colorScheme = theme;
   }
 
   function syncTheme() {
@@ -44,13 +41,29 @@
 
   syncTheme();
 
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", syncTheme);
+  }
+
+  window.addEventListener("load", syncTheme);
+
   try {
+    var parentRoot = window.parent.document.documentElement;
     var observer = new MutationObserver(syncTheme);
-    observer.observe(window.parent.document.documentElement, {
+    observer.observe(parentRoot, {
       attributes: true,
-      attributeFilter: ["data-md-color-scheme"]
+      attributeFilter: ["data-md-color-scheme", "class"]
     });
+
+    if (window.parent.document.body) {
+      observer.observe(window.parent.document.body, {
+        attributes: true,
+        attributeFilter: ["data-md-color-scheme", "class"]
+      });
+    }
   } catch (_error) {
-    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncTheme);
+    window
+      .matchMedia("(prefers-color-scheme: dark)")
+      .addEventListener("change", syncTheme);
   }
 })();
