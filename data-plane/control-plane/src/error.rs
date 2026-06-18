@@ -73,6 +73,15 @@ pub enum Error {
     // ── serialization ────────────────────────────────────────────────────────
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+
+    // ── topology ─────────────────────────────────────────────────────────────
+    /// A routing policy allows visibility between groups that have no direct
+    /// link and no transit path (topology is not star-shaped).
+    #[error(
+        "routing policy allows '{from}' to reach '{to}' but no direct link exists \
+         and topology is not star-shaped (transit not available)"
+    )]
+    NoLinkForVisibility { from: String, to: String },
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;

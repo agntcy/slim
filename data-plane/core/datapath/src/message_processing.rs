@@ -38,7 +38,8 @@ use crate::api::proto::dataplane::v1::Message;
 use crate::api::proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
 use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneService;
 use crate::api::{
-    LinkNegotiationPayload, ProtoLink, ProtoLinkMessageType as LinkType, ProtoLinkType, ProtoName,
+    LinkNegotiationPayload, ProtoLink, ProtoLinkMessageType as LinkType, ProtoLinkType,
+    ProtoMessage, ProtoName,
 };
 use crate::connection::{Channel, Connection};
 use crate::errors::{DataPathError, MessageContext};
@@ -1080,6 +1081,19 @@ impl MessageProcessor {
             }
         };
 
+        // Notify the control plane of local subscription transitions so it can
+        // create inter-group routes (SPT expansion). Only for local app connections
+        // that cause an aggregate transition (0→1 for subscribe, 1→0 for unsubscribe).
+        // Remote connection subscribes are already forwarded to the control plane
+        // by the process_stream loop.
+        if connection.is_local_connection()
+            && !outcome.is_peer_conn
+            && outcome.transition
+            && let Some(txcp) = self.get_tx_control_plane()
+        {
+            let _ = txcp.send(Ok(msg.clone())).await;
+        }
+
         // Determine forwarding targets:
         // - Peers (All): non-peer subscription with aggregate transition (0→1 or 1→0)
         // - Peers (ExcludeConn): peer subscription with remaining TTL >= 2 (relay)
@@ -1505,13 +1519,13 @@ impl MessageProcessor {
         debug!(%idx, "connection registered after link negotiation");
 
         // Handle connection-type-specific post-negotiation logic.
+        let link_id = self
+            .forwarder()
+            .get_connection(idx)
+            .and_then(|c| c.link_id())
+            .unwrap_or_default();
         let category = match result.connection_type {
             ConnType::Peer => {
-                let link_id = self
-                    .forwarder()
-                    .get_connection(idx)
-                    .and_then(|c| c.link_id())
-                    .unwrap_or_default();
                 if let Err(e) = self
                     .handle_peer_upgrade(
                         &result.remote_node_id,
@@ -1527,6 +1541,24 @@ impl MessageProcessor {
                     return None;
                 }
                 ConnType::Peer
+            }
+            ConnType::Remote => {
+                // Notify the controller that we received a remote incoming connection
+                // so it can claim the link on the control-plane side.
+                if let Some(tx) = self.get_tx_control_plane() {
+                    let link = ProtoLink {
+                        link_type: Some(ProtoLinkType::LinkNegotiation(LinkNegotiationPayload {
+                            link_id,
+                            ..Default::default()
+                        })),
+                    };
+                    let msg = ProtoMessage {
+                        metadata: Default::default(),
+                        message_type: Some(LinkType(link)),
+                    };
+                    let _ = tx.send(Ok(msg)).await;
+                }
+                ConnType::Remote
             }
             other => other,
         };
@@ -1621,10 +1653,20 @@ impl MessageProcessor {
                                         }
                                         // check if we need to send the message to the control plane
                                         // we send the message if
-                                        // 1. the message is coming from remote
-                                        // 2. it is not coming from the control plane itself
-                                        // 3. the control plane exists
-                                        if !is_local && !from_control_plane && let Some(txcp) = &tx_cp {
+                                        // 1. the message is not coming from a local connection
+                                        // 2. the connection is currently Remote (inter-group).
+                                        // 3. it is not coming from the control plane itself
+                                        // 4. the control plane exists
+                                        let is_remote = !is_local
+                                            && self_clone
+                                                .forwarder()
+                                                .get_connection(conn_index)
+                                                .map(|c| matches!(c.connection_type(), ConnType::Remote | ConnType::Edge))
+                                                .unwrap_or(false);
+                                        if is_remote
+                                            && !from_control_plane
+                                            && let Some(txcp) = &tx_cp
+                                        {
                                             match msg.get_type() {
                                                 PublishType(_) | LinkType(_) | SubscriptionAckType(_) => {/* do nothing */}
                                                 _ => {
