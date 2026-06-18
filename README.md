@@ -149,7 +149,7 @@ docker buildx build `
 
 </details>
 
-## Run SLIM
+## Run SLIM Node
 
 SLIM is run as a binary (typically deployed as a workload in k8s). Language
 bindings are maintained separately in the
@@ -172,8 +172,34 @@ basic runtime options. Some basic examples are provided in the
   encryption enabled, with no authentication.
 - [basic-auth](./config/basic-auth/server-config.yaml) is a configuration for a
   server with encryption and basic auth enabled.
+- [jwt-auth-hmac](./config/jwt-auth-hmac/server-config.yaml) is a configuration
+  for a server with JWT authentication using HMAC keys.
+- [jwt-auth-rsa](./config/jwt-auth-rsa/server-config.yaml) is a configuration
+  for a server with JWT authentication using RSA keys.
+- [jwt-auth-ecdsa](./config/jwt-auth-ecdsa/server-config.yaml) is a configuration
+  for a server with JWT authentication using ECDSA keys.
 - [mtls](./config/mtls/server-config.yaml) is a configuration for a server
   expecting clients to authenticate with a trusted certificate.
+- [spire](./config/spire/example-server.yaml) is a configuration for a server
+  using SPIFFE/SPIRE for identity and authentication.
+- [unix](./config/unix/server-config.yaml) is a configuration for a server
+  listening on a Unix domain socket.
+- [websocket](./config/websocket/server-config.yaml) is a configuration for a
+  server using WebSocket transport.
+- [proxy](./config/proxy/http.yaml) is a configuration for running behind an
+  HTTP/HTTPS proxy.
+- [logging](./config/logging/example-config.yaml) is a configuration showing
+  logging options.
+- [telemetry](./config/telemetry/server-config.yaml) is a configuration with
+  OpenTelemetry integration.
+- [east-west](./config/east-west/) is a multi-node configuration for east-west
+  traffic between two SLIM nodes.
+- [full-mesh](./config/full-mesh/) is a multi-node configuration for a
+  full-mesh topology with multiple replicas.
+- [exponential-backoff](./config/exponential-backoff/config.yaml) is a
+  configuration demonstrating exponential backoff for reconnections.
+- [fixed-interval-backoff](./config/fixed-interval-backoff/config.yaml) is a
+  configuration demonstrating fixed-interval backoff for reconnections.
 
 To run SLIM as server:
 
@@ -215,8 +241,20 @@ the [config](./config/) folder:
   encryption enabled, with no authentication.
 - [basic-auth](./config/basic-auth/client-config.yaml) is a configuration for a
   client with encryption and basic auth enabled.
+- [jwt-auth-hmac](./config/jwt-auth-hmac/client-config.yaml) is a configuration
+  for a client with JWT authentication using HMAC keys.
+- [jwt-auth-rsa](./config/jwt-auth-rsa/client-config.yaml) is a configuration
+  for a client with JWT authentication using RSA keys.
+- [jwt-auth-ecdsa](./config/jwt-auth-ecdsa/client-config.yaml) is a configuration
+  for a client with JWT authentication using ECDSA keys.
 - [mtls](./config/mtls/client-config.yaml) is a configuration for a client
   connecting to a server with a trusted certificate.
+- [spire](./config/spire/example-client.yaml) is a configuration for a client
+  using SPIFFE/SPIRE for identity and authentication.
+- [unix](./config/unix/client-config.yaml) is a configuration for a client
+  connecting via a Unix domain socket.
+- [websocket](./config/websocket/client-config.yaml) is a configuration for a
+  client using WebSocket transport.
 
 To run SLIM as client:
 
