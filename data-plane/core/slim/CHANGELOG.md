@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.2](https://github.com/agntcy/slim/compare/slim-v2.0.0-alpha.1...slim-v2.0.0-alpha.2) - 2026-06-18
+
+### Added
+
+- automatic peer discovery in k8s ([#1724](https://github.com/agntcy/slim/pull/1724))
+
 ## [2.0.0-alpha.1](https://github.com/agntcy/slim/compare/slim-v2.0.0-alpha.0...slim-v2.0.0-alpha.1) - 2026-06-17
 
 ### Added

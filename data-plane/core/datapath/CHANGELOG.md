@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.15.0...slim-datapath-v0.16.0) - 2026-06-18
+
+### Added
+
+- automatic peer discovery in k8s ([#1724](https://github.com/agntcy/slim/pull/1724))
+
+### Other
+
+- control plane ([#1716](https://github.com/agntcy/slim/pull/1716))
+
 ## [0.15.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.14.1...slim-datapath-v0.15.0) - 2026-06-17
 
 ### Added

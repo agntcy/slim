@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.2](https://github.com/agntcy/slim/compare/slimctl-v2.0.0-alpha.1...slimctl-v2.0.0-alpha.2) - 2026-06-18
+
+### Other
+
+- control plane ([#1716](https://github.com/agntcy/slim/pull/1716))
+
 ## [2.0.0-alpha.1](https://github.com/agntcy/slim/compare/slimctl-v2.0.0-alpha.0...slimctl-v2.0.0-alpha.1) - 2026-06-17
 
 ### Added
