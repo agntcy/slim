@@ -75,6 +75,11 @@ impl PeerState {
         self.conn_to_peer.get(&conn_id).map(|s| s.as_str())
     }
 
+    /// Look up a peer entry by peer ID.
+    pub fn get(&self, peer_id: &str) -> Option<&PeerEntry> {
+        self.peers.get(peer_id)
+    }
+
     /// Number of connected peers.
     pub fn len(&self) -> usize {
         self.peers.len()

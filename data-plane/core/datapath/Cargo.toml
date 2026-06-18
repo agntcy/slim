@@ -10,6 +10,7 @@ name = "slim_datapath"
 
 [features]
 default = []
+kubernetes = ["dep:kube", "dep:k8s-openapi"]
 otel_tracing = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 
 [dependencies]
@@ -40,6 +41,8 @@ drain = { workspace = true }
 fastwebsockets = { workspace = true }
 h2 = { workspace = true }
 http = { workspace = true }
+k8s-openapi = { workspace = true, features = ["v1_32"], optional = true }
+kube = { workspace = true, optional = true }
 semver = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }

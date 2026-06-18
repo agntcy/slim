@@ -22,7 +22,7 @@ pub enum DataPathError {
     #[cfg(not(target_arch = "wasm32"))]
     #[error("grpc error")]
     GrpcError(#[from] tonic::Status),
-    #[error("link negotiation error")]
+    #[error("link negotiation error {0}")]
     NegotiationError(String),
 
     // Message classification / validation

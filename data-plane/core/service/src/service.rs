@@ -10,7 +10,7 @@ use std::sync::Arc;
 use display_error_chain::ErrorChainExt;
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use slim_config::client::ClientConfig;
 use slim_config::component::configuration::Configuration;
@@ -21,7 +21,9 @@ use slim_controller::config::Config as ControllerConfig;
 use slim_controller::config::Config as DataplaneConfig;
 use slim_controller::service::ControlPlane;
 use slim_datapath::message_processing::MessageProcessor;
-use slim_datapath::peer_discovery::{PeerConfig, PeerTopology, StaticPeerDiscovery};
+#[cfg(feature = "kubernetes")]
+use slim_datapath::peer_discovery::KubernetesPeerDiscovery;
+use slim_datapath::peer_discovery::{PeerConfig, PeerDiscoveryConfig, StaticPeerDiscovery};
 use slim_datapath::sync::{PeerSync, PeerSyncConfig};
 use slim_datapath::tables::ConnType;
 
@@ -264,15 +266,9 @@ impl Service {
             .unwrap_or_default();
         let service_id = config.node_id.clone();
 
-        // Determine relay_peer_publishes at build time based on peer topology.
-        let relay_peer_publishes = match &config.peers {
-            Some(peer_config) => match peer_config.topology {
-                PeerTopology::FullMesh => false,
-                PeerTopology::HubAndSpoke => true,
-            },
-            // No peer config — standalone/generic topology needs relay.
-            None => true,
-        };
+        // In full-mesh topology, peers deliver directly (1-hop) so no relay needed.
+        // Without peer config (standalone), relay is enabled.
+        let relay_peer_publishes = config.peers.is_none();
 
         let message_processor = if let Some(server) = config.dataplane_servers().first() {
             MessageProcessor::new_with_server_config(
@@ -359,32 +355,20 @@ impl Service {
     fn start_peer_sync(&self, peer_config: &PeerConfig) {
         let self_id = self.config.node_id.clone();
 
-        // Determine if we are the hub (smallest node_id among all peers including self).
-        let is_hub = peer_config
-            .static_peers
-            .iter()
-            .map(|entry| entry.node_id.as_str())
-            .all(|peer_id| self_id.as_str() <= peer_id);
-
         info!(
             %self_id,
-            %is_hub,
             topology = ?peer_config.topology,
             deployment_name = %peer_config.deployment_name,
-            num_static_peers = peer_config.static_peers.len(),
             "starting peer sync"
         );
 
         let cancel = CancellationToken::new();
         *self.peer_sync_cancel.lock() = Some(cancel.clone());
 
-        let discovery = StaticPeerDiscovery::from_static_peers(&peer_config.static_peers, &self_id);
-
         let sync_config = PeerSyncConfig {
-            self_id,
+            self_id: self_id.clone(),
             deployment_name: peer_config.deployment_name.clone(),
             topology: peer_config.topology.clone(),
-            is_hub,
         };
 
         let mp = self.message_processor.clone();
@@ -396,11 +380,46 @@ impl Service {
         );
         self.message_processor.set_peer_sync(peer_sync.clone());
 
-        tokio::spawn(async move {
-            peer_sync
-                .run_discovery(&mp, sync_config, discovery, cancel)
-                .await;
-        });
+        match &peer_config.discovery {
+            PeerDiscoveryConfig::Static { peers } => {
+                let discovery = StaticPeerDiscovery::from_static_peers(peers, &self_id);
+                tokio::spawn(async move {
+                    peer_sync
+                        .run_discovery(&mp, sync_config, discovery, cancel)
+                        .await;
+                });
+            }
+            #[cfg(feature = "kubernetes")]
+            PeerDiscoveryConfig::Kubernetes {
+                namespace,
+                service_name,
+                port,
+            } => {
+                info!(
+                    %namespace,
+                    %service_name,
+                    %port,
+                    "starting peer sync (kubernetes EndpointSlice discovery)"
+                );
+                let discovery = KubernetesPeerDiscovery::new(
+                    namespace.clone(),
+                    service_name.clone(),
+                    *port,
+                    self_id,
+                );
+                tokio::spawn(async move {
+                    peer_sync
+                        .run_discovery(&mp, sync_config, discovery, cancel)
+                        .await;
+                });
+            }
+            #[cfg(not(feature = "kubernetes"))]
+            PeerDiscoveryConfig::Kubernetes { .. } => {
+                warn!(
+                    "kubernetes peer discovery configured but the 'kubernetes' feature is not enabled"
+                );
+            }
+        }
     }
 
     #[tracing::instrument(skip_all, fields(service_id = %self.id))]
@@ -704,10 +723,14 @@ mod tests {
 
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
+    use slim_config::client::ClientConfig;
     use slim_config::server::ServerConfig;
     use slim_config::tls::server::TlsServerConfig;
     use slim_datapath::api::MessageType;
     use slim_datapath::api::ProtoName;
+    use slim_datapath::peer_discovery::{
+        PeerConfig, PeerDiscoveryConfig, PeerTopology, StaticPeerEntry,
+    };
     use slim_session::SessionConfig;
     use slim_session::session_config::MlsSettings;
     use slim_testing::utils::TEST_VALID_SECRET;
@@ -1147,5 +1170,85 @@ mod tests {
             }),
             "Session creation should fail for non-existent destination"
         );
+    }
+
+    // ── relay_peer_publishes topology tests ─────────────────────────────
+
+    #[test]
+    fn test_relay_peer_publishes_full_mesh_is_false() {
+        let tls_config = TlsServerConfig::new().with_insecure(true);
+        let server_config = ServerConfig::with_endpoint("0.0.0.0:0").with_tls_settings(tls_config);
+        let config = ServiceConfiguration::new()
+            .with_dataplane_server(vec![server_config])
+            .with_peers(PeerConfig {
+                deployment_name: "test".to_string(),
+                topology: PeerTopology::FullMesh,
+                discovery: PeerDiscoveryConfig::Static {
+                    peers: vec![StaticPeerEntry {
+                        node_id: "peer-1".to_string(),
+                        config: ClientConfig::with_endpoint("http://127.0.0.1:9999"),
+                    }],
+                },
+            });
+        let service = config
+            .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test-fm").unwrap())
+            .unwrap();
+
+        // In FullMesh, peers receive subscriptions directly, so relay is disabled.
+        assert!(!service.message_processor().relay_peer_publishes());
+    }
+
+    #[test]
+    fn test_relay_peer_publishes_no_peers_is_true() {
+        let tls_config = TlsServerConfig::new().with_insecure(true);
+        let server_config = ServerConfig::with_endpoint("0.0.0.0:0").with_tls_settings(tls_config);
+        let config = ServiceConfiguration::new().with_dataplane_server(vec![server_config]);
+        let service = config
+            .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test-no-peers").unwrap())
+            .unwrap();
+
+        // Without peer config (standalone), relay is enabled.
+        assert!(service.message_processor().relay_peer_publishes());
+    }
+
+    // ── peer sync config construction ───────────────────────────────────
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_peer_sync_starts_with_static_discovery() {
+        let port = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap().port()
+        };
+
+        let tls_config = TlsServerConfig::new().with_insecure(true);
+        let server_config =
+            ServerConfig::with_endpoint(&format!("0.0.0.0:{port}")).with_tls_settings(tls_config);
+        let peer_config = PeerConfig {
+            deployment_name: "test-deploy".to_string(),
+            topology: PeerTopology::FullMesh,
+            discovery: PeerDiscoveryConfig::Static {
+                peers: vec![StaticPeerEntry {
+                    node_id: "other-node".to_string(),
+                    config: ClientConfig::with_endpoint("http://127.0.0.1:19999"),
+                }],
+            },
+        };
+        let mut svc_config = ServiceConfiguration::new();
+        svc_config.node_id = "self-node".to_string();
+        let svc_config = svc_config
+            .with_dataplane_server(vec![server_config])
+            .with_peers(peer_config);
+
+        let service = svc_config
+            .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test-static").unwrap())
+            .unwrap();
+
+        service.run().await.expect("service should start");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        assert!(logs_contain("starting peer sync"));
+
+        service.shutdown().await.ok();
     }
 }

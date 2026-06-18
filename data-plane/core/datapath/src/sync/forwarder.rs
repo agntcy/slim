@@ -79,8 +79,6 @@ pub struct PeerSyncConfig {
     pub deployment_name: String,
     /// Topology for peer connections.
     pub topology: PeerTopology,
-    /// Whether this node is the hub (smallest ID). Only meaningful for HubAndSpoke.
-    pub is_hub: bool,
 }
 
 /// Peer synchronization and subscription forwarding.
@@ -138,7 +136,6 @@ struct PeerSyncInner {
     subscription_ttl: u32,
     /// Filter to apply when syncing subscriptions with a new peer.
     /// FullMesh → EXCLUDE_PEER (peers get subs from each other directly).
-    /// HubAndSpoke / standalone → ALL.
     sync_filter: crate::tables::MatchFilter,
     /// Shared peer state (if discovery is active).
     /// Used to register incoming peers directly without a channel.
@@ -150,7 +147,6 @@ impl PeerSync {
     pub fn new(topology: &PeerTopology) -> Self {
         let (subscription_ttl, sync_filter) = match topology {
             PeerTopology::FullMesh => (2, crate::tables::MatchFilter::EXCLUDE_PEER),
-            PeerTopology::HubAndSpoke => (3, crate::tables::MatchFilter::ALL),
         };
         Self {
             inner: Arc::new(PeerSyncInner {
@@ -169,7 +165,6 @@ impl PeerSync {
     pub fn with_peer_state(topology: &PeerTopology, peer_state: Arc<RwLock<PeerState>>) -> Self {
         let (subscription_ttl, sync_filter) = match topology {
             PeerTopology::FullMesh => (2, crate::tables::MatchFilter::EXCLUDE_PEER),
-            PeerTopology::HubAndSpoke => (3, crate::tables::MatchFilter::ALL),
         };
         Self {
             inner: Arc::new(PeerSyncInner {
@@ -351,11 +346,8 @@ impl PeerSync {
 
     /// Handle a newly discovered peer.
     ///
-    /// Connection behavior depends on topology:
-    /// - **FullMesh**: only the node with the lexicographically smaller self_id
-    ///   initiates the outbound connection (tie-breaking for deduplication).
-    /// - **HubAndSpoke**: only the hub (smallest ID) initiates connections.
-    ///   Spokes never dial out.
+    /// In full-mesh topology, only the node with the lexicographically smaller
+    /// self_id initiates each pairwise connection (tie-breaking for dedup).
     async fn handle_peer_joined(
         &self,
         mp: &MessageProcessor,
@@ -368,17 +360,14 @@ impl PeerSync {
             return;
         }
 
-        // Determine whether to dial based on topology.
-        let should_dial = match config.topology {
-            PeerTopology::FullMesh => config.self_id < peer.id,
-            PeerTopology::HubAndSpoke => config.is_hub,
-        };
+        // In full mesh, only the node with the smaller ID initiates
+        // each pairwise connection (avoids duplicate links).
+        let should_dial = config.self_id < peer.id;
 
         if !should_dial {
             debug!(
                 peer_id = %peer.id,
                 self_id = %config.self_id,
-                topology = ?config.topology,
                 "skipping outbound connection (waiting for incoming)"
             );
             return;
@@ -411,13 +400,9 @@ impl PeerSync {
 
                 self.add_peer_conn(conn_id);
 
-                // Perform full sync: send subscriptions to the new peer.
+                // Perform subscription sync with the new peer.
                 let ttl = self.inner.subscription_ttl;
-                let sync_result = if config.is_hub && config.topology == PeerTopology::HubAndSpoke {
-                    peer::send_full_sync(mp, conn_id, ttl).await
-                } else {
-                    peer::send_local_remote_sync(mp, conn_id, ttl).await
-                };
+                let sync_result = peer::send_local_remote_sync(mp, conn_id, ttl).await;
                 if let Err(e) = sync_result {
                     warn!(
                         peer_id = %peer.id,
@@ -453,9 +438,7 @@ impl PeerSync {
             );
 
             self.remove_peer_conn(entry.conn_id);
-            if entry.is_outgoing
-                && let Err(e) = mp.disconnect(entry.conn_id)
-            {
+            if let Err(e) = mp.disconnect(entry.conn_id) {
                 warn!(
                     peer_id = %peer.id,
                     error = %e,
@@ -467,15 +450,35 @@ impl PeerSync {
 
     /// Notify that a connection was dropped. Cleans up peer state if it was a peer.
     pub fn on_connection_drop(&self, conn_id: u64) {
-        if let Some(ref state) = self.inner.peer_state
-            && let Some((peer_id, _entry)) = state.write().remove_by_conn(conn_id)
-        {
-            info!(
-                %peer_id,
-                %conn_id,
-                "peer connection dropped, cleaned up state"
-            );
-            self.remove_peer_conn(conn_id);
+        if let Some(ref state) = self.inner.peer_state {
+            // Look up peer info under a read lock.
+            let peer_info = {
+                let s = state.read();
+                s.peer_id_for_conn(conn_id)
+                    .and_then(|id| s.get(id).map(|entry| (id.to_string(), entry.is_outgoing)))
+            };
+
+            if let Some((peer_id, is_outgoing)) = peer_info {
+                if is_outgoing {
+                    // For outgoing peer connections, keep the peer_state entry.
+                    // The discovery-driven handle_peer_left will clean it up
+                    // and call mp.disconnect() to stop reconnection.
+                    debug!(
+                        %peer_id,
+                        %conn_id,
+                        "outgoing peer connection dropped, awaiting discovery Left event"
+                    );
+                } else {
+                    // For incoming connections, clean up immediately.
+                    state.write().remove_by_conn(conn_id);
+                    info!(
+                        %peer_id,
+                        %conn_id,
+                        "incoming peer connection dropped, cleaned up state"
+                    );
+                    self.remove_peer_conn(conn_id);
+                }
+            }
         }
     }
 
@@ -1243,7 +1246,7 @@ mod tests {
     // ── on_connection_drop ──────────────────────────────────────────────────
 
     #[test]
-    fn test_on_connection_drop_removes_peer_state() {
+    fn test_on_connection_drop_keeps_outgoing_peer_state() {
         let fwd = make_forwarder_with_state();
         let state = fwd.peer_state().unwrap();
         state.write().insert(
@@ -1257,6 +1260,26 @@ mod tests {
         fwd.add_peer_conn(50);
 
         fwd.on_connection_drop(50);
+        // Outgoing peer state is kept for discovery-driven cleanup
+        assert!(state.read().contains("peer-a"));
+    }
+
+    #[test]
+    fn test_on_connection_drop_removes_incoming_peer_state() {
+        let fwd = make_forwarder_with_state();
+        let state = fwd.peer_state().unwrap();
+        state.write().insert(
+            "peer-a".to_string(),
+            PeerEntry {
+                conn_id: 50,
+                endpoint: "http://a".to_string(),
+                is_outgoing: false,
+            },
+        );
+        fwd.add_peer_conn(50);
+
+        fwd.on_connection_drop(50);
+        // Incoming peer state is cleaned up immediately
         assert!(!fwd.peer_conns().contains(&50));
         assert!(!state.read().contains("peer-a"));
     }
@@ -1340,12 +1363,6 @@ mod tests {
     }
 
     #[test]
-    fn test_hub_and_spoke_constructor() {
-        let fwd = PeerSync::new(&PeerTopology::HubAndSpoke);
-        assert_eq!(fwd.subscription_ttl(), 3);
-    }
-
-    #[test]
     fn test_with_peer_state_constructor() {
         let fwd = make_forwarder_with_state();
         assert!(fwd.has_peer_state());
@@ -1403,7 +1420,6 @@ mod tests {
             self_id: "self".to_string(),
             deployment_name: "deploy".to_string(),
             topology: PeerTopology::FullMesh,
-            is_hub: false,
         };
 
         let discovery =
@@ -1421,7 +1437,6 @@ mod tests {
             self_id: "self".to_string(),
             deployment_name: "deploy".to_string(),
             topology: PeerTopology::FullMesh,
-            is_hub: false,
         };
 
         let discovery = MockDiscovery::new(vec![]);
@@ -1438,7 +1453,6 @@ mod tests {
             self_id: "self".to_string(),
             deployment_name: "deploy".to_string(),
             topology: PeerTopology::FullMesh,
-            is_hub: false,
         };
 
         let discovery = MockDiscovery::new(vec![Err(PeerDiscoveryError::Backend(
@@ -1458,7 +1472,6 @@ mod tests {
             self_id: "self-node".to_string(),
             deployment_name: "deploy".to_string(),
             topology: PeerTopology::FullMesh,
-            is_hub: false,
         };
 
         // Peer with same id as self → skip
@@ -1475,27 +1488,10 @@ mod tests {
             self_id: "z-node".to_string(), // lexicographically larger
             deployment_name: "deploy".to_string(),
             topology: PeerTopology::FullMesh,
-            is_hub: false,
         };
 
         // In FullMesh, only smaller ID dials → "z-node" > "a-peer", so no dial
         let peer = make_peer_info("a-peer");
-        fwd.handle_peer_joined(&mp, &config, peer).await;
-        assert!(fwd.peer_conns().is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_handle_peer_joined_skip_no_dial_spoke() {
-        let fwd = make_forwarder_with_state();
-        let mp = MessageProcessor::new();
-        let config = PeerSyncConfig {
-            self_id: "spoke-node".to_string(),
-            deployment_name: "deploy".to_string(),
-            topology: PeerTopology::HubAndSpoke,
-            is_hub: false, // spoke never dials
-        };
-
-        let peer = make_peer_info("other");
         fwd.handle_peer_joined(&mp, &config, peer).await;
         assert!(fwd.peer_conns().is_empty());
     }
@@ -1508,7 +1504,6 @@ mod tests {
             self_id: "a-node".to_string(), // smaller → should_dial
             deployment_name: "deploy".to_string(),
             topology: PeerTopology::FullMesh,
-            is_hub: false,
         };
 
         // Pre-register the peer as already connected
