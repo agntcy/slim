@@ -112,6 +112,9 @@ topology:
       neighbors: [group-b, group-d]
     - name: group-d
       neighbors: [group-c]
+    - name: group-b
+    - name: group-c
+    - name: group-d
 ```
 
 The topology is enforced during link creation.
