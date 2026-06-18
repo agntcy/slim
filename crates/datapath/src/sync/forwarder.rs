@@ -803,7 +803,7 @@ impl PeerSync {
         // Track in remote subscription table (for reconnection replay) — both add and remove.
         let source = msg.get_source();
         let dst = msg.get_dst();
-        let identity = msg.get_identity();
+        let identity = msg.get_identity().to_string();
         mp.remote_sync()
             .on_forwarded_subscription(source, dst, identity, out_conn, add, sub_id);
 

@@ -78,12 +78,12 @@ pub struct SlimHeader {
     pub source: ::core::option::Option<Name>,
     #[prost(message, optional, tag = "2")]
     pub destination: ::core::option::Option<Name>,
-    #[prost(string, tag = "3")]
-    pub identity: ::prost::alloc::string::String,
+    #[prost(bytes = "bytes", tag = "3")]
+    pub identity: ::prost::bytes::Bytes,
     #[prost(uint32, tag = "4")]
     pub fanout: u32,
-    #[prost(string, tag = "5")]
-    pub version: ::prost::alloc::string::String,
+    #[prost(bytes = "bytes", tag = "5")]
+    pub version: ::prost::bytes::Bytes,
     #[prost(uint32, tag = "6")]
     pub ttl: u32,
     #[prost(uint64, optional, tag = "7")]
@@ -94,10 +94,8 @@ pub struct SlimHeader {
     pub incoming_conn: ::core::option::Option<u64>,
     #[prost(bool, optional, tag = "10")]
     pub error: ::core::option::Option<bool>,
-    #[prost(bytes = "vec", optional, tag = "11")]
-    pub header_mac: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
-    #[prost(bytes = "vec", optional, tag = "12")]
-    pub e2e_header_sig: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(bytes = "bytes", optional, tag = "11")]
+    pub header_mac: ::core::option::Option<::prost::bytes::Bytes>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SessionHeader {
@@ -110,41 +108,23 @@ pub struct SessionHeader {
     #[prost(uint32, tag = "4")]
     pub message_id: u32,
 }
+/// Name encodes a hierarchical 3-component SLIM name.
+///
+/// encoded_name: 40-byte flat encoding of the numeric components and id.
+/// Layout: \[component_0: u64 LE\]\[component_1: u64 LE\]\[component_2: u64 LE\]
+/// \[id_0: u64 LE\]\[id_1: u64 LE\]
+/// Empty bytes = name not set. id = u128::MAX (NULL_COMPONENT) means "no id".
+///
+/// str_name: packed human-readable components.
+/// Layout: \[len_0: u32 LE\]\[component_0 bytes\]\[len_1: u32 LE\]\[component_1 bytes\]
+/// \[len_2: u32 LE\]\[component_2 bytes\]
+/// Empty bytes = str_name not set.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Name {
-    #[prost(message, optional, tag = "1")]
-    pub name: ::core::option::Option<EncodedName>,
-    #[prost(message, optional, tag = "2")]
-    pub str_name: ::core::option::Option<StringName>,
-}
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct NameId {
-    /// higher 64 bits
-    #[prost(uint64, tag = "1")]
-    pub id_0: u64,
-    /// lower 64 bits
-    #[prost(uint64, tag = "2")]
-    pub id_1: u64,
-}
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct EncodedName {
-    #[prost(uint64, tag = "1")]
-    pub component_0: u64,
-    #[prost(uint64, tag = "2")]
-    pub component_1: u64,
-    #[prost(uint64, tag = "3")]
-    pub component_2: u64,
-    #[prost(message, optional, tag = "4")]
-    pub name_id: ::core::option::Option<NameId>,
-}
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct StringName {
     #[prost(bytes = "bytes", tag = "1")]
-    pub str_component_0: ::prost::bytes::Bytes,
+    pub encoded_name: ::prost::bytes::Bytes,
     #[prost(bytes = "bytes", tag = "2")]
-    pub str_component_1: ::prost::bytes::Bytes,
-    #[prost(bytes = "bytes", tag = "3")]
-    pub str_component_2: ::prost::bytes::Bytes,
+    pub str_name: ::prost::bytes::Bytes,
 }
 /// SLIM message content
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -166,8 +146,8 @@ pub mod content {
 pub struct ApplicationPayload {
     #[prost(string, tag = "1")]
     pub payload_type: ::prost::alloc::string::String,
-    #[prost(bytes = "vec", tag = "2")]
-    pub blob: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "bytes", tag = "2")]
+    pub blob: ::prost::bytes::Bytes,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CommandPayload {
