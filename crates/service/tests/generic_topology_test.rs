@@ -112,7 +112,7 @@ async fn start_chain(count: usize) -> Vec<GenericNode> {
 }
 
 /// Build a star topology: all nodes connect as peers to node 0 (center).
-/// Unlike hub-and-spoke with PeerSyncManager, this uses generic TTL-based forwarding.
+/// This uses generic TTL-based forwarding (no PeerSyncManager).
 async fn start_star(count: usize) -> Vec<GenericNode> {
     let ports: Vec<u16> = (0..count).map(|_| reserve_local_port()).collect();
     let node_ids: Vec<String> = (0..count).map(|i| format!("star-{}", ports[i])).collect();

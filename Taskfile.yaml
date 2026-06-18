@@ -24,15 +24,17 @@ vars:
     sh: '[[ {{.PROFILE}} == "release" ]] && echo "--release" || echo ""'
   CURRENT_TARGET:
     sh: 'rustc -vV | sed -n "s|host: ||p"'
-  TARGET: "{{.TARGET | default .CURRENT_TARGET}}"
+  TARGET: '{{.TARGET | default ""}}'
   TARGET_ARGS:
     sh: '[[ -z "{{.TARGET}}" ]] && echo '''' || echo ''--target {{.TARGET}}'''
+  TARGET_DIR:
+    sh: '[[ -z "{{.TARGET}}" ]] && echo "target" || echo "target/{{.TARGET}}"'
   TARGET_ARCH:
-    sh: 'echo {{.TARGET}} | cut -d"-" -f1'
+    sh: '[[ -z "{{.TARGET}}" ]] && echo "" || echo {{.TARGET}} | cut -d"-" -f1'
   TARGET_OS:
-    sh: 'echo {{.TARGET}} | cut -d"-" -f3'
+    sh: '[[ -z "{{.TARGET}}" ]] && echo "" || echo {{.TARGET}} | cut -d"-" -f3'
   TARGET_ABI:
-    sh: 'echo {{.TARGET}} | cut -d"-" -f4 || echo ""'
+    sh: '[[ -z "{{.TARGET}}" ]] && echo "" || echo {{.TARGET}} | cut -d"-" -f4'
 
   LLVM_VERSION: '{{ .LLVM_VERSION | default "19" }}'
   OBJCOPY: 'llvm-objcopy-{{.LLVM_VERSION}}'
@@ -67,7 +69,7 @@ tasks:
       - task: build
       - task: strip
         vars:
-          TARGET_BIN: "target/{{.TARGET}}/{{.PROFILE}}/slim"
+          TARGET_BIN: "{{.TARGET_DIR}}/{{.PROFILE}}/slim"
 
   run:
     desc: "Run a binary"
@@ -112,12 +114,11 @@ tasks:
   slimctl:build:
     desc: "Build Rust slimctl and stage it in .dist/bin"
     cmds:
-      - cargo build --package agntcy-slimctl --profile {{.PROFILE}} --target {{.TARGET}}
+      - cargo build --package agntcy-slimctl --profile {{.PROFILE}} {{.TARGET_ARGS}}
       - mkdir -p .dist/bin
-      - cp target/{{.PROFILE}}/slimctl .dist/bin/slimctl
+      - cp {{.TARGET_DIR}}/{{.PROFILE}}/slimctl .dist/bin/slimctl
     vars:
       PROFILE: '{{.PROFILE | default "debug"}}'
-      TARGET: '{{.TARGET | default ""}}'
 
   control-plane:build:
     desc: "Build Rust control-plane binary and stage it in .dist/bin"
@@ -420,6 +421,8 @@ tasks:
   install-target:
     desc: "Install the target"
     internal: true
+    status:
+      - '[[ -z "{{.TARGET}}" ]]'
     cmds:
       - rustup target add {{.TARGET}}
 
