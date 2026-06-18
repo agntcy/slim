@@ -11,6 +11,7 @@
 //! * `crate::grpc::client` — gRPC tonic channel building
 //! * `crate::websocket::client` — WebSocket channel building
 
+use display_error_chain::ErrorChainExt;
 use duration_string::DurationString;
 use std::{collections::HashMap, time::Duration};
 
@@ -447,9 +448,9 @@ impl ClientConfig {
         RetryIf::start(strategy, attempt, |e: &ConfigError| {
             let retry = e.is_retryable_connect_error();
             if retry {
-                tracing::warn!(error = %e, "transient connect error, retrying");
+                tracing::warn!(error = %e.chain(), "transient connect error, retrying");
             } else {
-                tracing::error!(error = %e, "non-retryable connect error");
+                tracing::error!(error = %e.chain(), "non-retryable connect error");
             }
             retry
         })

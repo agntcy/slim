@@ -32,8 +32,9 @@ use crate::errors::ControllerError;
 use prost_types::Struct;
 use slim_config::client::{ClientConfig, TransportChannel};
 use slim_datapath::api::{
-    MessageType::Subscribe, MessageType::SubscriptionAck as SubscriptionAckType,
-    MessageType::Unsubscribe, ProtoMessage as DataPlaneMessage,
+    MessageType::Link as LinkMessageType, MessageType::Subscribe,
+    MessageType::SubscriptionAck as SubscriptionAckType, MessageType::Unsubscribe,
+    ProtoMessage as DataPlaneMessage,
 };
 use slim_datapath::api::{NameId, ProtoName};
 use slim_datapath::message_processing::MessageProcessor;
@@ -402,6 +403,9 @@ impl ControlPlane {
                                             SubscriptionAckType(_) => {
                                                 controller.inner.subscription_manager.resolve_ack(msg.get_subscription_ack());
                                             }
+                                            LinkMessageType(link) => {
+                                                controller.handle_link_received(link, &clients).await;
+                                            }
                                             _ => {
                                                 debug!("Ignoring unexpected message type from dataplane: {:?}", msg.get_type());
                                             }
@@ -616,7 +620,11 @@ impl ControllerService {
             .message_processor
             .connection_table()
             .for_each(|_id, conn| {
+                // Only manage Remote connections (CP-managed inter-group links).
+                // Peer connections are managed by the peer sync system and must not
+                // be deleted by the reconciler.
                 if conn.is_outgoing()
+                    && conn.connection_type() == slim_datapath::tables::ConnType::Remote
                     && let Some(lid) = conn.link_id()
                     && !lid.is_empty()
                 {
@@ -1428,10 +1436,55 @@ impl ControllerService {
                 routes_to_set: sub_vec,
                 routes_to_delete: vec![],
                 reconcile: false,
+                connections_received: vec![],
             })),
         };
 
         return self.send_or_queue_notification(ctrl, clients).await;
+    }
+
+    /// Called when the data plane completes a link negotiation for a remote
+    /// incoming connection. Notifies the control-plane so it can claim the link.
+    async fn handle_link_received(
+        &self,
+        link: &slim_datapath::api::ProtoLink,
+        clients: &[ClientConfig],
+    ) {
+        use slim_datapath::api::ProtoLinkType;
+
+        let link_id = match &link.link_type {
+            Some(ProtoLinkType::LinkNegotiation(payload)) => &payload.link_id,
+            _ => {
+                debug!("handle_link_received: ignoring link message without negotiation payload");
+                return;
+            }
+        };
+
+        if link_id.is_empty() {
+            debug!("handle_link_received: ignoring link message with empty link_id");
+            return;
+        }
+
+        let ctrl = ControlMessage {
+            message_id: uuid::Uuid::new_v4().to_string(),
+            payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
+                connections_to_create: vec![],
+                connections_to_delete: vec![],
+                routes_to_set: vec![],
+                routes_to_delete: vec![],
+                reconcile: false,
+                connections_received: vec![v1::ConnectionEntry {
+                    id: 0,
+                    connection_type: ConnectionType::Remote as i32,
+                    config_data: String::new(),
+                    link_id: Some(link_id.clone()),
+                    direction: ConnectionDirection::Incoming as i32,
+                    peer_node_id: None,
+                }],
+            })),
+        };
+
+        self.send_or_queue_notification(ctrl, clients).await;
     }
 
     async fn handle_unsubscribe_message(&self, dst: ProtoName, clients: &[ClientConfig]) {
@@ -1453,6 +1506,7 @@ impl ControllerService {
                 routes_to_set: vec![],
                 routes_to_delete: unsub_vec,
                 reconcile: false,
+                connections_received: vec![],
             })),
         };
 
@@ -1754,6 +1808,7 @@ impl ControllerService {
                                     routes_to_delete: vec![],
                                     connections_to_delete: vec![],
                                     reconcile: true,
+                                    connections_received: vec![],
                                 })),
                             };
                             if let Err(e) = this.handle_new_control_message(init_cmd, &tx).await {
@@ -2083,6 +2138,7 @@ mod tests {
                     }],
                     routes_to_delete: vec![],
                     reconcile: false,
+                    connections_received: vec![],
                 })),
             };
             controller
@@ -2148,6 +2204,7 @@ mod tests {
                 routes_to_set: vec![],
                 routes_to_delete: vec![],
                 reconcile: false,
+                connections_received: vec![],
             })),
         };
         let (tx, mut rx) = mpsc::channel(1);
@@ -2189,6 +2246,7 @@ mod tests {
                 routes_to_set: vec![],
                 routes_to_delete: vec![],
                 reconcile: false,
+                connections_received: vec![],
             })),
         };
         let (tx, mut rx) = mpsc::channel(1);
@@ -2265,6 +2323,7 @@ mod tests {
                 routes_to_set: vec![],
                 routes_to_delete: vec![],
                 reconcile: false,
+                connections_received: vec![],
             })),
         };
 
@@ -2320,6 +2379,7 @@ mod tests {
                 }],
                 routes_to_delete: vec![],
                 reconcile: false,
+                connections_received: vec![],
             })),
         };
         let (tx, mut rx) = mpsc::channel(1);
@@ -2371,6 +2431,7 @@ mod tests {
                 routes_to_set: vec![],
                 routes_to_delete: vec![],
                 reconcile: false,
+                connections_received: vec![],
             })),
         };
         let (tx, mut rx) = mpsc::channel(1);
@@ -2420,6 +2481,7 @@ mod tests {
                     direction: None,
                 }],
                 reconcile: false,
+                connections_received: vec![],
             })),
         };
         let (tx, mut rx) = mpsc::channel(1);

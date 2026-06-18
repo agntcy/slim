@@ -177,6 +177,7 @@ async fn route_add(route: &str, via: &str, config_file: &str, opts: &ClientConfi
             routes_to_set: vec![route],
             routes_to_delete: vec![],
             reconcile: false,
+            connections_received: vec![],
         })),
     };
     let mut client = get_controller_client(opts).await?;
@@ -237,6 +238,7 @@ async fn route_del(route: &str, via: &str, destination: &str, opts: &ClientConfi
             routes_to_set: vec![],
             routes_to_delete: vec![route],
             reconcile: false,
+            connections_received: vec![],
         })),
     };
     let mut client = get_controller_client(opts).await?;
