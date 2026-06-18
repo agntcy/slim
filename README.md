@@ -1,4 +1,4 @@
-[![CI](https://github.com/agntcy/slim/actions/workflows/data-plane.yaml/badge.svg)](https://github.com/agntcy/slim/actions/workflows/data-plane.yaml)
+[![CI](https://github.com/agntcy/slim/actions/workflows/ci.yaml/badge.svg)](https://github.com/agntcy/slim/actions/workflows/ci.yaml)
 [![codecov](https://codecov.io/gh/agntcy/slim/branch/main/graph/badge.svg)](https://codecov.io/gh/agntcy/slim)
 [![Coverage](https://img.shields.io/badge/Coverage-passing-brightgreen)](https://codecov.io/gh/agntcy/slim)
 
@@ -17,9 +17,9 @@ AI agent protocols like [A2A (Agent-to-Agent)](https://a2a.ai) and
   [Dotnet](https://github.com/agntcy/slim-bindings/tree/main/dotnet) |
   [Java](https://github.com/agntcy/slim-bindings/tree/main/java/examples) |
   [Kotlin](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples)
-- 🔌 **[Integrations](https://docs.agntcy.org/slim/slim-rpc/)** - 
-  [A2A](https://github.com/agntcy/slim-a2a-python) | 
-  [MCP](https://github.com/agntcy/slim-mcp-python) | 
+- 🔌 **[Integrations](https://docs.agntcy.org/slim/slim-rpc/)** -
+  [A2A](https://github.com/agntcy/slim-a2a-python) |
+  [MCP](https://github.com/agntcy/slim-mcp-python) |
   [OpenTelemetry](https://github.com/agntcy/slim-otel)
 - 🚀 **[Deployment Strategies](./deployments/readme.md)**
 - 📝 **[Technical blog posts](https://blogs.agntcy.org)**
@@ -39,73 +39,9 @@ with three main components:
 
 This separation enables efficient deployment: SLIM routing nodes run only the
 lightweight data plane, while applications use language bindings with the full
-stack (data plane client + [session layer](https://docs.agntcy.org/slim/slim-data-plane/) + 
+stack (data plane client + [session layer](https://docs.agntcy.org/slim/slim-data-plane/) +
 [SLIMRPC](https://docs.agntcy.org/slim/slim-rpc/)) for secure, feature-rich
 communication.
-
-## Quick Start
-
-### Installation
-
-SLIM consists of multiple components with different installation methods:
-
-- **SLIM Node** (data plane): Docker, Cargo, or Helm
-- **Control Plane**: Docker or Helm
-- **slimctl CLI**: Download from [releases](https://github.com/agntcy/slim/releases?q=slimctl-v1.&expanded=true)
-- **Language Bindings**: Python (pip), Go, C#, JavaScript/TypeScript, Kotlin
-
-📦 **[Complete installation instructions](https://docs.agntcy.org/slim/slim-howto/)**
-
-### Building from Source
-
-Build all components using [Taskfile](https://taskfile.dev/):
-
-```bash
-# Build the project
-task data-plane:build PROFILE=release
-
-# Run tests
-task data-plane:test
-```
-
-### Running SLIM
-
-Start a SLIM server node:
-
-```bash
-# Run with basic configuration
-cd data-plane && cargo run --bin slim -- --config ./config/base/server-config.yaml
-
-# Or using Docker
-docker run -it \
-    -v ./data-plane/config/base/server-config.yaml:/config.yaml \
-    -p 46357:46357 \
-    ghcr.io/agntcy/slim:latest /slim --config /config.yaml
-```
-
-Check the [data-plane README](./data-plane/README.md) for detailed configuration
-options including TLS, authentication, and mTLS.
-
-## Repo Structure
-
-- **[data-plane](./data-plane)**: Rust-powered message routing and client
-  libraries
-    - SLIM node binary for message forwarding
-    - Session layer with MLS encryption
-    - Control plane
-    - SRPC (SLIMRPC) for request-response patterns
-    - Language bindings live in
-      [slim-bindings](https://github.com/agntcy/slim-bindings):
-      [Python](https://github.com/agntcy/slim-bindings/tree/main/python),
-      [Go](https://github.com/agntcy/slim-bindings/tree/main/go),
-      [Dotnet](https://github.com/agntcy/slim-bindings/tree/main/dotnet),
-      [Kotlin](https://github.com/agntcy/slim-bindings/tree/main/kotlin),
-      [Java](https://github.com/agntcy/slim-bindings/tree/main/java)
-
-- **[charts](./charts)**: Kubernetes deployment
-    - [slim](./charts/slim): Helm chart for data-plane nodes
-    - [slim-control-plane](./charts/slim-control-plane): Helm chart for
-      control-plane services
 
 ## Prerequisites
 
@@ -137,11 +73,221 @@ sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b ~/.local/bin
 
 ### [Rust](https://rustup.rs/)
 
-The data-plane components are implemented in rust. Install with rustup:
+SLIM is implemented in Rust. Install with rustup:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
+
+## Quick Start
+
+### Installation
+
+SLIM consists of multiple components with different installation methods:
+
+- **SLIM Node** (data plane): Docker, Cargo, or Helm
+- **Control Plane**: Docker or Helm
+- **slimctl CLI**: Download from [releases](https://github.com/agntcy/slim/releases?q=slimctl-v1.&expanded=true)
+- **Language Bindings**: Python (pip), Go, C#, JavaScript/TypeScript, Kotlin
+
+📦 **[Complete installation instructions](https://docs.agntcy.org/slim/slim-howto/)**
+
+### Build
+
+Set the build profile you prefer. Available options:
+
+- debug
+- release
+
+```bash
+PROFILE=release
+# PROFILE=debug
+
+task build PROFILE=${PROFILE}
+```
+
+This will build all SLIM binaries.
+
+### Container Image
+
+To run a multiarch image of SLIM (linux/arm64 & linux/amd64):
+
+```bash
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+docker build -t slim -f "${REPO_ROOT}/Dockerfile" --platform linux/amd64,linux/arm64 "${REPO_ROOT}"
+```
+
+Or alternatively, with docker buildx bake:
+
+```bash
+pushd $(git rev-parse --show-toplevel) && IMAGE_REPO=slim IMAGE_TAG=latest docker buildx bake slim && popd
+```
+
+<details>
+  <summary>Container Image on Windows</summary>
+
+The container image build process was tested on Windows 10 + Hyper-V and Windows 11 + WSL 2.
+The instructions below assume [Powershell 7](<https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-windows?view=powershell-7.5>).
+
+Set the repo root environment variable:
+
+```Powershell
+$env:REPO_ROOT = "C:\Users\<your-user>\slim"
+```
+
+Before building, ensure the Dockerfile uses **LF** line endings (not CRLF). In VSCode, click `CRLF` in the bottom-right corner and select `LF`, then save.
+
+Build the container (arm64 is not supported on Windows):
+
+```Powershell
+docker buildx build `
+    -t slim `
+    -f "$env:REPO_ROOT\Dockerfile" `
+    --platform linux/amd64 `
+    "$env:REPO_ROOT"
+```
+
+</details>
+
+## Run SLIM
+
+SLIM is run as a binary (typically deployed as a workload in k8s). Language
+bindings are maintained separately in the
+[slim-bindings](https://github.com/agntcy/slim-bindings) repository.
+
+SLIM can run in server mode, in client mode or both (i.e. spawning a
+server and connecting to another SLIM instance at the same time).
+
+### Server
+
+To run SLIM binary as server, a configuration file is needed to setup the
+basic runtime options. Some basic examples are provided in the
+[config](./config/) folder:
+
+- [reference](./config/reference/config.yaml) is a reference configuration, with
+  comments explaining all the available options.
+- [base](./config/base/server-config.yaml) is a base configuration for a server
+  without encryption and authentication.
+- [tls](./config/tls/server-config.yaml) is a configuration for a server with
+  encryption enabled, with no authentication.
+- [basic-auth](./config/basic-auth/server-config.yaml) is a configuration for a
+  server with encryption and basic auth enabled.
+- [mtls](./config/mtls/server-config.yaml) is a configuration for a server
+  expecting clients to authenticate with a trusted certificate.
+
+To run SLIM as server:
+
+```bash
+MODE=base
+# MODE=tls
+# MODE=basic-auth; export PASSWORD=12345  # Unix/Linux/macOS
+# MODE=basic-auth; $env:PASSWORD = "12345"  # Windows PowerShell
+# MODE=mtls
+
+cargo run --bin slim -- --config ./config/${MODE}/server-config.yaml
+```
+
+Or, using the container image (assuming the image name is
+`slim`):
+
+```bash
+docker run -it \
+    -e PASSWORD=${PASSWORD} \
+    -v ./config/base/server-config.yaml:/config.yaml \
+    -p 46357:46357 \
+    ghcr.io/agntcy/slim:latest /slim --config /config.yaml
+```
+
+---
+
+### Client
+
+To run the SLIM binary as client, you will need to configure it to start one
+(or more) clients at startup, and you will need to provide the address of a
+remote SLIM server. As usually, some configuration examples are available in
+the [config](./config/) folder:
+
+- [reference](./config/reference/config.yaml) is a reference configuration, with
+  comments explaining all the available options.
+- [base](./config/base/client-config.yaml) is a base configuration for a client
+  without encryption and authentication.
+- [tls](./config/tls/client-config.yaml) is a configuration for a client with
+  encryption enabled, with no authentication.
+- [basic-auth](./config/basic-auth/client-config.yaml) is a configuration for a
+  client with encryption and basic auth enabled.
+- [mtls](./config/mtls/client-config.yaml) is a configuration for a client
+  connecting to a server with a trusted certificate.
+
+To run SLIM as client:
+
+```bash
+MODE=base
+# MODE=tls
+# MODE=basic-auth; export PASSWORD=12345  # Unix/Linux/macOS
+# MODE=basic-auth; $env:PASSWORD = "12345"  # Windows PowerShell
+# MODE=mtls
+
+cargo run --bin slim -- --config ./config/${MODE}/client-config.yaml
+```
+
+Or, using the container image (assuming the image name is
+`slim`):
+
+```bash
+docker run -it \
+    -e PASSWORD=${PASSWORD} \
+    -v ./config/base/client-config.yaml:/config.yaml \
+    ghcr.io/agntcy/slim:latest /slim --config /config.yaml
+```
+
+## Testing
+
+Run the core Rust tests:
+
+```bash
+task test
+```
+
+## Linting
+
+Run the linter for Rust code:
+
+```bash
+task lint
+```
+
+## Repo Structure
+
+- **[crates](./crates)**: Rust workspace crates
+    - [slim](./crates/slim): SLIM node binary for message forwarding
+    - [datapath](./crates/datapath): Core data plane message routing
+    - [proto](./crates/proto): Protobuf definitions and generated code
+    - [controller](./crates/controller): Routing controller
+    - [control-plane](./crates/control-plane): Control plane service
+    - [channel-manager](./crates/channel-manager): Channel management
+    - [session](./crates/session): Session layer with MLS encryption
+    - [service](./crates/service): Service layer (SLIMRPC)
+    - [auth](./crates/auth): Authentication and authorization
+    - [config](./crates/config): Configuration management
+    - [mls](./crates/mls): MLS protocol implementation
+    - [slimctl](./crates/slimctl): CLI tool for SLIM management
+    - [tracing](./crates/tracing): Tracing and observability
+    - [version](./crates/version): Version information
+    - [signal](./crates/signal): Signal handling
+    - [testing](./crates/testing): Test utilities
+    - [examples](./crates/examples): Example applications
+    - Language bindings live in
+      [slim-bindings](https://github.com/agntcy/slim-bindings):
+      [Python](https://github.com/agntcy/slim-bindings/tree/main/python),
+      [Go](https://github.com/agntcy/slim-bindings/tree/main/go),
+      [Dotnet](https://github.com/agntcy/slim-bindings/tree/main/dotnet),
+      [Kotlin](https://github.com/agntcy/slim-bindings/tree/main/kotlin),
+      [Java](https://github.com/agntcy/slim-bindings/tree/main/java)
+
+- **[charts](./charts)**: Kubernetes deployment
+    - [slim](./charts/slim): Helm chart for data-plane nodes
+    - [slim-control-plane](./charts/slim-control-plane): Helm chart for
+      control-plane services
 
 ## Community & Resources
 
