@@ -322,11 +322,13 @@ pub(crate) fn decode_str_bytes(b: &bytes::Bytes) -> Option<(&[u8], &[u8], &[u8])
 
 impl ProtoName {
     /// Construct from three string components (org, namespace, app).
-    pub fn from_strings(components: [impl Into<String>; 3]) -> Self {
-        let [s0, s1, s2] = components.map(Into::into);
-        let c0 = calculate_hash(&s0);
-        let c1 = calculate_hash(&s1);
-        let c2 = calculate_hash(&s2);
+    pub fn from_strings(components: [impl AsRef<str>; 3]) -> Self {
+        let s0 = components[0].as_ref();
+        let s1 = components[1].as_ref();
+        let s2 = components[2].as_ref();
+        let c0 = calculate_hash(s0);
+        let c1 = calculate_hash(s1);
+        let c2 = calculate_hash(s2);
         Self {
             encoded_name: encode_name_bytes(c0, c1, c2, NULL_COMPONENT),
             str_name: encode_str_bytes(s0.as_bytes(), s1.as_bytes(), s2.as_bytes()),
@@ -382,23 +384,29 @@ impl ProtoName {
     }
 
     pub fn match_prefix(&self, other: &ProtoName) -> bool {
-        if self.encoded_name.len() < 24 || other.encoded_name.len() < 24 {
+        // encoded_name is always 40 bytes when present, or empty when absent.
+        if self.encoded_name.is_empty() || other.encoded_name.is_empty() {
             return false;
         }
         self.encoded_name[..24] == other.encoded_name[..24]
     }
 
     pub fn str_components(&self) -> (&str, &str, &str) {
-        let (s0, s1, s2) = decode_str_bytes(&self.str_name)
-            .expect("str_name must be set to call str_components()");
+        self.try_str_components()
+            .expect("str_name must be set to call str_components()")
+    }
+
+    /// Returns the three string components if `str_name` is present, or `None`.
+    fn try_str_components(&self) -> Option<(&str, &str, &str)> {
+        let (s0, s1, s2) = decode_str_bytes(&self.str_name)?;
         // SAFETY: str_name bytes always originate from valid UTF-8 strings
         // (constructed via from_strings / parse_name, which accept &str / String inputs).
         unsafe {
-            (
+            Some((
                 std::str::from_utf8_unchecked(s0),
                 std::str::from_utf8_unchecked(s1),
                 std::str::from_utf8_unchecked(s2),
-            )
+            ))
         }
     }
 
@@ -425,15 +433,7 @@ impl ProtoName {
 
 impl std::fmt::Display for ProtoName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some((s0, s1, s2)) = decode_str_bytes(&self.str_name) {
-            // SAFETY: see str_components() — bytes are always valid UTF-8.
-            let (c0, c1, c2) = unsafe {
-                (
-                    std::str::from_utf8_unchecked(s0),
-                    std::str::from_utf8_unchecked(s1),
-                    std::str::from_utf8_unchecked(s2),
-                )
-            };
+        if let Some((c0, c1, c2)) = self.try_str_components() {
             write!(f, "{}/{}/{}/{}", c0, c1, c2, id_to_string(self.id()))
         } else if let Some((c0, c1, c2, id)) = decode_name_bytes(&self.encoded_name) {
             write!(f, "{}/{}/{}/{}", c0, c1, c2, id_to_string(id))
@@ -575,12 +575,7 @@ impl SlimHeader {
     }
 
     pub fn get_identity(&self) -> &str {
-        // SAFETY: identity originated as a UTF-8 String; stored as Bytes on this branch.
-        unsafe { std::str::from_utf8_unchecked(&self.identity) }
-    }
-
-    pub fn get_version(&self) -> String {
-        String::from_utf8_lossy(&self.version).into_owned()
+        std::str::from_utf8(&self.identity).unwrap_or("")
     }
 
     pub fn set_source(&mut self, source: ProtoName) {
