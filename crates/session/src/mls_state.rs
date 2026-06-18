@@ -631,8 +631,8 @@ mod tests {
                 .unwrap()
                 .as_application_payload()
                 .unwrap()
-                .blob,
-            original_payload
+                .blob.as_ref(),
+            original_payload.as_ref()
         );
 
         let mut bob_msg = alice_msg.clone();
@@ -644,8 +644,8 @@ mod tests {
                 .unwrap()
                 .as_application_payload()
                 .unwrap()
-                .blob,
-            original_payload
+                .blob.as_ref(),
+            original_payload.as_ref()
         );
     }
 
@@ -699,8 +699,8 @@ mod tests {
                 .unwrap()
                 .as_application_payload()
                 .unwrap()
-                .blob,
-            original_payload
+                .blob.as_ref(),
+            original_payload.as_ref()
         );
     }
 
@@ -770,8 +770,8 @@ mod tests {
                 .unwrap()
                 .as_application_payload()
                 .unwrap()
-                .blob,
-            original_payload
+                .blob.as_ref(),
+            original_payload.as_ref()
         );
     }
 
@@ -979,8 +979,8 @@ mod tests {
                     .unwrap()
                     .as_application_payload()
                     .unwrap()
-                    .blob,
-                original_payload
+                    .blob.as_ref(),
+                original_payload.as_ref()
             );
         }
     }

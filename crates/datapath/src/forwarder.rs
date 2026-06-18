@@ -8,7 +8,7 @@ use super::tables::SubscriptionTable;
 use super::tables::connection_table::ConnectionTable;
 use super::tables::subscription_table::SubscriptionTableImpl;
 use super::tables::{ConnType, MatchFilter};
-use crate::api::{EncodedName, ProtoName};
+use crate::api::ProtoName;
 use crate::errors::DataPathError;
 
 use tracing::debug;
@@ -96,18 +96,19 @@ where
 
     pub fn on_publish_msg_match(
         &self,
-        encoded: EncodedName,
+        components: [u64; 3],
+        id: u128,
         incoming_conn: u64,
         fanout: u32,
         filter: MatchFilter,
     ) -> Result<Vec<u64>, DataPathError> {
         if fanout == 1 {
             self.subscription_table
-                .match_one(&encoded, incoming_conn, filter)
+                .match_one(components, id, incoming_conn, filter)
                 .map(|out| vec![out])
         } else {
             self.subscription_table
-                .match_all(&encoded, incoming_conn, filter)
+                .match_all(components, id, incoming_conn, filter)
         }
     }
 
@@ -121,10 +122,6 @@ where
 mod tests {
     use super::*;
     use tracing_test::traced_test;
-
-    fn enc(name: &ProtoName) -> EncodedName {
-        name.name.unwrap()
-    }
 
     #[test]
     #[traced_test]
@@ -149,15 +146,29 @@ mod tests {
                 .is_ok()
         );
 
+        let name_with_id1 = name.clone().with_id(1);
+        let (comp1, id1) = name_with_id1.components_and_id();
         assert_eq!(
-            fwd.on_publish_msg_match(enc(&name.clone().with_id(1)), 100, 1, MatchFilter::ALL)
-                .unwrap(),
+            fwd.on_publish_msg_match(
+                comp1,
+                id1,
+                100,
+                1,
+                MatchFilter::ALL
+            )
+            .unwrap(),
             vec![12]
         );
 
         let expected = name.clone().with_id(2);
-
-        let err = fwd.on_publish_msg_match(enc(&expected), 100, 1, MatchFilter::ALL);
+        let (comp2, id2) = expected.components_and_id();
+        let err = fwd.on_publish_msg_match(
+            comp2,
+            id2,
+            100,
+            1,
+            MatchFilter::ALL,
+        );
         assert!(matches!(err, Err(DataPathError::NoMatchEncoded(..))));
 
         assert!(

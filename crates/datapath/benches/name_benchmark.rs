@@ -2,26 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use slim_datapath::api::{EncodedName, NameId, ProtoName, SlimHeader, StringName};
+use slim_datapath::api::{NULL_COMPONENT, ProtoName, SlimHeader};
 use slim_datapath::messages::utils::DEFAULT_TTL;
 use slim_datapath::tables::SubscriptionTable;
 use slim_datapath::tables::subscription_table::SubscriptionTableImpl;
 use slim_datapath::tables::{ConnType, MatchFilter};
 
 fn make_proto_name() -> ProtoName {
-    ProtoName {
-        name: Some(EncodedName {
-            component_0: 0x1234_5678_9abc_def0,
-            component_1: 0xfeed_cafe_dead_beef,
-            component_2: 0x0101_0101_0101_0101,
-            name_id: Some(NameId::from(u128::MAX)),
-        }),
-        str_name: Some(StringName {
-            str_component_0: bytes::Bytes::from_static(b"org"),
-            str_component_1: bytes::Bytes::from_static(b"namespace"),
-            str_component_2: bytes::Bytes::from_static(b"agent"),
-        }),
-    }
+    ProtoName::from_strings(["org", "namespace", "agent"]).with_id(NULL_COMPONENT)
 }
 
 /// Build a SlimHeader whose destination matches the subscription used in routing benchmarks
@@ -31,8 +19,8 @@ fn make_slim_header() -> SlimHeader {
     SlimHeader {
         source: Some(proto_name.clone()),
         destination: Some(proto_name),
-        identity: String::new(),
-        version: String::new(),
+        identity: Default::default(),
+        version: Default::default(),
         fanout: 1,
         recv_from: None,
         forward_to: None,
@@ -68,7 +56,7 @@ fn bench_proto_name_from_other(c: &mut Criterion) {
     });
 }
 
-/// Routing flow via the EncodedName extracted from get_dst().
+/// Routing flow via components/id decoded from the destination Name.
 fn bench_routing_via_proto_name(c: &mut Criterion) {
     let table = SubscriptionTableImpl::default();
     let sub = ProtoName::from_strings(["org", "namespace", "agent"]).with_id(42);
@@ -78,14 +66,17 @@ fn bench_routing_via_proto_name(c: &mut Criterion) {
     c.bench_function("routing_via_proto_name", |b| {
         b.iter(|| {
             let dst = black_box(slim_header.get_dst());
-            let enc = dst.name.as_ref().unwrap();
-            black_box(table.match_one(black_box(enc), 0, MatchFilter::ALL))
+            black_box(table.match_one(
+                black_box(dst.components()),
+                black_box(dst.id()),
+                0,
+                MatchFilter::ALL,
+            ))
         })
     });
 }
 
-/// Optimized: full routing flow via the EncodedName path.
-/// get_encoded_dst() is a Copy of 4 u64s — zero heap allocation.
+/// Optimized: full routing flow via get_encoded_dst() — returns ([u64; 3], u128), zero alloc.
 fn bench_routing_via_encoded_name(c: &mut Criterion) {
     let table = SubscriptionTableImpl::default();
     let sub = ProtoName::from_strings(["org", "namespace", "agent"]).with_id(42);
@@ -94,8 +85,8 @@ fn bench_routing_via_encoded_name(c: &mut Criterion) {
 
     c.bench_function("routing_via_encoded_name", |b| {
         b.iter(|| {
-            let encoded = black_box(slim_header.get_encoded_dst());
-            black_box(table.match_one(black_box(&encoded), 0, MatchFilter::ALL))
+            let (components, id) = black_box(slim_header.get_encoded_dst());
+            black_box(table.match_one(black_box(components), black_box(id), 0, MatchFilter::ALL))
         })
     });
 }

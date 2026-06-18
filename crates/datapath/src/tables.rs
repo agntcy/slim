@@ -11,7 +11,7 @@ pub mod subscription_table;
 
 pub mod pool;
 
-use crate::api::{EncodedName, ProtoName};
+use crate::api::ProtoName;
 
 pub use slim_config::conn_type::ConnType;
 
@@ -81,14 +81,16 @@ pub trait SubscriptionTable {
 
     fn match_one(
         &self,
-        encoded: &EncodedName,
+        components: [u64; 3],
+        id: u128,
         incoming_conn: u64,
         filter: MatchFilter,
     ) -> Result<u64, Self::Error>;
 
     fn match_all(
         &self,
-        encoded: &EncodedName,
+        components: [u64; 3],
+        id: u128,
         incoming_conn: u64,
         filter: MatchFilter,
     ) -> Result<Vec<u64>, Self::Error>;

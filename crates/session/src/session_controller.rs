@@ -16,7 +16,7 @@ use serde_json::Value;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, Content, NameId, ProtoMessage as Message, ProtoName,
+        CommandPayload, Content, NULL_COMPONENT, ProtoMessage as Message, ProtoName,
         ProtoSessionMessageType, ProtoSessionType, SlimHeader,
     },
     messages::utils::SlimHeaderFlags,
@@ -725,7 +725,7 @@ impl SessionController {
                 }
                 let msg = Message::builder()
                     .source(self.source().clone())
-                    .destination(destination.clone().with_id(NameId::NULL_COMPONENT))
+                    .destination(destination.clone().with_id(NULL_COMPONENT))
                     .identity("")
                     .session_type(ProtoSessionType::Multicast)
                     .session_message_type(ProtoSessionMessageType::LeaveRequest)
@@ -1043,6 +1043,7 @@ mod tests {
     use crate::session_config::MlsSettings;
     use crate::subscription_manager::{SpySubscriptionManager, SubscriptionCall};
     use slim_auth::shared_secret::SharedSecret;
+    use slim_datapath::api::DATA_CHANNEL_ID;
 
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
@@ -1195,7 +1196,7 @@ mod tests {
         // For multicast sessions, destination uses DATA_CHANNEL_ID
         assert_eq!(
             controller.dst(),
-            &ProtoName::from_strings(["org", "ns", "dest"]).with_id(NameId::DATA_CHANNEL_ID)
+            &ProtoName::from_strings(["org", "ns", "dest"]).with_id(DATA_CHANNEL_ID)
         );
         assert_eq!(controller.session_type(), ProtoSessionType::Multicast);
         assert!(controller.is_initiator());

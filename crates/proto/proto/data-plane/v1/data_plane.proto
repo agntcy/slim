@@ -57,9 +57,9 @@ message Link {
 message SLIMHeader {
   Name source = 1;
   Name destination = 2;
-  string identity = 3;
+  bytes identity = 3;
   uint32 fanout = 4;
-  string version = 5;
+  bytes version = 5;
   uint32 ttl = 6;
   optional uint64 recv_from = 7;
   optional uint64 forward_to = 8;
@@ -76,29 +76,20 @@ message SessionHeader {
   uint32 message_id = 4;
 }
 
+// Name encodes a hierarchical 3-component SLIM name.
+//
+// encoded_name: 40-byte flat encoding of the numeric components and id.
+//   Layout: [component_0: u64 LE][component_1: u64 LE][component_2: u64 LE]
+//           [id_0: u64 LE][id_1: u64 LE]
+//   Empty bytes = name not set. id = u128::MAX (NULL_COMPONENT) means "no id".
+//
+// str_name: packed human-readable components.
+//   Layout: [len_0: u32 LE][component_0 bytes][len_1: u32 LE][component_1 bytes]
+//           [len_2: u32 LE][component_2 bytes]
+//   Empty bytes = str_name not set.
 message Name {
-  EncodedName name = 1;
-  StringName str_name = 2;
-}
-
-message NameId {
-  // higher 64 bits
-  uint64 id_0 = 1;
-  // lower 64 bits
-  uint64 id_1 = 2;
-}
-
-message EncodedName {
-  uint64 component_0 = 1;
-  uint64 component_1 = 2;
-  uint64 component_2 = 3;
-  NameId name_id = 4;
-}
-
-message StringName {
-  bytes str_component_0 = 1;
-  bytes str_component_1 = 2;
-  bytes str_component_2 = 3;
+  bytes encoded_name = 1;
+  bytes str_name = 2;
 }
 
 enum SessionType {

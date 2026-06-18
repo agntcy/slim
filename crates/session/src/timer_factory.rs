@@ -4,7 +4,7 @@
 use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
-use slim_datapath::api::{EncodedName, ProtoSessionMessageType};
+use slim_datapath::api::ProtoSessionMessageType;
 use tokio::sync::mpsc::Sender;
 use tracing::debug;
 
@@ -16,7 +16,7 @@ use crate::{
 struct ReliableTimerObserver {
     tx: Sender<SessionMessage>,
     message_type: ProtoSessionMessageType,
-    name: Option<EncodedName>,
+    name: Option<[u64; 3]>,
 }
 
 #[async_trait]
@@ -139,7 +139,7 @@ impl TimerFactory {
         &self,
         id: u32,
         message_type: ProtoSessionMessageType,
-        name: Option<EncodedName>,
+        name: Option<[u64; 3]>,
     ) -> Timer {
         let t = Timer::new(
             id,
@@ -156,7 +156,7 @@ impl TimerFactory {
         &self,
         timer: &Timer,
         message_type: ProtoSessionMessageType,
-        name: Option<EncodedName>,
+        name: Option<[u64; 3]>,
     ) {
         // start timer
         let observer = ReliableTimerObserver {
@@ -177,12 +177,9 @@ mod tests {
     use tokio::sync::mpsc;
     use tokio::time::timeout;
 
-    // Helper function to create a test EncodedName
-    fn test_encoded_name() -> EncodedName {
-        ProtoName::from_strings(["test", "org", "app"])
-            .with_id(1)
-            .name
-            .unwrap()
+    // Helper function to create a test [u64; 3] components
+    fn test_encoded_name() -> [u64; 3] {
+        ProtoName::from_strings(["test", "org", "app"]).components()
     }
 
     #[tokio::test]
@@ -469,14 +466,8 @@ mod tests {
             TimerType::Constant,
         );
         let factory = TimerFactory::new(settings, tx);
-        let name1 = ProtoName::from_strings(["test", "org", "app1"])
-            .with_id(1)
-            .name
-            .unwrap();
-        let name2 = ProtoName::from_strings(["test", "org", "app2"])
-            .with_id(2)
-            .name
-            .unwrap();
+        let name1 = ProtoName::from_strings(["test", "org", "app1"]).components();
+        let name2 = ProtoName::from_strings(["test", "org", "app2"]).components();
 
         // Act - create and start multiple timers
         let timer1 = factory.create_and_start_timer(

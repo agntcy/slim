@@ -83,7 +83,7 @@ impl HeaderMacSession {
             reserve_preimage_upper_bound(&mut buf, header, link_id);
             write_preimage(&mut buf, header, link_id.as_bytes());
             let tag = hmac::sign(&self.key, buf.as_slice());
-            header.header_mac = Some(Vec::from(tag.as_ref()));
+            header.header_mac = Some(tag.as_ref().to_vec().into());
             Ok(())
         })
     }
@@ -171,29 +171,10 @@ fn encoded_name_upper_bound(name_opt: &Option<Name>) -> usize {
     match name_opt {
         None => 1,
         Some(name) => {
-            /// Byte size of presence flags:
-            /// * 1 byte for Some(name) that [`push_encoded_name`] pushes.
-            /// * 1 byte for the flag showing if name.name is present.
-            /// * 1 byte for `str_name` present/absent.
-            const PRESENCE_FLAGS_SIZE: usize = 3;
-            /// Byte size of 3 `u64` components + name_id (1 presence byte + 2 `u64`):
-            /// * 3*8 bytes for component 0..2 serialized by [`to_le_bytes`].
-            /// * 1 byte for name_id presence flag
-            /// * 2*8 bytes for name_id.id_0 and id_1 (when present)
-            const ENCODED_NAME_SIZE: usize = 24 + 1 + 16;
-
-            // Byte sizs of 3 `u32` prefixes:
-            // * 3*4 byte length size prefix before each component
-            const LENGTH_PREFIXES_SIZE: usize = 12;
-
-            let mut encoded_name_bound = PRESENCE_FLAGS_SIZE + ENCODED_NAME_SIZE;
-            if let Some(sn) = name.str_name.as_ref() {
-                encoded_name_bound += LENGTH_PREFIXES_SIZE
-                    + sn.str_component_0.len()
-                    + sn.str_component_1.len()
-                    + sn.str_component_2.len();
-            }
-            encoded_name_bound
+            // 1 byte: Some(name) presence
+            // 1 byte: encoded_name presence + 40 bytes (when present)
+            // 1 byte: str_name presence + 4 bytes len prefix + N str bytes (when present)
+            2 + 40 + 1 + 4 + name.str_name.len()
         }
     }
 }
@@ -231,29 +212,20 @@ fn push_encoded_name(buf: &mut Vec<u8>, n: &Option<Name>) {
         None => buf.push(0),
         Some(name) => {
             buf.push(1);
-            if let Some(enc) = name.name.as_ref() {
-                buf.push(1);
-                for v in [enc.component_0, enc.component_1, enc.component_2] {
-                    buf.extend_from_slice(&v.to_le_bytes());
-                }
-                match enc.name_id.as_ref() {
-                    Some(nid) => {
-                        buf.push(1);
-                        buf.extend_from_slice(&nid.id_0.to_le_bytes());
-                        buf.extend_from_slice(&nid.id_1.to_le_bytes());
-                    }
-                    None => buf.push(0),
-                }
-            } else {
+            // encoded_name: presence byte + raw 40-byte flat encoding
+            if name.encoded_name.is_empty() {
                 buf.push(0);
+            } else {
+                buf.push(1);
+                buf.extend_from_slice(&name.encoded_name);
             }
-            if let Some(sn) = name.str_name.as_ref() {
-                buf.push(1);
-                push_bytes(buf, &sn.str_component_0);
-                push_bytes(buf, &sn.str_component_1);
-                push_bytes(buf, &sn.str_component_2);
-            } else {
+            // str_name: presence byte + u32 LE total length + raw packed bytes
+            if name.str_name.is_empty() {
                 buf.push(0);
+            } else {
+                buf.push(1);
+                buf.extend_from_slice(&(name.str_name.len() as u32).to_le_bytes());
+                buf.extend_from_slice(&name.str_name);
             }
         }
     }
@@ -266,7 +238,7 @@ fn write_preimage(buf: &mut Vec<u8>, hdr: &SlimHeader, link_id_bytes: &[u8]) {
     buf.extend_from_slice(link_id_bytes);
     push_encoded_name(buf, &hdr.source);
     push_encoded_name(buf, &hdr.destination);
-    push_bytes(buf, hdr.identity.as_bytes());
+    push_bytes(buf, &hdr.identity);
     buf.extend_from_slice(&hdr.fanout.to_le_bytes());
     push_u64_opt(buf, hdr.recv_from);
     push_u64_opt(buf, hdr.forward_to);
@@ -277,7 +249,7 @@ fn write_preimage(buf: &mut Vec<u8>, hdr: &SlimHeader, link_id_bytes: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::proto::dataplane::v1::{EncodedName, Name, NameId, StringName};
+    use crate::api::ProtoName;
     use crate::messages::utils::DEFAULT_TTL;
     use uuid::Uuid;
 
@@ -287,35 +259,11 @@ mod tests {
 
     fn sample_header() -> SlimHeader {
         SlimHeader {
-            source: Some(Name {
-                name: Some(EncodedName {
-                    component_0: 1,
-                    component_1: 2,
-                    component_2: 3,
-                    name_id: Some(NameId { id_0: 0, id_1: 4 }),
-                }),
-                str_name: Some(StringName {
-                    str_component_0: bytes::Bytes::from_static(b"a"),
-                    str_component_1: bytes::Bytes::from_static(b"b"),
-                    str_component_2: bytes::Bytes::from_static(b"c"),
-                }),
-            }),
-            destination: Some(Name {
-                name: Some(EncodedName {
-                    component_0: 5,
-                    component_1: 6,
-                    component_2: 7,
-                    name_id: Some(NameId { id_0: 0, id_1: 8 }),
-                }),
-                str_name: Some(StringName {
-                    str_component_0: bytes::Bytes::from_static(b"x"),
-                    str_component_1: bytes::Bytes::from_static(b"y"),
-                    str_component_2: bytes::Bytes::from_static(b"z"),
-                }),
-            }),
+            source: Some(ProtoName::from_strings(["a", "b", "c"]).with_id(4)),
+            destination: Some(ProtoName::from_strings(["x", "y", "z"]).with_id(8)),
             identity: "id1".into(),
             fanout: 2,
-            version: String::new(),
+            version: Default::default(),
             recv_from: Some(9),
             forward_to: Some(10),
             incoming_conn: Some(999),
@@ -362,9 +310,10 @@ mod tests {
         let mac = HeaderMacSession::new(&test_key()).unwrap();
         let mut hdr = sample_header();
         mac.sign_slim_header(&mut hdr, &lid).unwrap();
-        let mac_val = hdr.header_mac.as_mut().unwrap();
-        // HMAC key is tampered
-        mac_val[0] ^= 1;
+        // HMAC tag is tampered
+        let mut v = hdr.header_mac.take().unwrap().to_vec();
+        v[0] ^= 1;
+        hdr.header_mac = Some(v.into());
         let err = mac.verify_slim_header(&hdr, &lid).unwrap_err();
         assert!(matches!(err, HeaderMacError::VerificationFailed));
     }
@@ -392,8 +341,8 @@ mod tests {
         let lid = Uuid::new_v4().to_string();
         let mac = HeaderMacSession::new(&test_key()).unwrap();
         let mut hdr = sample_header();
-        // Remove name_id from source
-        hdr.source.as_mut().unwrap().name.as_mut().unwrap().name_id = None;
+        // Clear the id from source (reset to NULL_COMPONENT)
+        hdr.source.as_mut().unwrap().reset_id();
         mac.sign_slim_header(&mut hdr, &lid).unwrap();
         mac.verify_slim_header(&hdr, &lid).unwrap();
     }
@@ -404,9 +353,8 @@ mod tests {
         let mac = HeaderMacSession::new(&test_key()).unwrap();
         let mut hdr = sample_header();
         mac.sign_slim_header(&mut hdr, &lid).unwrap();
-        // Tamper with source name_id
-        hdr.source.as_mut().unwrap().name.as_mut().unwrap().name_id =
-            Some(NameId { id_0: 99, id_1: 99 });
+        // Tamper with source id — equivalent to old NameId { id_0: 99, id_1: 99 }
+        hdr.source.as_mut().unwrap().set_id((99u128 << 64) | 99u128);
         assert!(mac.verify_slim_header(&hdr, &lid).is_err());
     }
 }

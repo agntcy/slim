@@ -11,8 +11,8 @@ use display_error_chain::ErrorChainExt;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, MlsPayload, NameId, Participant, ProtoMessage as Message, ProtoMlsSettings,
-        ProtoName, ProtoSessionMessageType, ProtoSessionType,
+        CommandPayload, MlsPayload, NULL_COMPONENT, Participant, ProtoMessage as Message,
+        ProtoMlsSettings, ProtoName, ProtoSessionMessageType, ProtoSessionType,
     },
     messages::utils::{DELETE_GROUP, DISCONNECTION_DETECTED, LEAVING_SESSION, TRUE_VAL},
 };
@@ -302,7 +302,7 @@ where
                     .name
                     .as_ref()
                     .map(|n| n.id())
-                    .unwrap_or(NameId::NULL_COMPONENT); // the name should always be present
+                    .unwrap_or(NULL_COMPONENT); // the name should always be present
                 name.clone().with_id(id)
             })
             .collect()
@@ -1271,7 +1271,9 @@ mod tests {
     use crate::session_settings::{DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE, SessionSettings};
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
     use slim_datapath::Status;
-    use slim_datapath::api::{CommandPayload, ParticipantSettings, ProtoSessionType};
+    use slim_datapath::api::{
+        CONTROL_CHANNEL_ID, CommandPayload, DATA_CHANNEL_ID, ParticipantSettings, ProtoSessionType,
+    };
     use tokio::sync::mpsc;
 
     // --- Test Helpers -----------------------------------------------------------------------
@@ -1310,8 +1312,8 @@ mod tests {
         mpsc::Receiver<Result<SessionMessage, SessionError>>,
     ) {
         let source = make_name(&["local", "moderator", "v1"]).with_id(100);
-        let destination = make_name(&["channel", "name", "v1"]).with_id(NameId::DATA_CHANNEL_ID);
-        let control = make_name(&["channel", "name", "v1"]).with_id(NameId::CONTROL_CHANNEL_ID);
+        let destination = make_name(&["channel", "name", "v1"]).with_id(DATA_CHANNEL_ID);
+        let control = make_name(&["channel", "name", "v1"]).with_id(CONTROL_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -1758,7 +1760,7 @@ mod tests {
         let source = ProtoName::from_strings(["agntcy", "ns", "moderator"]).with_id(100);
         let destination = ProtoName::from_strings(["agntcy", "ns", "chat"]);
         let control =
-            ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(NameId::CONTROL_CHANNEL_ID);
+            ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(CONTROL_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -1907,9 +1909,9 @@ mod tests {
         // Create moderator with agntcy/ns/moderator naming
         let source = ProtoName::from_strings(["agntcy", "ns", "moderator"]).with_id(100);
         let destination =
-            ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(NameId::DATA_CHANNEL_ID);
+            ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(DATA_CHANNEL_ID);
         let control =
-            ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(NameId::CONTROL_CHANNEL_ID);
+            ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(CONTROL_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;

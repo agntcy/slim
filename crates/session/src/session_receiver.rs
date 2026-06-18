@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
-use slim_datapath::api::{EncodedName, ProtoMessage as Message, ProtoName, ProtoSessionType};
+use slim_datapath::api::{ProtoMessage as Message, ProtoName, ProtoSessionType};
 use slim_datapath::messages::utils::{PUBLISH_TO, TRUE_VAL};
 use tokio::sync::mpsc::Sender;
 use tracing::debug;
@@ -24,7 +24,7 @@ struct PendingRtxVal {
 }
 
 struct PendingRtxKey {
-    name: EncodedName,
+    name: [u64; 3],
     id: u32,
 }
 
@@ -52,9 +52,9 @@ enum ReceiverDrainStatus {
 }
 
 pub struct SessionReceiver {
-    /// buffer with received packets one per endpoint, keyed by EncodedName
+    /// buffer with received packets one per endpoint, keyed by [u64; 3] components
     /// for zero-alloc hot-path lookups
-    buffer: HashMap<EncodedName, ReceiverBuffer>,
+    buffer: HashMap<[u64; 3], ReceiverBuffer>,
 
     /// list of pending RTX requests per name/id
     pending_rtxs: HashMap<PendingRtxKey, PendingRtxVal>,
@@ -157,7 +157,7 @@ impl SessionReceiver {
 
         let source_proto = message.get_slim_header().source.clone().unwrap();
         let in_conn = message.get_incoming_conn();
-        let buffer = self.buffer.entry(source_proto.name.unwrap()).or_default();
+        let buffer = self.buffer.entry(source_proto.components()).or_default();
 
         let (recv_vec, rtx_vec) = buffer.on_received_message(message);
         self.handle_recv_and_rtx_vectors(&source_proto, in_conn, recv_vec, rtx_vec)
@@ -200,7 +200,7 @@ impl SessionReceiver {
     pub fn on_rtx_message(&mut self, message: Message) -> Result<SessionOutput, SessionError> {
         // in case we get the and RTX reply the session must be reliable
         let source_proto = message.get_slim_header().source.as_ref().unwrap();
-        let encoded_source = source_proto.name.unwrap();
+        let encoded_source = source_proto.components();
         let id = message.get_id();
         let in_conn = message.get_incoming_conn();
 
@@ -264,7 +264,7 @@ impl SessionReceiver {
         }
 
         if !rtx_vec.is_empty() {
-            let encoded = source.name.unwrap();
+            let encoded = source.components();
 
             for rtx_id in rtx_vec {
                 debug!(
@@ -317,7 +317,7 @@ impl SessionReceiver {
     pub fn on_timer_timeout(
         &mut self,
         id: u32,
-        name: EncodedName,
+        name: [u64; 3],
     ) -> Result<SessionOutput, SessionError> {
         debug!(%id, "timeout for message");
         let key = PendingRtxKey { name, id };
@@ -337,7 +337,7 @@ impl SessionReceiver {
     pub fn on_timer_failure(
         &mut self,
         id: u32,
-        name: EncodedName,
+        name: [u64; 3],
     ) -> Result<SessionOutput, SessionError> {
         debug!(
             %id,
@@ -364,7 +364,7 @@ impl SessionReceiver {
         // remove the buffer related to an endpoint so that if it is added again
         // the messages will not be dropped as duplicated
         tracing::debug!(%endpoint, "remove endpoint on the receiver");
-        self.buffer.remove(&endpoint.name.unwrap());
+        self.buffer.remove(&endpoint.components());
     }
 
     pub fn start_drain(&mut self) {

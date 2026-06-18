@@ -4,7 +4,7 @@
 //! Public API commands called by the northbound gRPC handlers.
 //! These are the entry points that `slimctl` and other clients invoke.
 
-use slim_datapath::api::NameId;
+use slim_datapath::api::NULL_COMPONENT;
 use uuid::Uuid;
 
 use crate::api::proto::controller::proto::v1::{
@@ -37,7 +37,7 @@ impl super::RouteService {
         // downward path from root to new announcer).
         let existing_root = if source_node_id == ALL_NODES_ID {
             let (c0, c1, c2) = route_name.str_components();
-            let comp_id = if route_name.id() == NameId::NULL_COMPONENT {
+            let comp_id = if route_name.id() == NULL_COMPONENT {
                 None
             } else {
                 Some(route_name.string_id())
@@ -81,7 +81,7 @@ impl super::RouteService {
             let all_nodes = self.0.db.list_nodes().await?;
             let all_links = self.0.db.list_all_links().await?;
             let (c0, c1, c2) = route_name.str_components();
-            let comp_id = if route_name.id() == NameId::NULL_COMPONENT {
+            let comp_id = if route_name.id() == NULL_COMPONENT {
                 None
             } else {
                 Some(route_name.string_id())
@@ -137,7 +137,7 @@ impl super::RouteService {
         };
 
         let (c0, c1, c2) = route_name.str_components();
-        let comp_id = if route_name.id() == NameId::NULL_COMPONENT {
+        let comp_id = if route_name.id() == NULL_COMPONENT {
             None
         } else {
             Some(route_name.string_id())

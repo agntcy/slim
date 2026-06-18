@@ -1,7 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use bytes::Bytes;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -681,13 +680,17 @@ impl MessageProcessor {
                         // Debug / integration-test builds only (`--release` omits this; env var is inert).
                         // Must run *after* sign so the tag does not cover the mutated preimage fields.
                         #[cfg(debug_assertions)]
-                        if std::env::var("SLIM_TEST_TAMPER_DESTINATION").is_ok()
-                            && let Some(dest) = header.destination.as_mut()
-                            && let Some(sn) = dest.str_name.as_mut()
-                        {
-                            sn.str_component_2 = Bytes::from(
-                                [sn.str_component_2.as_ref(), b"-integrity-test-tamper"].concat(),
-                            );
+                        if std::env::var("SLIM_TEST_TAMPER_DESTINATION").is_ok() {
+                            if let Some(dest) = header.destination.as_mut() {
+                                if let Some((s0, s1, s2)) =
+                                    crate::api::decode_str_bytes(&dest.str_name)
+                                {
+                                    let tampered: Vec<u8> =
+                                        [s2, b"-integrity-test-tamper"].concat();
+                                    dest.str_name =
+                                        crate::api::encode_str_bytes(s0, s1, &tampered);
+                                }
+                            }
                         }
                     } else {
                         return Err(DataPathError::HeaderMacAwaitingLinkNegotiation(out_conn));
@@ -753,11 +756,11 @@ impl MessageProcessor {
             return self.send_msg(msg, val).await;
         }
 
-        let encoded = header.get_encoded_dst();
+        let (components, id) = header.get_encoded_dst();
 
         match self
             .forwarder()
-            .on_publish_msg_match(encoded, in_connection, fanout, filter)
+            .on_publish_msg_match(components, id, in_connection, fanout, filter)
         {
             Ok(out_vec) => {
                 let len = out_vec.len();
@@ -1845,12 +1848,19 @@ impl MessageProcessor {
                 {
                     let fwd = self_clone.peer_sync();
                     for name in local_subs.keys() {
-                        let still_reachable = name.name.is_some_and(|enc| {
+                        let still_reachable = !name.encoded_name.is_empty() && {
+                            let (comp, id) = name.components_and_id();
                             self_clone
                                 .forwarder()
-                                .on_publish_msg_match(enc, u64::MAX, u32::MAX, MatchFilter::ALL)
+                                .on_publish_msg_match(
+                                    comp,
+                                    id,
+                                    u64::MAX,
+                                    u32::MAX,
+                                    MatchFilter::ALL,
+                                )
                                 .is_ok()
-                        });
+                        };
                         if !still_reachable {
                             debug!(
                                 %name,
@@ -2254,12 +2264,11 @@ mod tests {
             .expect("sign header");
 
         let header = msg.get_slim_header_mut();
-        if let Some(dest) = header.destination.as_mut()
-            && let Some(sn) = dest.str_name.as_mut()
-        {
-            sn.str_component_2 = Bytes::from(
-                [sn.str_component_2.as_ref(), b"-integrity-test-tamper"].concat(),
-            );
+        if let Some(dest) = header.destination.as_mut() {
+            if let Some((s0, s1, s2)) = crate::api::decode_str_bytes(&dest.str_name) {
+                let tampered: Vec<u8> = [s2, b"-integrity-test-tamper"].concat();
+                dest.str_name = crate::api::encode_str_bytes(s0, s1, &tampered);
+            }
         }
 
         let err = processor
@@ -2296,11 +2305,13 @@ mod tests {
         let sent_msg = rx.recv().await.unwrap().unwrap();
         let header = sent_msg.get_slim_header();
         let dest_name = header.destination.as_ref().expect("destination");
-        let str_name = dest_name.str_name.as_ref().expect("str_name");
         let require_header_mac = true;
 
         // The tampering happens in send_msg_raw if the env var is set.
-        assert!(str_name.str_component_2.ends_with(b"-integrity-test-tamper"));
+        // Decode the packed str_name bytes and check the third component.
+        let (_, _, s2) =
+            crate::api::decode_str_bytes(&dest_name.str_name).expect("str_name must be set");
+        assert!(s2.ends_with(b"-integrity-test-tamper"));
 
         // Also verify that verify_remote_header_mac rejects it.
         let err = processor

@@ -72,7 +72,7 @@ mod tests {
             destination: None,
             identity: "i".into(),
             fanout: 0,
-            version: String::new(),
+            version: Default::default(),
             recv_from: None,
             forward_to: None,
             incoming_conn: None,
