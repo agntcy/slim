@@ -30,7 +30,9 @@ use slim_control_plane::config::{
 };
 use slim_control_plane::server::ControlPlane;
 use slim_datapath::api::ProtoName as Name;
-use slim_datapath::peer_discovery::{PeerConfig, PeerTopology, StaticPeerEntry};
+use slim_datapath::peer_discovery::{
+    PeerConfig, PeerDiscoveryConfig, PeerTopology, StaticPeerEntry,
+};
 use slim_service::{Service, ServiceConfiguration};
 use slim_testing::common::reserve_local_port;
 use slim_testing::utils::TEST_VALID_SECRET;
@@ -179,8 +181,9 @@ async fn start_grouped_node(
         Some(PeerConfig {
             deployment_name: group.to_string(),
             topology: PeerTopology::FullMesh,
-            static_peers,
-            discovery: None,
+            discovery: PeerDiscoveryConfig::Static {
+                peers: static_peers,
+            },
         })
     } else {
         None
