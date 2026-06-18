@@ -11,6 +11,7 @@ crate-type = ["lib"]
 
 [features]
 default = ["session"]
+kubernetes = ["agntcy-slim-datapath/kubernetes"]
 session = ["agntcy-slim-session"]
 
 [dependencies]

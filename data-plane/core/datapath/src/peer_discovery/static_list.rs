@@ -4,7 +4,7 @@
 //! Static peer discovery implementation.
 //!
 //! Discovers peers from a pre-built list of [`PeerInfo`] entries (typically
-//! derived from `PeerConfig.static_peers`).
+//! derived from `PeerDiscoveryConfig::Static { peers }`).
 //! Emits `Joined` events for all entries on startup. Never emits `Left`
 //! events since static peers are assumed to be always available.
 
@@ -37,7 +37,7 @@ impl StaticPeerDiscovery {
         }
     }
 
-    /// Create from a list of `StaticPeerEntry` entries (from `PeerConfig.static_peers`).
+    /// Create from a list of `StaticPeerEntry` entries (from `PeerDiscoveryConfig::Static`).
     ///
     /// Each entry's `node_id` is used as the peer ID.
     /// Entries matching `self_node_id` are excluded (skip self).

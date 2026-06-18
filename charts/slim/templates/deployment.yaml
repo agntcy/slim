@@ -3,28 +3,39 @@ Copyright AGNTCY Contributors (https://github.com/agntcy)
 SPDX-License-Identifier: Apache-2.0
 */}}
 
-{{- if or (not .Values.slim.daemonset) (eq .Values.slim.daemonset false) }}
+{{- $isDaemonSet := eq .Values.slim.deploymentMode "DaemonSet" }}
+
 apiVersion: apps/v1
-kind: StatefulSet
+kind: {{ .Values.slim.deploymentMode | default "Deployment" }}
 metadata:
   name: {{ include "slim.fullname" . }}
   labels:
     {{- include "slim.labels" . | nindent 4 }}
 spec:
-  serviceName: {{ include "slim.fullname" . }}-headless
+  {{- if not $isDaemonSet }}
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.slim.replicaCount }}
+  {{- end }}
   {{- end }}
   selector:
     matchLabels:
       {{- include "slim.selectorLabels" . | nindent 6 }}
-  podManagementPolicy: {{ .Values.slim.podManagementPolicy | default "OrderedReady" }}
+  {{- if $isDaemonSet }}
   updateStrategy:
     type: {{ .Values.slim.updateStrategy.type | default "RollingUpdate" }}
     {{- if eq (.Values.slim.updateStrategy.type | default "RollingUpdate") "RollingUpdate" }}
     rollingUpdate:
-      partition: {{ .Values.slim.updateStrategy.rollingUpdate.partition | default 0 }}
+      maxUnavailable: {{ .Values.slim.updateStrategy.rollingUpdate.maxUnavailable | default 1 }}
     {{- end }}
+  {{- else }}
+  strategy:
+    type: {{ .Values.slim.updateStrategy.type | default "RollingUpdate" }}
+    {{- if eq (.Values.slim.updateStrategy.type | default "RollingUpdate") "RollingUpdate" }}
+    rollingUpdate:
+      maxUnavailable: {{ .Values.slim.updateStrategy.rollingUpdate.maxUnavailable | default 1 }}
+      maxSurge: {{ .Values.slim.updateStrategy.rollingUpdate.maxSurge | default 1 }}
+    {{- end }}
+  {{- end }}
   template:
     metadata:
       annotations:
@@ -57,7 +68,7 @@ spec:
             - "--config"
             - "/config.yaml"
           env:
-            - name: SLIM_SVC_ID
+            - name: SLIM_NODE_ID
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
@@ -81,6 +92,11 @@ spec:
             {{- end }}
           resources:
             {{- toYaml .Values.slim.resources | nindent 12 }}
+          readinessProbe:
+            tcpSocket:
+              port: {{ (index .Values.slim.service.data 0).port }}
+            initialDelaySeconds: 2
+            periodSeconds: 5
           volumeMounts:
             - name: config-volume
               mountPath: /config.yaml
@@ -88,7 +104,7 @@ spec:
 {{- if eq .Values.spire.enabled true }}
             - name: spire-agent-socket
               mountPath: /tmp/spire-agent/public/
-              readOnly: true              
+              readOnly: true
 {{- end }}
 {{- with .Values.slim.extraVolumeMounts }}
 {{ toYaml . | nindent 12 }}
@@ -118,4 +134,6 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-  {{- end }}
+      {{- if $isDaemonSet }}
+      dnsPolicy: {{ .Values.slim.dnsPolicy | default "ClusterFirst" }}
+      {{- end }}

@@ -97,8 +97,8 @@ struct MessageProcessorInternal {
     negotiation_timeout: std::time::Duration,
 
     /// Whether peer-originated publishes should be relayed to other peers.
-    /// True for hub-and-spoke (hub) or generic multi-hop topologies.
     /// False for full-mesh (peers deliver directly — 1-hop rule).
+    /// True for standalone/generic multi-hop topologies.
     relay_peer_publishes: bool,
 
     /// Peer sync component for subscription forwarding and peer lifecycle.
@@ -1802,6 +1802,11 @@ impl MessageProcessor {
     /// The node identity used for cross-node communication.
     pub fn service_id(&self) -> &str {
         &self.internal.service_id
+    }
+
+    /// Whether peer-originated publishes are relayed to other peers.
+    pub fn relay_peer_publishes(&self) -> bool {
+        self.internal.relay_peer_publishes
     }
 
     /// Set the peer sync component.
