@@ -29,10 +29,14 @@ extra:
 
 extra_css:
   - stylesheets/agntcy-docs.css
+  - stylesheets/slim-landing.css
+  - stylesheets/slimctl-terminal.css
 
 extra_javascript:
   - javascripts/card-links.js
   - javascripts/external-links.js
+  - javascripts/slimctl-demo-data.js
+  - javascripts/slimctl-terminal.js
 
 markdown_extensions:
   - admonition
