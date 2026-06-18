@@ -1,0 +1,284 @@
+/* Copyright AGNTCY Contributors (https://github.com/agntcy) */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/* Landing page hero (home). Matches dir.agntcy.org hero layout. */
+
+:root {
+  --slim-dark: rgb(0, 20, 43);
+  --slim-yellow: rgb(251, 175, 69);
+  --slim-text-strong: rgb(0, 20, 43);
+  --slim-text-inverse: rgb(232, 233, 234);
+  --slim-hero-btn-bg: rgb(245, 248, 253);
+  --slim-hero-gradient: linear-gradient(
+    101.5deg,
+    rgb(251, 171, 44) 0%,
+    rgb(24, 122, 220) 53%,
+    rgb(0, 20, 43) 100%
+  );
+  --slim-hero-chrome-top: calc(var(--md-header-height) + 3rem);
+  --slim-hero-pad-block: 3.75rem;
+  --slim-action-btn-bg: rgb(239, 243, 252);
+  --slim-action-btn-bg-active: rgb(255, 255, 255);
+  --slim-action-btn-color: var(--slim-text-strong);
+  --slim-action-btn-border: rgb(213, 223, 247);
+}
+
+[data-md-color-scheme="slate"] {
+  --slim-action-btn-bg: rgb(0, 42, 77);
+  --slim-action-btn-bg-active: rgb(12, 31, 54);
+  --slim-action-btn-color: rgb(227, 227, 227);
+  --slim-action-btn-border: rgb(13, 39, 77);
+}
+
+/* Home page only: MkDocs chrome adjustments for full-bleed hero. */
+body:has(.slim-landing) .md-tabs__item--active .md-tabs__link {
+  border-bottom-color: transparent;
+}
+
+.md-content:has(.slim-landing) .md-content__button {
+  display: none;
+}
+
+.md-main__inner:has(.slim-landing) {
+  margin-top: 0;
+}
+
+.md-content:has(.slim-landing) .md-content__inner {
+  padding-top: 0;
+}
+
+.md-content:has(.slim-landing) .md-content__inner::before {
+  display: none;
+}
+
+.md-main:has(.slim-landing) {
+  overflow-x: hidden;
+}
+
+.md-typeset .slim-howto,
+.slim-quickstart {
+  margin: 0 auto 3.5rem;
+}
+
+.md-typeset .slim-section-title {
+  font-weight: 300;
+  font-size: 1.6rem;
+  line-height: 1.25;
+  text-align: left;
+  margin: 0 0 1.75rem;
+  color: var(--md-default-fg-color);
+}
+
+/* ----------------------------------------------------------------------------
+   Architecture visualizer (embedded slim-graph)
+---------------------------------------------------------------------------- */
+.slim-graph-wrap {
+  max-width: 72rem;
+  margin: 0 auto;
+}
+
+.slim-graph-frame {
+  display: block;
+  width: 100%;
+  height: min(88vh, 920px);
+  min-height: 640px;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 10px;
+  background: var(--md-default-bg-color);
+  box-shadow: 0 4px 24px rgba(2, 81, 175, 0.1);
+}
+
+[data-md-color-scheme="slate"] .slim-graph-frame {
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+}
+
+@media screen and (max-width: 59.9375em) {
+  .slim-graph-frame {
+    height: min(78vh, 820px);
+    min-height: 560px;
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   Hero
+---------------------------------------------------------------------------- */
+.md-typeset .slim-hero,
+.slim-landing .slim-hero {
+  position: relative;
+  width: 100vw;
+  max-width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+  margin-top: calc(-1 * var(--slim-hero-chrome-top) - 1px);
+  margin-bottom: 3rem;
+  border-radius: 0;
+  background: var(--slim-hero-gradient);
+  padding: calc(var(--slim-hero-chrome-top) + 1px) 0 0;
+  overflow: hidden;
+}
+
+.slim-hero__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1.5rem;
+  max-width: 58rem;
+  margin: 0 auto;
+  padding-block: var(--slim-hero-pad-block);
+  padding-inline: 2rem;
+}
+
+.md-typeset .slim-hero__title {
+  margin: 0;
+  font-weight: 300;
+  font-size: 2.5rem;
+  line-height: 1.1;
+  color: var(--slim-text-inverse);
+}
+
+.slim-hero__partner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.slim-hero__partner-text {
+  font-size: 0.9rem;
+  color: var(--slim-text-inverse);
+}
+
+.md-typeset .slim-hero__partner-logo {
+  display: block;
+  width: auto;
+  max-width: none;
+  height: 1rem;
+}
+
+.md-typeset .slim-hero__tagline {
+  margin: 0;
+  font-weight: 300;
+  font-size: 1.4rem;
+  line-height: 1.3;
+  color: var(--slim-text-inverse);
+}
+
+.md-typeset .slim-hero__lede {
+  margin: 0;
+  max-width: 52rem;
+  font-weight: 300;
+  font-size: 1rem;
+  line-height: 1.65;
+  color: var(--slim-text-inverse);
+}
+
+.md-typeset .slim-hero__lede strong {
+  font-weight: 600;
+}
+
+.md-typeset .slim-hero__lede a {
+  color: var(--slim-yellow);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.md-typeset .slim-hero__lede a:hover {
+  color: rgb(255, 255, 255);
+}
+
+.slim-hero__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+  margin-top: 0.5rem;
+}
+
+.slim-hero__actions-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.md-typeset .slim-hero__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.65rem 1.8rem;
+  border-radius: 50px;
+  background: var(--slim-hero-btn-bg);
+  color: var(--slim-text-strong);
+  font-size: 0.95rem;
+  font-weight: 500;
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.md-typeset .slim-hero__btn:hover,
+.md-typeset .slim-hero__btn:focus-visible {
+  color: var(--slim-yellow);
+  background: rgb(255, 255, 255);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 20, 43, 0.25);
+}
+
+.md-typeset .slim-hero__btn:focus-visible {
+  outline: 2px solid rgb(255, 255, 255);
+  outline-offset: 3px;
+}
+
+.md-typeset .slim-hero__btn svg {
+  fill: currentColor;
+  height: 1.1em;
+  width: 1.1em;
+  flex-shrink: 0;
+}
+
+@media screen and (max-width: 59.9375em) {
+  :root {
+    --slim-hero-pad-block: 2.75rem;
+  }
+
+  .md-typeset .slim-hero,
+  .slim-landing .slim-hero {
+    padding: calc(var(--slim-hero-chrome-top) + 1px) 0 0;
+  }
+
+  .slim-hero__inner {
+    padding-inline: 1.25rem;
+  }
+
+  .md-typeset .slim-hero__title {
+    font-size: 2rem;
+  }
+
+  .md-typeset .slim-hero__tagline {
+    font-size: 1.2rem;
+  }
+
+  .md-typeset .slim-hero__partner-logo {
+    height: 1.7rem;
+  }
+
+  .slim-hero__actions {
+    width: 100%;
+    max-width: 22rem;
+  }
+
+  .slim-hero__actions-main {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .md-typeset .slim-hero__btn {
+    justify-content: center;
+  }
+}
