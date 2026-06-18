@@ -686,12 +686,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                     component_3 = id,
                     "match not found for name"
                 );
-                return Err(DataPathError::NoMatchEncoded(
-                    components[0],
-                    components[1],
-                    components[2],
-                    api::id_to_string(id),
-                ));
+                return Err(no_match_err(components, id));
             }
             Some(pe) => pe,
         };
@@ -702,12 +697,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 .get_one(id, incoming_conn, filter)
                 .ok_or_else(|| {
                     debug!(component_3 = id, "match not found for name");
-                    DataPathError::NoMatchEncoded(
-                        components[0],
-                        components[1],
-                        components[2],
-                        api::id_to_string(id),
-                    )
+                    no_match_err(components, id)
                 })
         } else {
             // NULL_COMPONENT: pick one connection across all registered IDs,
@@ -716,12 +706,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 .pick_one_any(incoming_conn, filter)
                 .ok_or_else(|| {
                     debug!("no output connection available");
-                    DataPathError::NoMatchEncoded(
-                        components[0],
-                        components[1],
-                        components[2],
-                        api::id_to_string(id),
-                    )
+                    no_match_err(components, id)
                 })
         }
     }
@@ -745,12 +730,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
                     component_3 = id,
                     "match not found for name"
                 );
-                return Err(DataPathError::NoMatchEncoded(
-                    components[0],
-                    components[1],
-                    components[2],
-                    api::id_to_string(id),
-                ));
+                return Err(no_match_err(components, id));
             }
             Some(pe) => pe,
         };
@@ -760,21 +740,11 @@ impl SubscriptionTable for SubscriptionTableImpl {
             match prefix_entry.get_all(id, incoming_conn, filter) {
                 None => {
                     debug!(component_3 = id, "match not found for name");
-                    Err(DataPathError::NoMatchEncoded(
-                        components[0],
-                        components[1],
-                        components[2],
-                        api::id_to_string(id),
-                    ))
+                    Err(no_match_err(components, id))
                 }
                 Some(out) if out.is_empty() => {
                     debug!("no connection available (local/remote/peer)");
-                    Err(DataPathError::NoMatchEncoded(
-                        components[0],
-                        components[1],
-                        components[2],
-                        api::id_to_string(id),
-                    ))
+                    Err(no_match_err(components, id))
                 }
                 Some(out) => {
                     debug!(?out, "found connections");
@@ -787,18 +757,24 @@ impl SubscriptionTable for SubscriptionTableImpl {
             let out = prefix_entry.get_all_any(incoming_conn, filter);
             if out.is_empty() {
                 debug!("no connection available");
-                Err(DataPathError::NoMatchEncoded(
-                    components[0],
-                    components[1],
-                    components[2],
-                    api::id_to_string(id),
-                ))
+                Err(no_match_err(components, id))
             } else {
                 debug!(?out, "found connections");
                 Ok(out)
             }
         }
     }
+}
+
+/// Build the standard "no route found" error from raw components.
+#[inline]
+fn no_match_err(components: [u64; 3], id: u128) -> DataPathError {
+    DataPathError::NoMatchEncoded(
+        components[0],
+        components[1],
+        components[2],
+        api::id_to_string(id),
+    )
 }
 
 impl SubscriptionTableImpl {
