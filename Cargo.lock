@@ -256,7 +256,6 @@ dependencies = [
  "opentelemetry",
  "parking_lot",
  "prost",
- "rand 0.9.4",
  "semver",
  "serde",
  "serde_json",
