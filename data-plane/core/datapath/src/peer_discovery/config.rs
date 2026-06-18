@@ -8,6 +8,9 @@ use serde::{Deserialize, Deserializer};
 use slim_config::client::ClientConfig;
 
 /// Topology for peer-to-peer connections within a replica set.
+///
+/// Currently only `FullMesh` is supported. Additional topologies may be
+/// added in the future.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PeerTopology {
@@ -15,10 +18,6 @@ pub enum PeerTopology {
     /// Subscriptions are forwarded 1 hop.
     #[default]
     FullMesh,
-    /// One replica (the hub, determined by smallest lexicographic node_id)
-    /// connects to all others (spokes). The hub relays subscriptions and
-    /// data messages between spokes.
-    HubAndSpoke,
 }
 
 /// A single static peer entry pairing a node identity with connection config.
@@ -38,21 +37,30 @@ pub struct StaticPeerEntry {
 /// When present in the service configuration, enables peer-to-peer route
 /// synchronization between SLIM replicas.
 ///
-/// Static peers are listed directly in this config section. Each entry
-/// requires a `node_id` (the remote peer's unique identity) alongside the
-/// usual connection settings (`endpoint`, TLS, auth, etc.).
-///
 /// # Example (static peers)
 /// ```yaml
 /// peers:
 ///   deployment_name: "my-deployment"
-///   static_peers:
-///     - node_id: "slim-1"
-///       endpoint: "slim-1:8080"
-///     - node_id: "slim-2"
-///       endpoint: "slim-2:8080"
-///       tls_setting:
-///         insecure: true
+///   discovery:
+///     type: static
+///     peers:
+///       - node_id: "slim-1"
+///         endpoint: "slim-1:8080"
+///       - node_id: "slim-2"
+///         endpoint: "slim-2:8080"
+///         tls_setting:
+///           insecure: true
+/// ```
+///
+/// # Example (kubernetes discovery)
+/// ```yaml
+/// peers:
+///   deployment_name: "my-deployment"
+///   discovery:
+///     type: kubernetes
+///     namespace: "default"
+///     service_name: "my-service"
+///     port: 8080
 /// ```
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -65,43 +73,46 @@ pub struct PeerConfig {
     #[serde(default)]
     pub topology: PeerTopology,
 
-    /// Static list of peer connections. Each entry requires a `node_id` plus
-    /// the connection configuration fields (flattened from `ClientConfig`).
-    /// The `connection_type` field is forced to `Peer` regardless of what is set.
-    /// Must contain at least one entry.
-    #[serde(deserialize_with = "deserialize_non_empty_peers")]
-    pub static_peers: Vec<StaticPeerEntry>,
-
-    /// Optional dynamic discovery backend (e.g., Kubernetes).
-    /// When absent and `static_peers` is non-empty, only static discovery is used.
-    #[serde(default)]
-    pub discovery: Option<PeerDiscoveryConfig>,
+    /// Peer discovery backend configuration.
+    pub discovery: PeerDiscoveryConfig,
 }
 
-/// Deserialize `static_peers` and reject empty lists.
+/// Peer discovery backend configuration.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(tag = "type")]
+pub enum PeerDiscoveryConfig {
+    /// Static list of peer connections defined in configuration.
+    /// Each entry requires a `node_id` plus the connection configuration fields.
+    /// The `connection_type` field is forced to `Peer` regardless of what is set.
+    #[serde(rename = "static")]
+    Static {
+        /// List of peer entries. Must contain at least one entry.
+        #[serde(deserialize_with = "deserialize_non_empty_peers")]
+        peers: Vec<StaticPeerEntry>,
+    },
+
+    /// Kubernetes-based peer discovery (watches EndpointSlices for a Service).
+    #[serde(rename = "kubernetes")]
+    Kubernetes {
+        /// Kubernetes namespace to watch.
+        namespace: String,
+        /// Kubernetes Service name whose EndpointSlices to watch.
+        service_name: String,
+        /// Port number on which peer pods listen for dataplane connections.
+        port: u16,
+    },
+}
+
+/// Deserialize `peers` and reject empty lists.
 fn deserialize_non_empty_peers<'de, D>(deserializer: D) -> Result<Vec<StaticPeerEntry>, D::Error>
 where
     D: Deserializer<'de>,
 {
     let peers = Vec::<StaticPeerEntry>::deserialize(deserializer)?;
     if peers.is_empty() {
-        return Err(D::Error::custom("static_peers must not be empty"));
+        return Err(D::Error::custom("peers must not be empty"));
     }
     Ok(peers)
-}
-
-/// Dynamic discovery backend configuration.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-#[serde(tag = "type")]
-pub enum PeerDiscoveryConfig {
-    /// Kubernetes-based peer discovery (watches pods by label selector).
-    #[serde(rename = "kubernetes")]
-    Kubernetes {
-        /// Kubernetes namespace to watch.
-        namespace: String,
-        /// Label selector to filter peer pods (e.g., "app=slim").
-        label_selector: String,
-    },
 }
 
 #[cfg(test)]
@@ -112,69 +123,77 @@ mod tests {
     fn test_deserialize_peer_config_static_peers() {
         let yaml = r#"
             deployment_name: "my-deployment"
-            static_peers:
-              - node_id: "slim-1"
-                endpoint: "http://slim-1:8080"
-              - node_id: "slim-2"
-                endpoint: "http://slim-2:8080"
+            discovery:
+              type: static
+              peers:
+                - node_id: "slim-1"
+                  endpoint: "http://slim-1:8080"
+                - node_id: "slim-2"
+                  endpoint: "http://slim-2:8080"
         "#;
 
         let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.deployment_name, "my-deployment");
-        assert_eq!(config.static_peers.len(), 2);
-        assert_eq!(config.static_peers[0].node_id, "slim-1");
-        assert_eq!(config.static_peers[0].config.endpoint, "http://slim-1:8080");
-        assert_eq!(config.static_peers[1].node_id, "slim-2");
-        assert_eq!(config.static_peers[1].config.endpoint, "http://slim-2:8080");
-        assert!(config.discovery.is_none());
+        match &config.discovery {
+            PeerDiscoveryConfig::Static { peers } => {
+                assert_eq!(peers.len(), 2);
+                assert_eq!(peers[0].node_id, "slim-1");
+                assert_eq!(peers[0].config.endpoint, "http://slim-1:8080");
+                assert_eq!(peers[1].node_id, "slim-2");
+                assert_eq!(peers[1].config.endpoint, "http://slim-2:8080");
+            }
+            _ => panic!("expected static discovery"),
+        }
     }
 
     #[test]
-    fn test_deserialize_peer_config_no_peers_fails() {
+    fn test_deserialize_peer_config_no_discovery_fails() {
         let yaml = r#"
             deployment_name: "my-deployment"
         "#;
 
         let result: Result<PeerConfig, _> = serde_yaml::from_str(yaml);
-        assert!(result.is_err(), "static_peers is required");
+        assert!(result.is_err(), "discovery is required");
     }
 
     #[test]
     fn test_deserialize_peer_config_empty_peers_fails() {
         let yaml = r#"
             deployment_name: "my-deployment"
-            static_peers: []
+            discovery:
+              type: static
+              peers: []
         "#;
 
         let result: Result<PeerConfig, _> = serde_yaml::from_str(yaml);
-        assert!(result.is_err(), "static_peers must not be empty");
+        assert!(result.is_err(), "peers must not be empty");
     }
 
     #[test]
     fn test_deserialize_kubernetes_config() {
         let yaml = r#"
             deployment_name: "slim-deployment"
-            static_peers:
-              - node_id: "slim-1"
-                endpoint: "http://slim-1:8080"
             discovery:
               type: kubernetes
               namespace: "default"
-              label_selector: "app=slim"
+              service_name: "slim-svc"
+              port: 8080
         "#;
 
         let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.deployment_name, "slim-deployment");
 
         match &config.discovery {
-            Some(PeerDiscoveryConfig::Kubernetes {
+            PeerDiscoveryConfig::Kubernetes {
                 namespace,
-                label_selector,
-            }) => {
+                service_name,
+                port,
+            } => {
                 assert_eq!(namespace, "default");
-                assert_eq!(label_selector, "app=slim");
+                assert_eq!(service_name, "slim-svc");
+                assert_eq!(*port, 8080);
             }
-            None => panic!("expected kubernetes config"),
+            _ => panic!("expected kubernetes config"),
         }
     }
 
@@ -193,9 +212,11 @@ mod tests {
     fn test_topology_defaults_to_full_mesh() {
         let yaml = r#"
             deployment_name: "my-deployment"
-            static_peers:
-              - node_id: "slim-1"
-                endpoint: "http://slim-1:8080"
+            discovery:
+              type: static
+              peers:
+                - node_id: "slim-1"
+                  endpoint: "http://slim-1:8080"
         "#;
 
         let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
@@ -203,30 +224,15 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_hub_and_spoke_topology() {
-        let yaml = r#"
-            deployment_name: "my-deployment"
-            topology: hub_and_spoke
-            static_peers:
-              - node_id: "slim-1"
-                endpoint: "http://slim-1:8080"
-              - node_id: "slim-2"
-                endpoint: "http://slim-2:8080"
-        "#;
-
-        let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.topology, PeerTopology::HubAndSpoke);
-        assert_eq!(config.static_peers.len(), 2);
-    }
-
-    #[test]
     fn test_deserialize_full_mesh_topology_explicit() {
         let yaml = r#"
             deployment_name: "my-deployment"
             topology: full_mesh
-            static_peers:
-              - node_id: "slim-1"
-                endpoint: "http://slim-1:8080"
+            discovery:
+              type: static
+              peers:
+                - node_id: "slim-1"
+                  endpoint: "http://slim-1:8080"
         "#;
 
         let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();

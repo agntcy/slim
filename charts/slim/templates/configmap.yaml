@@ -14,5 +14,7 @@ data:
     {{- if .Values.slim.overrideConfig }}
     {{- tpl (toYaml .Values.slim.overrideConfig) . | nindent 4 }}
     {{- else }}
-    {{- tpl (toYaml .Values.slim.config) . | nindent 4 }}
+    {{- $config := fromYaml (tpl (toYaml .Values.slim.config) .) }}
+    {{- $_ := set (index $config "services" "slim/0" "peers" "discovery") "port" (int (index .Values.slim.service.data 0).port) }}
+    {{- toYaml $config | nindent 4 }}
     {{- end }}

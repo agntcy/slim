@@ -3,7 +3,7 @@ Copyright AGNTCY Contributors (https://github.com/agntcy)
 SPDX-License-Identifier: Apache-2.0
 */}}
 
-{{- if .Values.autoscaling.enabled }}
+{{- if and .Values.autoscaling.enabled (ne .Values.slim.deploymentMode "DaemonSet") }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:

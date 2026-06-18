@@ -1,0 +1,30 @@
+{{/*
+Copyright AGNTCY Contributors (https://github.com/agntcy)
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "slim.fullname" . }}-peer-discovery
+  labels:
+    {{- include "slim.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "slim.fullname" . }}-peer-discovery
+  labels:
+    {{- include "slim.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "slim.fullname" . }}-peer-discovery
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "slim.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
