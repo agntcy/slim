@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0](https://github.com/agntcy/slim/compare/slim-auth-v0.9.0...slim-auth-v0.10.0) - 2026-06-17
+
+### Added
+
+- *(websocket)* Enable the compilation of data-plane for wasm32 ([#1695](https://github.com/agntcy/slim/pull/1695))
+
+### Other
+
+- *(tests)* use common reserve_local_port helper across all test crates ([#1732](https://github.com/agntcy/slim/pull/1732))
+
 ## [0.9.0](https://github.com/agntcy/slim/compare/slim-auth-v0.8.0...slim-auth-v0.9.0) - 2026-06-03
 
 ### Added
