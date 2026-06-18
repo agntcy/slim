@@ -5,6 +5,7 @@ package integration
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -62,7 +63,12 @@ func mustAbs(p string) string {
 }
 
 func setBinaryPaths(target string) {
-	targetDir := filepath.Join("..", "..", "target", target, "debug")
+	// When built without an explicit --target, binaries are in target/debug/.
+	// When built with --target, they are in target/<target>/debug/.
+	targetDir := filepath.Join("..", "..", "target", "debug")
+	if _, err := os.Stat(filepath.Join(targetDir, "slim")); err != nil {
+		targetDir = filepath.Join("..", "..", "target", target, "debug")
+	}
 	slimPath = mustAbs(filepath.Join(targetDir, "slim"))
 	sdkMockPath = mustAbs(filepath.Join(targetDir, "sdk-mock"))
 	clientPath = mustAbs(filepath.Join(targetDir, "client"))
