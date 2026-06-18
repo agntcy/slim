@@ -83,6 +83,10 @@ pub struct ConfigurationCommand {
     pub connections_to_delete: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(bool, tag = "5")]
     pub reconcile: bool,
+    /// Incoming connections received by the node (after link negotiation).
+    /// Sent node→controller so the controller can claim the unclaimed link.
+    #[prost(message, repeated, tag = "6")]
+    pub connections_received: ::prost::alloc::vec::Vec<ConnectionEntry>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConfigurationCommandAck {
