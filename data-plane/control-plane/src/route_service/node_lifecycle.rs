@@ -21,20 +21,23 @@ impl super::RouteService {
     pub async fn node_registered(
         &self,
         node_id: &str,
+        group_name: &str,
         conn_details_updated: bool,
         dp_connections: Vec<crate::api::proto::controller::proto::v1::ConnectionEntry>,
         dp_routes: Vec<crate::api::proto::controller::proto::v1::Route>,
     ) {
-        // Serialize with node_deregistered for the same node to prevent a
-        // rapid disconnect-reconnect race from leaving stale link records.
-        let node_lock = {
-            let mut locks = self.0.node_locks.lock().await;
+        // Serialize link creation and lifecycle operations across all nodes in the
+        // same group. This prevents: (1) concurrent registrations from creating
+        // duplicate inter-group links, and (2) a rapid disconnect-reconnect race
+        // from leaving stale link records.
+        let group_lock = {
+            let mut locks = self.0.group_locks.lock().await;
             locks
-                .entry(node_id.to_string())
+                .entry(group_name.to_string())
                 .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
                 .clone()
         };
-        let _node_guard = node_lock.lock().await;
+        let _group_guard = group_lock.lock().await;
 
         // Build the set of link IDs the DP still has active.
         let active_link_ids: HashSet<String> = dp_connections
