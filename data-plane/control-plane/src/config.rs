@@ -229,60 +229,21 @@ impl<'de> Deserialize<'de> for TopologyConfig {
 }
 
 impl TopologyConfig {
-    /// Returns true if group `a` is allowed to create a link to group `b`.
-    /// Links are bidirectional. For Segments, true if ANY segment connects a↔b.
-    pub fn can_link(&self, a: &str, b: &str) -> bool {
-        match self {
-            Self::FullMesh => true,
-            Self::Links(links) => Self::can_link_in(links, a, b),
-            Self::Segments(segments) => segments
-                .iter()
-                .any(|seg| Self::can_link_in(&seg.links, a, b)),
-        }
-    }
-
-    /// Check if two groups are linked within a set of adjacency entries.
-    fn can_link_in(links: &[AdjacencyEntry], a: &str, b: &str) -> bool {
-        links.iter().any(|entry| {
-            (matches_group(&entry.name, a) && entry.neighbors.iter().any(|p| matches_group(p, b)))
-                || (matches_group(&entry.name, b)
-                    && entry.neighbors.iter().any(|p| matches_group(p, a)))
-        })
-    }
-
     /// Build one graph per segment. For FullMesh/Links returns a single "default" entry.
     /// Wildcard `"*"` is expanded to all groups in `known_groups`.
     pub fn build_graph(
         &self,
         known_groups: &[&str],
     ) -> Vec<(String, petgraph::graph::UnGraph<String, u32>)> {
-        match self {
-            Self::FullMesh => {
-                let full_mesh_links = vec![AdjacencyEntry {
-                    name: "*".to_string(),
-                    neighbors: vec!["*".to_string()],
-                }];
-                vec![(
-                    "default".to_string(),
-                    Self::build_graph_from_links(&full_mesh_links, known_groups),
-                )]
-            }
-            Self::Links(links) => {
-                vec![(
-                    "default".to_string(),
-                    Self::build_graph_from_links(links, known_groups),
-                )]
-            }
-            Self::Segments(segments) => segments
-                .iter()
-                .map(|seg| {
-                    (
-                        seg.name.clone(),
-                        Self::build_graph_from_links(&seg.links, known_groups),
-                    )
-                })
-                .collect(),
-        }
+        self.expand_segments(known_groups)
+            .iter()
+            .map(|seg| {
+                (
+                    seg.name.clone(),
+                    Self::build_graph_from_links(&seg.links, known_groups),
+                )
+            })
+            .collect()
     }
 
     fn build_graph_from_links(
@@ -339,6 +300,68 @@ impl TopologyConfig {
 
         graph
     }
+
+    /// Returns true if this config uses `$group` template expansion.
+    pub fn has_group_template(&self) -> bool {
+        match self {
+            Self::FullMesh | Self::Links(_) => false,
+            Self::Segments(segments) => segments.iter().any(|seg| seg.has_group_template()),
+        }
+    }
+
+    /// Expand `$group` templates into concrete segments for the given groups.
+    /// Groups already explicitly named in a template segment's links are excluded
+    /// from expansion. Non-template segments pass through unchanged.
+    pub fn expand_segments(&self, known_groups: &[&str]) -> Vec<SegmentConfig> {
+        match self {
+            Self::FullMesh => vec![SegmentConfig {
+                name: "default".to_string(),
+                links: vec![AdjacencyEntry {
+                    name: "*".to_string(),
+                    neighbors: vec!["*".to_string()],
+                }],
+            }],
+            Self::Links(links) => vec![SegmentConfig {
+                name: "default".to_string(),
+                links: links.clone(),
+            }],
+            Self::Segments(segments) => {
+                let mut result = Vec::new();
+                for seg in segments {
+                    if seg.has_group_template() {
+                        // Find groups explicitly named (not templates/wildcards)
+                        let explicit: Vec<&str> = seg
+                            .links
+                            .iter()
+                            .flat_map(|e| {
+                                let mut names = vec![];
+                                if e.name != "*" && e.name != "$group" {
+                                    names.push(e.name.as_str());
+                                }
+                                for n in &e.neighbors {
+                                    if n != "*" && n != "$group" {
+                                        names.push(n.as_str());
+                                    }
+                                }
+                                names
+                            })
+                            .collect();
+
+                        // Expand for each group NOT explicitly named
+                        for &group in known_groups {
+                            if explicit.contains(&group) {
+                                continue;
+                            }
+                            result.push(seg.expand_for_group(group));
+                        }
+                    } else {
+                        result.push(seg.clone());
+                    }
+                }
+                result
+            }
+        }
+    }
 }
 
 impl SegmentConfig {
@@ -383,72 +406,36 @@ impl SegmentConfig {
     }
 }
 
-impl TopologyConfig {
-    /// Returns true if this config uses `$group` template expansion.
-    pub fn has_group_template(&self) -> bool {
-        match self {
-            Self::FullMesh | Self::Links(_) => false,
-            Self::Segments(segments) => segments.iter().any(|seg| seg.has_group_template()),
-        }
-    }
-
-    /// Expand `$group` templates into concrete segments for the given groups.
-    /// Groups already explicitly named in a template segment's links are excluded
-    /// from expansion. Non-template segments pass through unchanged.
-    pub fn expand_segments(&self, known_groups: &[&str]) -> Vec<SegmentConfig> {
-        match self {
-            Self::FullMesh => vec![],
-            Self::Links(links) => vec![SegmentConfig {
-                name: "default".to_string(),
-                links: links.clone(),
-            }],
-            Self::Segments(segments) => {
-                let mut result = Vec::new();
-                for seg in segments {
-                    if seg.has_group_template() {
-                        // Find groups explicitly named (not templates/wildcards)
-                        let explicit: Vec<&str> = seg
-                            .links
-                            .iter()
-                            .flat_map(|e| {
-                                let mut names = vec![];
-                                if e.name != "*" && e.name != "$group" {
-                                    names.push(e.name.as_str());
-                                }
-                                for n in &e.neighbors {
-                                    if n != "*" && n != "$group" {
-                                        names.push(n.as_str());
-                                    }
-                                }
-                                names
-                            })
-                            .collect();
-
-                        // Expand for each group NOT explicitly named
-                        for &group in known_groups {
-                            if explicit.contains(&group) {
-                                continue;
-                            }
-                            result.push(seg.expand_for_group(group));
-                        }
-                    } else {
-                        result.push(seg.clone());
-                    }
-                }
-                result
-            }
-        }
-    }
-}
-
-/// Returns true if `pattern` matches `group`. `"*"` matches any group.
-fn matches_group(pattern: &str, group: &str) -> bool {
-    pattern == "*" || pattern == group
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Returns true if `pattern` matches `group`. `"*"` matches any group.
+    fn matches_group(pattern: &str, group: &str) -> bool {
+        pattern == "*" || pattern == group
+    }
+
+    impl TopologyConfig {
+        /// Test helper: check if group `a` is allowed to link to group `b`.
+        fn can_link(&self, a: &str, b: &str) -> bool {
+            match self {
+                Self::FullMesh => true,
+                Self::Links(links) => Self::can_link_in(links, a, b),
+                Self::Segments(segments) => segments
+                    .iter()
+                    .any(|seg| Self::can_link_in(&seg.links, a, b)),
+            }
+        }
+
+        fn can_link_in(links: &[AdjacencyEntry], a: &str, b: &str) -> bool {
+            links.iter().any(|entry| {
+                (matches_group(&entry.name, a)
+                    && entry.neighbors.iter().any(|p| matches_group(p, b)))
+                    || (matches_group(&entry.name, b)
+                        && entry.neighbors.iter().any(|p| matches_group(p, a)))
+            })
+        }
+    }
 
     #[test]
     fn reconciler_config_defaults() {

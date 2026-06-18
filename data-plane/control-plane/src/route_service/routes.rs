@@ -65,39 +65,27 @@ impl super::RouteService {
 
         if groups_changed {
             let group_vec: Vec<&str> = new_groups.into_iter().collect();
-
-            // If the topology has $group templates, expand them first
-            if self.0.topology.has_group_template() {
-                let expanded = self.0.topology.expand_segments(&group_vec);
-                let expanded_config = crate::config::TopologyConfig::Segments(expanded);
-                *current_segments = expanded_config.build_graph(&group_vec);
-            } else {
-                *current_segments = self.0.topology.build_graph(&group_vec);
-            }
+            *current_segments = self.0.topology.build_graph(&group_vec);
         }
 
         groups_changed
     }
 
-    /// Check if two groups can link based on the runtime expanded segment graphs.
-    /// Returns true if both groups are present and connected in any segment.
-    /// Falls back to the static topology config if no segment graphs are built yet.
-    pub(super) async fn can_link_runtime(&self, a: &str, b: &str) -> bool {
+    /// Compute the set of allowed group pairs from the runtime segment graphs.
+    /// Two groups can link if they share an edge in any segment.
+    pub(super) async fn allowed_link_pairs(&self) -> HashSet<(String, String)> {
         let segments = self.0.segment_graphs.read().await;
-        if segments.is_empty() {
-            // No graphs built yet, fall back to static config
-            return self.0.topology.can_link(a, b);
-        }
+        let mut pairs = HashSet::new();
         for (_, graph) in segments.iter() {
-            let idx_a = graph.node_indices().find(|&idx| graph[idx] == a);
-            let idx_b = graph.node_indices().find(|&idx| graph[idx] == b);
-            if let (Some(ia), Some(ib)) = (idx_a, idx_b)
-                && graph.find_edge(ia, ib).is_some()
-            {
-                return true;
+            for edge in graph.edge_references() {
+                let a = &graph[edge.source()];
+                let b = &graph[edge.target()];
+                // Store both directions for O(1) lookup
+                pairs.insert((a.clone(), b.clone()));
+                pairs.insert((b.clone(), a.clone()));
             }
         }
-        false
+        pairs
     }
 
     /// Find the inter-group link between two groups using pre-loaded links.
