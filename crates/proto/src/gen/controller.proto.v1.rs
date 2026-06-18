@@ -56,7 +56,7 @@ pub struct ConnectionAck {
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Route {
     #[prost(message, optional, tag = "1")]
-    pub name: ::core::option::Option<::slim_datapath::api::proto::dataplane::v1::Name>,
+    pub name: ::core::option::Option<super::super::super::dataplane::proto::v1::Name>,
     #[prost(string, optional, tag = "2")]
     pub link_id: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(enumeration = "ConnectionDirection", optional, tag = "3")]
@@ -120,7 +120,7 @@ pub struct RouteListResponse {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RouteEntry {
     #[prost(message, optional, tag = "1")]
-    pub name: ::core::option::Option<::slim_datapath::api::proto::dataplane::v1::Name>,
+    pub name: ::core::option::Option<super::super::super::dataplane::proto::v1::Name>,
     #[prost(message, repeated, tag = "2")]
     pub connections: ::prost::alloc::vec::Vec<ConnectionEntry>,
 }
@@ -273,6 +273,7 @@ impl ConnectionDirection {
     }
 }
 /// Generated client implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod controller_service_client {
     #![allow(
         unused_variables,
@@ -395,6 +396,7 @@ pub mod controller_service_client {
     }
 }
 /// Generated server implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod controller_service_server {
     #![allow(
         unused_variables,

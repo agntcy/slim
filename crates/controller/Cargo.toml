@@ -11,6 +11,7 @@ include = ["src/**", "build.rs", "proto/**"]
 name = "slim_controller"
 
 [dependencies]
+agntcy-slim-proto = { workspace = true }
 agntcy-slim-version = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -37,9 +38,6 @@ tonic-prost = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
-[build-dependencies]
-protoc-bin-vendored = { workspace = true }
-tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
 tracing-test = { workspace = true }

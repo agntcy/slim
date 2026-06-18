@@ -18,6 +18,7 @@ path = "src/bin/cmctl.rs"
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
+agntcy-slim-proto = { workspace = true }
 agntcy-slim-service = { workspace = true, features = ["session"] }
 agntcy-slim-session = { workspace = true }
 agntcy-slim-signal = { workspace = true }
@@ -32,9 +33,6 @@ tonic = { workspace = true }
 tonic-prost = { workspace = true }
 tracing = { workspace = true }
 
-[build-dependencies]
-protoc-bin-vendored = { workspace = true }
-tonic-prost-build = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim = { workspace = true }

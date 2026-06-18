@@ -24,8 +24,18 @@ pub fn validate_route_nodes(source_node_id: &str, dest_node_id: &str) -> Result<
     Ok(())
 }
 
-impl ProtoRoute {
-    pub fn to_db_route(
+pub trait ProtoRouteExt {
+    fn to_db_route(
+        &self,
+        source_node_id: &str,
+        source_group: &str,
+        dest_node_id: &str,
+        dest_group: &str,
+    ) -> crate::db::Route;
+}
+
+impl ProtoRouteExt for ProtoRoute {
+    fn to_db_route(
         &self,
         source_node_id: &str,
         source_group: &str,

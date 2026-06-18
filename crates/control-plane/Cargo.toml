@@ -23,6 +23,7 @@ path = "src/main.rs"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
+agntcy-slim-proto = { workspace = true }
 agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 
@@ -56,8 +57,6 @@ uuid = { workspace = true, features = ["v4", "v5"] }
 [build-dependencies]
 diesel = { workspace = true }
 libsqlite3-sys = { workspace = true }
-protoc-bin-vendored = { workspace = true }
-tonic-prost-build = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim-auth = { workspace = true }

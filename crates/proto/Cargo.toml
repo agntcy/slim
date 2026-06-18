@@ -1,0 +1,25 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "agntcy-slim-proto"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Consolidated protobuf/gRPC generated code for SLIM"
+
+[dependencies]
+agntcy-slim-config = { workspace = true }
+agntcy-slim-version = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }
+tonic = { workspace = true }
+tonic-prost = { workspace = true }
+twox-hash = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+[build-dependencies]
+protoc-bin-vendored = { workspace = true }
+tonic-prost-build = { workspace = true }

@@ -7,6 +7,7 @@ use crate::api::ProtoName;
 use crate::api::ProtoSessionMessageType;
 use crate::api::proto::dataplane::v1::Message;
 use crate::messages::utils::MessageError;
+use agntcy_slim_proto::NameError;
 #[cfg(not(target_arch = "wasm32"))]
 use slim_config::errors::ConfigError;
 use thiserror::Error;
@@ -106,6 +107,15 @@ pub struct MessageContext {
     pub message_id: u32,
     pub session_id: u32,
     pub session_message_type: i32,
+}
+
+impl From<NameError> for DataPathError {
+    fn from(value: NameError) -> Self {
+        match value {
+            NameError::InvalidNameIdFormat(name) => Self::InvalidNameIdFormat(name),
+            NameError::InvalidNameFormat(name) => Self::InvalidNameFormat(name),
+        }
+    }
 }
 
 impl MessageContext {

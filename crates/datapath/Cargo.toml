@@ -15,6 +15,7 @@ otel_tracing = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 
 [dependencies]
 agntcy-slim-config = { workspace = true }
+agntcy-slim-proto = { workspace = true }
 agntcy-slim-version = { workspace = true }
 arc-swap = { workspace = true }
 cfg-if = { workspace = true }
@@ -55,9 +56,6 @@ tonic-prost = { workspace = true }
 getrandom = { workspace = true }
 uuid = { workspace = true, features = ["v4", "js"] }
 
-[build-dependencies]
-protoc-bin-vendored = { workspace = true }
-tonic-prost-build = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim-testing = { workspace = true }

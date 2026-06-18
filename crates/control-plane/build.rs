@@ -4,43 +4,7 @@
 use std::fmt::Write as _;
 
 fn main() {
-    let protoc_path = protoc_bin_vendored::protoc_bin_path().unwrap();
-
-    unsafe {
-        #[allow(clippy::disallowed_methods)]
-        std::env::set_var("PROTOC", protoc_path);
-    }
-
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    let base = std::path::Path::new(&manifest_dir);
-
-    let controlplane_proto = base.join("proto/controlplane/v1/controlplane.proto");
-
-    // Include paths: local proto/, sibling controller and datapath proto/ dirs
-    let controller_proto_dir = base.join("../controller/proto");
-    let datapath_proto_dir = base.join("../datapath/proto");
-
-    if controlplane_proto.exists() {
-        println!("cargo:rerun-if-changed={}", controlplane_proto.display());
-
-        tonic_prost_build::configure()
-            .out_dir("src/api/gen")
-            .extern_path(
-                ".dataplane.proto.v1",
-                "::slim_datapath::api::proto::dataplane::v1",
-            )
-            .compile_protos(
-                &[controlplane_proto.to_str().unwrap()],
-                &[
-                    base.join("proto").to_str().unwrap(),
-                    controller_proto_dir.to_str().unwrap(),
-                    datapath_proto_dir.to_str().unwrap(),
-                ],
-            )
-            .unwrap();
-    }
-
-    generate_schema(&manifest_dir);
+    generate_schema(&std::env::var("CARGO_MANIFEST_DIR").unwrap());
 }
 
 // ─── Schema types for PRAGMA introspection ────────────────────────────────────

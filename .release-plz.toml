@@ -78,3 +78,9 @@ name = "agntcy-slimctl"
 publish = true
 release = true
 changelog_update = true
+
+[[package]]
+name = "agntcy-slim-proto"
+publish = true
+release = true
+changelog_update = true

@@ -13,6 +13,7 @@ use crate::api::proto::controller::proto::v1::{
 };
 use crate::db::RouteName;
 use crate::error::{Error, Result};
+use crate::types::ProtoRouteExt;
 use crate::node_transport::ResponseKind;
 use crate::types::validate_route_nodes;
 

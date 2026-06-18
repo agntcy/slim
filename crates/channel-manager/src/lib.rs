@@ -14,6 +14,4 @@ pub mod config;
 pub mod service;
 pub mod sessions;
 
-pub mod proto {
-    include!("gen/channel_manager.proto.v1.rs");
-}
+pub use agntcy_slim_proto::channel_manager::proto::v1 as proto;

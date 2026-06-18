@@ -58,6 +58,7 @@ pub struct ListParticipantsResponse {
     pub participant_name: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 /// Generated client implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod channel_manager_service_client {
     #![allow(
         unused_variables,
@@ -325,6 +326,7 @@ pub mod channel_manager_service_client {
     }
 }
 /// Generated server implementations.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod channel_manager_service_server {
     #![allow(
         unused_variables,

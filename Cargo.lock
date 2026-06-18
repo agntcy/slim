@@ -81,6 +81,7 @@ dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
  "agntcy-slim-datapath",
+ "agntcy-slim-proto",
  "agntcy-slim-service",
  "agntcy-slim-session",
  "agntcy-slim-signal",
@@ -89,14 +90,12 @@ dependencies = [
  "anyhow",
  "clap",
  "prost",
- "protoc-bin-vendored",
  "serde",
  "serde_yaml",
  "tempfile",
  "tokio",
  "tonic",
  "tonic-prost",
- "tonic-prost-build",
  "tracing",
 ]
 
@@ -162,6 +161,7 @@ dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
  "agntcy-slim-datapath",
+ "agntcy-slim-proto",
  "agntcy-slim-service",
  "agntcy-slim-signal",
  "agntcy-slim-testing",
@@ -181,7 +181,6 @@ dependencies = [
  "petgraph",
  "prost",
  "prost-types",
- "protoc-bin-vendored",
  "rand 0.9.4",
  "rlimit",
  "serde",
@@ -194,7 +193,6 @@ dependencies = [
  "tokio-test",
  "tonic",
  "tonic-prost",
- "tonic-prost-build",
  "tracing",
  "tracing-subscriber",
  "tracing-test",
@@ -207,6 +205,7 @@ version = "0.8.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-datapath",
+ "agntcy-slim-proto",
  "agntcy-slim-session",
  "agntcy-slim-signal",
  "agntcy-slim-tracing",
@@ -218,7 +217,6 @@ dependencies = [
  "parking_lot",
  "prost",
  "prost-types",
- "protoc-bin-vendored",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -227,7 +225,6 @@ dependencies = [
  "tokio-util",
  "tonic",
  "tonic-prost",
- "tonic-prost-build",
  "tracing",
  "tracing-test",
  "uuid",
@@ -238,6 +235,7 @@ name = "agntcy-slim-datapath"
 version = "0.15.0"
 dependencies = [
  "agntcy-slim-config",
+ "agntcy-slim-proto",
  "agntcy-slim-testing",
  "agntcy-slim-tracing",
  "agntcy-slim-version",
@@ -258,7 +256,6 @@ dependencies = [
  "opentelemetry",
  "parking_lot",
  "prost",
- "protoc-bin-vendored",
  "rand 0.9.4",
  "semver",
  "serde",
@@ -270,7 +267,6 @@ dependencies = [
  "tokio-util",
  "tonic",
  "tonic-prost",
- "tonic-prost-build",
  "tracing",
  "tracing-opentelemetry",
  "tracing-test",
@@ -299,6 +295,24 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "agntcy-slim-proto"
+version = "0.1.0"
+dependencies = [
+ "agntcy-slim-config",
+ "agntcy-slim-version",
+ "prost",
+ "prost-types",
+ "protoc-bin-vendored",
+ "rand 0.9.4",
+ "thiserror 2.0.18",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+ "twox-hash",
+ "uuid",
 ]
 
 [[package]]
@@ -431,6 +445,7 @@ dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
  "agntcy-slim-datapath",
+ "agntcy-slim-proto",
  "agntcy-slim-service",
  "agntcy-slim-session",
  "agntcy-slim-signal",
@@ -442,7 +457,6 @@ dependencies = [
  "duration-string",
  "prost",
  "prost-types",
- "protoc-bin-vendored",
  "serde_json",
  "serde_yaml",
  "tempfile",
@@ -450,7 +464,6 @@ dependencies = [
  "tokio-stream",
  "tonic",
  "tonic-prost",
- "tonic-prost-build",
  "url",
  "uuid",
 ]
