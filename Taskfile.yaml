@@ -320,7 +320,7 @@ tasks:
     cmds:
       - task: test:coverage
         vars:
-          ARGS: "{{.GLOBAL_ARGS}} --all-targets --locked --all-features"
+          ARGS: "--all-targets --locked --all-features"
       - task: core:test
 
   core:test:
