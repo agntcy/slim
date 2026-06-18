@@ -28,7 +28,6 @@ use crate::auth::static_jwt::Config as BearerAuthenticationConfig;
 use crate::backoff::Strategy;
 use crate::backoff::exponential::Config as ExponentialBackoff;
 use crate::backoff::fixedinterval::Config as FixedIntervalBackoff;
-
 use crate::component::configuration::Configuration;
 use crate::conn_type::ConnType;
 use crate::errors::ConfigError;
@@ -247,7 +246,8 @@ pub struct ClientConfig {
     pub require_header_mac: bool,
 
     /// The type of connection this client establishes.
-    /// Defaults to `remote`. Set to `peer` for intra-deployment peer connections.
+    /// Defaults to `edge`. Set to `peer` for intra-deployment peer connections,
+    /// or `remote` for control-plane-managed inter-deployment links.
     #[serde(default)]
     pub connection_type: ConnType,
 }

@@ -31,6 +31,7 @@ impl From<ConnType> for LinkConnectionType {
     fn from(ct: ConnType) -> Self {
         match ct {
             ConnType::Peer => LinkConnectionType::Peer,
+            ConnType::Edge => LinkConnectionType::Edge,
             _ => LinkConnectionType::Remote,
         }
     }

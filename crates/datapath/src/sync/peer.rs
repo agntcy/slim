@@ -57,7 +57,7 @@ pub async fn send_local_remote_sync(
 }
 
 /// Send full subscription sync (local + remote + other peers, excluding target).
-/// Used for hub-and-spoke and generic topologies where a node relays routes.
+/// Used for generic/standalone topologies where a node relays routes.
 pub async fn send_full_sync(
     mp: &MessageProcessor,
     peer_conn_id: u64,

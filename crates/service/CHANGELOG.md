@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0](https://github.com/agntcy/slim/compare/slim-service-v0.9.0...slim-service-v0.10.0) - 2026-06-17
+
+### Added
+
+- add edge connections ([#1741](https://github.com/agntcy/slim/pull/1741))
+- *(websocket)* Enable the compilation of data-plane for wasm32 ([#1695](https://github.com/agntcy/slim/pull/1695))
+- *(peer-sync)* subscription synchronization ([#1705](https://github.com/agntcy/slim/pull/1705))
+- e2e header integrity validation ([#1677](https://github.com/agntcy/slim/pull/1677))
+- *(datapath)* add peer discovery module with static backend ([#1696](https://github.com/agntcy/slim/pull/1696))
+
+### Other
+
+- remove link recovery mechanism ([#1737](https://github.com/agntcy/slim/pull/1737))
+
 ## [0.9.0](https://github.com/agntcy/slim/compare/slim-service-v0.8.15...slim-service-v0.9.0) - 2026-06-03
 
 ### Added

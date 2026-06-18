@@ -2,7 +2,7 @@
 name = "agntcy-slim-service"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.9.0"
+version = "0.10.0"
 description = "Main service and public API to interact with SLIM data plane."
 
 [lib]
@@ -11,6 +11,7 @@ crate-type = ["lib"]
 
 [features]
 default = ["session"]
+kubernetes = ["agntcy-slim-datapath/kubernetes"]
 session = ["agntcy-slim-session"]
 
 [dependencies]

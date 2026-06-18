@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Build container
-FROM --platform=${BUILDPLATFORM} rust:1.90-slim-bookworm AS rust
+FROM --platform=${BUILDPLATFORM} rust:1.93-slim-bookworm AS rust
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
@@ -50,7 +50,10 @@ EOF
 COPY . /app
 WORKDIR /app
 
-RUN <<EOF
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/app/target,sharing=locked \
+    <<EOF
 case ${TARGETARCH} in
     "amd64")
         RUSTARCH=x86_64-unknown-linux-gnu
@@ -68,7 +71,7 @@ esac
 task -v fetch TARGET=${RUSTARCH}
 
 # Build application
-task -v build:strip TARGET=${RUSTARCH} PROFILE=release
+task -v build:strip TARGET=${RUSTARCH} PROFILE=release ARGS="--locked --bin slim --bin slim-control-plane"
 mv target/${RUSTARCH}/release/slim /slim
 mv target/${RUSTARCH}/release/slim.dbg /slim.dbg
 

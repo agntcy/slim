@@ -97,8 +97,8 @@ struct MessageProcessorInternal {
     negotiation_timeout: std::time::Duration,
 
     /// Whether peer-originated publishes should be relayed to other peers.
-    /// True for hub-and-spoke (hub) or generic multi-hop topologies.
     /// False for full-mesh (peers deliver directly — 1-hop rule).
+    /// True for standalone/generic multi-hop topologies.
     relay_peer_publishes: bool,
 
     /// Peer sync component for subscription forwarding and peer lifecycle.
@@ -303,7 +303,7 @@ impl MessageProcessor {
             .forwarder()
             .get_connection(conn_index)
             .ok_or(DataPathError::ConnectionNotFound(conn_index))?;
-        if !matches!(conn.connection_type(), ConnType::Remote) {
+        if !matches!(conn.connection_type(), ConnType::Remote | ConnType::Edge) {
             return Ok(());
         }
         let header = message
@@ -640,7 +640,7 @@ impl MessageProcessor {
 
                 if !msg.is_link()
                     && !msg.is_subscription_ack()
-                    && matches!(conn.connection_type(), ConnType::Remote)
+                    && matches!(conn.connection_type(), ConnType::Remote | ConnType::Edge)
                     && conn.require_header_mac()
                     && conn.header_hmac().is_none()
                 {
@@ -652,7 +652,7 @@ impl MessageProcessor {
 
                 if !msg.is_link()
                     && !msg.is_subscription_ack()
-                    && matches!(conn.connection_type(), ConnType::Remote)
+                    && matches!(conn.connection_type(), ConnType::Remote | ConnType::Edge)
                     && let Some(mac) = conn.header_hmac()
                 {
                     let link_id = conn
@@ -1695,7 +1695,10 @@ impl MessageProcessor {
 
             let mut connected = false;
 
-            if try_to_reconnect && let Some(config) = client_conf_clone {
+            if try_to_reconnect
+                && !matches!(category, ConnType::Remote)
+                && let Some(config) = client_conf_clone
+            {
                 // Break the span chain: reconnect → try_to_connect → process_stream
                 // would otherwise nest under the current process_stream span on every
                 // reconnection, growing the span hierarchy unboundedly.
@@ -1799,6 +1802,11 @@ impl MessageProcessor {
     /// The node identity used for cross-node communication.
     pub fn service_id(&self) -> &str {
         &self.internal.service_id
+    }
+
+    /// Whether peer-originated publishes are relayed to other peers.
+    pub fn relay_peer_publishes(&self) -> bool {
+        self.internal.relay_peer_publishes
     }
 
     /// Set the peer sync component.
