@@ -339,4 +339,72 @@ mod tests {
         // node-a should link to both node-b and node-c
         assert_eq!(new_links.len(), 2);
     }
+
+    #[tokio::test]
+    async fn ensure_links_segments_isolates_spokes() {
+        use crate::config::{AdjacencyEntry, SegmentConfig, TopologyConfig};
+
+        let db = InMemoryDb::shared();
+        let hub = make_node(
+            "hub-node",
+            Some("platform"),
+            vec![make_conn_details("hub:8080", Some("hub-ext:9090"))],
+        );
+        let spoke_a = make_node(
+            "spoke-a",
+            Some("customer-a"),
+            vec![make_conn_details("a:8080", Some("a-ext:9090"))],
+        );
+        let spoke_b = make_node(
+            "spoke-b",
+            Some("customer-b"),
+            vec![make_conn_details("b:8080", Some("b-ext:9090"))],
+        );
+        db.save_node(hub.clone()).await.unwrap();
+        db.save_node(spoke_a.clone()).await.unwrap();
+        db.save_node(spoke_b.clone()).await.unwrap();
+
+        // Two segments: platform↔customer-a and platform↔customer-b
+        let topology = TopologyConfig::Segments(vec![
+            SegmentConfig {
+                name: "seg-a".to_string(),
+                links: vec![AdjacencyEntry {
+                    name: "platform".to_string(),
+                    neighbors: vec!["customer-a".to_string()],
+                }],
+            },
+            SegmentConfig {
+                name: "seg-b".to_string(),
+                links: vec![AdjacencyEntry {
+                    name: "platform".to_string(),
+                    neighbors: vec!["customer-b".to_string()],
+                }],
+            },
+        ]);
+        let svc = make_route_service_with_topology(db.clone(), topology);
+        let all_nodes = db.list_nodes().await.unwrap();
+
+        // Hub should link to both spokes (union of segments)
+        let (_, hub_links) = svc
+            .ensure_links_for_node("hub-node", &[], &all_nodes, &[], &[])
+            .await;
+        assert_eq!(hub_links.len(), 2, "hub should create 2 links (one per spoke)");
+
+        // Spoke-a should link to hub only, NOT to spoke-b
+        let (_, spoke_a_links) = svc
+            .ensure_links_for_node("spoke-a", &[], &all_nodes, &[], &[])
+            .await;
+        assert_eq!(spoke_a_links.len(), 1, "spoke-a should create 1 link (to hub)");
+        assert!(
+            spoke_a_links.iter().all(|l| l.dest_group == "platform"
+                || l.source_node_id == "hub-node"),
+            "spoke-a link should be to platform group"
+        );
+        assert!(
+            !spoke_a_links
+                .iter()
+                .any(|l| l.dest_group == "customer-b" || l.source_node_id == "spoke-b"),
+            "spoke-a should NOT link to customer-b"
+        );
+    }
 }

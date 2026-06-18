@@ -488,7 +488,7 @@ mod tests {
         make_node, make_route_service, make_route_service_with_topology, star_topology,
     };
     use super::*;
-    use crate::config::AdjacencyEntry;
+    use crate::config::{AdjacencyEntry, SegmentConfig};
     use crate::db::inmemory::InMemoryDb;
 
     #[tokio::test]
@@ -966,6 +966,178 @@ mod tests {
             route_c.unwrap().link_id.as_deref(),
             Some("link-bc"),
             "node-c should route toward group-b (its parent in the SPT)"
+        );
+    }
+
+    // ── topology: segmented route isolation ──────────────────────────────
+
+    /// Helper: create an Applied link record.
+    fn make_link(id: &str, src: &str, dst: &str) -> crate::db::Link {
+        crate::db::Link {
+            link_id: id.to_string(),
+            source_node_id: src.to_string(),
+            source_group: String::new(),
+            dest_node_id: dst.to_string(),
+            dest_group: String::new(),
+            dest_endpoint: format!("{dst}:8080"),
+            conn_config_data: ClientConfig::default().with_connection_type(ConnType::Remote),
+            status: LinkStatus::Applied,
+            status_msg: String::new(),
+            created_at: SystemTime::now(),
+            last_updated: SystemTime::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn segments_isolate_spokes_but_hub_reaches_all() {
+        // Two segments: platform↔customer-a and platform↔customer-b.
+        // - Route on spoke-a → hub gets it, spoke-b does NOT (isolation).
+        // - Route on hub → both spokes get it (hub bridges segments).
+        let db = InMemoryDb::shared();
+        db.save_node(make_node("hub", Some("platform"), vec![]))
+            .await
+            .unwrap();
+        db.save_node(make_node("spoke-a", Some("customer-a"), vec![]))
+            .await
+            .unwrap();
+        db.save_node(make_node("spoke-b", Some("customer-b"), vec![]))
+            .await
+            .unwrap();
+
+        let topology = TopologyConfig::Segments(vec![
+            SegmentConfig {
+                name: "seg-a".to_string(),
+                links: vec![AdjacencyEntry {
+                    name: "platform".to_string(),
+                    neighbors: vec!["customer-a".to_string()],
+                }],
+            },
+            SegmentConfig {
+                name: "seg-b".to_string(),
+                links: vec![AdjacencyEntry {
+                    name: "platform".to_string(),
+                    neighbors: vec!["customer-b".to_string()],
+                }],
+            },
+        ]);
+        let svc = make_route_service_with_topology(db.clone(), topology);
+
+        db.add_link(make_link("link-hub-a", "hub", "spoke-a"))
+            .await
+            .unwrap();
+        db.add_link(make_link("link-hub-b", "hub", "spoke-b"))
+            .await
+            .unwrap();
+
+        let all_nodes = db.list_nodes().await.unwrap();
+        svc.rebuild_link_graph(&all_nodes).await;
+
+        // Route 1: all → spoke-a (spoke-a's service)
+        let route_a = ProtoRoute {
+            name: Some(ProtoName::from_strings(["org", "ns", "svc-a"])),
+            ..Default::default()
+        };
+        svc.add_route(ALL_NODES_ID, "spoke-a", &route_a)
+            .await
+            .unwrap();
+
+        // Hub should reach spoke-a (same segment seg-a)
+        let hub_routes = db.get_routes_for_node("hub").await.unwrap();
+        assert!(
+            hub_routes
+                .iter()
+                .any(|r| r.dest_node_id == "spoke-a"),
+            "hub should have a route to spoke-a"
+        );
+
+        // Spoke-b should NOT reach spoke-a (different segments, no overlap)
+        let spoke_b_routes = db.get_routes_for_node("spoke-b").await.unwrap();
+        assert!(
+            !spoke_b_routes
+                .iter()
+                .any(|r| r.dest_node_id == "spoke-a"),
+            "spoke-b should NOT have a route to spoke-a (isolated segments)"
+        );
+
+        // Route 2: all → hub (hub's service)
+        let route_hub = ProtoRoute {
+            name: Some(ProtoName::from_strings(["org", "ns", "svc-hub"])),
+            ..Default::default()
+        };
+        svc.add_route(ALL_NODES_ID, "hub", &route_hub)
+            .await
+            .unwrap();
+
+        // Both spokes should reach hub (hub is in both segments)
+        let spoke_a_routes = db.get_routes_for_node("spoke-a").await.unwrap();
+        assert!(
+            spoke_a_routes.iter().any(|r| r.dest_node_id == "hub"),
+            "spoke-a should have a route to hub"
+        );
+
+        let spoke_b_routes = db.get_routes_for_node("spoke-b").await.unwrap();
+        assert!(
+            spoke_b_routes.iter().any(|r| r.dest_node_id == "hub"),
+            "spoke-b should have a route to hub"
+        );
+    }
+
+    #[tokio::test]
+    async fn segments_group_template_expands_and_isolates() {
+        // Same isolation test but using $group template config.
+        let db = InMemoryDb::shared();
+        db.save_node(make_node("hub", Some("platform"), vec![]))
+            .await
+            .unwrap();
+        db.save_node(make_node("spoke-a", Some("customer-a"), vec![]))
+            .await
+            .unwrap();
+        db.save_node(make_node("spoke-b", Some("customer-b"), vec![]))
+            .await
+            .unwrap();
+
+        let topology = TopologyConfig::Segments(vec![SegmentConfig {
+            name: "seg-$group".to_string(),
+            links: vec![AdjacencyEntry {
+                name: "platform".to_string(),
+                neighbors: vec!["$group".to_string()],
+            }],
+        }]);
+        let svc = make_route_service_with_topology(db.clone(), topology);
+
+        db.add_link(make_link("link-hub-a", "hub", "spoke-a"))
+            .await
+            .unwrap();
+        db.add_link(make_link("link-hub-b", "hub", "spoke-b"))
+            .await
+            .unwrap();
+
+        let all_nodes = db.list_nodes().await.unwrap();
+        svc.rebuild_link_graph(&all_nodes).await;
+
+        // Route: all → spoke-a
+        let route = ProtoRoute {
+            name: Some(ProtoName::from_strings(["org", "ns", "svc-a"])),
+            ..Default::default()
+        };
+        svc.add_route(ALL_NODES_ID, "spoke-a", &route)
+            .await
+            .unwrap();
+
+        // Hub should have a route to spoke-a
+        let hub_routes = db.get_routes_for_node("hub").await.unwrap();
+        assert!(
+            hub_routes.iter().any(|r| r.dest_node_id == "spoke-a"),
+            "hub should have a route to spoke-a ($group template)"
+        );
+
+        // Spoke-b should NOT have a route to spoke-a
+        let spoke_b_routes = db.get_routes_for_node("spoke-b").await.unwrap();
+        assert!(
+            !spoke_b_routes
+                .iter()
+                .any(|r| r.dest_node_id == "spoke-a"),
+            "spoke-b should NOT have a route to spoke-a ($group isolation)"
         );
     }
 }
