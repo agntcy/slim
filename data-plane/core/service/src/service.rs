@@ -23,9 +23,7 @@ use slim_controller::service::ControlPlane;
 use slim_datapath::message_processing::MessageProcessor;
 #[cfg(feature = "kubernetes")]
 use slim_datapath::peer_discovery::KubernetesPeerDiscovery;
-use slim_datapath::peer_discovery::{
-    PeerConfig, PeerDiscoveryConfig, PeerTopology, StaticPeerDiscovery,
-};
+use slim_datapath::peer_discovery::{PeerConfig, PeerDiscoveryConfig, StaticPeerDiscovery};
 use slim_datapath::sync::{PeerSync, PeerSyncConfig};
 use slim_datapath::tables::ConnType;
 
@@ -268,15 +266,9 @@ impl Service {
             .unwrap_or_default();
         let service_id = config.node_id.clone();
 
-        // Determine relay_peer_publishes at build time based on peer topology.
-        let relay_peer_publishes = match &config.peers {
-            Some(peer_config) => match peer_config.topology {
-                PeerTopology::FullMesh => false,
-                PeerTopology::HubAndSpoke => true,
-            },
-            // No peer config — standalone/generic topology needs relay.
-            None => true,
-        };
+        // In full-mesh topology, peers deliver directly (1-hop) so no relay needed.
+        // Without peer config (standalone), relay is enabled.
+        let relay_peer_publishes = config.peers.is_none();
 
         let message_processor = if let Some(server) = config.dataplane_servers().first() {
             MessageProcessor::new_with_server_config(
@@ -332,9 +324,6 @@ impl Service {
 
         // Peer sync manager
         if let Some(ref peer_config) = self.config.peers.clone() {
-            peer_config
-                .validate()
-                .map_err(ServiceError::InvalidConfig)?;
             self.start_peer_sync(peer_config);
         }
 
@@ -1210,30 +1199,6 @@ mod tests {
     }
 
     #[test]
-    fn test_relay_peer_publishes_hub_and_spoke_is_true() {
-        let tls_config = TlsServerConfig::new().with_insecure(true);
-        let server_config = ServerConfig::with_endpoint("0.0.0.0:0").with_tls_settings(tls_config);
-        let config = ServiceConfiguration::new()
-            .with_dataplane_server(vec![server_config])
-            .with_peers(PeerConfig {
-                deployment_name: "test".to_string(),
-                topology: PeerTopology::HubAndSpoke,
-                discovery: PeerDiscoveryConfig::Static {
-                    peers: vec![StaticPeerEntry {
-                        node_id: "peer-1".to_string(),
-                        config: ClientConfig::with_endpoint("http://127.0.0.1:9999"),
-                    }],
-                },
-            });
-        let service = config
-            .build_server(ID::new_with_name(Kind::new(KIND).unwrap(), "test-hs").unwrap())
-            .unwrap();
-
-        // In HubAndSpoke, the hub must relay publishes between spokes.
-        assert!(service.message_processor().relay_peer_publishes());
-    }
-
-    #[test]
     fn test_relay_peer_publishes_no_peers_is_true() {
         let tls_config = TlsServerConfig::new().with_insecure(true);
         let server_config = ServerConfig::with_endpoint("0.0.0.0:0").with_tls_settings(tls_config);
@@ -1244,23 +1209,6 @@ mod tests {
 
         // Without peer config (standalone), relay is enabled.
         assert!(service.message_processor().relay_peer_publishes());
-    }
-
-    // ── kubernetes + HubAndSpoke accepted ──────────────────────────────
-
-    #[tokio::test]
-    async fn test_k8s_hub_and_spoke_accepted() {
-        let peer_config = PeerConfig {
-            deployment_name: "test".to_string(),
-            topology: PeerTopology::HubAndSpoke,
-            discovery: PeerDiscoveryConfig::Kubernetes {
-                namespace: "default".to_string(),
-                service_name: "slim-svc".to_string(),
-                port: 46357,
-            },
-        };
-        // Validation should pass (no longer restricted to FullMesh).
-        assert!(peer_config.validate().is_ok());
     }
 
     // ── peer sync config construction ───────────────────────────────────

@@ -8,6 +8,9 @@ use serde::{Deserialize, Deserializer};
 use slim_config::client::ClientConfig;
 
 /// Topology for peer-to-peer connections within a replica set.
+///
+/// Currently only `FullMesh` is supported. Additional topologies may be
+/// added in the future.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PeerTopology {
@@ -15,14 +18,6 @@ pub enum PeerTopology {
     /// Subscriptions are forwarded 1 hop.
     #[default]
     FullMesh,
-    /// One replica (the hub, determined by smallest lexicographic node_id)
-    /// connects to all others (spokes). The hub relays subscriptions and
-    /// data messages between spokes.
-    ///
-    /// Only supported with static discovery. Kubernetes discovery requires
-    /// `FullMesh` because peers join dynamically and hub election cannot be
-    /// reliably determined without knowing all participants upfront.
-    HubAndSpoke,
 }
 
 /// A single static peer entry pairing a node identity with connection config.
@@ -82,16 +77,6 @@ pub struct PeerConfig {
     pub discovery: PeerDiscoveryConfig,
 }
 
-impl PeerConfig {
-    /// Validate the peer configuration for unsupported combinations.
-    ///
-    /// Returns an error if Kubernetes discovery is used with a topology
-    /// other than FullMesh.
-    pub fn validate(&self) -> Result<(), String> {
-        Ok(())
-    }
-}
-
 /// Peer discovery backend configuration.
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(tag = "type")]
@@ -107,9 +92,6 @@ pub enum PeerDiscoveryConfig {
     },
 
     /// Kubernetes-based peer discovery (watches EndpointSlices for a Service).
-    ///
-    /// Supports both `FullMesh` and `HubAndSpoke` topologies. In `HubAndSpoke`,
-    /// hub election is handled dynamically as peers are discovered.
     #[serde(rename = "kubernetes")]
     Kubernetes {
         /// Kubernetes namespace to watch.
@@ -242,30 +224,6 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_hub_and_spoke_topology() {
-        let yaml = r#"
-            deployment_name: "my-deployment"
-            topology: hub_and_spoke
-            discovery:
-              type: static
-              peers:
-                - node_id: "slim-1"
-                  endpoint: "http://slim-1:8080"
-                - node_id: "slim-2"
-                  endpoint: "http://slim-2:8080"
-        "#;
-
-        let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.topology, PeerTopology::HubAndSpoke);
-        match &config.discovery {
-            PeerDiscoveryConfig::Static { peers } => {
-                assert_eq!(peers.len(), 2);
-            }
-            _ => panic!("expected static discovery"),
-        }
-    }
-
-    #[test]
     fn test_deserialize_full_mesh_topology_explicit() {
         let yaml = r#"
             deployment_name: "my-deployment"
@@ -279,63 +237,5 @@ mod tests {
 
         let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.topology, PeerTopology::FullMesh);
-    }
-
-    #[test]
-    fn test_validate_static_full_mesh_ok() {
-        let config = PeerConfig {
-            deployment_name: "test".to_string(),
-            topology: PeerTopology::FullMesh,
-            discovery: PeerDiscoveryConfig::Static {
-                peers: vec![StaticPeerEntry {
-                    node_id: "peer-1".to_string(),
-                    config: ClientConfig::with_endpoint("http://peer-1:8080"),
-                }],
-            },
-        };
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_validate_static_hub_and_spoke_ok() {
-        let config = PeerConfig {
-            deployment_name: "test".to_string(),
-            topology: PeerTopology::HubAndSpoke,
-            discovery: PeerDiscoveryConfig::Static {
-                peers: vec![StaticPeerEntry {
-                    node_id: "peer-1".to_string(),
-                    config: ClientConfig::with_endpoint("http://peer-1:8080"),
-                }],
-            },
-        };
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_validate_k8s_full_mesh_ok() {
-        let config = PeerConfig {
-            deployment_name: "test".to_string(),
-            topology: PeerTopology::FullMesh,
-            discovery: PeerDiscoveryConfig::Kubernetes {
-                namespace: "default".to_string(),
-                service_name: "slim-svc".to_string(),
-                port: 46357,
-            },
-        };
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_validate_k8s_hub_and_spoke_ok() {
-        let config = PeerConfig {
-            deployment_name: "test".to_string(),
-            topology: PeerTopology::HubAndSpoke,
-            discovery: PeerDiscoveryConfig::Kubernetes {
-                namespace: "default".to_string(),
-                service_name: "slim-svc".to_string(),
-                port: 46357,
-            },
-        };
-        assert!(config.validate().is_ok());
     }
 }

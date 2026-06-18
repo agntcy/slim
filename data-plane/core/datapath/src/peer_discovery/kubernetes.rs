@@ -10,9 +10,6 @@
 //! Each discovered endpoint is identified by the pod name from the
 //! endpoint's `targetRef` (used as `node_id`), and the endpoint address
 //! combined with the configured port forms the endpoint URL.
-//!
-//! **Topology:** Only `FullMesh` is supported. `HubAndSpoke` requires static
-//! discovery because hub election needs all peers to be known upfront.
 
 use std::collections::HashMap;
 

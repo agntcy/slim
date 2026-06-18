@@ -136,15 +136,10 @@ struct PeerSyncInner {
     subscription_ttl: u32,
     /// Filter to apply when syncing subscriptions with a new peer.
     /// FullMesh → EXCLUDE_PEER (peers get subs from each other directly).
-    /// HubAndSpoke / standalone → ALL.
     sync_filter: crate::tables::MatchFilter,
     /// Shared peer state (if discovery is active).
     /// Used to register incoming peers directly without a channel.
     peer_state: Option<Arc<RwLock<PeerState>>>,
-    /// All peer IDs ever discovered (used for hub election in HubAndSpoke).
-    /// Unlike peer_state which only tracks connected peers, this tracks
-    /// every peer ID we've heard about from discovery.
-    discovered_peers: RwLock<HashSet<String>>,
 }
 
 impl PeerSync {
@@ -152,7 +147,6 @@ impl PeerSync {
     pub fn new(topology: &PeerTopology) -> Self {
         let (subscription_ttl, sync_filter) = match topology {
             PeerTopology::FullMesh => (2, crate::tables::MatchFilter::EXCLUDE_PEER),
-            PeerTopology::HubAndSpoke => (3, crate::tables::MatchFilter::ALL),
         };
         Self {
             inner: Arc::new(PeerSyncInner {
@@ -163,7 +157,6 @@ impl PeerSync {
                 subscription_ttl,
                 sync_filter,
                 peer_state: None,
-                discovered_peers: RwLock::new(HashSet::new()),
             }),
         }
     }
@@ -172,7 +165,6 @@ impl PeerSync {
     pub fn with_peer_state(topology: &PeerTopology, peer_state: Arc<RwLock<PeerState>>) -> Self {
         let (subscription_ttl, sync_filter) = match topology {
             PeerTopology::FullMesh => (2, crate::tables::MatchFilter::EXCLUDE_PEER),
-            PeerTopology::HubAndSpoke => (3, crate::tables::MatchFilter::ALL),
         };
         Self {
             inner: Arc::new(PeerSyncInner {
@@ -183,7 +175,6 @@ impl PeerSync {
                 subscription_ttl,
                 sync_filter,
                 peer_state: Some(peer_state),
-                discovered_peers: RwLock::new(HashSet::new()),
             }),
         }
     }
@@ -201,7 +192,6 @@ impl PeerSync {
                 subscription_ttl: DEFAULT_TTL,
                 sync_filter: crate::tables::MatchFilter::ALL,
                 peer_state: None,
-                discovered_peers: RwLock::new(HashSet::new()),
             }),
         }
     }
@@ -356,11 +346,8 @@ impl PeerSync {
 
     /// Handle a newly discovered peer.
     ///
-    /// Connection behavior depends on topology:
-    /// - **FullMesh**: only the node with the lexicographically smaller self_id
-    ///   initiates the outbound connection (tie-breaking for deduplication).
-    /// - **HubAndSpoke**: only the hub (smallest ID) initiates connections.
-    ///   Spokes never dial out.
+    /// In full-mesh topology, only the node with the lexicographically smaller
+    /// self_id initiates each pairwise connection (tie-breaking for dedup).
     async fn handle_peer_joined(
         &self,
         mp: &MessageProcessor,
@@ -373,63 +360,14 @@ impl PeerSync {
             return;
         }
 
-        // Track all discovered peers (for hub election in HubAndSpoke).
-        self.inner.discovered_peers.write().insert(peer.id.clone());
-
-        // Determine whether to dial based on topology.
-        let should_dial = match config.topology {
-            PeerTopology::FullMesh => {
-                // In full mesh, only the node with the smaller ID initiates
-                // each pairwise connection (avoids duplicate links).
-                config.self_id < peer.id
-            }
-            PeerTopology::HubAndSpoke => {
-                // In hub-and-spoke, only the hub (globally smallest ID) dials.
-                // A node is the hub if it has a smaller ID than ALL discovered peers.
-                let is_hub = !self
-                    .inner
-                    .discovered_peers
-                    .read()
-                    .iter()
-                    .any(|p| p.as_str() < config.self_id.as_str());
-
-                if !is_hub {
-                    // We just discovered a peer smaller than us (or already knew one).
-                    // Disconnect any outgoing connections we made when we incorrectly
-                    // thought we were the hub (race during incremental discovery).
-                    if let Some(ref state) = self.inner.peer_state {
-                        let outgoing: Vec<_> = {
-                            let guard = state.read();
-                            guard
-                                .iter()
-                                .filter(|(_, entry)| entry.is_outgoing)
-                                .map(|(id, entry)| (id.to_string(), entry.conn_id))
-                                .collect()
-                        };
-                        for (peer_id, conn_id) in outgoing {
-                            info!(
-                                peer_id = %peer_id,
-                                conn_id,
-                                "demoting from hub: disconnecting outgoing peer connection"
-                            );
-                            self.remove_peer_conn(conn_id);
-                            if let Err(e) = mp.disconnect(conn_id) {
-                                warn!(peer_id = %peer_id, error = %e, "error disconnecting");
-                            }
-                            state.write().remove(&peer_id);
-                        }
-                    }
-                }
-
-                is_hub
-            }
-        };
+        // In full mesh, only the node with the smaller ID initiates
+        // each pairwise connection (avoids duplicate links).
+        let should_dial = config.self_id < peer.id;
 
         if !should_dial {
             debug!(
                 peer_id = %peer.id,
                 self_id = %config.self_id,
-                topology = ?config.topology,
                 "skipping outbound connection (waiting for incoming)"
             );
             return;
@@ -462,14 +400,9 @@ impl PeerSync {
 
                 self.add_peer_conn(conn_id);
 
-                // Perform full sync: send subscriptions to the new peer.
-                // If we reached here with HubAndSpoke topology, we are the hub.
+                // Perform subscription sync with the new peer.
                 let ttl = self.inner.subscription_ttl;
-                let sync_result = if config.topology == PeerTopology::HubAndSpoke {
-                    peer::send_full_sync(mp, conn_id, ttl).await
-                } else {
-                    peer::send_local_remote_sync(mp, conn_id, ttl).await
-                };
+                let sync_result = peer::send_local_remote_sync(mp, conn_id, ttl).await;
                 if let Err(e) = sync_result {
                     warn!(
                         peer_id = %peer.id,
@@ -1430,12 +1363,6 @@ mod tests {
     }
 
     #[test]
-    fn test_hub_and_spoke_constructor() {
-        let fwd = PeerSync::new(&PeerTopology::HubAndSpoke);
-        assert_eq!(fwd.subscription_ttl(), 3);
-    }
-
-    #[test]
     fn test_with_peer_state_constructor() {
         let fwd = make_forwarder_with_state();
         assert!(fwd.has_peer_state());
@@ -1565,21 +1492,6 @@ mod tests {
 
         // In FullMesh, only smaller ID dials → "z-node" > "a-peer", so no dial
         let peer = make_peer_info("a-peer");
-        fwd.handle_peer_joined(&mp, &config, peer).await;
-        assert!(fwd.peer_conns().is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_handle_peer_joined_skip_no_dial_spoke() {
-        let fwd = make_forwarder_with_state();
-        let mp = MessageProcessor::new();
-        let config = PeerSyncConfig {
-            self_id: "spoke-node".to_string(),
-            deployment_name: "deploy".to_string(),
-            topology: PeerTopology::HubAndSpoke,
-        };
-
-        let peer = make_peer_info("other");
         fwd.handle_peer_joined(&mp, &config, peer).await;
         assert!(fwd.peer_conns().is_empty());
     }

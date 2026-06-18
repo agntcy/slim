@@ -97,8 +97,8 @@ struct MessageProcessorInternal {
     negotiation_timeout: std::time::Duration,
 
     /// Whether peer-originated publishes should be relayed to other peers.
-    /// True for hub-and-spoke (hub) or generic multi-hop topologies.
     /// False for full-mesh (peers deliver directly — 1-hop rule).
+    /// True for standalone/generic multi-hop topologies.
     relay_peer_publishes: bool,
 
     /// Peer sync component for subscription forwarding and peer lifecycle.

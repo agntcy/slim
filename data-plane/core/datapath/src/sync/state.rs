@@ -89,16 +89,6 @@ impl PeerState {
     pub fn is_empty(&self) -> bool {
         self.peers.is_empty()
     }
-
-    /// Returns true if any known peer has an ID lexicographically smaller than `id`.
-    pub fn has_peer_smaller_than(&self, id: &str) -> bool {
-        self.peers.keys().any(|peer_id| peer_id.as_str() < id)
-    }
-
-    /// Iterate over all peers and their entries.
-    pub fn iter(&self) -> impl Iterator<Item = (&str, &PeerEntry)> {
-        self.peers.iter().map(|(k, v)| (k.as_str(), v))
-    }
 }
 
 #[cfg(test)]
