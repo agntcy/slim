@@ -26,7 +26,7 @@ use slim_control_plane::api::proto::controlplane::proto::v1::{
     RouteListRequest,
 };
 use slim_control_plane::config::{
-    AdjacencyEntry, Config, DatabaseConfig, ReconcilerConfig, TopologyConfig,
+    AdjacencyEntry, Config, DatabaseConfig, ReconcilerConfig, SegmentConfig, TopologyConfig,
 };
 use slim_control_plane::server::ControlPlane;
 use slim_datapath::api::ProtoName as Name;
@@ -1583,6 +1583,106 @@ async fn test_star_topology_hub_crash_and_recovery() {
     app.shutdown().await.ok();
     app2.shutdown().await.ok();
     hub2.shutdown().await.ok();
+    spoke_a.shutdown().await.ok();
+    spoke_b.shutdown().await.ok();
+    stop_control_plane(cp).await;
+}
+
+/// Helper: build a segmented star topology with `$group` template.
+/// Hub group connects to each spoke group in a separate segment.
+fn segmented_star_topology(hub_group: &str) -> TopologyConfig {
+    TopologyConfig::Segments(vec![SegmentConfig {
+        name: "seg-$group".to_string(),
+        links: vec![AdjacencyEntry {
+            name: hub_group.to_string(),
+            neighbors: vec!["$group".to_string()],
+        }],
+    }])
+}
+
+/// Test: Segmented star topology isolates spokes but hub bridges all segments.
+///
+/// Scenario:
+///   - CP with segmented star topology ($group template): platform↔$group.
+///   - 3 nodes: hub (platform), spoke-a (customer-a), spoke-b (customer-b).
+///   - App subscribes on spoke-a → hub gets a route, spoke-b does NOT.
+///   - App subscribes on hub → both spokes get a route.
+///   - No spoke-to-spoke links.
+///
+/// Validates: segment isolation, hub bridging, $group template expansion.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_segmented_star_isolates_spokes() {
+    init_tracing();
+
+    let cp = start_control_plane(segmented_star_topology("platform")).await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+
+    let hub_port = reserve_port();
+    let spoke_a_port = reserve_port();
+    let spoke_b_port = reserve_port();
+
+    let hub = start_single_node("hub", "platform", cp.southbound_port, hub_port).await;
+    let spoke_a =
+        start_single_node("spoke-a", "customer-a", cp.southbound_port, spoke_a_port).await;
+    let spoke_b =
+        start_single_node("spoke-b", "customer-b", cp.southbound_port, spoke_b_port).await;
+
+    let id_hub = grouped_node_id("platform", "hub");
+    let id_spoke_a = grouped_node_id("customer-a", "spoke-a");
+    let id_spoke_b = grouped_node_id("customer-b", "spoke-b");
+
+    wait_for_nodes_connected(
+        &mut client,
+        &[&id_hub, &id_spoke_a, &id_spoke_b],
+        SHORT_TIMEOUT,
+    )
+    .await;
+
+    // Hub should have links to both spokes.
+    wait_for_link_between_groups(&mut client, "customer-a", "platform", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "customer-b", "platform", DEFAULT_TIMEOUT).await;
+
+    // Verify NO spoke-to-spoke link.
+    let links = collect_links(&mut client, "", "").await;
+    let spoke_to_spoke = links.iter().any(|l| {
+        if l.deleted {
+            return false;
+        }
+        let sg = l.source_node_id.split('/').next().unwrap_or("");
+        let dg = l.dest_node_id.split('/').next().unwrap_or("");
+        (sg == "customer-a" && dg == "customer-b") || (sg == "customer-b" && dg == "customer-a")
+    });
+    assert!(
+        !spoke_to_spoke,
+        "segmented star must NOT create spoke-to-spoke links"
+    );
+
+    // --- Part 1: route on spoke-a → hub gets it, spoke-b does NOT ---
+    let app_a = start_subscribing_app(spoke_a_port, "org", "ns", "seg-svc-a").await;
+
+    // Hub should get a route to spoke-a (same segment seg-customer-a).
+    wait_for_route_applied(&mut client, &id_hub, &id_spoke_a, DEFAULT_TIMEOUT).await;
+
+    // Spoke-b should NOT get a route to spoke-a (different segment).
+    // Allow time for any routes to propagate, then verify absence.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let spoke_b_routes = collect_routes(&mut client, &id_spoke_b, &id_spoke_a).await;
+    let spoke_b_has_route = spoke_b_routes.iter().any(|r| r.status == ROUTE_APPLIED);
+    assert!(
+        !spoke_b_has_route,
+        "spoke-b must NOT have a route to spoke-a (segment isolation)"
+    );
+
+    // --- Part 2: route on hub → both spokes get it ---
+    let app_hub = start_subscribing_app(hub_port, "org", "ns", "seg-svc-hub").await;
+
+    // Both spokes should get routes to hub (hub is in both segments).
+    wait_for_route_applied(&mut client, &id_spoke_a, &id_hub, DEFAULT_TIMEOUT).await;
+    wait_for_route_applied(&mut client, &id_spoke_b, &id_hub, DEFAULT_TIMEOUT).await;
+
+    app_a.shutdown().await.ok();
+    app_hub.shutdown().await.ok();
+    hub.shutdown().await.ok();
     spoke_a.shutdown().await.ok();
     spoke_b.shutdown().await.ok();
     stop_control_plane(cp).await;

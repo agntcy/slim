@@ -79,6 +79,27 @@ impl super::RouteService {
         groups_changed
     }
 
+    /// Check if two groups can link based on the runtime expanded segment graphs.
+    /// Returns true if both groups are present and connected in any segment.
+    /// Falls back to the static topology config if no segment graphs are built yet.
+    pub(super) async fn can_link_runtime(&self, a: &str, b: &str) -> bool {
+        let segments = self.0.segment_graphs.read().await;
+        if segments.is_empty() {
+            // No graphs built yet, fall back to static config
+            return self.0.topology.can_link(a, b);
+        }
+        for (_, graph) in segments.iter() {
+            let idx_a = graph.node_indices().find(|&idx| graph[idx] == a);
+            let idx_b = graph.node_indices().find(|&idx| graph[idx] == b);
+            if let (Some(ia), Some(ib)) = (idx_a, idx_b)
+                && graph.find_edge(ia, ib).is_some()
+            {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Find the inter-group link between two groups using pre-loaded links.
     ///
     /// Searches for an existing (non-deleted) link between any node in `group_a`
@@ -1044,18 +1065,14 @@ mod tests {
         // Hub should reach spoke-a (same segment seg-a)
         let hub_routes = db.get_routes_for_node("hub").await.unwrap();
         assert!(
-            hub_routes
-                .iter()
-                .any(|r| r.dest_node_id == "spoke-a"),
+            hub_routes.iter().any(|r| r.dest_node_id == "spoke-a"),
             "hub should have a route to spoke-a"
         );
 
         // Spoke-b should NOT reach spoke-a (different segments, no overlap)
         let spoke_b_routes = db.get_routes_for_node("spoke-b").await.unwrap();
         assert!(
-            !spoke_b_routes
-                .iter()
-                .any(|r| r.dest_node_id == "spoke-a"),
+            !spoke_b_routes.iter().any(|r| r.dest_node_id == "spoke-a"),
             "spoke-b should NOT have a route to spoke-a (isolated segments)"
         );
 
@@ -1134,9 +1151,7 @@ mod tests {
         // Spoke-b should NOT have a route to spoke-a
         let spoke_b_routes = db.get_routes_for_node("spoke-b").await.unwrap();
         assert!(
-            !spoke_b_routes
-                .iter()
-                .any(|r| r.dest_node_id == "spoke-a"),
+            !spoke_b_routes.iter().any(|r| r.dest_node_id == "spoke-a"),
             "spoke-b should NOT have a route to spoke-a ($group isolation)"
         );
     }

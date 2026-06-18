@@ -97,7 +97,7 @@ impl super::RouteService {
                 continue;
             }
             // Topology policy: skip link creation if the groups are not allowed to link.
-            if !self.0.topology.can_link(src_group, dst_group) {
+            if !self.can_link_runtime(src_group, dst_group).await {
                 tracing::debug!(
                     "topology policy: skipping link between {node_id} ({src_group}) and {} ({dst_group})",
                     other.id
@@ -388,16 +388,25 @@ mod tests {
         let (_, hub_links) = svc
             .ensure_links_for_node("hub-node", &[], &all_nodes, &[], &[])
             .await;
-        assert_eq!(hub_links.len(), 2, "hub should create 2 links (one per spoke)");
+        assert_eq!(
+            hub_links.len(),
+            2,
+            "hub should create 2 links (one per spoke)"
+        );
 
         // Spoke-a should link to hub only, NOT to spoke-b
         let (_, spoke_a_links) = svc
             .ensure_links_for_node("spoke-a", &[], &all_nodes, &[], &[])
             .await;
-        assert_eq!(spoke_a_links.len(), 1, "spoke-a should create 1 link (to hub)");
+        assert_eq!(
+            spoke_a_links.len(),
+            1,
+            "spoke-a should create 1 link (to hub)"
+        );
         assert!(
-            spoke_a_links.iter().all(|l| l.dest_group == "platform"
-                || l.source_node_id == "hub-node"),
+            spoke_a_links
+                .iter()
+                .all(|l| l.dest_group == "platform" || l.source_node_id == "hub-node"),
             "spoke-a link should be to platform group"
         );
         assert!(
