@@ -1,3 +1,9 @@
+:root {
+  --font-primary: "Roboto", sans-serif;
+  --font-title: "Roboto", sans-serif;
+  --font-mono: "Roboto Mono", monospace;
+}
+
 [data-theme="light"] {
   color-scheme: light;
   --bg-page: rgb(239, 243, 252);
@@ -7,10 +13,6 @@
   --bg-terminal-header: rgb(232, 238, 251);
   --panel-border: rgb(213, 223, 247);
   --shadow-panel: 0 4px 24px rgba(2, 81, 175, 0.1);
-
-  --font-primary: "Roboto", sans-serif;
-  --font-title: "Roboto", sans-serif;
-  --font-mono: "Roboto Mono", monospace;
 
   --color-blue: rgb(2, 81, 175);
   --color-amber: rgb(251, 175, 69);
@@ -471,6 +473,7 @@ header.main-header {
 /* 2D Canvas / SVG Pipeline Viewport */
 .viewport {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -503,6 +506,7 @@ header.main-header {
 svg.visual-graph {
   width: 100%;
   height: 100%;
+  font-family: var(--font-primary);
   color: var(--color-text-primary);
 }
 
@@ -516,11 +520,23 @@ svg.visual-graph {
 
 /* Bottom panel for packet log terminal */
 .terminal-container {
-  height: 140px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.terminal-container--collapsed {
+  height: auto;
+}
+
+.terminal-container:not(.terminal-container--collapsed) {
+  height: 140px;
+  max-height: 140px;
+}
+
+.terminal-container--collapsed .terminal-body {
+  display: none !important;
 }
 
 .terminal-header {
@@ -530,8 +546,77 @@ svg.visual-graph {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   font-size: 0.8rem;
   color: var(--color-text-secondary);
+  flex-shrink: 0;
+}
+
+.terminal-container--collapsed .terminal-header {
+  border-bottom: none;
+}
+
+.terminal-header-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.terminal-header-toggle:hover {
+  color: var(--color-text-primary);
+}
+
+.terminal-header-toggle:focus-visible {
+  outline: 2px solid var(--color-blue);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.terminal-clear-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.terminal-clear-btn:hover {
+  color: var(--color-text-primary);
+  background: var(--bg-panel-muted);
+}
+
+.terminal-clear-btn:focus-visible {
+  outline: 2px solid var(--color-blue);
+  outline-offset: 2px;
+}
+
+.terminal-toggle-icon {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  transition: transform 0.2s ease;
+}
+
+.terminal-container:not(.terminal-container--collapsed) .terminal-toggle-icon {
+  transform: rotate(180deg);
 }
 
 .terminal-header-title {
@@ -540,6 +625,7 @@ svg.visual-graph {
   gap: 8px;
   font-family: var(--font-title);
   font-weight: 600;
+  min-width: 0;
 }
 
 .terminal-dot {
@@ -551,14 +637,14 @@ svg.visual-graph {
 }
 
 .terminal-body {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   font-family: var(--font-mono);
   font-size: 0.78rem;
   padding: 12px 20px;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  overflow-x: hidden;
+  display: block;
   background: var(--bg-terminal);
   color: var(--color-text-primary);
 }
@@ -568,6 +654,7 @@ svg.visual-graph {
   white-space: pre-wrap;
   word-break: break-all;
   animation: fadeIn 0.2s ease-out;
+  margin-bottom: 6px;
 }
 
 .log-time {

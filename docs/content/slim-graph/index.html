@@ -198,13 +198,27 @@
     </main>
 
     <!-- Bottom Terminal -->
-    <section class="terminal-container ui-element">
+    <section
+      class="terminal-container terminal-container--collapsed ui-element"
+      id="terminal-panel"
+    >
       <div class="terminal-header">
-        <div class="terminal-header-title">
-          <div id="terminal-pulse" class="terminal-dot"></div>
-          <span>SLIM NETWORKING PROTOCOL LOG</span>
-        </div>
-        <div style="cursor: pointer;" id="btn-clear-term" title="Clear logs"><i class="fa-solid fa-trash-can"></i> Clear</div>
+        <button
+          type="button"
+          class="terminal-header-toggle"
+          id="btn-toggle-term"
+          aria-expanded="false"
+          aria-controls="terminal-body"
+        >
+          <span class="terminal-header-title">
+            <span id="terminal-pulse" class="terminal-dot"></span>
+            <span>SLIM NETWORKING PROTOCOL LOG</span>
+          </span>
+          <i class="fa-solid fa-chevron-down terminal-toggle-icon" aria-hidden="true"></i>
+        </button>
+        <button type="button" class="terminal-clear-btn" id="btn-clear-term" title="Clear logs">
+          <i class="fa-solid fa-trash-can"></i> Clear
+        </button>
       </div>
       <div id="terminal-body" class="terminal-body">
         <!-- Logs dynamically injected -->

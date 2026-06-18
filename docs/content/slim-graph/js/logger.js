@@ -71,11 +71,43 @@ function logToTerminal(component, level, target, message) {
   terminalBody.scrollTop = terminalBody.scrollHeight;
 }
 
-// Bind Clear Logs functionality once loaded
-document.addEventListener('DOMContentLoaded', () => {
+function setTerminalExpanded(expanded) {
+  const panel = document.getElementById('terminal-panel');
+  const terminalBody = document.getElementById('terminal-body');
+  const toggleBtn = document.getElementById('btn-toggle-term');
+  if (!panel || !terminalBody || !toggleBtn) return;
+
+  panel.classList.toggle('terminal-container--collapsed', !expanded);
+  toggleBtn.setAttribute('aria-expanded', String(expanded));
+
+  if (expanded) {
+    requestAnimationFrame(() => {
+      terminalBody.scrollTop = terminalBody.scrollHeight;
+    });
+  }
+}
+
+function bindTerminalControls() {
+  const panel = document.getElementById('terminal-panel');
+  const toggleBtn = document.getElementById('btn-toggle-term');
+  if (!panel || !toggleBtn || toggleBtn.dataset.bound === 'true') {
+    return;
+  }
+
+  toggleBtn.dataset.bound = 'true';
+  toggleBtn.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const isCollapsed = panel.classList.contains('terminal-container--collapsed');
+    setTerminalExpanded(isCollapsed);
+  });
+
   const btnClear = document.getElementById('btn-clear-term');
-  if (btnClear) {
-    btnClear.addEventListener('click', () => {
+  if (btnClear && btnClear.dataset.bound !== 'true') {
+    btnClear.dataset.bound = 'true';
+    btnClear.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       const terminalBody = document.getElementById('terminal-body');
       if (terminalBody) {
         terminalBody.innerHTML = '';
@@ -83,4 +115,15 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
-});
+}
+
+function initTerminalPanel() {
+  setTerminalExpanded(false);
+  bindTerminalControls();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initTerminalPanel);
+} else {
+  initTerminalPanel();
+}
