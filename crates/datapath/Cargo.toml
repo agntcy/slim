@@ -1,0 +1,77 @@
+[package]
+name = "agntcy-slim-datapath"
+version = "0.15.0"
+edition = { workspace = true }
+license = { workspace = true }
+description = "Core data plane functionality for SLIM"
+
+[lib]
+name = "slim_datapath"
+
+[features]
+default = []
+kubernetes = ["dep:kube", "dep:k8s-openapi"]
+otel_tracing = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
+
+[dependencies]
+agntcy-slim-config = { workspace = true }
+agntcy-slim-proto = { workspace = true }
+agntcy-slim-version = { workspace = true }
+arc-swap = { workspace = true }
+cfg-if = { workspace = true }
+futures = { workspace = true }
+# Optional deps must be unconditional so `dep:` references resolve in `[features]`.
+opentelemetry = { workspace = true, optional = true }
+parking_lot = { workspace = true }
+prost = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+trait-variant = { workspace = true }
+twox-hash = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+agntcy-slim-tracing = { workspace = true }
+aws-lc-rs = { workspace = true }
+display-error-chain = { workspace = true }
+drain = { workspace = true }
+fastwebsockets = { workspace = true }
+h2 = { workspace = true }
+http = { workspace = true }
+k8s-openapi = { workspace = true, features = ["v1_32"], optional = true }
+kube = { workspace = true, optional = true }
+semver = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+tonic = { workspace = true }
+tonic-prost = { workspace = true }
+
+# rand / uuid transitively need getrandom; on wasm32 the `wasm_js` backend must be enabled.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { workspace = true }
+uuid = { workspace = true, features = ["v4", "js"] }
+
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+agntcy-slim-testing = { workspace = true }
+anyhow = { workspace = true }
+criterion = { workspace = true }
+serde_yaml = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+tracing-test = { workspace = true, features = ["no-env-filter"] }
+
+[[bench]]
+name = "pool_benchmark"
+harness = false
+
+[[bench]]
+name = "name_benchmark"
+harness = false
+
+[[bench]]
+name = "subscription_table_benchmark"
+harness = false

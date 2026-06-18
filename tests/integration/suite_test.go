@@ -5,6 +5,7 @@ package integration
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -62,18 +63,22 @@ func mustAbs(p string) string {
 }
 
 func setBinaryPaths(target string) {
-	dataPlaneTarget := filepath.Join("..", "..", "data-plane", "target", target, "debug")
-	slimPath = mustAbs(filepath.Join(dataPlaneTarget, "slim"))
-	sdkMockPath = mustAbs(filepath.Join(dataPlaneTarget, "sdk-mock"))
-	clientPath = mustAbs(filepath.Join(dataPlaneTarget, "client"))
-	slimctlPath = mustAbs(filepath.Join(dataPlaneTarget, "slimctl"))
-	channelManagerPath = mustAbs(filepath.Join(dataPlaneTarget, "channel-manager"))
-	examplesTarget := filepath.Join(dataPlaneTarget, "examples")
+	// When built without an explicit --target, binaries are in target/debug/.
+	// When built with --target, they are in target/<target>/debug/.
+	targetDir := filepath.Join("..", "..", "target", "debug")
+	if _, err := os.Stat(filepath.Join(targetDir, "slim")); err != nil {
+		targetDir = filepath.Join("..", "..", "target", target, "debug")
+	}
+	slimPath = mustAbs(filepath.Join(targetDir, "slim"))
+	sdkMockPath = mustAbs(filepath.Join(targetDir, "sdk-mock"))
+	clientPath = mustAbs(filepath.Join(targetDir, "client"))
+	slimctlPath = mustAbs(filepath.Join(targetDir, "slimctl"))
+	channelManagerPath = mustAbs(filepath.Join(targetDir, "channel-manager"))
+	examplesTarget := filepath.Join(targetDir, "examples")
 	receiverPath = mustAbs(filepath.Join(examplesTarget, "receiver"))
 	senderPath = mustAbs(filepath.Join(examplesTarget, "sender"))
 
-	dataPlaneDebug := filepath.Join("..", "..", "data-plane", "target", target, "debug")
-	controlPlanePath = mustAbs(filepath.Join(dataPlaneDebug, "slim-control-plane"))
+	controlPlanePath = mustAbs(filepath.Join(targetDir, "slim-control-plane"))
 
 	distBin := filepath.Join("..", "..", ".dist", "bin")
 	legacySlimPath = mustAbs(filepath.Join(distBin, "slim-legacy"))

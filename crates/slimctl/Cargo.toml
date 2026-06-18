@@ -1,0 +1,67 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "agntcy-slimctl"
+version.workspace = true
+edition = { workspace = true }
+license = { workspace = true }
+description = "SLIM control CLI"
+repository = { workspace = true }
+# proto/ contains symlinks resolved by `cargo publish`; src/api/ is generated at build time
+include = ["src/**", "build.rs", "proto/**"]
+
+[package.metadata.cargo-machete]
+# prost and tonic-prost are used by the generated proto code (via build.rs /
+# tonic-prost-build); cargo-machete does not scan generated sources.
+ignored = ["prost", "tonic-prost", "prost-types"]
+
+[[bin]]
+name = "slimctl"
+path = "src/main.rs"
+
+[dependencies]
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+agntcy-slim = { workspace = true }
+agntcy-slim-auth = { workspace = true }
+agntcy-slim-config = { workspace = true }
+agntcy-slim-datapath = { workspace = true }
+agntcy-slim-proto = { workspace = true }
+agntcy-slim-service = { workspace = true, features = ["session"] }
+agntcy-slim-session = { workspace = true }
+agntcy-slim-signal = { workspace = true }
+agntcy-slim-tracing = { workspace = true }
+agntcy-slim-version = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+
+# Utilities
+chrono = { workspace = true }
+
+# CLI
+clap = { workspace = true }
+
+# Config
+duration-string = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+tempfile = { workspace = true }
+
+# Async
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "rt", "time"] }
+tokio-stream = { workspace = true }
+
+# gRPC / protobuf
+tonic = { workspace = true }
+tonic-prost = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+
+[build-dependencies]
+agntcy-slim-version = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio-stream = { workspace = true, features = ["net"] }
