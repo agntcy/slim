@@ -7,7 +7,7 @@ silent: true
 
 vars:
   REPO_ROOT:
-    sh: git rev-parse --show-toplevel 2>/dev/null || pwd
+    sh: 'git rev-parse --show-toplevel 2>/dev/null || pwd'
 
   TOOLS_INSTALL_DIR: "{{.REPO_ROOT}}/.tools"
 
