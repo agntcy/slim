@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 slim:
-  # Deploy as DaemonSet instead of StatefulSet
-  daemonset: false
+  # Workload kind: "Deployment" (default) or "DaemonSet"
+  # DaemonSet runs one instance per node (hostPort enabled automatically).
+  # Deployment supports replicaCount and HPA.
+  deploymentMode: "Deployment"
+
   # This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
   replicaCount: 1
 
@@ -33,16 +36,23 @@ slim:
       slim/0:
         # Required when running multiple replicas connected to the same Controller.
         # Should be unique for each SLIM instance.
-        node_id: ${env:SLIM_SVC_ID}
+        node_id: ${env:SLIM_NODE_ID}
         # Required in case of multi-cluster setup or when SLIM nodes are behind a NAT or Load Balancer.
         # Used by the Controller to identify which group a SLIM node belongs to.
         # Controller sets up connections between nodes using group names.
         # SLIM nodes in the same group are connected directly, via local_endpoint.
         # SLIM nodes in different groups are connected via external_endpoint. See 'metadata' below.
         # group_name: "cluster-a"
+        peers:
+          deployment_name: "slim-peers"
+          topology: full_mesh
+          discovery:
+            type: kubernetes
+            namespace: '{{ .Release.Namespace }}'
+            service_name: '{{ include "slim.fullname" . }}'
         dataplane:
           servers:
-            - endpoint: "0.0.0.0:{{ (index .Values.slim.service.data 0).port }}"
+            - endpoint: '0.0.0.0:{{ (index .Values.slim.service.data 0).port }}'
               tls:
                 insecure: true
                 # Uncomment below to connect to control plane with MTLS by Spire
@@ -55,14 +65,14 @@ slim:
               #   # can use to connect to this node.
               #   local_endpoint: ${env:MY_POD_IP}
               #   # external_endpoint is required to be set when SLIM nodes are behind a NAT or Load Balancer
-              #   external_endpoint: "slim.example.com:{{ (index .Values.slim.service.data 0).port }}"
+              #   external_endpoint: 'slim.example.com:{{ (index .Values.slim.service.data 0).port }}'
               #   # trust_domain is used to properly setup spire mtls. By default is the same as the group_name (cluster name),
               #   # but can be overridden in case of trust domain names different then group name (cluster name).
               #   trust_domain: "cluster-a"
           clients: []
         controller:
           servers:
-            - endpoint: "0.0.0.0:{{ (index .Values.slim.service.control 0).port }}"
+            - endpoint: '0.0.0.0:{{ (index .Values.slim.service.control 0).port }}'
               tls:
                 insecure: true
           # Uncomment below to connect to control plane with MTLS by Spire
@@ -73,23 +83,20 @@ slim:
           #       key_file: "/svids/tls.key"
           #       ca_file: "/svids/svid_bundle.pem"
 
-  # StatefulSet-specific settings
-  # DaemonSet-specific settings
-  hostNetwork: false
-  dnsPolicy: "ClusterFirst"  # or "ClusterFirstWithHostNet" if hostNetwork: true
+  # dnsPolicy setting (used when deploymentMode is "DaemonSet")
+  dnsPolicy: "ClusterFirst"
 
-  # Updated updateStrategy to support DaemonSet maxUnavailable
+  # Update strategy configuration
   updateStrategy:
-    type: "RollingUpdate"  # or "OnDelete"
+    type: "RollingUpdate"  # or "Recreate"
     rollingUpdate:
-      partition: 0  # StatefulSet only
-      maxUnavailable: 1  # DaemonSet only
+      maxUnavailable: 1
+      maxSurge: 1
 
   # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
   service:
     # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
     type: ClusterIP
-    headless: false
     # List of dataplane server ports to expose. One entry per dataplane server.
     # Each entry may include an optional 'name' field (max 15 chars, lowercase alphanumeric and dashes).
     # If omitted, the port is named data-plane-{index}.

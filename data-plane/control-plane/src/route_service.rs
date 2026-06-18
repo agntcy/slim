@@ -30,11 +30,14 @@ struct Inner {
     queue: WorkQueue<String>,
     /// Signals the periodic sweep task to stop.
     shutdown_tx: tokio::sync::watch::Sender<bool>,
-    /// Per-node mutex that serializes node_registered and node_deregistered for
-    /// the same node.  Without this, a rapid disconnect-reconnect sequence can
-    /// race: node_deregistered deletes links while node_registered is recreating
-    /// them, leaving stale link records for a disconnected node.
+    /// Per-node mutex that serializes node_deregistered and node_disconnected
+    /// for the same node, preventing concurrent cleanup from corrupting state.
     node_locks: tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// Per-group mutex that serializes link creation for nodes in the same group.
+    /// Without this, two nodes from the same group registering concurrently can
+    /// both read the link table before either writes, causing duplicate inter-group
+    /// links for the same group pair.
+    group_locks: tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Topology configuration for link and route filtering.
     topology: TopologyConfig,
     /// Runtime segment graphs at the group level. Rebuilt when nodes join/leave.
@@ -89,6 +92,7 @@ impl RouteService {
             queue,
             shutdown_tx,
             node_locks: tokio::sync::Mutex::new(HashMap::new()),
+            group_locks: tokio::sync::Mutex::new(HashMap::new()),
             topology,
             segment_graphs: tokio::sync::RwLock::new(Vec::new()),
         }));

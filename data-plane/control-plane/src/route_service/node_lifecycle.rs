@@ -21,20 +21,23 @@ impl super::RouteService {
     pub async fn node_registered(
         &self,
         node_id: &str,
+        group_name: &str,
         conn_details_updated: bool,
         dp_connections: Vec<crate::api::proto::controller::proto::v1::ConnectionEntry>,
         dp_routes: Vec<crate::api::proto::controller::proto::v1::Route>,
     ) {
-        // Serialize with node_deregistered for the same node to prevent a
-        // rapid disconnect-reconnect race from leaving stale link records.
-        let node_lock = {
-            let mut locks = self.0.node_locks.lock().await;
+        // Serialize link creation and lifecycle operations across all nodes in the
+        // same group. This prevents: (1) concurrent registrations from creating
+        // duplicate inter-group links, and (2) a rapid disconnect-reconnect race
+        // from leaving stale link records.
+        let group_lock = {
+            let mut locks = self.0.group_locks.lock().await;
             locks
-                .entry(node_id.to_string())
+                .entry(group_name.to_string())
                 .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
                 .clone()
         };
-        let _node_guard = node_lock.lock().await;
+        let _group_guard = group_lock.lock().await;
 
         // Build the set of link IDs the DP still has active.
         let active_link_ids: HashSet<String> = dp_connections
@@ -593,10 +596,15 @@ impl super::RouteService {
         }
 
         // Handle routes on the departing node.
-        // - If there are NO incoming links being recreated (sources_needing_links is empty),
-        //   all links were outgoing and kept their link_id. Move routes to new gateway.
-        // - If there ARE incoming links being recreated, the old link_ids are gone.
-        //   Delete those routes; they'll be re-expanded after the new link is claimed.
+        // For each route, check whether its link_id belongs to a preserved outgoing
+        // link (can be moved to new gateway) or a deleted incoming link (must be
+        // dropped and re-expanded after the new link is claimed).
+        let preserved_link_ids: HashSet<String> = links
+            .iter()
+            .filter(|l| l.source_node_id == departing_node)
+            .map(|l| l.link_id.clone())
+            .collect();
+
         let src_routes = self
             .0
             .db
@@ -607,8 +615,12 @@ impl super::RouteService {
                 vec![]
             });
         for route in &src_routes {
-            if sources_needing_links.is_empty() {
-                // Outgoing-link case: move route to new gateway (link_id stays same).
+            if route
+                .link_id
+                .as_ref()
+                .is_some_and(|id| preserved_link_ids.contains(id))
+            {
+                // Outgoing-link case: link_id is preserved, move route to new gateway.
                 let mut moved = route.clone();
                 moved.source_node_id = new_gateway.clone();
                 moved.status = RouteStatus::Pending;

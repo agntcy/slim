@@ -193,6 +193,7 @@ async fn receive_register(
     route_service
         .node_registered(
             &node_id,
+            reg_req.group_name.as_deref().unwrap_or(""),
             conn_details_updated,
             reg_req.connections,
             reg_req.routes,
