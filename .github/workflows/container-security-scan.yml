@@ -33,10 +33,13 @@ jobs:
             version: latest
           - image: spire-server
             repo: ghcr.io/spiffe/spire-server
-            version: 1.14.5
+            version: 1.15.1
           - image: spire-agent
             repo: ghcr.io/spiffe/spire-agent
-            version: 1.14.5
+            version: 1.15.1
+          - image: spire-helper
+            repo: ghcr.io/spiffe/spiffe-helper
+            version: 0.11.0
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
