@@ -109,13 +109,21 @@ impl super::RouteService {
         };
 
         self.rebuild_link_graph(&all_nodes).await;
+        let allowed_pairs = self.allowed_link_pairs().await;
 
         let all_links = self.0.db.list_all_links().await.unwrap_or_else(|e| {
             tracing::error!("failed to list all links: {e}");
             vec![]
         });
         let (affected_nodes, new_links) = self
-            .ensure_links_for_node(node_id, &node_links, &all_nodes, &all_links, &reported)
+            .ensure_links_for_node(
+                node_id,
+                &node_links,
+                &all_nodes,
+                &all_links,
+                &reported,
+                &allowed_pairs,
+            )
             .await;
         for nid in affected_nodes {
             link_reconcile_nodes.insert(nid);
@@ -578,6 +586,7 @@ impl super::RouteService {
                 tracing::error!("failed to list links for reassignment: {e}");
                 vec![]
             });
+            let allowed_pairs = self.allowed_link_pairs().await;
             for src_node_id in &sources_needing_links {
                 let (affected, _new_links) = self
                     .ensure_links_for_node(
@@ -586,6 +595,7 @@ impl super::RouteService {
                         &filtered_nodes,
                         &all_links,
                         &[],
+                        &allowed_pairs,
                     )
                     .await;
                 for nid in affected {

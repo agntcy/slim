@@ -3,9 +3,9 @@
 
 use std::time::SystemTime;
 
+use crate::api::proto::controller::proto::v1::Route as ProtoRoute;
 use slim_datapath::api::NameId;
 
-use crate::api::proto::controller::proto::v1::Route as ProtoRoute;
 use crate::db::RouteStatus;
 use crate::error::{Error, Result};
 
