@@ -20,11 +20,10 @@ database:
 
 topology:
   links:
-    - name: deployment-a
-      neighbors: [deployment-b]
-    - name: deployment-b
-      neighbors: [deployment-a, deployment-c]
-    - name: deployment-c
-      neighbors: [deployment-b, deployment-d]
-    - name: deployment-d
-      neighbors: [deployment-c]
+    - name: group-1
+      neighbors: [group-2]
+    - name: group-2 
+      neighbors: [group-3]
+    - name: group-3
+      neighbors: [group-4]
+

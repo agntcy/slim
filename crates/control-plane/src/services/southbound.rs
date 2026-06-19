@@ -266,8 +266,11 @@ async fn build_node_routes(db: &SharedDb, node_id: &str) -> Vec<ProtoRoute> {
                     route
                         .component_id
                         .as_deref()
-                        .and_then(|s| uuid::Uuid::parse_str(s).ok())
-                        .map(|u| u.as_u128())
+                        .map(|s| {
+                            NameId::try_from(s.to_string())
+                                .map(u128::from)
+                                .unwrap_or(NameId::NULL_COMPONENT)
+                        })
                         .unwrap_or(NameId::NULL_COMPONENT),
                 );
         routes.push(ProtoRoute {

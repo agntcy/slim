@@ -456,7 +456,7 @@ impl SubscriptionManager {
 
     /// Called by the App message loop to complete a waiting future for an ACK.
     pub fn resolve_ack(&self, ack: &ProtoSubscriptionAck) {
-        tracing::debug!(ack = %ack.subscription_id, "ack received");
+        tracing::debug!(ack = %ack.subscription_id, "subscription ack received");
         let sender = {
             let mut pending = self.pending_acks.lock();
             pending.remove(&ack.subscription_id)

@@ -19,7 +19,7 @@ database:
 
 topology:
   links:
-    - name: deployment-a
-      neighbors: [deployment-b, deployment-c]
-    - name: deployment-c
-      neighbors: [deployment-d]
+    - name: group-1
+      neighbors: [group-2, group-3]
+    - name: group-3
+      neighbors: [group-4]

@@ -19,6 +19,8 @@ database:
   type: in_memory
 
 topology:
-  links:
-    - name: group-1
-      neighbors: ["*"]
+  segments:
+    - name: segment-$group
+      links:
+        - name: group-1
+          neighbors: [$group]

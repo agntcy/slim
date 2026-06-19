@@ -493,6 +493,11 @@ impl DataAccess for InMemoryDb {
             .ok_or_else(|| Error::RouteNotFound {
                 id: route_id.to_string(),
             })?;
+        // Don't overwrite Deleted status — a concurrent delete may have removed
+        // this route while the reconciler was waiting for an ack.
+        if route.status == RouteStatus::Deleted {
+            return Ok(());
+        }
         route.status = RouteStatus::Applied;
         route.status_msg.clear();
         route.last_updated = SystemTime::now();

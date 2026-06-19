@@ -504,22 +504,27 @@ impl DataAccess for SqliteDb {
             context: "mark_route_applied pool",
             msg: e.to_string(),
         })?;
-        let n = diesel::update(routes::table.find(route_id))
-            .set((
-                routes::status.eq(RouteStatus::Applied),
-                routes::status_msg.eq(""),
-                routes::last_updated.eq(ts),
-            ))
-            .execute(&mut conn)
-            .await
-            .map_err(|e| Error::DbError {
-                context: "mark_route_applied",
-                msg: e.to_string(),
-            })?;
+        // Don't overwrite Deleted status — a concurrent delete may have removed
+        // this route while the reconciler was waiting for an ack.
+        let n = diesel::update(
+            routes::table
+                .find(route_id)
+                .filter(routes::status.ne(RouteStatus::Deleted)),
+        )
+        .set((
+            routes::status.eq(RouteStatus::Applied),
+            routes::status_msg.eq(""),
+            routes::last_updated.eq(ts),
+        ))
+        .execute(&mut conn)
+        .await
+        .map_err(|e| Error::DbError {
+            context: "mark_route_applied",
+            msg: e.to_string(),
+        })?;
         if n == 0 {
-            return Err(Error::RouteNotFound {
-                id: route_id.to_string(),
-            });
+            // Route either not found or already deleted — both are acceptable.
+            return Ok(());
         }
         Ok(())
     }

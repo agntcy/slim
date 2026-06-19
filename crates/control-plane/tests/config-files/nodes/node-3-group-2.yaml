@@ -1,18 +1,18 @@
-# SLIM node-a (used as hub in star topologies)
+# SLIM node-3 (group-2)
 tracing:
   log_level: debug
 
 services:
-  slim/node-b2:
+  slim/node-3:
     group_name: group-2
-    node_id: node-b2
+    node_id: node-3
     dataplane:
       servers:
         - endpoint: "127.0.0.1:46103"
-          tls:
-            insecure: true
           metadata:
             external_endpoint: "127.0.0.1:46103"
+          tls:
+            insecure: true
     controller:
       servers:
         - endpoint: "127.0.0.1:47103"
@@ -22,16 +22,17 @@ services:
         - endpoint: "http://127.0.0.1:50052"
           tls:
             insecure: true
-
     peers:
       deployment_name: "group-2"
       topology: "full_mesh"
-      static_peers:
-        - node_id: "node-a2"
-          endpoint: "http://127.0.0.1:46102"
-          tls:
-            insecure: true
-        - node_id: "node-b2"
-          endpoint: "http://127.0.0.1:46103"
-          tls:
-            insecure: true
+      discovery:
+        type: static
+        peers:
+          - node_id: "node-3"
+            endpoint: "http://127.0.0.1:46103"
+            tls:
+              insecure: true
+          - node_id: "node-4"
+            endpoint: "http://127.0.0.1:46104"
+            tls:
+              insecure: true

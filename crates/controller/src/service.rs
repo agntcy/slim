@@ -392,7 +392,7 @@ impl ControlPlane {
                             Some(res) => {
                                 match res {
                                     Ok(msg) => {
-                                        debug!("Send sub/unsub to control plane for message: {:?}", msg);
+                                        debug!("Receive message from data plane: {:?}", msg);
                                         match msg.get_type() {
                                             Subscribe(_) => {
                                                 controller.handle_subscribe_message(msg.get_dst(), &clients).await;
@@ -1426,6 +1426,7 @@ impl ControllerService {
             direction: None,
         };
 
+        debug!("handle_subscribe_message: sending route_to_set to control plane: {:?}", cmd);
         sub_vec.push(cmd);
 
         let ctrl = ControlMessage {
@@ -1465,6 +1466,8 @@ impl ControllerService {
             return;
         }
 
+        debug!("handle_link_received: notifying control-plane of new link_id: {}", link_id);
+
         let ctrl = ControlMessage {
             message_id: uuid::Uuid::new_v4().to_string(),
             payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
@@ -1496,6 +1499,7 @@ impl ControllerService {
             direction: None,
         };
 
+        debug!("handle_unsubscribe_message: sending route_to_delete to control plane: {:?}", cmd);
         unsub_vec.push(cmd);
 
         let ctrl = ControlMessage {
