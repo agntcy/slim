@@ -46,8 +46,6 @@ use tracing_subscriber::EnvFilter;
 /// Route status constants (from protobuf enum).
 const ROUTE_APPLIED: i32 = 1;
 const ROUTE_DELETED: i32 = 3;
-#[allow(dead_code)]
-const ROUTE_PENDING: i32 = 4;
 
 /// Link status constants.
 const LINK_APPLIED: i32 = 2;
@@ -235,6 +233,8 @@ async fn start_subscribing_app(dp_port: u16, org: &str, ns: &str, component: &st
         )
         .unwrap();
     app.subscribe(&name, Some(conn_id)).await.unwrap();
+    // Leak app and rx so the subscription stays alive for the test duration.
+    // Dropping them would disconnect the app and remove the route.
     std::mem::forget(app);
     std::mem::forget(rx);
     svc
@@ -465,8 +465,9 @@ async fn wait_for_link_between_groups_entry(
     timeout: Duration,
 ) -> LinkEntry {
     let deadline = tokio::time::Instant::now() + timeout;
+    let mut links = vec![];
     loop {
-        let links = collect_links(client, "", "").await;
+        links = collect_links(client, "", "").await;
         if let Some(link) = links.iter().find(|l| {
             if l.deleted || l.status != LINK_APPLIED {
                 return false;
@@ -478,8 +479,7 @@ async fn wait_for_link_between_groups_entry(
             return link.clone();
         }
         if tokio::time::Instant::now() >= deadline {
-            let link_info: Vec<_> = collect_links(client, "", "")
-                .await
+            let link_info: Vec<_> = links
                 .iter()
                 .map(|l| {
                     format!(
@@ -1201,7 +1201,6 @@ async fn test_app_disconnect_removes_routes() {
 
     // App disconnects.
     app.shutdown().await.ok();
-    tokio::time::sleep(Duration::from_secs(1)).await;
 
     // Routes should be cleaned up.
     wait_for_no_active_routes_with_name(

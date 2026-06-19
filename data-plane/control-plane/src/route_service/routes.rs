@@ -156,6 +156,10 @@ impl super::RouteService {
 
         // Clone the segment graphs to release the read lock before the async loop,
         // preventing potential deadlocks with concurrent write lock acquisitions.
+        // The snapshot may become stale if a concurrent registration from a different
+        // group triggers rebuild_link_graph. This is safe: missing routes will be
+        // installed when the other group's handler runs expand_all_wildcard_routes,
+        // and stale routes are cleaned up by handle_disconnect.
         let segment_graphs = self.0.segment_graphs.read().await.clone();
 
         for (_seg_name, graph) in &segment_graphs {
@@ -225,9 +229,7 @@ impl super::RouteService {
                     component_id,
                 );
                 if let Err(e) = self.add_single_route(per_node).await {
-                    tracing::debug!(
-                        "expand_route_via_spt: route for {source_node_id} skipped: {e}"
-                    );
+                    tracing::warn!("expand_route_via_spt: route for {source_node_id} skipped: {e}");
                 }
             }
         }
@@ -264,6 +266,7 @@ impl super::RouteService {
             .unwrap_or("");
 
         // Clone the segment graphs to release the read lock before the async loop.
+        // See expand_route_via_spt for why staleness from concurrent registrations is safe.
         let segment_graphs = self.0.segment_graphs.read().await.clone();
 
         // If root and announcer are in the same group, the data plane handles
@@ -334,7 +337,7 @@ impl super::RouteService {
                         component_id,
                     );
                     if let Err(e) = self.add_single_route(per_node).await {
-                        tracing::debug!(
+                        tracing::warn!(
                             "install_downward_path: route for {gateway_node_id} skipped: {e}"
                         );
                     }
@@ -393,7 +396,13 @@ impl super::RouteService {
                             }
                             continue;
                         }
-                        _ => {
+                        Some(existing) => {
+                            // Route already exists with non-Deleted status — a concurrent
+                            // caller won the race. Treat as success since the route is in place.
+                            tracing::debug!("route already exists (concurrent add): {existing}");
+                            return Ok(existing.to_string());
+                        }
+                        None => {
                             return Err(Error::InvalidInput(format!("failed to add route: {e}")));
                         }
                     }
@@ -430,7 +439,10 @@ impl super::RouteService {
     ) {
         let wildcard_routes = match self.0.db.get_routes_for_node(ALL_NODES_ID).await {
             Ok(r) => r,
-            Err(_) => return,
+            Err(e) => {
+                tracing::warn!("expand_all_wildcard_routes: failed to fetch wildcard routes: {e}");
+                return;
+            }
         };
 
         // Group wildcard routes by name. The first (oldest by created_at)
@@ -452,7 +464,13 @@ impl super::RouteService {
         }
 
         for (_name, mut routes) in by_name {
-            routes.sort_by_key(|r| r.created_at);
+            // Sort by creation time, with dest_node_id as tiebreaker for determinism
+            // when timestamps have the same resolution.
+            routes.sort_by(|a, b| {
+                a.created_at
+                    .cmp(&b.created_at)
+                    .then_with(|| a.dest_node_id.cmp(&b.dest_node_id))
+            });
             let root_route = routes[0];
 
             // First announcer: full SPT expansion (upward routes).
