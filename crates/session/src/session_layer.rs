@@ -600,9 +600,10 @@ where
 
         let new_session = match session_type {
             ProtoSessionType::PointToPoint => {
+                let cp = message.extract_command_payload()?;
                 let conf = crate::SessionConfig::from_join_request(
                     ProtoSessionType::PointToPoint,
-                    message.extract_command_payload()?,
+                    &cp,
                     message.get_metadata_map(),
                     false,
                 )?;
@@ -619,9 +620,10 @@ where
                     .channel
                     .clone()
                     .ok_or(SessionError::MissingChannelName)?;
+                let cp = message.extract_command_payload()?;
                 let conf = crate::SessionConfig::from_join_request(
                     ProtoSessionType::Multicast,
-                    message.extract_command_payload()?,
+                    &cp,
                     message.get_metadata_map(),
                     false,
                 )?;

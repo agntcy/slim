@@ -18,14 +18,17 @@ pub struct Unsubscribe {
     #[prost(uint64, tag = "2")]
     pub subscription_id: u64,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Publish {
     #[prost(message, optional, tag = "1")]
     pub header: ::core::option::Option<SlimHeader>,
     #[prost(message, optional, tag = "2")]
     pub session: ::core::option::Option<SessionHeader>,
-    #[prost(message, optional, tag = "3")]
-    pub msg: ::core::option::Option<Content>,
+    /// Raw-bytes encoding of a Content message. Stored as bytes so that
+    /// data-plane-only forwarding nodes can pass it through without decoding.
+    /// Wire-compatible with the original `Content msg = 3` field (same wire type 2).
+    #[prost(bytes = "bytes", tag = "3")]
+    pub msg: ::prost::bytes::Bytes,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Message {
@@ -39,7 +42,7 @@ pub struct Message {
 }
 /// Nested message and enum types in `Message`.
 pub mod message {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
     pub enum MessageType {
         #[prost(message, tag = "1")]
         Subscribe(super::Subscribe),

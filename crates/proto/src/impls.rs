@@ -764,7 +764,7 @@ impl ProtoPublish {
     fn with_header(
         header: Option<SlimHeader>,
         session: Option<SessionHeader>,
-        payload: Option<Content>,
+        payload: bytes::Bytes,
     ) -> Self {
         ProtoPublish {
             header,
@@ -789,44 +789,52 @@ impl ProtoPublish {
         self.session.as_mut().expect("session header missing")
     }
 
-    pub fn get_payload(&self) -> &Content {
-        self.msg.as_ref().expect("payload missing")
+    /// Decodes the raw `msg` bytes into a [`Content`], returning `None` if absent.
+    pub fn get_payload(&self) -> Option<Content> {
+        if self.msg.is_empty() {
+            None
+        } else {
+            use prost::Message;
+            Content::decode(self.msg.as_ref()).ok()
+        }
     }
 
     pub fn set_payload(&mut self, payload: Content) {
-        self.msg = Some(payload);
+        use prost::Message;
+        self.msg = payload.encode_to_vec().into();
     }
 
     pub fn is_command(&self) -> bool {
-        match &self
+        match self
             .get_payload()
+            .expect("msg must be set")
             .content_type
             .as_ref()
-            .expect("content missing")
+            .unwrap()
         {
             ContentType::AppPayload(_) => false,
             ContentType::CommandPayload(_) => true,
         }
     }
 
-    pub fn get_application_payload(&self) -> &ApplicationPayload {
+    pub fn get_application_payload(&self) -> ApplicationPayload {
         match self
             .get_payload()
+            .expect("msg must be set")
             .content_type
-            .as_ref()
-            .expect("content missing")
+            .unwrap()
         {
             ContentType::AppPayload(application_payload) => application_payload,
             ContentType::CommandPayload(_) => panic!("the payload is not an application payload"),
         }
     }
 
-    pub fn get_command_payload(&self) -> &CommandPayload {
+    pub fn get_command_payload(&self) -> CommandPayload {
         match self
             .get_payload()
+            .expect("msg must be set")
             .content_type
-            .as_ref()
-            .expect("content missing")
+            .unwrap()
         {
             ContentType::AppPayload(_) => panic!("the payload is not a command payload"),
             ContentType::CommandPayload(command_payload) => command_payload,
@@ -843,10 +851,14 @@ impl From<ProtoMessage> for ProtoPublish {
     }
 }
 
+// Macro to generate payload extraction methods for ProtoMessage.
+// Uses the consuming `into_*` getters on CommandPayload so callers
+// receive owned payload types (no references to temporary values).
 macro_rules! impl_payload_extractors {
     ($($method_name:ident => $getter_method:ident($payload_type:ty)),* $(,)?) => {
         $(
-            pub fn $method_name(&self) -> Result<&$payload_type, MessageError> {
+            /// Extracts a specific command payload from the message.
+            pub fn $method_name(&self) -> Result<$payload_type, MessageError> {
                 self.extract_command_payload()?.$getter_method()
             }
         )*
@@ -871,12 +883,14 @@ impl ProtoMessage {
     fn validate_routed_header(slim_header: &SlimHeader) -> Result<(), MessageError> {
         match &slim_header.source {
             None => return Err(MessageError::SourceNotFound),
-            Some(src) if src.name.is_none() => return Err(MessageError::SourceEncodedNameNotFound),
+            Some(src) if src.encoded_name.is_empty() => {
+                return Err(MessageError::SourceEncodedNameNotFound);
+            }
             _ => {}
         }
         match &slim_header.destination {
             None => return Err(MessageError::DestinationNotFound),
-            Some(dst) if dst.name.is_none() => {
+            Some(dst) if dst.encoded_name.is_empty() => {
                 return Err(MessageError::DestinationEncodedNameNotFound);
             }
             _ => {}
@@ -1084,14 +1098,15 @@ impl ProtoMessage {
         }
     }
 
-    pub fn get_payload(&self) -> Option<&Content> {
+    /// Decodes and returns the [`Content`] payload, or `None` if absent.
+    pub fn get_payload(&self) -> Option<Content> {
         match &self.message_type {
-            Some(ProtoPublishType(p)) => p.msg.as_ref(),
-            Some(ProtoSubscribeType(_))
-            | Some(ProtoUnsubscribeType(_))
-            | Some(ProtoLinkMessageType(_))
-            | Some(ProtoSubscriptionAckType(_))
-            | None => panic!("payload not found"),
+            Some(ProtoPublishType(p)) => p.get_payload(),
+            Some(ProtoSubscribeType(_)) => panic!("payload not found"),
+            Some(ProtoUnsubscribeType(_)) => panic!("payload not found"),
+            Some(ProtoLinkMessageType(_)) => panic!("payload not found"),
+            Some(ProtoSubscriptionAckType(_)) => panic!("payload not found"),
+            None => panic!("payload not found"),
         }
     }
 
@@ -1239,27 +1254,29 @@ impl ProtoMessage {
         }
     }
 
-    pub fn extract_command_payload(&self) -> Result<&CommandPayload, MessageError> {
+    /// Extracts the command payload from the message.
+    pub fn extract_command_payload(&self) -> Result<CommandPayload, MessageError> {
         self.get_payload()
             .ok_or(MessageError::ContentTypeNotSet)?
-            .as_command_payload()
+            .into_command_payload()
     }
 
+    // Generate all payload extraction methods (return owned types via consuming getters)
     impl_payload_extractors! {
-        extract_discovery_request => as_discovery_request_payload(DiscoveryRequestPayload),
-        extract_discovery_reply => as_discovery_reply_payload(DiscoveryReplyPayload),
-        extract_join_request => as_join_request_payload(JoinRequestPayload),
-        extract_join_reply => as_join_reply_payload(JoinReplyPayload),
-        extract_leave_request => as_leave_request_payload(LeaveRequestPayload),
-        extract_leave_reply => as_leave_reply_payload(LeaveReplyPayload),
-        extract_group_add => as_group_add_payload(GroupAddPayload),
-        extract_group_remove => as_group_remove_payload(GroupRemovePayload),
-        extract_group_welcome => as_welcome_payload(GroupWelcomePayload),
-        extract_group_close => as_group_close_payload(GroupClosePayload),
-        extract_group_proposal => as_group_proposal_payload(GroupProposalPayload),
-        extract_group_ack => as_group_ack_payload(GroupAckPayload),
-        extract_group_nack => as_group_nack_payload(GroupNackPayload),
-        extract_ping => as_ping_payload(PingPayload),
+        extract_discovery_request => into_discovery_request_payload(DiscoveryRequestPayload),
+        extract_discovery_reply => into_discovery_reply_payload(DiscoveryReplyPayload),
+        extract_join_request => into_join_request_payload(JoinRequestPayload),
+        extract_join_reply => into_join_reply_payload(JoinReplyPayload),
+        extract_leave_request => into_leave_request_payload(LeaveRequestPayload),
+        extract_leave_reply => into_leave_reply_payload(LeaveReplyPayload),
+        extract_group_add => into_group_add_payload(GroupAddPayload),
+        extract_group_remove => into_group_remove_payload(GroupRemovePayload),
+        extract_group_welcome => into_welcome_payload(GroupWelcomePayload),
+        extract_group_close => into_group_close_payload(GroupClosePayload),
+        extract_group_proposal => into_group_proposal_payload(GroupProposalPayload),
+        extract_group_ack => into_group_ack_payload(GroupAckPayload),
+        extract_group_nack => into_group_nack_payload(GroupNackPayload),
+        extract_ping => into_ping_payload(PingPayload),
     }
 
     pub fn builder() -> ProtoMessageBuilder {
@@ -1283,6 +1300,24 @@ impl Content {
             None => Err(MessageError::ContentTypeNotSet),
         }
     }
+
+    /// Consuming variant: extracts the [`ApplicationPayload`] by value.
+    pub fn into_application_payload(self) -> Result<ApplicationPayload, MessageError> {
+        match self.content_type {
+            Some(ContentType::AppPayload(app_payload)) => Ok(app_payload),
+            Some(ContentType::CommandPayload(_)) => Err(MessageError::NotApplicationPayload),
+            None => Err(MessageError::ContentTypeNotSet),
+        }
+    }
+
+    /// Consuming variant: extracts the [`CommandPayload`] by value.
+    pub fn into_command_payload(self) -> Result<CommandPayload, MessageError> {
+        match self.content_type {
+            Some(ContentType::AppPayload(_)) => Err(MessageError::NotCommandPayload),
+            Some(ContentType::CommandPayload(comm_payload)) => Ok(comm_payload),
+            None => Err(MessageError::ContentTypeNotSet),
+        }
+    }
 }
 
 impl ApplicationPayload {
@@ -1300,11 +1335,36 @@ impl ApplicationPayload {
     }
 }
 
+// Macro to generate borrowing getter methods for all CommandPayloadType variants
 macro_rules! impl_command_payload_getters {
     ($($method_name:ident => $variant:ident($payload_type:ty)),* $(,)?) => {
         $(
             pub fn $method_name(&self) -> Result<&$payload_type, MessageError> {
                 match &self.command_payload_type {
+                    Some(CommandPayloadType::$variant(payload)) => Ok(payload),
+                    Some(other) => Err(MessageError::InvalidCommandPayloadType {
+                        expected: Box::new(stringify!($variant).to_string()),
+                        got: Box::new(format!("{:?}", other)),
+                    }),
+                    None => Err(MessageError::InvalidCommandPayloadType {
+                        expected: Box::new(stringify!($variant).to_string()),
+                        got: Box::new("None".to_string()),
+                    }),
+                }
+            }
+        )*
+    };
+}
+
+// Macro to generate consuming getter methods for all CommandPayloadType variants.
+// Used by extract_* methods that build on get_payload() returning an owned Content.
+macro_rules! impl_command_payload_into_getters {
+    ($(
+        $method_name:ident => $variant:ident($payload_type:ty)
+    ),* $(,)?) => {
+        $(
+            pub fn $method_name(self) -> Result<$payload_type, MessageError> {
+                match self.command_payload_type {
                     Some(CommandPayloadType::$variant(payload)) => Ok(payload),
                     Some(other) => Err(MessageError::InvalidCommandPayloadType {
                         expected: Box::new(stringify!($variant).to_string()),
@@ -1342,6 +1402,24 @@ impl CommandPayload {
         as_group_ack_payload => GroupAck(GroupAckPayload),
         as_group_nack_payload => GroupNack(GroupNackPayload),
         as_ping_payload => Ping(PingPayload),
+    }
+
+    // Consuming getter methods (by value) for all CommandPayloadType variants
+    impl_command_payload_into_getters! {
+        into_discovery_request_payload => DiscoveryRequest(DiscoveryRequestPayload),
+        into_discovery_reply_payload => DiscoveryReply(DiscoveryReplyPayload),
+        into_join_request_payload => JoinRequest(JoinRequestPayload),
+        into_join_reply_payload => JoinReply(JoinReplyPayload),
+        into_leave_request_payload => LeaveRequest(LeaveRequestPayload),
+        into_leave_reply_payload => LeaveReply(LeaveReplyPayload),
+        into_group_add_payload => GroupAdd(GroupAddPayload),
+        into_group_remove_payload => GroupRemove(GroupRemovePayload),
+        into_welcome_payload => GroupWelcome(GroupWelcomePayload),
+        into_group_close_payload => GroupClose(GroupClosePayload),
+        into_group_proposal_payload => GroupProposal(GroupProposalPayload),
+        into_group_ack_payload => GroupAck(GroupAckPayload),
+        into_group_nack_payload => GroupNack(GroupNackPayload),
+        into_ping_payload => Ping(PingPayload),
     }
 
     pub fn builder() -> CommandPayloadBuilder {
@@ -1717,8 +1795,17 @@ impl ProtoMessageBuilder {
             Some(SessionHeader::default())
         };
 
-        let publish = ProtoPublish::with_header(slim_header, session_header, self.payload);
-        Ok(ProtoMessage::new(self.metadata, ProtoPublishType(publish)))
+        let msg_bytes: bytes::Bytes = self
+            .payload
+            .map(|p| {
+                use prost::Message;
+                p.encode_to_vec().into()
+            })
+            .unwrap_or_default();
+
+        let publish = ProtoPublish::with_header(slim_header, session_header, msg_bytes);
+        let message = ProtoMessage::new(self.metadata, ProtoPublishType(publish));
+        Ok(message)
     }
 
     pub fn build_subscribe(self) -> Result<ProtoMessage, MessageError> {

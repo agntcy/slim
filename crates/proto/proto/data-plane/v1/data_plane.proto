@@ -26,7 +26,10 @@ message Unsubscribe {
 message Publish {
   SLIMHeader header = 1;
   SessionHeader session = 2;
-  Content msg = 3;
+  // Raw-bytes encoding of a Content message. Stored as bytes so that
+  // data-plane-only forwarding nodes can pass it through without decoding.
+  // Wire-compatible with the original `Content msg = 3` field (same wire type 2).
+  bytes msg = 3;
 }
 
 message Message {
