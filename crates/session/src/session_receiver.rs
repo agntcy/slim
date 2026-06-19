@@ -155,7 +155,7 @@ impl SessionReceiver {
             return Ok(output);
         }
 
-        let source_proto = message.get_slim_header().source.clone().unwrap();
+        let source_proto = message.get_slim_header().get_source();
         let in_conn = message.get_incoming_conn();
         let buffer = self.buffer.entry(source_proto.components()).or_default();
 
@@ -176,7 +176,7 @@ impl SessionReceiver {
         });
 
         // Pass the source ProtoName directly as ACK destination — avoids ProtoName → Name → ProtoName roundtrip.
-        let source_proto = message.get_slim_header().source.clone().unwrap();
+        let source_proto = message.get_slim_header().get_source();
         let mut builder = Message::builder()
             .source(self.local_name.clone())
             .destination(source_proto)
@@ -199,7 +199,7 @@ impl SessionReceiver {
 
     pub fn on_rtx_message(&mut self, message: Message) -> Result<SessionOutput, SessionError> {
         // in case we get the and RTX reply the session must be reliable
-        let source_proto = message.get_slim_header().source.as_ref().unwrap();
+        let source_proto = message.get_slim_header().get_source();
         let encoded_source = source_proto.components();
         let id = message.get_id();
         let in_conn = message.get_incoming_conn();
@@ -230,7 +230,7 @@ impl SessionReceiver {
                     context: "receiver_buffer_rtx_reply",
                 })?;
         let recv_vec = buffer.on_lost_message(id);
-        self.handle_recv_and_rtx_vectors(source_proto, in_conn, recv_vec, vec![])
+        self.handle_recv_and_rtx_vectors(&source_proto, in_conn, recv_vec, vec![])
     }
 
     fn handle_recv_and_rtx_vectors(

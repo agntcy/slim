@@ -85,12 +85,8 @@ pub const DEFAULT_TTL: u32 = 8;
 pub enum MessageError {
     #[error("SLIM header not found")]
     SlimHeaderNotFound,
-    #[error("source not found")]
-    SourceNotFound,
     #[error("source encoded name not found")]
     SourceEncodedNameNotFound,
-    #[error("destination not found")]
-    DestinationNotFound,
     #[error("destination encoded name not found")]
     DestinationEncodedNameNotFound,
     #[error("session header not found")]
@@ -274,7 +270,7 @@ fn encode_name_bytes(c0: u64, c1: u64, c2: u64, id: u128) -> bytes::Bytes {
 /// Decode a 40-byte flat `Bytes` value into `(c0, c1, c2, id)`.
 /// Returns `None` if the slice is empty (field absent).
 #[inline]
-fn decode_name_bytes(b: &bytes::Bytes) -> Option<(u64, u64, u64, u128)> {
+pub(crate) fn decode_name_bytes(b: &bytes::Bytes) -> Option<(u64, u64, u64, u128)> {
     if b.is_empty() {
         return None;
     }
@@ -518,11 +514,13 @@ impl SlimHeader {
     ) -> Self {
         let flags = flags.unwrap_or_default();
         Self {
-            source: Some(source),
-            destination: Some(destination),
-            identity: identity.to_string(),
+            source: source.encoded_name,
+            destination: destination.encoded_name,
+            source_str: source.str_name,
+            destination_str: destination.str_name,
+            identity: identity.to_string().into(),
             fanout: flags.fanout,
-            version: version().to_string(),
+            version: version().to_string().into(),
             recv_from: flags.recv_from,
             forward_to: flags.forward_to,
             incoming_conn: flags.incoming_conn,
@@ -559,19 +557,29 @@ impl SlimHeader {
     }
 
     pub fn get_source(&self) -> ProtoName {
-        self.source.clone().expect("source not found")
+        ProtoName {
+            encoded_name: self.source.clone(),
+            str_name: self.source_str.clone(),
+        }
     }
 
     pub fn get_encoded_source(&self) -> ([u64; 3], u128) {
-        self.source.as_ref().unwrap().components_and_id()
+        let (c0, c1, c2, id) =
+            decode_name_bytes(&self.source).expect("source not set");
+        ([c0, c1, c2], id)
     }
 
     pub fn get_dst(&self) -> ProtoName {
-        self.destination.clone().expect("destination not found")
+        ProtoName {
+            encoded_name: self.destination.clone(),
+            str_name: self.destination_str.clone(),
+        }
     }
 
     pub fn get_encoded_dst(&self) -> ([u64; 3], u128) {
-        self.destination.as_ref().unwrap().components_and_id()
+        let (c0, c1, c2, id) =
+            decode_name_bytes(&self.destination).expect("destination not set");
+        ([c0, c1, c2], id)
     }
 
     pub fn get_identity(&self) -> &str {
@@ -579,11 +587,13 @@ impl SlimHeader {
     }
 
     pub fn set_source(&mut self, source: ProtoName) {
-        self.source = Some(source);
+        self.source = source.encoded_name;
+        self.source_str = source.str_name;
     }
 
     pub fn set_destination(&mut self, dst: ProtoName) {
-        self.destination = Some(dst);
+        self.destination = dst.encoded_name;
+        self.destination_str = dst.str_name;
     }
 
     pub fn set_identity(&mut self, identity: impl Into<bytes::Bytes>) {
@@ -881,19 +891,11 @@ impl ProtoMessage {
     }
 
     fn validate_routed_header(slim_header: &SlimHeader) -> Result<(), MessageError> {
-        match &slim_header.source {
-            None => return Err(MessageError::SourceNotFound),
-            Some(src) if src.encoded_name.is_empty() => {
-                return Err(MessageError::SourceEncodedNameNotFound);
-            }
-            _ => {}
+        if slim_header.source.is_empty() {
+            return Err(MessageError::SourceEncodedNameNotFound);
         }
-        match &slim_header.destination {
-            None => return Err(MessageError::DestinationNotFound),
-            Some(dst) if dst.encoded_name.is_empty() => {
-                return Err(MessageError::DestinationEncodedNameNotFound);
-            }
-            _ => {}
+        if slim_header.destination.is_empty() {
+            return Err(MessageError::DestinationEncodedNameNotFound);
         }
         Ok(())
     }
@@ -1049,7 +1051,7 @@ impl ProtoMessage {
         self.get_slim_header().get_source()
     }
 
-    pub fn get_encoded_source(&self) -> EncodedName {
+    pub fn get_encoded_source(&self) -> ([u64; 3], u128) {
         self.get_slim_header().get_encoded_source()
     }
 
@@ -1057,7 +1059,7 @@ impl ProtoMessage {
         self.get_slim_header().get_dst()
     }
 
-    pub fn get_encoded_dst(&self) -> EncodedName {
+    pub fn get_encoded_dst(&self) -> ([u64; 3], u128) {
         self.get_slim_header().get_encoded_dst()
     }
 
@@ -1721,11 +1723,17 @@ impl ProtoMessageBuilder {
     }
 
     pub fn with_slim_header(mut self, header: SlimHeader) -> Self {
-        if let Some(src) = header.source.clone() {
-            self.source = Some(src);
+        if !header.source.is_empty() {
+            self.source = Some(ProtoName {
+                encoded_name: header.source.clone(),
+                str_name: header.source_str.clone(),
+            });
         }
-        if let Some(dst) = header.destination.clone() {
-            self.destination = Some(dst);
+        if !header.destination.is_empty() {
+            self.destination = Some(ProtoName {
+                encoded_name: header.destination.clone(),
+                str_name: header.destination_str.clone(),
+            });
         }
         if !header.identity.is_empty() {
             self.identity = Some(String::from_utf8_lossy(&header.identity).into_owned());
@@ -2293,12 +2301,15 @@ mod message_tests {
 
     #[test]
     fn test_panic_header() {
+        // create an unusual SLIM header with empty source/destination
         let header = SlimHeader {
-            source: None,
-            destination: None,
-            identity: String::new(),
+            source: Default::default(),
+            destination: Default::default(),
+            source_str: Default::default(),
+            destination_str: Default::default(),
+            identity: Default::default(),
             fanout: 0,
-            version: version().to_string(),
+            version: version().to_string().into(),
             recv_from: None,
             forward_to: None,
             incoming_conn: None,
@@ -2308,8 +2319,14 @@ mod message_tests {
             e2e_header_sig: None,
         };
 
-        assert!(std::panic::catch_unwind(|| header.get_source()).is_err());
-        assert!(std::panic::catch_unwind(|| header.get_dst()).is_err());
+        // get_source/get_dst return ProtoName with empty fields (no panic)
+        // get_encoded_source/get_encoded_dst panic when encoded bytes are empty
+        let result = std::panic::catch_unwind(|| header.get_encoded_source());
+        assert!(result.is_err());
+
+        let result = std::panic::catch_unwind(|| header.get_encoded_dst());
+        assert!(result.is_err());
+
         assert!(std::panic::catch_unwind(|| header.get_recv_from()).is_ok());
         assert!(std::panic::catch_unwind(|| header.get_forward_to()).is_ok());
         assert!(std::panic::catch_unwind(|| header.get_incoming_conn()).is_ok());
@@ -2577,11 +2594,9 @@ mod message_tests {
     fn test_validate_subscribe_missing_source_encoded_name() {
         let valid = ProtoName::from_strings(["org", "ns", "agent"]);
         let hdr = SlimHeader {
-            source: Some(ProtoName {
-                name: None,
-                str_name: None,
-            }),
-            destination: Some(valid),
+            source: Default::default(), // empty = not set
+            destination: valid.encoded_name,
+            destination_str: valid.str_name,
             ..Default::default()
         };
         let msg = ProtoMessage::new(
@@ -2601,11 +2616,9 @@ mod message_tests {
     fn test_validate_subscribe_missing_destination_encoded_name() {
         let valid = ProtoName::from_strings(["org", "ns", "agent"]);
         let hdr = SlimHeader {
-            source: Some(valid),
-            destination: Some(ProtoName {
-                name: None,
-                str_name: None,
-            }),
+            source: valid.encoded_name,
+            source_str: valid.str_name,
+            destination: Default::default(), // empty = not set
             ..Default::default()
         };
         let msg = ProtoMessage::new(

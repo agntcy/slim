@@ -16,7 +16,8 @@ use std::cell::RefCell;
 use aws_lc_rs::hmac;
 use thiserror::Error;
 
-use crate::api::proto::dataplane::v1::{Name, SlimHeader};
+use crate::api::proto::dataplane::v1::SlimHeader;
+use bytes::Bytes;
 
 thread_local! {
     static PREIMAGE_BUF: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(512));
@@ -162,21 +163,16 @@ fn preimage_upper_bound(header: &SlimHeader, link_id: &str) -> usize {
         + FORWARD_TO_SIZE
         + ERROR_SIZE
         + TTL_SIZE
-        + encoded_name_upper_bound(&header.source)
-        + encoded_name_upper_bound(&header.destination)
+        + encoded_name_upper_bound(&header.source, &header.source_str)
+        + encoded_name_upper_bound(&header.destination, &header.destination_str)
 }
 
 #[inline]
-fn encoded_name_upper_bound(name_opt: &Option<Name>) -> usize {
-    match name_opt {
-        None => 1,
-        Some(name) => {
-            // 1 byte: Some(name) presence
-            // 1 byte: encoded_name presence + 40 bytes (when present)
-            // 1 byte: str_name presence + 4 bytes len prefix + N str bytes (when present)
-            2 + 40 + 1 + 4 + name.str_name.len()
-        }
-    }
+fn encoded_name_upper_bound(encoded: &Bytes, str_name: &Bytes) -> usize {
+    // 1 byte: encoded presence + 40 bytes (when present)
+    // 1 byte: str_name presence + 4 bytes len prefix + N str bytes (when present)
+    1 + if encoded.is_empty() { 0 } else { 40 }
+        + 1 + if str_name.is_empty() { 0 } else { 4 + str_name.len() }
 }
 
 #[inline]
@@ -207,27 +203,21 @@ fn push_bool_opt(buf: &mut Vec<u8>, v: Option<bool>) {
     }
 }
 
-fn push_encoded_name(buf: &mut Vec<u8>, n: &Option<Name>) {
-    match n {
-        None => buf.push(0),
-        Some(name) => {
-            buf.push(1);
-            // encoded_name: presence byte + raw 40-byte flat encoding
-            if name.encoded_name.is_empty() {
-                buf.push(0);
-            } else {
-                buf.push(1);
-                buf.extend_from_slice(&name.encoded_name);
-            }
-            // str_name: presence byte + u32 LE total length + raw packed bytes
-            if name.str_name.is_empty() {
-                buf.push(0);
-            } else {
-                buf.push(1);
-                buf.extend_from_slice(&(name.str_name.len() as u32).to_le_bytes());
-                buf.extend_from_slice(&name.str_name);
-            }
-        }
+fn push_encoded_name(buf: &mut Vec<u8>, encoded: &Bytes, str_name: &Bytes) {
+    // encoded: presence byte + raw 40-byte flat encoding
+    if encoded.is_empty() {
+        buf.push(0);
+    } else {
+        buf.push(1);
+        buf.extend_from_slice(encoded);
+    }
+    // str_name: presence byte + u32 LE total length + raw packed bytes
+    if str_name.is_empty() {
+        buf.push(0);
+    } else {
+        buf.push(1);
+        buf.extend_from_slice(&(str_name.len() as u32).to_le_bytes());
+        buf.extend_from_slice(str_name);
     }
 }
 
@@ -236,8 +226,8 @@ fn write_preimage(buf: &mut Vec<u8>, hdr: &SlimHeader, link_id_bytes: &[u8]) {
     buf.extend_from_slice(DOMAIN_V1);
     buf.extend_from_slice(&(link_id_bytes.len() as u32).to_le_bytes());
     buf.extend_from_slice(link_id_bytes);
-    push_encoded_name(buf, &hdr.source);
-    push_encoded_name(buf, &hdr.destination);
+    push_encoded_name(buf, &hdr.source, &hdr.source_str);
+    push_encoded_name(buf, &hdr.destination, &hdr.destination_str);
     push_bytes(buf, &hdr.identity);
     buf.extend_from_slice(&hdr.fanout.to_le_bytes());
     push_u64_opt(buf, hdr.recv_from);
@@ -258,20 +248,20 @@ mod tests {
     }
 
     fn sample_header() -> SlimHeader {
-        SlimHeader {
-            source: Some(ProtoName::from_strings(["a", "b", "c"]).with_id(4)),
-            destination: Some(ProtoName::from_strings(["x", "y", "z"]).with_id(8)),
-            identity: "id1".into(),
-            fanout: 2,
-            version: Default::default(),
-            recv_from: Some(9),
-            forward_to: Some(10),
-            incoming_conn: Some(999),
-            error: Some(false),
-            header_mac: None,
-            ttl: DEFAULT_TTL,
-            e2e_header_sig: None,
-        }
+        use crate::messages::utils::SlimHeaderFlags;
+        SlimHeader::new(
+            ProtoName::from_strings(["a", "b", "c"]).with_id(4),
+            ProtoName::from_strings(["x", "y", "z"]).with_id(8),
+            "id1",
+            Some(SlimHeaderFlags {
+                fanout: 2,
+                recv_from: Some(9),
+                forward_to: Some(10),
+                incoming_conn: Some(999),
+                error: Some(false),
+                ttl: DEFAULT_TTL,
+            }),
+        )
     }
 
     #[test]
@@ -341,8 +331,10 @@ mod tests {
         let lid = Uuid::new_v4().to_string();
         let mac = HeaderMacSession::new(&test_key()).unwrap();
         let mut hdr = sample_header();
-        // Clear the id from source (reset to NULL_COMPONENT)
-        hdr.source.as_mut().unwrap().reset_id();
+        // Clear the id from source (reset to NULL_COMPONENT) via ProtoName helper
+        let mut src = hdr.get_source();
+        src.reset_id();
+        hdr.set_source(src);
         mac.sign_slim_header(&mut hdr, &lid).unwrap();
         mac.verify_slim_header(&hdr, &lid).unwrap();
     }
@@ -354,7 +346,9 @@ mod tests {
         let mut hdr = sample_header();
         mac.sign_slim_header(&mut hdr, &lid).unwrap();
         // Tamper with source id — equivalent to old NameId { id_0: 99, id_1: 99 }
-        hdr.source.as_mut().unwrap().set_id((99u128 << 64) | 99u128);
+        let mut src = hdr.get_source();
+        src.set_id((99u128 << 64) | 99u128);
+        hdr.set_source(src);
         assert!(mac.verify_slim_header(&hdr, &lid).is_err());
     }
 }

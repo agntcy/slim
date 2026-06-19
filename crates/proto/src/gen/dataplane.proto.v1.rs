@@ -77,10 +77,14 @@ pub mod link {
 /// error = if true the publication contains an error notification
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SlimHeader {
-    #[prost(message, optional, tag = "1")]
-    pub source: ::core::option::Option<Name>,
-    #[prost(message, optional, tag = "2")]
-    pub destination: ::core::option::Option<Name>,
+    /// Flat 40-byte encoded name (3×u64 LE hash components + u128 LE id).
+    /// Replaces the former `Name source = 1` message field for zero-copy routing.
+    #[prost(bytes = "bytes", tag = "1")]
+    pub source: ::prost::bytes::Bytes,
+    /// Flat 40-byte encoded name (3×u64 LE hash components + u128 LE id).
+    /// Replaces the former `Name destination = 2` message field for zero-copy routing.
+    #[prost(bytes = "bytes", tag = "2")]
+    pub destination: ::prost::bytes::Bytes,
     #[prost(bytes = "bytes", tag = "3")]
     pub identity: ::prost::bytes::Bytes,
     #[prost(uint32, tag = "4")]
@@ -99,6 +103,13 @@ pub struct SlimHeader {
     pub error: ::core::option::Option<bool>,
     #[prost(bytes = "bytes", optional, tag = "11")]
     pub header_mac: ::core::option::Option<::prost::bytes::Bytes>,
+    /// Packed human-readable string components for source (was Name.str_name).
+    /// Layout: \[len_0: u32 LE\]\[component_0\]\[len_1: u32 LE\]\[component_1\]\[len_2: u32 LE\]\[component_2\]
+    #[prost(bytes = "bytes", tag = "12")]
+    pub source_str: ::prost::bytes::Bytes,
+    /// Packed human-readable string components for destination (was Name.str_name).
+    #[prost(bytes = "bytes", tag = "13")]
+    pub destination_str: ::prost::bytes::Bytes,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SessionHeader {
