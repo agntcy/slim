@@ -1206,9 +1206,7 @@ mod tests {
                                 session_ctx,
                             ))) => return session_ctx,
                             Some(Ok(_)) => continue,
-                            Some(Err(e)) => {
-                                panic!("Participant {i} notification error: {e}");
-                            }
+                            Some(Err(e)) => panic!("Participant {i} notification error: {e}"),
                             None => panic!("Participant {i} notification channel closed"),
                         }
                     }

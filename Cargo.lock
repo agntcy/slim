@@ -366,6 +366,7 @@ dependencies = [
  "prost",
  "rand 0.9.4",
  "serde",
+ "serde_json",
  "smallvec",
  "thiserror 2.0.18",
  "tokio",

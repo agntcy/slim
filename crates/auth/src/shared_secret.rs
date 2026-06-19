@@ -217,6 +217,15 @@ impl std::fmt::Debug for SharedSecret {
 }
 
 impl SharedSecret {
+    fn generate_default_signature_keys() -> (Vec<u8>, Vec<u8>) {
+        use ed25519_dalek::SigningKey;
+        let mut seed_bytes = [0u8; 32];
+        rand::rng().fill(&mut seed_bytes);
+        let signing_key = SigningKey::from_bytes(&seed_bytes);
+        let public = signing_key.verifying_key().to_bytes();
+        (seed_bytes.to_vec(), public.to_vec())
+    }
+
     /// Build the URL_SAFE_NO_PAD(base64) of the claims JSON embedding the MLS pubkey.
     fn compute_claims_b64(pub_key: &[u8]) -> String {
         let pub_key_b64 = STANDARD_BASE64.encode(pub_key);
@@ -237,7 +246,7 @@ impl SharedSecret {
             .collect();
         let full_id = format!("{}_{}", id, random_suffix);
 
-        let signature_keys = (vec![], vec![]);
+        let signature_keys = Self::generate_default_signature_keys();
         let claims_b64 = Self::compute_claims_b64(&signature_keys.1);
         let hmac_key = HmacKey::new(shared_secret.as_bytes());
         let internal = SharedSecretInternal {

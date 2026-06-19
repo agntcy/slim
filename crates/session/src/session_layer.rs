@@ -547,13 +547,9 @@ where
                 Err(_) => return,
             };
 
-            let e2e_required = message.get_slim_header().e2e_header_sig.is_some();
-            if let Err(e) = crate::session_controller::verify_identity(
-                &message,
-                &layer.identity_verifier,
-                e2e_required,
-            )
-            .await
+            if let Err(e) =
+                crate::session_controller::verify_identity(&message, &layer.identity_verifier, true)
+                    .await
             {
                 let err = e.chain();
                 error!(
@@ -677,7 +673,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{MockTokenProvider, MockVerifier};
+    use crate::test_utils::{MockTokenProvider, MockVerifier, sign_test_control_message};
+    use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::Status;
     use slim_datapath::api::{NameId, ProtoName, ProtoSessionType};
     use tokio::sync::mpsc;
@@ -953,6 +950,62 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_discovery_request_without_session() {
+        const TEST_SECRET: &str = "abcdefghijklmnopqrstuvwxyz012345";
+
+        let app_name = make_name(&["test", "app", "v1"]);
+        let remote_auth = SharedSecret::new("remote", TEST_SECRET).unwrap();
+        let local_verifier = SharedSecret::new("local", TEST_SECRET).unwrap();
+        let (tx_slim, mut rx_slim) = mpsc::channel(16);
+        let (tx_app, _rx_app) = mpsc::channel(16);
+        let session_layer = Arc::new(SessionLayer::new(
+            app_name,
+            MockTokenProvider,
+            local_verifier,
+            12345u64,
+            tx_slim,
+            tx_app,
+            Direction::Bidirectional,
+            "test-service".to_string(),
+        ));
+
+        let local_name = make_name(&["local", "app", "v1"]);
+        session_layer.add_app_name(local_name.clone(), 0);
+
+        let source = make_name(&["remote", "app", "v1"]);
+        let mut message = Message::builder()
+            .source(source.clone())
+            .destination(local_name.clone().with_id(session_layer.app_id()))
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::PointToPoint)
+            .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
+            .session_id(100)
+            .message_id(1)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        sign_test_control_message(&mut message, &remote_auth).unwrap();
+
+        session_layer
+            .handle_message_from_slim(message)
+            .await
+            .unwrap();
+
+        let sent = tokio::time::timeout(std::time::Duration::from_secs(1), rx_slim.recv())
+            .await
+            .expect("expected a discovery reply")
+            .expect("slim channel closed")
+            .expect("slim delivered an error");
+
+        assert_eq!(
+            sent.get_session_header().session_message_type(),
+            ProtoSessionMessageType::DiscoveryReply
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_discovery_request_without_e2e_sig_is_dropped() {
         let (session_layer, mut rx_slim, _rx_app) = setup_session_layer();
 
         let local_name = make_name(&["local", "app", "v1"]);
@@ -978,16 +1031,8 @@ mod tests {
             .await
             .unwrap();
 
-        let sent = tokio::time::timeout(std::time::Duration::from_secs(1), rx_slim.recv())
-            .await
-            .expect("expected a discovery reply")
-            .expect("slim channel closed")
-            .expect("slim delivered an error");
-
-        assert_eq!(
-            sent.get_session_header().session_message_type(),
-            ProtoSessionMessageType::DiscoveryReply
-        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(rx_slim.try_recv().is_err());
     }
 
     #[tokio::test]

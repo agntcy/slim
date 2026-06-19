@@ -11,6 +11,7 @@ use tokio::sync::{self, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, debug};
 
+use serde_json::Value;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -53,32 +54,9 @@ where
             ));
         };
 
-        #[derive(serde::Deserialize)]
-        struct CustomClaims {
-            pubkey: Option<String>,
-        }
-
-        #[derive(serde::Deserialize)]
-        struct IdentityClaims {
-            pubkey: Option<String>,
-            custom_claims: Option<CustomClaims>,
-        }
-
-        let claims_res = verifier.get_claims(&identity).await;
-        if let Err(ref e) = claims_res {
-            tracing::error!("verify_identity: get_claims failed with: {:?}", e);
-        }
-        let claims: IdentityClaims = claims_res?;
-        let pubkey = claims
-            .pubkey
-            .or_else(|| claims.custom_claims.and_then(|c| c.pubkey))
-            .ok_or_else(|| {
-                tracing::error!(
-                    "verify_identity: pubkey not found in claims. claims_json: {:?}",
-                    identity
-                );
-                SessionError::Auth(slim_auth::errors::AuthError::TokenInvalid)
-            })?;
+        let claims_json: Value = verifier.get_claims(&identity).await?;
+        let identity_claims = slim_auth::identity_claims::IdentityClaims::from_json(&claims_json)?;
+        let pubkey = identity_claims.public_key;
 
         use base64::Engine as _;
         let pubkey_bytes_res = base64::engine::general_purpose::STANDARD.decode(&pubkey);
@@ -269,7 +247,7 @@ impl SessionController {
         crate::session_controller::verify_identity(msg, &settings.identity_verifier, e2e_required)
             .await?;
 
-        // 2. Perform sequence number check for command messages
+        // 2. Replay check for signed control messages (keyed by session message_id).
         if e2e_required && msg.get_session_message_type().is_command_message() {
             let sender = msg.get_source();
             let message_id = msg.get_session_header().get_message_id();
@@ -390,7 +368,7 @@ impl SessionController {
                                     }
                                 }
                                 Err(e) => {
-                                    tracing::error!(
+                                    debug!(
                                         error=%e,
                                         "Error processing message{}",
                                         if draining { " during graceful shutdown" } else { "" }
