@@ -3,7 +3,6 @@
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use slim_datapath::api::{NULL_COMPONENT, ProtoName, SlimHeader};
-use slim_datapath::messages::utils::DEFAULT_TTL;
 use slim_datapath::tables::SubscriptionTable;
 use slim_datapath::tables::subscription_table::SubscriptionTableImpl;
 use slim_datapath::tables::{ConnType, MatchFilter};
@@ -16,20 +15,7 @@ fn make_proto_name() -> ProtoName {
 /// (org/namespace/agent, id=42).
 fn make_slim_header() -> SlimHeader {
     let proto_name = ProtoName::from_strings(["org", "namespace", "agent"]).with_id(42);
-    SlimHeader {
-        source: Some(proto_name.clone()),
-        destination: Some(proto_name),
-        identity: Default::default(),
-        version: Default::default(),
-        fanout: 1,
-        recv_from: None,
-        forward_to: None,
-        incoming_conn: None,
-        error: None,
-        header_mac: None,
-        ttl: DEFAULT_TTL,
-        e2e_header_sig: None,
-    }
+    SlimHeader::new(proto_name.clone(), proto_name, "", None)
 }
 
 fn bench_proto_name_from_strings(c: &mut Criterion) {
