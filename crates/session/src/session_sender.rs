@@ -339,7 +339,7 @@ impl SessionSender {
     }
 
     fn on_rtx_message(&mut self, message: Message) -> Result<SessionOutput, SessionError> {
-        let source_proto = message.get_slim_header().source.clone();
+        let source_proto = message.get_slim_header().get_source();
         let message_id = message.get_id();
         let incoming_conn = message.get_incoming_conn();
 
@@ -352,7 +352,7 @@ impl SessionSender {
         let mut output = SessionOutput::new();
         if let Some(mut msg) = self.buffer.get(message_id as usize) {
             debug!("the message is still exists, send it as rtx reply");
-            msg.get_slim_header_mut().destination = source_proto;
+            msg.get_slim_header_mut().set_destination(source_proto.clone());
             msg.get_slim_header_mut()
                 .set_forward_to(Some(incoming_conn));
             msg.get_session_header_mut()
@@ -361,10 +361,10 @@ impl SessionSender {
             output.push_slim(msg);
         } else {
             debug!("the message does not exists anymore, send and error");
-            let dest_proto = message.get_slim_header().destination.clone().unwrap();
+            let dest_proto = message.get_slim_header().get_dst();
             let msg = Message::builder()
                 .source(dest_proto)
-                .destination(source_proto.unwrap())
+                .destination(source_proto)
                 .identity("")
                 .forward_to(incoming_conn)
                 .session_type(message.get_session_type())

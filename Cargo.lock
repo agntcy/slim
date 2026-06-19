@@ -307,6 +307,7 @@ version = "0.1.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
+ "bytes",
  "prost",
  "prost-types",
  "protoc-bin-vendored",

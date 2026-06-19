@@ -680,17 +680,13 @@ impl MessageProcessor {
                         // Debug / integration-test builds only (`--release` omits this; env var is inert).
                         // Must run *after* sign so the tag does not cover the mutated preimage fields.
                         #[cfg(debug_assertions)]
-                        if std::env::var("SLIM_TEST_TAMPER_DESTINATION").is_ok() {
-                            if let Some(dest) = header.destination.as_mut() {
-                                if let Some((s0, s1, s2)) =
-                                    crate::api::decode_str_bytes(&dest.str_name)
-                                {
-                                    let tampered: Vec<u8> =
-                                        [s2, b"-integrity-test-tamper"].concat();
-                                    dest.str_name =
-                                        crate::api::encode_str_bytes(s0, s1, &tampered);
-                                }
-                            }
+                        if std::env::var("SLIM_TEST_TAMPER_DESTINATION").is_ok()
+                            && let Some((s0, s1, s2)) =
+                                crate::api::decode_str_bytes(&header.destination_str)
+                        {
+                            let tampered: Vec<u8> = [s2, b"-integrity-test-tamper"].concat();
+                            header.destination_str =
+                                crate::api::encode_str_bytes(s0, s1, &tampered);
                         }
                     } else {
                         return Err(DataPathError::HeaderMacAwaitingLinkNegotiation(out_conn));
@@ -2264,11 +2260,9 @@ mod tests {
             .expect("sign header");
 
         let header = msg.get_slim_header_mut();
-        if let Some(dest) = header.destination.as_mut() {
-            if let Some((s0, s1, s2)) = crate::api::decode_str_bytes(&dest.str_name) {
-                let tampered: Vec<u8> = [s2, b"-integrity-test-tamper"].concat();
-                dest.str_name = crate::api::encode_str_bytes(s0, s1, &tampered);
-            }
+        if let Some((s0, s1, s2)) = crate::api::decode_str_bytes(&header.destination_str) {
+            let tampered: Vec<u8> = [s2, b"-integrity-test-tamper"].concat();
+            header.destination_str = crate::api::encode_str_bytes(s0, s1, &tampered);
         }
 
         let err = processor
@@ -2304,13 +2298,12 @@ mod tests {
 
         let sent_msg = rx.recv().await.unwrap().unwrap();
         let header = sent_msg.get_slim_header();
-        let dest_name = header.destination.as_ref().expect("destination");
         let require_header_mac = true;
 
         // The tampering happens in send_msg_raw if the env var is set.
         // Decode the packed str_name bytes and check the third component.
         let (_, _, s2) =
-            crate::api::decode_str_bytes(&dest_name.str_name).expect("str_name must be set");
+            crate::api::decode_str_bytes(&header.destination_str).expect("str_name must be set");
         assert!(s2.ends_with(b"-integrity-test-tamper"));
 
         // Also verify that verify_remote_header_mac rejects it.
