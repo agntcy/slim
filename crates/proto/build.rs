@@ -40,6 +40,7 @@ fn main() {
         .bytes(".dataplane.proto.v1.Name")
         .bytes(".dataplane.proto.v1.ApplicationPayload")
         .bytes(".dataplane.proto.v1.SLIMHeader")
+        .bytes(".dataplane.proto.v1.Publish")
         .client_mod_attribute(".", "#[cfg(not(target_arch = \"wasm32\"))]")
         .server_mod_attribute(".", "#[cfg(not(target_arch = \"wasm32\"))]")
         .compile_protos(

@@ -650,9 +650,8 @@ async fn create_app_with_secret(
 fn extract_payload(msg: &slim_datapath::api::ProtoMessage) -> Vec<u8> {
     match msg.message_type.as_ref() {
         Some(ProtoPublishType(publish)) => publish
-            .msg
-            .as_ref()
-            .and_then(|content| content.as_application_payload().ok())
+            .get_payload()
+            .and_then(|content| content.into_application_payload().ok())
             .map(|payload| payload.blob.to_vec())
             .unwrap_or_default(),
         _ => Vec::new(),
