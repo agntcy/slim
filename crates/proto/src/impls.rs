@@ -360,11 +360,6 @@ impl ProtoName {
         id_to_string(self.id())
     }
 
-    pub fn name_id(&self) -> Option<u128> {
-        let id = self.id();
-        if id == NULL_COMPONENT { None } else { Some(id) }
-    }
-
     pub fn has_id(&self) -> bool {
         self.id() != NULL_COMPONENT
     }
@@ -620,10 +615,6 @@ impl SlimHeader {
         self.incoming_conn = incoming_conn;
     }
 
-    pub fn set_error_flag(&mut self, error: Option<bool>) {
-        self.error = error;
-    }
-
     pub fn get_ttl(&self) -> u32 {
         self.ttl
     }
@@ -814,42 +805,6 @@ impl ProtoPublish {
         self.msg = payload.encode_to_vec().into();
     }
 
-    pub fn is_command(&self) -> bool {
-        match self
-            .get_payload()
-            .expect("msg must be set")
-            .content_type
-            .as_ref()
-            .unwrap()
-        {
-            ContentType::AppPayload(_) => false,
-            ContentType::CommandPayload(_) => true,
-        }
-    }
-
-    pub fn get_application_payload(&self) -> ApplicationPayload {
-        match self
-            .get_payload()
-            .expect("msg must be set")
-            .content_type
-            .unwrap()
-        {
-            ContentType::AppPayload(application_payload) => application_payload,
-            ContentType::CommandPayload(_) => panic!("the payload is not an application payload"),
-        }
-    }
-
-    pub fn get_command_payload(&self) -> CommandPayload {
-        match self
-            .get_payload()
-            .expect("msg must be set")
-            .content_type
-            .unwrap()
-        {
-            ContentType::AppPayload(_) => panic!("the payload is not a command payload"),
-            ContentType::CommandPayload(command_payload) => command_payload,
-        }
-    }
 }
 
 impl From<ProtoMessage> for ProtoPublish {
@@ -1152,10 +1107,6 @@ impl ProtoMessage {
 
     pub fn set_incoming_conn(&mut self, incoming_conn: Option<u64>) {
         self.get_slim_header_mut().set_incoming_conn(incoming_conn);
-    }
-
-    pub fn set_error_flag(&mut self, error: Option<bool>) {
-        self.get_slim_header_mut().set_error_flag(error);
     }
 
     pub fn get_ttl(&self) -> u32 {
