@@ -8,7 +8,7 @@
 
 use slim_auth::errors::AuthError;
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_datapath::api::{Participant, ProtoMessage as Message, ProtoName};
+use slim_datapath::api::{Participant, ProtoName};
 use std::sync::Arc;
 
 use crate::SessionError;
@@ -71,27 +71,6 @@ impl Verifier for MockVerifier {
     {
         Err(AuthError::TokenInvalid)
     }
-}
-
-/// Attach identity token and E2E header signature to a control message for tests.
-pub fn sign_test_control_message<P>(msg: &mut Message, provider: &P) -> Result<(), SessionError>
-where
-    P: TokenProvider,
-{
-    let identity = provider.get_token().map_err(|e| SessionError::Auth(e))?;
-    msg.get_slim_header_mut().set_identity(identity);
-
-    let private_key = provider
-        .get_signature_secret_key()
-        .map_err(|e| SessionError::Auth(e))?;
-    let public_key = provider
-        .get_signature_public_key()
-        .map_err(|e| SessionError::Auth(e))?;
-    let aad = crate::mls_state::build_aad(msg);
-    let signature = slim_auth::utils::sign_header_aad(&aad, &private_key, &public_key)
-        .map_err(|e| SessionError::Auth(e))?;
-    msg.get_slim_header_mut().e2e_header_sig = Some(signature);
-    Ok(())
 }
 
 /// Mock inner message handler for testing.

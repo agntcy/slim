@@ -673,7 +673,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{MockTokenProvider, MockVerifier, sign_test_control_message};
+    use crate::test_utils::{MockTokenProvider, MockVerifier};
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::Status;
     use slim_datapath::api::{NameId, ProtoName, ProtoSessionType};
@@ -985,7 +985,8 @@ mod tests {
             .application_payload("", vec![])
             .build_publish()
             .unwrap();
-        sign_test_control_message(&mut message, &remote_auth).unwrap();
+        crate::session_controller::sign_outbound_control_message(&mut message, &remote_auth)
+            .unwrap();
 
         session_layer
             .handle_message_from_slim(message)

@@ -394,7 +394,7 @@ impl SessionController {
                                     }
                                 }
                                 Err(e) => {
-                                    tracing::error!(
+                                    debug!(
                                         error=%e,
                                         "Error processing message{}",
                                         if draining { " during graceful shutdown" } else { "" }
@@ -798,9 +798,18 @@ where
     /// Send control message through ControllerSender, returning the output.
     pub(crate) fn send_with_timer(
         &mut self,
-        mut message: Message,
+        message: Message,
     ) -> Result<SessionOutput, SessionError> {
-        sign_outbound_control_message(&mut message, &self.settings.identity_provider)?;
+        let mut output = SessionOutput::to_slim(message);
+        self.sign_control_messages(&mut output, &self.settings.identity_provider)?;
+        let OutboundMessage::ToSlim(message) = output
+            .messages
+            .into_iter()
+            .next()
+            .expect("single outbound message")
+        else {
+            unreachable!("SessionOutput::to_slim produces ToSlim");
+        };
         self.sender.on_message(&message)
     }
 
