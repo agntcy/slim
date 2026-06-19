@@ -645,8 +645,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         // Pass 2: clone snapshot, remove conn from routing for every affected encoded name.
         let mut rs = (**current).clone();
         drop(current);
-        for (prefix, id) in &encoded_names {
-            let (prefix, id) = (*prefix, *id);
+        for &(prefix, id) in &encoded_names {
             debug!(%conn, ?prefix, id, "remove subscription");
 
             let should_remove_prefix = if let Some(entry) = rs.get_mut(&prefix) {

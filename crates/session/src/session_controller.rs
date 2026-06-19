@@ -43,8 +43,8 @@ where
     V: Verifier + Send + Sync,
 {
     let identity = msg.get_slim_header().get_identity();
-    if verifier.try_verify(&identity).is_err() {
-        verifier.verify(&identity).await?;
+    if verifier.try_verify(identity).is_err() {
+        verifier.verify(identity).await?;
     }
 
     if e2e_integrity_required && msg.get_session_message_type().is_command_message() {
