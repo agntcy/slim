@@ -1,0 +1,37 @@
+{
+  "eval_id": 2,
+  "eval_name": "controller-route-list-and-del",
+  "prompt": "List all routes the control plane knows about for node 'edge-node-1', then delete the route for acme/prod/chatbot/3 that goes via http://gateway:9090.",
+  "assertions": [
+    {
+      "text": "Uses 'controller route list' (not 'node route list')",
+      "passed": null,
+      "evidence": null
+    },
+    {
+      "text": "Passes -n edge-node-1 (or --node-id) to the list command",
+      "passed": null,
+      "evidence": null
+    },
+    {
+      "text": "Uses 'controller route del' for deletion",
+      "passed": null,
+      "evidence": null
+    },
+    {
+      "text": "Deletion command includes -n edge-node-1",
+      "passed": null,
+      "evidence": null
+    },
+    {
+      "text": "Deletion command includes route acme/prod/chatbot/3",
+      "passed": null,
+      "evidence": null
+    },
+    {
+      "text": "Deletion command includes 'via http://gateway:9090'",
+      "passed": null,
+      "evidence": null
+    }
+  ]
+}
