@@ -12,4 +12,26 @@ document$.subscribe(function () {
       li.classList.add("card-featured");
     }
   });
+
+  document.querySelectorAll(".landing-explore__toggle").forEach(function (button) {
+    if (button.dataset.exploreBound === "true") {
+      return;
+    }
+    button.dataset.exploreBound = "true";
+
+    button.addEventListener("click", function () {
+      var item = button.closest(".landing-explore__item");
+      var body = item.querySelector(".landing-explore__body");
+      var isOpen = button.getAttribute("aria-expanded") === "true";
+
+      button.setAttribute("aria-expanded", isOpen ? "false" : "true");
+      item.classList.toggle("is-open", !isOpen);
+
+      if (isOpen) {
+        body.setAttribute("hidden", "");
+      } else {
+        body.removeAttribute("hidden");
+      }
+    });
+  });
 });
