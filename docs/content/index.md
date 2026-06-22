@@ -62,55 +62,55 @@ hide:
 
 <section class="slim-why">
   <h2 class="slim-section-title">Why Use SLIM</h2>
-  <div class="slim-why-cards">
-    <article class="slim-why-card">
-      <div class="slim-why-card__icon-wrap">
+  <div class="slim-features">
+    <div class="slim-feature-card">
+      <div class="slim-feature-card__art">
         <img
           src="assets/slim-why-icons/send.svg"
           alt=""
-          width="24"
-          height="24"
-          class="slim-why-card__icon"
+          width="22"
+          height="22"
+          loading="lazy"
         />
       </div>
-      <h3 class="slim-why-card__title">Transport for Agent Protocols</h3>
-      <p class="slim-why-card__desc">
+      <p class="slim-feature-card__title">Transport for Agent Protocols</p>
+      <p class="slim-feature-card__text">
         Carry A2A, MCP, SLIMRPC, and custom agent protocols over a single secure
         overlay instead of bespoke per-protocol networking.
       </p>
-    </article>
-    <article class="slim-why-card">
-      <div class="slim-why-card__icon-wrap">
+    </div>
+    <div class="slim-feature-card">
+      <div class="slim-feature-card__art">
         <img
           src="assets/slim-why-icons/lock.svg"
           alt=""
-          width="24"
-          height="24"
-          class="slim-why-card__icon"
+          width="22"
+          height="22"
+          loading="lazy"
         />
       </div>
-      <h3 class="slim-why-card__title">End-to-End Encryption</h3>
-      <p class="slim-why-card__desc">
+      <p class="slim-feature-card__title">End-to-End Encryption</p>
+      <p class="slim-feature-card__text">
         Message Layer Security (MLS) keeps payloads encrypted from source to
         destination, even when traffic traverses shared routing infrastructure.
       </p>
-    </article>
-    <article class="slim-why-card">
-      <div class="slim-why-card__icon-wrap">
+    </div>
+    <div class="slim-feature-card">
+      <div class="slim-feature-card__art">
         <img
           src="assets/slim-why-icons/network.svg"
           alt=""
-          width="24"
-          height="24"
-          class="slim-why-card__icon"
+          width="22"
+          height="22"
+          loading="lazy"
         />
       </div>
-      <h3 class="slim-why-card__title">Network-Topology Independence</h3>
-      <p class="slim-why-card__desc">
+      <p class="slim-feature-card__title">Network-Topology Independence</p>
+      <p class="slim-feature-card__text">
         Agents connect outbound to SLIM nodes and are reachable by hierarchical name—no
         inbound ports, VPNs, or NAT traversal required.
       </p>
-    </article>
+    </div>
   </div>
 </section>
 

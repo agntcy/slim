@@ -21,6 +21,13 @@
   --slim-action-btn-bg-active: rgb(255, 255, 255);
   --slim-action-btn-color: var(--slim-text-strong);
   --slim-action-btn-border: rgb(213, 223, 247);
+  --slim-border: rgb(213, 223, 247);
+  --slim-card-shadow: 0 4px 40px rgba(207, 222, 255, 0.3);
+  --slim-feature-card-bg: var(--md-default-bg-color--lightest);
+  --slim-feature-card-border: var(--slim-border);
+  --slim-feature-card-shadow: var(--slim-card-shadow);
+  --slim-feature-icon-bg: rgb(255, 255, 255);
+  --slim-feature-icon-border: var(--slim-border);
 }
 
 [data-md-color-scheme="slate"] {
@@ -28,6 +35,11 @@
   --slim-action-btn-bg-active: rgb(12, 31, 54);
   --slim-action-btn-color: rgb(227, 227, 227);
   --slim-action-btn-border: rgb(13, 39, 77);
+  --slim-feature-card-bg: var(--md-code-bg-color);
+  --slim-feature-card-border: rgb(13, 39, 77);
+  --slim-feature-card-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+  --slim-feature-icon-bg: var(--md-primary-fg-color);
+  --slim-feature-icon-border: rgb(13, 39, 77);
 }
 
 /* Home page only: MkDocs chrome adjustments for full-bleed hero. */
@@ -87,7 +99,7 @@ body:has(.slim-landing) .md-tabs__item--active .md-tabs__link {
 }
 
 /* ----------------------------------------------------------------------------
-   Why use SLIM (Phoenix design)
+   Why use SLIM (feature cards — matches dir.agntcy.org)
 ---------------------------------------------------------------------------- */
 .slim-why {
   max-width: 73.75rem;
@@ -100,81 +112,82 @@ body:has(.slim-landing) .md-tabs__item--active .md-tabs__link {
   font-size: 1.5rem;
 }
 
-.slim-why-cards {
+.slim-features {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.625rem;
-  align-items: stretch;
+  gap: 1.25rem;
+  width: 100%;
+  max-width: 100%;
 }
 
-.slim-why-card {
+.md-typeset .slim-feature-card {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1.25rem;
-  height: 100%;
-  padding: 1.875rem 1.25rem;
   text-align: center;
-  background: rgb(245, 248, 253);
-  border: 1px solid rgb(230, 231, 237);
+  gap: 1rem;
+  min-width: 0;
+  padding: 1.625rem 1.125rem;
+  border-radius: 10px;
+  background: var(--slim-feature-card-bg);
+  border: 1px solid var(--slim-feature-card-border);
+  box-shadow: var(--slim-feature-card-shadow);
 }
 
-.slim-why-card__icon-wrap {
-  display: inline-flex;
+.slim-feature-card__art {
+  display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
-  padding: 0.9375rem;
-  background: rgb(255, 255, 255);
-  border: 1px solid rgb(213, 223, 247);
-  border-radius: 4px;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 12px;
+  background: var(--slim-feature-icon-bg);
+  border: 1px solid var(--slim-feature-icon-border);
 }
 
-.slim-why-card__icon {
+.md-typeset .slim-feature-card__art img {
   display: block;
-  width: 24px;
-  height: 24px;
-  flex-shrink: 0;
+  height: 1.375rem;
+  width: 1.375rem;
+  max-width: 100%;
 }
 
-.md-typeset .slim-why-card__title {
+.md-typeset .slim-feature-card__title {
   margin: 0;
-  font-size: 0.9375rem;
+  font-size: 0.9rem;
   font-weight: 700;
-  line-height: 1.6;
   color: var(--md-default-fg-color);
 }
 
-.md-typeset .slim-why-card__desc {
+.md-typeset .slim-feature-card__text {
   margin: 0;
-  flex: 1;
-  font-size: 0.9375rem;
-  font-weight: 400;
-  line-height: 1.6;
+  font-size: 0.825rem;
+  line-height: 1.55;
   color: var(--md-default-fg-color--light);
 }
 
-[data-md-color-scheme="slate"] .slim-why-card {
-  background: rgb(0, 42, 77);
-  border-color: rgb(13, 39, 77);
+[data-md-color-scheme="slate"] .md-typeset .slim-feature-card__text {
+  color: rgba(227, 227, 227, 0.82);
 }
 
-[data-md-color-scheme="slate"] .slim-why-card__icon-wrap {
-  background: rgb(12, 31, 54);
-  border-color: rgb(13, 39, 77);
+@media screen and (max-width: 76.1875em) {
+  .slim-features {
+    gap: 1rem;
+  }
+
+  .md-typeset .slim-feature-card {
+    padding: 1.5rem 1rem;
+  }
 }
 
 @media screen and (max-width: 59.9375em) {
-  .slim-why-cards {
+  .slim-features {
     grid-template-columns: 1fr;
-    gap: 0.75rem;
+    gap: 1.25rem;
   }
 
-  .slim-why-card {
-    max-width: 24.125rem;
-    margin: 0 auto;
-    width: 100%;
-    height: auto;
+  .md-typeset .slim-feature-card {
+    padding: 1.625rem 1.125rem;
   }
 }
 
