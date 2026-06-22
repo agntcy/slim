@@ -1426,7 +1426,10 @@ impl ControllerService {
             direction: None,
         };
 
-        debug!("handle_subscribe_message: sending route_to_set to control plane: {:?}", cmd);
+        debug!(
+            "handle_subscribe_message: sending route_to_set to control plane: {:?}",
+            cmd
+        );
         sub_vec.push(cmd);
 
         let ctrl = ControlMessage {
@@ -1466,7 +1469,10 @@ impl ControllerService {
             return;
         }
 
-        debug!("handle_link_received: notifying control-plane of new link_id: {}", link_id);
+        debug!(
+            "handle_link_received: notifying control-plane of new link_id: {}",
+            link_id
+        );
 
         let ctrl = ControlMessage {
             message_id: uuid::Uuid::new_v4().to_string(),
@@ -1499,7 +1505,10 @@ impl ControllerService {
             direction: None,
         };
 
-        debug!("handle_unsubscribe_message: sending route_to_delete to control plane: {:?}", cmd);
+        debug!(
+            "handle_unsubscribe_message: sending route_to_delete to control plane: {:?}",
+            cmd
+        );
         unsub_vec.push(cmd);
 
         let ctrl = ControlMessage {
