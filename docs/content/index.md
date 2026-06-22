@@ -165,7 +165,7 @@ hide:
         <div class="slimctl-terminal-intro-group" id="slimctl-terminal-intros">
           <p class="slimctl-terminal-intro" data-intro-level="node" hidden>
             Start a local node, inspect connections, and add routes with slimctl. See the
-            <a href="slim/slim-howto/">Quickstart guide</a> for installation.
+            <a href="slim/slim-howto.md">Quickstart guide</a> for installation.
           </p>
           <p class="slimctl-terminal-intro" data-intro-level="message">
             Agents subscribe to named channels, publish encrypted payloads, and SLIM routes them
@@ -173,7 +173,7 @@ hide:
           </p>
           <p class="slimctl-terminal-intro" data-intro-level="try" hidden>
             Use <code>slimctl --help</code> to explore commands. See the
-            <a href="slim/slim-controller/">SLIM Controller</a> docs for the full CLI reference.
+            <a href="slim/slim-controller.md">SLIM Controller</a> docs for the full CLI reference.
           </p>
         </div>
         <div class="slimctl-terminal-actions">
