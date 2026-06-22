@@ -1379,6 +1379,8 @@ async fn run_channel_pub_worker(
             .context("publish completion failed")?;
     }
 
+    controller.close()?.await?;
+
     let end = Instant::now();
 
     Ok(Sample {
