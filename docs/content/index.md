@@ -35,13 +35,10 @@ hide:
       The secure transport layer for A2A, MCP, and SLIMRPC agent protocols.
     </p>
     <p class="slim-hero__lede">
-      <strong>Secure Low-Latency Interactive Messaging (SLIM)</strong> is the secure transport layer
-      for agent communication, an open source project under the
-      <a href="https://www.linuxfoundation.org/press/linux-foundation-welcomes-the-agntcy-project-to-standardize-open-multi-agent-system-infrastructure-and-break-down-ai-agent-silos" target="_blank" rel="noopener noreferrer">Linux Foundation</a>
-      building the Internet of Agents. While protocols like A2A define <em>what</em> agents say,
-      SLIM defines <em>how</em> those messages are securely delivered across distributed
-      networks—whether agents run in a data center, in a browser, on mobile devices, or
-      across organizational boundaries.
+      SLIM is built for interactive agent workloads: low-latency, encrypted message
+      delivery between agents that may be co-located or continents apart. Where protocols define
+      conversation semantics, SLIM provides the data plane that makes those conversations work in
+      production.
     </p>
     <div class="slim-hero__actions">
       <div class="slim-hero__actions-main">
@@ -165,17 +162,19 @@ hide:
         </div>
       </div>
       <div class="slimctl-terminal-side">
-        <div class="slimctl-terminal-intro-group" id="slimctl-terminal-intros" markdown="1">
-
-Start a local node, inspect connections, and add routes with slimctl. See the [Quickstart guide](slim/slim-howto) for installation.
-{: .slimctl-terminal-intro data-intro-level="node" hidden}
-
-Agents subscribe to named channels, publish encrypted payloads, and SLIM routes them across nodes. Watch the diagram above for the full path.
-{: .slimctl-terminal-intro data-intro-level="message"}
-
-Use `slimctl --help` to explore commands. See the [SLIM Controller](slim/slim-controller) docs for the full CLI reference.
-{: .slimctl-terminal-intro data-intro-level="try" hidden}
-
+        <div class="slimctl-terminal-intro-group" id="slimctl-terminal-intros">
+          <p class="slimctl-terminal-intro" data-intro-level="node" hidden>
+            Start a local node, inspect connections, and add routes with slimctl. See the
+            <a href="slim/slim-howto/">Quickstart guide</a> for installation.
+          </p>
+          <p class="slimctl-terminal-intro" data-intro-level="message">
+            Agents subscribe to named channels, publish encrypted payloads, and SLIM routes them
+            across nodes.
+          </p>
+          <p class="slimctl-terminal-intro" data-intro-level="try" hidden>
+            Use <code>slimctl --help</code> to explore commands. See the
+            <a href="slim/slim-controller/">SLIM Controller</a> docs for the full CLI reference.
+          </p>
         </div>
         <div class="slimctl-terminal-actions">
           <button type="button" class="slimctl-terminal-btn is-active" data-demo-level="message">Send a Message</button>
