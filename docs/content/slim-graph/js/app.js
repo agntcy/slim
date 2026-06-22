@@ -21,7 +21,7 @@ function clearSimulation() {
 
 function flashNode(elementId, colorClass) {
   const el = document.getElementById(elementId);
-  if (!el) return;
+  if (!el || el.classList.contains('route-active')) return;
   el.classList.add(colorClass);
   setTimeout(() => {
     el.classList.remove(colorClass);
@@ -40,11 +40,11 @@ function resetScenarioVisuals(name) {
   clearSimulation();
 
   document.querySelectorAll('.connection-path').forEach(path => {
-    path.classList.remove('active', 'active-crypto', 'active-rpc', 'active-control');
+    path.classList.remove('active', 'active-crypto', 'active-rpc', 'active-control', 'route-active');
   });
 
-  document.querySelectorAll('.shield-outer').forEach(shield => {
-    shield.classList.remove('active');
+  document.querySelectorAll('.node-rect').forEach(rect => {
+    rect.classList.remove('route-active');
   });
 
   const ACTIVE_NODES_BY_SCENARIO = {
@@ -91,6 +91,36 @@ function postTooltipToParent(payload) {
     /* standalone or cross-origin */
   }
 }
+
+function postStepTooltipToParent(payload) {
+  if (!TOOLTIP_EMBEDDED) return;
+  try {
+    window.parent.postMessage(
+      { type: 'slim-graph-step-tooltip', ...payload },
+      window.location.origin
+    );
+  } catch (_error) {
+    /* standalone or cross-origin */
+  }
+}
+
+function reportEmbedHeight() {
+  if (!TOOLTIP_EMBEDDED) return;
+  const root = document.querySelector('.app-grid');
+  const height = root
+    ? Math.ceil(root.getBoundingClientRect().height)
+    : document.documentElement.scrollHeight;
+  try {
+    window.parent.postMessage(
+      { type: 'slim-graph-resize', height },
+      window.location.origin
+    );
+  } catch (_error) {
+    /* standalone or cross-origin */
+  }
+}
+
+window.slimGraphReportHeight = reportEmbedHeight;
 
 function positionNodeTooltip(event) {
   const tooltipEl = document.getElementById('tooltip');
@@ -153,89 +183,183 @@ function hideNodeTooltip() {
   }
 }
 
-function buildStepTrack() {
-  const track = document.getElementById('step-track');
+function updateActiveEdges() {
+  const steps = SCENARIOS[currentJourney] || [];
+  const step = steps[currentStepIndex];
+  if (!step || !step.activeEdges) return;
+
+  const activePathIds = new Set();
+  const activeCoreIds = new Set();
+
+  step.activeEdges.forEach((edgeKey) => {
+    const pathId = EDGE_PATH_MAP[edgeKey];
+    if (pathId) activePathIds.add(pathId);
+
+    const [from, to] = edgeKey.split('-');
+    const fromNode = EDGE_NODE_MAP[from];
+    const toNode = EDGE_NODE_MAP[to];
+    if (fromNode) activeCoreIds.add(`core_${fromNode}`);
+    if (toNode) activeCoreIds.add(`core_${toNode}`);
+  });
+
+  document.querySelectorAll('.connection-path').forEach((path) => {
+    const shouldBeActive = activePathIds.has(path.id);
+    const isControl = path.classList.contains('control');
+    if (shouldBeActive) {
+      path.classList.add(isControl ? 'active-control' : 'route-active');
+    } else {
+      path.classList.remove('route-active', 'active-control');
+    }
+  });
+
+  document.querySelectorAll('.node-rect').forEach((rect) => {
+    if (activeCoreIds.has(rect.id)) {
+      rect.classList.add('route-active');
+    } else {
+      rect.classList.remove('route-active');
+    }
+  });
+}
+
+const EDGE_NODE_MAP = {
+  agentA: 'Agent_A',
+  agentE: 'Agent_E',
+  agentB: 'Agent_B',
+  agentC: 'Agent_C',
+  agentD: 'Agent_D',
+  slimNode1: 'Node1',
+  slimNode2: 'Node2',
+  mcpServer: 'MCP',
+  opTerminal: 'Operator',
+  slimController: 'Controller'
+};
+
+function buildArrowStepper() {
+  const track = document.getElementById('arrow-stepper');
   if (!track) return;
 
   track.innerHTML = '';
   const steps = SCENARIOS[currentJourney] || [];
+  const arrowDepth = 10;
 
   steps.forEach((step, index) => {
-    if (index > 0) {
-      const connector = document.createElement('div');
-      connector.className = 'step-card-bridge';
-      connector.setAttribute('aria-hidden', 'true');
-      connector.innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
-      track.appendChild(connector);
-    }
-
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'step-card';
+    btn.className = 'arrow-step';
     btn.dataset.stepIndex = String(index);
     btn.setAttribute('role', 'tab');
     btn.setAttribute('aria-selected', index === currentStepIndex ? 'true' : 'false');
+    btn.style.setProperty('--arrow-depth', `${arrowDepth}px`);
+    btn.style.zIndex = String(steps.length - index);
+
+    if (index === 0) {
+      btn.classList.add('arrow-step--first');
+    }
+    if (index === steps.length - 1) {
+      btn.classList.add('arrow-step--last');
+    }
+
     btn.innerHTML =
-      `<div class="step-card-indicator">Step ${index + 1} of ${steps.length}</div>` +
-      `<div class="step-card-title">${step.title}</div>` +
-      `<div class="step-card-desc">${formatStepDesc(step.desc)}</div>`;
+      `<span class="arrow-step__badge" aria-hidden="true">${index + 1}</span>` +
+      `<span class="arrow-step__title">${step.title}</span>`;
+
     btn.addEventListener('click', () => {
       isPaused = false;
       updatePauseButton();
       goToStep(index, true);
     });
+
+    btn.addEventListener('mouseenter', () => showStepTooltip(index, btn));
+    btn.addEventListener('mouseleave', hideStepTooltip);
+    btn.addEventListener('focus', () => showStepTooltip(index, btn));
+    btn.addEventListener('blur', hideStepTooltip);
+
     track.appendChild(btn);
   });
 
-  updateStepTrack();
+  updateArrowStepper();
 }
 
-function scrollStepCardIntoView(card) {
-  const scroller = document.querySelector('.step-track-scroll');
-  if (!scroller || !card) return;
+function showStepTooltip(index, anchor) {
+  const steps = SCENARIOS[currentJourney] || [];
+  const step = steps[index];
+  const tooltip = document.getElementById('step-tooltip');
+  const titleEl = document.getElementById('step-tooltip-title');
+  const descEl = document.getElementById('step-tooltip-desc');
+  if (!step || !tooltip || !titleEl || !descEl || !anchor) return;
 
-  const padding = 12;
-  const cardRect = card.getBoundingClientRect();
-  const scrollerRect = scroller.getBoundingClientRect();
-  const cardLeft = cardRect.left - scrollerRect.left + scroller.scrollLeft;
-  const cardRight = cardLeft + cardRect.width;
-  const viewLeft = scroller.scrollLeft;
-  const viewRight = viewLeft + scroller.clientWidth;
-
-  if (cardLeft < viewLeft + padding) {
-    scroller.scrollTo({ left: Math.max(0, cardLeft - padding), behavior: 'smooth' });
+  if (TOOLTIP_EMBEDDED) {
+    const rect = anchor.getBoundingClientRect();
+    postStepTooltipToParent({
+      visible: true,
+      title: step.title,
+      desc: formatStepDesc(step.desc),
+      anchorRect: {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height
+      }
+    });
     return;
   }
 
-  if (cardRight > viewRight - padding) {
-    scroller.scrollTo({
-      left: cardRight - scroller.clientWidth + padding,
-      behavior: 'smooth'
-    });
+  titleEl.textContent = step.title;
+  descEl.innerHTML = formatStepDesc(step.desc);
+  tooltip.hidden = false;
+
+  const tooltipWidth = 220;
+  const rect = anchor.getBoundingClientRect();
+  const left = Math.min(
+    Math.max(8, rect.left + rect.width / 2 - tooltipWidth / 2),
+    window.innerWidth - tooltipWidth - 8
+  );
+
+  tooltip.style.width = `${tooltipWidth}px`;
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = 'auto';
+  tooltip.style.bottom = 'auto';
+
+  requestAnimationFrame(() => {
+    const top = Math.max(8, rect.top - tooltip.offsetHeight - 8);
+    tooltip.style.top = `${top}px`;
+    tooltip.style.left = `${left}px`;
+  });
+}
+
+function hideStepTooltip() {
+  if (TOOLTIP_EMBEDDED) {
+    postStepTooltipToParent({ visible: false });
+    return;
+  }
+
+  const tooltip = document.getElementById('step-tooltip');
+  if (tooltip) {
+    tooltip.hidden = true;
   }
 }
 
-function updateStepTrack() {
-  const items = document.querySelectorAll('.step-card');
+function updateArrowStepper() {
+  const items = document.querySelectorAll('.arrow-step');
   items.forEach((btn, index) => {
     const isActive = index === currentStepIndex;
+    const isDone = index < currentStepIndex;
     btn.classList.toggle('active', isActive);
-    btn.classList.toggle('completed', index < currentStepIndex);
+    btn.classList.toggle('completed', isDone);
     btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
-  });
 
-  document.querySelectorAll('.step-card-bridge').forEach((connector, index) => {
-    connector.classList.toggle('completed', index < currentStepIndex);
+    const badge = btn.querySelector('.arrow-step__badge');
+    if (badge) {
+      badge.innerHTML = isDone
+        ? '<svg width="8" height="8" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2 6l3 3 5-5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+        : String(index + 1);
+    }
   });
-
-  const activeItem = items[currentStepIndex];
-  if (activeItem) {
-    scrollStepCardIntoView(activeItem);
-  }
 }
 
 function updateStepUI() {
-  updateStepTrack();
+  updateArrowStepper();
+  updateActiveEdges();
 }
 
 function updatePauseButton() {
@@ -256,12 +380,11 @@ function updatePauseButton() {
   }
 }
 
-function goToStep(index, runAction = false) {
+function advanceStep(runAction = true) {
   const steps = SCENARIOS[currentJourney] || [];
-  if (index < 0 || index >= steps.length) return;
+  if (currentStepIndex >= steps.length - 1) return;
 
-  resetScenarioVisuals(currentJourney);
-  currentStepIndex = index;
+  currentStepIndex++;
   updateStepUI();
 
   if (runAction) {
@@ -269,11 +392,22 @@ function goToStep(index, runAction = false) {
   }
 }
 
-function advanceStep(runAction = true) {
+function goToStep(index, runAction = false) {
   const steps = SCENARIOS[currentJourney] || [];
-  if (currentStepIndex >= steps.length - 1) return;
+  if (index < 0 || index >= steps.length) return;
 
-  currentStepIndex++;
+  clearSimulation();
+  document.querySelectorAll('.node-rect').forEach((rect) => {
+    rect.classList.remove(
+      'flash-blue', 'flash-amber', 'flash-orange', 'flash-teal',
+      'flash-purple', 'flash-pink', 'flash-green'
+    );
+  });
+  document.querySelectorAll('.connection-path').forEach((path) => {
+    path.classList.remove('active', 'active-crypto', 'active-rpc');
+  });
+
+  currentStepIndex = index;
   updateStepUI();
 
   if (runAction) {
@@ -316,6 +450,13 @@ function togglePause() {
   updatePauseButton();
 }
 
+function updateJourneyChrome() {
+  const wrap = document.querySelector('.arrow-stepper-wrap');
+  if (wrap) {
+    wrap.classList.toggle('arrow-stepper-wrap--multicast', currentJourney === 'multicast');
+  }
+}
+
 function startScenario(name) {
   currentJourney = name;
   currentStepIndex = 0;
@@ -326,12 +467,14 @@ function startScenario(name) {
     btn.classList.toggle('active', btn.dataset.journey === name);
   });
 
+  updateJourneyChrome();
   resetScenarioVisuals(name);
-  buildStepTrack();
+  buildArrowStepper();
 
   logToTerminal('System', 'info', 'slim_dataplane::system', `switching to scenario workflow: "${name.toUpperCase()}"`);
   updateStepUI();
   executeStepAction();
+  reportEmbedHeight();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -355,6 +498,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.querySelectorAll('.journey-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
+      document.querySelectorAll('.journey-btn').forEach((tab) => {
+        tab.setAttribute('aria-selected', tab === e.currentTarget ? 'true' : 'false');
+      });
       startScenario(e.currentTarget.dataset.journey);
     });
   });
@@ -410,4 +556,13 @@ window.onload = () => {
   logToTerminal('SLIM Node 1', 'info', 'slim_dataplane::service', 'dataplane server started endpoint=127.0.0.1:50051');
   logToTerminal('SLIM Node 2', 'info', 'slim_dataplane::service', 'started controlplane server endpoint=0.0.0.0:50052');
   startScenario('p2p');
+  reportEmbedHeight();
+
+  if (TOOLTIP_EMBEDDED && typeof ResizeObserver !== 'undefined') {
+    const root = document.querySelector('.app-grid');
+    if (root) {
+      const resizeObserver = new ResizeObserver(() => reportEmbedHeight());
+      resizeObserver.observe(root);
+    }
+  }
 };

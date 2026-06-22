@@ -61,7 +61,7 @@ hide:
 </div>
 
 <section class="slim-why">
-  <h2 class="slim-section-title">Why use SLIM</h2>
+  <h2 class="slim-section-title">Why Use SLIM</h2>
   <div class="slim-why-cards">
     <article class="slim-why-card">
       <div class="slim-why-card__icon-wrap">
@@ -117,12 +117,14 @@ hide:
 <div class="slim-landing">
 
 <section class="slim-howto">
+  <h2 class="slim-section-title">How SLIM Routes Messages</h2>
   <div class="slim-graph-wrap">
     <iframe
       class="slim-graph-frame"
       src="slim-graph/index.html"
-      title="SLIM architecture visualizer"
+      title="SLIM Architecture Visualizer"
       tabindex="-1"
+      scrolling="no"
     ></iframe>
   </div>
 </section>
@@ -176,9 +178,9 @@ Use `slimctl --help` to explore commands. See the [SLIM Controller](slim/slim-co
 
         </div>
         <div class="slimctl-terminal-actions">
-          <button type="button" class="slimctl-terminal-btn is-active" data-demo-level="message">Send a message</button>
-          <button type="button" class="slimctl-terminal-btn" data-demo-level="node">Start node</button>
-          <button type="button" class="slimctl-terminal-btn" data-mode-switch="try">Try it yourself</button>
+          <button type="button" class="slimctl-terminal-btn is-active" data-demo-level="message">Send a Message</button>
+          <button type="button" class="slimctl-terminal-btn" data-demo-level="node">Start Node</button>
+          <button type="button" class="slimctl-terminal-btn" data-mode-switch="try">Try It Yourself</button>
         </div>
       </div>
     </div>
@@ -187,9 +189,11 @@ Use `slimctl --help` to explore commands. See the [SLIM Controller](slim/slim-co
 
 </div>
 
-## Get started with SLIM
+<section class="slim-get-started" markdown="1">
 
-<div class="grid cards" markdown>
+## Get Started With SLIM {.slim-section-title}
+
+<div class="grid cards" markdown="1">
 
 - :material-rocket-launch:{ .lg .middle } **Get Started**
 
@@ -247,3 +251,5 @@ Use `slimctl --help` to explore commands. See the [SLIM Controller](slim/slim-co
     [:octicons-arrow-right-24: LF press release](https://www.linuxfoundation.org/press/linux-foundation-welcomes-the-agntcy-project-to-standardize-open-multi-agent-system-infrastructure-and-break-down-ai-agent-silos)
 
 </div>
+
+</section>

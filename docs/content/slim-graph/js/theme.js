@@ -37,7 +37,19 @@
     applyTheme(resolveTheme());
   }
 
+  function markEmbedded() {
+    try {
+      if (window.parent !== window) {
+        document.documentElement.setAttribute("data-embedded", "true");
+      }
+    } catch (_error) {
+      /* cross-origin */
+    }
+  }
+
   window.slimGraphSyncTheme = syncTheme;
+
+  markEmbedded();
 
   syncTheme();
 

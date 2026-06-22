@@ -22,77 +22,54 @@
   <div class="app-grid">
     
     <!-- 2D Viewport -->
-    <main class="viewport ui-element">
+    <main class="viewport">
       
-      <!-- Journey selector -->
-      <div class="journey-list">
-        <button class="journey-btn active j-p2p" data-journey="p2p">
-          <i class="fa-solid fa-message"></i>
-          <span>Point-to-Point Message</span>
-        </button>
-        <button class="journey-btn j-multicast" data-journey="multicast">
-          <i class="fa-solid fa-share-nodes"></i>
-          <span>Multicast Message</span>
-        </button>
-      </div>
-
-      <!-- Step track + playback controls -->
-      <section class="step-track-panel" aria-label="Journey step navigation">
-        <div class="step-track-controls">
-          <button type="button" class="step-transport-btn step-transport-btn--primary" id="btn-step-pause" title="Pause" aria-label="Pause playback">
-            <i class="fa-solid fa-pause" id="btn-step-pause-icon"></i>
+      <!-- Journey controls + playback -->
+      <div class="graph-controls">
+        <div class="journey-pills" role="tablist" aria-label="Message journey">
+          <button class="journey-btn active j-p2p" data-journey="p2p" role="tab" aria-selected="true">
+            <i class="fa-solid fa-message" aria-hidden="true"></i>
+            <span>Point-to-Point Message</span>
+          </button>
+          <button class="journey-btn j-multicast" data-journey="multicast" role="tab" aria-selected="false">
+            <i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
+            <span>Multicast Message</span>
           </button>
         </div>
-        <div class="step-track-scroll">
-          <div id="step-track" class="step-track" role="tablist" aria-label="Journey steps"></div>
+        <div class="graph-controls-actions">
+          <button type="button" class="graph-control-btn" id="btn-step-pause" title="Pause" aria-label="Pause playback">
+            <i class="fa-solid fa-pause" id="btn-step-pause-icon" aria-hidden="true"></i>
+          </button>
         </div>
+      </div>
+
+      <!-- Arrow stepper (v3) -->
+      <section class="arrow-stepper-wrap" aria-label="Journey step navigation">
+        <div id="step-tooltip" class="step-tooltip" hidden>
+          <div id="step-tooltip-title" class="step-tooltip__title"></div>
+          <div id="step-tooltip-desc" class="step-tooltip__desc"></div>
+        </div>
+        <div id="arrow-stepper" class="arrow-stepper" role="tablist" aria-label="Journey steps"></div>
       </section>
 
       <div class="viewport-stage">
       
       <!-- SVG Node Graph -->
-      <svg class="visual-graph" viewBox="-220 0 1420 500" xmlns="http://www.w3.org/2000/svg">
-        
-        <!-- Grid Pattern Backdrop -->
-        <defs>
-          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-            <path class="grid-line" d="M 40 0 L 0 0 0 40" fill="none" stroke-width="1"/>
-          </pattern>
-        </defs>
+      <svg class="visual-graph" viewBox="0 0 826 396" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+
         <rect class="diagram-backdrop" width="100%" height="100%" fill="var(--diagram-surface)" />
-        <rect width="100%" height="100%" fill="url(#grid)" />
 
-        <!-- Simplified Connections (Single connection line per node relationship) -->
         <g id="paths-group">
-          <!-- Control paths from Controller to SLIM Nodes 1 & 2 -->
-          <path id="path_Controller_to_Node1" class="connection-path control" d="M 540 95 L 470 205"/>
-          <path id="path_Controller_to_Node2" class="connection-path control" d="M 660 95 L 730 205"/>
-
-          <!-- Peer-to-Peer Data Plane Connections -->
-          <!-- Agent A <-> SLIM Node 1 -->
-          <path id="path_A_to_Node1" class="connection-path" d="M 225 175 C 290 155, 350 185, 400 230"/>
-          
-          <!-- Agent E <-> SLIM Node 1 -->
-          <path id="path_E_to_Node1" class="connection-path" d="M 225 315 C 290 335, 350 305, 400 270"/>
-          
-          <!-- SLIM Node 1 <-> SLIM Node 2 (East-West link) -->
-          <path id="path_Node1_to_Node2" class="connection-path" d="M 540 250 C 580 230, 620 230, 660 250"/>
-
-          <!-- SLIM Node 2 <-> Agent B -->
-          <path id="path_Node2_to_B" class="connection-path" d="M 800 250 C 880 220, 930 150, 975 130"/>
-          
-          <!-- SLIM Node 2 <-> Agent C -->
-          <path id="path_Node2_to_C" class="connection-path" d="M 800 250 L 975 250"/>
-
-          <!-- SLIM Node 2 <-> Agent D -->
-          <path id="path_Node2_to_D" class="connection-path" d="M 800 250 C 880 280, 930 350, 975 370"/>
-
-          <!-- MCP Connections (Communicating through local SLIM Node 1 only) -->
-          <path id="path_Node1_to_MCP" class="connection-path" d="M 420 295 L 350 370"/>
-
-          <!-- Operator Connections to local Node 1 and Controller -->
-          <path id="path_Operator_to_Node1" class="connection-path control" d="M 320 120 L 400 205"/>
-          <path id="path_Operator_to_Controller" class="connection-path control" d="M 390 75 L 510 75"/>
+          <path id="path_A_to_Node1" class="connection-path" d="M 162 159 C 200 159, 215 180, 225 200"/>
+          <path id="path_E_to_Node1" class="connection-path" d="M 162 259 C 200 259, 215 230, 225 220"/>
+          <path id="path_Node1_to_Node2" class="connection-path" d="M 385 200 C 405 200, 416 200, 436 200"/>
+          <path id="path_Node2_to_B" class="connection-path" d="M 596 200 C 630 180, 645 120, 660 92"/>
+          <path id="path_Node2_to_C" class="connection-path" d="M 596 200 L 660 200"/>
+          <path id="path_Node2_to_D" class="connection-path" d="M 596 200 C 630 250, 645 290, 660 308"/>
+          <path id="path_Node1_to_MCP" class="connection-path" d="M 280 245 C 270 270, 240 300, 197 343"/>
+          <path id="path_Operator_to_Node1" class="connection-path control" d="M 220 80 C 240 100, 250 130, 260 155"/>
+          <path id="path_Controller_to_Node1" class="connection-path control" d="M 380 72 C 360 100, 330 130, 305 155"/>
+          <path id="path_Controller_to_Node2" class="connection-path control" d="M 440 72 C 470 100, 500 130, 516 155"/>
         </g>
 
         <!-- Dynamic Particles Container -->
@@ -100,130 +77,110 @@
 
         <!-- Node Layout -->
         <g id="nodes-group">
-          
-          <!-- 1. SLIM CONTROLLER (CONTROL PLANE) -->
-          <g id="node_Controller" class="interactive-node" cursor="pointer">
-            <rect class="node-rect controller" x="510" y="30" width="180" height="65"/>
-            <text class="node-title" x="600" y="55" text-anchor="middle">SLIM Controller</text>
-            <text class="node-desc" x="600" y="72" text-anchor="middle">Control Plane</text>
-          </g>
 
-          <!-- 2. AGENT A (SENDER NODE) -->
-          <g id="node_Agent_A" class="interactive-node" cursor="pointer">
-            <rect id="shield_Agent_A" class="shield-outer" x="65" y="120" width="170" height="110"/>
-            <rect id="core_Agent_A" class="node-rect agent" x="75" y="130" width="150" height="90"/>
-            <image href="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/claude.svg" x="87" y="140" width="20" height="20" class="agent-logo-img claude-logo"/>
-            <text class="node-title" x="150" y="157" text-anchor="middle">Agent A</text>
-            <text class="node-desc" x="150" y="175" text-anchor="middle">Sender Client</text>
-            <text id="badge_Agent_A" class="node-badge" x="150" y="203" text-anchor="middle" fill="var(--color-teal)">MLS: Inactive</text>
-          </g>
-
-          <!-- 8. AGENT E (LOCAL SUBSCRIBER) -->
-          <g id="node_Agent_E" class="interactive-node" cursor="pointer">
-            <rect id="shield_Agent_E" class="shield-outer" x="65" y="260" width="170" height="110"/>
-            <rect id="core_Agent_E" class="node-rect agent" x="75" y="270" width="150" height="90"/>
-            <image href="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/langgraph.svg" x="87" y="280" width="20" height="20" class="agent-logo-img langgraph-logo"/>
-            <text class="node-title" x="150" y="297" text-anchor="middle">Agent E</text>
-            <text class="node-desc" x="150" y="315" text-anchor="middle">Local Subscriber</text>
-            <text id="badge_Agent_E" class="node-badge" x="150" y="343" text-anchor="middle" fill="var(--color-teal)">MLS: Inactive</text>
-          </g>
-
-          <!-- 3. SLIM NODE 1 (LOCAL DATA PLANE) -->
-          <g id="node_Node1" class="interactive-node" cursor="pointer">
-            <rect id="core_Node1" class="node-rect router" x="400" y="205" width="140" height="90"/>
-            <text class="node-title" x="470" y="235" text-anchor="middle">SLIM Node 1</text>
-            <text class="node-desc" x="470" y="252" text-anchor="middle">Local Data Plane</text>
-            <text id="badge_Node1" class="node-badge" x="470" y="278" text-anchor="middle">Active (3)</text>
-          </g>
-
-          <!-- 4. SLIM NODE 2 (CLOUD DATA PLANE) -->
-          <g id="node_Node2" class="interactive-node" cursor="pointer">
-            <rect id="core_Node2" class="node-rect router node-rect--remote" x="660" y="205" width="140" height="90"/>
-            <text class="node-title" x="730" y="235" text-anchor="middle">SLIM Node 2</text>
-            <text class="node-desc" x="730" y="252" text-anchor="middle">Remote Data Plane</text>
-            <text id="badge_Node2" class="node-badge" x="730" y="278" text-anchor="middle">Active (4)</text>
-          </g>
-
-          <!-- 5. AGENT B (DESTINATION) -->
-          <g id="node_Agent_B" class="interactive-node" cursor="pointer">
-            <rect id="shield_Agent_B" class="shield-outer" x="960" y="75" width="170" height="110"/>
-            <rect id="core_Agent_B" class="node-rect agent" x="970" y="85" width="150" height="90"/>
-            <image href="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/crewai.svg" x="982" y="95" width="20" height="20" class="agent-logo-img crewai-logo"/>
-            <text class="node-title" x="1045" y="112" text-anchor="middle">Agent B</text>
-            <text class="node-desc" x="1045" y="130" text-anchor="middle">Subscriber Node</text>
-            <text id="badge_Agent_B" class="node-badge" x="1045" y="158" text-anchor="middle" fill="var(--color-teal)">MLS: Inactive</text>
-          </g>
- 
-          <!-- 6. AGENT C (DESTINATION) -->
-          <g id="node_Agent_C" class="interactive-node" cursor="pointer">
-            <rect id="shield_Agent_C" class="shield-outer" x="960" y="195" width="170" height="110"/>
-            <rect id="core_Agent_C" class="node-rect agent" x="970" y="205" width="150" height="90"/>
-            <image href="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/opencode.svg" x="982" y="215" width="20" height="20" class="agent-logo-img opencode-logo"/>
-            <text class="node-title" x="1045" y="232" text-anchor="middle">Agent C</text>
-            <text class="node-desc" x="1045" y="250" text-anchor="middle">Subscriber Node</text>
-            <text id="badge_Agent_C" class="node-badge" x="1045" y="278" text-anchor="middle" fill="var(--color-teal)">MLS: Inactive</text>
-          </g>
-
-          <!-- 7. AGENT D (DESTINATION / JOINER) -->
-          <g id="node_Agent_D" class="interactive-node" cursor="pointer" opacity="0.4">
-            <rect id="shield_Agent_D" class="shield-outer" x="960" y="315" width="170" height="110"/>
-            <rect id="core_Agent_D" class="node-rect agent" x="970" y="325" width="150" height="90"/>
-            <image href="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/langchain.svg" x="982" y="335" width="20" height="20" class="agent-logo-img langchain-logo"/>
-            <text class="node-title" x="1045" y="352" text-anchor="middle">Agent D</text>
-            <text class="node-desc" x="1045" y="370" text-anchor="middle">Subscriber Node</text>
-            <text id="badge_Agent_D" class="node-badge" x="1045" y="398" text-anchor="middle" fill="var(--color-teal)">MLS: Inactive</text>
-          </g>
-
-          <!-- 9. MCP SERVER -->
-          <g id="node_MCP" class="interactive-node" cursor="pointer">
-            <rect id="core_MCP" class="node-rect node-rect--mcp" x="250" y="370" width="140" height="90"/>
-            <image href="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/mcp.svg" x="262" y="380" width="20" height="20" class="agent-logo-img mcp-logo"/>
-            <text class="node-title" x="320" y="400" text-anchor="middle">MCP Server</text>
-            <text class="node-desc" x="320" y="417" text-anchor="middle">Model Context Protocol</text>
-            <text id="badge_MCP" class="node-badge" x="320" y="443" text-anchor="middle">Files & Search</text>
-          </g>
-
-          <!-- 10. OPERATOR TERMINAL -->
           <g id="node_Operator" class="interactive-node" cursor="pointer">
-            <rect id="core_Operator" class="node-rect node-rect--operator" x="250" y="30" width="140" height="90"/>
-            <text x="262" y="58" font-size="1.2rem">💻</text>
-            <text class="node-title" x="320" y="60" text-anchor="middle">Operator Terminal</text>
-            <text class="node-desc" x="320" y="77" text-anchor="middle">Human Input / slimctl</text>
-            <text id="badge_Operator" class="node-badge" x="320" y="103" text-anchor="middle">Local CLI</text>
+            <rect id="core_Operator" class="node-rect node-rect--operator node-rect--peripheral" x="123" y="16" width="148" height="64" rx="12"/>
+            <text x="135" y="34" font-size="14px">💻</text>
+            <text class="node-title" x="193" y="42" text-anchor="middle">Operator Terminal</text>
+            <text class="node-desc" x="193" y="56" text-anchor="middle">Human input / slimctl</text>
+            <text id="badge_Operator" class="node-badge" x="193" y="70" text-anchor="middle">Local CLI</text>
+          </g>
+
+          <g id="node_Controller" class="interactive-node" cursor="pointer">
+            <rect class="node-rect controller node-rect--peripheral" x="336" y="16" width="148" height="56" rx="12"/>
+            <text class="node-title" x="410" y="38" text-anchor="middle">SLIM Controller</text>
+            <text class="node-desc" x="410" y="54" text-anchor="middle">Control Plane</text>
+          </g>
+
+          <g id="node_Agent_A" class="interactive-node" cursor="pointer">
+            <rect id="core_Agent_A" class="node-rect agent node-rect--sender" x="14" y="115" width="148" height="88" rx="12"/>
+            <image href="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/claude.svg" x="26" y="127" width="18" height="18" class="agent-logo-img claude-logo"/>
+            <text class="node-title" x="88" y="144" text-anchor="middle">Agent A</text>
+            <text class="node-desc" x="88" y="160" text-anchor="middle">Sender Client</text>
+            <text id="badge_Agent_A" class="node-badge" x="88" y="190" text-anchor="middle" fill="var(--color-teal)">MLS: Inactive</text>
+          </g>
+
+          <g id="node_Agent_E" class="interactive-node" cursor="pointer">
+            <rect id="core_Agent_E" class="node-rect agent" x="14" y="215" width="148" height="88" rx="12"/>
+            <image href="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/langgraph.svg" x="26" y="227" width="18" height="18" class="agent-logo-img langgraph-logo"/>
+            <text class="node-title" x="88" y="244" text-anchor="middle">Agent E</text>
+            <text class="node-desc" x="88" y="260" text-anchor="middle">Local Subscriber</text>
+            <text id="badge_Agent_E" class="node-badge" x="88" y="290" text-anchor="middle" fill="var(--color-teal)">MLS: Inactive</text>
+          </g>
+
+          <g id="node_Node1" class="interactive-node" cursor="pointer">
+            <rect id="core_Node1" class="node-rect router" x="225" y="155" width="160" height="90" rx="12"/>
+            <text class="node-title" x="305" y="186" text-anchor="middle">SLIM Node 1</text>
+            <text class="node-desc" x="305" y="202" text-anchor="middle">Local Data Plane</text>
+            <text id="badge_Node1" class="node-badge" x="305" y="228" text-anchor="middle">Active (3)</text>
+          </g>
+
+          <g id="node_Node2" class="interactive-node" cursor="pointer">
+            <rect id="core_Node2" class="node-rect router node-rect--remote" x="436" y="155" width="160" height="90" rx="12"/>
+            <text class="node-title" x="516" y="186" text-anchor="middle">SLIM Node 2</text>
+            <text class="node-desc" x="516" y="202" text-anchor="middle">Remote Data Plane</text>
+            <text id="badge_Node2" class="node-badge" x="516" y="228" text-anchor="middle">Active (4)</text>
+          </g>
+
+          <g id="node_Agent_B" class="interactive-node" cursor="pointer">
+            <rect id="core_Agent_B" class="node-rect agent" x="660" y="48" width="148" height="88" rx="12"/>
+            <image href="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/crewai.svg" x="672" y="60" width="18" height="18" class="agent-logo-img crewai-logo"/>
+            <text class="node-title" x="734" y="77" text-anchor="middle">Agent B</text>
+            <text class="node-desc" x="734" y="93" text-anchor="middle">Subscriber Node</text>
+            <text id="badge_Agent_B" class="node-badge" x="734" y="123" text-anchor="middle" fill="var(--color-teal)">MLS: Inactive</text>
+          </g>
+
+          <g id="node_Agent_C" class="interactive-node" cursor="pointer">
+            <rect id="core_Agent_C" class="node-rect agent" x="660" y="156" width="148" height="88" rx="12"/>
+            <image href="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/opencode.svg" x="672" y="168" width="18" height="18" class="agent-logo-img opencode-logo"/>
+            <text class="node-title" x="734" y="185" text-anchor="middle">Agent C</text>
+            <text class="node-desc" x="734" y="201" text-anchor="middle">Subscriber Node</text>
+            <text id="badge_Agent_C" class="node-badge" x="734" y="231" text-anchor="middle" fill="var(--color-teal)">MLS: Inactive</text>
+          </g>
+
+          <g id="node_Agent_D" class="interactive-node" cursor="pointer" opacity="0.4">
+            <rect id="core_Agent_D" class="node-rect agent" x="660" y="264" width="148" height="88" rx="12"/>
+            <image href="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/langchain.svg" x="672" y="276" width="18" height="18" class="agent-logo-img langchain-logo"/>
+            <text class="node-title" x="734" y="293" text-anchor="middle">Agent D</text>
+            <text class="node-desc" x="734" y="309" text-anchor="middle">Subscriber Node</text>
+            <text id="badge_Agent_D" class="node-badge" x="734" y="339" text-anchor="middle" fill="var(--color-teal)">MLS: Inactive</text>
+          </g>
+
+          <g id="node_MCP" class="interactive-node" cursor="pointer">
+            <rect id="core_MCP" class="node-rect node-rect--mcp node-rect--peripheral" x="123" y="311" width="148" height="64" rx="12"/>
+            <image href="https://unpkg.com/@lobehub/icons-static-svg@latest/icons/mcp.svg" x="135" y="323" width="18" height="18" class="agent-logo-img mcp-logo"/>
+            <text class="node-title" x="193" y="337" text-anchor="middle">MCP Server</text>
+            <text class="node-desc" x="193" y="351" text-anchor="middle">Model Context Protocol</text>
+            <text id="badge_MCP" class="node-badge" x="193" y="365" text-anchor="middle">Files &amp; Search</text>
           </g>
 
         </g>
       </svg>
       </div>
-    </main>
 
-    <!-- Bottom Terminal -->
-    <section
-      class="terminal-container terminal-container--collapsed ui-element"
-      id="terminal-panel"
-    >
-      <div class="terminal-header">
-        <button
-          type="button"
-          class="terminal-header-toggle"
-          id="btn-toggle-term"
-          aria-expanded="false"
-          aria-controls="terminal-body"
-        >
-          <span class="terminal-header-title">
-            <span id="terminal-pulse" class="terminal-dot"></span>
-            <span>SLIM NETWORKING PROTOCOL LOG</span>
-          </span>
-          <i class="fa-solid fa-chevron-down terminal-toggle-icon" aria-hidden="true"></i>
-        </button>
-        <button type="button" class="terminal-clear-btn" id="btn-clear-term" title="Clear logs">
-          <i class="fa-solid fa-trash-can"></i> Clear
-        </button>
-      </div>
-      <div id="terminal-body" class="terminal-body">
-        <!-- Logs dynamically injected -->
-      </div>
-    </section>
+      <!-- Protocol log (v3 compact) -->
+      <section class="protocol-log" id="terminal-panel">
+        <div class="protocol-log__header">
+          <button
+            type="button"
+            class="protocol-log__toggle"
+            id="btn-toggle-term"
+            aria-expanded="true"
+            aria-controls="terminal-body"
+          >
+            <span class="protocol-log__title">
+              <span id="terminal-pulse" class="protocol-log__dot" aria-hidden="true"></span>
+              <span>SLIM Networking Protocol Log</span>
+            </span>
+            <i class="fa-solid fa-chevron-down protocol-log__chevron" aria-hidden="true"></i>
+          </button>
+          <button type="button" class="protocol-log__clear" id="btn-clear-term" title="Clear logs">
+            <i class="fa-solid fa-trash-can" aria-hidden="true"></i> Clear
+          </button>
+        </div>
+        <div id="terminal-body" class="protocol-log__body"></div>
+      </section>
+    </main>
 
   </div>
 

@@ -96,6 +96,20 @@ const AUTHENTIC_LOG_PATTERNS = [
   'slimctl'
 ];
 
+// Edge keys map to SVG path ids via EDGE_PATH_MAP in app.js
+const EDGE_PATH_MAP = {
+  'agentA-slimNode1': 'path_A_to_Node1',
+  'agentE-slimNode1': 'path_E_to_Node1',
+  'mcpServer-slimNode1': 'path_Node1_to_MCP',
+  'slimNode1-slimNode2': 'path_Node1_to_Node2',
+  'slimNode2-agentB': 'path_Node2_to_B',
+  'slimNode2-agentC': 'path_Node2_to_C',
+  'slimNode2-agentD': 'path_Node2_to_D',
+  'opTerminal-slimNode1': 'path_Operator_to_Node1',
+  'slimController-slimNode1': 'path_Controller_to_Node1',
+  'slimController-slimNode2': 'path_Controller_to_Node2'
+};
+
 // Architectural Scenarios & Step Definitions
 const SCENARIOS = {
   // Use Case 1: Point-to-Point Message
@@ -103,6 +117,7 @@ const SCENARIOS = {
     {
       title: "Publish P2P Message",
       shortTitle: "Publish",
+      activeEdges: ['agentA-slimNode1'],
       desc: "Agent A publishes a Point-to-Point message targeting Agent B (<code>agntcy/ns/AgentB</code>). The payload is pushed to the local **SLIM Node 1** over an HTTP/2 gRPC channel.",
       action: () => {
         logToTerminal('Agent A', 'info', 'slim_dataplane::service', 'Sending message');
@@ -115,6 +130,7 @@ const SCENARIOS = {
     {
       title: "Second Node Forwarding (Node 1 -> Node 2)",
       shortTitle: "Forward",
+      activeEdges: ['agentA-slimNode1', 'slimNode1-slimNode2'],
       desc: "The local **SLIM Node 1** receives the envelope. It checks its routing table and forwards it to the second node (**SLIM Node 2**) in the cloud.",
       action: () => {
         flashNode('core_Node1', 'flash-amber');
@@ -129,6 +145,7 @@ const SCENARIOS = {
     {
       title: "Cloud Node Routing (Node 2 -> Agent B)",
       shortTitle: "Route",
+      activeEdges: ['agentA-slimNode1', 'slimNode1-slimNode2', 'slimNode2-agentB'],
       desc: "The cloud **SLIM Node 2** receives the envelope and routes it directly to its peer connection destination, Agent B.",
       action: () => {
         flashNode('core_Node2', 'flash-orange');
@@ -143,6 +160,7 @@ const SCENARIOS = {
     {
       title: "Message Delivery & Acknowledgment",
       shortTitle: "ACK",
+      activeEdges: ['agentA-slimNode1', 'slimNode1-slimNode2', 'slimNode2-agentB'],
       desc: "Agent B processes the incoming packet. It generates a transaction acknowledgment (ACK) flowing back along the connection paths in reverse to Agent A.",
       action: () => {
         flashNode('core_Agent_B', 'flash-green');
@@ -167,6 +185,7 @@ const SCENARIOS = {
     {
       title: "Publish Multicast Payload",
       shortTitle: "Publish",
+      activeEdges: ['agentA-slimNode1'],
       desc: "Agent A publishes a multicast payload to channel <code>agntcy/ns/chat</code>. The message is pushed to the local **SLIM Node 1** over HTTP/2.",
       action: () => {
         logToTerminal('Agent A', 'info', 'slim_dataplane::service', 'publish');
@@ -179,6 +198,7 @@ const SCENARIOS = {
     {
       title: "Multicast Forwarding (Node 1 -> Node 2)",
       shortTitle: "Forward",
+      activeEdges: ['agentA-slimNode1', 'slimNode1-slimNode2'],
       desc: "Local **SLIM Node 1** receives the publication and forwards the multicast envelope to the cloud **SLIM Node 2**.",
       action: () => {
         flashNode('core_Node1', 'flash-amber');
@@ -193,6 +213,7 @@ const SCENARIOS = {
     {
       title: "Cloud Multicast Fanout",
       shortTitle: "Fanout",
+      activeEdges: ['agentA-slimNode1', 'slimNode1-slimNode2', 'slimNode2-agentB', 'slimNode2-agentC', 'slimNode2-agentD'],
       desc: "The cloud **SLIM Node 2** receives the envelope. It matches the channel name against its routing table, replicates the packet, and streams it to all active subscribers (Agent B, Agent C, Agent D).",
       action: () => {
         flashNode('core_Node2', 'flash-orange');
@@ -212,6 +233,7 @@ const SCENARIOS = {
     {
       title: "Subscribers Receive Payload",
       shortTitle: "Receive",
+      activeEdges: ['agentA-slimNode1', 'slimNode1-slimNode2', 'slimNode2-agentB', 'slimNode2-agentC', 'slimNode2-agentD'],
       desc: "Subscribed client nodes receive and parse the payload, returning acknowledgments back to Agent A.",
       action: () => {
         flashNode('core_Agent_B', 'flash-green');

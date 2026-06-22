@@ -61,6 +61,22 @@ body:has(.slim-landing) .md-tabs__item--active .md-tabs__link {
   margin: 0 auto 3.5rem;
 }
 
+.slim-howto {
+  max-width: 72rem;
+  padding: 0 1rem;
+}
+
+.slim-get-started {
+  max-width: 73.75rem;
+  margin: 0 auto 3.5rem;
+  padding: 0 1rem;
+}
+
+.md-typeset .slim-howto .slim-section-title,
+.md-typeset .slim-get-started .slim-section-title {
+  margin: 0 0 1.75rem;
+}
+
 .md-typeset .slim-section-title {
   font-weight: 300;
   font-size: 1.6rem;
@@ -166,19 +182,19 @@ body:has(.slim-landing) .md-tabs__item--active .md-tabs__link {
    Architecture visualizer (embedded slim-graph)
 ---------------------------------------------------------------------------- */
 .slim-graph-wrap {
-  max-width: 72rem;
-  margin: 0 auto;
+  overflow: visible;
 }
 
 .slim-graph-frame {
   display: block;
   width: 100%;
-  height: min(88vh, 920px);
-  min-height: 640px;
+  height: 33rem;
+  min-height: 0;
   border: 1px solid var(--md-default-fg-color--lightest);
   border-radius: 10px;
   background: var(--md-default-bg-color);
   box-shadow: 0 4px 24px rgba(2, 81, 175, 0.1);
+  overflow: hidden;
 }
 
 [data-md-color-scheme="slate"] .slim-graph-frame {
@@ -187,8 +203,7 @@ body:has(.slim-landing) .md-tabs__item--active .md-tabs__link {
 
 @media screen and (max-width: 59.9375em) {
   .slim-graph-frame {
-    height: min(78vh, 820px);
-    min-height: 560px;
+    height: 30rem;
   }
 }
 
@@ -207,6 +222,12 @@ body:has(.slim-landing) .md-tabs__item--active .md-tabs__link {
   color: rgb(28, 30, 33);
 }
 
+.slim-graph-tooltip-portal--step {
+  width: 220px;
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
 .slim-graph-tooltip-portal__title {
   font-weight: 700;
   margin-bottom: 4px;
@@ -215,6 +236,19 @@ body:has(.slim-landing) .md-tabs__item--active .md-tabs__link {
 
 .slim-graph-tooltip-portal__desc {
   color: rgba(28, 30, 33, 0.68);
+}
+
+.slim-graph-tooltip-portal__desc strong {
+  font-weight: 600;
+  color: rgb(28, 30, 33);
+}
+
+.slim-graph-tooltip-portal__desc code {
+  font-family: var(--md-code-font, monospace);
+  font-size: 0.75em;
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+  background: rgba(2, 81, 175, 0.08);
 }
 
 [data-md-color-scheme="slate"] .slim-graph-tooltip-portal {
@@ -230,6 +264,10 @@ body:has(.slim-landing) .md-tabs__item--active .md-tabs__link {
 
 [data-md-color-scheme="slate"] .slim-graph-tooltip-portal__desc {
   color: rgba(227, 227, 227, 0.72);
+}
+
+[data-md-color-scheme="slate"] .slim-graph-tooltip-portal__desc strong {
+  color: rgb(227, 227, 227);
 }
 
 /* ----------------------------------------------------------------------------

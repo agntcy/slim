@@ -3,7 +3,10 @@
 
 (function () {
   const TOOLTIP_OFFSET = 14;
+  const STEP_TOOLTIP_WIDTH = 220;
+  const STEP_TOOLTIP_GAP = 8;
   let portalEl = null;
+  let stepTooltipActive = false;
 
   function getIframe() {
     return document.querySelector('.slim-graph-frame');
@@ -28,16 +31,46 @@
   function hidePortal() {
     if (portalEl) {
       portalEl.hidden = true;
+      portalEl.classList.remove('slim-graph-tooltip-portal--step');
     }
+    stepTooltipActive = false;
   }
 
   function positionPortal(iframe, clientX, clientY) {
     const portal = ensurePortal();
     const iframeRect = iframe.getBoundingClientRect();
 
+    portal.style.width = '';
     portal.style.left = iframeRect.left + clientX + TOOLTIP_OFFSET + 'px';
     portal.style.top = iframeRect.top + clientY + TOOLTIP_OFFSET + 'px';
     portal.hidden = false;
+  }
+
+  function positionStepPortal(iframe, anchorRect) {
+    const portal = ensurePortal();
+    const iframeRect = iframe.getBoundingClientRect();
+    const tooltipWidth = STEP_TOOLTIP_WIDTH;
+
+    portal.style.width = tooltipWidth + 'px';
+    portal.hidden = false;
+
+    let left =
+      iframeRect.left + anchorRect.left + anchorRect.width / 2 - tooltipWidth / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - tooltipWidth - 8));
+
+    const top =
+      iframeRect.top + anchorRect.top - portal.offsetHeight - STEP_TOOLTIP_GAP;
+
+    portal.style.left = left + 'px';
+    portal.style.top = Math.max(8, top) + 'px';
+  }
+
+  function setIframeHeight(iframe, height) {
+    if (!iframe || !height) {
+      return;
+    }
+    iframe.style.height = Math.max(height, 352) + 'px';
+    iframe.dataset.resized = 'true';
   }
 
   window.addEventListener('message', (event) => {
@@ -46,7 +79,7 @@
     }
 
     const data = event.data;
-    if (!data || data.type !== 'slim-graph-tooltip') {
+    if (!data || !data.type) {
       return;
     }
 
@@ -55,12 +88,52 @@
       return;
     }
 
-    if (!data.visible) {
-      hidePortal();
+    if (data.type === 'slim-graph-resize') {
+      setIframeHeight(iframe, data.height);
       return;
     }
 
+    if (data.type === 'slim-graph-step-tooltip') {
+      if (!data.visible) {
+        if (stepTooltipActive) {
+          hidePortal();
+        }
+        return;
+      }
+
+      const portal = ensurePortal();
+      portal.classList.add('slim-graph-tooltip-portal--step');
+      const titleEl = portal.querySelector('.slim-graph-tooltip-portal__title');
+      const descEl = portal.querySelector('.slim-graph-tooltip-portal__desc');
+
+      if (titleEl) {
+        titleEl.textContent = data.title || '';
+      }
+      if (descEl) {
+        descEl.innerHTML = data.desc || '';
+      }
+
+      stepTooltipActive = true;
+      requestAnimationFrame(() => {
+        positionStepPortal(iframe, data.anchorRect || { left: 0, top: 0, width: 0, height: 0 });
+      });
+      return;
+    }
+
+    if (data.type !== 'slim-graph-tooltip') {
+      return;
+    }
+
+    if (!data.visible) {
+      if (!stepTooltipActive) {
+        hidePortal();
+      }
+      return;
+    }
+
+    stepTooltipActive = false;
     const portal = ensurePortal();
+    portal.classList.remove('slim-graph-tooltip-portal--step');
     const titleEl = portal.querySelector('.slim-graph-tooltip-portal__title');
     const descEl = portal.querySelector('.slim-graph-tooltip-portal__desc');
 

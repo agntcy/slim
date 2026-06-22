@@ -77,13 +77,17 @@ function setTerminalExpanded(expanded) {
   const toggleBtn = document.getElementById('btn-toggle-term');
   if (!panel || !terminalBody || !toggleBtn) return;
 
-  panel.classList.toggle('terminal-container--collapsed', !expanded);
+  panel.classList.toggle('protocol-log--collapsed', !expanded);
   toggleBtn.setAttribute('aria-expanded', String(expanded));
 
   if (expanded) {
     requestAnimationFrame(() => {
       terminalBody.scrollTop = terminalBody.scrollHeight;
     });
+  }
+
+  if (typeof window.slimGraphReportHeight === 'function') {
+    requestAnimationFrame(() => window.slimGraphReportHeight());
   }
 }
 
@@ -98,7 +102,7 @@ function bindTerminalControls() {
   toggleBtn.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
-    const isCollapsed = panel.classList.contains('terminal-container--collapsed');
+    const isCollapsed = panel.classList.contains('protocol-log--collapsed');
     setTerminalExpanded(isCollapsed);
   });
 
