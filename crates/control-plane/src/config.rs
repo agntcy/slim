@@ -125,6 +125,34 @@ impl Default for ReconcilerConfig {
 /// - `links` → single routing domain with custom link graph
 /// - `segments` → multiple independent routing domains
 /// - Both → deserialization error
+///
+/// # Examples
+///
+/// **Full mesh (default):** no `topology` key needed, all groups interconnect.
+///
+/// ```yaml
+/// topology: {}
+/// ```
+///
+/// **Single segment with star topology:**
+///
+/// ```yaml
+/// topology:
+///   links:
+///     - name: hub
+///       neighbors: [spoke-a, spoke-b]
+/// ```
+///
+/// **Multiple segments with dynamic `$group` expansion:**
+///
+/// ```yaml
+/// topology:
+///   segments:
+///     - name: segment-$group
+///       links:
+///         - name: platform
+///           neighbors: [$group]
+/// ```
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum TopologyConfig {
     /// No topology configured: all groups can link to all groups.

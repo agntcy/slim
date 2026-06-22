@@ -586,6 +586,7 @@ impl super::RouteService {
                 tracing::error!("failed to list links for reassignment: {e}");
                 vec![]
             });
+            self.rebuild_link_graph(&filtered_nodes).await;
             let allowed_pairs = self.allowed_link_pairs().await;
             for src_node_id in &sources_needing_links {
                 let (affected, _new_links) = self
@@ -602,7 +603,6 @@ impl super::RouteService {
                     self.0.queue.add(nid);
                 }
             }
-            self.rebuild_link_graph(&filtered_nodes).await;
         }
 
         // Handle routes on the departing node.
