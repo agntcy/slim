@@ -39,6 +39,10 @@
   display: none;
 }
 
+.slimctl-terminal-side > .slimctl-terminal-intro-group {
+  display: block;
+}
+
 .slimctl-terminal-intro {
   color: var(--md-default-fg-color--light);
   font-size: 0.95rem;

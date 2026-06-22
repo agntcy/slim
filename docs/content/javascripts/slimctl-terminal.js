@@ -27,9 +27,19 @@
   function mountIntroGroup(section) {
     var side = section.querySelector(".slimctl-terminal-side");
     var introGroup = document.getElementById("slimctl-terminal-intros");
-    if (!side || !introGroup || introGroup.getAttribute("data-slimctl-mounted") === "1") {
+    if (!side || !introGroup) {
       return;
     }
+
+    if (introGroup.parentElement === side) {
+      introGroup.setAttribute("data-slimctl-mounted", "1");
+      return;
+    }
+
+    if (introGroup.getAttribute("data-slimctl-mounted") === "1") {
+      return;
+    }
+
     side.insertBefore(introGroup, side.firstChild);
     introGroup.setAttribute("data-slimctl-mounted", "1");
   }

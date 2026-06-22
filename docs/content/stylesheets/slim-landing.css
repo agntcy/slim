@@ -53,6 +53,7 @@ body:has(.slim-landing) .md-tabs__item--active .md-tabs__link {
 
 .md-main:has(.slim-landing) {
   overflow-x: hidden;
+  overflow-anchor: none;
 }
 
 .md-typeset .slim-howto,

@@ -190,6 +190,31 @@ function buildStepTrack() {
   updateStepTrack();
 }
 
+function scrollStepCardIntoView(card) {
+  const scroller = document.querySelector('.step-track-scroll');
+  if (!scroller || !card) return;
+
+  const padding = 12;
+  const cardRect = card.getBoundingClientRect();
+  const scrollerRect = scroller.getBoundingClientRect();
+  const cardLeft = cardRect.left - scrollerRect.left + scroller.scrollLeft;
+  const cardRight = cardLeft + cardRect.width;
+  const viewLeft = scroller.scrollLeft;
+  const viewRight = viewLeft + scroller.clientWidth;
+
+  if (cardLeft < viewLeft + padding) {
+    scroller.scrollTo({ left: Math.max(0, cardLeft - padding), behavior: 'smooth' });
+    return;
+  }
+
+  if (cardRight > viewRight - padding) {
+    scroller.scrollTo({
+      left: cardRight - scroller.clientWidth + padding,
+      behavior: 'smooth'
+    });
+  }
+}
+
 function updateStepTrack() {
   const items = document.querySelectorAll('.step-card');
   items.forEach((btn, index) => {
@@ -205,7 +230,7 @@ function updateStepTrack() {
 
   const activeItem = items[currentStepIndex];
   if (activeItem) {
-    activeItem.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    scrollStepCardIntoView(activeItem);
   }
 }
 

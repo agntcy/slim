@@ -6,19 +6,6 @@ hide:
 
 ---
 
-<div class="slimctl-terminal-intro-group" id="slimctl-terminal-intros" markdown="1">
-
-Start a local node, inspect connections, and add routes with slimctl. See the [Quickstart guide](slim/slim-howto) for installation.
-{: .slimctl-terminal-intro data-intro-level="node" hidden}
-
-Agents subscribe to named channels, publish encrypted payloads, and SLIM routes them across nodes. Watch the diagram above for the full path.
-{: .slimctl-terminal-intro data-intro-level="message"}
-
-Use `slimctl --help` to explore commands. See the [SLIM Controller](slim/slim-controller) docs for the full CLI reference.
-{: .slimctl-terminal-intro data-intro-level="try" hidden}
-
-</div>
-
 <div class="slim-landing">
 
 <section class="slim-hero">
@@ -135,7 +122,7 @@ Use `slimctl --help` to explore commands. See the [SLIM Controller](slim/slim-co
       class="slim-graph-frame"
       src="slim-graph/index.html"
       title="SLIM architecture visualizer"
-      loading="lazy"
+      tabindex="-1"
     ></iframe>
   </div>
 </section>
@@ -176,6 +163,18 @@ Use `slimctl --help` to explore commands. See the [SLIM Controller](slim/slim-co
         </div>
       </div>
       <div class="slimctl-terminal-side">
+        <div class="slimctl-terminal-intro-group" id="slimctl-terminal-intros" markdown="1">
+
+Start a local node, inspect connections, and add routes with slimctl. See the [Quickstart guide](slim/slim-howto) for installation.
+{: .slimctl-terminal-intro data-intro-level="node" hidden}
+
+Agents subscribe to named channels, publish encrypted payloads, and SLIM routes them across nodes. Watch the diagram above for the full path.
+{: .slimctl-terminal-intro data-intro-level="message"}
+
+Use `slimctl --help` to explore commands. See the [SLIM Controller](slim/slim-controller) docs for the full CLI reference.
+{: .slimctl-terminal-intro data-intro-level="try" hidden}
+
+        </div>
         <div class="slimctl-terminal-actions">
           <button type="button" class="slimctl-terminal-btn is-active" data-demo-level="message">Send a message</button>
           <button type="button" class="slimctl-terminal-btn" data-demo-level="node">Start node</button>
