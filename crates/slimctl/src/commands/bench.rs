@@ -129,11 +129,6 @@ pub struct BenchSubArgs {
     #[arg(long, default_value_t = 0)]
     pub start_index: usize,
 
-    /// Run in reliable mode.
-    /// By default the benchmark runs in unreliable (fire-and-forget) mode. With
-    /// --reliable, the session layer retransmits unacknowledged messages.
-    #[arg(long)]
-    pub reliable: bool,
 }
 
 // ── Pub args ───────────────────────────────────────────────────────────────────
@@ -271,6 +266,13 @@ pub struct BenchChannelPubArgs {
     /// Append results to CSV file
     #[arg(long)]
     pub csv: Option<String>,
+
+    /// Run in reliable mode.
+    /// By default the benchmark runs in unreliable (fire-and-forget) mode. With
+    /// --reliable, the session layer retransmits unacknowledged messages and the
+    /// publisher waits for an ACK before sending the next message.
+    #[arg(long)]
+    pub reliable: bool,
 }
 
 // ── Dispatch ───────────────────────────────────────────────────────────────────
@@ -767,11 +769,6 @@ async fn run_sub(args: &BenchSubArgs, service: &Arc<Service>) -> Result<()> {
     if args.reply {
         println!("  Reply mode: ON (echoing messages back)");
     }
-    if args.reliable {
-        println!("  Mode           : reliable (ACK-gated)");
-    } else {
-        println!("  Mode           : unreliable (fire-and-forget)");
-    }
     println!("  Waiting for publishers...\n");
 
     let client_config =
@@ -1259,6 +1256,11 @@ async fn run_channel_pub(args: &BenchChannelPubArgs, service: &Arc<Service>) -> 
     println!("  Channel        : {}/{}/channel", org, ns);
     println!("  Total messages : {}", comma_format(args.msgs as i64));
     println!("  Payload size   : {} bytes", args.size);
+    if args.reliable {
+        println!("  Mode           : reliable (ACK-gated)");
+    } else {
+        println!("  Mode           : unreliable (fire-and-forget)");
+    }
     println!();
 
     let payload = vec![0u8; args.size];
@@ -1279,6 +1281,7 @@ async fn run_channel_pub(args: &BenchChannelPubArgs, service: &Arc<Service>) -> 
         args.count,
         args.msgs,
         payload,
+        args.reliable,
     )
     .await
     {
@@ -1309,6 +1312,7 @@ async fn run_channel_pub_worker(
     sub_count: usize,
     msg_count: u64,
     payload: Vec<u8>,
+    reliable: bool,
 ) -> Result<Sample> {
     let own_name = make_channel_pub_name(org, ns);
     let channel_name = make_channel_name(org, ns);
@@ -1334,7 +1338,7 @@ async fn run_channel_pub_worker(
         channel_name.clone(),
         Duration::from_secs(5),
         "group session creation timed out unexpectedly",
-        true,
+        reliable,
     )
     .await?;
 
