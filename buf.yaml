@@ -11,19 +11,19 @@ lint:
 deps:
   - buf.build/googleapis/googleapis
 modules:
-  - path: proto
+  - path: crates/proto/proto
     name: buf.build/agntcy/slim
 breaking:
   use:
     - FILE
   ignore_only:
     FIELD_NO_DELETE:
-      - proto/data-plane/v1/data_plane.proto
+      - data-plane/v1/data_plane.proto
     FIELD_SAME_NAME:
-      - proto/data-plane/v1/data_plane.proto
+      - data-plane/v1/data_plane.proto
     FIELD_SAME_TYPE:
-      - proto/data-plane/v1/data_plane.proto
+      - data-plane/v1/data_plane.proto
     FIELD_SAME_CARDINALITY:
-      - proto/data-plane/v1/data_plane.proto
+      - data-plane/v1/data_plane.proto
     FIELD_SAME_JSON_NAME:
-      - proto/data-plane/v1/data_plane.proto
+      - data-plane/v1/data_plane.proto

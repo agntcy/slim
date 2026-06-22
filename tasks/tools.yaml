@@ -7,18 +7,9 @@ silent: true
 
 vars:
   REPO_ROOT:
-    sh: git rev-parse --show-toplevel
-
-  TOOLS_MODULE_DIR: "{{.REPO_ROOT}}/internal/tools"
+    sh: 'git rev-parse --show-toplevel 2>/dev/null || pwd'
 
   TOOLS_INSTALL_DIR: "{{.REPO_ROOT}}/.tools"
-
-  TOOLS_PACKAGES:
-    sh: |
-      grep -E '\s+_\s+".*"' {{.TOOLS_MODULE_DIR}}/tools.go | \
-        tr -d " _\"" | \
-        grep -vE '/v[0-9]+$$' | \
-        tr '\n' ' '
 
   ADDITIONAL_TOOLS: "protoc"
 
@@ -67,28 +58,12 @@ vars:
         fi
 
 tasks:
-  foreach:
-    internal: true
-    desc: Run task for each tool
-    cmds:
-      - |
-        for tool in {{.TOOLS_PACKAGES}}; do
-          echo "Tool: ${tool}"
-          {{.CMD}}
-        done
-
   dir:
     internal: true
     cmds:
       - mkdir -p {{.TOOLS_INSTALL_DIR}}
     status:
       - test -d {{.TOOLS_INSTALL_DIR}}
-
-  gomodtidy:
-    internal: true
-    desc: Install go modules in tools
-    cmds:
-      - cd {{.TOOLS_MODULE_DIR}} && go mod tidy
 
   buf:
     internal: true
@@ -191,31 +166,10 @@ tasks:
           test -f {{.TOOLS_INSTALL_DIR}}/${tool}
         done
 
-  go-tools:
-    internal: true
-    deps:
-      - dir
-      - gomodtidy
-    cmds:
-      - task: foreach
-        vars:
-          CMD: |
-            unset GOOS
-            unset GOARCH
-            bin_name="$(basename ${tool})"
-            cd {{.TOOLS_MODULE_DIR}} && go build -o {{.TOOLS_INSTALL_DIR}}/${bin_name} -trimpath ${tool}
-    status:
-      - |
-        for tool in {{.TOOLS_PACKAGES}}; do
-          bin_name="$(basename ${tool})"
-          test -f {{.TOOLS_INSTALL_DIR}}/${bin_name}
-        done
-
   all:
     desc: Download all tools
     cmds:
       - task: protoc
-      - task: go-tools
       - task: zig
 
   zig:

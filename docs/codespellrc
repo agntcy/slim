@@ -1,6 +1,6 @@
 [codespell]
 skip = .git,.build,node_modules,*.png,*.jpg,*.jpeg,*.svg,*.ico,*.drawio,site,.venv
-ignore-words-list = agntcy,authn,authz,github,localhost,mkdocs,pymdown,pytho,repo,repos,tls,url,urls,uri,uris,uuid,uuids,metadata,namespace,cli,api,apis,json,yaml,workflow,workflows
+ignore-words-list = agntcy,authn,authz,github,localhost,mkdocs,pymdown,python,repo,repos,tls,url,urls,uri,uris,uuid,uuids,metadata,namespace,cli,api,apis,json,yaml,workflow,workflows
 count =
 check-filenames =
 check-hidden =

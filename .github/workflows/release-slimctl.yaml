@@ -77,13 +77,6 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
-        with:
-          workspace: ./data-plane
-
-      - name: Copy Cargo config from data-plane
-        run: |
-          mkdir -p .cargo
-          cp data-plane/.cargo/config.toml .cargo/config.toml
 
       - uses: taiki-e/upload-rust-binary-action@0e34102c043ded9f2ca39f7af5cd99a540c61aff # v1.29.1
         with:
@@ -93,7 +86,7 @@ jobs:
           tar: unix
           zip: windows
           token: ${{ secrets.GITHUB_TOKEN }}
-          manifest-path: ./data-plane/slimctl/Cargo.toml
+          manifest-path: ./crates/slimctl/Cargo.toml
           build-tool: ${{ matrix.platform.build-tool }}
 
   homebrew:

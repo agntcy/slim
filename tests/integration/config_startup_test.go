@@ -56,7 +56,7 @@ func resolveConfigCases() []configCase {
 
 	// Build list of candidate directories
 	var dirs []string
-	configRoot := filepath.Join("..", "..", "data-plane", "config")
+	configRoot := filepath.Join("..", "..", "config")
 	entries, err := os.ReadDir(configRoot)
 	if err != nil {
 		return nil
@@ -144,11 +144,11 @@ var _ = Describe("SLIM server + client connection using configuration files", fu
 				Skip(fmt.Sprintf("client config missing for server config %s (expected %s)", c.ServerPath, c.ClientPath))
 			}
 
-			dataPlaneDir := filepath.Join("..", "..", "data-plane")
+			repoRoot := filepath.Join("..", "..")
 
 			// Start server SLIM node
 			serverCmd := exec.Command(slimPath, "--config", serverConfig)
-			serverCmd.Dir = dataPlaneDir
+			serverCmd.Dir = repoRoot
 			serverSession, err := gexec.Start(serverCmd, GinkgoWriter, GinkgoWriter)
 			Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("failed to start server SLIM with config %s", c.ServerPath))
 			Eventually(serverSession, 15*time.Second).Should(gbytes.Say("dataplane server started"))
@@ -160,7 +160,7 @@ var _ = Describe("SLIM server + client connection using configuration files", fu
 
 			// Start client SLIM node
 			clientCmd := exec.Command(slimPath, "--config", clientConfig)
-			clientCmd.Dir = dataPlaneDir
+			clientCmd.Dir = repoRoot
 			clientSession, errClientStart := gexec.Start(clientCmd, GinkgoWriter, GinkgoWriter)
 			Expect(errClientStart).NotTo(HaveOccurred(), fmt.Sprintf("failed to start client SLIM with config %s", c.ClientPath))
 

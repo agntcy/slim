@@ -53,9 +53,9 @@ on:
         type: string
         default: .
       task-prefix:
-        description: "Prefix to use for task commands like 'data-plane'"
+        description: "Prefix to use for task commands (empty for top-level tasks)"
         type: string
-        default: data-plane
+        default: ""
 
 jobs:
   lint:
@@ -77,19 +77,11 @@ jobs:
         with:
           workspace: ${{ inputs.working-directory }}
 
-      - name: Setup Python
-        uses: ./.github/actions/setup-python
-        with:
-          py-install: false
-          py-version: 3.x
-          uv-install: true
-          poetry-install: false
-
       - name: lint
         env:
           TASK_PREFIX: ${{ inputs.task-prefix }}
         run: |
-          task "${TASK_PREFIX}:lint"
+          task "${TASK_PREFIX:+${TASK_PREFIX}:}lint"
 
   test-coverage:
     runs-on: ${{ inputs.runner }}
@@ -116,7 +108,7 @@ jobs:
         env:
           TASK_PREFIX: ${{ inputs.task-prefix }}
         run: |
-          task "${TASK_PREFIX}:test:coverage"
+          task "${TASK_PREFIX:+${TASK_PREFIX}:}test:coverage"
 
   unittest-matrix:
     runs-on: ${{ inputs.runner }}
@@ -139,19 +131,11 @@ jobs:
         with:
           workspace: ${{ inputs.working-directory }}
 
-      - name: Setup Python
-        uses: ./.github/actions/setup-python
-        with:
-          py-install: true
-          py-version: 3.x
-          uv-install: true
-          poetry-install: false
-
       - name: Run Unit Tests
         env:
           TASK_PREFIX: ${{ inputs.task-prefix }}
         run: |
-          task "${TASK_PREFIX}:test"
+          task "${TASK_PREFIX:+${TASK_PREFIX}:}test"
 
   unittest:
     runs-on: ${{ inputs.runner }}
@@ -211,4 +195,4 @@ jobs:
           OS: ${{ matrix.os }}
           PROFILE: ${{ matrix.profile }}
         run: |
-          task "${TASK_PREFIX}:build" TARGET="${ARCH}-unknown-${OS}-gnu" PROFILE="${PROFILE}"
+          task "${TASK_PREFIX:+${TASK_PREFIX}:}build" TARGET="${ARCH}-unknown-${OS}-gnu" PROFILE="${PROFILE}"
