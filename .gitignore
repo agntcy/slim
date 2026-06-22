@@ -45,6 +45,10 @@ coverage.xml
 *-coverage.out
 coverage.out
 
+# Python bytecode
+__pycache__/
+*.pyc
+
 # pyd files
 .pyd
 
