@@ -512,6 +512,9 @@ impl DataAccess for InMemoryDb {
             .ok_or_else(|| Error::RouteNotFound {
                 id: route_id.to_string(),
             })?;
+        if route.status == RouteStatus::Deleted {
+            return Ok(());
+        }
         route.status = RouteStatus::Failed;
         route.status_msg = msg.to_string();
         route.last_updated = SystemTime::now();

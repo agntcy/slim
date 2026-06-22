@@ -335,11 +335,11 @@ impl TopologyConfig {
                             .iter()
                             .flat_map(|e| {
                                 let mut names = vec![];
-                                if e.name != "*" && e.name != "$group" {
+                                if e.name != "*" && !e.name.contains("$group") {
                                     names.push(e.name.as_str());
                                 }
                                 for n in &e.neighbors {
-                                    if n != "*" && n != "$group" {
+                                    if n != "*" && !n.contains("$group") {
                                         names.push(n.as_str());
                                     }
                                 }
@@ -372,7 +372,7 @@ impl SegmentConfig {
         }
         self.links
             .iter()
-            .any(|e| e.name == "$group" || e.neighbors.iter().any(|n| n == "$group"))
+            .any(|e| e.name.contains("$group") || e.neighbors.iter().any(|n| n.contains("$group")))
     }
 
     /// Expand this template segment for a specific group value.
@@ -384,21 +384,11 @@ impl SegmentConfig {
                 .links
                 .iter()
                 .map(|e| AdjacencyEntry {
-                    name: if e.name == "$group" {
-                        group.to_string()
-                    } else {
-                        e.name.clone()
-                    },
+                    name: e.name.replace("$group", group),
                     neighbors: e
                         .neighbors
                         .iter()
-                        .map(|n| {
-                            if n == "$group" {
-                                group.to_string()
-                            } else {
-                                n.clone()
-                            }
-                        })
+                        .map(|n| n.replace("$group", group))
                         .collect(),
                 })
                 .collect(),

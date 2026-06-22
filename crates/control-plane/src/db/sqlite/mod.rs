@@ -535,22 +535,25 @@ impl DataAccess for SqliteDb {
             context: "mark_route_failed pool",
             msg: e.to_string(),
         })?;
-        let n = diesel::update(routes::table.find(route_id))
-            .set((
-                routes::status.eq(RouteStatus::Failed),
-                routes::status_msg.eq(msg),
-                routes::last_updated.eq(ts),
-            ))
-            .execute(&mut conn)
-            .await
-            .map_err(|e| Error::DbError {
-                context: "mark_route_failed",
-                msg: e.to_string(),
-            })?;
+        let n = diesel::update(
+            routes::table
+                .find(route_id)
+                .filter(routes::status.ne(RouteStatus::Deleted)),
+        )
+        .set((
+            routes::status.eq(RouteStatus::Failed),
+            routes::status_msg.eq(msg),
+            routes::last_updated.eq(ts),
+        ))
+        .execute(&mut conn)
+        .await
+        .map_err(|e| Error::DbError {
+            context: "mark_route_failed",
+            msg: e.to_string(),
+        })?;
         if n == 0 {
-            return Err(Error::RouteNotFound {
-                id: route_id.to_string(),
-            });
+            // Route either not found or already deleted — both are acceptable.
+            return Ok(());
         }
         Ok(())
     }
