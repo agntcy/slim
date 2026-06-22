@@ -1,4 +1,4 @@
-# Copyright AGNTCiY Contributors (https://github.com/agntcy)
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 ---
 name: ci-container-security-scan
@@ -39,7 +39,7 @@ jobs:
             version: 1.14.5
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
@@ -49,6 +49,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Pull image (explicit version)
         env:
           IMAGE_REPO: ${{ matrix.repo }}
@@ -60,28 +61,49 @@ jobs:
           docker pull "$IMAGE_REF"
           docker image inspect "$IMAGE_REF" >/dev/null 2>&1
 
+      - name: Install Trivy
+        env:
+          TRIVY_VERSION: "0.71.1"
+        run: |
+          curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.deb" -o trivy.deb
+          sudo dpkg -i trivy.deb
+          rm trivy.deb
+
       - name: Run Trivy vulnerability scan (image)
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
-        with:
-          image-ref: ${{ matrix.repo }}:${{ matrix.version }}
-          format: sarif
-          output: trivy-${{ matrix.image }}.sarif
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH,MEDIUM'
-          ignore-unfixed: true
+        env:
+          IMAGE_REPO: ${{ matrix.repo }}
+          IMAGE_VERSION: ${{ matrix.version }}
+          IMAGE_NAME: ${{ matrix.image }}
+        run: |
+          trivy image \
+            --format sarif \
+            --output "trivy-${IMAGE_NAME}.sarif" \
+            --vuln-type os,library \
+            --severity CRITICAL,HIGH,MEDIUM \
+            --ignore-unfixed \
+            "${IMAGE_REPO}:${IMAGE_VERSION}"
+
+      - name: Export image metadata
+        env:
+          IMAGE_REPO: ${{ matrix.repo }}
+          IMAGE_VERSION: ${{ matrix.version }}
+          IMAGE_NAME: ${{ matrix.image }}
+        run: echo "${IMAGE_REPO}:${IMAGE_VERSION}" > "trivy-${IMAGE_NAME}.meta"
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@c10b8064de6f491fea524254123dbe5e09572f13 # v4.35.1
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
         with:
           sarif_file: trivy-${{ matrix.image }}.sarif
           # Distinguish reports per container image in Code Scanning UI
           category: trivy-${{ matrix.image }}
 
-      - name: Upload raw report artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+      - name: Upload report artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: trivy-report-${{ matrix.image }}
-          path: trivy-${{ matrix.image }}.sarif
+          path: |
+            trivy-${{ matrix.image }}.sarif
+            trivy-${{ matrix.image }}.meta
           retention-days: 7
 
   summarize:
@@ -94,13 +116,14 @@ jobs:
     if: always()
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
       - name: Download artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
+          pattern: trivy-report-*
           path: trivy-artifacts
 
       - name: Debug artifact contents
@@ -124,6 +147,7 @@ jobs:
           if [ "${found}" != "0" ]; then
             echo "Critical vulnerabilities detected. (Gate currently informational.)" >&2
           fi
+
       - name: Create GitHub issues for critical CVEs
         if: ${{ github.event_name != 'pull_request' }}
         env:
