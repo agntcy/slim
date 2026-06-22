@@ -151,14 +151,15 @@ impl super::RouteService {
         };
 
         if source_node_id == ALL_NODES_ID {
-            // Delete the wildcard route itself.
+            // Mark the wildcard route as deleted.
             let db_route = self
                 .0
                 .db
                 .get_route_for_src_dest_name(source_node_id, &name, dest_node_id, None)
                 .await?
                 .ok_or(Error::InvalidInput("route not found".to_string()))?;
-            self.0.db.delete_route(&db_route.id).await?;
+            self.delete_single_route(ALL_NODES_ID, &db_route.id, &db_route.to_string())
+                .await?;
 
             // Also delete all per-node expansions.
             let per_node = self
