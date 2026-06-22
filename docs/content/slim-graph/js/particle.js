@@ -1,6 +1,16 @@
 // Particle Graphic Simulation Class
+const PARTICLE_REFERENCE_SPEED = 0.02;
+const PARTICLE_SPEED_SCALE = 1.1;
+const PARTICLE_REFERENCE_LENGTH = 200;
+
+function getParticlePixelsPerSecond(speed) {
+  return (PARTICLE_REFERENCE_LENGTH / pathDuration)
+    * (speed / PARTICLE_REFERENCE_SPEED)
+    * PARTICLE_SPEED_SCALE;
+}
+
 class Particle {
-  constructor({ pathId, color, size = 6, speed = 0.015, type = 'dot', onComplete, reverse = false }) {
+  constructor({ pathId, color, size = 6, speed = 0.015, type = 'dot', onComplete, reverse = false, startDistance = null }) {
     this.pathId = pathId;
     this.path = document.getElementById(pathId);
     if (!this.path) {
@@ -13,9 +23,13 @@ class Particle {
     this.type = type;
     this.onComplete = onComplete;
     this.reverse = reverse;
-    
-    this.progress = reverse ? 1 : 0;
+
     this.length = this.path.getTotalLength();
+    if (startDistance !== null) {
+      this.distance = Math.max(0, Math.min(this.length, startDistance));
+    } else {
+      this.distance = reverse ? this.length : 0;
+    }
     
     // Create element
     this.el = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -46,30 +60,27 @@ class Particle {
   }
 
   updatePosition() {
-    const dist = this.progress * this.length;
+    const dist = Math.max(0, Math.min(this.length, this.distance));
     const pt = this.path.getPointAtLength(dist);
     this.el.setAttribute('transform', `translate(${pt.x}, ${pt.y})`);
   }
 
   update(elapsed) {
-    // Calculate progress change based on elapsed time, standard speed, and pathDuration setting.
-    const speedFactor = 1.2 / pathDuration;
-    const frameRatio = elapsed / 16.67;
-    const deltaProgress = this.speed * frameRatio * speedFactor;
+    const deltaDistance = getParticlePixelsPerSecond(this.speed) * (elapsed / 1000);
 
     if (this.reverse) {
-      this.progress -= deltaProgress;
-      if (this.progress <= 0) {
-        this.progress = 0;
+      this.distance -= deltaDistance;
+      if (this.distance <= 0) {
+        this.distance = 0;
         this.updatePosition();
         this.destroy();
         if (this.onComplete) this.onComplete();
         return false;
       }
     } else {
-      this.progress += deltaProgress;
-      if (this.progress >= 1.0) {
-        this.progress = 1.0;
+      this.distance += deltaDistance;
+      if (this.distance >= this.length) {
+        this.distance = this.length;
         this.updatePosition();
         this.destroy();
         if (this.onComplete) this.onComplete();
@@ -86,9 +97,7 @@ class Particle {
 }
 
 // Particle Spawning Helper
-function spawn2DParticle(pathId, color, size, speed, type, onComplete, reverse = false) {
-  if (isPaused) return null;
-  
+function spawn2DParticle(pathId, color, size, speed, type, onComplete, reverse = false, startDistance = null) {
   const line = document.getElementById(pathId);
   if (line) {
     if (color === 'var(--color-teal)') {
@@ -114,8 +123,44 @@ function spawn2DParticle(pathId, color, size, speed, type, onComplete, reverse =
       }
       if (onComplete) onComplete();
     },
-    reverse
+    reverse,
+    startDistance
   });
   particles.push(p);
   return p;
+}
+
+let staggerSpawnTimeouts = [];
+
+function clearStaggerSpawnTimeouts() {
+  staggerSpawnTimeouts.forEach((id) => clearTimeout(id));
+  staggerSpawnTimeouts = [];
+}
+
+function spawnStaggeredReverseParticles(pathId, color, size, speed, count, onAllComplete) {
+  const path = document.getElementById(pathId);
+  if (!path) {
+    if (onAllComplete) onAllComplete();
+    return;
+  }
+
+  const pathLen = path.getTotalLength();
+  const pixelsPerSecond = getParticlePixelsPerSecond(speed);
+  const launchIntervalMs = Math.max(
+    220,
+    Math.round((pathLen / count / pixelsPerSecond) * 1000)
+  );
+  let done = 0;
+
+  for (let i = 0; i < count; i++) {
+    const timeoutId = setTimeout(() => {
+      spawn2DParticle(pathId, color, size, speed, 'dot', () => {
+        done++;
+        if (done === count && onAllComplete) {
+          onAllComplete();
+        }
+      }, true, pathLen);
+    }, launchIntervalMs * i);
+    staggerSpawnTimeouts.push(timeoutId);
+  }
 }

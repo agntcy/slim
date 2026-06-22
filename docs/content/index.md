@@ -122,7 +122,7 @@ hide:
     <iframe
       class="slim-graph-frame"
       src="slim-graph/index.html"
-      title="SLIM Architecture Visualizer"
+      aria-label="Interactive SLIM message routing diagram"
       tabindex="-1"
       scrolling="no"
     ></iframe>

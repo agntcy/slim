@@ -69,7 +69,7 @@
     if (!iframe || !height) {
       return;
     }
-    iframe.style.height = Math.max(height, 352) + 'px';
+    iframe.style.height = Math.max(height, 376) + 'px';
     iframe.dataset.resized = 'true';
   }
 

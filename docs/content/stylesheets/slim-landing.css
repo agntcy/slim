@@ -201,7 +201,7 @@ body:has(.slim-landing) .md-tabs__item--active .md-tabs__link {
 .slim-graph-frame {
   display: block;
   width: 100%;
-  height: 33rem;
+  height: 35rem;
   min-height: 0;
   border: 1px solid var(--md-default-fg-color--lightest);
   border-radius: 10px;
@@ -216,7 +216,7 @@ body:has(.slim-landing) .md-tabs__item--active .md-tabs__link {
 
 @media screen and (max-width: 59.9375em) {
   .slim-graph-frame {
-    height: 30rem;
+    height: 32rem;
   }
 }
 

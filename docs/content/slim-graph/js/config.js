@@ -242,8 +242,42 @@ const SCENARIOS = {
         logToTerminal('Agent B', 'info', 'slim_dataplane::service', 'received message');
         logToTerminal('Agent C', 'info', 'slim_dataplane::service', 'received message');
         logToTerminal('Agent D', 'info', 'slim_dataplane::service', 'received message');
-        logToTerminal('Agent A', 'info', 'slim_dataplane::service', 'All acknowledgment tests passed!');
-        triggerNextStep();
+        logToTerminal('Agent B', 'debug', 'slim_dataplane::session::subscription_manager', 'received ack message');
+        logToTerminal('Agent C', 'debug', 'slim_dataplane::session::subscription_manager', 'received ack message');
+        logToTerminal('Agent D', 'debug', 'slim_dataplane::session::subscription_manager', 'received ack message');
+
+        let acksFromSubscribers = 0;
+        const onSubscriberAck = () => {
+          acksFromSubscribers++;
+          if (acksFromSubscribers === 3) {
+            spawnStaggeredReverseParticles(
+              'path_Node1_to_Node2',
+              'var(--color-amber)',
+              5,
+              0.028,
+              3,
+              () => {
+                spawnStaggeredReverseParticles(
+                  'path_A_to_Node1',
+                  'var(--color-amber)',
+                  5,
+                  0.028,
+                  3,
+                  () => {
+                    logToTerminal('Agent A', 'debug', 'slim_dataplane::session::subscription_manager', 'ack received');
+                    logToTerminal('Agent A', 'info', 'slim_dataplane::service', 'All acknowledgment tests passed!');
+                    logToTerminal('System', 'info', 'slim_dataplane::system', 'test succeeded');
+                    triggerNextStep();
+                  }
+                );
+              }
+            );
+          }
+        };
+
+        spawn2DParticle('path_Node2_to_B', 'var(--color-amber)', 5, 0.028, 'dot', onSubscriberAck, true);
+        spawn2DParticle('path_Node2_to_C', 'var(--color-amber)', 5, 0.028, 'dot', onSubscriberAck, true);
+        spawn2DParticle('path_Node2_to_D', 'var(--color-amber)', 5, 0.028, 'dot', onSubscriberAck, true);
       }
     }
   ],

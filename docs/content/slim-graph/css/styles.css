@@ -507,8 +507,8 @@ header.main-header {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1.75rem 1.5rem;
-  min-height: 17.5rem;
+  padding: 2rem 1.5rem;
+  min-height: 19rem;
   overflow: hidden;
   background: var(--diagram-surface);
   border-top: 1px solid var(--panel-border);
@@ -519,7 +519,7 @@ header.main-header {
 
 svg.visual-graph {
   display: block;
-  width: min(100%, 880px);
+  width: min(100%, 940px);
   height: auto;
   aspect-ratio: 826 / 396;
   font-family: var(--font-primary);
@@ -735,22 +735,15 @@ html[data-embedded="true"] .arrow-stepper-wrap {
   stroke: var(--color-blue);
 }
 
-.node-rect.router.route-active + .node-title,
-.node-rect.router.route-active ~ .node-title,
-.node-rect.router.route-active ~ .node-desc,
-.node-rect.router.route-active ~ .node-badge {
-  fill: #fff;
-}
-
-.node-rect.router.node-rect--remote.route-active + .node-title,
-.node-rect.router.node-rect--remote.route-active ~ .node-title,
-.node-rect.router.node-rect--remote.route-active ~ .node-desc,
-.node-rect.router.node-rect--remote.route-active ~ .node-badge {
-  fill: #fff;
+.node-rect.router.route-active ~ foreignObject .graph-node__title,
+.node-rect.router.route-active ~ foreignObject .graph-node__desc,
+.node-rect.router.node-rect--remote.route-active ~ foreignObject .graph-node__title,
+.node-rect.router.node-rect--remote.route-active ~ foreignObject .graph-node__desc {
+  color: #fff;
 }
 
 .node-rect.router.node-rect--remote {
-  stroke: var(--color-orange);
+  stroke: var(--color-blue);
 }
 
 .node-rect.controller {
@@ -762,30 +755,191 @@ html[data-embedded="true"] .arrow-stepper-wrap {
 }
 
 .node-rect--operator {
-  stroke: var(--color-amber);
+  stroke: var(--color-blue);
 }
 
-.node-title {
-  font-family: var(--font-title);
-  font-size: 0.92rem;
-  font-weight: 600;
-  fill: var(--color-text-primary);
-  transition: fill 0.2s ease;
+/* Figma GraphCard layout (flex via foreignObject) */
+foreignObject {
+  overflow: hidden;
+  pointer-events: none;
 }
 
-.node-desc {
+.graph-node {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+  padding: 10px 12px;
+  min-width: 0;
   font-family: var(--font-primary);
-  font-size: 0.72rem;
-  fill: var(--color-text-secondary);
-  transition: fill 0.2s ease;
+  pointer-events: none;
 }
 
-.node-badge {
+.graph-node__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.graph-node__icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.graph-node__icon img {
+  width: 16px;
+  height: 16px;
+  display: block;
+  object-fit: contain;
+}
+
+.graph-node__icon--operator,
+.graph-node__icon--mcp {
+  background: #f3f4f8;
+}
+
+.graph-node__icon--slim {
+  background: #eef2ff;
+  color: var(--color-blue);
+}
+
+.graph-node__icon--claude {
+  background: #f5ece8;
+}
+
+.graph-node__icon--langchain {
+  background: #eef6f0;
+}
+
+.graph-node__icon--crewai {
+  background: #f0f4ff;
+}
+
+.graph-node__icon--langgraph {
+  background: #f5f3ff;
+}
+
+.graph-node__icon--opencode {
+  background: #f0f6ff;
+}
+
+.graph-node__copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.graph-node__title {
+  font-family: var(--font-title);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-node__title--hub {
+  font-size: 13px;
+}
+
+.graph-node__title--compact {
+  font-size: 11px;
+}
+
+.graph-node__desc {
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-node__badge {
+  align-self: flex-start;
+  margin-top: 4px;
   font-family: var(--font-mono);
-  font-size: 0.68rem;
-  font-weight: 500;
-  fill: var(--color-text-secondary);
-  transition: fill 0.2s ease;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.3;
+  border-radius: 5px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+.graph-node__badge--hub {
+  color: var(--color-blue);
+  background: rgba(2, 81, 175, 0.08);
+  border: 1px solid rgba(2, 81, 175, 0.18);
+}
+
+.graph-node__badge--mls {
+  color: var(--color-blue);
+  background: rgba(2, 81, 175, 0.08);
+  border: 1px solid rgba(2, 81, 175, 0.18);
+}
+
+.node-rect.router.route-active ~ foreignObject .graph-node__icon--slim {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.node-rect.router.route-active ~ foreignObject .graph-node__icon--slim img,
+.node-rect.router.node-rect--remote.route-active ~ foreignObject .graph-node__icon--slim img {
+  filter: brightness(0) invert(1);
+}
+
+.node-rect.router.route-active ~ foreignObject .graph-node__badge--hub,
+.node-rect.router.node-rect--remote.route-active ~ foreignObject .graph-node__badge--hub {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+[data-theme="dark"] .graph-node__icon--operator,
+[data-theme="dark"] .graph-node__icon--mcp {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .graph-node__icon--slim {
+  background: rgba(79, 121, 246, 0.2);
+}
+
+[data-theme="dark"] .graph-node__icon--claude,
+[data-theme="dark"] .graph-node__icon--langchain,
+[data-theme="dark"] .graph-node__icon--crewai,
+[data-theme="dark"] .graph-node__icon--langgraph,
+[data-theme="dark"] .graph-node__icon--opencode {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .graph-node__icon--operator img,
+[data-theme="dark"] .graph-node__icon--mcp img,
+[data-theme="dark"] .graph-node__icon--langchain img,
+[data-theme="dark"] .graph-node__icon--langgraph img,
+[data-theme="dark"] .graph-node__icon--crewai img,
+[data-theme="dark"] .graph-node__icon--opencode img {
+  filter: brightness(0) invert(1) opacity(0.9);
+}
+
+[data-theme="dark"] .graph-node__icon--claude img {
+  filter: brightness(1.1);
+}
+
+[data-theme="dark"] .graph-node__badge--hub,
+[data-theme="dark"] .graph-node__badge--mls {
+  background: rgba(79, 121, 246, 0.2);
+  border-color: rgba(79, 121, 246, 0.35);
+  color: #8eb4ff;
 }
 
 /* Session layer outer shield */
@@ -906,44 +1060,4 @@ html[data-embedded="true"] .arrow-stepper-wrap {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Agent frameworks logo styling with dark theme support */
-.agent-logo-img {
-  opacity: 0.85;
-  transition: all 0.3s ease;
-}
-.agent-logo-img:hover {
-  opacity: 1;
-  filter: brightness(1.2);
-}
-.langgraph-logo {
-  filter: drop-shadow(0 0 2px var(--color-blue));
-}
-.claude-logo {
-  filter: drop-shadow(0 0 2px var(--color-teal));
-}
-.crewai-logo {
-  filter: drop-shadow(0 0 2px var(--color-blue));
-}
-.opencode-logo {
-  filter: drop-shadow(0 0 2px var(--color-purple));
-}
-
-.langchain-logo {
-  filter: drop-shadow(0 0 2px var(--color-green));
-}
-
-.mcp-logo {
-  filter: drop-shadow(0 0 2px var(--color-teal));
-}
-
-[data-theme="dark"] .opencode-logo,
-[data-theme="dark"] .claude-logo,
-[data-theme="dark"] .crewai-logo,
-[data-theme="dark"] .langgraph-logo,
-[data-theme="dark"] .langchain-logo {
-  filter: brightness(0) invert(1) drop-shadow(0 0 2px var(--color-blue));
-}
-
-[data-theme="dark"] .mcp-logo {
-  filter: brightness(1.2) drop-shadow(0 0 2px var(--color-teal));
-}
+/* Legacy SVG icon rules removed — see .graph-node__icon */

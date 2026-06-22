@@ -3,8 +3,11 @@ let isPaused = false;
 let particles = [];
 let currentJourney = 'p2p';
 let currentStepIndex = 0;
-const pathDuration = 3.0;
+const pathDuration = 3.4;
 let customTimers = [];
+let stepLoopTimeout = null;
+
+window.slimGraphLoopingStep = false;
 
 function setSimulationTimeout(callback, delayMs) {
   customTimers.push({
@@ -13,10 +16,18 @@ function setSimulationTimeout(callback, delayMs) {
   });
 }
 
+function clearStepAnimation() {
+  clearStaggerSpawnTimeouts();
+  particles.forEach((p) => p.destroy());
+  particles = [];
+  document.querySelectorAll('.connection-path').forEach((path) => {
+    path.classList.remove('active', 'active-crypto', 'active-rpc', 'active-control');
+  });
+}
+
 function clearSimulation() {
   customTimers = [];
-  particles.forEach(p => p.destroy());
-  particles = [];
+  clearStepAnimation();
 }
 
 function flashNode(elementId, colorClass) {
@@ -31,8 +42,8 @@ function flashNode(elementId, colorClass) {
 function updateBadge(nodeId, text, color = 'var(--color-text-secondary)') {
   const badge = document.getElementById(`badge_${nodeId}`);
   if (badge) {
-    badge.innerHTML = text;
-    badge.style.fill = color;
+    badge.textContent = text;
+    badge.style.color = color;
   }
 }
 
@@ -396,6 +407,11 @@ function goToStep(index, runAction = false) {
   const steps = SCENARIOS[currentJourney] || [];
   if (index < 0 || index >= steps.length) return;
 
+  if (stepLoopTimeout) {
+    clearTimeout(stepLoopTimeout);
+    stepLoopTimeout = null;
+  }
+
   clearSimulation();
   document.querySelectorAll('.node-rect').forEach((rect) => {
     rect.classList.remove(
@@ -415,11 +431,14 @@ function goToStep(index, runAction = false) {
   }
 }
 
-function executeStepAction() {
+function executeStepAction({ loop = false } = {}) {
   const steps = SCENARIOS[currentJourney];
   const step = steps[currentStepIndex];
   if (!step || typeof step.action !== 'function') return;
+
+  window.slimGraphLoopingStep = loop;
   step.action();
+  window.slimGraphLoopingStep = false;
 }
 
 function executeStep() {
@@ -427,8 +446,24 @@ function executeStep() {
   executeStepAction();
 }
 
+function loopCurrentStep() {
+  if (!isPaused) return;
+  if (stepLoopTimeout) {
+    clearTimeout(stepLoopTimeout);
+  }
+  stepLoopTimeout = setTimeout(() => {
+    stepLoopTimeout = null;
+    if (!isPaused) return;
+    clearStepAnimation();
+    executeStepAction({ loop: true });
+  }, 500);
+}
+
 function triggerNextStep() {
-  if (isPaused) return;
+  if (isPaused) {
+    loopCurrentStep();
+    return;
+  }
 
   const steps = SCENARIOS[currentJourney];
   if (currentStepIndex < steps.length - 1) {
@@ -448,6 +483,23 @@ function triggerNextStep() {
 function togglePause() {
   isPaused = !isPaused;
   updatePauseButton();
+
+  if (isPaused) {
+    if (particles.length === 0) {
+      clearStepAnimation();
+      executeStepAction({ loop: true });
+    }
+    return;
+  }
+
+  if (stepLoopTimeout) {
+    clearTimeout(stepLoopTimeout);
+    stepLoopTimeout = null;
+  }
+
+  if (particles.length === 0) {
+    executeStepAction();
+  }
 }
 
 function updateJourneyChrome() {
@@ -461,6 +513,10 @@ function startScenario(name) {
   currentJourney = name;
   currentStepIndex = 0;
   isPaused = false;
+  if (stepLoopTimeout) {
+    clearTimeout(stepLoopTimeout);
+    stepLoopTimeout = null;
+  }
   updatePauseButton();
 
   document.querySelectorAll('.journey-btn').forEach(btn => {
@@ -521,8 +577,6 @@ function updateFrame(timestamp) {
   const elapsed = timestamp - lastFrameTime;
   lastFrameTime = timestamp;
 
-  if (isPaused) return;
-
   const currentParticles = [...particles];
   particles = [];
   for (const p of currentParticles) {
@@ -530,6 +584,8 @@ function updateFrame(timestamp) {
       particles.push(p);
     }
   }
+
+  if (isPaused) return;
 
   const currentTimers = [...customTimers];
   customTimers = [];

@@ -17,6 +17,8 @@ function getCompTagClass(component) {
 
 // Structured Telemetry Log Handler
 function logToTerminal(component, level, target, message) {
+  if (window.slimGraphLoopingStep) return;
+
   const terminalBody = document.getElementById('terminal-body');
   if (!terminalBody) return;
 
