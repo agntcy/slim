@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Build container
-FROM --platform=${BUILDPLATFORM} rust:1.93-slim-bookworm AS rust
+FROM --platform=${BUILDPLATFORM} rust:1.95-slim-bookworm AS rust
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
@@ -51,9 +51,9 @@ COPY . /app
 WORKDIR /app
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,target=/app/target,sharing=locked \
-    <<EOF
+  --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+  --mount=type=cache,target=/app/target,sharing=locked \
+  <<EOF
 case ${TARGETARCH} in
     "amd64")
         RUSTARCH=x86_64-unknown-linux-gnu
