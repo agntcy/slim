@@ -569,7 +569,8 @@ where
                 .process_discovery_request(message, id, session_type)
                 .await
             {
-                debug!(error = %e.chain(), "error handling discovery request");
+                let err = e.chain();
+                debug!(error = %err, "error handling discovery request");
             }
         });
 
