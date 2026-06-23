@@ -61,7 +61,7 @@ tasks:
     cmds:
       - cargo build {{.RELEASE}} {{.TARGET_ARGS}} {{.ARGS}}
     vars:
-      ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
+      ARGS: '{{.ARGS | default "--all-targets --locked"}}'
 
   build:strip:
     desc: "Build the project and strip the debug symbols"
