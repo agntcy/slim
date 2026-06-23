@@ -31,9 +31,11 @@ hide:
         </picture>
       </a>
     </div>
-    <p class="slim-hero__tagline">
-      The secure transport layer for A2A, MCP, and SLIMRPC agent protocols.
-    </p>
+    <div class="slim-hero-tagline-rotate" data-slim-hero-tagline>
+      <p class="slim-hero__tagline slim-hero-tagline-rotate__text">
+        The secure transport layer for A2A, MCP, and SLIMRPC.
+      </p>
+    </div>
     <p class="slim-hero__lede">
       SLIM is built for interactive agent workloads: low-latency, encrypted message
       delivery between agents that may be co-located or continents apart. Where protocols define

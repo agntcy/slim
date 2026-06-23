@@ -35,6 +35,7 @@ extra_css:
 extra_javascript:
   - javascripts/card-links.js
   - javascripts/external-links.js
+  - javascripts/slim-hero-tagline.js
   - javascripts/slim-graph-tooltip.js
   - javascripts/slimctl-demo-data.js
   - javascripts/slimctl-terminal.js
