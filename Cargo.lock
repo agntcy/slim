@@ -404,6 +404,7 @@ dependencies = [
  "aws-lc-rs",
  "base64 0.22.1",
  "bollard",
+ "bytes",
  "clap",
  "futures",
  "jsonwebtoken",

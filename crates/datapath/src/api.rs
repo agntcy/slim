@@ -4,12 +4,20 @@
 //! gRPC bindings for data plane service.
 pub mod proto;
 
+pub use agntcy_slim_proto::CONTROL_CHANNEL_ID;
+pub use agntcy_slim_proto::DATA_CHANNEL_ID;
+pub use agntcy_slim_proto::NULL_COMPONENT;
+pub use agntcy_slim_proto::RESERVED_IDS;
+pub use agntcy_slim_proto::decode_str_bytes;
+pub use agntcy_slim_proto::encode_str_bytes;
+pub use agntcy_slim_proto::id_from_str;
+pub use agntcy_slim_proto::id_to_string;
+pub use agntcy_slim_proto::is_reserved_id;
 pub use proto::dataplane::v1::ApplicationPayload;
 pub use proto::dataplane::v1::CommandPayload;
 pub use proto::dataplane::v1::Content;
 pub use proto::dataplane::v1::DiscoveryReplyPayload;
 pub use proto::dataplane::v1::DiscoveryRequestPayload;
-pub use proto::dataplane::v1::EncodedName;
 pub use proto::dataplane::v1::GroupAckPayload;
 pub use proto::dataplane::v1::GroupAddPayload;
 pub use proto::dataplane::v1::GroupNackPayload;
@@ -27,7 +35,6 @@ pub use proto::dataplane::v1::Message as ProtoMessage;
 pub use proto::dataplane::v1::MlsPayload;
 pub use proto::dataplane::v1::MlsSettings as ProtoMlsSettings;
 pub use proto::dataplane::v1::Name as ProtoName;
-pub use proto::dataplane::v1::NameId;
 pub use proto::dataplane::v1::Participant;
 pub use proto::dataplane::v1::ParticipantSettings;
 pub use proto::dataplane::v1::Publish as ProtoPublish;
@@ -35,7 +42,6 @@ pub use proto::dataplane::v1::SessionHeader;
 pub use proto::dataplane::v1::SessionMessageType as ProtoSessionMessageType;
 pub use proto::dataplane::v1::SessionType as ProtoSessionType;
 pub use proto::dataplane::v1::SlimHeader;
-pub use proto::dataplane::v1::StringName;
 pub use proto::dataplane::v1::Subscribe as ProtoSubscribe;
 pub use proto::dataplane::v1::SubscriptionAck as ProtoSubscriptionAck;
 pub use proto::dataplane::v1::Unsubscribe as ProtoUnsubscribe;

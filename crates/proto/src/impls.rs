@@ -285,7 +285,7 @@ pub(crate) fn decode_name_bytes(b: &bytes::Bytes) -> Option<(u64, u64, u64, u128
 
 /// Encode three string components into a packed `Bytes` value.
 #[inline]
-pub(crate) fn encode_str_bytes(s0: &[u8], s1: &[u8], s2: &[u8]) -> bytes::Bytes {
+pub fn encode_str_bytes(s0: &[u8], s1: &[u8], s2: &[u8]) -> bytes::Bytes {
     let total = 4 + s0.len() + 4 + s1.len() + 4 + s2.len();
     let mut buf = Vec::with_capacity(total);
     buf.extend_from_slice(&(s0.len() as u32).to_le_bytes());
@@ -300,7 +300,7 @@ pub(crate) fn encode_str_bytes(s0: &[u8], s1: &[u8], s2: &[u8]) -> bytes::Bytes 
 /// Decode packed str_name bytes into three byte slices.
 /// Returns `None` if the slice is empty (field absent).
 #[inline]
-pub(crate) fn decode_str_bytes(b: &bytes::Bytes) -> Option<(&[u8], &[u8], &[u8])> {
+pub fn decode_str_bytes(b: &bytes::Bytes) -> Option<(&[u8], &[u8], &[u8])> {
     if b.is_empty() {
         return None;
     }
