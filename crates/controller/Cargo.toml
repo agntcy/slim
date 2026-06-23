@@ -38,6 +38,5 @@ tonic-prost = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
-
 [dev-dependencies]
 tracing-test = { workspace = true }
