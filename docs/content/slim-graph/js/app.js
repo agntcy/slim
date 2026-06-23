@@ -60,6 +60,7 @@ function resetScenarioVisuals(name) {
 
   const ACTIVE_NODES_BY_SCENARIO = {
     p2p: ['node_Agent_A', 'node_Agent_B', 'node_Node1', 'node_Node2'],
+    'p2p-mcp': ['node_Agent_A', 'node_MCP', 'node_Node1'],
     multicast: ['node_Agent_A', 'node_Agent_B', 'node_Agent_C', 'node_Agent_D', 'node_Node1', 'node_Node2']
   };
 
@@ -72,13 +73,7 @@ function resetScenarioVisuals(name) {
     }
   });
 
-  updateBadge('Agent_A', 'MLS: Inactive');
-  updateBadge('Agent_B', 'MLS: Inactive');
-  updateBadge('Agent_C', 'MLS: Inactive');
-  updateBadge('Agent_D', 'MLS: Inactive');
-  updateBadge('Agent_E', 'MLS: Inactive');
   updateBadge('MCP', 'Files & Search');
-  updateBadge('Operator', 'Local CLI');
   updateBadge('Node1', 'Active (3)');
   updateBadge('Node2', 'Active (4)');
 }
@@ -240,9 +235,7 @@ const EDGE_NODE_MAP = {
   agentD: 'Agent_D',
   slimNode1: 'Node1',
   slimNode2: 'Node2',
-  mcpServer: 'MCP',
-  opTerminal: 'Operator',
-  slimController: 'Controller'
+  mcpServer: 'MCP'
 };
 
 function buildArrowStepper() {
@@ -332,7 +325,7 @@ function showStepTooltip(index, anchor) {
   tooltip.style.bottom = 'auto';
 
   requestAnimationFrame(() => {
-    const top = Math.max(8, rect.top - tooltip.offsetHeight - 8);
+    const top = rect.bottom + 8;
     tooltip.style.top = `${top}px`;
     tooltip.style.left = `${left}px`;
   });
@@ -505,6 +498,7 @@ function togglePause() {
 function updateJourneyChrome() {
   const wrap = document.querySelector('.arrow-stepper-wrap');
   if (wrap) {
+    wrap.classList.toggle('arrow-stepper-wrap--p2p-mcp', currentJourney === 'p2p-mcp');
     wrap.classList.toggle('arrow-stepper-wrap--multicast', currentJourney === 'multicast');
   }
 }

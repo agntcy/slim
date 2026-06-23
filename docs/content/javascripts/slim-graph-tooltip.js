@@ -59,17 +59,17 @@
     left = Math.max(8, Math.min(left, window.innerWidth - tooltipWidth - 8));
 
     const top =
-      iframeRect.top + anchorRect.top - portal.offsetHeight - STEP_TOOLTIP_GAP;
+      iframeRect.top + anchorRect.top + anchorRect.height + STEP_TOOLTIP_GAP;
 
     portal.style.left = left + 'px';
-    portal.style.top = Math.max(8, top) + 'px';
+    portal.style.top = top + 'px';
   }
 
   function setIframeHeight(iframe, height) {
     if (!iframe || !height) {
       return;
     }
-    iframe.style.height = Math.max(height, 376) + 'px';
+    iframe.style.height = Math.max(height, 320) + 'px';
     iframe.dataset.resized = 'true';
   }
 

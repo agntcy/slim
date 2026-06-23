@@ -28,22 +28,12 @@ const NODE_METADATA = {
     title: 'SLIM Node 2 (Cloud Data Plane)',
     desc: 'Cloud-hosted gRPC router node. Handles peer subscriptions, duplicates multicast streams for active clients, and stores packets in store-and-forward buffers if recipients are offline.'
   },
-  'node_Controller': {
-    title: 'SLIM Controller (Control Plane)',
-    desc: 'Out-of-band administration service. Pushes configurations and dynamically registers route mappings (e.g. via slimctl) without inspecting encrypted data-plane traffic.'
-  },
   'node_MCP': {
     title: 'MCP Server (Model Context Protocol)',
     desc: 'Application-layer MCP server. Receives tool invocation request payloads routed securely over SLIM and returns the executed search or file data.'
-  },
-  'node_Operator': {
-    title: 'Operator Terminal (Human Input / slimctl)',
-    desc: 'Administrative CLI interface used by human operators to query routes, configure tunnels, and push out-of-band commands to the SLIM Controller or directly to local routing nodes.'
   }
 };
-
-// Logger whitelist parameters
-const VALID_COMPONENTS = ['system', 'agent a', 'agent b', 'agent c', 'agent d', 'agent e', 'slim node 1', 'slim node 2', 'slim controller', 'mcp server', 'controller', 'operator terminal'];
+const VALID_COMPONENTS = ['system', 'agent a', 'agent b', 'agent c', 'agent d', 'agent e', 'slim node 1', 'slim node 2', 'mcp server'];
 const VALID_LEVELS = ['info', 'debug', 'warning', 'error', 'success', 'trace'];
 
 // Whitelist of authentic log message patterns derived from the actual SLIM codebase
@@ -101,13 +91,11 @@ const EDGE_PATH_MAP = {
   'agentA-slimNode1': 'path_A_to_Node1',
   'agentE-slimNode1': 'path_E_to_Node1',
   'mcpServer-slimNode1': 'path_Node1_to_MCP',
+  'slimNode1-mcpServer': 'path_Node1_to_MCP',
   'slimNode1-slimNode2': 'path_Node1_to_Node2',
   'slimNode2-agentB': 'path_Node2_to_B',
   'slimNode2-agentC': 'path_Node2_to_C',
   'slimNode2-agentD': 'path_Node2_to_D',
-  'opTerminal-slimNode1': 'path_Operator_to_Node1',
-  'slimController-slimNode1': 'path_Controller_to_Node1',
-  'slimController-slimNode2': 'path_Controller_to_Node2'
 };
 
 // Architectural Scenarios & Step Definitions
@@ -278,6 +266,72 @@ const SCENARIOS = {
         spawn2DParticle('path_Node2_to_B', 'var(--color-amber)', 5, 0.028, 'dot', onSubscriberAck, true);
         spawn2DParticle('path_Node2_to_C', 'var(--color-amber)', 5, 0.028, 'dot', onSubscriberAck, true);
         spawn2DParticle('path_Node2_to_D', 'var(--color-amber)', 5, 0.028, 'dot', onSubscriberAck, true);
+      }
+    }
+  ],
+
+  // Use Case 3: Point-to-Point MCP tool invocation (local route)
+  'p2p-mcp': [
+    {
+      title: "Publish MCP Tool Request",
+      shortTitle: "Publish",
+      activeEdges: ['agentA-slimNode1'],
+      desc: "Agent A sends a point-to-point MCP tool invocation targeting <code>agntcy/demo/mcp-tools</code>. The request is published to the local **SLIM Node 1** over HTTP/2.",
+      action: () => {
+        logToTerminal('Agent A', 'info', 'slim_dataplane::service', 'Sending message');
+
+        spawn2DParticle('path_A_to_Node1', 'var(--color-teal)', 6, 0.02, 'dot', () => {
+          triggerNextStep();
+        });
+      }
+    },
+    {
+      title: "Local Route to MCP Server",
+      shortTitle: "Route",
+      activeEdges: ['agentA-slimNode1', 'slimNode1-mcpServer'],
+      desc: "The local **SLIM Node 1** matches the destination name against its routing table and forwards the envelope to the co-located **MCP Server**—no cloud hop required.",
+      action: () => {
+        flashNode('core_Node1', 'flash-teal');
+        logToTerminal('SLIM Node 1', 'debug', 'slim_dataplane::datapath', 'received publication');
+        logToTerminal('SLIM Node 1', 'debug', 'slim_dataplane::datapath', 'forwarding message to connection');
+
+        spawn2DParticle('path_Node1_to_MCP', 'var(--color-teal)', 6, 0.02, 'dot', () => {
+          triggerNextStep();
+        });
+      }
+    },
+    {
+      title: "MCP Tool Execution",
+      shortTitle: "Execute",
+      activeEdges: ['agentA-slimNode1', 'slimNode1-mcpServer'],
+      desc: "The **MCP Server** receives the tool call, executes the handler (for example <code>search_files</code>), and prepares the JSON response payload.",
+      action: () => {
+        flashNode('core_MCP', 'flash-teal');
+        updateBadge('MCP', 'Executing: search_files', 'var(--color-teal)');
+        logToTerminal('MCP Server', 'info', 'slim_dataplane::service', 'received message');
+
+        setSimulationTimeout(() => {
+          updateBadge('MCP', 'Response ready', 'var(--color-teal)');
+          triggerNextStep();
+        }, 900);
+      }
+    },
+    {
+      title: "Response Delivery & Acknowledgment",
+      shortTitle: "ACK",
+      activeEdges: ['agentA-slimNode1', 'slimNode1-mcpServer'],
+      desc: "The MCP response travels back through **SLIM Node 1** to Agent A. Agent A acknowledges receipt, completing the point-to-point MCP exchange.",
+      action: () => {
+        spawn2DParticle('path_Node1_to_MCP', 'var(--color-teal)', 5, 0.028, 'dot', () => {
+          spawn2DParticle('path_A_to_Node1', 'var(--color-teal)', 5, 0.028, 'dot', () => {
+            flashNode('core_Agent_A', 'flash-green');
+            logToTerminal('Agent A', 'info', 'slim_dataplane::service', 'received message');
+            logToTerminal('Agent A', 'debug', 'slim_dataplane::session::subscription_manager', 'received ack message');
+            logToTerminal('Agent A', 'debug', 'slim_dataplane::session::subscription_manager', 'ack received');
+            logToTerminal('System', 'info', 'slim_dataplane::system', 'test succeeded');
+            triggerNextStep();
+          }, true);
+        }, true);
       }
     }
   ],

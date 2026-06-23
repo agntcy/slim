@@ -31,6 +31,10 @@
             <i class="fa-solid fa-message" aria-hidden="true"></i>
             <span>Point-to-Point Message</span>
           </button>
+          <button class="journey-btn j-p2p-mcp" data-journey="p2p-mcp" role="tab" aria-selected="false">
+            <i class="fa-solid fa-plug" aria-hidden="true"></i>
+            <span>Point-to-Point MCP</span>
+          </button>
           <button class="journey-btn j-multicast" data-journey="multicast" role="tab" aria-selected="false">
             <i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
             <span>Multicast Message</span>
@@ -55,21 +59,18 @@
       <div class="viewport-stage">
       
       <!-- SVG Node Graph -->
-      <svg class="visual-graph" viewBox="0 0 826 396" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+      <svg class="visual-graph" viewBox="0 0 812 340" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
 
         <rect class="diagram-backdrop" width="100%" height="100%" fill="var(--diagram-surface)" />
 
         <g id="paths-group">
-          <path id="path_A_to_Node1" class="connection-path" d="M 162 159 C 200 159, 215 180, 225 200"/>
-          <path id="path_E_to_Node1" class="connection-path" d="M 162 259 C 200 259, 215 230, 225 220"/>
-          <path id="path_Node1_to_Node2" class="connection-path" d="M 385 200 C 405 200, 416 200, 436 200"/>
-          <path id="path_Node2_to_B" class="connection-path" d="M 596 200 C 630 180, 645 120, 660 92"/>
-          <path id="path_Node2_to_C" class="connection-path" d="M 596 200 L 660 200"/>
-          <path id="path_Node2_to_D" class="connection-path" d="M 596 200 C 630 250, 645 290, 660 308"/>
-          <path id="path_Node1_to_MCP" class="connection-path" d="M 280 245 C 270 270, 240 300, 197 343"/>
-          <path id="path_Operator_to_Node1" class="connection-path control" d="M 220 80 C 240 100, 250 130, 260 155"/>
-          <path id="path_Controller_to_Node1" class="connection-path control" d="M 380 72 C 360 100, 330 130, 305 155"/>
-          <path id="path_Controller_to_Node2" class="connection-path control" d="M 440 72 C 470 100, 500 130, 516 155"/>
+          <path id="path_A_to_Node1" class="connection-path" d="M 172 80 C 196 80, 210 128, 228 175"/>
+          <path id="path_E_to_Node1" class="connection-path" d="M 172 188 L 228 188"/>
+          <path id="path_Node1_to_Node2" class="connection-path" d="M 388 189 L 432 189"/>
+          <path id="path_Node2_to_B" class="connection-path" d="M 592 189 C 610 148, 620 104, 636 80"/>
+          <path id="path_Node2_to_C" class="connection-path" d="M 592 188 L 636 188"/>
+          <path id="path_Node2_to_D" class="connection-path" d="M 592 189 C 610 232, 620 272, 636 296"/>
+          <path id="path_Node1_to_MCP" class="connection-path" d="M 252 234 C 228 248, 210 268, 200 296"/>
         </g>
 
         <!-- Dynamic Particles Container -->
@@ -78,44 +79,9 @@
         <!-- Node Layout -->
         <g id="nodes-group">
 
-          <g id="node_Operator" class="interactive-node" cursor="pointer">
-            <rect id="core_Operator" class="node-rect node-rect--operator node-rect--peripheral" x="123" y="16" width="148" height="64" rx="12"/>
-            <foreignObject x="123" y="16" width="148" height="64">
-              <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node graph-node--peripheral">
-                <div class="graph-node__row">
-                  <div class="graph-node__icon graph-node__icon--operator">
-                    <img src="icons/terminal.svg" alt="" />
-                  </div>
-                  <div class="graph-node__copy">
-                    <div class="graph-node__title graph-node__title--compact">Operator Terminal</div>
-                    <div class="graph-node__desc">Human input / slimctl</div>
-                    <div class="graph-node__desc" id="badge_Operator">Local CLI</div>
-                  </div>
-                </div>
-              </div>
-            </foreignObject>
-          </g>
-
-          <g id="node_Controller" class="interactive-node" cursor="pointer">
-            <rect class="node-rect controller node-rect--peripheral" x="336" y="16" width="148" height="56" rx="12"/>
-            <foreignObject x="336" y="16" width="148" height="56">
-              <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node graph-node--peripheral graph-node--short">
-                <div class="graph-node__row">
-                  <div class="graph-node__icon graph-node__icon--slim">
-                    <img src="icons/slim.svg" alt="" />
-                  </div>
-                  <div class="graph-node__copy">
-                    <div class="graph-node__title graph-node__title--compact">SLIM Controller</div>
-                    <div class="graph-node__desc">Control Plane</div>
-                  </div>
-                </div>
-              </div>
-            </foreignObject>
-          </g>
-
           <g id="node_Agent_A" class="interactive-node" cursor="pointer">
-            <rect id="core_Agent_A" class="node-rect agent node-rect--sender" x="14" y="115" width="148" height="88" rx="12"/>
-            <foreignObject x="14" y="115" width="148" height="88">
+            <rect id="core_Agent_A" class="node-rect agent node-rect--sender" x="24" y="36" width="148" height="88" rx="12"/>
+            <foreignObject x="24" y="36" width="148" height="88">
               <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node">
                 <div class="graph-node__row">
                   <div class="graph-node__icon graph-node__icon--claude">
@@ -126,14 +92,13 @@
                     <div class="graph-node__desc">Sender Client</div>
                   </div>
                 </div>
-                <div class="graph-node__badge graph-node__badge--mls" id="badge_Agent_A">MLS: Inactive</div>
               </div>
             </foreignObject>
           </g>
 
           <g id="node_Agent_E" class="interactive-node" cursor="pointer">
-            <rect id="core_Agent_E" class="node-rect agent" x="14" y="215" width="148" height="88" rx="12"/>
-            <foreignObject x="14" y="215" width="148" height="88">
+            <rect id="core_Agent_E" class="node-rect agent" x="24" y="144" width="148" height="88" rx="12"/>
+            <foreignObject x="24" y="144" width="148" height="88">
               <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node">
                 <div class="graph-node__row">
                   <div class="graph-node__icon graph-node__icon--langchain">
@@ -144,14 +109,13 @@
                     <div class="graph-node__desc">Local Subscriber</div>
                   </div>
                 </div>
-                <div class="graph-node__badge graph-node__badge--mls" id="badge_Agent_E">MLS: Inactive</div>
               </div>
             </foreignObject>
           </g>
 
           <g id="node_Node1" class="interactive-node" cursor="pointer">
-            <rect id="core_Node1" class="node-rect router" x="225" y="155" width="160" height="90" rx="12"/>
-            <foreignObject x="225" y="155" width="160" height="90">
+            <rect id="core_Node1" class="node-rect router" x="228" y="144" width="160" height="90" rx="12"/>
+            <foreignObject x="228" y="144" width="160" height="90">
               <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node graph-node--hub">
                 <div class="graph-node__row">
                   <div class="graph-node__icon graph-node__icon--slim">
@@ -168,8 +132,8 @@
           </g>
 
           <g id="node_Node2" class="interactive-node" cursor="pointer">
-            <rect id="core_Node2" class="node-rect router node-rect--remote" x="436" y="155" width="160" height="90" rx="12"/>
-            <foreignObject x="436" y="155" width="160" height="90">
+            <rect id="core_Node2" class="node-rect router node-rect--remote" x="432" y="144" width="160" height="90" rx="12"/>
+            <foreignObject x="432" y="144" width="160" height="90">
               <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node graph-node--hub">
                 <div class="graph-node__row">
                   <div class="graph-node__icon graph-node__icon--slim">
@@ -186,8 +150,8 @@
           </g>
 
           <g id="node_Agent_B" class="interactive-node" cursor="pointer">
-            <rect id="core_Agent_B" class="node-rect agent" x="660" y="48" width="148" height="88" rx="12"/>
-            <foreignObject x="660" y="48" width="148" height="88">
+            <rect id="core_Agent_B" class="node-rect agent" x="636" y="36" width="148" height="88" rx="12"/>
+            <foreignObject x="636" y="36" width="148" height="88">
               <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node">
                 <div class="graph-node__row">
                   <div class="graph-node__icon graph-node__icon--crewai">
@@ -198,14 +162,13 @@
                     <div class="graph-node__desc">Subscriber Node</div>
                   </div>
                 </div>
-                <div class="graph-node__badge graph-node__badge--mls" id="badge_Agent_B">MLS: Inactive</div>
               </div>
             </foreignObject>
           </g>
 
           <g id="node_Agent_C" class="interactive-node" cursor="pointer">
-            <rect id="core_Agent_C" class="node-rect agent" x="660" y="156" width="148" height="88" rx="12"/>
-            <foreignObject x="660" y="156" width="148" height="88">
+            <rect id="core_Agent_C" class="node-rect agent" x="636" y="144" width="148" height="88" rx="12"/>
+            <foreignObject x="636" y="144" width="148" height="88">
               <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node">
                 <div class="graph-node__row">
                   <div class="graph-node__icon graph-node__icon--langgraph">
@@ -216,14 +179,13 @@
                     <div class="graph-node__desc">Subscriber Node</div>
                   </div>
                 </div>
-                <div class="graph-node__badge graph-node__badge--mls" id="badge_Agent_C">MLS: Inactive</div>
               </div>
             </foreignObject>
           </g>
 
           <g id="node_Agent_D" class="interactive-node" cursor="pointer" opacity="0.4">
-            <rect id="core_Agent_D" class="node-rect agent" x="660" y="264" width="148" height="88" rx="12"/>
-            <foreignObject x="660" y="264" width="148" height="88">
+            <rect id="core_Agent_D" class="node-rect agent" x="636" y="252" width="148" height="88" rx="12"/>
+            <foreignObject x="636" y="252" width="148" height="88">
               <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node">
                 <div class="graph-node__row">
                   <div class="graph-node__icon graph-node__icon--opencode">
@@ -234,21 +196,20 @@
                     <div class="graph-node__desc">Subscriber Node</div>
                   </div>
                 </div>
-                <div class="graph-node__badge graph-node__badge--mls" id="badge_Agent_D">MLS: Inactive</div>
               </div>
             </foreignObject>
           </g>
 
           <g id="node_MCP" class="interactive-node" cursor="pointer">
-            <rect id="core_MCP" class="node-rect node-rect--mcp node-rect--peripheral" x="123" y="311" width="148" height="64" rx="12"/>
-            <foreignObject x="123" y="311" width="148" height="64">
-              <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node graph-node--peripheral">
+            <rect id="core_MCP" class="node-rect node-rect--mcp" x="52" y="252" width="148" height="88" rx="12"/>
+            <foreignObject x="52" y="252" width="148" height="88">
+              <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node">
                 <div class="graph-node__row">
                   <div class="graph-node__icon graph-node__icon--mcp">
                     <img src="icons/mcp.svg" alt="" />
                   </div>
                   <div class="graph-node__copy">
-                    <div class="graph-node__title graph-node__title--compact">MCP Server</div>
+                    <div class="graph-node__title">MCP Server</div>
                     <div class="graph-node__desc">Model Context Protocol</div>
                     <div class="graph-node__desc" id="badge_MCP">Files &amp; Search</div>
                   </div>

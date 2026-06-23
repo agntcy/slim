@@ -281,6 +281,11 @@ header.main-header {
   color: #fff;
 }
 
+.journey-btn.active.j-p2p-mcp {
+  background: var(--color-teal);
+  color: #fff;
+}
+
 /* Arrow stepper (v3) */
 .arrow-stepper-wrap {
   position: relative;
@@ -452,6 +457,24 @@ header.main-header {
   color: var(--color-amber);
 }
 
+.arrow-stepper-wrap--p2p-mcp .arrow-step.active {
+  background: rgba(2, 120, 100, 0.12);
+  color: var(--color-teal);
+}
+
+[data-theme="dark"] .arrow-stepper-wrap--p2p-mcp .arrow-step.active {
+  background: rgba(45, 212, 191, 0.16);
+}
+
+.arrow-stepper-wrap--p2p-mcp .arrow-step.active .arrow-step__badge {
+  background: var(--color-teal);
+  color: #fff;
+}
+
+.arrow-stepper-wrap--p2p-mcp .arrow-step.active .arrow-step__title {
+  color: var(--color-teal);
+}
+
 @media screen and (max-width: 48em) {
   .graph-controls {
     flex-direction: column;
@@ -521,7 +544,7 @@ svg.visual-graph {
   display: block;
   width: min(100%, 940px);
   height: auto;
-  aspect-ratio: 826 / 396;
+  aspect-ratio: 812 / 340;
   font-family: var(--font-primary);
   color: var(--color-text-primary);
 }
