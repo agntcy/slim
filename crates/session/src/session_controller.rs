@@ -247,7 +247,7 @@ impl SessionController {
     async fn verify_and_check_replay<P, V, M>(
         msg: &Message,
         settings: &SessionSettings<P, V, M>,
-    ) -> Result<(), SessionError>
+    ) -> Result<bool, SessionError>
     where
         P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
         V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
@@ -274,7 +274,7 @@ impl SessionController {
             .await?;
 
         // 2. Replay check for signed control messages (keyed by session message_id).
-        if e2e_required && msg.get_session_message_type().is_command_message() {
+        if msg.get_session_message_type().is_command_message() {
             let sender = msg.get_source();
             let message_id = msg.get_session_header().get_message_id();
             if message_id == 0 {
@@ -285,10 +285,14 @@ impl SessionController {
             let mut seen = settings.seen_control_message_ids.lock();
             let seen = seen.entry(sender.clone()).or_default();
             if !seen.insert(message_id) {
-                return Err(SessionError::ControlMessageReplay { message_id });
+                if e2e_required {
+                    return Err(SessionError::ControlMessageReplay { message_id });
+                } else {
+                    return Ok(false);
+                }
             }
         }
-        Ok(())
+        Ok(true)
     }
 
     async fn processing_loop<P, V, M>(
@@ -318,10 +322,16 @@ impl SessionController {
                     // Finish any ongoing processing before starting drain
                     debug!("consuming pending messages before entering draining state");
                     while let Ok(msg) = rx.try_recv() {
-                        if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &msg
-                            && let Err(e) = Self::verify_and_check_replay(message, &settings).await {
-                                debug!(error = %e.chain(), "dropping inbound message during drain: verification or replay check failed");
-                                continue;
+                        if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &msg {
+                            let is_message_valid = Self::verify_and_check_replay(message, &settings).await;
+                            match is_message_valid {
+                                Err(e) => {
+                                    debug!(error = %e.chain(), "dropping inbound message during drain: verification or replay check failed");
+                                    continue;
+                                }
+                                Ok(valid) if !valid => continue,
+                                Ok(_) => {}
+                            }
                         }
                         match inner.on_message(msg).await {
                             Ok(output) => Self::dispatch_output(output, &settings).await,
@@ -361,15 +371,25 @@ impl SessionController {
                                 continue;
                             }
 
-                            if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &session_message
-                                && let Err(e) = Self::verify_and_check_replay(message, &settings).await {
-                                    debug!(
-                                        error = %e.chain(),
-                                        msg_type = %message.get_session_message_type().as_str_name(),
-                                        msg_id = %message.get_id(),
-                                        "dropping inbound message: verification or replay check failed",
-                                    );
-                                    continue;
+                            if let SessionMessage::OnMessage {
+                                message,
+                                direction: MessageDirection::North,
+                                ..
+                            } = &session_message
+                            {
+                                match Self::verify_and_check_replay(message, &settings).await {
+                                    Err(e) => {
+                                        debug!(
+                                            error = %e.chain(),
+                                            msg_type = %message.get_session_message_type().as_str_name(),
+                                            msg_id = %message.get_id(),
+                                            "dropping inbound message: verification or replay check failed",
+                                        );
+                                        continue;
+                                    }
+                                    Ok(valid) if !valid => continue,
+                                    Ok(_) => {}
+                                }
                             }
 
                             let draining = inner.processing_state() == ProcessingState::Draining;
