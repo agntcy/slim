@@ -1497,6 +1497,15 @@ impl ControllerService {
     }
 
     async fn handle_unsubscribe_message(&self, dst: ProtoName, clients: &[ClientConfig]) {
+        // Remove the subscription from our tracking map so the reconciler
+        // knows it needs to re-install it if the route is still desired.
+        // Without this, a reused conn_id would cause create_new_subscriptions
+        // to skip re-creation because it thinks the subscription is still active.
+        self.inner
+            .route_subscription_ids
+            .lock()
+            .retain(|(name, _), _| *name != dst);
+
         let mut unsub_vec = vec![];
 
         let cmd = v1::Route {

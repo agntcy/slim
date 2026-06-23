@@ -145,6 +145,35 @@ impl SqliteDb {
 
         Ok(Arc::new(Self { pool }))
     }
+
+    /// Set a route's status (and message) unless it has already been soft-deleted.
+    /// Returns Ok(()) even when the route is missing or deleted — both are acceptable
+    /// because a concurrent delete may have removed this route while the reconciler
+    /// was waiting for an ack.
+    async fn set_route_status(&self, route_id: &str, status: RouteStatus, msg: &str) -> Result<()> {
+        let ts = DbTimestamp::from(SystemTime::now());
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "set_route_status pool",
+            msg: e.to_string(),
+        })?;
+        diesel::update(
+            routes::table
+                .find(route_id)
+                .filter(routes::status.ne(RouteStatus::Deleted)),
+        )
+        .set((
+            routes::status.eq(status),
+            routes::status_msg.eq(msg),
+            routes::last_updated.eq(ts),
+        ))
+        .execute(&mut conn)
+        .await
+        .map_err(|e| Error::DbError {
+            context: "set_route_status",
+            msg: e.to_string(),
+        })?;
+        Ok(())
+    }
 }
 
 // ─── DataAccess impl ──────────────────────────────────────────────────────────
@@ -499,63 +528,13 @@ impl DataAccess for SqliteDb {
     }
 
     async fn mark_route_applied(&self, route_id: &str) -> Result<()> {
-        let ts = DbTimestamp::from(SystemTime::now());
-        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
-            context: "mark_route_applied pool",
-            msg: e.to_string(),
-        })?;
-        // Don't overwrite Deleted status — a concurrent delete may have removed
-        // this route while the reconciler was waiting for an ack.
-        let n = diesel::update(
-            routes::table
-                .find(route_id)
-                .filter(routes::status.ne(RouteStatus::Deleted)),
-        )
-        .set((
-            routes::status.eq(RouteStatus::Applied),
-            routes::status_msg.eq(""),
-            routes::last_updated.eq(ts),
-        ))
-        .execute(&mut conn)
-        .await
-        .map_err(|e| Error::DbError {
-            context: "mark_route_applied",
-            msg: e.to_string(),
-        })?;
-        if n == 0 {
-            // Route either not found or already deleted — both are acceptable.
-            return Ok(());
-        }
-        Ok(())
+        self.set_route_status(route_id, RouteStatus::Applied, "")
+            .await
     }
 
     async fn mark_route_failed(&self, route_id: &str, msg: &str) -> Result<()> {
-        let ts = DbTimestamp::from(SystemTime::now());
-        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
-            context: "mark_route_failed pool",
-            msg: e.to_string(),
-        })?;
-        let n = diesel::update(
-            routes::table
-                .find(route_id)
-                .filter(routes::status.ne(RouteStatus::Deleted)),
-        )
-        .set((
-            routes::status.eq(RouteStatus::Failed),
-            routes::status_msg.eq(msg),
-            routes::last_updated.eq(ts),
-        ))
-        .execute(&mut conn)
-        .await
-        .map_err(|e| Error::DbError {
-            context: "mark_route_failed",
-            msg: e.to_string(),
-        })?;
-        if n == 0 {
-            // Route either not found or already deleted — both are acceptable.
-            return Ok(());
-        }
-        Ok(())
+        self.set_route_status(route_id, RouteStatus::Failed, msg)
+            .await
     }
 
     async fn update_route_link_id(&self, route_id: &str, link_id: &str) -> Result<()> {

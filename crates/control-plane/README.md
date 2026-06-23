@@ -118,6 +118,50 @@ The topology is enforced during link creation.
 The SPT routing algorithm uses the topology graph to compute
 shortest paths for route expansion across non-adjacent groups.
 
+#### Segments (route isolation)
+
+Segments partition the network into independent routing domains.
+Agents registered in one segment are **invisible** to agents in other
+segments — routes are only expanded within the segment's topology graph.
+
+Each segment has its own `links` adjacency list. The special token
+`$group` expands to every registered group, enabling template-style
+configs that create a per-group segment dynamically.
+
+**Per-group isolation** (each customer reaches cloud but not other customers):
+
+```yaml
+topology:
+  segments:
+    - name: segment-$group
+      links:
+        - name: cloud
+          neighbors: [$group]
+```
+
+This creates a segment per group (e.g. `segment-customer-a`,
+`segment-customer-b`) where each customer only links to the `cloud`
+group. Agents in `customer-a` can communicate with agents in `cloud`
+and vice versa, but `customer-a` cannot see `customer-b`.
+
+**Named segments** (explicit multi-tenant isolation):
+
+```yaml
+topology:
+  segments:
+    - name: tenant-1
+      links:
+        - name: cloud
+          neighbors: [customer-a]
+    - name: tenant-2
+      links:
+        - name: cloud
+          neighbors: [customer-b, customer-c]
+```
+
+When segments are defined, the top-level `topology.links` section is
+ignored — segments fully control both link creation and route expansion.
+
 ### Architecture
 
 ```mermaid
@@ -611,6 +655,12 @@ topology:
     - name: cloud
       neighbors: ["*"]  # star: cloud connects to all groups
     # Omit topology section or use `topology: {}` for full mesh.
+  # Optional: segments for route isolation (see Topology section above)
+  # segments:
+  #   - name: segment-$group
+  #     links:
+  #       - name: cloud
+  #         neighbors: [$group]
 
 reconciler:
   # Max retry attempts per item before dropping (re-enqueued on next sweep).

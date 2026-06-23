@@ -125,7 +125,6 @@ async fn stop_control_plane(tcp: TestControlPlane) {
     tcp.cp.shutdown().await;
 }
 
-#[allow(dead_code)]
 fn star_topology_config(hub_group: &str) -> TopologyConfig {
     TopologyConfig::Links(vec![AdjacencyEntry {
         name: hub_group.to_string(),
