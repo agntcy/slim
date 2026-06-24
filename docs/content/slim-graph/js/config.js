@@ -22,7 +22,7 @@ const NODE_METADATA = {
   },
   'node_Node1': {
     title: 'SLIM Node 1 (Local Data Plane)',
-    desc: 'Lightweight local gRPC router node. Establishes connection links, manages local client subscription tables, and forwards multi-hop messages over remote connection tunnels.'
+    desc: 'A local SLIM Data Plane Node. Establishes an outbound connection to the Cloud data plane.'
   },
   'node_Node2': {
     title: 'SLIM Node 2 (Cloud Data Plane)',
