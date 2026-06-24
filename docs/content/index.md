@@ -166,8 +166,8 @@ hide:
       <div class="slimctl-terminal-side">
         <div class="slimctl-terminal-intro-group" id="slimctl-terminal-intros">
           <p class="slimctl-terminal-intro" data-intro-level="node" hidden>
-            Start a local node, inspect connections, and add routes with slimctl. See the
-            <a href="slim/slim-howto.md">Quickstart guide</a> for installation.
+            Start a local node using the slimctl CLI. For other installation options see
+            <a href="slim/slim-howto/#slim-node)">SLIM Node</a>
           </p>
           <p class="slimctl-terminal-intro" data-intro-level="message">
             Use the SLIM language bindings to connect and send messages over SLIM. <Link to documentation about the bindings or https://github.com/agntcy/slim-bindings> 
