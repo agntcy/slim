@@ -60,7 +60,7 @@ function resetScenarioVisuals(name) {
 
   const ACTIVE_NODES_BY_SCENARIO = {
     p2p: ['node_Agent_A', 'node_Agent_B', 'node_Node1', 'node_Node2'],
-    'p2p-mcp': ['node_Agent_A', 'node_MCP', 'node_Node1'],
+    'p2p-mcp': ['node_Agent_B', 'node_MCP', 'node_Node1', 'node_Node2'],
     multicast: ['node_Agent_A', 'node_Agent_B', 'node_Agent_C', 'node_Agent_D', 'node_Node1', 'node_Node2']
   };
 
@@ -74,8 +74,6 @@ function resetScenarioVisuals(name) {
   });
 
   updateBadge('MCP', 'Files & Search');
-  updateBadge('Node1', 'Active (3)');
-  updateBadge('Node2', 'Active (4)');
 }
 
 function formatStepDesc(text) {
@@ -527,7 +525,48 @@ function startScenario(name) {
   reportEmbedHeight();
 }
 
+function applyNodeDisplay() {
+  if (typeof NODE_DISPLAY === 'undefined') return;
+
+  Object.entries(NODE_DISPLAY).forEach(([nodeId, display]) => {
+    const node = document.getElementById(nodeId);
+    if (!node) return;
+
+    const titleEl = node.querySelector('.graph-node__title');
+    const descEl = node.querySelector('.graph-node__desc:not([id])');
+    if (titleEl && display.title) {
+      titleEl.textContent = display.title;
+    }
+    if (descEl && display.subtitle) {
+      descEl.textContent = display.subtitle;
+    }
+  });
+}
+
+function applyJourneyLabels() {
+  if (typeof JOURNEY_LABELS === 'undefined') return;
+
+  document.querySelectorAll('.journey-btn').forEach((btn) => {
+    const journey = btn.dataset.journey;
+    const config = JOURNEY_LABELS[journey];
+    if (!config) return;
+
+    const label = btn.querySelector('span');
+    if (label) {
+      label.textContent = config.label;
+    }
+
+    const icon = btn.querySelector('i');
+    if (icon && config.icon) {
+      icon.className = `fa-solid ${config.icon}`;
+    }
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  applyNodeDisplay();
+  applyJourneyLabels();
+
   document.querySelectorAll('.interactive-node').forEach(node => {
     node.addEventListener('mouseenter', (e) => {
       const nodeId = e.currentTarget.id;

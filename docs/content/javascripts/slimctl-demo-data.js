@@ -12,102 +12,95 @@ window.SlimctlDemoData = {
         "INFO slim-controller: controller API on 0.0.0.0:46358",
     },
     { type: "pause", ms: 1400 },
-    {
-      type: "command",
-      text: "slimctl node connection list --server=127.0.0.1:46358",
-    },
+    { type: "command", text: "slimctl controller node list" },
     {
       type: "output",
       text:
-        "CONNECTION   PEER ENDPOINT              STATE\n" +
-        "conn/1       127.0.0.1:46357 (local)    ACTIVE\n" +
-        "conn/2       10.0.1.12:46357 (peer)     ACTIVE",
+        "2 node(s) found\n" +
+        "Node ID: slim/b status: CONNECTED\n" +
+        "  Connection details:\n" +
+        "  - Endpoint: 127.0.0.1:46457\n" +
+        "Node ID: slim/a status: CONNECTED\n" +
+        "  Connection details:\n" +
+        "  - Endpoint: 127.0.0.1:46357",
     },
     { type: "pause", ms: 1400 },
     {
       type: "command",
       text:
-        "slimctl node route add agntcy/demo/chat/agent-b via peer-node.json --server=127.0.0.1:46358",
+        "slimctl controller route add org/default/alice/0 via slim/b --node-id slim/a",
     },
-    { type: "output", text: "Route added: agntcy/demo/chat/agent-b → 10.0.1.12:46357" },
+    { type: "output", text: "Route added: org/default/alice/0 → slim/b" },
     { type: "pause", ms: 1400 },
     {
       type: "command",
-      text: "slimctl node route list --server=127.0.0.1:46358",
+      text: "slimctl controller route del org/default/alice/0 via slim/b --node-id slim/a",
     },
-    {
-      type: "output",
-      text:
-        "NAME                         NEXT HOP\n" +
-        "agntcy/demo/chat/agent-a     slim/0 (local)\n" +
-        "agntcy/demo/chat/agent-b     10.0.1.12:46357\n" +
-        "agntcy/demo/chat             slim/0 (multicast)",
-    },
+    { type: "output", text: "Route deleted: org/default/alice/0" },
     { type: "pause", ms: 4000 },
   ],
 
   messageDemoScript: [
+    { type: "python", text: "import slim_bindings" },
+    { type: "pause", ms: 800 },
     {
-      type: "user",
-      text: "Two agents share a channel on a local SLIM node.",
+      type: "python",
+      text: 'slim_bindings.connect("http://127.0.0.1:46357")',
     },
-    { type: "pause", ms: 1200 },
-    { type: "command", text: "slimctl slim start" },
-    {
-      type: "output",
-      text: "SLIM node slim/0 ready · dataplane :46357 · controller :46358",
-    },
-    { type: "pause", ms: 1200 },
-    {
-      type: "tool",
-      text: "agent-a.subscribe(agntcy/demo/chat/agent-a)",
-    },
-    { type: "output", text: "Subscribed · MLS group epoch=1" },
     { type: "pause", ms: 1000 },
     {
-      type: "tool",
-      text: "agent-b.subscribe(agntcy/demo/chat/agent-b)",
-    },
-    { type: "output", text: "Subscribed · MLS group epoch=1" },
-    { type: "pause", ms: 1200 },
-    {
-      type: "user",
-      text: "Agent A publishes to the shared channel.",
+      type: "python",
+      text: 'agent_a = slim_bindings.create_app("agntcy/demo/agent-a")',
     },
     { type: "pause", ms: 900 },
     {
-      type: "tool",
-      text: 'publish("Hello from Agent A") → agntcy/demo/chat',
+      type: "python",
+      text: 'agent_b = slim_bindings.create_app("agntcy/demo/agent-b")',
     },
+    { type: "pause", ms: 1000 },
+    {
+      type: "python",
+      text:
+        'session_a = agent_a.create_session(session_type=POINT_TO_POINT, "agntcy/demo/agent-b")',
+    },
+    { type: "pause", ms: 1100 },
+    { type: "python", text: "session_b = agent_b.listen_for_session()" },
+    { type: "pause", ms: 900 },
+    {
+      type: "python",
+      text: 'session_a.publish("Hello from Agent A")',
+    },
+    { type: "pause", ms: 1000 },
+    {
+      type: "output",
+      text: '>>> print(session_b.get_message().payload)\n"Hello from Agent A"',
+    },
+    { type: "pause", ms: 1100 },
+    {
+      type: "python",
+      text: 'session_b.publish("Nice to meet you, I\'m Agent B")',
+    },
+    { type: "pause", ms: 1000 },
     {
       type: "output",
       text:
-        "INFO slim_dataplane::datapath received publication\n" +
-        "INFO slim_dataplane::datapath forwarding message to connection",
-    },
-    { type: "pause", ms: 1200 },
-    {
-      type: "tool",
-      text: "agent-b.on_message(agntcy/demo/chat)",
-    },
-    {
-      type: "output",
-      text: "Hello from Agent A  · end-to-end encrypted (MLS)",
+        '>>> print(session_a.get_message().payload)\n"Nice to meet you, I\'m Agent B"',
     },
     { type: "pause", ms: 4000 },
   ],
 
   demoTitles: {
     node: "user@slim:~",
-    message: "user@slim:~",
+    message: "python",
   },
 
   helpText:
-    "Try these commands:\n" +
-    "  slimctl help\n" +
+    "Explore the CLI:\n" +
+    "  slimctl --help\n" +
+    "  slimctl slim --help\n" +
     "  slimctl slim start\n" +
-    "  slimctl node connection list --server=127.0.0.1:46358\n" +
-    "  slimctl node route list --server=127.0.0.1:46358\n" +
+    "  slimctl controller node list\n" +
+    "  slimctl controller route list --node-id slim/a\n" +
     "  help | clear",
 
   slimctlHelp:
@@ -116,9 +109,33 @@ window.SlimctlDemoData = {
     "  slimctl [OPTIONS] <COMMAND>\n\n" +
     "Available Commands:\n" +
     "  slim        Manage SLIM data plane instances\n" +
+    "  controller  Manage SLIM nodes via the control plane\n" +
     "  node        Manage a SLIM node directly\n" +
     "  config      Manage slimctl configuration\n" +
     "  help        Help about any command",
+
+  slimSlimHelp:
+    "Manage SLIM data plane instances\n\n" +
+    "Usage:\n" +
+    "  slimctl slim [command]\n\n" +
+    "Available Commands:\n" +
+    "  start       Start a local SLIM data plane node\n" +
+    "  stop        Stop a running SLIM data plane node\n" +
+    "  status      Show data plane status",
+
+  controllerNodeList:
+    "2 node(s) found\n" +
+    "Node ID: slim/b status: CONNECTED\n" +
+    "  Connection details:\n" +
+    "  - Endpoint: 127.0.0.1:46457\n" +
+    "Node ID: slim/a status: CONNECTED\n" +
+    "  Connection details:\n" +
+    "  - Endpoint: 127.0.0.1:46357",
+
+  controllerRouteList:
+    "NAME                         NEXT HOP\n" +
+    "org/default/alice/0          slim/b\n" +
+    "org/default/bob/0            slim/a (local)",
 
   nodeConnectionList:
     "CONNECTION   PEER ENDPOINT              STATE\n" +

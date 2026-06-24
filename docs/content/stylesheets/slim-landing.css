@@ -72,6 +72,8 @@ body:has(.slim-landing) .md-tabs__item--active .md-tabs__link {
 .md-typeset .slim-howto,
 .slim-quickstart {
   margin: 0 auto 3.5rem;
+  max-width: 72rem;
+  padding: 0 1rem;
 }
 
 .slim-howto {
@@ -83,6 +85,18 @@ body:has(.slim-landing) .md-tabs__item--active .md-tabs__link {
   max-width: 73.75rem;
   margin: 0 auto 3.5rem;
   padding: 0 1rem;
+}
+
+body:has(.slim-landing) .md-footer__inner {
+  display: none;
+}
+
+body:has(.slim-landing) .md-footer-meta {
+  padding-bottom: 1.75rem;
+}
+
+body:has(.slim-landing) .md-main__inner {
+  margin-bottom: 1.5rem;
 }
 
 .md-typeset .slim-howto .slim-section-title,

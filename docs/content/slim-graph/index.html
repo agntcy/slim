@@ -29,15 +29,15 @@
         <div class="journey-pills" role="tablist" aria-label="Message journey">
           <button class="journey-btn active j-p2p" data-journey="p2p" role="tab" aria-selected="true">
             <i class="fa-solid fa-message" aria-hidden="true"></i>
-            <span>Point-to-Point Message</span>
+            <span>Point-to-Point Messaging (A2A)</span>
           </button>
           <button class="journey-btn j-p2p-mcp" data-journey="p2p-mcp" role="tab" aria-selected="false">
             <i class="fa-solid fa-plug" aria-hidden="true"></i>
-            <span>Point-to-Point MCP</span>
+            <span>Point-to-Point Messaging (MCP)</span>
           </button>
           <button class="journey-btn j-multicast" data-journey="multicast" role="tab" aria-selected="false">
             <i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
-            <span>Multicast Message</span>
+            <span>Multicast Messaging (A2A)</span>
           </button>
         </div>
         <div class="graph-controls-actions">
@@ -70,7 +70,7 @@
           <path id="path_Node2_to_B" class="connection-path" d="M 592 189 C 610 148, 620 104, 636 80"/>
           <path id="path_Node2_to_C" class="connection-path" d="M 592 188 L 636 188"/>
           <path id="path_Node2_to_D" class="connection-path" d="M 592 189 C 610 232, 620 272, 636 296"/>
-          <path id="path_Node1_to_MCP" class="connection-path" d="M 252 234 C 228 248, 210 268, 200 296"/>
+          <path id="path_Node1_to_MCP" class="connection-path" d="M 308 234 C 280 260, 200 272, 126 252"/>
         </g>
 
         <!-- Dynamic Particles Container -->
@@ -88,8 +88,8 @@
                     <img src="icons/claude.svg" alt="" />
                   </div>
                   <div class="graph-node__copy">
-                    <div class="graph-node__title">Agent A</div>
-                    <div class="graph-node__desc">Sender Client</div>
+                    <div class="graph-node__title">CLI/IDE Agent</div>
+                    <div class="graph-node__desc">Local coding agent</div>
                   </div>
                 </div>
               </div>
@@ -105,8 +105,8 @@
                     <img src="icons/langchain.svg" alt="" />
                   </div>
                   <div class="graph-node__copy">
-                    <div class="graph-node__title">Agent E</div>
-                    <div class="graph-node__desc">Local Subscriber</div>
+                    <div class="graph-node__title">AI Agent A</div>
+                    <div class="graph-node__desc">A2A agent</div>
                   </div>
                 </div>
               </div>
@@ -126,7 +126,6 @@
                     <div class="graph-node__desc">Local Data Plane</div>
                   </div>
                 </div>
-                <div class="graph-node__badge graph-node__badge--hub" id="badge_Node1">Active (3)</div>
               </div>
             </foreignObject>
           </g>
@@ -141,10 +140,9 @@
                   </div>
                   <div class="graph-node__copy">
                     <div class="graph-node__title graph-node__title--hub">SLIM Node 2</div>
-                    <div class="graph-node__desc">Remote Data Plane</div>
+                    <div class="graph-node__desc">Cloud Data Plane</div>
                   </div>
                 </div>
-                <div class="graph-node__badge graph-node__badge--hub" id="badge_Node2">Active (4)</div>
               </div>
             </foreignObject>
           </g>
@@ -158,8 +156,8 @@
                     <img src="icons/crewai.svg" alt="" />
                   </div>
                   <div class="graph-node__copy">
-                    <div class="graph-node__title">Agent B</div>
-                    <div class="graph-node__desc">Subscriber Node</div>
+                    <div class="graph-node__title">AI Agent B</div>
+                    <div class="graph-node__desc">A2A agent</div>
                   </div>
                 </div>
               </div>
@@ -175,8 +173,8 @@
                     <img src="icons/langgraph.svg" alt="" />
                   </div>
                   <div class="graph-node__copy">
-                    <div class="graph-node__title">Agent C</div>
-                    <div class="graph-node__desc">Subscriber Node</div>
+                    <div class="graph-node__title">AI Agent C</div>
+                    <div class="graph-node__desc">A2A agent</div>
                   </div>
                 </div>
               </div>
@@ -192,8 +190,8 @@
                     <img src="icons/opencode.svg" alt="" />
                   </div>
                   <div class="graph-node__copy">
-                    <div class="graph-node__title">Agent D</div>
-                    <div class="graph-node__desc">Subscriber Node</div>
+                    <div class="graph-node__title">AI Agent D</div>
+                    <div class="graph-node__desc">A2A agent</div>
                   </div>
                 </div>
               </div>

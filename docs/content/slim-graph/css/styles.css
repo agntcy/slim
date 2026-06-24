@@ -755,7 +755,7 @@ html[data-embedded="true"] .arrow-stepper-wrap {
 .node-rect.router.route-active,
 .node-rect.router.node-rect--remote.route-active {
   fill: var(--color-blue);
-  stroke: var(--color-blue);
+  stroke: var(--color-amber);
 }
 
 .node-rect.router.route-active ~ foreignObject .graph-node__title,
@@ -766,7 +766,7 @@ html[data-embedded="true"] .arrow-stepper-wrap {
 }
 
 .node-rect.router.node-rect--remote {
-  stroke: var(--color-blue);
+  stroke: var(--color-amber);
 }
 
 .node-rect.controller {

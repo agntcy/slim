@@ -167,20 +167,23 @@ hide:
         <div class="slimctl-terminal-intro-group" id="slimctl-terminal-intros">
           <p class="slimctl-terminal-intro" data-intro-level="node" hidden>
             Start a local node using the slimctl CLI. For other installation options see
-            <a href="slim/slim-howto/#slim-node)">SLIM Node</a>
+            <a href="slim/slim-howto/#slim-node">SLIM Node</a>.
           </p>
           <p class="slimctl-terminal-intro" data-intro-level="message">
-            Use the SLIM language bindings to connect and send messages over SLIM. <Link to documentation about the bindings or https://github.com/agntcy/slim-bindings> 
+            Use the SLIM language bindings to connect and send messages over SLIM.
+            See the <a href="https://github.com/agntcy/slim-bindings">slim-bindings</a>
+            repository and the
+            <a href="slim/slim-howto.md#install-the-slim-bindings">installation guide</a>.
           </p>
           <p class="slimctl-terminal-intro" data-intro-level="try" hidden>
             Use <code>slimctl --help</code> to explore commands. See the
-            <a href="slim/slim-controller.md">SLIM Controller</a> docs for the full CLI reference.
+            <a href="slim/slim-controller-reference.md">SLIM Controller</a> docs for the full CLI reference.
           </p>
         </div>
         <div class="slimctl-terminal-actions">
           <button type="button" class="slimctl-terminal-btn is-active" data-demo-level="message">Send a Message</button>
           <button type="button" class="slimctl-terminal-btn" data-demo-level="node">Start Node</button>
-          <button type="button" class="slimctl-terminal-btn" data-mode-switch="try">Try It Yourself</button>
+          <button type="button" class="slimctl-terminal-btn" data-mode-switch="try">Explore the CLI</button>
         </div>
       </div>
     </div>
@@ -191,21 +194,21 @@ hide:
 
 <section class="slim-get-started" markdown="1">
 
-## Get Started With SLIM {.slim-section-title}
+## Explore SLIM {.slim-section-title}
 
 <div class="grid cards" markdown="1">
-
-- :material-rocket-launch:{ .lg .middle } **Get Started**
-
-    Run a SLIM node and send your first messages in minutes.
-
-    [:octicons-arrow-right-24: Getting Started](slim/slim-howto.md)
 
 - :material-book-open:{ .lg .middle } **Read the Introduction**
 
     Understand core concepts, the messaging layer, and the controller.
 
     [:octicons-arrow-right-24: Overview](slim/slim-overview.md)
+
+- :material-rocket-launch:{ .lg .middle } **Get Started**
+
+    Run a SLIM node and send your first messages in minutes.
+
+    [:octicons-arrow-right-24: Getting Started](slim/slim-howto.md)
 
 - :material-file-document-outline:{ .lg .middle } **Dive into the Specification**
 
@@ -219,36 +222,23 @@ hide:
 
     [:octicons-arrow-right-24: Integrations](slim/slim-integrations.md)
 
-- :material-cog:{ .lg .middle } **Configure**
+- :material-cog:{ .lg .middle } **Data Plane Config Reference**
 
     Tune the data plane for your environment.
 
     [:octicons-arrow-right-24: Configuration Reference](slim/slim-data-plane-config.md)
 
-- :material-text-box-outline:{ .lg .middle } **Reference**
+- :material-text-box-outline:{ .lg .middle } **Controller Config Reference**
 
     Controller API and configuration details.
 
-    [:octicons-arrow-right-24: Controller Reference](slim/slim-controller-reference.md)
-
-- :fontawesome-brands-github:{ .lg .middle } **Source Code**
-
-    Reference implementation and related repositories.
-
-    [:octicons-arrow-right-24: github.com/agntcy/slim](https://github.com/agntcy/slim)
+    [:octicons-arrow-right-24: Controller Reference](slim/slim-controller.md#controller-configuration)
 
 - :material-account-group:{ .lg .middle } **Join the Community**
 
     Connect with maintainers and contributors across the AGNTCY project.
 
-    [:octicons-arrow-right-24: SLIM Community](community.md)
-
-- :material-newspaper-variant-outline:{ .lg .middle } **Linux Foundation Press Release**
-
-    Read how the Linux Foundation welcomed the AGNTCY project to standardize open
-    multi-agent system infrastructure and break down AI agent silos.
-
-    [:octicons-arrow-right-24: LF press release](https://www.linuxfoundation.org/press/linux-foundation-welcomes-the-agntcy-project-to-standardize-open-multi-agent-system-infrastructure-and-break-down-ai-agent-silos)
+    [:octicons-arrow-right-24: SLIM Community](community.md#repositories)
 
 </div>
 

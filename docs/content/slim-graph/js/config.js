@@ -1,24 +1,27 @@
+const AI_AGENT_DESC =
+  'An AI Agent exposed through A2A (Langchain, CrewAI, ADK) which communicates with other A2A Agents and MCP tools';
+
 // Node details for mouse over tooltips
 const NODE_METADATA = {
   'node_Agent_A': {
-    title: 'App Node (Agent A - Sender Client)',
-    desc: 'Initiating client application. Establishes multiplexed gRPC/HTTP2 channels to its local broker (SLIM Node 1) and utilizes MLS session layers for payload encryption.'
+    title: 'CLI/IDE Agent',
+    desc: 'A local coding Agent which wants to access MCP tools and remote Agents'
   },
   'node_Agent_E': {
-    title: 'App Node (Agent E - Local Subscriber)',
-    desc: 'A local subscriber client connected to SLIM Node 1. Demonstrates low-latency local area routing resolved instantly via the broker\'s local subscription tables.'
+    title: 'AI Agent A',
+    desc: AI_AGENT_DESC
   },
   'node_Agent_B': {
-    title: 'App Node (Agent B - Subscriber / Server)',
-    desc: 'Recipient subscriber node. Handles incoming messages, acts as a subscriber to chat topics, and executes RPC stubs over SLIMRPC (SRPC) protocol bindings.'
+    title: 'AI Agent B',
+    desc: AI_AGENT_DESC
   },
   'node_Agent_C': {
-    title: 'App Node (Agent C - Subscriber)',
-    desc: 'Remote subscriber client connected to SLIM Node 2. Subscribes dynamically to message channels to receive replicated multicast streams.'
+    title: 'AI Agent C',
+    desc: AI_AGENT_DESC
   },
   'node_Agent_D': {
-    title: 'App Node (Agent D - Joiner)',
-    desc: 'Subscriber client node. Demonstrates dynamic group membership updates by receiving MLS Commit and Welcome packages to securely join active sessions.'
+    title: 'AI Agent D',
+    desc: AI_AGENT_DESC
   },
   'node_Node1': {
     title: 'SLIM Node 1 (Local Data Plane)',
@@ -33,7 +36,25 @@ const NODE_METADATA = {
     desc: 'Model Context Protocol server, receives tool invocation request payloads routed securely over SLIM and returns the executed search or file data.'
   }
 };
-const VALID_COMPONENTS = ['system', 'agent a', 'agent b', 'agent c', 'agent d', 'agent e', 'slim node 1', 'slim node 2', 'mcp server'];
+
+const JOURNEY_LABELS = {
+  p2p: { label: 'Point-to-Point Messaging (A2A)', icon: 'fa-message' },
+  'p2p-mcp': { label: 'Point-to-Point Messaging (MCP)', icon: 'fa-plug' },
+  multicast: { label: 'Multicast Messaging (A2A)', icon: 'fa-share-nodes' },
+};
+
+const NODE_DISPLAY = {
+  node_Agent_A: { title: 'CLI/IDE Agent', subtitle: 'Local coding agent', icon: 'claude' },
+  node_Agent_E: { title: 'AI Agent A', subtitle: 'A2A agent', icon: 'langchain' },
+  node_Agent_B: { title: 'AI Agent B', subtitle: 'A2A agent', icon: 'crewai' },
+  node_Agent_C: { title: 'AI Agent C', subtitle: 'A2A agent', icon: 'langgraph' },
+  node_Agent_D: { title: 'AI Agent D', subtitle: 'A2A agent', icon: 'opencode' },
+  node_Node1: { title: 'SLIM Node 1', subtitle: 'Local Data Plane', icon: 'slim' },
+  node_Node2: { title: 'SLIM Node 2', subtitle: 'Cloud Data Plane', icon: 'slim' },
+  node_MCP: { title: 'MCP Server', subtitle: 'Model Context Protocol', icon: 'mcp' },
+};
+
+const VALID_COMPONENTS = ['system', 'cli/ide agent', 'ai agent a', 'ai agent b', 'ai agent c', 'ai agent d', 'slim node 1', 'slim node 2', 'mcp server'];
 const VALID_LEVELS = ['info', 'debug', 'warning', 'error', 'success', 'trace'];
 
 // Whitelist of authentic log message patterns derived from the actual SLIM codebase
@@ -96,6 +117,8 @@ const EDGE_PATH_MAP = {
   'slimNode2-agentB': 'path_Node2_to_B',
   'slimNode2-agentC': 'path_Node2_to_C',
   'slimNode2-agentD': 'path_Node2_to_D',
+  'agentB-slimNode2': 'path_Node2_to_B',
+  'slimNode2-slimNode1': 'path_Node1_to_Node2',
 };
 
 // Architectural Scenarios & Step Definitions
@@ -106,7 +129,7 @@ const SCENARIOS = {
       title: "Publish P2P Message",
       shortTitle: "Publish",
       activeEdges: ['agentA-slimNode1'],
-      desc: "Agent A publishes a Point-to-Point message targeting Agent B (<code>agntcy/ns/AgentB</code>). The payload is pushed to the local **SLIM Node 1** over an HTTP/2 gRPC channel.",
+      desc: "Agent A publishes a Point-to-Point message targeting Agent B (<code>agntcy/ns/AgentB</code>). The payload is pushed to **SLIM Node 1**",
       action: () => {
         logToTerminal('Agent A', 'info', 'slim_dataplane::service', 'Sending message');
         
@@ -171,13 +194,40 @@ const SCENARIOS = {
   // Use Case 2: Multicast Message
   multicast: [
     {
+      title: "Create Channel",
+      shortTitle: "Create",
+      activeEdges: ['agentA-slimNode1'],
+      desc: "Agent A creates channel <code>agntcy/ns/chat</code>, establishing routes in **SLIM Node 1** for local and remote fanout.",
+      action: () => {
+        flashNode('core_Agent_A', 'flash-amber');
+        logToTerminal('Agent A', 'info', 'slim_dataplane::service', 'publish');
+        logToTerminal('SLIM Node 1', 'debug', 'slim_dataplane::datapath', 'received publication');
+        setSimulationTimeout(() => triggerNextStep(), 900);
+      }
+    },
+    {
+      title: "Invite Channel Members",
+      shortTitle: "Invite",
+      activeEdges: ['agentA-slimNode1', 'slimNode1-slimNode2', 'slimNode2-agentB', 'slimNode2-agentC'],
+      desc: "Agent A invites Agent B (remote) and Agent C (remote) to the channel. Discovery and invite acknowledgments flow through **SLIM Node 1** and **SLIM Node 2**.",
+      action: () => {
+        flashNode('core_Node1', 'flash-amber');
+        flashNode('core_Node2', 'flash-orange');
+        logToTerminal('Agent A', 'info', 'slim_dataplane::service', 'Adding member to the MLS group');
+        logToTerminal('SLIM Node 1', 'debug', 'slim_dataplane::datapath', 'forwarding message to connection');
+        logToTerminal('Agent B', 'debug', 'slim_dataplane::session::subscription_manager', 'received ack message');
+        logToTerminal('Agent C', 'debug', 'slim_dataplane::session::subscription_manager', 'received ack message');
+        setSimulationTimeout(() => triggerNextStep(), 1100);
+      }
+    },
+    {
       title: "Publish Multicast Payload",
       shortTitle: "Publish",
       activeEdges: ['agentA-slimNode1'],
-      desc: "Agent A publishes a multicast payload to channel <code>agntcy/ns/chat</code>. The message is pushed to the local **SLIM Node 1** over HTTP/2.",
+      desc: "Agent A publishes a multicast payload to <code>agntcy/ns/chat</code>. The message is pushed to the local **SLIM Node 1**.",
       action: () => {
         logToTerminal('Agent A', 'info', 'slim_dataplane::service', 'publish');
-        
+
         spawn2DParticle('path_A_to_Node1', 'var(--color-amber)', 6, 0.02, 'dot', () => {
           triggerNextStep();
         });
@@ -202,7 +252,7 @@ const SCENARIOS = {
       title: "Cloud Multicast Fanout",
       shortTitle: "Fanout",
       activeEdges: ['agentA-slimNode1', 'slimNode1-slimNode2', 'slimNode2-agentB', 'slimNode2-agentC', 'slimNode2-agentD'],
-      desc: "The cloud **SLIM Node 2** receives the envelope. It matches the channel name against its routing table, replicates the packet, and streams it to all active subscribers (Agent B, Agent C, Agent D).",
+      desc: "The cloud **SLIM Node 2** receives the envelope. It matches the channel name against its routing table, replicates the packet to active subscribers (Agent B, Agent C, Agent D).",
       action: () => {
         flashNode('core_Node2', 'flash-orange');
         logToTerminal('SLIM Node 2', 'debug', 'slim_dataplane::datapath', 'received publication');
@@ -270,26 +320,41 @@ const SCENARIOS = {
     }
   ],
 
-  // Use Case 3: Point-to-Point MCP tool invocation (local route)
+  // Use Case 3: Cloud agent invoking on-prem MCP server
   'p2p-mcp': [
     {
       title: "Publish MCP Tool Request",
       shortTitle: "Publish",
-      activeEdges: ['agentA-slimNode1'],
-      desc: "Agent A sends a point-to-point MCP tool invocation targeting <code>agntcy/demo/mcp-tools</code>. The request is published to the local **SLIM Node 1** over HTTP/2.",
+      activeEdges: ['slimNode2-agentB'],
+      desc: "Cloud **AI Agent B** sends a point-to-point MCP tool invocation targeting <code>agntcy/demo/mcp-tools</code> on the on-prem **SLIM Node 1**.",
       action: () => {
-        logToTerminal('Agent A', 'info', 'slim_dataplane::service', 'Sending message');
+        logToTerminal('Agent B', 'info', 'slim_dataplane::service', 'Sending message');
 
-        spawn2DParticle('path_A_to_Node1', 'var(--color-teal)', 6, 0.02, 'dot', () => {
+        spawn2DParticle('path_Node2_to_B', 'var(--color-teal)', 6, 0.02, 'dot', () => {
           triggerNextStep();
-        });
+        }, true);
       }
     },
     {
-      title: "Local Route to MCP Server",
+      title: "Cloud to On-Prem Forwarding",
+      shortTitle: "Forward",
+      activeEdges: ['slimNode2-agentB', 'slimNode2-slimNode1'],
+      desc: "The cloud **SLIM Node 2** receives the envelope and forwards it inbound to the on-prem **SLIM Node 1** over the established data-plane connection.",
+      action: () => {
+        flashNode('core_Node2', 'flash-teal');
+        logToTerminal('SLIM Node 2', 'debug', 'slim_dataplane::datapath', 'received publication');
+        logToTerminal('SLIM Node 2', 'debug', 'slim_dataplane::datapath', 'forwarding message to connection');
+
+        spawn2DParticle('path_Node1_to_Node2', 'var(--color-teal)', 6, 0.02, 'dot', () => {
+          triggerNextStep();
+        }, true);
+      }
+    },
+    {
+      title: "On-Prem Route to MCP Server",
       shortTitle: "Route",
-      activeEdges: ['agentA-slimNode1', 'slimNode1-mcpServer'],
-      desc: "The local **SLIM Node 1** matches the destination name against its routing table and forwards the envelope to the co-located **MCP Server**—no cloud hop required.",
+      activeEdges: ['slimNode2-agentB', 'slimNode2-slimNode1', 'slimNode1-mcpServer'],
+      desc: "The on-prem **SLIM Node 1** matches the destination name against its routing table and forwards the envelope to the co-located **MCP Server**.",
       action: () => {
         flashNode('core_Node1', 'flash-teal');
         logToTerminal('SLIM Node 1', 'debug', 'slim_dataplane::datapath', 'received publication');
@@ -303,8 +368,8 @@ const SCENARIOS = {
     {
       title: "MCP Tool Execution",
       shortTitle: "Execute",
-      activeEdges: ['agentA-slimNode1', 'slimNode1-mcpServer'],
-      desc: "The **MCP Server** receives the tool call, executes the handler (for example <code>search_files</code>), and prepares the JSON response payload.",
+      activeEdges: ['slimNode2-agentB', 'slimNode2-slimNode1', 'slimNode1-mcpServer'],
+      desc: "The on-prem **MCP Server** receives the tool call, executes the handler (for example <code>search_files</code>), and prepares the JSON response payload.",
       action: () => {
         flashNode('core_MCP', 'flash-teal');
         updateBadge('MCP', 'Executing: search_files', 'var(--color-teal)');
@@ -319,18 +384,20 @@ const SCENARIOS = {
     {
       title: "Response Delivery & Acknowledgment",
       shortTitle: "ACK",
-      activeEdges: ['agentA-slimNode1', 'slimNode1-mcpServer'],
-      desc: "The MCP response travels back through **SLIM Node 1** to Agent A. Agent A acknowledges receipt, completing the point-to-point MCP exchange.",
+      activeEdges: ['slimNode2-agentB', 'slimNode2-slimNode1', 'slimNode1-mcpServer'],
+      desc: "The MCP response travels back through **SLIM Node 1** and **SLIM Node 2** to cloud **AI Agent B**, completing the cross-environment MCP exchange.",
       action: () => {
         spawn2DParticle('path_Node1_to_MCP', 'var(--color-teal)', 5, 0.028, 'dot', () => {
-          spawn2DParticle('path_A_to_Node1', 'var(--color-teal)', 5, 0.028, 'dot', () => {
-            flashNode('core_Agent_A', 'flash-green');
-            logToTerminal('Agent A', 'info', 'slim_dataplane::service', 'received message');
-            logToTerminal('Agent A', 'debug', 'slim_dataplane::session::subscription_manager', 'received ack message');
-            logToTerminal('Agent A', 'debug', 'slim_dataplane::session::subscription_manager', 'ack received');
-            logToTerminal('System', 'info', 'slim_dataplane::system', 'test succeeded');
-            triggerNextStep();
-          }, true);
+          spawn2DParticle('path_Node1_to_Node2', 'var(--color-teal)', 5, 0.028, 'dot', () => {
+            spawn2DParticle('path_Node2_to_B', 'var(--color-teal)', 5, 0.028, 'dot', () => {
+              flashNode('core_Agent_B', 'flash-green');
+              logToTerminal('Agent B', 'info', 'slim_dataplane::service', 'received message');
+              logToTerminal('Agent B', 'debug', 'slim_dataplane::session::subscription_manager', 'received ack message');
+              logToTerminal('Agent B', 'debug', 'slim_dataplane::session::subscription_manager', 'ack received');
+              logToTerminal('System', 'info', 'slim_dataplane::system', 'test succeeded');
+              triggerNextStep();
+            });
+          });
         }, true);
       }
     }

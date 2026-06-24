@@ -259,6 +259,18 @@
   background-color: var(--md-footer-bg-color);
 }
 
+.md-footer-meta__inner {
+  justify-content: center;
+}
+
+.md-copyright--centered,
+.md-copyright--centered .md-copyright__highlight {
+  width: 100%;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--md-default-fg-color--light);
+}
+
 .md-footer__link {
   color: var(--md-default-fg-color);
 }

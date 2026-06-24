@@ -81,6 +81,7 @@
       user: { prefix: "> ", className: "slimctl-terminal-user" },
       agent: { prefix: "● ", className: "slimctl-terminal-agent" },
       tool: { prefix: "→ ", className: "slimctl-terminal-tool" },
+      python: { prefix: ">>> ", className: "slimctl-terminal-tool" },
     };
 
     function getActiveScript() {
@@ -112,7 +113,11 @@
       var data = getData();
       var titles = data.demoTitles || {};
       if (titleEl) {
-        titleEl.textContent = titles[state.demoLevel] || titles.node || "user@slim:~";
+        if (state.demoLevel === "message") {
+          titleEl.textContent = titles.message || "python";
+        } else {
+          titleEl.textContent = titles.node || "user@slim:~";
+        }
       }
       updateActionChrome();
     }
@@ -168,7 +173,7 @@
         if (input) {
           input.focus();
         }
-        appendTryLine("Type a command or enter help for suggestions.", "muted");
+        appendTryLine("Explore the CLI — type a command or enter help for suggestions.", "muted");
       } else {
         if (inputForm) {
           inputForm.hidden = true;
@@ -288,11 +293,59 @@
 
       var sub = tokens[1];
 
+      if (sub === "slim" && (tokens.length === 2 || tokens[2] === "--help")) {
+        appendTryLine(data.slimSlimHelp || "slimctl slim start");
+        return;
+      }
+
       if (sub === "slim" && tokens[2] === "start") {
         state.nodeRunning = true;
         appendTryLine(
           "INFO slim-data-plane: dataplane listening on 0.0.0.0:46357\n" +
             "INFO slim-controller: controller API on 0.0.0.0:46358"
+        );
+        return;
+      }
+
+      if (sub === "controller") {
+        if (!requireNode()) {
+          return;
+        }
+        if (tokens[2] === "node" && tokens[3] === "list") {
+          appendTryLine(data.controllerNodeList || "(no nodes)");
+          return;
+        }
+        if (tokens[2] === "route" && tokens[3] === "list") {
+          appendTryLine(data.controllerRouteList || "(no routes)");
+          return;
+        }
+        if (tokens[2] === "route" && tokens[3] === "add") {
+          var routeName = tokens[4];
+          if (!routeName) {
+            appendTryLine(
+              "error: route name required. Usage: slimctl controller route add <name> via <node-id> --node-id <id>",
+              "err"
+            );
+            return;
+          }
+          appendTryLine("Route added: " + routeName);
+          return;
+        }
+        if (tokens[2] === "route" && tokens[3] === "del") {
+          var deleteRoute = tokens[4];
+          if (!deleteRoute) {
+            appendTryLine(
+              "error: route name required. Usage: slimctl controller route del <name> via <node-id> --node-id <id>",
+              "err"
+            );
+            return;
+          }
+          appendTryLine("Route deleted: " + deleteRoute);
+          return;
+        }
+        appendTryLine(
+          'slimctl controller: unknown subcommand. Try "slimctl controller node list"',
+          "err"
         );
         return;
       }
@@ -310,15 +363,15 @@
           return;
         }
         if (tokens[2] === "route" && tokens[3] === "add") {
-          var routeName = tokens[4];
-          if (!routeName) {
+          var nodeRouteName = tokens[4];
+          if (!nodeRouteName) {
             appendTryLine(
               "error: route name required. Usage: slimctl node route add <name> via <config>",
               "err"
             );
             return;
           }
-          appendTryLine("Route added: " + routeName);
+          appendTryLine("Route added: " + nodeRouteName);
           return;
         }
         appendTryLine('slimctl node: unknown subcommand. Try "slimctl node connection list"', "err");
@@ -330,6 +383,7 @@
 
     function handleTryInput(line) {
       if (!line.trim()) {
+        appendTryLine("", "command");
         return;
       }
       handleCliTryInput(line);

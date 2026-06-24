@@ -25,7 +25,7 @@ extra:
     org: AGNTCY
 
   copyright: >
-    © Copyright AGNTCY Contributors.
+    © 2026, Agntcy, a Series of LF Projects, LLC. All rights reserved.
 
 extra_css:
   - stylesheets/agntcy-docs.css
