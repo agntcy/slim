@@ -8,7 +8,8 @@ use tokio_stream::StreamExt;
 
 use crate::client::get_controller_client;
 use crate::proto::controller::proto::v1::{
-    ConfigurationCommand, ControlMessage, Route, control_message::Payload,
+    ConfigurationCommand, ConnectionDirection, ConnectionType, ControlMessage, Route,
+    control_message::Payload,
 };
 use crate::utils::{VIA_KEYWORD, parse_config_file_with_link_id, parse_route};
 use slim_config::grpc::client::ClientConfig;
@@ -131,24 +132,76 @@ async fn route_list(opts: &ClientConfig) -> Result<()> {
             Ok(Some(Err(e))) => bail!("stream error: {}", e),
             Ok(Some(Ok(msg))) => {
                 if let Some(Payload::RouteListResponse(list_resp)) = msg.payload {
+                    // Flatten: one row per (route, connection) pair.
+                    let headers = ["ROUTE", "TYPE", "ENDPOINT", "LINK_ID"];
+                    let mut rows: Vec<[String; 4]> = Vec::new();
+
                     for e in &list_resp.entries {
-                        let conn_names: Vec<String> = e
-                            .connections
-                            .iter()
-                            .map(|c| {
-                                let peer = c.peer_node_id.as_deref().unwrap_or("-");
-                                format!(
-                                    "{}:{}:{}:{:?}:{:?}:peer={}",
-                                    c.connection_type().as_str_name(),
-                                    c.id,
-                                    c.config_data,
-                                    c.link_id,
-                                    c.direction(),
-                                    peer,
-                                )
-                            })
-                            .collect();
-                        println!("{} connections={:?}", e.name.as_ref().unwrap(), conn_names);
+                        let route_name = e
+                            .name
+                            .as_ref()
+                            .map(|n| n.to_string())
+                            .unwrap_or_else(|| "-".to_string());
+                        if e.connections.is_empty() {
+                            rows.push([route_name, "-".into(), "-".into(), "-".into()]);
+                        } else {
+                            for c in &e.connections {
+                                let conn_type = match c.connection_type() {
+                                    ConnectionType::Local => "Local",
+                                    ConnectionType::Remote => "Remote",
+                                    ConnectionType::Peer => "Peer",
+                                    ConnectionType::Edge => "Edge",
+                                };
+                                let endpoint = if c.connection_type() == ConnectionType::Edge {
+                                    "APP".to_string()
+                                } else {
+                                    c.peer_node_id.as_deref().unwrap_or("-").to_string()
+                                };
+                                let link_id = c.link_id.as_deref().unwrap_or("-").to_string();
+                                rows.push([
+                                    route_name.clone(),
+                                    conn_type.into(),
+                                    endpoint,
+                                    link_id,
+                                ]);
+                            }
+                        }
+                    }
+
+                    println!("{} route(s)\n", list_resp.entries.len());
+                    if !rows.is_empty() {
+                        let mut widths = headers.map(|h| h.len());
+                        for row in &rows {
+                            for (w, cell) in widths.iter_mut().zip(row.iter()) {
+                                *w = (*w).max(cell.len());
+                            }
+                        }
+                        println!(
+                            "  {:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}",
+                            headers[0],
+                            headers[1],
+                            headers[2],
+                            headers[3],
+                            w0 = widths[0],
+                            w1 = widths[1],
+                            w2 = widths[2],
+                            w3 = widths[3],
+                        );
+                        let total: usize = widths.iter().sum::<usize>() + widths.len() * 2;
+                        println!("  {}", "-".repeat(total));
+                        for row in &rows {
+                            println!(
+                                "  {:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}",
+                                row[0],
+                                row[1],
+                                row[2],
+                                row[3],
+                                w0 = widths[0],
+                                w1 = widths[1],
+                                w2 = widths[2],
+                                w3 = widths[3],
+                            );
+                        }
                     }
                     break;
                 }
@@ -284,17 +337,75 @@ async fn connection_list(opts: &ClientConfig) -> Result<()> {
             Ok(Some(Err(e))) => bail!("stream error: {}", e),
             Ok(Some(Ok(msg))) => {
                 if let Some(Payload::ConnectionListResponse(list_resp)) = msg.payload {
-                    if list_resp.entries.is_empty() {
-                        println!("No connections configured");
-                    } else {
-                        for e in &list_resp.entries {
+                    let entries = &list_resp.entries;
+                    println!("{} connection(s)\n", entries.len());
+                    if !entries.is_empty() {
+                        let headers = ["CONN_ID", "TYPE", "DIRECTION", "ENDPOINT", "LINK_ID"];
+                        let rows: Vec<_> = entries
+                            .iter()
+                            .map(|e| {
+                                let conn_type = match e.connection_type() {
+                                    ConnectionType::Local => "Local",
+                                    ConnectionType::Remote => "Remote",
+                                    ConnectionType::Peer => "Peer",
+                                    ConnectionType::Edge => "Edge",
+                                };
+                                let direction = match e.direction() {
+                                    ConnectionDirection::Outgoing => "Outgoing",
+                                    ConnectionDirection::Incoming => "Incoming",
+                                };
+                                let endpoint = if e.connection_type() == ConnectionType::Edge {
+                                    "APP".to_string()
+                                } else {
+                                    e.peer_node_id.as_deref().unwrap_or("-").to_string()
+                                };
+                                let link_id = e.link_id.as_deref().unwrap_or("-").to_string();
+                                (
+                                    e.id.to_string(),
+                                    conn_type.to_string(),
+                                    direction.to_string(),
+                                    endpoint,
+                                    link_id,
+                                )
+                            })
+                            .collect();
+
+                        let mut widths = headers.map(|h| h.len());
+                        for (id, ct, dir, ep, lid) in &rows {
+                            widths[0] = widths[0].max(id.len());
+                            widths[1] = widths[1].max(ct.len());
+                            widths[2] = widths[2].max(dir.len());
+                            widths[3] = widths[3].max(ep.len());
+                            widths[4] = widths[4].max(lid.len());
+                        }
+                        println!(
+                            "  {:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {:<w4$}",
+                            headers[0],
+                            headers[1],
+                            headers[2],
+                            headers[3],
+                            headers[4],
+                            w0 = widths[0],
+                            w1 = widths[1],
+                            w2 = widths[2],
+                            w3 = widths[3],
+                            w4 = widths[4],
+                        );
+                        let total: usize = widths.iter().sum::<usize>() + widths.len() * 2;
+                        println!("  {}", "-".repeat(total));
+                        for (id, ct, dir, ep, lid) in &rows {
                             println!(
-                                "id={} direction={:?} link_id={:?} peer={:?} {}",
-                                e.id,
-                                e.direction(),
-                                e.link_id,
-                                e.peer_node_id,
-                                e.config_data
+                                "  {:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {:<w4$}",
+                                id,
+                                ct,
+                                dir,
+                                ep,
+                                lid,
+                                w0 = widths[0],
+                                w1 = widths[1],
+                                w2 = widths[2],
+                                w3 = widths[3],
+                                w4 = widths[4],
                             );
                         }
                     }
