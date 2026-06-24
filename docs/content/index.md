@@ -170,8 +170,7 @@ hide:
             <a href="slim/slim-howto.md">Quickstart guide</a> for installation.
           </p>
           <p class="slimctl-terminal-intro" data-intro-level="message">
-            Agents subscribe to named channels, publish encrypted payloads, and SLIM routes them
-            across nodes.
+            Use the SLIM language bindings to connect and send messages over SLIM. <Link to documentation about the bindings or https://github.com/agntcy/slim-bindings> 
           </p>
           <p class="slimctl-terminal-intro" data-intro-level="try" hidden>
             Use <code>slimctl --help</code> to explore commands. See the
