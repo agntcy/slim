@@ -119,6 +119,9 @@ pub enum ControllerRouteCommand {
         /// Filter by destination (target) node ID
         #[arg(short = 't', long, default_value = "")]
         target_node_id: String,
+        /// Show all routes (including pending, failed, deleted). Default shows only applied.
+        #[arg(short = 'a', long, default_value_t = false)]
+        all: bool,
     },
 }
 
@@ -140,6 +143,9 @@ pub enum ControllerLinkCommand {
         /// Filter by destination (target) node ID
         #[arg(short = 't', long, default_value = "")]
         target_node_id: String,
+        /// Show all links (including pending, failed, deleted). Default shows only applied.
+        #[arg(short = 'a', long, default_value_t = false)]
+        all: bool,
     },
 }
 
@@ -184,7 +190,8 @@ async fn run_route(args: &ControllerRouteArgs, opts: &ClientConfig) -> Result<()
         ControllerRouteCommand::Outline {
             origin_node_id,
             target_node_id,
-        } => route_outline(origin_node_id, target_node_id, opts).await,
+            all,
+        } => route_outline(origin_node_id, target_node_id, *all, opts).await,
     }
 }
 
@@ -193,7 +200,8 @@ async fn run_link(args: &ControllerLinkArgs, opts: &ClientConfig) -> Result<()> 
         ControllerLinkCommand::Outline {
             origin_node_id,
             target_node_id,
-        } => link_outline(origin_node_id, target_node_id, opts).await,
+            all,
+        } => link_outline(origin_node_id, target_node_id, *all, opts).await,
     }
 }
 
@@ -504,12 +512,9 @@ async fn route_del(
 async fn route_outline(
     origin_node_id: &str,
     target_node_id: &str,
+    show_all: bool,
     opts: &ClientConfig,
 ) -> Result<()> {
-    println!(
-        "Outline routes (origin:[{}] target:[{}])",
-        origin_node_id, target_node_id
-    );
     let mut client = get_control_plane_client(opts).await?;
     let mut stream = rpc!(
         client,
@@ -521,9 +526,16 @@ async fn route_outline(
     );
     let mut routes = Vec::new();
     while let Some(entry) = stream.next().await {
-        routes.push(entry?);
+        let entry = entry?;
+        if show_all || entry.status == RouteStatus::Applied as i32 {
+            routes.push(entry);
+        }
     }
-    println!("Number of routes: {}\n", routes.len());
+    println!(
+        "Routes: {} (applied{})\n",
+        routes.len(),
+        if show_all { " + all" } else { "" }
+    );
     if !routes.is_empty() {
         let col_widths = compute_route_col_widths(&routes);
         print_route_header(&col_widths);
@@ -537,12 +549,9 @@ async fn route_outline(
 async fn link_outline(
     origin_node_id: &str,
     target_node_id: &str,
+    show_all: bool,
     opts: &ClientConfig,
 ) -> Result<()> {
-    println!(
-        "Outline links (origin:[{}] target:[{}])",
-        origin_node_id, target_node_id
-    );
     let mut client = get_control_plane_client(opts).await?;
     let mut stream = rpc!(
         client,
@@ -554,9 +563,16 @@ async fn link_outline(
     );
     let mut links = Vec::new();
     while let Some(entry) = stream.next().await {
-        links.push(entry?);
+        let entry = entry?;
+        if show_all || entry.status == LinkStatus::Applied as i32 {
+            links.push(entry);
+        }
     }
-    println!("Number of links: {}\n", links.len());
+    println!(
+        "Links: {} (applied{})\n",
+        links.len(),
+        if show_all { " + all" } else { "" }
+    );
     if !links.is_empty() {
         let col_widths = compute_link_col_widths(&links);
         print_link_header(&col_widths);
@@ -1129,13 +1145,15 @@ mod tests {
         #[tokio::test]
         async fn route_outline_succeeds() {
             let addr = spawn_mock_cp_server().await;
-            route_outline("", "", &make_opts(&addr)).await.unwrap();
+            route_outline("", "", true, &make_opts(&addr))
+                .await
+                .unwrap();
         }
 
         #[tokio::test]
         async fn link_outline_succeeds() {
             let addr = spawn_mock_cp_server().await;
-            link_outline("", "", &make_opts(&addr)).await.unwrap();
+            link_outline("", "", true, &make_opts(&addr)).await.unwrap();
         }
 
         // ── error server ─────────────────────────────────────────────────────
@@ -1336,13 +1354,17 @@ mod tests {
         #[tokio::test]
         async fn route_outline_grpc_error_propagates() {
             let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
-            assert!(route_outline("", "", &make_opts(&addr)).await.is_err());
+            assert!(
+                route_outline("", "", true, &make_opts(&addr))
+                    .await
+                    .is_err()
+            );
         }
 
         #[tokio::test]
         async fn link_outline_grpc_error_propagates() {
             let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
-            assert!(link_outline("", "", &make_opts(&addr)).await.is_err());
+            assert!(link_outline("", "", true, &make_opts(&addr)).await.is_err());
         }
 
         // ── negative-ACK (success = false) tests ─────────────────────────────
