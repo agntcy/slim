@@ -30,7 +30,7 @@ const NODE_METADATA = {
   },
   'node_MCP': {
     title: 'MCP Server (Model Context Protocol)',
-    desc: 'Application-layer MCP server. Receives tool invocation request payloads routed securely over SLIM and returns the executed search or file data.'
+    desc: 'Model Context Protocol server, receives tool invocation request payloads routed securely over SLIM and returns the executed search or file data.'
   }
 };
 const VALID_COMPONENTS = ['system', 'agent a', 'agent b', 'agent c', 'agent d', 'agent e', 'slim node 1', 'slim node 2', 'mcp server'];
