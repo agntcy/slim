@@ -73,7 +73,7 @@ function resetScenarioVisuals(name) {
     }
   });
 
-  updateBadge('MCP', 'Files & Search');
+  updateBadge('MCP', 'agntcy/demo/mcp-tools');
 }
 
 function formatStepDesc(text) {

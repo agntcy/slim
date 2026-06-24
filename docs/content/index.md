@@ -37,15 +37,15 @@ hide:
       </p>
     </div>
     <p class="slim-hero__lede">
-      SLIM is built for interactive agent workloads: low-latency, encrypted message
+      SLIM is built for interactive agent workloads: low-latency, end-to-end encrypted message
       delivery between agents that may be co-located or continents apart. Where protocols define
       conversation semantics, SLIM provides the data plane that makes those conversations work in
       production.
     </p>
     <div class="slim-hero__actions">
       <div class="slim-hero__actions-main">
-        <a class="slim-hero__btn" href="#quick-start">
-          Quickstart
+        <a class="slim-hero__btn" href="#see-slim-in-action">
+          See SLIM in Action
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/></svg>
         </a>
         <a class="slim-hero__btn" href="https://github.com/agntcy/slim" target="_blank" rel="noopener noreferrer">
@@ -74,7 +74,7 @@ hide:
       </div>
       <p class="slim-feature-card__title">Transport for Agent Protocols</p>
       <p class="slim-feature-card__text">
-        Carry A2A, MCP, SLIMRPC, and custom agent protocols over a single secure
+        Carry A2A, MCP, OpenTelemetry, and custom agent protocols over a single secure
         overlay instead of bespoke per-protocol networking.
       </p>
     </div>
@@ -106,8 +106,8 @@ hide:
       </div>
       <p class="slim-feature-card__title">Network-Topology Independence</p>
       <p class="slim-feature-card__text">
-        Agents connect outbound to SLIM nodes and are reachable by hierarchical name—no
-        inbound ports, VPNs, or NAT traversal required.
+        Agents connect outbound to SLIM nodes—reachable by name, without exposing every
+        agent to the internet.
       </p>
     </div>
   </div>
@@ -129,7 +129,7 @@ hide:
 </section>
 
 <section class="slim-quickstart">
-  <h2 class="slim-section-title" id="quick-start">Quickstart</h2>
+  <h2 class="slim-section-title" id="see-slim-in-action">See SLIM in Action</h2>
 
   <section class="slimctl-terminal-section">
     <div class="slimctl-terminal-layout">
@@ -169,21 +169,16 @@ hide:
             Start a local node using the slimctl CLI. For other installation options see
             <a href="slim/slim-howto.md#slim-node">SLIM Node</a>.
           </p>
-          <p class="slimctl-terminal-intro" data-intro-level="message">
+          <p class="slimctl-terminal-intro" data-intro-level="message" hidden>
             Use the SLIM language bindings to connect and send messages over SLIM.
             See the <a href="https://github.com/agntcy/slim-bindings">slim-bindings</a>
             repository and the
             <a href="slim/slim-howto.md#install-the-slim-bindings">installation guide</a>.
           </p>
-          <p class="slimctl-terminal-intro" data-intro-level="try" hidden>
-            Use <code>slimctl --help</code> to explore commands. See the
-            <a href="slim/slim-controller-reference.md">SLIM Controller</a> docs for the full CLI reference.
-          </p>
         </div>
         <div class="slimctl-terminal-actions">
-          <button type="button" class="slimctl-terminal-btn is-active" data-demo-level="message">Send a Message</button>
-          <button type="button" class="slimctl-terminal-btn" data-demo-level="node">Start Node</button>
-          <button type="button" class="slimctl-terminal-btn" data-mode-switch="try">Explore the CLI</button>
+          <button type="button" class="slimctl-terminal-btn is-active" data-demo-level="node">Start Node</button>
+          <button type="button" class="slimctl-terminal-btn" data-demo-level="message">Send a Message</button>
         </div>
       </div>
     </div>

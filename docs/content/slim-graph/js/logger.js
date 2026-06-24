@@ -1,6 +1,7 @@
 // Helper to format component slug names to CSS classes
 function getCompTagClass(component) {
   switch (component.toLowerCase()) {
+    case 'cli/ide agent':
     case 'agent a': return 'comp-agent-a';
     case 'agent b': return 'comp-agent-b';
     case 'agent c': return 'comp-agent-c';
@@ -17,6 +18,7 @@ function getCompTagClass(component) {
 
 // Structured Telemetry Log Handler
 function logToTerminal(component, level, target, message) {
+  if (typeof SHOW_PROTOCOL_LOG !== 'undefined' && !SHOW_PROTOCOL_LOG) return;
   if (window.slimGraphLoopingStep) return;
 
   const terminalBody = document.getElementById('terminal-body');
@@ -124,6 +126,14 @@ function bindTerminalControls() {
 }
 
 function initTerminalPanel() {
+  const panel = document.getElementById('terminal-panel');
+  if (!panel) return;
+
+  if (typeof SHOW_PROTOCOL_LOG !== 'undefined' && !SHOW_PROTOCOL_LOG) {
+    panel.hidden = true;
+    return;
+  }
+
   setTerminalExpanded(false);
   bindTerminalControls();
 }

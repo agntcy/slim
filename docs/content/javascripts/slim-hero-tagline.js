@@ -5,7 +5,7 @@
   var PHRASES = [
     "One overlay for all agent protocols",
     "Encrypted messages across any network topology",
-    "Reachable by name, no inbound ports required",
+    "Reachable by name, without exposing every agent to the internet",
   ];
 
   var HOLD_MS = 3800;

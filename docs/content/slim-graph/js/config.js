@@ -1,11 +1,13 @@
 const AI_AGENT_DESC =
   'An AI Agent exposed through A2A (Langchain, CrewAI, ADK) which communicates with other A2A Agents and MCP tools';
 
+const SHOW_PROTOCOL_LOG = false;
+
 // Node details for mouse over tooltips
 const NODE_METADATA = {
   'node_Agent_A': {
     title: 'CLI/IDE Agent',
-    desc: 'A local coding Agent which wants to access MCP tools and remote Agents'
+    desc: 'Registered as agntcy/demo/agent-a. A local coding Agent which wants to access MCP tools and remote Agents.'
   },
   'node_Agent_E': {
     title: 'AI Agent A',
@@ -13,7 +15,7 @@ const NODE_METADATA = {
   },
   'node_Agent_B': {
     title: 'AI Agent B',
-    desc: AI_AGENT_DESC
+    desc: 'Registered as agntcy/ns/AgentB. ' + AI_AGENT_DESC
   },
   'node_Agent_C': {
     title: 'AI Agent C',
@@ -29,11 +31,11 @@ const NODE_METADATA = {
   },
   'node_Node2': {
     title: 'SLIM Node 2 (Cloud Data Plane)',
-    desc: 'Cloud-hosted SLIM Data plane node. Receives inbound connections from other data plane nodes. Cloud hosted Agents connect here.'
+    desc: 'Cloud-hosted SLIM Data plane node. Receives inbound connections from other data plane nodes. Cloud hosted Agents connect here without being publicly exposed.'
   },
   'node_MCP': {
     title: 'MCP Server (Model Context Protocol)',
-    desc: 'Model Context Protocol server, receives tool invocation request payloads routed securely over SLIM and returns the executed search or file data.'
+    desc: 'Registered as agntcy/demo/mcp-tools. Receives tool invocation request payloads routed securely over SLIM and returns the executed search or file data.'
   }
 };
 
@@ -44,14 +46,14 @@ const JOURNEY_LABELS = {
 };
 
 const NODE_DISPLAY = {
-  node_Agent_A: { title: 'CLI/IDE Agent', subtitle: 'Local coding agent', icon: 'claude' },
-  node_Agent_E: { title: 'AI Agent A', subtitle: 'A2A agent', icon: 'langchain' },
-  node_Agent_B: { title: 'AI Agent B', subtitle: 'A2A agent', icon: 'crewai' },
-  node_Agent_C: { title: 'AI Agent C', subtitle: 'A2A agent', icon: 'langgraph' },
-  node_Agent_D: { title: 'AI Agent D', subtitle: 'A2A agent', icon: 'opencode' },
+  node_Agent_A: { title: 'CLI/IDE Agent', subtitle: 'agntcy/demo/agent-a', icon: 'claude' },
+  node_Agent_E: { title: 'AI Agent A', subtitle: 'agntcy/ns/chat', icon: 'langchain' },
+  node_Agent_B: { title: 'AI Agent B', subtitle: 'agntcy/ns/AgentB', icon: 'crewai' },
+  node_Agent_C: { title: 'AI Agent C', subtitle: 'agntcy/ns/chat', icon: 'langgraph' },
+  node_Agent_D: { title: 'AI Agent D', subtitle: 'agntcy/ns/chat', icon: 'opencode' },
   node_Node1: { title: 'SLIM Node 1', subtitle: 'Local Data Plane', icon: 'slim' },
   node_Node2: { title: 'SLIM Node 2', subtitle: 'Cloud Data Plane', icon: 'slim' },
-  node_MCP: { title: 'MCP Server', subtitle: 'Model Context Protocol', icon: 'mcp' },
+  node_MCP: { title: 'MCP Server', subtitle: 'agntcy/demo/mcp-tools', icon: 'mcp' },
 };
 
 const VALID_COMPONENTS = ['system', 'cli/ide agent', 'ai agent a', 'ai agent b', 'ai agent c', 'ai agent d', 'slim node 1', 'slim node 2', 'mcp server'];
@@ -376,7 +378,7 @@ const SCENARIOS = {
         logToTerminal('MCP Server', 'info', 'slim_dataplane::service', 'received message');
 
         setSimulationTimeout(() => {
-          updateBadge('MCP', 'Response ready', 'var(--color-teal)');
+          updateBadge('MCP', 'agntcy/demo/mcp-tools');
           triggerNextStep();
         }, 900);
       }

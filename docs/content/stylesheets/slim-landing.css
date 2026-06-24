@@ -216,7 +216,7 @@ body:has(.slim-landing) .md-main__inner {
 .slim-graph-frame {
   display: block;
   width: 100%;
-  height: 35rem;
+  height: 28rem;
   min-height: 0;
   border: 1px solid var(--md-default-fg-color--lightest);
   border-radius: 10px;
@@ -231,7 +231,7 @@ body:has(.slim-landing) .md-main__inner {
 
 @media screen and (max-width: 59.9375em) {
   .slim-graph-frame {
-    height: 32rem;
+    height: 26rem;
   }
 }
 
