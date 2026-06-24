@@ -301,14 +301,15 @@ impl PrefixEntry {
             .collect()
     }
 
-    /// Iterate all slots, yielding `(id, local, remote, peer)` — used by `for_each`.
-    fn for_each_slot<F: FnMut(u128, &[u64], &[u64], &[u64])>(&self, mut f: F) {
+    /// Iterate all slots, yielding `(id, local, remote, peer, edge)` — used by `for_each`.
+    fn for_each_slot<F: FnMut(u128, &[u64], &[u64], &[u64], &[u64])>(&self, mut f: F) {
         for (i, &id) in self.ids.iter().enumerate() {
             f(
                 id,
                 self.slots[ConnType::Local.index()][i].as_slice(),
                 self.slots[ConnType::Remote.index()][i].as_slice(),
                 self.slots[ConnType::Peer.index()][i].as_slice(),
+                self.slots[ConnType::Edge.index()][i].as_slice(),
             );
         }
     }
@@ -480,7 +481,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
     fn for_each<F>(&self, mut f: F)
     where
-        F: FnMut(&ProtoName, u128, &[u64], &[u64], &[u64]),
+        F: FnMut(&ProtoName, u128, &[u64], &[u64], &[u64], &[u64]),
     {
         let rs = self.routing.load();
         for prefix_entry in rs.values() {
@@ -489,8 +490,8 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 prefix_entry.strings[1].as_str(),
                 prefix_entry.strings[2].as_str(),
             ]);
-            prefix_entry.for_each_slot(|id, local, remote, peer| {
-                f(&base_name, id, local, remote, peer);
+            prefix_entry.for_each_slot(|id, local, remote, peer, edge| {
+                f(&base_name, id, local, remote, peer, edge);
             });
         }
     }
@@ -1068,10 +1069,10 @@ mod tests {
 
         let mut h = HashMap::new();
 
-        t.for_each(|k, id, local, remote, peer| {
+        t.for_each(|k, id, local, remote, peer, edge| {
             println!(
-                "key: {}, id: {}, local: {:?}, remote: {:?}, peer: {:?}",
-                k, id, local, remote, peer
+                "key: {}, id: {}, local: {:?}, remote: {:?}, peer: {:?}, edge: {:?}",
+                k, id, local, remote, peer, edge
             );
 
             let mut local_sorted = local.to_vec();

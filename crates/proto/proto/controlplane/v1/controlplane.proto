@@ -43,6 +43,7 @@ message NodeEntry {
   string id = 1;
   repeated controller.proto.v1.ConnectionDetails connections = 2;
   NodeStatus status = 4;
+  string group = 5;
 }
 
 message NodeListResponse {

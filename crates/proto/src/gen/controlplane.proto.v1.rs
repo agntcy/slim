@@ -25,6 +25,8 @@ pub struct NodeEntry {
     >,
     #[prost(enumeration = "NodeStatus", tag = "4")]
     pub status: i32,
+    #[prost(string, tag = "5")]
+    pub group: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NodeListResponse {

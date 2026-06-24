@@ -6,10 +6,10 @@ use clap::{Args, Subcommand};
 use tokio_stream::StreamExt;
 
 use crate::client::get_control_plane_client;
-use crate::proto::controller::proto::v1::{Connection, Route};
+use crate::proto::controller::proto::v1::{Connection, ConnectionDirection, ConnectionType, Route};
 use crate::proto::controlplane::proto::v1::{
     AddRouteRequest, DeleteRouteRequest, LinkEntry, LinkListRequest, LinkStatus, Node,
-    NodeListRequest, RouteEntry, RouteListRequest, RouteStatus,
+    NodeListRequest, NodeStatus, RouteEntry, RouteListRequest, RouteStatus,
 };
 use crate::rpc;
 use crate::utils::{VIA_KEYWORD, parse_config_file, parse_route};
@@ -206,26 +206,87 @@ async fn node_list(opts: &ClientConfig) -> Result<()> {
     while let Some(entry) = stream.next().await {
         entries.push(entry?);
     }
-    println!("{} node(s) found", entries.len());
-    for node in &entries {
-        println!("Node ID: {} status: {:?}", node.id, node.status);
-        if !node.connections.is_empty() {
-            println!("  Connection details:");
-            for conn in &node.connections {
-                println!("  - Endpoint: {}", conn.endpoint);
-                if let Some(ref ee) = conn.external_endpoint {
-                    println!("    ExternalEndpoint: {}", ee);
-                }
-                if let Some(ref spire) = conn.spire_mtls {
-                    println!("    SpireMtls: socket={}", spire.socket_path);
-                    if let Some(ref td) = spire.trust_domain {
-                        println!("              trust_domain={}", td);
-                    }
-                }
-            }
-        } else {
-            println!("  No connection details available");
-        }
+    println!("{} node(s) registered\n", entries.len());
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    // Compute column widths
+    let headers = ["NODE_ID", "GROUP", "STATUS", "ENDPOINT", "PUBLIC_ENDPOINT"];
+    let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
+
+    let rows: Vec<_> = entries
+        .iter()
+        .map(|e| {
+            let status = match NodeStatus::try_from(e.status) {
+                Ok(NodeStatus::Connected) => "Connected",
+                Ok(NodeStatus::NotConnected) => "NotConnected",
+                _ => "Unknown",
+            };
+            let endpoint = e
+                .connections
+                .first()
+                .map(|c| c.endpoint.as_str())
+                .unwrap_or("-");
+            let public_endpoint = e
+                .connections
+                .first()
+                .and_then(|c| c.external_endpoint.as_deref())
+                .unwrap_or("-");
+            (
+                e.id.as_str(),
+                e.group.as_str(),
+                status,
+                endpoint,
+                public_endpoint,
+            )
+        })
+        .collect();
+
+    for (id, group, status, ep, pub_ep) in &rows {
+        widths[0] = widths[0].max(id.len());
+        widths[1] = widths[1].max(group.len());
+        widths[2] = widths[2].max(status.len());
+        widths[3] = widths[3].max(ep.len());
+        widths[4] = widths[4].max(pub_ep.len());
+    }
+
+    // Print header
+    println!(
+        "  {:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {:<w4$}",
+        headers[0],
+        headers[1],
+        headers[2],
+        headers[3],
+        headers[4],
+        w0 = widths[0],
+        w1 = widths[1],
+        w2 = widths[2],
+        w3 = widths[3],
+        w4 = widths[4],
+    );
+    let sep: String = widths
+        .iter()
+        .map(|w| "-".repeat(w + 2))
+        .collect::<Vec<_>>()
+        .join("");
+    println!("  {sep}");
+
+    // Print rows
+    for (id, group, status, ep, pub_ep) in &rows {
+        println!(
+            "  {:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {:<w4$}",
+            id,
+            group,
+            status,
+            ep,
+            pub_ep,
+            w0 = widths[0],
+            w1 = widths[1],
+            w2 = widths[2],
+            w3 = widths[3],
+            w4 = widths[4],
+        );
     }
     Ok(())
 }
@@ -234,7 +295,6 @@ async fn node_list(opts: &ClientConfig) -> Result<()> {
 
 async fn connection_list(node_id: &str, opts: &ClientConfig) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
-    println!("Listing connections for node ID: {}", node_id);
     let resp = rpc!(
         client,
         list_connections,
@@ -242,16 +302,83 @@ async fn connection_list(node_id: &str, opts: &ClientConfig) -> Result<()> {
             id: node_id.to_string()
         }
     );
-    println!("Received connection list response: {}", resp.entries.len());
-    for entry in &resp.entries {
+    println!(
+        "Connections for node: {}\n{} connection(s)\n",
+        node_id,
+        resp.entries.len()
+    );
+    if resp.entries.is_empty() {
+        return Ok(());
+    }
+
+    let headers = ["CONN_ID", "TYPE", "DIRECTION", "ENDPOINT", "LINK_ID"];
+    let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
+
+    let rows: Vec<_> = resp
+        .entries
+        .iter()
+        .map(|e| {
+            let conn_type = match e.connection_type() {
+                ConnectionType::Local => "Local",
+                ConnectionType::Remote => "Remote",
+                ConnectionType::Peer => "Peer",
+                ConnectionType::Edge => "Edge",
+            };
+            let direction = match e.direction() {
+                ConnectionDirection::Outgoing => "Outgoing",
+                ConnectionDirection::Incoming => "Incoming",
+            };
+            let endpoint = if e.connection_type() == ConnectionType::Edge {
+                "APP"
+            } else {
+                e.peer_node_id.as_deref().unwrap_or("-")
+            };
+            let link_id = e.link_id.as_deref().unwrap_or("-");
+            (e.id.to_string(), conn_type, direction, endpoint, link_id)
+        })
+        .collect();
+
+    for (id, ct, dir, ep, lid) in &rows {
+        widths[0] = widths[0].max(id.len());
+        widths[1] = widths[1].max(ct.len());
+        widths[2] = widths[2].max(dir.len());
+        widths[3] = widths[3].max(ep.len());
+        widths[4] = widths[4].max(lid.len());
+    }
+
+    println!(
+        "  {:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {:<w4$}",
+        headers[0],
+        headers[1],
+        headers[2],
+        headers[3],
+        headers[4],
+        w0 = widths[0],
+        w1 = widths[1],
+        w2 = widths[2],
+        w3 = widths[3],
+        w4 = widths[4],
+    );
+    let sep: String = widths
+        .iter()
+        .map(|w| "-".repeat(w + 2))
+        .collect::<Vec<_>>()
+        .join("");
+    println!("  {sep}");
+
+    for (id, ct, dir, ep, lid) in &rows {
         println!(
-            "Connection ID: {}, Connection type: {:?}, Direction: {:?}, LinkID: {:?}, Peer: {:?}, ConfigData: {}",
-            entry.id,
-            entry.connection_type,
-            entry.direction(),
-            entry.link_id,
-            entry.peer_node_id,
-            entry.config_data
+            "  {:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {:<w4$}",
+            id,
+            ct,
+            dir,
+            ep,
+            lid,
+            w0 = widths[0],
+            w1 = widths[1],
+            w2 = widths[2],
+            w3 = widths[3],
+            w4 = widths[4],
         );
     }
     Ok(())

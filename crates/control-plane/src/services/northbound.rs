@@ -90,10 +90,12 @@ impl ControlPlaneService for NorthboundApiService {
                     })
                     .collect();
 
+                let group = node.group_name.unwrap_or_default();
                 let entry = NodeEntry {
                     id: node.id,
                     connections,
                     status,
+                    group,
                 };
                 if tx.send(Ok(entry)).await.is_err() {
                     break;
@@ -144,14 +146,78 @@ impl ControlPlaneService for NorthboundApiService {
             })?
             .ok_or_else(|| Status::not_found(format!("node {node_id} not found")))?;
 
-        self.route_service
+        let mut resp = self
+            .route_service
             .list_connections(&node.id)
             .await
-            .map(Response::new)
             .map_err(|e| {
                 tracing::error!("list_connections: {e}");
                 Status::internal("internal error")
+            })?;
+
+        // Enrich peer_node_id with group prefix using link information.
+        let node_group = node.group_name.unwrap_or_default();
+        let links = self
+            .db
+            .get_links_for_node(&node.id)
+            .await
+            .unwrap_or_default();
+
+        // Build link_id → qualified peer name map.
+        let link_peer_map: std::collections::HashMap<&str, String> = links
+            .iter()
+            .map(|link| {
+                let peer = if link.source_node_id == node.id {
+                    // We are the source; peer is the dest.
+                    if link
+                        .dest_node_id
+                        .starts_with(&format!("{}/", link.dest_group))
+                    {
+                        link.dest_node_id.clone()
+                    } else {
+                        format!("{}/{}", link.dest_group, link.dest_node_id)
+                    }
+                } else {
+                    // We are the dest; peer is the source.
+                    if link
+                        .source_node_id
+                        .starts_with(&format!("{}/", link.source_group))
+                    {
+                        link.source_node_id.clone()
+                    } else {
+                        format!("{}/{}", link.source_group, link.source_node_id)
+                    }
+                };
+                (link.link_id.as_str(), peer)
             })
+            .collect();
+
+        for entry in &mut resp.entries {
+            use crate::api::proto::controller::proto::v1::ConnectionType;
+            match entry.connection_type() {
+                ConnectionType::Peer => {
+                    // Peer is in the same group
+                    if let Some(bare_id) = entry.peer_node_id.take() {
+                        if bare_id.starts_with(&format!("{}/", node_group)) {
+                            entry.peer_node_id = Some(bare_id);
+                        } else {
+                            entry.peer_node_id = Some(format!("{}/{}", node_group, bare_id));
+                        }
+                    }
+                }
+                ConnectionType::Remote => {
+                    // Resolve from link
+                    if let Some(ref link_id) = entry.link_id
+                        && let Some(qualified) = link_peer_map.get(link_id.as_str())
+                    {
+                        entry.peer_node_id = Some(qualified.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Ok(Response::new(resp))
     }
 
     async fn add_route(

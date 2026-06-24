@@ -95,6 +95,7 @@ enum ConnectionType {
   CONNECTION_TYPE_LOCAL = 0;
   CONNECTION_TYPE_REMOTE = 1;
   CONNECTION_TYPE_PEER = 2;
+  CONNECTION_TYPE_EDGE = 3;
 }
 
 enum ConnectionDirection {
