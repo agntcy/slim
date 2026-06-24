@@ -26,7 +26,7 @@ const NODE_METADATA = {
   },
   'node_Node2': {
     title: 'SLIM Node 2 (Cloud Data Plane)',
-    desc: 'Cloud-hosted gRPC router node. Handles peer subscriptions, duplicates multicast streams for active clients, and stores packets in store-and-forward buffers if recipients are offline.'
+    desc: 'Cloud-hosted SLIM Data plane node. Receives inbound connections from other data plane nodes. Cloud hosted Agents connect here.'
   },
   'node_MCP': {
     title: 'MCP Server (Model Context Protocol)',
