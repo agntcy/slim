@@ -466,6 +466,7 @@ mod tests {
         let ControllerRouteCommand::Outline {
             origin_node_id,
             target_node_id,
+            ..
         } = a.command
         else {
             panic!()
@@ -495,6 +496,7 @@ mod tests {
         let ControllerRouteCommand::Outline {
             origin_node_id,
             target_node_id,
+            ..
         } = a.command
         else {
             panic!()

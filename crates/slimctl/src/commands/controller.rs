@@ -396,7 +396,6 @@ async fn connection_list(node_id: &str, opts: &ClientConfig) -> Result<()> {
 
 async fn route_list(node_id: &str, opts: &ClientConfig) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
-    println!("Listing routes for node ID: {}", node_id);
     let resp = rpc!(
         client,
         list_node_routes,
@@ -404,24 +403,54 @@ async fn route_list(node_id: &str, opts: &ClientConfig) -> Result<()> {
             id: node_id.to_string()
         }
     );
-    println!("Received route list response: {}", resp.entries.len());
+
+    // Flatten: one row per (route, connection) pair.
+    let headers = ["ROUTE", "TYPE", "ENDPOINT", "LINK_ID"];
+    let mut rows: Vec<[String; 4]> = Vec::new();
+
     for e in &resp.entries {
-        let conn_names: Vec<String> = e
-            .connections
-            .iter()
-            .map(|c| {
-                let peer = c.peer_node_id.as_deref().unwrap_or("-");
-                format!(
-                    "{}:{}:{:?}:{}:peer={}",
-                    c.connection_type().as_str_name(),
-                    c.id,
-                    c.link_id,
-                    c.config_data,
-                    peer,
-                )
-            })
-            .collect();
-        println!("{} connections={:?}", e.name.as_ref().unwrap(), conn_names);
+        let route_name = e
+            .name
+            .as_ref()
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        if e.connections.is_empty() {
+            rows.push([route_name, "-".into(), "-".into(), "-".into()]);
+        } else {
+            for c in &e.connections {
+                let conn_type = match c.connection_type() {
+                    ConnectionType::Local => "Local",
+                    ConnectionType::Remote => "Remote",
+                    ConnectionType::Peer => "Peer",
+                    ConnectionType::Edge => "Edge",
+                };
+                let endpoint = if c.connection_type() == ConnectionType::Edge {
+                    "APP".to_string()
+                } else {
+                    c.peer_node_id.as_deref().unwrap_or("-").to_string()
+                };
+                let link_id = c.link_id.as_deref().unwrap_or("-").to_string();
+                rows.push([route_name.clone(), conn_type.into(), endpoint, link_id]);
+            }
+        }
+    }
+
+    println!("Routes for node: {}", node_id);
+    println!("{} route(s)\n", resp.entries.len());
+
+    if !rows.is_empty() {
+        let mut widths = headers.map(|h| h.len());
+        for row in &rows {
+            for (w, cell) in widths.iter_mut().zip(row.iter()) {
+                *w = (*w).max(cell.len());
+            }
+        }
+        print_row(&headers, &widths);
+        let total: usize = widths.iter().sum::<usize>() + widths.len() * 2;
+        println!("  {}", "-".repeat(total));
+        for row in &rows {
+            print_row(row, &widths);
+        }
     }
     Ok(())
 }
