@@ -10,9 +10,8 @@ use crate::api::proto::controller::proto::v1::{
     connection_details::SpireMtls,
 };
 use crate::api::proto::controlplane::proto::v1::{
-    AddRouteRequest, AddRouteResponse, DeleteRouteRequest, DeleteRouteResponse, LinkEntry,
-    LinkListRequest, LinkStatus, NodeEntry, NodeListRequest, RouteEntry, RouteListRequest,
-    RouteStatus, control_plane_service_server::ControlPlaneService,
+    LinkEntry, LinkListRequest, LinkStatus, NodeEntry, NodeListRequest, RouteEntry,
+    RouteListRequest, RouteStatus, control_plane_service_server::ControlPlaneService,
 };
 use crate::db::SharedDb;
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
@@ -86,10 +85,10 @@ impl NorthboundApiService {
                     }
                 }
                 ConnectionType::Remote => {
-                    if let Some(ref link_id) = entry.link_id {
-                        if let Some(qualified) = link_peer_map.get(link_id.as_str()) {
-                            entry.peer_node_id = Some(qualified.clone());
-                        }
+                    if let Some(ref link_id) = entry.link_id
+                        && let Some(qualified) = link_peer_map.get(link_id.as_str())
+                    {
+                        entry.peer_node_id = Some(qualified.clone());
                     }
                 }
                 _ => {}
@@ -241,73 +240,6 @@ impl ControlPlaneService for NorthboundApiService {
         Self::enrich_peer_node_ids(&mut resp.entries, &node_group, &link_peer_map);
 
         Ok(Response::new(resp))
-    }
-
-    async fn add_route(
-        &self,
-        request: Request<AddRouteRequest>,
-    ) -> Result<Response<AddRouteResponse>, Status> {
-        let req = request.into_inner();
-
-        self.db
-            .get_node(&req.node_id)
-            .await
-            .map_err(|e| {
-                tracing::error!("add_route get_node: {e}");
-                Status::internal("internal error")
-            })?
-            .ok_or_else(|| Status::not_found(format!("invalid source nodeID: {}", req.node_id)))?;
-
-        if req.dest_node_id.is_empty() {
-            return Err(Status::invalid_argument("destNodeId must be provided"));
-        }
-        self.db
-            .get_node(&req.dest_node_id)
-            .await
-            .map_err(|e| {
-                tracing::error!("add_route get_node: {e}");
-                Status::internal("internal error")
-            })?
-            .ok_or_else(|| {
-                Status::not_found(format!("invalid destination nodeID: {}", req.dest_node_id))
-            })?;
-
-        let sub = req.route.unwrap_or_default();
-        let route_id = self
-            .route_service
-            .add_route(&req.node_id, &req.dest_node_id, &sub)
-            .await
-            .map_err(|e| Status::internal(e.to_string()))?;
-
-        Ok(Response::new(AddRouteResponse {
-            success: true,
-            route_id,
-        }))
-    }
-
-    async fn delete_route(
-        &self,
-        request: Request<DeleteRouteRequest>,
-    ) -> Result<Response<DeleteRouteResponse>, Status> {
-        let req = request.into_inner();
-
-        // Do NOT validate node existence here: the source or destination node
-        // may have been removed from the DB already, but the route record still
-        // exists and must be deletable (Bug #5).
-        if req.node_id.is_empty() {
-            return Err(Status::invalid_argument("nodeId must be provided"));
-        }
-        if req.dest_node_id.is_empty() {
-            return Err(Status::invalid_argument("destNodeId must be provided"));
-        }
-
-        let sub = req.route.unwrap_or_default();
-        self.route_service
-            .delete_route(&req.node_id, &req.dest_node_id, &sub)
-            .await
-            .map_err(|e| Status::internal(e.to_string()))?;
-
-        Ok(Response::new(DeleteRouteResponse { success: true }))
     }
 
     async fn list_routes(

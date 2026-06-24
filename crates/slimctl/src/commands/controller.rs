@@ -1,20 +1,18 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use clap::{Args, Subcommand};
 use tokio_stream::StreamExt;
 
 use crate::client::get_control_plane_client;
-use crate::proto::controller::proto::v1::{Connection, ConnectionDirection, ConnectionType, Route};
+use crate::proto::controller::proto::v1::{ConnectionDirection, ConnectionType};
 use crate::proto::controlplane::proto::v1::{
-    AddRouteRequest, DeleteRouteRequest, LinkEntry, LinkListRequest, LinkStatus, Node,
-    NodeListRequest, NodeStatus, RouteEntry, RouteListRequest, RouteStatus,
+    LinkEntry, LinkListRequest, LinkStatus, Node, NodeListRequest, NodeStatus, RouteEntry,
+    RouteListRequest, RouteStatus,
 };
 use crate::rpc;
-use crate::utils::{VIA_KEYWORD, parse_config_file, parse_route};
 use slim_config::grpc::client::ClientConfig;
-use slim_datapath::api::ProtoName;
 
 #[derive(Args)]
 pub struct ControllerArgs {
@@ -87,30 +85,6 @@ pub enum ControllerRouteCommand {
         #[arg(short = 'n', long, required = true)]
         node_id: String,
     },
-    /// Add a route to a SLIM instance via <slim-node-id or path_to_config.json>
-    Add {
-        /// ID of the node to manage routes for
-        #[arg(short = 'n', long, required = true)]
-        node_id: String,
-        /// Route in org/namespace/agentname/agentid format
-        route: String,
-        /// Literal keyword "via"
-        via: String,
-        /// Destination node ID or path to JSON config file
-        destination: String,
-    },
-    /// Delete a route from a SLIM instance via <slim-node-id or http|https://host:port>
-    Del {
-        /// ID of the node to manage routes for
-        #[arg(short = 'n', long, required = true)]
-        node_id: String,
-        /// Route in org/namespace/agentname/agentid format
-        route: String,
-        /// Literal keyword "via"
-        via: String,
-        /// Destination node ID or endpoint URL
-        destination: String,
-    },
     /// List all routes registered at the controller
     Outline {
         /// Filter by source (origin) node ID
@@ -175,18 +149,6 @@ async fn run_connection(args: &ControllerConnectionArgs, opts: &ClientConfig) ->
 async fn run_route(args: &ControllerRouteArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
         ControllerRouteCommand::List { node_id } => route_list(node_id, opts).await,
-        ControllerRouteCommand::Add {
-            node_id,
-            route,
-            via,
-            destination,
-        } => route_add(node_id, route, via, destination, opts).await,
-        ControllerRouteCommand::Del {
-            node_id,
-            route,
-            via,
-            destination,
-        } => route_del(node_id, route, via, destination, opts).await,
         ControllerRouteCommand::Outline {
             origin_node_id,
             target_node_id,
@@ -455,89 +417,6 @@ async fn route_list(node_id: &str, opts: &ClientConfig) -> Result<()> {
     Ok(())
 }
 
-async fn route_add(
-    node_id: &str,
-    route: &str,
-    via: &str,
-    destination: &str,
-    opts: &ClientConfig,
-) -> Result<()> {
-    if via.to_lowercase() != VIA_KEYWORD {
-        bail!("invalid syntax: expected 'via' keyword, got '{}'", via);
-    }
-    println!("Add route for node ID: {}", node_id);
-    let (org, ns, agent_type, agent_id) = parse_route(route)?;
-
-    let route_msg = Route {
-        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id)),
-        link_id: None,
-        direction: None,
-    };
-
-    let (cp_connection, final_dest_node) = if std::path::Path::new(destination).exists() {
-        let conn = parse_config_file(destination)?;
-        let cp_conn = Connection {
-            link_id: conn.link_id.clone(),
-            config_data: conn.config_data.clone(),
-        };
-        (Some(cp_conn), String::new())
-    } else {
-        (None, destination.to_string())
-    };
-
-    let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(
-        client,
-        add_route,
-        AddRouteRequest {
-            node_id: node_id.to_string(),
-            route: Some(route_msg),
-            connection: cp_connection,
-            dest_node_id: final_dest_node,
-        }
-    );
-    if !resp.success {
-        bail!("failed to create route");
-    }
-    println!("Route created successfully with ID: {}", resp.route_id);
-    Ok(())
-}
-
-async fn route_del(
-    node_id: &str,
-    route: &str,
-    via: &str,
-    destination: &str,
-    opts: &ClientConfig,
-) -> Result<()> {
-    if via.to_lowercase() != VIA_KEYWORD {
-        bail!("invalid syntax: expected 'via' keyword, got '{}'", via);
-    }
-    println!("Delete route for node ID: {}", node_id);
-    let (org, ns, agent_type, agent_id) = parse_route(route)?;
-
-    let route_msg = Route {
-        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id)),
-        link_id: None,
-        direction: None,
-    };
-
-    let req = DeleteRouteRequest {
-        node_id: node_id.to_string(),
-        route: Some(route_msg),
-        dest_node_id: destination.to_string(),
-    };
-
-    let mut client = get_control_plane_client(opts).await?;
-    let resp = rpc!(client, delete_route, req);
-    if resp.success {
-        println!("route removed successfully");
-    } else {
-        println!("error removing the route");
-    }
-    Ok(())
-}
-
 async fn route_outline(
     origin_node_id: &str,
     target_node_id: &str,
@@ -759,12 +638,7 @@ fn format_unix_timestamp(ts: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn make_opts(addr: &str) -> ClientConfig {
-        slim_config::grpc::client::ClientConfig::with_endpoint(&format!("http://{}", addr))
-            .with_tls_setting(slim_config::tls::client::TlsClientConfig::insecure())
-            .with_request_timeout(std::time::Duration::from_secs(5))
-    }
+    use slim_datapath::api::ProtoName;
 
     #[allow(clippy::too_many_arguments)]
     fn make_route(
@@ -959,38 +833,6 @@ mod tests {
         print_route_row(&r, &widths);
     }
 
-    // ── via validation ───────────────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn route_add_invalid_via_fails() {
-        let opts = make_opts("127.0.0.1:1");
-        let err = route_add(
-            "node1",
-            "a/b/c/00000000-0000-0000-0000-000000000000",
-            "not_via",
-            "dest",
-            &opts,
-        )
-        .await
-        .unwrap_err();
-        assert!(err.to_string().contains("via"));
-    }
-
-    #[tokio::test]
-    async fn route_del_invalid_via_fails() {
-        let opts = make_opts("127.0.0.1:1");
-        let err = route_del(
-            "node1",
-            "a/b/c/00000000-0000-0000-0000-000000000000",
-            "bad",
-            "dest",
-            &opts,
-        )
-        .await
-        .unwrap_err();
-        assert!(err.to_string().contains("via"));
-    }
-
     // ── gRPC mock server tests ───────────────────────────────────────────────
 
     mod mock_server {
@@ -1000,8 +842,7 @@ mod tests {
 
         use crate::proto::controller::proto::v1::{ConnectionListResponse, RouteListResponse};
         use crate::proto::controlplane::proto::v1::{
-            AddRouteRequest, AddRouteResponse, DeleteRouteRequest, DeleteRouteResponse, LinkEntry,
-            LinkListRequest, Node as CpNode, NodeEntry, NodeListRequest, RouteEntry,
+            LinkEntry, LinkListRequest, Node as CpNode, NodeEntry, NodeListRequest, RouteEntry,
             RouteListRequest,
             control_plane_service_server::{ControlPlaneService, ControlPlaneServiceServer},
         };
@@ -1028,23 +869,6 @@ mod tests {
             type ListNodesStream = EmptyNodeStream;
             type ListRoutesStream = EmptyRouteStream;
             type ListLinksStream = EmptyLinkStream;
-
-            async fn add_route(
-                &self,
-                _req: tonic::Request<AddRouteRequest>,
-            ) -> Result<tonic::Response<AddRouteResponse>, tonic::Status> {
-                Ok(tonic::Response::new(AddRouteResponse {
-                    success: true,
-                    route_id: "r1".to_string(),
-                }))
-            }
-
-            async fn delete_route(
-                &self,
-                _req: tonic::Request<DeleteRouteRequest>,
-            ) -> Result<tonic::Response<DeleteRouteResponse>, tonic::Status> {
-                Ok(tonic::Response::new(DeleteRouteResponse { success: true }))
-            }
 
             async fn list_node_routes(
                 &self,
@@ -1130,48 +954,6 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn route_add_succeeds() {
-            let addr = spawn_mock_cp_server().await;
-            route_add(
-                "node1",
-                "a/b/c/00000000-0000-0000-0000-000000000000",
-                "via",
-                "node-dest",
-                &make_opts(&addr),
-            )
-            .await
-            .unwrap();
-        }
-
-        #[tokio::test]
-        async fn route_del_with_endpoint_succeeds() {
-            let addr = spawn_mock_cp_server().await;
-            route_del(
-                "node1",
-                "a/b/c/00000000-0000-0000-0000-000000000000",
-                "via",
-                "http://127.0.0.1:8080",
-                &make_opts(&addr),
-            )
-            .await
-            .unwrap();
-        }
-
-        #[tokio::test]
-        async fn route_del_with_node_id_succeeds() {
-            let addr = spawn_mock_cp_server().await;
-            route_del(
-                "node1",
-                "a/b/c/00000000-0000-0000-0000-000000000000",
-                "via",
-                "dest-node",
-                &make_opts(&addr),
-            )
-            .await
-            .unwrap();
-        }
-
-        #[tokio::test]
         async fn route_outline_succeeds() {
             let addr = spawn_mock_cp_server().await;
             route_outline("", "", true, &make_opts(&addr))
@@ -1196,18 +978,6 @@ mod tests {
             type ListRoutesStream = EmptyRouteStream;
             type ListLinksStream = EmptyLinkStream;
 
-            async fn add_route(
-                &self,
-                _: tonic::Request<AddRouteRequest>,
-            ) -> Result<tonic::Response<AddRouteResponse>, tonic::Status> {
-                Err(tonic::Status::internal("error"))
-            }
-            async fn delete_route(
-                &self,
-                _: tonic::Request<DeleteRouteRequest>,
-            ) -> Result<tonic::Response<DeleteRouteResponse>, tonic::Status> {
-                Err(tonic::Status::internal("error"))
-            }
             async fn list_node_routes(
                 &self,
                 _: tonic::Request<CpNode>,
@@ -1238,75 +1008,6 @@ mod tests {
                 _: tonic::Request<LinkListRequest>,
             ) -> Result<tonic::Response<Self::ListLinksStream>, tonic::Status> {
                 Err(tonic::Status::internal("error"))
-            }
-        }
-
-        // ── negative-ACK (success = false) server ────────────────────────────
-
-        /// Returns success=false for every method that the client checks.
-        /// Other methods return normal success responses so the functions reach
-        /// the success check rather than erroring earlier.
-        struct FailureControlPlaneSvc;
-
-        #[tonic::async_trait]
-        impl ControlPlaneService for FailureControlPlaneSvc {
-            type ListNodesStream = EmptyNodeStream;
-            type ListRoutesStream = EmptyRouteStream;
-            type ListLinksStream = EmptyLinkStream;
-
-            async fn add_route(
-                &self,
-                _: tonic::Request<AddRouteRequest>,
-            ) -> Result<tonic::Response<AddRouteResponse>, tonic::Status> {
-                Ok(tonic::Response::new(AddRouteResponse {
-                    success: false,
-                    route_id: String::new(),
-                }))
-            }
-            async fn delete_route(
-                &self,
-                _: tonic::Request<DeleteRouteRequest>,
-            ) -> Result<tonic::Response<DeleteRouteResponse>, tonic::Status> {
-                Ok(tonic::Response::new(DeleteRouteResponse { success: true }))
-            }
-            async fn list_node_routes(
-                &self,
-                _: tonic::Request<CpNode>,
-            ) -> Result<tonic::Response<RouteListResponse>, tonic::Status> {
-                Ok(tonic::Response::new(RouteListResponse {
-                    original_message_id: String::new(),
-                    entries: vec![],
-                    done: true,
-                }))
-            }
-            async fn list_connections(
-                &self,
-                _: tonic::Request<CpNode>,
-            ) -> Result<tonic::Response<ConnectionListResponse>, tonic::Status> {
-                Ok(tonic::Response::new(ConnectionListResponse {
-                    original_message_id: String::new(),
-                    entries: vec![],
-                    done: true,
-                }))
-            }
-            async fn list_nodes(
-                &self,
-                _: tonic::Request<NodeListRequest>,
-            ) -> Result<tonic::Response<Self::ListNodesStream>, tonic::Status> {
-                Ok(tonic::Response::new(empty_stream()))
-            }
-            async fn list_routes(
-                &self,
-                _: tonic::Request<RouteListRequest>,
-            ) -> Result<tonic::Response<Self::ListRoutesStream>, tonic::Status> {
-                Ok(tonic::Response::new(empty_stream()))
-            }
-
-            async fn list_links(
-                &self,
-                _: tonic::Request<LinkListRequest>,
-            ) -> Result<tonic::Response<Self::ListLinksStream>, tonic::Status> {
-                Ok(tonic::Response::new(empty_stream()))
             }
         }
 
@@ -1349,38 +1050,6 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn route_add_grpc_error_propagates() {
-            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
-            assert!(
-                route_add(
-                    "n1",
-                    "a/b/c/00000000-0000-0000-0000-000000000000",
-                    "via",
-                    "dest",
-                    &make_opts(&addr)
-                )
-                .await
-                .is_err()
-            );
-        }
-
-        #[tokio::test]
-        async fn route_del_grpc_error_propagates() {
-            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
-            assert!(
-                route_del(
-                    "n1",
-                    "a/b/c/00000000-0000-0000-0000-000000000000",
-                    "via",
-                    "dest",
-                    &make_opts(&addr)
-                )
-                .await
-                .is_err()
-            );
-        }
-
-        #[tokio::test]
         async fn route_outline_grpc_error_propagates() {
             let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
             assert!(
@@ -1394,23 +1063,6 @@ mod tests {
         async fn link_outline_grpc_error_propagates() {
             let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
             assert!(link_outline("", "", true, &make_opts(&addr)).await.is_err());
-        }
-
-        // ── negative-ACK (success = false) tests ─────────────────────────────
-
-        #[tokio::test]
-        async fn route_add_negative_ack_fails() {
-            let addr = spawn_cp_svc(FailureControlPlaneSvc).await;
-            let err = route_add(
-                "n1",
-                "a/b/c/00000000-0000-0000-0000-000000000000",
-                "via",
-                "dest",
-                &make_opts(&addr),
-            )
-            .await
-            .unwrap_err();
-            assert!(err.to_string().contains("failed to create route"));
         }
     }
 }

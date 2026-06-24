@@ -8,14 +8,9 @@ import "controller/v1/controller.proto";
 import "data-plane/v1/data_plane.proto";
 
 service ControlPlaneService {
-  rpc AddRoute(AddRouteRequest) returns (AddRouteResponse) {}
-  rpc DeleteRoute(DeleteRouteRequest) returns (DeleteRouteResponse) {}
   rpc ListNodeRoutes(Node) returns (controller.proto.v1.RouteListResponse) {}
   rpc ListConnections(Node) returns (controller.proto.v1.ConnectionListResponse) {}
   rpc ListNodes(NodeListRequest) returns (stream NodeEntry) {}
-
-  // Route management
-
   // List routes registered at the controller with optional filtering by source and destination node IDs
   rpc ListRoutes(RouteListRequest) returns (stream RouteEntry) {}
   // List links stored in the controller DB with optional filtering by source and destination node IDs
@@ -48,28 +43,6 @@ message NodeEntry {
 
 message NodeListResponse {
   repeated NodeEntry entries = 1;
-}
-
-message AddRouteRequest {
-  controller.proto.v1.Connection connection = 1;
-  controller.proto.v1.Route route = 2;
-  string nodeId = 3;
-  string destNodeId = 4; // optional
-}
-
-message AddRouteResponse {
-  bool success = 1;
-  string routeId = 2;
-}
-
-message DeleteRouteRequest {
-  controller.proto.v1.Route route = 1;
-  string nodeId = 2;
-  string destNodeId = 3; // optional
-}
-
-message DeleteRouteResponse {
-  bool success = 1;
 }
 
 // Request to list routes, filtered by optional nodeId and destNodeId
