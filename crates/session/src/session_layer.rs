@@ -955,12 +955,13 @@ mod tests {
 
         let app_name = make_name(&["test", "app", "v1"]);
         let remote_auth = SharedSecret::new("remote", TEST_SECRET).unwrap();
+        let local_provider = SharedSecret::new("local", TEST_SECRET).unwrap();
         let local_verifier = SharedSecret::new("local", TEST_SECRET).unwrap();
         let (tx_slim, mut rx_slim) = mpsc::channel(16);
         let (tx_app, _rx_app) = mpsc::channel(16);
         let session_layer = Arc::new(SessionLayer::new(
             app_name,
-            MockTokenProvider,
+            local_provider,
             local_verifier,
             12345u64,
             tx_slim,

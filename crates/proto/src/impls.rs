@@ -658,6 +658,21 @@ impl SessionMessageType {
                 | SessionMessageType::Ping
         )
     }
+
+    pub fn is_post_session_control(&self) -> bool {
+        matches!(
+            self,
+            SessionMessageType::LeaveRequest
+                | SessionMessageType::LeaveReply
+                | SessionMessageType::GroupAdd
+                | SessionMessageType::GroupRemove
+                | SessionMessageType::GroupClose
+                | SessionMessageType::GroupProposal
+                | SessionMessageType::GroupAck
+                | SessionMessageType::GroupNack
+                | SessionMessageType::Ping
+        )
+    }
 }
 
 impl ProtoSubscribe {

@@ -18,6 +18,7 @@ base64 = { workspace = true }
 display-error-chain = { workspace = true }
 futures = { workspace = true }
 futures-timer = { workspace = true }
+lru = { workspace = true }
 parking_lot = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }

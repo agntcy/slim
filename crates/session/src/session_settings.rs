@@ -1,12 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
-
-use parking_lot::Mutex;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::ProtoName;
 
@@ -16,6 +10,10 @@ use crate::{
     session_config::SessionConfig,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
 };
+
+/// Max size of control message replay cache
+pub(crate) const DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE: usize = 1000;
+pub(crate) const MAX_SEEN_CONTROL_MESSAGE_SENDERS_SIZE: usize = 100;
 
 /// Settings struct for constructing session components.
 ///
@@ -82,25 +80,6 @@ where
     /// Service ID for tracing — identifies which service instance owns this session
     pub(crate) service_id: String,
 
-    /// Seen control-message ids per remote sender (E2E replay protection).
-    pub(crate) seen_control_message_ids: Arc<Mutex<HashMap<ProtoName, HashSet<u32>>>>,
-}
-
-pub(crate) fn new_seen_control_message_ids() -> Arc<Mutex<HashMap<ProtoName, HashSet<u32>>>> {
-    Arc::new(Mutex::new(HashMap::new()))
-}
-
-impl<P, V, M> SessionSettings<P, V, M>
-where
-    P: TokenProvider + Send + Sync + Clone + 'static,
-    V: Verifier + Send + Sync + Clone + 'static,
-    M: SubscriptionOps,
-{
-    /// Forget replay state for a participant that left or was removed.
-    pub(crate) fn clear_seen_control_message_ids(&self, participant: &ProtoName) {
-        let components = participant.str_components();
-        self.seen_control_message_ids
-            .lock()
-            .retain(|k, _| k.str_components() != components);
-    }
+    /// Seen control messages cache max size (for replay attack prevention)
+    pub(crate) max_seen_control_message_ids_size: usize,
 }

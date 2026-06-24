@@ -128,6 +128,7 @@ where
     direction: Direction,
     subscription_manager: Option<M>,
     service_id: Option<String>,
+    max_seen_control_message_ids_size: Option<usize>,
     _target: PhantomData<Target>,
     _state: PhantomData<State>,
 }
@@ -155,6 +156,7 @@ where
             direction: Direction::Bidirectional,
             subscription_manager: None,
             service_id: None,
+            max_seen_control_message_ids_size: None,
             _target: PhantomData,
             _state: PhantomData,
         }
@@ -227,6 +229,11 @@ where
         self
     }
 
+    pub fn with_max_seen_control_message_ids_size(mut self, size: usize) -> Self {
+        self.max_seen_control_message_ids_size = Some(size);
+        self
+    }
+
     /// Set a custom subscription manager.  This method changes the manager
     /// type `M`, so it returns a new builder type `SessionBuilder<P, V,
     /// Target, NotReady, N>`.  Call this before `ready()`.
@@ -249,6 +256,7 @@ where
             direction: self.direction,
             subscription_manager: Some(manager),
             service_id: self.service_id,
+            max_seen_control_message_ids_size: self.max_seen_control_message_ids_size,
             _target: PhantomData,
             _state: PhantomData,
         }
@@ -309,6 +317,7 @@ where
             direction: self.direction,
             subscription_manager: self.subscription_manager,
             service_id: self.service_id,
+            max_seen_control_message_ids_size: self.max_seen_control_message_ids_size,
             _target: PhantomData,
             _state: PhantomData,
         })
@@ -446,7 +455,9 @@ where
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
             subscription_manager,
             service_id: self.service_id.unwrap_or_default(),
-            seen_control_message_ids: crate::session_settings::new_seen_control_message_ids(),
+            max_seen_control_message_ids_size: self
+                .max_seen_control_message_ids_size
+                .unwrap_or(crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE),
         };
 
         let wrapper = wrapper_constructor(inner, settings.clone());

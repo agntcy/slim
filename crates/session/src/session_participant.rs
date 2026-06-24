@@ -818,7 +818,8 @@ mod tests {
             graceful_shutdown_timeout: None,
             subscription_manager,
             service_id: String::new(),
-            seen_control_message_ids: crate::session_settings::new_seen_control_message_ids(),
+            max_seen_control_message_ids_size:
+                crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
         };
 
         let inner = MockInnerHandler::new();

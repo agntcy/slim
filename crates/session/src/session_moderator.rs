@@ -486,11 +486,6 @@ where
         participant_no_id.reset_id();
         self.group_list.remove(&participant_no_id);
 
-        // Re-invited participants may reuse message ids; drop stale replay state.
-        self.common
-            .settings
-            .clear_seen_control_message_ids(participant);
-
         // Remove endpoint from local session
         self.remove_endpoint(participant);
 
@@ -1275,7 +1270,7 @@ mod tests {
     use crate::Direction;
     use crate::common::OutboundMessage;
     use crate::session_config::SessionConfig;
-    use crate::session_settings::SessionSettings;
+    use crate::session_settings::{DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE, SessionSettings};
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
     use slim_datapath::Status;
     use slim_datapath::api::{CommandPayload, ParticipantSettings, ProtoSessionType};
@@ -1356,7 +1351,7 @@ mod tests {
             graceful_shutdown_timeout: None,
             subscription_manager,
             service_id: String::new(),
-            seen_control_message_ids: crate::session_settings::new_seen_control_message_ids(),
+            max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
         };
 
         let inner = MockInnerHandler::new();
@@ -1721,7 +1716,7 @@ mod tests {
             graceful_shutdown_timeout: None,
             subscription_manager,
             service_id: String::new(),
-            seen_control_message_ids: crate::session_settings::new_seen_control_message_ids(),
+            max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
         };
 
         let inner = MockInnerHandler::new();
@@ -1803,7 +1798,7 @@ mod tests {
             graceful_shutdown_timeout: None,
             subscription_manager,
             service_id: String::new(),
-            seen_control_message_ids: crate::session_settings::new_seen_control_message_ids(),
+            max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
         };
 
         let inner = MockInnerHandler::new();
@@ -1954,7 +1949,7 @@ mod tests {
             graceful_shutdown_timeout: None,
             subscription_manager,
             service_id: String::new(),
-            seen_control_message_ids: crate::session_settings::new_seen_control_message_ids(),
+            max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
         };
 
         let inner = MockInnerHandler::new();

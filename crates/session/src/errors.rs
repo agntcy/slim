@@ -51,6 +51,10 @@ pub enum SessionError {
     MalformedParticipant,
     #[error("missing participant settings")]
     MissingParticipantSettings,
+    #[error("identity key is empty")]
+    SignatureKeyIsEmpty,
+    #[error("identity key collection failed with auth error: {0:?}")]
+    SignatureKeyCollectionFailedWithAuthErr(AuthError),
     #[error("unexpected error")]
     UnexpectedError { source: Box<SessionError> },
 

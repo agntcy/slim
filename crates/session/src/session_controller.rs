@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Standard library imports
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, num::NonZeroUsize, time::Duration};
 
 use display_error_chain::ErrorChainExt;
 use parking_lot::Mutex;
 use tokio::sync::{self, oneshot};
 // Third-party crates
+use lru::LruCache;
 use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, debug};
 
@@ -29,7 +30,7 @@ use crate::{
     controller_sender::{ControllerSender, PING_INTERVAL},
     session_builder::{ForController, SessionBuilder},
     session_config::SessionConfig,
-    session_settings::SessionSettings,
+    session_settings::{MAX_SEEN_CONTROL_MESSAGE_SENDERS_SIZE, SessionSettings},
     traits::{MessageHandler, ProcessingState},
 };
 
@@ -90,12 +91,24 @@ where
         return Ok(());
     }
     let private_key = match identity_provider.get_signature_secret_key() {
-        Ok(k) if !k.is_empty() => k,
-        _ => return Ok(()),
+        Ok(k) => {
+            if k.is_empty() {
+                return Err(SessionError::SignatureKeyIsEmpty);
+            } else {
+                k
+            }
+        }
+        Err(err) => return Err(SessionError::SignatureKeyCollectionFailedWithAuthErr(err)),
     };
     let public_key = match identity_provider.get_signature_public_key() {
-        Ok(k) if !k.is_empty() => k,
-        _ => return Ok(()),
+        Ok(k) => {
+            if k.is_empty() {
+                return Err(SessionError::SignatureKeyIsEmpty);
+            } else {
+                k
+            }
+        }
+        Err(err) => return Err(SessionError::SignatureKeyCollectionFailedWithAuthErr(err)),
     };
     let identity = identity_provider.get_token()?;
     msg.get_slim_header_mut().set_identity(identity);
@@ -247,6 +260,7 @@ impl SessionController {
     async fn verify_and_check_replay<P, V, M>(
         msg: &Message,
         settings: &SessionSettings<P, V, M>,
+        seen_control_message_ids: &mut LruCache<ProtoName, LruCache<u32, ()>>,
     ) -> Result<bool, SessionError>
     where
         P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
@@ -254,27 +268,17 @@ impl SessionController {
         M: crate::subscription_manager::SubscriptionOps,
     {
         let msg_type = msg.get_session_message_type();
-        let is_post_session_control = matches!(
-            msg_type,
-            ProtoSessionMessageType::LeaveRequest
-                | ProtoSessionMessageType::LeaveReply
-                | ProtoSessionMessageType::GroupAdd
-                | ProtoSessionMessageType::GroupRemove
-                | ProtoSessionMessageType::GroupClose
-                | ProtoSessionMessageType::GroupProposal
-                | ProtoSessionMessageType::GroupAck
-                | ProtoSessionMessageType::GroupNack
-                | ProtoSessionMessageType::Ping
-        );
+
         // Require E2E verification only when the sender included a signature (matches pre-session path).
-        let e2e_required = is_post_session_control && settings.config.mls_settings.is_some();
+        let e2e_required =
+            msg_type.is_post_session_control() && settings.config.mls_settings.is_some();
 
         // 1. Verify E2E header signature and token
         crate::session_controller::verify_identity(msg, &settings.identity_verifier, e2e_required)
             .await?;
 
         // 2. Replay check for signed control messages (keyed by session message_id).
-        if msg.get_session_message_type().is_command_message() {
+        if msg_type.is_command_message() {
             let sender = msg.get_source();
             let message_id = msg.get_session_header().get_message_id();
             if message_id == 0 {
@@ -282,9 +286,17 @@ impl SessionController {
                     slim_auth::errors::AuthError::TokenInvalid,
                 ));
             }
-            let mut seen = settings.seen_control_message_ids.lock();
-            let seen = seen.entry(sender.clone()).or_default();
-            if !seen.insert(message_id) {
+
+            if !seen_control_message_ids.contains(&sender) {
+                seen_control_message_ids.put(
+                    sender.clone(),
+                    LruCache::new(
+                        NonZeroUsize::new(settings.max_seen_control_message_ids_size).unwrap(),
+                    ),
+                );
+            }
+            let inner = seen_control_message_ids.get_mut(&sender).unwrap();
+            if inner.put(message_id, ()).is_some() {
                 if e2e_required {
                     return Err(SessionError::ControlMessageReplay { message_id });
                 } else {
@@ -312,6 +324,10 @@ impl SessionController {
             tracing::error!(error = %e.chain(), "error during initialization of session");
         }
 
+        // Seen control-message ids per remote sender (E2E replay protection).
+        let mut seen_control_message_ids: LruCache<ProtoName, LruCache<u32, ()>> =
+            LruCache::new(NonZeroUsize::new(MAX_SEEN_CONTROL_MESSAGE_SENDERS_SIZE).unwrap());
+
         loop {
             tokio::select! {
                 _ = cancellation_token.cancelled(), if inner.processing_state() == ProcessingState::Active => {
@@ -323,7 +339,7 @@ impl SessionController {
                     debug!("consuming pending messages before entering draining state");
                     while let Ok(msg) = rx.try_recv() {
                         if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &msg {
-                            let is_message_valid = Self::verify_and_check_replay(message, &settings).await;
+                            let is_message_valid = Self::verify_and_check_replay(message, &settings, &mut seen_control_message_ids).await;
                             match is_message_valid {
                                 Err(e) => {
                                     debug!(error = %e.chain(), "dropping inbound message during drain: verification or replay check failed");
@@ -377,7 +393,7 @@ impl SessionController {
                                 ..
                             } = &session_message
                             {
-                                match Self::verify_and_check_replay(message, &settings).await {
+                                match Self::verify_and_check_replay(message, &settings, &mut seen_control_message_ids).await {
                                     Err(e) => {
                                         debug!(
                                             error = %e.chain(),
@@ -403,9 +419,33 @@ impl SessionController {
                                 continue;
                             }
 
+
+                            // Capture leave/remove sender before moving session_message.
+                            let leave_sender = if let SessionMessage::OnMessage {
+                                message,
+                                direction: MessageDirection::North,
+                                ..
+                            } = &session_message
+                            {
+                                let msg_type = message.get_session_message_type();
+                                if matches!(msg_type, ProtoSessionMessageType::LeaveRequest | ProtoSessionMessageType::GroupRemove) {
+                                    Some(message.get_source())
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            };
+
                             match inner.on_message(session_message).await {
                                 Ok(output) => {
                                     Self::dispatch_output(output, &settings).await;
+
+                                    if let Some(sender) = leave_sender {
+                                        seen_control_message_ids.pop(&sender);
+                                    }
+
+
                                     // If we were active before processing and the handler switched to draining,
                                     // start (or reset) the graceful shutdown deadline just like on cancellation.
                                     if !draining && inner.processing_state() == ProcessingState::Draining {
@@ -2044,7 +2084,8 @@ mod tests {
             graceful_shutdown_timeout: Some(Duration::from_secs(10)),
             subscription_manager,
             service_id: String::new(),
-            seen_control_message_ids: crate::session_settings::new_seen_control_message_ids(),
+            max_seen_control_message_ids_size:
+                crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
         };
 
         let needs_drain = Arc::new(AtomicBool::new(true));
@@ -2221,7 +2262,8 @@ mod tests {
             graceful_shutdown_timeout,
             subscription_manager,
             service_id: String::new(),
-            seen_control_message_ids: crate::session_settings::new_seen_control_message_ids(),
+            max_seen_control_message_ids_size:
+                crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
         }
     }
 
