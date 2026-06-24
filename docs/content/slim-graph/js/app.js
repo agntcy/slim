@@ -61,7 +61,7 @@ function resetScenarioVisuals(name) {
   const ACTIVE_NODES_BY_SCENARIO = {
     p2p: ['node_Agent_A', 'node_Agent_B', 'node_Node1', 'node_Node2'],
     'p2p-mcp': ['node_Agent_B', 'node_MCP', 'node_Node1', 'node_Node2'],
-    multicast: ['node_Agent_A', 'node_Agent_B', 'node_Agent_C', 'node_Agent_D', 'node_Node1', 'node_Node2']
+    multicast: ['node_Agent_A', 'node_Agent_E', 'node_Agent_C', 'node_Agent_D', 'node_Node1', 'node_Node2']
   };
 
   const activeNodes = ACTIVE_NODES_BY_SCENARIO[name] || [];
@@ -496,6 +496,7 @@ function togglePause() {
 function updateJourneyChrome() {
   const wrap = document.querySelector('.arrow-stepper-wrap');
   if (wrap) {
+    wrap.classList.toggle('arrow-stepper-wrap--p2p', currentJourney === 'p2p');
     wrap.classList.toggle('arrow-stepper-wrap--p2p-mcp', currentJourney === 'p2p-mcp');
     wrap.classList.toggle('arrow-stepper-wrap--multicast', currentJourney === 'multicast');
   }

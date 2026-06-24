@@ -4,7 +4,7 @@
 /* Interactive slimctl terminal on the home page */
 
 .slimctl-terminal-section {
-  margin: 0 auto 2.5rem;
+  margin: 0;
   width: 100%;
 }
 
@@ -147,6 +147,11 @@
 
 .md-typeset .slimctl-terminal-output .slimctl-terminal-out {
   color: var(--md-default-fg-color);
+}
+
+.md-typeset .slimctl-terminal-output .slimctl-terminal-comment {
+  color: var(--md-default-fg-color--light);
+  font-style: italic;
 }
 
 .md-typeset .slimctl-terminal-output .slimctl-terminal-muted {

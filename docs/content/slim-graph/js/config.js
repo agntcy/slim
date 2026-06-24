@@ -120,6 +120,7 @@ const EDGE_PATH_MAP = {
   'slimNode2-agentC': 'path_Node2_to_C',
   'slimNode2-agentD': 'path_Node2_to_D',
   'agentB-slimNode2': 'path_Node2_to_B',
+  'slimNode1-agentE': 'path_E_to_Node1',
   'slimNode2-slimNode1': 'path_Node1_to_Node2',
 };
 
@@ -204,22 +205,40 @@ const SCENARIOS = {
         flashNode('core_Agent_A', 'flash-amber');
         logToTerminal('Agent A', 'info', 'slim_dataplane::service', 'publish');
         logToTerminal('SLIM Node 1', 'debug', 'slim_dataplane::datapath', 'received publication');
-        setSimulationTimeout(() => triggerNextStep(), 900);
+
+        spawn2DParticle('path_A_to_Node1', 'var(--color-amber)', 6, 0.02, 'dot', () => {
+          triggerNextStep();
+        });
       }
     },
     {
       title: "Invite Channel Members",
       shortTitle: "Invite",
-      activeEdges: ['agentA-slimNode1', 'slimNode1-slimNode2', 'slimNode2-agentB', 'slimNode2-agentC'],
-      desc: "Agent A invites Agent B (remote) and Agent C (remote) to the channel. Discovery and invite acknowledgments flow through **SLIM Node 1** and **SLIM Node 2**.",
+      activeEdges: ['agentA-slimNode1', 'slimNode1-slimNode2', 'slimNode1-agentE', 'slimNode2-agentC', 'slimNode2-agentD'],
+      desc: "Agent A invites **AI Agent A** (local), **AI Agent C**, and **AI Agent D** (remote) to the channel. Invite acknowledgments flow through **SLIM Node 1** and **SLIM Node 2**.",
       action: () => {
         flashNode('core_Node1', 'flash-amber');
         flashNode('core_Node2', 'flash-orange');
         logToTerminal('Agent A', 'info', 'slim_dataplane::service', 'Adding member to the MLS group');
         logToTerminal('SLIM Node 1', 'debug', 'slim_dataplane::datapath', 'forwarding message to connection');
-        logToTerminal('Agent B', 'debug', 'slim_dataplane::session::subscription_manager', 'received ack message');
-        logToTerminal('Agent C', 'debug', 'slim_dataplane::session::subscription_manager', 'received ack message');
-        setSimulationTimeout(() => triggerNextStep(), 1100);
+
+        spawn2DParticle('path_A_to_Node1', 'var(--color-amber)', 5, 0.022, 'dot', () => {
+          let invitesDone = 0;
+          const onInviteDone = () => {
+            invitesDone++;
+            if (invitesDone === 3) triggerNextStep();
+          };
+
+          logToTerminal('AI Agent A', 'debug', 'slim_dataplane::session::subscription_manager', 'received ack message');
+          spawn2DParticle('path_E_to_Node1', 'var(--color-amber)', 5, 0.022, 'dot', onInviteDone, true);
+
+          spawn2DParticle('path_Node1_to_Node2', 'var(--color-amber)', 5, 0.022, 'dot', () => {
+            logToTerminal('Agent C', 'debug', 'slim_dataplane::session::subscription_manager', 'received ack message');
+            logToTerminal('Agent D', 'debug', 'slim_dataplane::session::subscription_manager', 'received ack message');
+            spawn2DParticle('path_Node2_to_C', 'var(--color-amber)', 5, 0.022, 'dot', onInviteDone);
+            spawn2DParticle('path_Node2_to_D', 'var(--color-amber)', 5, 0.022, 'dot', onInviteDone);
+          });
+        });
       }
     },
     {
@@ -253,10 +272,12 @@ const SCENARIOS = {
     {
       title: "Cloud Multicast Fanout",
       shortTitle: "Fanout",
-      activeEdges: ['agentA-slimNode1', 'slimNode1-slimNode2', 'slimNode2-agentB', 'slimNode2-agentC', 'slimNode2-agentD'],
-      desc: "The cloud **SLIM Node 2** receives the envelope. It matches the channel name against its routing table, replicates the packet to active subscribers (Agent B, Agent C, Agent D).",
+      activeEdges: ['agentA-slimNode1', 'slimNode1-slimNode2', 'slimNode1-agentE', 'slimNode2-agentC', 'slimNode2-agentD'],
+      desc: "**SLIM Node 1** delivers locally to **AI Agent A**. **SLIM Node 2** replicates the envelope to remote subscribers **AI Agent C** and **AI Agent D**.",
       action: () => {
+        flashNode('core_Node1', 'flash-amber');
         flashNode('core_Node2', 'flash-orange');
+        logToTerminal('SLIM Node 1', 'debug', 'slim_dataplane::datapath', 'forwarding message to connection');
         logToTerminal('SLIM Node 2', 'debug', 'slim_dataplane::datapath', 'received publication');
         logToTerminal('SLIM Node 2', 'debug', 'slim_dataplane::datapath', 'forwarding to peers');
         
@@ -265,7 +286,7 @@ const SCENARIOS = {
           done++;
           if (done === 3) triggerNextStep();
         };
-        spawn2DParticle('path_Node2_to_B', 'var(--color-amber)', 6, 0.025, 'dot', onDelivery);
+        spawn2DParticle('path_E_to_Node1', 'var(--color-amber)', 6, 0.025, 'dot', onDelivery, true);
         spawn2DParticle('path_Node2_to_C', 'var(--color-amber)', 6, 0.025, 'dot', onDelivery);
         spawn2DParticle('path_Node2_to_D', 'var(--color-amber)', 6, 0.025, 'dot', onDelivery);
       }
@@ -273,16 +294,16 @@ const SCENARIOS = {
     {
       title: "Subscribers Receive Payload",
       shortTitle: "Receive",
-      activeEdges: ['agentA-slimNode1', 'slimNode1-slimNode2', 'slimNode2-agentB', 'slimNode2-agentC', 'slimNode2-agentD'],
-      desc: "Subscribed client nodes receive and parse the payload, returning acknowledgments back to Agent A.",
+      activeEdges: ['agentA-slimNode1', 'slimNode1-slimNode2', 'slimNode1-agentE', 'slimNode2-agentC', 'slimNode2-agentD'],
+      desc: "Subscribers on local and cloud nodes receive the payload and return acknowledgments back to Agent A.",
       action: () => {
-        flashNode('core_Agent_B', 'flash-green');
+        flashNode('core_Agent_E', 'flash-green');
         flashNode('core_Agent_C', 'flash-green');
         flashNode('core_Agent_D', 'flash-green');
-        logToTerminal('Agent B', 'info', 'slim_dataplane::service', 'received message');
+        logToTerminal('AI Agent A', 'info', 'slim_dataplane::service', 'received message');
         logToTerminal('Agent C', 'info', 'slim_dataplane::service', 'received message');
         logToTerminal('Agent D', 'info', 'slim_dataplane::service', 'received message');
-        logToTerminal('Agent B', 'debug', 'slim_dataplane::session::subscription_manager', 'received ack message');
+        logToTerminal('AI Agent A', 'debug', 'slim_dataplane::session::subscription_manager', 'received ack message');
         logToTerminal('Agent C', 'debug', 'slim_dataplane::session::subscription_manager', 'received ack message');
         logToTerminal('Agent D', 'debug', 'slim_dataplane::session::subscription_manager', 'received ack message');
 
@@ -315,7 +336,7 @@ const SCENARIOS = {
           }
         };
 
-        spawn2DParticle('path_Node2_to_B', 'var(--color-amber)', 5, 0.028, 'dot', onSubscriberAck, true);
+        spawn2DParticle('path_E_to_Node1', 'var(--color-amber)', 5, 0.028, 'dot', onSubscriberAck, true);
         spawn2DParticle('path_Node2_to_C', 'var(--color-amber)', 5, 0.028, 'dot', onSubscriberAck, true);
         spawn2DParticle('path_Node2_to_D', 'var(--color-amber)', 5, 0.028, 'dot', onSubscriberAck, true);
       }

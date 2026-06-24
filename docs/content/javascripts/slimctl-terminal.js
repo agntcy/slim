@@ -75,6 +75,7 @@
       agent: { prefix: "● ", className: "slimctl-terminal-agent" },
       tool: { prefix: "→ ", className: "slimctl-terminal-tool" },
       python: { prefix: ">>> ", className: "slimctl-terminal-tool" },
+      comment: { prefix: "", className: "slimctl-terminal-comment" },
     };
 
     function getActiveScript() {
@@ -170,6 +171,13 @@
           );
           renderDemoBlock(doneLines, null);
           state.demoTimer = setTimeout(finishStep, prefersReducedMotion() ? 0 : 400);
+          return;
+        }
+
+        if (step.type === "comment") {
+          doneLines.push(formatDemoLine(step));
+          renderDemoBlock(doneLines, null);
+          state.demoTimer = setTimeout(finishStep, prefersReducedMotion() ? 0 : 280);
           return;
         }
 
