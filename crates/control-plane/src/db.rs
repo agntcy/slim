@@ -131,6 +131,31 @@ pub trait DataAccess: Send + Sync {
         dest_group: &str,
         claimant_node_id: &str,
     ) -> Result<Option<Link>>;
+
+    // ── Topology (API-managed mode) ───────────────────────────────────────
+
+    async fn create_segment(&self, name: &str) -> Result<TopologySegment>;
+    async fn delete_segment(&self, id: &str) -> Result<()>;
+    async fn get_segment_by_name(&self, name: &str) -> Result<Option<TopologySegment>>;
+    async fn list_topology_segments(&self) -> Result<Vec<TopologySegment>>;
+    async fn add_group_to_segment(&self, segment_id: &str, group_name: &str) -> Result<()>;
+    async fn remove_group_from_segment(&self, segment_id: &str, group_name: &str) -> Result<()>;
+    async fn get_groups_for_segment(&self, segment_id: &str) -> Result<Vec<String>>;
+    async fn add_link_to_segment(
+        &self,
+        segment_id: &str,
+        source_group: &str,
+        dest_group: &str,
+    ) -> Result<()>;
+    async fn delete_link_from_segment(
+        &self,
+        segment_id: &str,
+        source_group: &str,
+        dest_group: &str,
+    ) -> Result<()>;
+    async fn get_links_for_segment(&self, segment_id: &str) -> Result<Vec<(String, String)>>;
+    /// Wipe all topology tables (used on startup in config-managed mode).
+    async fn clear_topology(&self) -> Result<()>;
 }
 
 pub type SharedDb = Arc<dyn DataAccess>;

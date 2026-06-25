@@ -12,7 +12,9 @@ use diesel::sql_types::{BigInt, Integer, Text};
 use serde::{Deserialize, Serialize};
 use slim_config::grpc::client::ClientConfig;
 
-use super::schema::{links, nodes, routes};
+use super::schema::{
+    links, nodes, routes, topology_segment_groups, topology_segment_links, topology_segments,
+};
 
 /// Wildcard node ID — matches all nodes.
 pub const ALL_NODES_ID: &str = "*";
@@ -418,6 +420,32 @@ impl std::fmt::Display for Link {
             self.source_node_id, self.dest_node_id, self.dest_endpoint, self.link_id, self.status,
         )
     }
+}
+
+// ─── Topology ─────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Queryable, Selectable, Identifiable, Insertable)]
+#[diesel(table_name = topology_segments)]
+pub struct TopologySegment {
+    pub id: String,
+    pub name: String,
+    #[diesel(deserialize_as = DbTimestamp, serialize_as = DbTimestamp)]
+    pub created_at: SystemTime,
+}
+
+#[derive(Debug, Clone, Queryable, Selectable, Insertable)]
+#[diesel(table_name = topology_segment_groups)]
+pub struct TopologySegmentGroup {
+    pub segment_id: String,
+    pub group_name: String,
+}
+
+#[derive(Debug, Clone, Queryable, Selectable, Insertable)]
+#[diesel(table_name = topology_segment_links)]
+pub struct TopologySegmentLink {
+    pub segment_id: String,
+    pub source_group: String,
+    pub dest_group: String,
 }
 
 #[cfg(test)]

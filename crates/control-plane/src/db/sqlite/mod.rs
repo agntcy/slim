@@ -22,9 +22,12 @@ use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 
 use super::model::{
     ALL_NODES_ID, ConnDetailsJson, DbClientConfig, DbTimestamp, JsonStrings, Link, LinkStatus,
-    Node, Route, RouteName, RouteStatus, has_connection_details_changed,
+    Node, Route, RouteName, RouteStatus, TopologySegment, TopologySegmentGroup,
+    TopologySegmentLink, has_connection_details_changed,
 };
-use super::schema::{links, nodes, routes};
+use super::schema::{
+    links, nodes, routes, topology_segment_groups, topology_segment_links, topology_segments,
+};
 use super::{DataAccess, SharedDb};
 use crate::error::{Error, Result};
 
@@ -1012,6 +1015,228 @@ impl DataAccess for SqliteDb {
             })?;
 
         Ok(link)
+    }
+
+    // ── Topology (API-managed mode) ───────────────────────────────────────
+
+    async fn create_segment(&self, name: &str) -> Result<TopologySegment> {
+        let segment = TopologySegment {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: name.to_string(),
+            created_at: SystemTime::now(),
+        };
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "create_segment pool",
+            msg: e.to_string(),
+        })?;
+        diesel::insert_into(topology_segments::table)
+            .values(segment.clone())
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "create_segment",
+                msg: e.to_string(),
+            })?;
+        Ok(segment)
+    }
+
+    async fn delete_segment(&self, id: &str) -> Result<()> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "delete_segment pool",
+            msg: e.to_string(),
+        })?;
+        diesel::delete(topology_segments::table.find(id))
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "delete_segment",
+                msg: e.to_string(),
+            })?;
+        Ok(())
+    }
+
+    async fn get_segment_by_name(&self, name: &str) -> Result<Option<TopologySegment>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "get_segment_by_name pool",
+            msg: e.to_string(),
+        })?;
+        topology_segments::table
+            .filter(topology_segments::name.eq(name))
+            .first::<TopologySegment>(&mut conn)
+            .await
+            .optional()
+            .map_err(|e| Error::DbError {
+                context: "get_segment_by_name",
+                msg: e.to_string(),
+            })
+    }
+
+    async fn list_topology_segments(&self) -> Result<Vec<TopologySegment>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "list_topology_segments pool",
+            msg: e.to_string(),
+        })?;
+        topology_segments::table
+            .load::<TopologySegment>(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "list_topology_segments",
+                msg: e.to_string(),
+            })
+    }
+
+    async fn add_group_to_segment(&self, segment_id: &str, group_name: &str) -> Result<()> {
+        let group = TopologySegmentGroup {
+            segment_id: segment_id.to_string(),
+            group_name: group_name.to_string(),
+        };
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "add_group_to_segment pool",
+            msg: e.to_string(),
+        })?;
+        diesel::insert_into(topology_segment_groups::table)
+            .values(group)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "add_group_to_segment",
+                msg: e.to_string(),
+            })?;
+        Ok(())
+    }
+
+    async fn remove_group_from_segment(&self, segment_id: &str, group_name: &str) -> Result<()> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "remove_group_from_segment pool",
+            msg: e.to_string(),
+        })?;
+        diesel::delete(
+            topology_segment_groups::table
+                .filter(topology_segment_groups::segment_id.eq(segment_id))
+                .filter(topology_segment_groups::group_name.eq(group_name)),
+        )
+        .execute(&mut conn)
+        .await
+        .map_err(|e| Error::DbError {
+            context: "remove_group_from_segment",
+            msg: e.to_string(),
+        })?;
+        Ok(())
+    }
+
+    async fn get_groups_for_segment(&self, segment_id: &str) -> Result<Vec<String>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "get_groups_for_segment pool",
+            msg: e.to_string(),
+        })?;
+        topology_segment_groups::table
+            .filter(topology_segment_groups::segment_id.eq(segment_id))
+            .select(topology_segment_groups::group_name)
+            .load::<String>(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "get_groups_for_segment",
+                msg: e.to_string(),
+            })
+    }
+
+    async fn add_link_to_segment(
+        &self,
+        segment_id: &str,
+        source_group: &str,
+        dest_group: &str,
+    ) -> Result<()> {
+        let link = TopologySegmentLink {
+            segment_id: segment_id.to_string(),
+            source_group: source_group.to_string(),
+            dest_group: dest_group.to_string(),
+        };
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "add_link_to_segment pool",
+            msg: e.to_string(),
+        })?;
+        diesel::insert_into(topology_segment_links::table)
+            .values(link)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "add_link_to_segment",
+                msg: e.to_string(),
+            })?;
+        Ok(())
+    }
+
+    async fn delete_link_from_segment(
+        &self,
+        segment_id: &str,
+        source_group: &str,
+        dest_group: &str,
+    ) -> Result<()> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "delete_link_from_segment pool",
+            msg: e.to_string(),
+        })?;
+        diesel::delete(
+            topology_segment_links::table
+                .filter(topology_segment_links::segment_id.eq(segment_id))
+                .filter(topology_segment_links::source_group.eq(source_group))
+                .filter(topology_segment_links::dest_group.eq(dest_group)),
+        )
+        .execute(&mut conn)
+        .await
+        .map_err(|e| Error::DbError {
+            context: "delete_link_from_segment",
+            msg: e.to_string(),
+        })?;
+        Ok(())
+    }
+
+    async fn get_links_for_segment(&self, segment_id: &str) -> Result<Vec<(String, String)>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "get_links_for_segment pool",
+            msg: e.to_string(),
+        })?;
+        topology_segment_links::table
+            .filter(topology_segment_links::segment_id.eq(segment_id))
+            .select((
+                topology_segment_links::source_group,
+                topology_segment_links::dest_group,
+            ))
+            .load::<(String, String)>(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "get_links_for_segment",
+                msg: e.to_string(),
+            })
+    }
+
+    async fn clear_topology(&self) -> Result<()> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "clear_topology pool",
+            msg: e.to_string(),
+        })?;
+        diesel::delete(topology_segment_links::table)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "clear_topology links",
+                msg: e.to_string(),
+            })?;
+        diesel::delete(topology_segment_groups::table)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "clear_topology groups",
+                msg: e.to_string(),
+            })?;
+        diesel::delete(topology_segments::table)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "clear_topology segments",
+                msg: e.to_string(),
+            })?;
+        Ok(())
     }
 }
 
