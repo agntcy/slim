@@ -71,7 +71,7 @@ impl NorthboundApiService {
     fn enrich_peer_node_ids(
         entries: &mut [crate::api::proto::controller::proto::v1::ConnectionEntry],
         node_group: &str,
-        link_peer_map: &std::collections::HashMap<&str, String>,
+        link_peer_map: &std::collections::HashMap<String, String>,
     ) {
         use crate::api::proto::controller::proto::v1::ConnectionType;
         for entry in entries.iter_mut() {
@@ -95,6 +95,30 @@ impl NorthboundApiService {
                 _ => {}
             }
         }
+    }
+
+    /// Fetch link data for a node and build the enrichment context.
+    /// Returns `(node_group, link_peer_map)`. Logs a warning on DB errors
+    /// and continues with an empty map (enrichment is best-effort).
+    async fn enrichment_context(
+        &self,
+        node: &crate::db::Node,
+        caller: &str,
+    ) -> (String, std::collections::HashMap<String, String>) {
+        let node_group = node.group_name.clone().unwrap_or_default();
+        let links = self
+            .db
+            .get_links_for_node(&node.id)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!("{caller}: failed to fetch links for enrichment: {e}");
+                Vec::new()
+            });
+        let link_peer_map = Self::build_link_peer_map(&node.id, &links)
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
+        (node_group, link_peer_map)
     }
 }
 
@@ -191,13 +215,7 @@ impl ControlPlaneService for NorthboundApiService {
             })?;
 
         // Enrich peer_node_id with group prefix (same logic as list_connections).
-        let node_group = node.group_name.unwrap_or_default();
-        let links = self
-            .db
-            .get_links_for_node(&node.id)
-            .await
-            .unwrap_or_default();
-        let link_peer_map = Self::build_link_peer_map(&node.id, &links);
+        let (node_group, link_peer_map) = self.enrichment_context(&node, "list_node_routes").await;
 
         for entry in &mut resp.entries {
             Self::enrich_peer_node_ids(&mut entry.connections, &node_group, &link_peer_map);
@@ -231,13 +249,7 @@ impl ControlPlaneService for NorthboundApiService {
             })?;
 
         // Enrich peer_node_id with group prefix using link information.
-        let node_group = node.group_name.unwrap_or_default();
-        let links = self
-            .db
-            .get_links_for_node(&node.id)
-            .await
-            .unwrap_or_default();
-        let link_peer_map = Self::build_link_peer_map(&node.id, &links);
+        let (node_group, link_peer_map) = self.enrichment_context(&node, "list_connections").await;
         Self::enrich_peer_node_ids(&mut resp.entries, &node_group, &link_peer_map);
 
         Ok(Response::new(resp))

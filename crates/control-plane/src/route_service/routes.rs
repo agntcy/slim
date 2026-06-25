@@ -99,18 +99,15 @@ impl super::RouteService {
                     .edge_references()
                     .map(|e| (graph[e.source()].clone(), graph[e.target()].clone()))
                     .collect();
-                // Only include groups that participate in at least one edge
-                let mut connected: std::collections::HashSet<String> =
-                    std::collections::HashSet::new();
-                for (a, b) in &edges {
-                    connected.insert(a.clone());
-                    connected.insert(b.clone());
-                }
-                let groups: Vec<String> = graph
-                    .node_indices()
-                    .map(|idx| graph[idx].clone())
-                    .filter(|g| connected.contains(g))
-                    .collect();
+                let mut groups: Vec<String> = {
+                    let mut connected = std::collections::HashSet::new();
+                    for (a, b) in &edges {
+                        connected.insert(a.clone());
+                        connected.insert(b.clone());
+                    }
+                    connected.into_iter().collect()
+                };
+                groups.sort();
                 (name.clone(), groups, edges)
             })
             .collect()

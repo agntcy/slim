@@ -271,41 +271,11 @@ async fn node_list(opts: &ClientConfig) -> Result<()> {
     }
 
     // Print header
-    println!(
-        "  {:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {:<w4$}",
-        headers[0],
-        headers[1],
-        headers[2],
-        headers[3],
-        headers[4],
-        w0 = widths[0],
-        w1 = widths[1],
-        w2 = widths[2],
-        w3 = widths[3],
-        w4 = widths[4],
-    );
-    let sep: String = widths
-        .iter()
-        .map(|w| "-".repeat(w + 2))
-        .collect::<Vec<_>>()
-        .join("");
-    println!("  {sep}");
+    print_table_header(&headers, &widths);
 
     // Print rows
     for (id, group, status, ep, pub_ep) in &rows {
-        println!(
-            "  {:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {:<w4$}",
-            id,
-            group,
-            status,
-            ep,
-            pub_ep,
-            w0 = widths[0],
-            w1 = widths[1],
-            w2 = widths[2],
-            w3 = widths[3],
-            w4 = widths[4],
-        );
+        print_row(&[*id, *group, *status, *ep, *pub_ep], &widths);
     }
     Ok(())
 }
@@ -365,40 +335,10 @@ async fn connection_list(node_id: &str, opts: &ClientConfig) -> Result<()> {
         widths[4] = widths[4].max(lid.len());
     }
 
-    println!(
-        "  {:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {:<w4$}",
-        headers[0],
-        headers[1],
-        headers[2],
-        headers[3],
-        headers[4],
-        w0 = widths[0],
-        w1 = widths[1],
-        w2 = widths[2],
-        w3 = widths[3],
-        w4 = widths[4],
-    );
-    let sep: String = widths
-        .iter()
-        .map(|w| "-".repeat(w + 2))
-        .collect::<Vec<_>>()
-        .join("");
-    println!("  {sep}");
+    print_table_header(&headers, &widths);
 
     for (id, ct, dir, ep, lid) in &rows {
-        println!(
-            "  {:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {:<w4$}",
-            id,
-            ct,
-            dir,
-            ep,
-            lid,
-            w0 = widths[0],
-            w1 = widths[1],
-            w2 = widths[2],
-            w3 = widths[3],
-            w4 = widths[4],
-        );
+        print_row(&[id.as_ref(), *ct, *dir, *ep, *lid], &widths);
     }
     Ok(())
 }
@@ -489,9 +429,13 @@ async fn route_outline(
         }
     }
     println!(
-        "Routes: {} (applied{})\n",
+        "Routes: {} ({})\n",
         routes.len(),
-        if show_all { " + all" } else { "" }
+        if show_all {
+            "all statuses"
+        } else {
+            "applied only"
+        }
     );
     if !routes.is_empty() {
         let col_widths = compute_route_col_widths(&routes);
@@ -526,9 +470,13 @@ async fn link_outline(
         }
     }
     println!(
-        "Links: {} (applied{})\n",
+        "Links: {} ({})\n",
         links.len(),
-        if show_all { " + all" } else { "" }
+        if show_all {
+            "all statuses"
+        } else {
+            "applied only"
+        }
     );
     if !links.is_empty() {
         let col_widths = compute_link_col_widths(&links);
@@ -584,6 +532,12 @@ fn print_row<T: AsRef<str>>(cells: &[T], widths: &[usize]) {
     println!("  {}", line.join("  "));
 }
 
+fn print_table_header(headers: &[&str], widths: &[usize]) {
+    print_row(headers, widths);
+    let total: usize = widths.iter().sum::<usize>() + widths.len() * 2;
+    println!("  {}", "-".repeat(total));
+}
+
 fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 7] {
     let mut widths = ROUTE_HEADERS.map(|h| h.len());
     for r in routes {
@@ -595,9 +549,7 @@ fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 7] {
 }
 
 fn print_route_header(widths: &[usize; 7]) {
-    print_row(&ROUTE_HEADERS, widths);
-    let total: usize = widths.iter().sum::<usize>() + widths.len() * 2;
-    println!("  {}", "-".repeat(total));
+    print_table_header(&ROUTE_HEADERS, widths);
 }
 
 fn print_route_row(route: &RouteEntry, widths: &[usize; 7]) {
@@ -643,9 +595,7 @@ fn compute_link_col_widths(links: &[LinkEntry]) -> [usize; 8] {
 }
 
 fn print_link_header(widths: &[usize; 8]) {
-    print_row(&LINK_HEADERS, widths);
-    let total: usize = widths.iter().sum::<usize>() + widths.len() * 2;
-    println!("  {}", "-".repeat(total));
+    print_table_header(&LINK_HEADERS, widths);
 }
 
 fn print_link_row(link: &LinkEntry, widths: &[usize; 8]) {
@@ -718,34 +668,19 @@ async fn group_list(opts: &ClientConfig) -> Result<()> {
         .iter()
         .map(|(group, nodes)| {
             let node_list = nodes.join(", ");
-            widths[0] = widths[0].max(group.len());
-            widths[1] = widths[1].max(node_list.len());
             (group.as_str(), node_list)
         })
         .collect();
 
-    println!(
-        "  {:<w0$}  {:<w1$}",
-        headers[0],
-        headers[1],
-        w0 = widths[0],
-        w1 = widths[1],
-    );
-    let sep: String = widths
-        .iter()
-        .map(|w| "-".repeat(w + 2))
-        .collect::<Vec<_>>()
-        .join("");
-    println!("  {sep}");
+    for (group, node_list) in &rows {
+        widths[0] = widths[0].max(group.len());
+        widths[1] = widths[1].max(node_list.len());
+    }
+
+    print_table_header(&headers, &widths);
 
     for (group, nodes) in &rows {
-        println!(
-            "  {:<w0$}  {:<w1$}",
-            group,
-            nodes,
-            w0 = widths[0],
-            w1 = widths[1],
-        );
+        print_row(&[*group, nodes.as_str()], &widths);
     }
     Ok(())
 }
@@ -775,39 +710,20 @@ async fn segment_list(opts: &ClientConfig) -> Result<()> {
                 .map(|e| format!("{}↔{}", e.group_a, e.group_b))
                 .collect::<Vec<_>>()
                 .join(", ");
-            widths[0] = widths[0].max(s.name.len());
-            widths[1] = widths[1].max(groups.len());
-            widths[2] = widths[2].max(links.len());
             (s.name.as_str(), groups, links)
         })
         .collect();
 
-    println!(
-        "  {:<w0$}  {:<w1$}  {:<w2$}",
-        headers[0],
-        headers[1],
-        headers[2],
-        w0 = widths[0],
-        w1 = widths[1],
-        w2 = widths[2],
-    );
-    let sep: String = widths
-        .iter()
-        .map(|w| "-".repeat(w + 2))
-        .collect::<Vec<_>>()
-        .join("");
-    println!("  {sep}");
+    for (name, groups, links) in &rows {
+        widths[0] = widths[0].max(name.len());
+        widths[1] = widths[1].max(groups.len());
+        widths[2] = widths[2].max(links.len());
+    }
+
+    print_table_header(&headers, &widths);
 
     for (name, groups, links) in &rows {
-        println!(
-            "  {:<w0$}  {:<w1$}  {:<w2$}",
-            name,
-            groups,
-            links,
-            w0 = widths[0],
-            w1 = widths[1],
-            w2 = widths[2],
-        );
+        print_row(&[*name, groups.as_str(), links.as_str()], &widths);
     }
     Ok(())
 }
@@ -1153,6 +1069,18 @@ mod tests {
             link_outline("", "", true, &make_opts(&addr)).await.unwrap();
         }
 
+        #[tokio::test]
+        async fn group_list_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            group_list(&make_opts(&addr)).await.unwrap();
+        }
+
+        #[tokio::test]
+        async fn segment_list_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            segment_list(&make_opts(&addr)).await.unwrap();
+        }
+
         // ── error server ─────────────────────────────────────────────────────
 
         /// All methods return a gRPC status error.
@@ -1256,6 +1184,18 @@ mod tests {
         async fn link_outline_grpc_error_propagates() {
             let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
             assert!(link_outline("", "", true, &make_opts(&addr)).await.is_err());
+        }
+
+        #[tokio::test]
+        async fn group_list_grpc_error_propagates() {
+            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
+            assert!(group_list(&make_opts(&addr)).await.is_err());
+        }
+
+        #[tokio::test]
+        async fn segment_list_grpc_error_propagates() {
+            let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
+            assert!(segment_list(&make_opts(&addr)).await.is_err());
         }
     }
 }
