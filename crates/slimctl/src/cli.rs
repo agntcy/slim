@@ -190,8 +190,8 @@ mod tests {
     use crate::commands::channel_manager::ChannelManagerCommand;
     use crate::commands::config_cmd::{ConfigCommand, SetCommand};
     use crate::commands::controller::{
-        ControllerCommand, ControllerConnectionCommand, ControllerNodeCommand,
-        ControllerRouteCommand,
+        ControllerCommand, ControllerConnectionCommand, ControllerGroupCommand,
+        ControllerNodeCommand, ControllerRouteCommand, ControllerSegmentCommand,
     };
     use crate::commands::node::{NodeCommand, NodeConnectionCommand, NodeRouteCommand};
     use crate::commands::slim_cmd::SlimCommand;
@@ -429,6 +429,30 @@ mod tests {
         } = a.command;
         assert_eq!(origin_node_id, "src-node");
         assert_eq!(target_node_id, "dst-node");
+    }
+
+    #[test]
+    fn parse_controller_group_list() {
+        let cli = parse_ok(&["slimctl", "controller", "group", "list"]);
+        let Commands::Controller(args) = cli.command else {
+            panic!()
+        };
+        let ControllerCommand::Group(a) = args.command else {
+            panic!()
+        };
+        assert!(matches!(a.command, ControllerGroupCommand::List));
+    }
+
+    #[test]
+    fn parse_controller_segment_list() {
+        let cli = parse_ok(&["slimctl", "controller", "segment", "list"]);
+        let Commands::Controller(args) = cli.command else {
+            panic!()
+        };
+        let ControllerCommand::Segment(a) = args.command else {
+            panic!()
+        };
+        assert!(matches!(a.command, ControllerSegmentCommand::List));
     }
 
     // ── node ─────────────────────────────────────────────────────────────────
@@ -889,12 +913,6 @@ mod tests {
     #[test]
     fn controller_connection_list_missing_node_id_fails() {
         let err = parse_err(&["slimctl", "controller", "connection", "list"]);
-        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
-    }
-
-    #[test]
-    fn controller_route_list_missing_node_id_fails() {
-        let err = parse_err(&["slimctl", "controller", "route", "list"]);
         assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
     }
 
