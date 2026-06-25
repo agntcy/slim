@@ -3,7 +3,7 @@ const AI_AGENT_DESC =
 
 const SHOW_PROTOCOL_LOG = false;
 
-// Full registration names (tooltips, step descriptions)
+// SLIM registration names (graph subtitles, tooltips, step descriptions)
 const AGENT_NAMES = {
   agentA: 'agntcy/edge/cli',
   agentE: 'agntcy/edge/agent-a',
@@ -12,17 +12,6 @@ const AGENT_NAMES = {
   agentD: 'agntcy/cloud/agent-d',
   chat: 'agntcy/cloud/chat',
   mcp: 'agntcy/edge/mcp-tools',
-};
-
-// Short labels for graph node boxes
-const AGENT_LABELS = {
-  agentA: 'edge/cli',
-  agentE: 'edge/agent-a',
-  agentB: 'cloud/agent-b',
-  agentC: 'cloud/agent-c',
-  agentD: 'cloud/agent-d',
-  chat: 'cloud/chat',
-  mcp: 'edge/mcp-tools',
 };
 
 // Display names — publisher (CLI/IDE) vs channel subscribers (AI Agent *)
@@ -77,14 +66,14 @@ const JOURNEY_LABELS = {
 };
 
 const NODE_DISPLAY = {
-  node_Agent_A: { title: 'CLI/IDE Agent', subtitle: AGENT_LABELS.agentA, icon: 'claude' },
-  node_Agent_E: { title: 'AI Agent A', subtitle: AGENT_LABELS.agentE, icon: 'langchain' },
-  node_Agent_B: { title: 'AI Agent B', subtitle: AGENT_LABELS.agentB, icon: 'crewai' },
-  node_Agent_C: { title: 'AI Agent C', subtitle: AGENT_LABELS.agentC, icon: 'langgraph' },
-  node_Agent_D: { title: 'AI Agent D', subtitle: AGENT_LABELS.agentD, icon: 'opencode' },
+  node_Agent_A: { title: 'CLI/IDE Agent', subtitle: AGENT_NAMES.agentA, icon: 'claude' },
+  node_Agent_E: { title: 'AI Agent A', subtitle: AGENT_NAMES.agentE, icon: 'langchain' },
+  node_Agent_B: { title: 'AI Agent B', subtitle: AGENT_NAMES.agentB, icon: 'crewai' },
+  node_Agent_C: { title: 'AI Agent C', subtitle: AGENT_NAMES.agentC, icon: 'langgraph' },
+  node_Agent_D: { title: 'AI Agent D', subtitle: AGENT_NAMES.agentD, icon: 'opencode' },
   node_Node1: { title: 'SLIM Node 1', subtitle: 'Local Data Plane', icon: 'slim' },
   node_Node2: { title: 'SLIM Node 2', subtitle: 'Cloud Data Plane', icon: 'slim' },
-  node_MCP: { title: 'MCP Server', subtitle: AGENT_LABELS.mcp, icon: 'mcp' },
+  node_MCP: { title: 'MCP Server', subtitle: AGENT_NAMES.mcp, icon: 'mcp' },
 };
 
 const VALID_COMPONENTS = ['system', 'cli/ide agent', 'ai agent a', 'ai agent b', 'ai agent c', 'ai agent d', 'slim node 1', 'slim node 2', 'mcp server'];
@@ -163,7 +152,7 @@ const SCENARIOS = {
       title: "Publish P2P Message",
       shortTitle: "Publish",
       activeEdges: ['agentA-slimNode1'],
-      desc: `**${AGENT_ROLES.publisher}** publishes a Point-to-Point message targeting **${AGENT_ROLES.agentB}** (**${AGENT_LABELS.agentB}**). The payload is pushed to **SLIM Node 1**`,
+      desc: `**${AGENT_ROLES.publisher}** publishes a Point-to-Point message targeting **${AGENT_ROLES.agentB}** (**${AGENT_NAMES.agentB}**). The payload is pushed to **SLIM Node 1**`,
       action: () => {
         logToTerminal(AGENT_ROLES.publisher, 'info', 'slim_dataplane::service', 'Sending message');
         
@@ -231,7 +220,7 @@ const SCENARIOS = {
       title: "Create Channel",
       shortTitle: "Create",
       activeEdges: ['agentA-slimNode1'],
-      desc: `**${AGENT_ROLES.publisher}** creates channel **${AGENT_LABELS.chat}**, establishing routes in **SLIM Node 1** for local and remote fanout.`,
+      desc: `**${AGENT_ROLES.publisher}** creates channel **${AGENT_NAMES.chat}**, establishing routes in **SLIM Node 1** for local and remote fanout.`,
       action: () => {
         flashNode('core_Agent_A', 'flash-amber');
         logToTerminal(AGENT_ROLES.publisher, 'info', 'slim_dataplane::service', 'publish');
@@ -276,7 +265,7 @@ const SCENARIOS = {
       title: "Publish Multicast Payload",
       shortTitle: "Publish",
       activeEdges: ['agentA-slimNode1'],
-      desc: `**${AGENT_ROLES.publisher}** publishes a multicast payload to **${AGENT_LABELS.chat}**. The message is pushed to the local **SLIM Node 1**.`,
+      desc: `**${AGENT_ROLES.publisher}** publishes a multicast payload to **${AGENT_NAMES.chat}**. The message is pushed to the local **SLIM Node 1**.`,
       action: () => {
         logToTerminal(AGENT_ROLES.publisher, 'info', 'slim_dataplane::service', 'publish');
 
@@ -369,7 +358,7 @@ const SCENARIOS = {
       title: "Publish MCP Tool Request",
       shortTitle: "Publish",
       activeEdges: ['slimNode2-agentB'],
-      desc: `Cloud **${AGENT_ROLES.agentB}** sends a point-to-point MCP tool invocation targeting **${AGENT_LABELS.mcp}** on the on-prem **SLIM Node 1**.`,
+      desc: `Cloud **${AGENT_ROLES.agentB}** sends a point-to-point MCP tool invocation targeting **${AGENT_NAMES.mcp}** on the on-prem **SLIM Node 1**.`,
       action: () => {
         logToTerminal(AGENT_ROLES.agentB, 'info', 'slim_dataplane::service', 'Sending message');
 
@@ -419,7 +408,7 @@ const SCENARIOS = {
         logToTerminal('MCP Server', 'info', 'slim_dataplane::service', 'received message');
 
         setSimulationTimeout(() => {
-          updateBadge('MCP', AGENT_LABELS.mcp);
+          updateBadge('MCP', AGENT_NAMES.mcp);
           triggerNextStep();
         }, 900);
       }

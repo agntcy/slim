@@ -73,7 +73,7 @@ function resetScenarioVisuals(name) {
     }
   });
 
-  updateBadge('MCP', AGENT_LABELS.mcp);
+  updateBadge('MCP', AGENT_NAMES.mcp);
 }
 
 function formatStepDesc(text) {
