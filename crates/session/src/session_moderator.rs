@@ -361,7 +361,7 @@ where
             mls_state.common.encrypt_output(output).await?;
         } else {
             // Discovery messages always need to be signed as MLS settings are not available for the
-            // reciever at this point
+            // receiver at this point
             sign_control_messages(output, &identity_provider)?;
         }
         Ok(())

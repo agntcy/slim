@@ -360,15 +360,11 @@ impl SessionController {
                     // Finish any ongoing processing before starting drain
                     debug!("consuming pending messages before entering draining state");
                     while let Ok(msg) = rx.try_recv() {
-                        if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &msg {
-                            match Self::verify_and_check_replay(message, &settings, &mut seen_control_message_ids).await{
-                                Err(e) => {
-                                    debug!(error = %e.chain(), "dropping inbound message during drain: verification or replay check failed");
-                                    continue;
-                                }
-                                Ok(_) => {}
+                        if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &msg
+                            && let Err(e) = Self::verify_and_check_replay(message, &settings, &mut seen_control_message_ids).await {
+                                debug!(error = %e.chain(), "dropping inbound message during drain: verification or replay check failed");
+                                continue;
                             }
-                        }
                         match inner.on_message(msg).await {
                             Ok(output) => Self::dispatch_output(output, &settings).await,
                             Err(e) => {
