@@ -392,7 +392,7 @@ impl ControlPlane {
                             Some(res) => {
                                 match res {
                                     Ok(msg) => {
-                                        debug!("Receive message from data plane: {:?}", msg);
+                                        debug!("Received message {:?} from data plane, forwarding to control plane", msg);
                                         match msg.get_type() {
                                             Subscribe(_) => {
                                                 controller.handle_subscribe_message(msg.get_dst(), &clients).await;

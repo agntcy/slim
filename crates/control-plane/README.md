@@ -125,8 +125,10 @@ Agents registered in one segment are **invisible** to agents in other
 segments — routes are only expanded within the segment's topology graph.
 
 Each segment has its own `links` adjacency list. The special token
-`$group` expands to every registered group, enabling template-style
-configs that create a per-group segment dynamically.
+`$group` is a **template variable** that causes the segment definition
+to be **instantiated once per registered group**. For each group, `$group`
+is replaced with that group's name — it does not expand to a list of
+all groups simultaneously.
 
 **Per-group isolation** (each customer reaches cloud but not other customers):
 
@@ -139,9 +141,10 @@ topology:
           neighbors: [$group]
 ```
 
-This creates a segment per group (e.g. `segment-customer-a`,
-`segment-customer-b`) where each customer only links to the `cloud`
-group. Agents in `customer-a` can communicate with agents in `cloud`
+Because `$group` is a template, this produces one segment per group
+(e.g. `segment-customer-a`, `segment-customer-b`). In each generated
+segment the `cloud` group links only to that single customer group.
+Agents in `customer-a` can communicate with agents in `cloud`
 and vice versa, but `customer-a` cannot see `customer-b`.
 
 **Named segments** (explicit multi-tenant isolation):
