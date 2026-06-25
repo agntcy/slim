@@ -376,14 +376,14 @@ mod tests {
             SegmentConfig {
                 name: "seg-a".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "platform".to_string(),
+                    group: "platform".to_string(),
                     neighbors: vec!["customer-a".to_string()],
                 }],
             },
             SegmentConfig {
                 name: "seg-b".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "platform".to_string(),
+                    group: "platform".to_string(),
                     neighbors: vec!["customer-b".to_string()],
                 }],
             },

@@ -139,7 +139,7 @@ impl Default for ReconcilerConfig {
 /// ```yaml
 /// topology:
 ///   links:
-///     - name: hub
+///     - group: hub
 ///       neighbors: [spoke-a, spoke-b]
 /// ```
 ///
@@ -150,7 +150,7 @@ impl Default for ReconcilerConfig {
 ///   segments:
 ///     - name: segment-$group
 ///       links:
-///         - name: platform
+///         - group: platform
 ///           neighbors: [$group]
 /// ```
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -178,12 +178,12 @@ pub struct SegmentConfig {
     pub links: Vec<AdjacencyEntry>,
 }
 
-/// An adjacency list entry: nodes in group `name` connect to nodes
+/// An adjacency list entry: nodes in the specified `group` connect to nodes
 /// in any of the groups listed in `neighbors`. Links are bidirectional.
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct AdjacencyEntry {
-    /// Group name (or `"*"` to match any group, or `$group` for template expansion).
-    pub name: String,
+    /// Source group name (or `"*"` to match any group, or `$group` for template expansion).
+    pub group: String,
     /// Groups this group connects to. `"*"` matches any, `$group` for template.
     pub neighbors: Vec<String>,
 }
@@ -290,12 +290,12 @@ impl TopologyConfig {
         }
 
         for entry in links {
-            let sources: Vec<&str> = if entry.name == "*" {
+            let sources: Vec<&str> = if entry.group == "*" {
                 known_groups.to_vec()
             } else {
                 known_groups
                     .iter()
-                    .filter(|&&g| g == entry.name)
+                    .filter(|&&g| g == entry.group)
                     .copied()
                     .collect()
             };
@@ -345,7 +345,7 @@ impl TopologyConfig {
             Self::FullMesh => vec![SegmentConfig {
                 name: "default".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "*".to_string(),
+                    group: "*".to_string(),
                     neighbors: vec!["*".to_string()],
                 }],
             }],
@@ -363,8 +363,8 @@ impl TopologyConfig {
                             .iter()
                             .flat_map(|e| {
                                 let mut names = vec![];
-                                if e.name != "*" && !e.name.contains("$group") {
-                                    names.push(e.name.as_str());
+                                if e.group != "*" && !e.group.contains("$group") {
+                                    names.push(e.group.as_str());
                                 }
                                 for n in &e.neighbors {
                                     if n != "*" && !n.contains("$group") {
@@ -400,7 +400,7 @@ impl SegmentConfig {
         }
         self.links
             .iter()
-            .any(|e| e.name.contains("$group") || e.neighbors.iter().any(|n| n.contains("$group")))
+            .any(|e| e.group.contains("$group") || e.neighbors.iter().any(|n| n.contains("$group")))
     }
 
     /// Expand this template segment for a specific group value.
@@ -412,7 +412,7 @@ impl SegmentConfig {
                 .links
                 .iter()
                 .map(|e| AdjacencyEntry {
-                    name: e.name.replace("$group", group),
+                    group: e.group.replace("$group", group),
                     neighbors: e
                         .neighbors
                         .iter()
@@ -447,9 +447,9 @@ mod tests {
 
         fn can_link_in(links: &[AdjacencyEntry], a: &str, b: &str) -> bool {
             links.iter().any(|entry| {
-                (matches_group(&entry.name, a)
+                (matches_group(&entry.group, a)
                     && entry.neighbors.iter().any(|p| matches_group(p, b)))
-                    || (matches_group(&entry.name, b)
+                    || (matches_group(&entry.group, b)
                         && entry.neighbors.iter().any(|p| matches_group(p, a)))
             })
         }
@@ -486,11 +486,11 @@ mod tests {
     fn topology_can_link_star() {
         let t = TopologyConfig::Links(vec![
             AdjacencyEntry {
-                name: "platform".to_string(),
+                group: "platform".to_string(),
                 neighbors: vec!["*".to_string()],
             },
             AdjacencyEntry {
-                name: "*".to_string(),
+                group: "*".to_string(),
                 neighbors: vec!["platform".to_string()],
             },
         ]);
@@ -502,7 +502,7 @@ mod tests {
     #[test]
     fn topology_can_link_explicit_pair() {
         let t = TopologyConfig::Links(vec![AdjacencyEntry {
-            name: "node-a".to_string(),
+            group: "node-a".to_string(),
             neighbors: vec!["node-b".to_string()],
         }]);
         // Bidirectional
@@ -530,7 +530,7 @@ mod tests {
     #[test]
     fn build_graph_star() {
         let t = TopologyConfig::Links(vec![AdjacencyEntry {
-            name: "hub".to_string(),
+            group: "hub".to_string(),
             neighbors: vec!["*".to_string()],
         }]);
         let groups = vec!["hub", "a", "b", "c"];
@@ -546,15 +546,15 @@ mod tests {
     fn build_graph_chain() {
         let t = TopologyConfig::Links(vec![
             AdjacencyEntry {
-                name: "a".to_string(),
+                group: "a".to_string(),
                 neighbors: vec!["b".to_string()],
             },
             AdjacencyEntry {
-                name: "b".to_string(),
+                group: "b".to_string(),
                 neighbors: vec!["c".to_string()],
             },
             AdjacencyEntry {
-                name: "c".to_string(),
+                group: "c".to_string(),
                 neighbors: vec!["d".to_string()],
             },
         ]);
@@ -570,7 +570,7 @@ mod tests {
     #[test]
     fn build_graph_no_self_links() {
         let t = TopologyConfig::Links(vec![AdjacencyEntry {
-            name: "*".to_string(),
+            group: "*".to_string(),
             neighbors: vec!["*".to_string()],
         }]);
         let groups = vec!["a", "b"];
@@ -587,11 +587,11 @@ mod tests {
         // Both entries create a↔b, but should only be 1 edge
         let t = TopologyConfig::Links(vec![
             AdjacencyEntry {
-                name: "a".to_string(),
+                group: "a".to_string(),
                 neighbors: vec!["b".to_string()],
             },
             AdjacencyEntry {
-                name: "b".to_string(),
+                group: "b".to_string(),
                 neighbors: vec!["a".to_string()],
             },
         ]);
@@ -604,7 +604,7 @@ mod tests {
     #[test]
     fn build_graph_unknown_group_ignored() {
         let t = TopologyConfig::Links(vec![AdjacencyEntry {
-            name: "a".to_string(),
+            group: "a".to_string(),
             neighbors: vec!["unknown".to_string()],
         }]);
         let groups = vec!["a", "b"];
@@ -628,14 +628,14 @@ mod tests {
     fn deserialize_links_topology() {
         let yaml = r#"
 links:
-  - name: hub
+  - group: hub
     neighbors: ["*"]
 "#;
         let t: TopologyConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
             t,
             TopologyConfig::Links(vec![AdjacencyEntry {
-                name: "hub".to_string(),
+                group: "hub".to_string(),
                 neighbors: vec!["*".to_string()],
             }])
         );
@@ -647,7 +647,7 @@ links:
 segments:
   - name: seg-$group
     links:
-      - name: hub
+      - group: hub
         neighbors: [$group]
 "#;
         let t: TopologyConfig = serde_yaml::from_str(yaml).unwrap();
@@ -658,12 +658,12 @@ segments:
     fn deserialize_both_links_and_segments_errors() {
         let yaml = r#"
 links:
-  - name: hub
+  - group: hub
     neighbors: ["*"]
 segments:
   - name: seg
     links:
-      - name: a
+      - group: a
         neighbors: [b]
 "#;
         let result: Result<TopologyConfig, _> = serde_yaml::from_str(yaml);
@@ -677,7 +677,7 @@ segments:
         let seg = SegmentConfig {
             name: "seg-$group".to_string(),
             links: vec![AdjacencyEntry {
-                name: "hub".to_string(),
+                group: "hub".to_string(),
                 neighbors: vec!["$group".to_string()],
             }],
         };
@@ -686,7 +686,7 @@ segments:
         let seg_no_template = SegmentConfig {
             name: "static-seg".to_string(),
             links: vec![AdjacencyEntry {
-                name: "a".to_string(),
+                group: "a".to_string(),
                 neighbors: vec!["b".to_string()],
             }],
         };
@@ -698,13 +698,13 @@ segments:
         let seg = SegmentConfig {
             name: "seg-$group".to_string(),
             links: vec![AdjacencyEntry {
-                name: "hub".to_string(),
+                group: "hub".to_string(),
                 neighbors: vec!["$group".to_string()],
             }],
         };
         let expanded = seg.expand_for_group("customer-a");
         assert_eq!(expanded.name, "seg-customer-a");
-        assert_eq!(expanded.links[0].name, "hub");
+        assert_eq!(expanded.links[0].group, "hub");
         assert_eq!(expanded.links[0].neighbors, vec!["customer-a"]);
     }
 
@@ -713,7 +713,7 @@ segments:
         let t = TopologyConfig::Segments(vec![SegmentConfig {
             name: "seg-$group".to_string(),
             links: vec![AdjacencyEntry {
-                name: "hub".to_string(),
+                group: "hub".to_string(),
                 neighbors: vec!["$group".to_string()],
             }],
         }]);
@@ -732,7 +732,7 @@ segments:
         let t = TopologyConfig::Segments(vec![SegmentConfig {
             name: "static".to_string(),
             links: vec![AdjacencyEntry {
-                name: "a".to_string(),
+                group: "a".to_string(),
                 neighbors: vec!["b".to_string()],
             }],
         }]);
@@ -750,14 +750,14 @@ segments:
             SegmentConfig {
                 name: "seg-$group".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "hub".to_string(),
+                    group: "hub".to_string(),
                     neighbors: vec!["$group".to_string()],
                 }],
             },
             SegmentConfig {
                 name: "shared".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "hub".to_string(),
+                    group: "hub".to_string(),
                     neighbors: vec!["monitoring".to_string()],
                 }],
             },
@@ -782,14 +782,14 @@ segments:
             SegmentConfig {
                 name: "seg-a".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "hub".to_string(),
+                    group: "hub".to_string(),
                     neighbors: vec!["a".to_string()],
                 }],
             },
             SegmentConfig {
                 name: "seg-b".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "hub".to_string(),
+                    group: "hub".to_string(),
                     neighbors: vec!["b".to_string()],
                 }],
             },
@@ -811,14 +811,14 @@ segments:
             SegmentConfig {
                 name: "seg-a".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "hub".to_string(),
+                    group: "hub".to_string(),
                     neighbors: vec!["a".to_string()],
                 }],
             },
             SegmentConfig {
                 name: "seg-b".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "hub".to_string(),
+                    group: "hub".to_string(),
                     neighbors: vec!["b".to_string()],
                 }],
             },

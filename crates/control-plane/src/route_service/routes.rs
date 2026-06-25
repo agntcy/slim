@@ -705,11 +705,11 @@ mod tests {
         // Star topology: platform links to all, spokes link only to platform.
         let topology = TopologyConfig::Links(vec![
             AdjacencyEntry {
-                name: "platform".to_string(),
+                group: "platform".to_string(),
                 neighbors: vec!["*".to_string()],
             },
             AdjacencyEntry {
-                name: "*".to_string(),
+                group: "*".to_string(),
                 neighbors: vec!["platform".to_string()],
             },
         ]);
@@ -950,15 +950,15 @@ mod tests {
         // Chain topology: a↔b, b↔c (no direct a↔c).
         let topology = TopologyConfig::Links(vec![
             AdjacencyEntry {
-                name: "group-a".to_string(),
+                group: "group-a".to_string(),
                 neighbors: vec!["group-b".to_string()],
             },
             AdjacencyEntry {
-                name: "group-b".to_string(),
+                group: "group-b".to_string(),
                 neighbors: vec!["group-a".to_string(), "group-c".to_string()],
             },
             AdjacencyEntry {
-                name: "group-c".to_string(),
+                group: "group-c".to_string(),
                 neighbors: vec!["group-b".to_string()],
             },
         ]);
@@ -1060,14 +1060,14 @@ mod tests {
             SegmentConfig {
                 name: "seg-a".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "platform".to_string(),
+                    group: "platform".to_string(),
                     neighbors: vec!["customer-a".to_string()],
                 }],
             },
             SegmentConfig {
                 name: "seg-b".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "platform".to_string(),
+                    group: "platform".to_string(),
                     neighbors: vec!["customer-b".to_string()],
                 }],
             },
@@ -1147,7 +1147,7 @@ mod tests {
         let topology = TopologyConfig::Segments(vec![SegmentConfig {
             name: "seg-$group".to_string(),
             links: vec![AdjacencyEntry {
-                name: "platform".to_string(),
+                group: "platform".to_string(),
                 neighbors: vec!["$group".to_string()],
             }],
         }]);

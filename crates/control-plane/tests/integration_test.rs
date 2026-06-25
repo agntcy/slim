@@ -125,7 +125,7 @@ async fn stop_control_plane(tcp: TestControlPlane) {
 
 fn star_topology_config(hub_group: &str) -> TopologyConfig {
     TopologyConfig::Links(vec![AdjacencyEntry {
-        name: hub_group.to_string(),
+        group: hub_group.to_string(),
         neighbors: vec!["*".to_string()],
     }])
 }
@@ -1529,7 +1529,7 @@ fn segmented_star_topology(hub_group: &str) -> TopologyConfig {
     TopologyConfig::Segments(vec![SegmentConfig {
         name: "seg-$group".to_string(),
         links: vec![AdjacencyEntry {
-            name: hub_group.to_string(),
+            group: hub_group.to_string(),
             neighbors: vec!["$group".to_string()],
         }],
     }])
