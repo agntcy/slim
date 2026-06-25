@@ -15,6 +15,8 @@ service ControlPlaneService {
   rpc ListRoutes(RouteListRequest) returns (stream RouteEntry) {}
   // List links stored in the controller DB with optional filtering by source and destination node IDs
   rpc ListLinks(LinkListRequest) returns (stream LinkEntry) {}
+  // List segments (expanded routing domains) with the groups in each segment
+  rpc ListSegments(SegmentListRequest) returns (SegmentListResponse) {}
 }
 
 message ConfigurationCommand {
@@ -119,4 +121,25 @@ message LinkEntry {
 // Response containing a list of links
 message LinkListResponse {
   repeated LinkEntry links = 1;
+}
+
+// Request to list segments
+message SegmentListRequest {}
+
+// A segment with its member groups and adjacency edges
+message SegmentEntry {
+  string name = 1;
+  repeated string groups = 2;
+  repeated SegmentEdge edges = 3;
+}
+
+// An edge in the segment graph (bidirectional link between two groups)
+message SegmentEdge {
+  string group_a = 1;
+  string group_b = 2;
+}
+
+// Response containing a list of segments
+message SegmentListResponse {
+  repeated SegmentEntry segments = 1;
 }

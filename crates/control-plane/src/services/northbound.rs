@@ -11,7 +11,8 @@ use crate::api::proto::controller::proto::v1::{
 };
 use crate::api::proto::controlplane::proto::v1::{
     LinkEntry, LinkListRequest, LinkStatus, NodeEntry, NodeListRequest, RouteEntry,
-    RouteListRequest, RouteStatus, control_plane_service_server::ControlPlaneService,
+    RouteListRequest, RouteStatus, SegmentEdge, SegmentEntry, SegmentListRequest,
+    SegmentListResponse, control_plane_service_server::ControlPlaneService,
 };
 use crate::db::SharedDb;
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
@@ -373,5 +374,27 @@ impl ControlPlaneService for NorthboundApiService {
         });
 
         Ok(Response::new(ReceiverStream::new(rx)))
+    }
+
+    async fn list_segments(
+        &self,
+        _request: Request<SegmentListRequest>,
+    ) -> Result<Response<SegmentListResponse>, Status> {
+        let segments = self.route_service.list_segments().await;
+        let entries = segments
+            .into_iter()
+            .map(|(name, groups, edges)| SegmentEntry {
+                name,
+                groups,
+                edges: edges
+                    .into_iter()
+                    .map(|(a, b)| SegmentEdge {
+                        group_a: a,
+                        group_b: b,
+                    })
+                    .collect(),
+            })
+            .collect();
+        Ok(Response::new(SegmentListResponse { segments: entries }))
     }
 }

@@ -9,7 +9,7 @@ use crate::client::get_control_plane_client;
 use crate::proto::controller::proto::v1::{ConnectionDirection, ConnectionType};
 use crate::proto::controlplane::proto::v1::{
     LinkEntry, LinkListRequest, LinkStatus, Node, NodeListRequest, NodeStatus, RouteEntry,
-    RouteListRequest, RouteStatus,
+    RouteListRequest, RouteStatus, SegmentListRequest,
 };
 use crate::rpc;
 use slim_config::grpc::client::ClientConfig;
@@ -32,6 +32,10 @@ pub enum ControllerCommand {
     Route(ControllerRouteArgs),
     /// List links from the controller DB
     Link(ControllerLinkArgs),
+    /// List groups and their nodes
+    Group(ControllerGroupArgs),
+    /// List segments (routing domains) and their groups
+    Segment(ControllerSegmentArgs),
 }
 
 // ── Node ──────────────────────────────────────────────────────────────────────
@@ -121,6 +125,36 @@ pub enum ControllerLinkCommand {
     },
 }
 
+// ── Group ─────────────────────────────────────────────────────────────────────
+
+#[derive(Args)]
+pub struct ControllerGroupArgs {
+    #[command(subcommand)]
+    pub command: ControllerGroupCommand,
+}
+
+#[derive(Subcommand)]
+pub enum ControllerGroupCommand {
+    /// List all groups and their nodes
+    #[command(visible_alias = "ls")]
+    List,
+}
+
+// ── Segment ───────────────────────────────────────────────────────────────────
+
+#[derive(Args)]
+pub struct ControllerSegmentArgs {
+    #[command(subcommand)]
+    pub command: ControllerSegmentCommand,
+}
+
+#[derive(Subcommand)]
+pub enum ControllerSegmentCommand {
+    /// List all segments (routing domains) and their groups
+    #[command(visible_alias = "ls")]
+    List,
+}
+
 // ── Dispatch ──────────────────────────────────────────────────────────────────
 
 pub async fn run(args: &ControllerArgs, opts: &ClientConfig) -> Result<()> {
@@ -129,6 +163,8 @@ pub async fn run(args: &ControllerArgs, opts: &ClientConfig) -> Result<()> {
         ControllerCommand::Connection(a) => run_connection(a, opts).await,
         ControllerCommand::Route(a) => run_route(a, opts).await,
         ControllerCommand::Link(a) => run_link(a, opts).await,
+        ControllerCommand::Group(a) => run_group(a, opts).await,
+        ControllerCommand::Segment(a) => run_segment(a, opts).await,
     }
 }
 
@@ -165,6 +201,18 @@ async fn run_link(args: &ControllerLinkArgs, opts: &ClientConfig) -> Result<()> 
             target_node_id,
             all,
         } => link_outline(origin_node_id, target_node_id, *all, opts).await,
+    }
+}
+
+async fn run_group(args: &ControllerGroupArgs, opts: &ClientConfig) -> Result<()> {
+    match &args.command {
+        ControllerGroupCommand::List => group_list(opts).await,
+    }
+}
+
+async fn run_segment(args: &ControllerSegmentArgs, opts: &ClientConfig) -> Result<()> {
+    match &args.command {
+        ControllerSegmentCommand::List => segment_list(opts).await,
     }
 }
 
@@ -636,6 +684,134 @@ fn format_unix_timestamp(ts: i64) -> String {
         .unwrap_or_else(|| ts.to_string())
 }
 
+// ── Group commands ────────────────────────────────────────────────────────────
+
+async fn group_list(opts: &ClientConfig) -> Result<()> {
+    let mut client = get_control_plane_client(opts).await?;
+    let mut stream = rpc!(client, list_nodes, NodeListRequest {});
+    let mut entries = Vec::new();
+    while let Some(entry) = stream.next().await {
+        entries.push(entry?);
+    }
+
+    // Group nodes by group name
+    let mut groups: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for e in &entries {
+        let group = if e.group.is_empty() {
+            "(none)".to_string()
+        } else {
+            e.group.clone()
+        };
+        groups.entry(group).or_default().push(e.id.clone());
+    }
+
+    println!("{} group(s)\n", groups.len());
+    if groups.is_empty() {
+        return Ok(());
+    }
+
+    let headers = ["GROUP", "NODES"];
+    let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
+
+    let rows: Vec<_> = groups
+        .iter()
+        .map(|(group, nodes)| {
+            let node_list = nodes.join(", ");
+            widths[0] = widths[0].max(group.len());
+            widths[1] = widths[1].max(node_list.len());
+            (group.as_str(), node_list)
+        })
+        .collect();
+
+    println!(
+        "  {:<w0$}  {:<w1$}",
+        headers[0],
+        headers[1],
+        w0 = widths[0],
+        w1 = widths[1],
+    );
+    let sep: String = widths
+        .iter()
+        .map(|w| "-".repeat(w + 2))
+        .collect::<Vec<_>>()
+        .join("");
+    println!("  {sep}");
+
+    for (group, nodes) in &rows {
+        println!(
+            "  {:<w0$}  {:<w1$}",
+            group,
+            nodes,
+            w0 = widths[0],
+            w1 = widths[1],
+        );
+    }
+    Ok(())
+}
+
+// ── Segment commands ──────────────────────────────────────────────────────────
+
+async fn segment_list(opts: &ClientConfig) -> Result<()> {
+    let mut client = get_control_plane_client(opts).await?;
+    let resp = rpc!(client, list_segments, SegmentListRequest {});
+
+    let segments = resp.segments;
+    println!("{} segment(s)\n", segments.len());
+    if segments.is_empty() {
+        return Ok(());
+    }
+
+    let headers = ["SEGMENT", "GROUPS", "LINKS"];
+    let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
+
+    let rows: Vec<_> = segments
+        .iter()
+        .map(|s| {
+            let groups = s.groups.join(", ");
+            let links: String = s
+                .edges
+                .iter()
+                .map(|e| format!("{}↔{}", e.group_a, e.group_b))
+                .collect::<Vec<_>>()
+                .join(", ");
+            widths[0] = widths[0].max(s.name.len());
+            widths[1] = widths[1].max(groups.len());
+            widths[2] = widths[2].max(links.len());
+            (s.name.as_str(), groups, links)
+        })
+        .collect();
+
+    println!(
+        "  {:<w0$}  {:<w1$}  {:<w2$}",
+        headers[0],
+        headers[1],
+        headers[2],
+        w0 = widths[0],
+        w1 = widths[1],
+        w2 = widths[2],
+    );
+    let sep: String = widths
+        .iter()
+        .map(|w| "-".repeat(w + 2))
+        .collect::<Vec<_>>()
+        .join("");
+    println!("  {sep}");
+
+    for (name, groups, links) in &rows {
+        println!(
+            "  {:<w0$}  {:<w1$}  {:<w2$}",
+            name,
+            groups,
+            links,
+            w0 = widths[0],
+            w1 = widths[1],
+            w2 = widths[2],
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -844,7 +1020,7 @@ mod tests {
         use crate::proto::controller::proto::v1::{ConnectionListResponse, RouteListResponse};
         use crate::proto::controlplane::proto::v1::{
             LinkEntry, LinkListRequest, Node as CpNode, NodeEntry, NodeListRequest, RouteEntry,
-            RouteListRequest,
+            RouteListRequest, SegmentListRequest, SegmentListResponse,
             control_plane_service_server::{ControlPlaneService, ControlPlaneServiceServer},
         };
         use slim_config::grpc::client::ClientConfig;
@@ -912,6 +1088,15 @@ mod tests {
                 _req: tonic::Request<LinkListRequest>,
             ) -> Result<tonic::Response<Self::ListLinksStream>, tonic::Status> {
                 Ok(tonic::Response::new(empty_stream()))
+            }
+
+            async fn list_segments(
+                &self,
+                _req: tonic::Request<SegmentListRequest>,
+            ) -> Result<tonic::Response<SegmentListResponse>, tonic::Status> {
+                Ok(tonic::Response::new(SegmentListResponse {
+                    segments: vec![],
+                }))
             }
         }
 
@@ -1008,6 +1193,13 @@ mod tests {
                 &self,
                 _: tonic::Request<LinkListRequest>,
             ) -> Result<tonic::Response<Self::ListLinksStream>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+
+            async fn list_segments(
+                &self,
+                _: tonic::Request<SegmentListRequest>,
+            ) -> Result<tonic::Response<SegmentListResponse>, tonic::Status> {
                 Err(tonic::Status::internal("error"))
             }
         }

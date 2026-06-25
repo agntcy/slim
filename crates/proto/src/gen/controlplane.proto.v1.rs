@@ -124,6 +124,33 @@ pub struct LinkListResponse {
     #[prost(message, repeated, tag = "1")]
     pub links: ::prost::alloc::vec::Vec<LinkEntry>,
 }
+/// Request to list segments
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SegmentListRequest {}
+/// A segment with its member groups and adjacency edges
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SegmentEntry {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "2")]
+    pub groups: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "3")]
+    pub edges: ::prost::alloc::vec::Vec<SegmentEdge>,
+}
+/// An edge in the segment graph (bidirectional link between two groups)
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SegmentEdge {
+    #[prost(string, tag = "1")]
+    pub group_a: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub group_b: ::prost::alloc::string::String,
+}
+/// Response containing a list of segments
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SegmentListResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub segments: ::prost::alloc::vec::Vec<SegmentEntry>,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum NodeStatus {
@@ -465,6 +492,36 @@ pub mod control_plane_service_client {
                 );
             self.inner.server_streaming(req, path, codec).await
         }
+        /// List segments (expanded routing domains) with the groups in each segment
+        pub async fn list_segments(
+            &mut self,
+            request: impl tonic::IntoRequest<super::SegmentListRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::SegmentListResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/controlplane.proto.v1.ControlPlaneService/ListSegments",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "controlplane.proto.v1.ControlPlaneService",
+                        "ListSegments",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -531,6 +588,14 @@ pub mod control_plane_service_server {
             &self,
             request: tonic::Request<super::LinkListRequest>,
         ) -> std::result::Result<tonic::Response<Self::ListLinksStream>, tonic::Status>;
+        /// List segments (expanded routing domains) with the groups in each segment
+        async fn list_segments(
+            &self,
+            request: tonic::Request<super::SegmentListRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::SegmentListResponse>,
+            tonic::Status,
+        >;
     }
     #[derive(Debug)]
     pub struct ControlPlaneServiceServer<T> {
@@ -839,6 +904,52 @@ pub mod control_plane_service_server {
                                 max_encoding_message_size,
                             );
                         let res = grpc.server_streaming(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/controlplane.proto.v1.ControlPlaneService/ListSegments" => {
+                    #[allow(non_camel_case_types)]
+                    struct ListSegmentsSvc<T: ControlPlaneService>(pub Arc<T>);
+                    impl<
+                        T: ControlPlaneService,
+                    > tonic::server::UnaryService<super::SegmentListRequest>
+                    for ListSegmentsSvc<T> {
+                        type Response = super::SegmentListResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::SegmentListRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ControlPlaneService>::list_segments(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ListSegmentsSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)
