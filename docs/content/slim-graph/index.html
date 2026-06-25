@@ -29,15 +29,15 @@
         <div class="journey-pills" role="tablist" aria-label="Message journey">
           <button class="journey-btn active j-p2p" data-journey="p2p" role="tab" aria-selected="true">
             <i class="fa-solid fa-message" aria-hidden="true"></i>
-            <span>Point-to-Point Messaging (A2A)</span>
+            <span></span>
           </button>
           <button class="journey-btn j-p2p-mcp" data-journey="p2p-mcp" role="tab" aria-selected="false">
             <i class="fa-solid fa-plug" aria-hidden="true"></i>
-            <span>Point-to-Point Messaging (MCP)</span>
+            <span></span>
           </button>
           <button class="journey-btn j-multicast" data-journey="multicast" role="tab" aria-selected="false">
             <i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
-            <span>Multicast Messaging (A2A)</span>
+            <span></span>
           </button>
         </div>
         <div class="graph-controls-actions">
@@ -70,7 +70,7 @@
           <path id="path_Node2_to_B" class="connection-path" d="M 592 189 C 610 148, 620 104, 636 80"/>
           <path id="path_Node2_to_C" class="connection-path" d="M 592 188 L 636 188"/>
           <path id="path_Node2_to_D" class="connection-path" d="M 592 189 C 610 232, 620 272, 636 296"/>
-          <path id="path_Node1_to_MCP" class="connection-path" d="M 248 234 C 235 240, 212 247, 200 252"/>
+          <path id="path_Node1_to_MCP" class="connection-path" d="M 248 234 C 235 260, 210 285, 172 296"/>
         </g>
 
         <!-- Dynamic Particles Container -->
@@ -88,8 +88,8 @@
                     <img src="icons/claude.svg" alt="" />
                   </div>
                   <div class="graph-node__copy">
-                    <div class="graph-node__title">CLI/IDE Agent</div>
-                    <div class="graph-node__desc">Local coding agent</div>
+                    <div class="graph-node__title"></div>
+                    <div class="graph-node__desc"></div>
                   </div>
                 </div>
               </div>
@@ -105,8 +105,8 @@
                     <img src="icons/langchain.svg" alt="" />
                   </div>
                   <div class="graph-node__copy">
-                    <div class="graph-node__title">AI Agent A</div>
-                    <div class="graph-node__desc">A2A agent</div>
+                    <div class="graph-node__title"></div>
+                    <div class="graph-node__desc"></div>
                   </div>
                 </div>
               </div>
@@ -122,8 +122,8 @@
                     <img src="icons/slim.svg" alt="" />
                   </div>
                   <div class="graph-node__copy">
-                    <div class="graph-node__title graph-node__title--hub">SLIM Node 1</div>
-                    <div class="graph-node__desc">Local Data Plane</div>
+                    <div class="graph-node__title graph-node__title--hub"></div>
+                    <div class="graph-node__desc"></div>
                   </div>
                 </div>
               </div>
@@ -139,8 +139,8 @@
                     <img src="icons/slim.svg" alt="" />
                   </div>
                   <div class="graph-node__copy">
-                    <div class="graph-node__title graph-node__title--hub">SLIM Node 2</div>
-                    <div class="graph-node__desc">Cloud Data Plane</div>
+                    <div class="graph-node__title graph-node__title--hub"></div>
+                    <div class="graph-node__desc"></div>
                   </div>
                 </div>
               </div>
@@ -156,8 +156,8 @@
                     <img src="icons/crewai.svg" alt="" />
                   </div>
                   <div class="graph-node__copy">
-                    <div class="graph-node__title">AI Agent B</div>
-                    <div class="graph-node__desc">A2A agent</div>
+                    <div class="graph-node__title"></div>
+                    <div class="graph-node__desc"></div>
                   </div>
                 </div>
               </div>
@@ -173,8 +173,8 @@
                     <img src="icons/langgraph.svg" alt="" />
                   </div>
                   <div class="graph-node__copy">
-                    <div class="graph-node__title">AI Agent C</div>
-                    <div class="graph-node__desc">A2A agent</div>
+                    <div class="graph-node__title"></div>
+                    <div class="graph-node__desc"></div>
                   </div>
                 </div>
               </div>
@@ -190,8 +190,8 @@
                     <img src="icons/opencode.svg" alt="" />
                   </div>
                   <div class="graph-node__copy">
-                    <div class="graph-node__title">AI Agent D</div>
-                    <div class="graph-node__desc">A2A agent</div>
+                    <div class="graph-node__title"></div>
+                    <div class="graph-node__desc"></div>
                   </div>
                 </div>
               </div>
@@ -199,16 +199,16 @@
           </g>
 
           <g id="node_MCP" class="interactive-node" cursor="pointer">
-            <rect id="core_MCP" class="node-rect node-rect--mcp" x="52" y="252" width="148" height="88" rx="12"/>
-            <foreignObject x="52" y="252" width="148" height="88">
+            <rect id="core_MCP" class="node-rect node-rect--mcp" x="24" y="252" width="148" height="88" rx="12"/>
+            <foreignObject x="24" y="252" width="148" height="88">
               <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node">
                 <div class="graph-node__row">
                   <div class="graph-node__icon graph-node__icon--mcp">
                     <img src="icons/mcp.svg" alt="" />
                   </div>
                   <div class="graph-node__copy">
-                    <div class="graph-node__title">MCP Server</div>
-                    <div class="graph-node__desc" id="badge_MCP">agntcy/demo/mcp-tools</div>
+                    <div class="graph-node__title"></div>
+                    <div class="graph-node__desc" id="badge_MCP"></div>
                   </div>
                 </div>
               </div>

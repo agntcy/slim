@@ -49,26 +49,26 @@ window.SlimctlDemoData = {
       text: 'slim_bindings.connect("http://127.0.0.1:46357")',
     },
     { type: "pause", ms: 800 },
-    { type: "comment", text: "# Create Agent A application" },
+    { type: "comment", text: "# Create CLI/IDE Agent application (local)" },
     {
       type: "python",
-      text: 'agent_a = slim_bindings.create_app("agntcy/demo/agent-a")',
+      text: 'agent_a = slim_bindings.create_app("agntcy/edge/agent-a")',
     },
     { type: "pause", ms: 700 },
-    { type: "comment", text: "# Create Agent B application" },
+    { type: "comment", text: "# Create AI Agent B application (cloud)" },
     {
       type: "python",
-      text: 'agent_b = slim_bindings.create_app("agntcy/demo/agent-b")',
+      text: 'agent_b = slim_bindings.create_app("agntcy/cloud/agent-b")',
     },
     { type: "pause", ms: 800 },
     {
       type: "comment",
-      text: "# Create a point-to-point session from Agent A to Agent B",
+      text: "# Create a point-to-point session from CLI/IDE Agent to AI Agent B",
     },
     {
       type: "python",
       text:
-        'session_a = agent_a.create_session(session_type=POINT_TO_POINT, "agntcy/demo/agent-b")',
+        'session_a = agent_a.create_session(session_type=POINT_TO_POINT, "agntcy/cloud/agent-b")',
     },
     { type: "pause", ms: 900 },
     {
@@ -80,26 +80,26 @@ window.SlimctlDemoData = {
     { type: "comment", text: "# Agent A sends a message" },
     {
       type: "python",
-      text: 'session_a.publish("Hello from Agent A")',
+      text: 'session_a.publish("Hello from CLI/IDE Agent")',
     },
     { type: "pause", ms: 800 },
     { type: "comment", text: "# Agent B receives the message" },
     {
       type: "output",
-      text: '>>> print(session_b.get_message().payload)\n"Hello from Agent A"',
+      text: '>>> print(session_b.get_message().payload)\n"Hello from CLI/IDE Agent"',
     },
     { type: "pause", ms: 900 },
     { type: "comment", text: "# Agent B responds" },
     {
       type: "python",
-      text: 'session_b.publish("Nice to meet you, I\'m Agent B")',
+      text: 'session_b.publish("Nice to meet you, I\'m AI Agent B")',
     },
     { type: "pause", ms: 800 },
     { type: "comment", text: "# Agent A receives the message" },
     {
       type: "output",
       text:
-        '>>> print(session_a.get_message().payload)\n"Nice to meet you, I\'m Agent B"',
+        '>>> print(session_a.get_message().payload)\n"Nice to meet you, I\'m AI Agent B"',
     },
     { type: "pause", ms: 4000 },
   ],

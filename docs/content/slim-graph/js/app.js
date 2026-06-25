@@ -73,7 +73,7 @@ function resetScenarioVisuals(name) {
     }
   });
 
-  updateBadge('MCP', 'agntcy/demo/mcp-tools');
+  updateBadge('MCP', AGENT_LABELS.mcp);
 }
 
 function formatStepDesc(text) {
@@ -535,11 +535,15 @@ function applyNodeDisplay() {
 
     const titleEl = node.querySelector('.graph-node__title');
     const descEl = node.querySelector('.graph-node__desc:not([id])');
+    const badgeEl = node.querySelector('.graph-node__desc[id]');
     if (titleEl && display.title) {
       titleEl.textContent = display.title;
     }
     if (descEl && display.subtitle) {
       descEl.textContent = display.subtitle;
+    }
+    if (badgeEl && display.subtitle) {
+      badgeEl.textContent = display.subtitle;
     }
   });
 }

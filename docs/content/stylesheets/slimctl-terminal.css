@@ -6,12 +6,16 @@
 .slimctl-terminal-section {
   margin: 0;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .slimctl-terminal-layout {
   display: flex;
   align-items: flex-start;
   gap: 2rem;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .slimctl-terminal-main {
@@ -59,6 +63,9 @@
   flex-direction: column;
   margin: 0;
   text-align: left;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   height: var(--slimctl-terminal-height, 20rem);
   min-height: var(--slimctl-terminal-height, 20rem);
   background: var(--md-code-bg-color);

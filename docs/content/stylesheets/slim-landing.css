@@ -16,7 +16,7 @@
     rgb(24, 122, 220) 53%,
     rgb(0, 20, 43) 100%
   );
-  --slim-hero-chrome-top: calc(var(--md-header-height) + 3rem);
+  --slim-hero-chrome-top: calc(var(--md-header-height, 2.4rem) + var(--slim-tabs-row-height, 3rem));
   --slim-hero-pad-block: 3.75rem;
   --slim-action-btn-bg: rgb(239, 243, 252);
   --slim-action-btn-bg-active: rgb(255, 255, 255);
@@ -71,17 +71,44 @@ body:has(.slim-landing) .md-tabs__item--active .md-tabs__link {
 
 :root {
   --slim-section-max-width: 72rem;
+  --slim-section-pad-inline: 1rem;
 }
 
-.slim-why,
-.slim-howto,
-.slim-quickstart,
-.slim-get-started {
+/* Shared content shell: unified page body and standalone Explore SLIM section. */
+.slim-page-body,
+.md-typeset > .slim-get-started {
   box-sizing: border-box;
   width: 100%;
   max-width: var(--slim-section-max-width);
-  margin: 0 auto 3.5rem;
-  padding: 0 1rem;
+  margin-inline: auto;
+  padding-inline: var(--slim-section-pad-inline);
+}
+
+.slim-page-body > section {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  margin: 0 0 3.5rem;
+  padding: 0;
+}
+
+.md-typeset > .slim-get-started {
+  margin-block: 0 3.5rem;
+}
+
+/* Child sections inherit horizontal bounds from the page body shell. */
+.slim-page-body > .slim-why,
+.slim-page-body > .slim-howto,
+.slim-page-body > .slim-quickstart {
+  max-width: none;
+  margin-inline: 0;
+  padding-inline: 0;
+}
+
+.slim-get-started .grid.cards {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 body:has(.slim-landing) .md-footer__inner {
@@ -100,6 +127,7 @@ body:has(.slim-landing) .md-main__inner {
 .md-typeset .slim-howto .slim-section-title,
 .md-typeset .slim-quickstart .slim-section-title,
 .md-typeset .slim-get-started .slim-section-title,
+.md-typeset .slim-page-body .slim-section-title,
 .md-typeset .slim-get-started > h2.slim-section-title {
   margin: 0 0 1.75rem;
   font-weight: 300;
@@ -206,6 +234,14 @@ body:has(.slim-landing) .md-main__inner {
 ---------------------------------------------------------------------------- */
 .slim-graph-wrap {
   overflow: visible;
+  max-width: 100%;
+}
+
+.slim-quickstart,
+.slimctl-terminal-section,
+.slimctl-terminal-layout {
+  max-width: 100%;
+  min-width: 0;
 }
 
 .slim-graph-frame {

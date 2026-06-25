@@ -59,6 +59,8 @@ hide:
 
 </div>
 
+<div class="slim-page-body">
+
 <section class="slim-why">
   <h2 class="slim-section-title">Why Use SLIM</h2>
   <div class="slim-features">
@@ -112,8 +114,6 @@ hide:
     </div>
   </div>
 </section>
-
-<div class="slim-landing">
 
 <section class="slim-howto">
   <h2 class="slim-section-title">How SLIM Routes Messages</h2>
