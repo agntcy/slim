@@ -831,7 +831,7 @@ foreignObject {
   gap: 2px;
   width: 100%;
   height: 100%;
-  padding: 10px 12px;
+  padding: 11px 14px;
   min-width: 0;
   font-family: var(--font-primary);
   pointer-events: none;
@@ -916,7 +916,7 @@ foreignObject {
 }
 
 .graph-node__desc {
-  font-size: 10px;
+  font-size: 10.5px;
   line-height: 1.4;
   color: var(--color-text-secondary);
   overflow: hidden;

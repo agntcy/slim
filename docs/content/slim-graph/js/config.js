@@ -5,7 +5,8 @@ const SHOW_PROTOCOL_LOG = false;
 
 // Full registration names (tooltips, step descriptions)
 const AGENT_NAMES = {
-  agentA: 'agntcy/edge/agent-a',
+  agentA: 'agntcy/edge/cli',
+  agentE: 'agntcy/edge/agent-a',
   agentB: 'agntcy/cloud/agent-b',
   agentC: 'agntcy/cloud/agent-c',
   agentD: 'agntcy/cloud/agent-d',
@@ -15,7 +16,8 @@ const AGENT_NAMES = {
 
 // Short labels for graph node boxes
 const AGENT_LABELS = {
-  agentA: 'edge/agent-a',
+  agentA: 'edge/cli',
+  agentE: 'edge/agent-a',
   agentB: 'cloud/agent-b',
   agentC: 'cloud/agent-c',
   agentD: 'cloud/agent-d',
@@ -40,7 +42,7 @@ const NODE_METADATA = {
   },
   'node_Agent_E': {
     title: 'AI Agent A',
-    desc: `Channel subscriber on ${AGENT_NAMES.chat} (local). ` + AI_AGENT_DESC
+    desc: `Registered as ${AGENT_NAMES.agentE}. Channel subscriber on ${AGENT_NAMES.chat} (local). ` + AI_AGENT_DESC
   },
   'node_Agent_B': {
     title: 'AI Agent B',
@@ -48,11 +50,11 @@ const NODE_METADATA = {
   },
   'node_Agent_C': {
     title: 'AI Agent C',
-    desc: `Channel subscriber on ${AGENT_NAMES.chat} (cloud). ` + AI_AGENT_DESC
+    desc: `Registered as ${AGENT_NAMES.agentC}. Channel subscriber on ${AGENT_NAMES.chat} (cloud). ` + AI_AGENT_DESC
   },
   'node_Agent_D': {
     title: 'AI Agent D',
-    desc: `Channel subscriber on ${AGENT_NAMES.chat} (cloud). ` + AI_AGENT_DESC
+    desc: `Registered as ${AGENT_NAMES.agentD}. Channel subscriber on ${AGENT_NAMES.chat} (cloud). ` + AI_AGENT_DESC
   },
   'node_Node1': {
     title: 'SLIM Node 1 (Local Data Plane)',
@@ -76,10 +78,10 @@ const JOURNEY_LABELS = {
 
 const NODE_DISPLAY = {
   node_Agent_A: { title: 'CLI/IDE Agent', subtitle: AGENT_LABELS.agentA, icon: 'claude' },
-  node_Agent_E: { title: 'AI Agent A', subtitle: AGENT_LABELS.chat, icon: 'langchain' },
+  node_Agent_E: { title: 'AI Agent A', subtitle: AGENT_LABELS.agentE, icon: 'langchain' },
   node_Agent_B: { title: 'AI Agent B', subtitle: AGENT_LABELS.agentB, icon: 'crewai' },
-  node_Agent_C: { title: 'AI Agent C', subtitle: AGENT_LABELS.chat, icon: 'langgraph' },
-  node_Agent_D: { title: 'AI Agent D', subtitle: AGENT_LABELS.chat, icon: 'opencode' },
+  node_Agent_C: { title: 'AI Agent C', subtitle: AGENT_LABELS.agentC, icon: 'langgraph' },
+  node_Agent_D: { title: 'AI Agent D', subtitle: AGENT_LABELS.agentD, icon: 'opencode' },
   node_Node1: { title: 'SLIM Node 1', subtitle: 'Local Data Plane', icon: 'slim' },
   node_Node2: { title: 'SLIM Node 2', subtitle: 'Cloud Data Plane', icon: 'slim' },
   node_MCP: { title: 'MCP Server', subtitle: AGENT_LABELS.mcp, icon: 'mcp' },
@@ -341,7 +343,7 @@ const SCENARIOS = {
                   'var(--color-amber)',
                   5,
                   0.028,
-                  1,
+                  3,
                   () => {
                     logToTerminal(AGENT_ROLES.publisher, 'debug', 'slim_dataplane::session::subscription_manager', 'ack received');
                     logToTerminal(AGENT_ROLES.publisher, 'info', 'slim_dataplane::service', 'All acknowledgment tests passed!');

@@ -52,7 +52,7 @@ window.SlimctlDemoData = {
     { type: "comment", text: "# Create CLI/IDE Agent application (local)" },
     {
       type: "python",
-      text: 'agent_a = slim_bindings.create_app("agntcy/edge/agent-a")',
+      text: 'agent_a = slim_bindings.create_app("agntcy/edge/cli")',
     },
     { type: "pause", ms: 700 },
     { type: "comment", text: "# Create AI Agent B application (cloud)" },
