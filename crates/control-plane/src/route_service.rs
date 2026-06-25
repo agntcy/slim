@@ -135,6 +135,17 @@ impl RouteService {
         svc
     }
 
+    /// Returns an error if the topology is config-managed (not API-managed).
+    /// Used as a guard by mutation APIs that are only available in API mode.
+    pub fn ensure_api_mode(&self) -> Result<(), tonic::Status> {
+        if self.0.topology.is_config_managed() {
+            return Err(tonic::Status::failed_precondition(
+                "topology is config-managed; modify the config file and restart to change topology",
+            ));
+        }
+        Ok(())
+    }
+
     /// Stop the reconciler workers and wait for any in-flight reconciliations
     /// to finish before returning.
     pub async fn shutdown(&self) {

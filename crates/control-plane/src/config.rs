@@ -275,6 +275,16 @@ impl TopologyConfig {
             .collect()
     }
 
+    /// Returns `true` if this is API-managed mode (no config-driven topology).
+    pub fn is_api_managed(&self) -> bool {
+        matches!(self, Self::ApiManaged)
+    }
+
+    /// Returns `true` if topology is config-managed (links or segments defined).
+    pub fn is_config_managed(&self) -> bool {
+        !self.is_api_managed()
+    }
+
     fn build_graph_from_links(
         links: &[AdjacencyEntry],
         known_groups: &[&str],
@@ -432,9 +442,8 @@ mod tests {
         /// Test helper: check if group `a` is allowed to link to group `b`.
         fn can_link(&self, a: &str, b: &str) -> bool {
             match self {
-                // TODO(#1768 Phase 2): In API mode, consult DB for allowed links.
-                // For now allow all until DB-backed topology is implemented.
-                Self::ApiManaged => true,
+                // In API mode, config allows no links. Allowed pairs come from DB.
+                Self::ApiManaged => false,
                 Self::Links(links) => Self::can_link_in(links, a, b),
                 Self::Segments(segments) => segments
                     .iter()
@@ -473,10 +482,12 @@ mod tests {
     }
 
     #[test]
-    fn topology_default_is_full_mesh() {
+    fn topology_default_is_api_managed() {
         let t = TopologyConfig::default();
-        assert!(t.can_link("a", "b"));
-        assert!(t.can_link("x", "y"));
+        assert!(t.is_api_managed());
+        // ApiManaged allows no links from config — topology comes from DB.
+        assert!(!t.can_link("a", "b"));
+        assert!(!t.can_link("x", "y"));
     }
 
     #[test]
@@ -619,7 +630,7 @@ mod tests {
     // --- Deserialization tests ---
 
     #[test]
-    fn deserialize_empty_topology_is_full_mesh() {
+    fn deserialize_empty_topology_is_api_managed() {
         let t: TopologyConfig = serde_yaml::from_str("{}").unwrap();
         assert_eq!(t, TopologyConfig::ApiManaged);
     }
