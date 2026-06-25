@@ -1,5 +1,5 @@
-# Full mesh topology: all groups link to each other.
-# Expressed as a wildcard link entry in config-managed mode.
+# API-managed topology mode: no topology section means the DB owns
+# topology state and CRUD operations are available via gRPC/CLI.
 
 tracing:
   log_level: debug
@@ -17,7 +17,5 @@ southbound:
 database:
   type: in_memory
 
-topology:
-  links:
-    - group: "*"
-      neighbors: ["*"]
+# Empty topology = API-managed mode.
+topology: {}

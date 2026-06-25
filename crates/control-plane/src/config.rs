@@ -106,32 +106,31 @@ impl Default for ReconcilerConfig {
     }
 }
 
-/// Topology configuration: defines the physical link graph between node groups.
-///
-/// The topology is expressed as an adjacency list. Each entry declares
-/// a group name and the neighbors it connects to. All links are **bidirectional**:
-/// if group A lists B as a peer, then B↔A is implied.
-///
-/// The wildcard `"*"` matches all registered groups and is resolved dynamically
-/// at node registration time.
-///
-/// If no topology is configured (empty links), the controller defaults to
-/// **full mesh**: every group links to every other group.
-///
-/// Topology configuration: controls link creation and route visibility.
+/// Topology configuration: controls link creation and route visibility
+/// between node groups.
 ///
 /// The topology mode is determined by which field is present in YAML:
-/// - Neither `links` nor `segments` → full mesh (default)
-/// - `links` → single routing domain with custom link graph
-/// - `segments` → multiple independent routing domains
+/// - Neither `links` nor `segments` → **API-managed mode** (DB owns topology)
+/// - `links` → config-managed, single routing domain with custom link graph
+/// - `segments` → config-managed, multiple independent routing domains
 /// - Both → deserialization error
 ///
 /// # Examples
 ///
-/// **Full mesh (default):** no `topology` key needed, all groups interconnect.
+/// **API-managed mode (default):** no `topology` key or empty section.
+/// Topology is built via gRPC/CLI at runtime.
 ///
 /// ```yaml
 /// topology: {}
+/// ```
+///
+/// **Full mesh (config-managed):** use wildcard link entry.
+///
+/// ```yaml
+/// topology:
+///   links:
+///     - group: "*"
+///       neighbors: ["*"]
 /// ```
 ///
 /// **Single segment with star topology:**
@@ -155,12 +154,13 @@ impl Default for ReconcilerConfig {
 /// ```
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum TopologyConfig {
-    /// No topology configured: all groups can link to all groups.
+    /// No topology configured: API-managed mode. The DB owns topology state
+    /// and full CRUD operations are available via gRPC/CLI.
     #[default]
-    FullMesh,
-    /// Single routing domain with a custom link graph.
+    ApiManaged,
+    /// Single routing domain with a custom link graph (config-managed).
     Links(Vec<AdjacencyEntry>),
-    /// Multiple independent routing domains, each with its own link graph.
+    /// Multiple independent routing domains, each with its own link graph (config-managed).
     Segments(Vec<SegmentConfig>),
 }
 
@@ -235,19 +235,19 @@ impl<'de> Deserialize<'de> for TopologyConfig {
                     )),
                     (Some(l), None) => {
                         if l.is_empty() {
-                            Ok(TopologyConfig::FullMesh)
+                            Ok(TopologyConfig::ApiManaged)
                         } else {
                             Ok(TopologyConfig::Links(l))
                         }
                     }
                     (None, Some(s)) => {
                         if s.is_empty() {
-                            Ok(TopologyConfig::FullMesh)
+                            Ok(TopologyConfig::ApiManaged)
                         } else {
                             Ok(TopologyConfig::Segments(s))
                         }
                     }
-                    (None, None) => Ok(TopologyConfig::FullMesh),
+                    (None, None) => Ok(TopologyConfig::ApiManaged),
                 }
             }
         }
@@ -257,7 +257,8 @@ impl<'de> Deserialize<'de> for TopologyConfig {
 }
 
 impl TopologyConfig {
-    /// Build one graph per segment. For FullMesh/Links returns a single "default" entry.
+    /// Build one graph per segment. For Links returns a single "default" entry.
+    /// For ApiManaged, returns an empty vec (topology is loaded from DB, not config).
     /// Wildcard `"*"` is expanded to all groups in `known_groups`.
     pub fn build_graph(
         &self,
@@ -332,7 +333,7 @@ impl TopologyConfig {
     /// Returns true if this config uses `$group` template expansion.
     pub fn has_group_template(&self) -> bool {
         match self {
-            Self::FullMesh | Self::Links(_) => false,
+            Self::ApiManaged | Self::Links(_) => false,
             Self::Segments(segments) => segments.iter().any(|seg| seg.has_group_template()),
         }
     }
@@ -342,13 +343,7 @@ impl TopologyConfig {
     /// from expansion. Non-template segments pass through unchanged.
     pub fn expand_segments(&self, known_groups: &[&str]) -> Vec<SegmentConfig> {
         match self {
-            Self::FullMesh => vec![SegmentConfig {
-                name: "default".to_string(),
-                links: vec![AdjacencyEntry {
-                    group: "*".to_string(),
-                    neighbors: vec!["*".to_string()],
-                }],
-            }],
+            Self::ApiManaged => vec![],
             Self::Links(links) => vec![SegmentConfig {
                 name: "default".to_string(),
                 links: links.clone(),
@@ -437,7 +432,9 @@ mod tests {
         /// Test helper: check if group `a` is allowed to link to group `b`.
         fn can_link(&self, a: &str, b: &str) -> bool {
             match self {
-                Self::FullMesh => true,
+                // TODO(#1768 Phase 2): In API mode, consult DB for allowed links.
+                // For now allow all until DB-backed topology is implemented.
+                Self::ApiManaged => true,
                 Self::Links(links) => Self::can_link_in(links, a, b),
                 Self::Segments(segments) => segments
                     .iter()
@@ -515,7 +512,10 @@ mod tests {
 
     #[test]
     fn build_graph_full_mesh() {
-        let t = TopologyConfig::default();
+        let t = TopologyConfig::Links(vec![AdjacencyEntry {
+            group: "*".to_string(),
+            neighbors: vec!["*".to_string()],
+        }]);
         let groups = vec!["a", "b", "c", "d"];
         let segments = t.build_graph(&groups);
 
@@ -621,7 +621,7 @@ mod tests {
     #[test]
     fn deserialize_empty_topology_is_full_mesh() {
         let t: TopologyConfig = serde_yaml::from_str("{}").unwrap();
-        assert_eq!(t, TopologyConfig::FullMesh);
+        assert_eq!(t, TopologyConfig::ApiManaged);
     }
 
     #[test]

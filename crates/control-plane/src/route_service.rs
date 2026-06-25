@@ -41,7 +41,8 @@ struct Inner {
     /// Topology configuration for link and route filtering.
     topology: TopologyConfig,
     /// Runtime segment graphs at the group level. Rebuilt when nodes join/leave.
-    /// Each entry is (segment_name, graph). For FullMesh/Links, there's a single "default" entry.
+    /// Each entry is (segment_name, graph). For Links, there's a single "default" entry.
+    /// For Segments, one entry per segment. For ApiManaged, loaded from DB.
     segment_graphs: tokio::sync::RwLock<Vec<(String, UnGraph<String, u32>)>>,
 }
 
@@ -178,6 +179,7 @@ pub(crate) mod test_utils {
     }
 
     pub(super) fn make_route_service(db: crate::db::SharedDb) -> RouteService {
+        use crate::config::AdjacencyEntry;
         let handler = DefaultNodeCommandHandler::new();
         RouteService::new(
             db,
@@ -186,7 +188,10 @@ pub(crate) mod test_utils {
                 max_requeues: 3,
                 ..Default::default()
             },
-            TopologyConfig::default(),
+            TopologyConfig::Links(vec![AdjacencyEntry {
+                group: "*".to_string(),
+                neighbors: vec!["*".to_string()],
+            }]),
         )
     }
 
