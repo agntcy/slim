@@ -78,19 +78,16 @@ pub struct ControllerRouteArgs {
 
 #[derive(Subcommand)]
 pub enum ControllerRouteCommand {
-    /// List routes on a node
+    /// List routes. With -n: routes on a specific node. Without -n: all routes at the controller.
     #[command(visible_alias = "ls")]
     List {
-        /// ID of the node to manage routes for
-        #[arg(short = 'n', long, required = true)]
-        node_id: String,
-    },
-    /// List all routes registered at the controller
-    Outline {
-        /// Filter by source (origin) node ID
+        /// Show routes for a specific node (per-node view)
+        #[arg(short = 'n', long)]
+        node_id: Option<String>,
+        /// Filter by source (origin) node ID (controller-wide view only)
         #[arg(short = 'o', long, default_value = "")]
         origin_node_id: String,
-        /// Filter by destination (target) node ID
+        /// Filter by destination (target) node ID (controller-wide view only)
         #[arg(short = 't', long, default_value = "")]
         target_node_id: String,
         /// Show all routes (including pending, failed, deleted). Default shows only applied.
@@ -110,7 +107,8 @@ pub struct ControllerLinkArgs {
 #[derive(Subcommand)]
 pub enum ControllerLinkCommand {
     /// List all links registered at the controller
-    Outline {
+    #[command(visible_alias = "ls")]
+    List {
         /// Filter by source (origin) node ID
         #[arg(short = 'o', long, default_value = "")]
         origin_node_id: String,
@@ -148,18 +146,21 @@ async fn run_connection(args: &ControllerConnectionArgs, opts: &ClientConfig) ->
 
 async fn run_route(args: &ControllerRouteArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
-        ControllerRouteCommand::List { node_id } => route_list(node_id, opts).await,
-        ControllerRouteCommand::Outline {
+        ControllerRouteCommand::List {
+            node_id,
             origin_node_id,
             target_node_id,
             all,
-        } => route_outline(origin_node_id, target_node_id, *all, opts).await,
+        } => match node_id {
+            Some(id) => route_list(id, opts).await,
+            None => route_outline(origin_node_id, target_node_id, *all, opts).await,
+        },
     }
 }
 
 async fn run_link(args: &ControllerLinkArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
-        ControllerLinkCommand::Outline {
+        ControllerLinkCommand::List {
             origin_node_id,
             target_node_id,
             all,

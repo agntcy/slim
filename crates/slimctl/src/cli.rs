@@ -380,40 +380,37 @@ mod tests {
         let ControllerCommand::Route(a) = args.command else {
             panic!()
         };
-        let ControllerRouteCommand::List { node_id } = a.command else {
-            panic!()
-        };
-        assert_eq!(node_id, "node1");
+        let ControllerRouteCommand::List { node_id, .. } = a.command;
+        assert_eq!(node_id, Some("node1".to_string()));
     }
 
     #[test]
-    fn parse_controller_route_outline_defaults() {
-        let cli = parse_ok(&["slimctl", "controller", "route", "outline"]);
+    fn parse_controller_route_list_defaults() {
+        let cli = parse_ok(&["slimctl", "controller", "route", "list"]);
         let Commands::Controller(args) = cli.command else {
             panic!()
         };
         let ControllerCommand::Route(a) = args.command else {
             panic!()
         };
-        let ControllerRouteCommand::Outline {
+        let ControllerRouteCommand::List {
+            node_id,
             origin_node_id,
             target_node_id,
             ..
-        } = a.command
-        else {
-            panic!()
-        };
+        } = a.command;
+        assert_eq!(node_id, None);
         assert_eq!(origin_node_id, "");
         assert_eq!(target_node_id, "");
     }
 
     #[test]
-    fn parse_controller_route_outline_with_filters() {
+    fn parse_controller_route_list_with_filters() {
         let cli = parse_ok(&[
             "slimctl",
             "controller",
             "route",
-            "outline",
+            "list",
             "-o",
             "src-node",
             "-t",
@@ -425,14 +422,11 @@ mod tests {
         let ControllerCommand::Route(a) = args.command else {
             panic!()
         };
-        let ControllerRouteCommand::Outline {
+        let ControllerRouteCommand::List {
             origin_node_id,
             target_node_id,
             ..
-        } = a.command
-        else {
-            panic!()
-        };
+        } = a.command;
         assert_eq!(origin_node_id, "src-node");
         assert_eq!(target_node_id, "dst-node");
     }
