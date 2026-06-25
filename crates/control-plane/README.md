@@ -149,14 +149,14 @@ and vice versa, but `customer-a` cannot see `customer-b`.
 ```yaml
 topology:
   segments:
-    - name: tenant-1
+    - name: customer-1
       links:
         - name: cloud
-          neighbors: [customer-a]
-    - name: tenant-2
+          neighbors: [cluster-a]
+    - name: customer-2
       links:
         - name: cloud
-          neighbors: [customer-b, customer-c]
+          neighbors: [cluster-b, cluster-c]
 ```
 
 When segments are defined, the top-level `topology.links` section is
