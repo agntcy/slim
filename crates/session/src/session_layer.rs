@@ -585,6 +585,8 @@ where
     ) -> Result<(), SessionError> {
         let local_name = self.get_local_name_for_session(message.get_slim_header().get_dst())?;
         let mut reply = handle_channel_discovery_message(&message, &local_name, id, session_type)?;
+        let identity = self.identity_provider.get_token()?;
+        reply.get_slim_header_mut().set_identity(identity);
         crate::session_controller::sign_outbound_control_message(
             &mut reply,
             &self.identity_provider,
@@ -987,6 +989,8 @@ mod tests {
             .application_payload("", vec![])
             .build_publish()
             .unwrap();
+        let identity = remote_auth.get_token().unwrap();
+        message.get_slim_header_mut().set_identity(identity);
         crate::session_controller::sign_outbound_control_message(&mut message, &remote_auth)
             .unwrap();
 

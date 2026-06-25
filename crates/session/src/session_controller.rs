@@ -80,7 +80,7 @@ where
     Ok(())
 }
 
-pub(crate) fn sign_discovery_requests<P>(
+pub(crate) fn sign_control_messages<P>(
     output: &mut SessionOutput,
     identity_provider: &P,
 ) -> Result<(), SessionError>
@@ -89,9 +89,16 @@ where
 {
     for msg in &mut output.messages {
         if let OutboundMessage::ToSlim(m) = msg
-            && m.get_session_message_type() == ProtoSessionMessageType::DiscoveryRequest
+            && m.get_session_message_type().is_command_message()
         {
-            sign_outbound_control_message(m, identity_provider)?;
+            match sign_outbound_control_message(m, identity_provider) {
+                Ok(()) => {}
+                Err(
+                    SessionError::SignatureKeyIsEmpty
+                    | SessionError::SignatureKeyCollectionFailedWithAuthErr(_),
+                ) => return Ok(()),
+                Err(e) => return Err(e),
+            }
         }
     }
     Ok(())
@@ -127,8 +134,6 @@ where
         }
         Err(err) => return Err(SessionError::SignatureKeyCollectionFailedWithAuthErr(err)),
     };
-    let identity = identity_provider.get_token()?;
-    msg.get_slim_header_mut().set_identity(identity);
     let aad = crate::mls_state::build_aad(msg);
     let signature = slim_auth::utils::sign_header_aad(&aad, &private_key, &public_key)?;
     msg.get_slim_header_mut().e2e_header_sig = Some(signature);
@@ -278,7 +283,7 @@ impl SessionController {
         msg: &Message,
         settings: &SessionSettings<P, V, M>,
         seen_control_message_ids: &mut LruCache<ProtoName, LruCache<u32, ()>>,
-    ) -> Result<bool, SessionError>
+    ) -> Result<(), SessionError>
     where
         P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
         V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
@@ -286,9 +291,13 @@ impl SessionController {
     {
         let msg_type = msg.get_session_message_type();
 
-        // Require E2E verification only when the sender included a signature (matches pre-session path).
-        let e2e_required =
-            msg_type.is_post_session_control() && settings.config.mls_settings.is_some();
+        // Require E2E verification only when MLS is enabled.
+        let e2e_required = msg_type.is_command_message() && settings.config.mls_settings.is_some();
+
+        // Return if e2e_required in `false`
+        if !e2e_required {
+            return Ok(());
+        }
 
         // 1. Verify E2E header signature and token
         crate::session_controller::verify_identity(msg, &settings.identity_verifier, e2e_required)
@@ -314,14 +323,10 @@ impl SessionController {
             }
             let inner = seen_control_message_ids.get_mut(&sender).unwrap();
             if inner.put(message_id, ()).is_some() {
-                if e2e_required {
-                    return Err(SessionError::ControlMessageReplay { message_id });
-                } else {
-                    return Ok(false);
-                }
+                return Err(SessionError::ControlMessageReplay { message_id });
             }
         }
-        Ok(true)
+        Ok(())
     }
 
     async fn processing_loop<P, V, M>(
@@ -356,13 +361,11 @@ impl SessionController {
                     debug!("consuming pending messages before entering draining state");
                     while let Ok(msg) = rx.try_recv() {
                         if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &msg {
-                            let is_message_valid = Self::verify_and_check_replay(message, &settings, &mut seen_control_message_ids).await;
-                            match is_message_valid {
+                            match Self::verify_and_check_replay(message, &settings, &mut seen_control_message_ids).await{
                                 Err(e) => {
                                     debug!(error = %e.chain(), "dropping inbound message during drain: verification or replay check failed");
                                     continue;
                                 }
-                                Ok(valid) if !valid => continue,
                                 Ok(_) => {}
                             }
                         }
@@ -409,9 +412,8 @@ impl SessionController {
                                 direction: MessageDirection::North,
                                 ..
                             } = &session_message
+                               && let Err(e) = Self::verify_and_check_replay(message, &settings, &mut seen_control_message_ids).await
                             {
-                                match Self::verify_and_check_replay(message, &settings, &mut seen_control_message_ids).await {
-                                    Err(e) => {
                                         debug!(
                                             error = %e.chain(),
                                             msg_type = %message.get_session_message_type().as_str_name(),
@@ -419,10 +421,6 @@ impl SessionController {
                                             "dropping inbound message: verification or replay check failed",
                                         );
                                         continue;
-                                    }
-                                    Ok(valid) if !valid => continue,
-                                    Ok(_) => {}
-                                }
                             }
 
                             let draining = inner.processing_state() == ProcessingState::Draining;
@@ -852,33 +850,9 @@ where
         output: &mut SessionOutput,
         identity_provider: &P,
     ) -> Result<(), SessionError> {
-        let private_key = match identity_provider.get_signature_secret_key() {
-            Ok(k) => {
-                if k.is_empty() {
-                    return Err(SessionError::SignatureKeyIsEmpty);
-                } else {
-                    k
-                }
-            }
-            Err(err) => return Err(SessionError::SignatureKeyCollectionFailedWithAuthErr(err)),
-        };
-        let public_key = match identity_provider.get_signature_public_key() {
-            Ok(k) => {
-                if k.is_empty() {
-                    return Err(SessionError::SignatureKeyIsEmpty);
-                } else {
-                    k
-                }
-            }
-            Err(err) => return Err(SessionError::SignatureKeyCollectionFailedWithAuthErr(err)),
-        };
         for msg in &mut output.messages {
-            if let OutboundMessage::ToSlim(m) = msg
-                && m.get_session_message_type().is_command_message()
-            {
-                let aad = crate::mls_state::build_aad(m);
-                let signature = slim_auth::utils::sign_header_aad(&aad, &private_key, &public_key)?;
-                m.get_slim_header_mut().e2e_header_sig = Some(signature);
+            if let OutboundMessage::ToSlim(m) = msg {
+                sign_outbound_control_message(m, identity_provider)?;
             }
         }
         Ok(())
@@ -1645,10 +1619,12 @@ mod tests {
         let discovery_msg_id = received_discovery_request.get_id();
 
         // create a discovery reply and call the on message on the moderator with the reply (direction north)
+        let participant_auth = SharedSecret::new("participant", SHARED_SECRET).unwrap();
+        let participant_token = participant_auth.get_token().unwrap();
         let mut discovery_reply = Message::builder()
             .source(participant_name_id.clone())
             .destination(moderator_name.clone())
-            .identity(test_identity())
+            .identity(participant_token)
             .forward_to(1)
             .session_type(slim_datapath::api::ProtoSessionType::PointToPoint)
             .session_message_type(slim_datapath::api::ProtoSessionMessageType::DiscoveryReply)
@@ -1660,6 +1636,11 @@ mod tests {
         discovery_reply
             .get_slim_header_mut()
             .set_incoming_conn(Some(1));
+        crate::session_controller::sign_outbound_control_message(
+            &mut discovery_reply,
+            &participant_auth,
+        )
+        .unwrap();
 
         moderator
             .on_message_from_slim(discovery_reply)

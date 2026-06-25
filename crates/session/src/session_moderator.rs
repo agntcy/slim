@@ -29,7 +29,7 @@ use crate::{
         AddParticipant, ModeratorTask, NotifyParticipants, RemoveParticipant, TaskUpdate,
     },
     runtime::maybe_await,
-    session_controller::{SessionControllerCommon, sign_discovery_requests},
+    session_controller::{SessionControllerCommon, sign_control_messages},
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
     traits::{MessageHandler, ProcessingState},
@@ -362,7 +362,7 @@ where
         } else {
             // Discovery messages always need to be signed as MLS settings are not available for the
             // reciever at this point
-            sign_discovery_requests(output, &identity_provider)?;
+            sign_control_messages(output, &identity_provider)?;
         }
         Ok(())
     }
