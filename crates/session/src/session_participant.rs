@@ -20,7 +20,7 @@ use crate::{
     errors::SessionError,
     mls_state::MlsState,
     runtime::maybe_await,
-    session_controller::SessionControllerCommon,
+    session_controller::{SessionControllerCommon, sign_discovery_requests},
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
     traits::{MessageHandler, ProcessingState},
@@ -300,25 +300,22 @@ where
 {
     #[maybe_async::maybe_async]
     async fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
+        let mut identity_provider = self.common.settings.identity_provider.clone();
         if let Some(mls_state) = &self.mls_state {
-            let identity_provider = mls_state.mls.identity_provider();
-            crate::session_controller::SessionController::apply_identity_to_slim_output(
-                output,
-                identity_provider,
-            )?;
-            self.common
-                .sign_control_messages(output, identity_provider)?;
-        } else {
-            let identity_provider = self.common.settings.identity_provider.clone();
-            crate::session_controller::SessionController::apply_identity_to_slim_output(
-                output,
-                &identity_provider,
-            )?;
+            identity_provider = mls_state.mls.identity_provider().clone();
+        }
+        crate::session_controller::SessionController::apply_identity_to_slim_output(
+            output,
+            &identity_provider,
+        )?;
+        if let Some(mls_state) = &mut self.mls_state {
             self.common
                 .sign_control_messages(output, &identity_provider)?;
-        }
-        if let Some(mls_state) = &mut self.mls_state {
             mls_state.encrypt_output(output).await?;
+        } else {
+            // Discovery messages always need to be signed as MLS settings are not available for the
+            // reciever at this point
+            sign_discovery_requests(output, &identity_provider)?;
         }
         Ok(())
     }

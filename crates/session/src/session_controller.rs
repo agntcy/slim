@@ -80,6 +80,23 @@ where
     Ok(())
 }
 
+pub(crate) fn sign_discovery_requests<P>(
+    output: &mut SessionOutput,
+    identity_provider: &P,
+) -> Result<(), SessionError>
+where
+    P: TokenProvider,
+{
+    for msg in &mut output.messages {
+        if let OutboundMessage::ToSlim(m) = msg
+            && m.get_session_message_type() == ProtoSessionMessageType::DiscoveryRequest
+        {
+            sign_outbound_control_message(m, identity_provider)?;
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn sign_outbound_control_message<P>(
     msg: &mut Message,
     identity_provider: &P,
@@ -836,12 +853,24 @@ where
         identity_provider: &P,
     ) -> Result<(), SessionError> {
         let private_key = match identity_provider.get_signature_secret_key() {
-            Ok(k) if !k.is_empty() => k,
-            _ => return Ok(()),
+            Ok(k) => {
+                if k.is_empty() {
+                    return Err(SessionError::SignatureKeyIsEmpty);
+                } else {
+                    k
+                }
+            }
+            Err(err) => return Err(SessionError::SignatureKeyCollectionFailedWithAuthErr(err)),
         };
         let public_key = match identity_provider.get_signature_public_key() {
-            Ok(k) if !k.is_empty() => k,
-            _ => return Ok(()),
+            Ok(k) => {
+                if k.is_empty() {
+                    return Err(SessionError::SignatureKeyIsEmpty);
+                } else {
+                    k
+                }
+            }
+            Err(err) => return Err(SessionError::SignatureKeyCollectionFailedWithAuthErr(err)),
         };
         for msg in &mut output.messages {
             if let OutboundMessage::ToSlim(m) = msg
@@ -853,24 +882,6 @@ where
             }
         }
         Ok(())
-    }
-
-    /// Send control message through ControllerSender, returning the output.
-    pub(crate) fn send_with_timer(
-        &mut self,
-        message: Message,
-    ) -> Result<SessionOutput, SessionError> {
-        let mut output = SessionOutput::to_slim(message);
-        self.sign_control_messages(&mut output, &self.settings.identity_provider)?;
-        let OutboundMessage::ToSlim(message) = output
-            .messages
-            .into_iter()
-            .next()
-            .expect("single outbound message")
-        else {
-            unreachable!("SessionOutput::to_slim produces ToSlim");
-        };
-        self.sender.on_message(&message)
     }
 
     async fn await_subscription_ack(
@@ -1046,7 +1057,7 @@ where
         if let Some(m) = metadata {
             msg.set_metadata_map(m);
         }
-        self.send_with_timer(msg)
+        self.sender.on_message(&msg)
     }
 }
 
