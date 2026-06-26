@@ -1,6 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::num::NonZeroUsize;
+
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::ProtoName;
 
@@ -12,7 +14,8 @@ use crate::{
 };
 
 /// Max size of control message replay cache
-pub(crate) const DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE: usize = 1000;
+pub(crate) const DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE: NonZeroUsize =
+    NonZeroUsize::new(1000).unwrap();
 pub(crate) const MAX_SEEN_CONTROL_MESSAGE_SENDERS_SIZE: usize = 100;
 
 /// Settings struct for constructing session components.
@@ -81,5 +84,5 @@ where
     pub(crate) service_id: String,
 
     /// Seen control messages cache max size (for replay attack prevention)
-    pub(crate) max_seen_control_message_ids_size: usize,
+    pub(crate) max_seen_control_message_ids_size: NonZeroUsize,
 }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::marker::PhantomData;
+use std::num::NonZeroUsize;
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{NameId, ProtoName};
@@ -420,6 +421,7 @@ where
             .mls_settings
             .as_ref()
             .and_then(|m| m.max_seen_control_message_ids_size)
+            .and_then(NonZeroUsize::new)
             .unwrap_or(crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE);
 
         // Create the base Session layer

@@ -30,7 +30,10 @@ use crate::{
     controller_sender::{ControllerSender, PING_INTERVAL},
     session_builder::{ForController, SessionBuilder},
     session_config::SessionConfig,
-    session_settings::{MAX_SEEN_CONTROL_MESSAGE_SENDERS_SIZE, SessionSettings},
+    session_settings::{
+        MAX_SEEN_CONTROL_MESSAGE_SENDERS_SIZE,
+        SessionSettings,
+    },
     traits::{MessageHandler, ProcessingState},
 };
 
@@ -316,9 +319,7 @@ impl SessionController {
             if !seen_control_message_ids.contains(&sender) {
                 seen_control_message_ids.put(
                     sender.clone(),
-                    LruCache::new(
-                        NonZeroUsize::new(settings.max_seen_control_message_ids_size).unwrap(),
-                    ),
+                    LruCache::new(settings.max_seen_control_message_ids_size),
                 );
             }
             let inner = seen_control_message_ids.get_mut(&sender).unwrap();
