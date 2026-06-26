@@ -151,6 +151,50 @@ pub struct SegmentListResponse {
     #[prost(message, repeated, tag = "1")]
     pub segments: ::prost::alloc::vec::Vec<SegmentEntry>,
 }
+/// Add a new segment (routing domain)
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AddSegmentRequest {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AddSegmentResponse {}
+/// Remove a segment by name, cascading deletion of groups and links
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RemoveSegmentRequest {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RemoveSegmentResponse {}
+/// Add a bidirectional link between two groups within a segment.
+/// The segment must already exist. If segment is empty, defaults to "default".
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AddTopologyLinkRequest {
+    #[prost(string, tag = "1")]
+    pub group_a: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub group_b: ::prost::alloc::string::String,
+    /// optional, defaults to "default"
+    #[prost(string, tag = "3")]
+    pub segment: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AddTopologyLinkResponse {}
+/// Remove a bidirectional link between two groups within a segment.
+/// If segment is empty, defaults to "default".
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RemoveTopologyLinkRequest {
+    #[prost(string, tag = "1")]
+    pub group_a: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub group_b: ::prost::alloc::string::String,
+    /// optional, defaults to "default"
+    #[prost(string, tag = "3")]
+    pub segment: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RemoveTopologyLinkResponse {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum NodeStatus {
@@ -522,6 +566,130 @@ pub mod control_plane_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        /// Add a new segment (routing domain). If a segment with the given name already exists,
+        /// returns ALREADY_EXISTS.
+        pub async fn add_segment(
+            &mut self,
+            request: impl tonic::IntoRequest<super::AddSegmentRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::AddSegmentResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/controlplane.proto.v1.ControlPlaneService/AddSegment",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "controlplane.proto.v1.ControlPlaneService",
+                        "AddSegment",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        /// Remove a segment by name. Deletes all associated group memberships and links.
+        /// Returns NOT_FOUND if the segment does not exist.
+        pub async fn remove_segment(
+            &mut self,
+            request: impl tonic::IntoRequest<super::RemoveSegmentRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::RemoveSegmentResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/controlplane.proto.v1.ControlPlaneService/RemoveSegment",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "controlplane.proto.v1.ControlPlaneService",
+                        "RemoveSegment",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        /// Add a bidirectional link between two groups within a segment.
+        /// The segment must already exist. Idempotent — succeeds if the link already exists.
+        pub async fn add_topology_link(
+            &mut self,
+            request: impl tonic::IntoRequest<super::AddTopologyLinkRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::AddTopologyLinkResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/controlplane.proto.v1.ControlPlaneService/AddTopologyLink",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "controlplane.proto.v1.ControlPlaneService",
+                        "AddTopologyLink",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        /// Remove a bidirectional link between two groups within a segment.
+        /// Returns NOT_FOUND if the segment or link does not exist.
+        pub async fn remove_topology_link(
+            &mut self,
+            request: impl tonic::IntoRequest<super::RemoveTopologyLinkRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::RemoveTopologyLinkResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/controlplane.proto.v1.ControlPlaneService/RemoveTopologyLink",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "controlplane.proto.v1.ControlPlaneService",
+                        "RemoveTopologyLink",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -594,6 +762,42 @@ pub mod control_plane_service_server {
             request: tonic::Request<super::SegmentListRequest>,
         ) -> std::result::Result<
             tonic::Response<super::SegmentListResponse>,
+            tonic::Status,
+        >;
+        /// Add a new segment (routing domain). If a segment with the given name already exists,
+        /// returns ALREADY_EXISTS.
+        async fn add_segment(
+            &self,
+            request: tonic::Request<super::AddSegmentRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::AddSegmentResponse>,
+            tonic::Status,
+        >;
+        /// Remove a segment by name. Deletes all associated group memberships and links.
+        /// Returns NOT_FOUND if the segment does not exist.
+        async fn remove_segment(
+            &self,
+            request: tonic::Request<super::RemoveSegmentRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::RemoveSegmentResponse>,
+            tonic::Status,
+        >;
+        /// Add a bidirectional link between two groups within a segment.
+        /// The segment must already exist. Idempotent — succeeds if the link already exists.
+        async fn add_topology_link(
+            &self,
+            request: tonic::Request<super::AddTopologyLinkRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::AddTopologyLinkResponse>,
+            tonic::Status,
+        >;
+        /// Remove a bidirectional link between two groups within a segment.
+        /// Returns NOT_FOUND if the segment or link does not exist.
+        async fn remove_topology_link(
+            &self,
+            request: tonic::Request<super::RemoveTopologyLinkRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::RemoveTopologyLinkResponse>,
             tonic::Status,
         >;
     }
@@ -939,6 +1143,196 @@ pub mod control_plane_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = ListSegmentsSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/controlplane.proto.v1.ControlPlaneService/AddSegment" => {
+                    #[allow(non_camel_case_types)]
+                    struct AddSegmentSvc<T: ControlPlaneService>(pub Arc<T>);
+                    impl<
+                        T: ControlPlaneService,
+                    > tonic::server::UnaryService<super::AddSegmentRequest>
+                    for AddSegmentSvc<T> {
+                        type Response = super::AddSegmentResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::AddSegmentRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ControlPlaneService>::add_segment(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = AddSegmentSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/controlplane.proto.v1.ControlPlaneService/RemoveSegment" => {
+                    #[allow(non_camel_case_types)]
+                    struct RemoveSegmentSvc<T: ControlPlaneService>(pub Arc<T>);
+                    impl<
+                        T: ControlPlaneService,
+                    > tonic::server::UnaryService<super::RemoveSegmentRequest>
+                    for RemoveSegmentSvc<T> {
+                        type Response = super::RemoveSegmentResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::RemoveSegmentRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ControlPlaneService>::remove_segment(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = RemoveSegmentSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/controlplane.proto.v1.ControlPlaneService/AddTopologyLink" => {
+                    #[allow(non_camel_case_types)]
+                    struct AddTopologyLinkSvc<T: ControlPlaneService>(pub Arc<T>);
+                    impl<
+                        T: ControlPlaneService,
+                    > tonic::server::UnaryService<super::AddTopologyLinkRequest>
+                    for AddTopologyLinkSvc<T> {
+                        type Response = super::AddTopologyLinkResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::AddTopologyLinkRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ControlPlaneService>::add_topology_link(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = AddTopologyLinkSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/controlplane.proto.v1.ControlPlaneService/RemoveTopologyLink" => {
+                    #[allow(non_camel_case_types)]
+                    struct RemoveTopologyLinkSvc<T: ControlPlaneService>(pub Arc<T>);
+                    impl<
+                        T: ControlPlaneService,
+                    > tonic::server::UnaryService<super::RemoveTopologyLinkRequest>
+                    for RemoveTopologyLinkSvc<T> {
+                        type Response = super::RemoveTopologyLinkResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::RemoveTopologyLinkRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ControlPlaneService>::remove_topology_link(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = RemoveTopologyLinkSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

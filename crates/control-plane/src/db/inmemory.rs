@@ -847,9 +847,9 @@ impl DataAccess for InMemoryDb {
     async fn create_segment(&self, name: &str) -> Result<TopologySegment> {
         let mut segments = self.topology_segments.write();
         if segments.values().any(|segment| segment.name == name) {
-            return Err(Error::DbError {
-                context: "create_segment",
-                msg: format!("segment with name '{name}' already exists"),
+            return Err(Error::AlreadyExists {
+                entity: "segment",
+                name: name.to_string(),
             });
         }
 

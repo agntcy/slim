@@ -10,7 +10,9 @@ use crate::api::proto::controller::proto::v1::{
     connection_details::SpireMtls,
 };
 use crate::api::proto::controlplane::proto::v1::{
-    LinkEntry, LinkListRequest, LinkStatus, NodeEntry, NodeListRequest, RouteEntry,
+    AddSegmentRequest, AddSegmentResponse, AddTopologyLinkRequest, AddTopologyLinkResponse,
+    LinkEntry, LinkListRequest, LinkStatus, NodeEntry, NodeListRequest, RemoveSegmentRequest,
+    RemoveSegmentResponse, RemoveTopologyLinkRequest, RemoveTopologyLinkResponse, RouteEntry,
     RouteListRequest, RouteStatus, SegmentEdge, SegmentEntry, SegmentListRequest,
     SegmentListResponse, control_plane_service_server::ControlPlaneService,
 };
@@ -408,5 +410,67 @@ impl ControlPlaneService for NorthboundApiService {
             })
             .collect();
         Ok(Response::new(SegmentListResponse { segments: entries }))
+    }
+
+    async fn add_segment(
+        &self,
+        request: Request<AddSegmentRequest>,
+    ) -> Result<Response<AddSegmentResponse>, Status> {
+        let name = &request.get_ref().name;
+        if name.is_empty() {
+            return Err(Status::invalid_argument("segment name must not be empty"));
+        }
+        self.route_service.add_segment(name).await?;
+        Ok(Response::new(AddSegmentResponse {}))
+    }
+
+    async fn remove_segment(
+        &self,
+        request: Request<RemoveSegmentRequest>,
+    ) -> Result<Response<RemoveSegmentResponse>, Status> {
+        let name = &request.get_ref().name;
+        if name.is_empty() {
+            return Err(Status::invalid_argument("segment name must not be empty"));
+        }
+        self.route_service.remove_segment(name).await?;
+        Ok(Response::new(RemoveSegmentResponse {}))
+    }
+
+    async fn add_topology_link(
+        &self,
+        request: Request<AddTopologyLinkRequest>,
+    ) -> Result<Response<AddTopologyLinkResponse>, Status> {
+        let req = request.get_ref();
+        if req.group_a.is_empty() || req.group_b.is_empty() {
+            return Err(Status::invalid_argument("group_a and group_b must not be empty"));
+        }
+        let segment = if req.segment.is_empty() {
+            "default"
+        } else {
+            &req.segment
+        };
+        self.route_service
+            .add_topology_link(&req.group_a, &req.group_b, segment)
+            .await?;
+        Ok(Response::new(AddTopologyLinkResponse {}))
+    }
+
+    async fn remove_topology_link(
+        &self,
+        request: Request<RemoveTopologyLinkRequest>,
+    ) -> Result<Response<RemoveTopologyLinkResponse>, Status> {
+        let req = request.get_ref();
+        if req.group_a.is_empty() || req.group_b.is_empty() {
+            return Err(Status::invalid_argument("group_a and group_b must not be empty"));
+        }
+        let segment = if req.segment.is_empty() {
+            "default"
+        } else {
+            &req.segment
+        };
+        self.route_service
+            .remove_topology_link(&req.group_a, &req.group_b, segment)
+            .await?;
+        Ok(Response::new(RemoveTopologyLinkResponse {}))
     }
 }

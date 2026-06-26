@@ -184,6 +184,180 @@ impl RouteService {
         Ok(())
     }
 
+    /// After a topology mutation (add/remove link), re-evaluate links for all
+    /// registered nodes. Creates new links where the topology now allows them,
+    /// deletes links that are no longer allowed, and queues affected nodes for
+    /// reconciliation.
+    async fn reconcile_topology_change(&self) {
+        let all_nodes = match self.0.db.list_nodes().await {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::error!("reconcile_topology_change: list_nodes: {e}");
+                return;
+            }
+        };
+        if all_nodes.is_empty() {
+            return;
+        }
+
+        let allowed_pairs = self.allowed_link_pairs().await;
+        let all_links = self.0.db.list_all_links().await.unwrap_or_else(|e| {
+            tracing::error!("reconcile_topology_change: list_all_links: {e}");
+            vec![]
+        });
+
+        let mut reconcile_nodes: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+
+        // Delete links whose group pair is no longer allowed by the topology.
+        for link in &all_links {
+            if link.status == crate::db::LinkStatus::Deleted {
+                continue;
+            }
+            let pair = (link.source_group.clone(), link.dest_group.clone());
+            if !allowed_pairs.contains(&pair) {
+                tracing::info!(
+                    "reconcile_topology_change: removing disallowed link {}↔{} (groups {}↔{})",
+                    link.source_node_id, link.dest_node_id,
+                    link.source_group, link.dest_group,
+                );
+                if let Err(e) = self.0.db.delete_link(link).await {
+                    tracing::error!("reconcile_topology_change: delete_link: {e}");
+                }
+                reconcile_nodes.insert(link.source_node_id.clone());
+                reconcile_nodes.insert(link.dest_node_id.clone());
+            }
+        }
+
+        // Create new links where the topology now allows them.
+        for node in &all_nodes {
+            let node_links: Vec<_> = all_links
+                .iter()
+                .filter(|l| l.source_node_id == node.id || l.dest_node_id == node.id)
+                .cloned()
+                .collect();
+
+            let (affected, _new_links) = self
+                .ensure_links_for_node(
+                    &node.id,
+                    &node_links,
+                    &all_nodes,
+                    &all_links,
+                    &[],
+                    &allowed_pairs,
+                )
+                .await;
+            reconcile_nodes.extend(affected);
+        }
+
+        for nid in &reconcile_nodes {
+            self.0.queue.add(nid.clone());
+        }
+    }
+
+    /// Add a segment. Returns error if already exists.
+    pub async fn add_segment(&self, name: &str) -> Result<(), tonic::Status> {
+        self.ensure_api_mode()?;
+        self.0
+            .db
+            .create_segment(name)
+            .await
+            .map_err(|e| match e {
+                crate::error::Error::AlreadyExists { .. } => {
+                    tonic::Status::already_exists(format!("segment '{name}' already exists"))
+                }
+                _ => tonic::Status::internal(format!("failed to create segment: {e}")),
+            })?;
+        self.load_topology_from_db()
+            .await
+            .map_err(|e| tonic::Status::internal(format!("failed to reload topology: {e}")))?;
+        Ok(())
+    }
+
+    /// Remove a segment by name. Returns error if not found.
+    pub async fn remove_segment(&self, name: &str) -> Result<(), tonic::Status> {
+        self.ensure_api_mode()?;
+        let seg = self
+            .0
+            .db
+            .get_segment_by_name(name)
+            .await
+            .map_err(|e| tonic::Status::internal(format!("failed to query segment: {e}")))?
+            .ok_or_else(|| tonic::Status::not_found(format!("segment '{name}' not found")))?;
+        self.0
+            .db
+            .delete_segment(&seg.id)
+            .await
+            .map_err(|e| tonic::Status::internal(format!("failed to delete segment: {e}")))?;
+        self.load_topology_from_db()
+            .await
+            .map_err(|e| tonic::Status::internal(format!("failed to reload topology: {e}")))?;
+        self.reconcile_topology_change().await;
+        Ok(())
+    }
+
+    /// Add a bidirectional topology link between two groups in a segment.
+    /// The segment must already exist (use `add_segment` first).
+    pub async fn add_topology_link(
+        &self,
+        group_a: &str,
+        group_b: &str,
+        segment: &str,
+    ) -> Result<(), tonic::Status> {
+        self.ensure_api_mode()?;
+        let seg = self
+            .0
+            .db
+            .get_segment_by_name(segment)
+            .await
+            .map_err(|e| tonic::Status::internal(format!("failed to query segment: {e}")))?
+            .ok_or_else(|| {
+                tonic::Status::not_found(format!("segment '{segment}' not found"))
+            })?;
+        // Add link (idempotent — ignore duplicate errors)
+        if let Err(e) = self.0.db.add_link_to_segment(&seg.id, group_a, group_b).await {
+            if !matches!(e, crate::error::Error::AlreadyExists { .. }) {
+                return Err(tonic::Status::internal(format!(
+                    "failed to add link: {e}"
+                )));
+            }
+        }
+        self.load_topology_from_db()
+            .await
+            .map_err(|e| tonic::Status::internal(format!("failed to reload topology: {e}")))?;
+        self.reconcile_topology_change().await;
+        Ok(())
+    }
+
+    /// Remove a bidirectional topology link between two groups in a segment.
+    pub async fn remove_topology_link(
+        &self,
+        group_a: &str,
+        group_b: &str,
+        segment: &str,
+    ) -> Result<(), tonic::Status> {
+        self.ensure_api_mode()?;
+        let seg = self
+            .0
+            .db
+            .get_segment_by_name(segment)
+            .await
+            .map_err(|e| tonic::Status::internal(format!("failed to query segment: {e}")))?
+            .ok_or_else(|| {
+                tonic::Status::not_found(format!("segment '{segment}' not found"))
+            })?;
+        self.0
+            .db
+            .delete_link_from_segment(&seg.id, group_a, group_b)
+            .await
+            .map_err(|e| tonic::Status::internal(format!("failed to remove link: {e}")))?;
+        self.load_topology_from_db()
+            .await
+            .map_err(|e| tonic::Status::internal(format!("failed to reload topology: {e}")))?;
+        self.reconcile_topology_change().await;
+        Ok(())
+    }
+
     /// Stop the reconciler workers and wait for any in-flight reconciliations
     /// to finish before returning.
     pub async fn shutdown(&self) {
@@ -271,5 +445,121 @@ pub(crate) mod test_utils {
                 neighbors: vec!["platform".to_string()],
             },
         ])
+    }
+}
+
+#[cfg(test)]
+mod topology_mutation_tests {
+    use super::test_utils::make_route_service_with_topology;
+    use crate::config::TopologyConfig;
+    use crate::db::inmemory::InMemoryDb;
+
+    fn api_managed_service() -> super::RouteService {
+        let db = InMemoryDb::shared();
+        make_route_service_with_topology(db, TopologyConfig::ApiManaged)
+    }
+
+    fn config_managed_service() -> super::RouteService {
+        let db = InMemoryDb::shared();
+        make_route_service_with_topology(db, super::test_utils::star_topology())
+    }
+
+    #[tokio::test]
+    async fn add_segment_succeeds() {
+        let svc = api_managed_service();
+        svc.add_segment("prod").await.unwrap();
+        let segments = svc.list_segments().await;
+        assert!(segments.iter().any(|(name, _, _)| name == "prod"));
+    }
+
+    #[tokio::test]
+    async fn add_segment_rejects_in_config_mode() {
+        let svc = config_managed_service();
+        let err = svc.add_segment("prod").await.unwrap_err();
+        assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+    }
+
+    #[tokio::test]
+    async fn add_segment_duplicate_returns_already_exists() {
+        let svc = api_managed_service();
+        svc.add_segment("prod").await.unwrap();
+        let err = svc.add_segment("prod").await.unwrap_err();
+        assert_eq!(err.code(), tonic::Code::AlreadyExists);
+    }
+
+    #[tokio::test]
+    async fn remove_segment_succeeds() {
+        let svc = api_managed_service();
+        svc.add_segment("prod").await.unwrap();
+        svc.remove_segment("prod").await.unwrap();
+        let segments = svc.list_segments().await;
+        assert!(!segments.iter().any(|(name, _, _)| name == "prod"));
+    }
+
+    #[tokio::test]
+    async fn remove_segment_not_found() {
+        let svc = api_managed_service();
+        let err = svc.remove_segment("nonexistent").await.unwrap_err();
+        assert_eq!(err.code(), tonic::Code::NotFound);
+    }
+
+    #[tokio::test]
+    async fn add_topology_link_succeeds() {
+        let svc = api_managed_service();
+        svc.add_segment("prod").await.unwrap();
+        svc.add_topology_link("cloud", "customer-a", "prod")
+            .await
+            .unwrap();
+        let segments = svc.list_segments().await;
+        let prod = segments.iter().find(|(name, _, _)| name == "prod").unwrap();
+        assert!(prod.2.contains(&("cloud".to_string(), "customer-a".to_string())));
+    }
+
+    #[tokio::test]
+    async fn add_topology_link_segment_not_found() {
+        let svc = api_managed_service();
+        let err = svc
+            .add_topology_link("cloud", "customer-a", "nonexistent")
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), tonic::Code::NotFound);
+    }
+
+    #[tokio::test]
+    async fn add_topology_link_idempotent() {
+        let svc = api_managed_service();
+        svc.add_segment("prod").await.unwrap();
+        svc.add_topology_link("cloud", "customer-a", "prod")
+            .await
+            .unwrap();
+        // Second add should not error
+        svc.add_topology_link("cloud", "customer-a", "prod")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn remove_topology_link_succeeds() {
+        let svc = api_managed_service();
+        svc.add_segment("prod").await.unwrap();
+        svc.add_topology_link("cloud", "customer-a", "prod")
+            .await
+            .unwrap();
+        svc.remove_topology_link("cloud", "customer-a", "prod")
+            .await
+            .unwrap();
+        let segments = svc.list_segments().await;
+        let prod = segments.iter().find(|(name, _, _)| name == "prod").unwrap();
+        assert!(prod.2.is_empty());
+    }
+
+    #[tokio::test]
+    async fn remove_topology_link_segment_not_found() {
+        let svc = api_managed_service();
+        let err = svc
+            .remove_topology_link("cloud", "customer-a", "nonexistent")
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), tonic::Code::NotFound);
     }
 }

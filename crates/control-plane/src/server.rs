@@ -37,8 +37,14 @@ impl ControlPlane {
             cfg.topology,
         );
 
-        // In API mode, load segment graphs from DB (config mode builds them lazily).
+        // In API mode, ensure "default" segment exists, then load segment graphs from DB.
         if route_service.ensure_api_mode().is_ok() {
+            // Create "default" segment if it doesn't already exist.
+            if db.get_segment_by_name("default").await?.is_none() {
+                db.create_segment("default")
+                    .await
+                    .context("failed to create default segment")?;
+            }
             route_service
                 .load_topology_from_db()
                 .await

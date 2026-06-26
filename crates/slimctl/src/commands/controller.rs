@@ -8,7 +8,8 @@ use tokio_stream::StreamExt;
 use crate::client::get_control_plane_client;
 use crate::proto::controller::proto::v1::{ConnectionDirection, ConnectionType};
 use crate::proto::controlplane::proto::v1::{
-    LinkEntry, LinkListRequest, LinkStatus, Node, NodeListRequest, NodeStatus, RouteEntry,
+    AddSegmentRequest, AddTopologyLinkRequest, LinkEntry, LinkListRequest, LinkStatus, Node,
+    NodeListRequest, NodeStatus, RemoveSegmentRequest, RemoveTopologyLinkRequest, RouteEntry,
     RouteListRequest, RouteStatus, SegmentListRequest,
 };
 use crate::rpc;
@@ -123,6 +124,27 @@ pub enum ControllerLinkCommand {
         #[arg(short = 'a', long, default_value_t = false)]
         all: bool,
     },
+    /// Add a topology link between two groups (API-managed mode only)
+    Add {
+        /// First group name
+        group_a: String,
+        /// Second group name
+        group_b: String,
+        /// Segment name (defaults to "default")
+        #[arg(short, long, default_value = "default")]
+        segment: String,
+    },
+    /// Remove a topology link between two groups (API-managed mode only)
+    #[command(visible_alias = "rm")]
+    Remove {
+        /// First group name
+        group_a: String,
+        /// Second group name
+        group_b: String,
+        /// Segment name (defaults to "default")
+        #[arg(short, long, default_value = "default")]
+        segment: String,
+    },
 }
 
 // ── Group ─────────────────────────────────────────────────────────────────────
@@ -153,6 +175,17 @@ pub enum ControllerSegmentCommand {
     /// List all segments (routing domains) and their groups
     #[command(visible_alias = "ls")]
     List,
+    /// Add a new segment (API-managed mode only)
+    Add {
+        /// Segment name
+        name: String,
+    },
+    /// Remove a segment and all its links (API-managed mode only)
+    #[command(visible_alias = "rm")]
+    Remove {
+        /// Segment name
+        name: String,
+    },
 }
 
 // ── Dispatch ──────────────────────────────────────────────────────────────────
@@ -201,6 +234,16 @@ async fn run_link(args: &ControllerLinkArgs, opts: &ClientConfig) -> Result<()> 
             target_node_id,
             all,
         } => link_outline(origin_node_id, target_node_id, *all, opts).await,
+        ControllerLinkCommand::Add {
+            group_a,
+            group_b,
+            segment,
+        } => link_add(group_a, group_b, segment, opts).await,
+        ControllerLinkCommand::Remove {
+            group_a,
+            group_b,
+            segment,
+        } => link_remove(group_a, group_b, segment, opts).await,
     }
 }
 
@@ -213,6 +256,8 @@ async fn run_group(args: &ControllerGroupArgs, opts: &ClientConfig) -> Result<()
 async fn run_segment(args: &ControllerSegmentArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
         ControllerSegmentCommand::List => segment_list(opts).await,
+        ControllerSegmentCommand::Add { name } => segment_add(name, opts).await,
+        ControllerSegmentCommand::Remove { name } => segment_remove(name, opts).await,
     }
 }
 
@@ -728,6 +773,58 @@ async fn segment_list(opts: &ClientConfig) -> Result<()> {
     Ok(())
 }
 
+async fn segment_add(name: &str, opts: &ClientConfig) -> Result<()> {
+    let mut client = get_control_plane_client(opts).await?;
+    rpc!(client, add_segment, AddSegmentRequest { name: name.to_string() });
+    println!("Segment '{}' added", name);
+    Ok(())
+}
+
+async fn segment_remove(name: &str, opts: &ClientConfig) -> Result<()> {
+    let mut client = get_control_plane_client(opts).await?;
+    rpc!(client, remove_segment, RemoveSegmentRequest { name: name.to_string() });
+    println!("Segment '{}' removed", name);
+    Ok(())
+}
+
+async fn link_add(group_a: &str, group_b: &str, segment: &str, opts: &ClientConfig) -> Result<()> {
+    let mut client = get_control_plane_client(opts).await?;
+    rpc!(
+        client,
+        add_topology_link,
+        AddTopologyLinkRequest {
+            group_a: group_a.to_string(),
+            group_b: group_b.to_string(),
+            segment: segment.to_string(),
+        }
+    );
+    if segment == "default" {
+        println!("Link {}↔{} added", group_a, group_b);
+    } else {
+        println!("Link {}↔{} added in segment '{}'", group_a, group_b, segment);
+    }
+    Ok(())
+}
+
+async fn link_remove(group_a: &str, group_b: &str, segment: &str, opts: &ClientConfig) -> Result<()> {
+    let mut client = get_control_plane_client(opts).await?;
+    rpc!(
+        client,
+        remove_topology_link,
+        RemoveTopologyLinkRequest {
+            group_a: group_a.to_string(),
+            group_b: group_b.to_string(),
+            segment: segment.to_string(),
+        }
+    );
+    if segment == "default" {
+        println!("Link {}↔{} removed", group_a, group_b);
+    } else {
+        println!("Link {}↔{} removed from segment '{}'", group_a, group_b, segment);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -935,8 +1032,11 @@ mod tests {
 
         use crate::proto::controller::proto::v1::{ConnectionListResponse, RouteListResponse};
         use crate::proto::controlplane::proto::v1::{
-            LinkEntry, LinkListRequest, Node as CpNode, NodeEntry, NodeListRequest, RouteEntry,
-            RouteListRequest, SegmentListRequest, SegmentListResponse,
+            AddSegmentRequest, AddSegmentResponse, AddTopologyLinkRequest,
+            AddTopologyLinkResponse, LinkEntry, LinkListRequest, Node as CpNode, NodeEntry,
+            NodeListRequest, RemoveSegmentRequest, RemoveSegmentResponse,
+            RemoveTopologyLinkRequest, RemoveTopologyLinkResponse, RouteEntry, RouteListRequest,
+            SegmentListRequest, SegmentListResponse,
             control_plane_service_server::{ControlPlaneService, ControlPlaneServiceServer},
         };
         use slim_config::grpc::client::ClientConfig;
@@ -1013,6 +1113,34 @@ mod tests {
                 Ok(tonic::Response::new(SegmentListResponse {
                     segments: vec![],
                 }))
+            }
+
+            async fn add_segment(
+                &self,
+                _req: tonic::Request<AddSegmentRequest>,
+            ) -> Result<tonic::Response<AddSegmentResponse>, tonic::Status> {
+                Ok(tonic::Response::new(AddSegmentResponse {}))
+            }
+
+            async fn remove_segment(
+                &self,
+                _req: tonic::Request<RemoveSegmentRequest>,
+            ) -> Result<tonic::Response<RemoveSegmentResponse>, tonic::Status> {
+                Ok(tonic::Response::new(RemoveSegmentResponse {}))
+            }
+
+            async fn add_topology_link(
+                &self,
+                _req: tonic::Request<AddTopologyLinkRequest>,
+            ) -> Result<tonic::Response<AddTopologyLinkResponse>, tonic::Status> {
+                Ok(tonic::Response::new(AddTopologyLinkResponse {}))
+            }
+
+            async fn remove_topology_link(
+                &self,
+                _req: tonic::Request<RemoveTopologyLinkRequest>,
+            ) -> Result<tonic::Response<RemoveTopologyLinkResponse>, tonic::Status> {
+                Ok(tonic::Response::new(RemoveTopologyLinkResponse {}))
             }
         }
 
@@ -1128,6 +1256,34 @@ mod tests {
                 &self,
                 _: tonic::Request<SegmentListRequest>,
             ) -> Result<tonic::Response<SegmentListResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+
+            async fn add_segment(
+                &self,
+                _: tonic::Request<AddSegmentRequest>,
+            ) -> Result<tonic::Response<AddSegmentResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+
+            async fn remove_segment(
+                &self,
+                _: tonic::Request<RemoveSegmentRequest>,
+            ) -> Result<tonic::Response<RemoveSegmentResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+
+            async fn add_topology_link(
+                &self,
+                _: tonic::Request<AddTopologyLinkRequest>,
+            ) -> Result<tonic::Response<AddTopologyLinkResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+
+            async fn remove_topology_link(
+                &self,
+                _: tonic::Request<RemoveTopologyLinkRequest>,
+            ) -> Result<tonic::Response<RemoveTopologyLinkResponse>, tonic::Status> {
                 Err(tonic::Status::internal("error"))
             }
         }

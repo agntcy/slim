@@ -1033,9 +1033,20 @@ impl DataAccess for SqliteDb {
             .values(segment.clone())
             .execute(&mut conn)
             .await
-            .map_err(|e| Error::DbError {
-                context: "create_segment",
-                msg: e.to_string(),
+            .map_err(|e| {
+                if matches!(e, diesel::result::Error::DatabaseError(
+                    diesel::result::DatabaseErrorKind::UniqueViolation, _
+                )) {
+                    Error::AlreadyExists {
+                        entity: "segment",
+                        name: name.to_string(),
+                    }
+                } else {
+                    Error::DbError {
+                        context: "create_segment",
+                        msg: e.to_string(),
+                    }
+                }
             })?;
         Ok(segment)
     }
