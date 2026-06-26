@@ -96,6 +96,8 @@ pub struct SlimHeader {
     pub error: ::core::option::Option<bool>,
     #[prost(bytes = "vec", optional, tag = "11")]
     pub header_mac: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(bytes = "vec", optional, tag = "12")]
+    pub e2e_header_sig: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SessionHeader {

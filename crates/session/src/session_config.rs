@@ -10,6 +10,9 @@ use crate::{SessionError, timer_factory::TimerSettings};
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct MlsSettings {
     pub header_integrity_validation_percent: u32,
+
+    /// max size of stored control message_ids in replay cache per identity
+    pub max_seen_control_message_ids_size: Option<usize>,
 }
 
 #[derive(Default, Clone, Debug, PartialEq)]
@@ -46,6 +49,7 @@ impl SessionConfig {
                 .unwrap_or(100);
             Some(MlsSettings {
                 header_integrity_validation_percent,
+                max_seen_control_message_ids_size: None,
             })
         } else {
             None

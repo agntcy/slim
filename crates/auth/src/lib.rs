@@ -8,6 +8,7 @@ pub(crate) mod mac;
 pub mod metadata;
 pub mod shared_secret;
 pub mod traits;
+pub mod utils;
 
 // Native-only modules
 cfg_if::cfg_if! {
@@ -21,5 +22,4 @@ pub mod oidc;
 pub mod resolver;
 #[cfg(not(target_family = "windows"))]
 pub mod spire;
-pub mod utils;
 }}

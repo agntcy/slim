@@ -79,6 +79,7 @@ mod tests {
             error: None,
             header_mac: None,
             ttl: DEFAULT_TTL,
+            e2e_header_sig: None,
         };
         a.sign_slim_header(&mut h, &lid).unwrap();
         b.verify_slim_header(&h, &lid).unwrap();

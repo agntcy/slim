@@ -51,9 +51,9 @@ COPY . /app
 WORKDIR /app
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,target=/app/target,sharing=locked \
-    <<EOF
+  --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+  --mount=type=cache,target=/app/target,sharing=locked \
+  <<EOF
 case ${TARGETARCH} in
     "amd64")
         RUSTARCH=x86_64-unknown-linux-gnu
