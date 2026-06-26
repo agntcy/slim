@@ -33,6 +33,7 @@ impl ControlPlane {
         }
 
         let cmd_handler = DefaultNodeCommandHandler::new();
+        let is_api_managed = cfg.topology.is_api_managed();
         let route_service = RouteService::new(
             db.clone(),
             cmd_handler.clone(),
@@ -41,7 +42,7 @@ impl ControlPlane {
         );
 
         // In API mode, ensure "default" segment exists, then load segment graphs from DB.
-        if route_service.ensure_api_mode().is_ok() {
+        if is_api_managed {
             if db.get_segment_by_name(DEFAULT_SEGMENT).await?.is_none() {
                 db.create_segment(DEFAULT_SEGMENT)
                     .await

@@ -1664,9 +1664,11 @@ async fn test_segmented_star_isolates_spokes() {
 ///
 /// Scenario:
 ///   - Start CP in API-managed mode (no topology config).
-///   - Start two nodes in different groups.
-///   - Add a segment + link via gRPC API → nodes form an Applied link.
-///   - Remove the link → link is torn down.
+///   - Pre-configure segment + link before nodes exist (returns warnings).
+///   - Start two nodes in different groups → link becomes Applied.
+///   - Verify idempotent add_topology_link (SQLite ON CONFLICT DO NOTHING).
+///   - Remove the link → link is torn down, route cleaned up.
+///   - Re-add link → route restored.
 ///   - Remove the segment → segment disappears from list.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_api_mode_topology_lifecycle() {
@@ -1675,6 +1677,40 @@ async fn test_api_mode_topology_lifecycle() {
     let cp = start_control_plane(TopologyConfig::ApiManaged).await;
     let mut client = create_nb_client(cp.northbound_port).await;
 
+    // Pre-configure topology BEFORE nodes register.
+    client
+        .add_segment(AddSegmentRequest {
+            name: "test-seg".to_string(),
+        })
+        .await
+        .expect("add_segment failed");
+
+    let resp = client
+        .add_topology_link(AddTopologyLinkRequest {
+            group_a: "group-a".to_string(),
+            group_b: "group-b".to_string(),
+            segment: "test-seg".to_string(),
+        })
+        .await
+        .expect("add_topology_link before nodes should succeed")
+        .into_inner();
+    // Should have warnings about missing groups.
+    assert!(
+        !resp.warnings.is_empty(),
+        "expected warnings about missing groups, got none"
+    );
+
+    // Verify idempotency: adding the same link again should succeed.
+    client
+        .add_topology_link(AddTopologyLinkRequest {
+            group_a: "group-a".to_string(),
+            group_b: "group-b".to_string(),
+            segment: "test-seg".to_string(),
+        })
+        .await
+        .expect("add_topology_link should be idempotent");
+
+    // Now start nodes — link should become Applied via reconciliation.
     let a_port = reserve_port();
     let b_port = reserve_port();
 
@@ -1685,34 +1721,6 @@ async fn test_api_mode_topology_lifecycle() {
     let id_b = grouped_node_id("group-b", "node-b");
 
     wait_for_nodes_connected(&mut client, &[&id_a, &id_b], SHORT_TIMEOUT).await;
-
-    // Initially no links (API-managed mode with empty topology).
-    let links = collect_links(&mut client, "", "").await;
-    let applied: Vec<_> = links
-        .iter()
-        .filter(|l| l.status == LINK_APPLIED && !l.deleted)
-        .collect();
-    assert!(
-        applied.is_empty(),
-        "expected no links initially in API mode"
-    );
-
-    // Add segment and link via API.
-    client
-        .add_segment(AddSegmentRequest {
-            name: "test-seg".to_string(),
-        })
-        .await
-        .expect("add_segment failed");
-
-    client
-        .add_topology_link(AddTopologyLinkRequest {
-            group_a: "group-a".to_string(),
-            group_b: "group-b".to_string(),
-            segment: "test-seg".to_string(),
-        })
-        .await
-        .expect("add_topology_link failed");
 
     // Wait for link to be created and reach Applied status.
     wait_for_link_between_groups(&mut client, "group-a", "group-b", DEFAULT_TIMEOUT).await;
