@@ -51,10 +51,6 @@ pub enum Error {
     #[error("db error in {context}: {msg}")]
     DbError { context: &'static str, msg: String },
 
-    /// An entity already exists (e.g. duplicate segment name).
-    #[error("{entity} '{name}' already exists")]
-    AlreadyExists { entity: &'static str, name: String },
-
     // ── route ─────────────────────────────────────────────────────────────────
     #[error("source node ID cannot be empty")]
     EmptySourceNodeId,

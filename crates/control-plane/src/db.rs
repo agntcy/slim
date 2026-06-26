@@ -138,9 +138,6 @@ pub trait DataAccess: Send + Sync {
     async fn delete_segment(&self, id: &str) -> Result<()>;
     async fn get_segment_by_name(&self, name: &str) -> Result<Option<TopologySegment>>;
     async fn list_topology_segments(&self) -> Result<Vec<TopologySegment>>;
-    async fn add_group_to_segment(&self, segment_id: &str, group_name: &str) -> Result<()>;
-    async fn remove_group_from_segment(&self, segment_id: &str, group_name: &str) -> Result<()>;
-    async fn get_groups_for_segment(&self, segment_id: &str) -> Result<Vec<String>>;
     async fn add_link_to_segment(
         &self,
         segment_id: &str,

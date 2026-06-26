@@ -11,7 +11,7 @@ use async_trait::async_trait;
 
 use super::model::{
     ALL_NODES_ID, Link, LinkStatus, Node, Route, RouteName, RouteStatus, TopologySegment,
-    TopologySegmentGroup, TopologySegmentLink, has_connection_details_changed,
+    TopologySegmentLink, has_connection_details_changed,
 };
 use super::{DataAccess, SharedDb};
 use crate::error::{Error, Result};
@@ -149,7 +149,6 @@ pub struct InMemoryDb {
     routes: RwLock<RouteStore>,
     links: RwLock<LinkStore>,
     topology_segments: RwLock<HashMap<String, TopologySegment>>,
-    topology_segment_groups: RwLock<Vec<TopologySegmentGroup>>,
     topology_segment_links: RwLock<Vec<TopologySegmentLink>>,
 }
 
@@ -160,7 +159,6 @@ impl InMemoryDb {
             routes: RwLock::new(RouteStore::new()),
             links: RwLock::new(LinkStore::new()),
             topology_segments: RwLock::new(HashMap::new()),
-            topology_segment_groups: RwLock::new(Vec::new()),
             topology_segment_links: RwLock::new(Vec::new()),
         }
     }
@@ -846,11 +844,8 @@ impl DataAccess for InMemoryDb {
 
     async fn create_segment(&self, name: &str) -> Result<TopologySegment> {
         let mut segments = self.topology_segments.write();
-        if segments.values().any(|segment| segment.name == name) {
-            return Err(Error::AlreadyExists {
-                entity: "segment",
-                name: name.to_string(),
-            });
+        if let Some(existing) = segments.values().find(|s| s.name == name) {
+            return Ok(existing.clone());
         }
 
         let segment = TopologySegment {
@@ -864,9 +859,6 @@ impl DataAccess for InMemoryDb {
 
     async fn delete_segment(&self, id: &str) -> Result<()> {
         self.topology_segments.write().remove(id);
-        self.topology_segment_groups
-            .write()
-            .retain(|group| group.segment_id != id);
         self.topology_segment_links
             .write()
             .retain(|link| link.segment_id != id);
@@ -884,37 +876,6 @@ impl DataAccess for InMemoryDb {
 
     async fn list_topology_segments(&self) -> Result<Vec<TopologySegment>> {
         Ok(self.topology_segments.read().values().cloned().collect())
-    }
-
-    async fn add_group_to_segment(&self, segment_id: &str, group_name: &str) -> Result<()> {
-        let mut groups = self.topology_segment_groups.write();
-        if !groups
-            .iter()
-            .any(|group| group.segment_id == segment_id && group.group_name == group_name)
-        {
-            groups.push(TopologySegmentGroup {
-                segment_id: segment_id.to_string(),
-                group_name: group_name.to_string(),
-            });
-        }
-        Ok(())
-    }
-
-    async fn remove_group_from_segment(&self, segment_id: &str, group_name: &str) -> Result<()> {
-        self.topology_segment_groups
-            .write()
-            .retain(|group| !(group.segment_id == segment_id && group.group_name == group_name));
-        Ok(())
-    }
-
-    async fn get_groups_for_segment(&self, segment_id: &str) -> Result<Vec<String>> {
-        Ok(self
-            .topology_segment_groups
-            .read()
-            .iter()
-            .filter(|group| group.segment_id == segment_id)
-            .map(|group| group.group_name.clone())
-            .collect())
     }
 
     async fn add_link_to_segment(
@@ -964,7 +925,6 @@ impl DataAccess for InMemoryDb {
 
     async fn clear_topology(&self) -> Result<()> {
         self.topology_segment_links.write().clear();
-        self.topology_segment_groups.write().clear();
         self.topology_segments.write().clear();
         Ok(())
     }
@@ -1510,7 +1470,6 @@ mod tests {
     async fn delete_segment_cascades() {
         let db = db();
         let seg = db.create_segment("seg-1").await.unwrap();
-        db.add_group_to_segment(&seg.id, "group-a").await.unwrap();
         db.add_link_to_segment(&seg.id, "group-a", "group-b")
             .await
             .unwrap();
@@ -1518,29 +1477,7 @@ mod tests {
         db.delete_segment(&seg.id).await.unwrap();
 
         assert!(db.list_topology_segments().await.unwrap().is_empty());
-        assert!(db.get_groups_for_segment(&seg.id).await.unwrap().is_empty());
         assert!(db.get_links_for_segment(&seg.id).await.unwrap().is_empty());
-    }
-
-    #[tokio::test]
-    async fn add_and_remove_group_from_segment() {
-        let db = db();
-        let seg = db.create_segment("seg-1").await.unwrap();
-
-        db.add_group_to_segment(&seg.id, "group-a").await.unwrap();
-        db.add_group_to_segment(&seg.id, "group-b").await.unwrap();
-
-        let groups = db.get_groups_for_segment(&seg.id).await.unwrap();
-        assert_eq!(groups.len(), 2);
-        assert!(groups.contains(&"group-a".to_string()));
-        assert!(groups.contains(&"group-b".to_string()));
-
-        db.remove_group_from_segment(&seg.id, "group-a")
-            .await
-            .unwrap();
-        let groups = db.get_groups_for_segment(&seg.id).await.unwrap();
-        assert_eq!(groups.len(), 1);
-        assert_eq!(groups[0], "group-b");
     }
 
     #[tokio::test]
@@ -1571,7 +1508,6 @@ mod tests {
         let db = db();
         let seg1 = db.create_segment("seg-1").await.unwrap();
         let seg2 = db.create_segment("seg-2").await.unwrap();
-        db.add_group_to_segment(&seg1.id, "group-a").await.unwrap();
         db.add_link_to_segment(&seg2.id, "group-x", "group-y")
             .await
             .unwrap();
@@ -1579,12 +1515,7 @@ mod tests {
         db.clear_topology().await.unwrap();
 
         assert!(db.list_topology_segments().await.unwrap().is_empty());
-        assert!(
-            db.get_groups_for_segment(&seg1.id)
-                .await
-                .unwrap()
-                .is_empty()
-        );
+        assert!(db.get_links_for_segment(&seg1.id).await.unwrap().is_empty());
         assert!(db.get_links_for_segment(&seg2.id).await.unwrap().is_empty());
     }
 }

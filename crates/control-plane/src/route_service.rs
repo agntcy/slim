@@ -302,15 +302,14 @@ impl RouteService {
         }
     }
 
-    /// Add a segment. Returns error if already exists.
+    /// Add a segment (idempotent — succeeds silently if it already exists).
     pub async fn add_segment(&self, name: &str) -> Result<(), tonic::Status> {
         self.ensure_api_mode()?;
-        self.0.db.create_segment(name).await.map_err(|e| match e {
-            crate::error::Error::AlreadyExists { .. } => {
-                tonic::Status::already_exists(format!("segment '{name}' already exists"))
-            }
-            _ => tonic::Status::internal(format!("failed to create segment: {e}")),
-        })?;
+        self.0
+            .db
+            .create_segment(name)
+            .await
+            .map_err(|e| tonic::Status::internal(format!("failed to create segment: {e}")))?;
         self.load_topology_from_db()
             .await
             .map_err(|e| tonic::Status::internal(format!("failed to reload topology: {e}")))?;
@@ -590,11 +589,11 @@ mod topology_mutation_tests {
     }
 
     #[tokio::test]
-    async fn add_segment_duplicate_returns_already_exists() {
+    async fn add_segment_idempotent() {
         let svc = api_managed_service();
         svc.add_segment("prod").await.unwrap();
-        let err = svc.add_segment("prod").await.unwrap_err();
-        assert_eq!(err.code(), tonic::Code::AlreadyExists);
+        // Second add should succeed silently
+        svc.add_segment("prod").await.unwrap();
     }
 
     #[tokio::test]

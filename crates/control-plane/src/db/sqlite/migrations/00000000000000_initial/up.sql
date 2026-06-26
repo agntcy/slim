@@ -95,12 +95,6 @@ CREATE TABLE IF NOT EXISTS topology_segments (
     created_at BIGINT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS topology_segment_groups (
-    segment_id TEXT NOT NULL REFERENCES topology_segments(id) ON DELETE CASCADE,
-    group_name TEXT NOT NULL,
-    PRIMARY KEY (segment_id, group_name)
-);
-
 CREATE TABLE IF NOT EXISTS topology_segment_links (
     segment_id TEXT NOT NULL REFERENCES topology_segments(id) ON DELETE CASCADE,
     source_group TEXT NOT NULL,

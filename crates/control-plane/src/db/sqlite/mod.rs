@@ -22,11 +22,11 @@ use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 
 use super::model::{
     ALL_NODES_ID, ConnDetailsJson, DbClientConfig, DbTimestamp, JsonStrings, Link, LinkStatus,
-    Node, Route, RouteName, RouteStatus, TopologySegment, TopologySegmentGroup,
+    Node, Route, RouteName, RouteStatus, TopologySegment,
     TopologySegmentLink, has_connection_details_changed,
 };
 use super::schema::{
-    links, nodes, routes, topology_segment_groups, topology_segment_links, topology_segments,
+    links, nodes, routes, topology_segment_links, topology_segments,
 };
 use super::{DataAccess, SharedDb};
 use crate::error::{Error, Result};
@@ -1020,6 +1020,10 @@ impl DataAccess for SqliteDb {
     // ── Topology (API-managed mode) ───────────────────────────────────────
 
     async fn create_segment(&self, name: &str) -> Result<TopologySegment> {
+        // Return existing segment if it already exists (idempotent).
+        if let Some(existing) = self.get_segment_by_name(name).await? {
+            return Ok(existing);
+        }
         let segment = TopologySegment {
             id: uuid::Uuid::new_v4().to_string(),
             name: name.to_string(),
@@ -1031,26 +1035,12 @@ impl DataAccess for SqliteDb {
         })?;
         diesel::insert_into(topology_segments::table)
             .values(segment.clone())
+            .on_conflict_do_nothing()
             .execute(&mut conn)
             .await
-            .map_err(|e| {
-                if matches!(
-                    e,
-                    diesel::result::Error::DatabaseError(
-                        diesel::result::DatabaseErrorKind::UniqueViolation,
-                        _
-                    )
-                ) {
-                    Error::AlreadyExists {
-                        entity: "segment",
-                        name: name.to_string(),
-                    }
-                } else {
-                    Error::DbError {
-                        context: "create_segment",
-                        msg: e.to_string(),
-                    }
-                }
+            .map_err(|e| Error::DbError {
+                context: "create_segment",
+                msg: e.to_string(),
             })?;
         Ok(segment)
     }
@@ -1096,61 +1086,6 @@ impl DataAccess for SqliteDb {
             .await
             .map_err(|e| Error::DbError {
                 context: "list_topology_segments",
-                msg: e.to_string(),
-            })
-    }
-
-    async fn add_group_to_segment(&self, segment_id: &str, group_name: &str) -> Result<()> {
-        let group = TopologySegmentGroup {
-            segment_id: segment_id.to_string(),
-            group_name: group_name.to_string(),
-        };
-        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
-            context: "add_group_to_segment pool",
-            msg: e.to_string(),
-        })?;
-        diesel::insert_into(topology_segment_groups::table)
-            .values(group)
-            .execute(&mut conn)
-            .await
-            .map_err(|e| Error::DbError {
-                context: "add_group_to_segment",
-                msg: e.to_string(),
-            })?;
-        Ok(())
-    }
-
-    async fn remove_group_from_segment(&self, segment_id: &str, group_name: &str) -> Result<()> {
-        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
-            context: "remove_group_from_segment pool",
-            msg: e.to_string(),
-        })?;
-        diesel::delete(
-            topology_segment_groups::table
-                .filter(topology_segment_groups::segment_id.eq(segment_id))
-                .filter(topology_segment_groups::group_name.eq(group_name)),
-        )
-        .execute(&mut conn)
-        .await
-        .map_err(|e| Error::DbError {
-            context: "remove_group_from_segment",
-            msg: e.to_string(),
-        })?;
-        Ok(())
-    }
-
-    async fn get_groups_for_segment(&self, segment_id: &str) -> Result<Vec<String>> {
-        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
-            context: "get_groups_for_segment pool",
-            msg: e.to_string(),
-        })?;
-        topology_segment_groups::table
-            .filter(topology_segment_groups::segment_id.eq(segment_id))
-            .select(topology_segment_groups::group_name)
-            .load::<String>(&mut conn)
-            .await
-            .map_err(|e| Error::DbError {
-                context: "get_groups_for_segment",
                 msg: e.to_string(),
             })
     }
@@ -1245,13 +1180,6 @@ impl DataAccess for SqliteDb {
             .await
             .map_err(|e| Error::DbError {
                 context: "clear_topology links",
-                msg: e.to_string(),
-            })?;
-        diesel::delete(topology_segment_groups::table)
-            .execute(&mut conn)
-            .await
-            .map_err(|e| Error::DbError {
-                context: "clear_topology groups",
                 msg: e.to_string(),
             })?;
         diesel::delete(topology_segments::table)
@@ -1674,7 +1602,6 @@ mod tests {
     async fn topology_delete_segment_cascades() {
         let (_f, db) = tmp_db().await;
         let seg = db.create_segment("seg-1").await.unwrap();
-        db.add_group_to_segment(&seg.id, "group-a").await.unwrap();
         db.add_link_to_segment(&seg.id, "group-a", "group-b")
             .await
             .unwrap();
@@ -1682,29 +1609,7 @@ mod tests {
         db.delete_segment(&seg.id).await.unwrap();
 
         assert!(db.list_topology_segments().await.unwrap().is_empty());
-        assert!(db.get_groups_for_segment(&seg.id).await.unwrap().is_empty());
         assert!(db.get_links_for_segment(&seg.id).await.unwrap().is_empty());
-    }
-
-    #[tokio::test]
-    async fn topology_add_and_remove_group() {
-        let (_f, db) = tmp_db().await;
-        let seg = db.create_segment("seg-1").await.unwrap();
-
-        db.add_group_to_segment(&seg.id, "group-a").await.unwrap();
-        db.add_group_to_segment(&seg.id, "group-b").await.unwrap();
-
-        let groups = db.get_groups_for_segment(&seg.id).await.unwrap();
-        assert_eq!(groups.len(), 2);
-        assert!(groups.contains(&"group-a".to_string()));
-        assert!(groups.contains(&"group-b".to_string()));
-
-        db.remove_group_from_segment(&seg.id, "group-a")
-            .await
-            .unwrap();
-        let groups = db.get_groups_for_segment(&seg.id).await.unwrap();
-        assert_eq!(groups.len(), 1);
-        assert_eq!(groups[0], "group-b");
     }
 
     #[tokio::test]
@@ -1733,9 +1638,8 @@ mod tests {
     #[tokio::test]
     async fn topology_clear_wipes_all() {
         let (_f, db) = tmp_db().await;
-        let seg1 = db.create_segment("seg-1").await.unwrap();
+        let _seg1 = db.create_segment("seg-1").await.unwrap();
         let seg2 = db.create_segment("seg-2").await.unwrap();
-        db.add_group_to_segment(&seg1.id, "group-a").await.unwrap();
         db.add_link_to_segment(&seg2.id, "group-x", "group-y")
             .await
             .unwrap();
@@ -1743,12 +1647,6 @@ mod tests {
         db.clear_topology().await.unwrap();
 
         assert!(db.list_topology_segments().await.unwrap().is_empty());
-        assert!(
-            db.get_groups_for_segment(&seg1.id)
-                .await
-                .unwrap()
-                .is_empty()
-        );
         assert!(db.get_links_for_segment(&seg2.id).await.unwrap().is_empty());
     }
 }
