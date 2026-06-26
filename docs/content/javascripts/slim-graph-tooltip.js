@@ -6,7 +6,10 @@
   const STEP_TOOLTIP_WIDTH = 220;
   const STEP_TOOLTIP_GAP = 8;
   let portalEl = null;
+  let nodeTooltipActive = false;
   let stepTooltipActive = false;
+  let lastNodeTooltip = null;
+  let lastStepAnchorRect = null;
 
   function getIframe() {
     return document.querySelector('.slim-graph-frame');
@@ -33,7 +36,10 @@
       portalEl.hidden = true;
       portalEl.classList.remove('slim-graph-tooltip-portal--step');
     }
+    nodeTooltipActive = false;
     stepTooltipActive = false;
+    lastNodeTooltip = null;
+    lastStepAnchorRect = null;
   }
 
   function positionPortal(iframe, clientX, clientY) {
@@ -65,12 +71,29 @@
     portal.style.top = top + 'px';
   }
 
+  function repositionActivePortal() {
+    const iframe = getIframe();
+    if (!iframe || !portalEl || portalEl.hidden) {
+      return;
+    }
+
+    if (stepTooltipActive && lastStepAnchorRect) {
+      positionStepPortal(iframe, lastStepAnchorRect);
+      return;
+    }
+
+    if (nodeTooltipActive && lastNodeTooltip) {
+      positionPortal(iframe, lastNodeTooltip.x, lastNodeTooltip.y);
+    }
+  }
+
   function setIframeHeight(iframe, height) {
     if (!iframe || !height) {
       return;
     }
     iframe.style.height = Math.max(height, 320) + 'px';
     iframe.dataset.resized = 'true';
+    requestAnimationFrame(repositionActivePortal);
   }
 
   window.addEventListener('message', (event) => {
@@ -95,7 +118,9 @@
 
     if (data.type === 'slim-graph-step-tooltip') {
       if (!data.visible) {
-        if (stepTooltipActive) {
+        stepTooltipActive = false;
+        lastStepAnchorRect = null;
+        if (!nodeTooltipActive) {
           hidePortal();
         }
         return;
@@ -113,9 +138,12 @@
         descEl.innerHTML = data.desc || '';
       }
 
+      nodeTooltipActive = false;
+      lastNodeTooltip = null;
       stepTooltipActive = true;
+      lastStepAnchorRect = data.anchorRect || { left: 0, top: 0, width: 0, height: 0 };
       requestAnimationFrame(() => {
-        positionStepPortal(iframe, data.anchorRect || { left: 0, top: 0, width: 0, height: 0 });
+        positionStepPortal(iframe, lastStepAnchorRect);
       });
       return;
     }
@@ -125,6 +153,8 @@
     }
 
     if (!data.visible) {
+      nodeTooltipActive = false;
+      lastNodeTooltip = null;
       if (!stepTooltipActive) {
         hidePortal();
       }
@@ -132,23 +162,32 @@
     }
 
     stepTooltipActive = false;
+    lastStepAnchorRect = null;
+    nodeTooltipActive = true;
+    lastNodeTooltip = {
+      x: data.x,
+      y: data.y,
+      title: data.title || '',
+      desc: data.desc || ''
+    };
+
     const portal = ensurePortal();
     portal.classList.remove('slim-graph-tooltip-portal--step');
     const titleEl = portal.querySelector('.slim-graph-tooltip-portal__title');
     const descEl = portal.querySelector('.slim-graph-tooltip-portal__desc');
 
     if (titleEl) {
-      titleEl.textContent = data.title || '';
+      titleEl.textContent = lastNodeTooltip.title;
     }
     if (descEl) {
-      descEl.textContent = data.desc || '';
+      descEl.textContent = lastNodeTooltip.desc;
     }
 
-    positionPortal(iframe, data.x, data.y);
+    positionPortal(iframe, lastNodeTooltip.x, lastNodeTooltip.y);
   });
 
-  window.addEventListener('scroll', hidePortal, true);
-  window.addEventListener('resize', hidePortal);
+  window.addEventListener('scroll', repositionActivePortal, true);
+  window.addEventListener('resize', repositionActivePortal);
 
   function bindIframeListeners() {
     const iframe = getIframe();

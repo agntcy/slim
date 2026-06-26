@@ -1,5 +1,5 @@
 const AI_AGENT_DESC =
-  'An AI Agent exposed through A2A (Langchain, CrewAI, ADK) which communicates with other A2A Agents and MCP tools';
+  'Exposed through A2A (LangChain, CrewAI, ADK) and communicates with other A2A agents and MCP tools.';
 
 const SHOW_PROTOCOL_LOG = false;
 
@@ -27,35 +27,35 @@ const AGENT_ROLES = {
 const NODE_METADATA = {
   'node_Agent_A': {
     title: 'CLI/IDE Agent',
-    desc: `Registered as ${AGENT_NAMES.agentA}. Local publisher client — creates channels, sends messages, and receives acknowledgments.`
+    desc: 'A local agent that connects to SLIM to communicate with other agents and MCP tools.'
   },
   'node_Agent_E': {
     title: 'AI Agent A',
-    desc: `Registered as ${AGENT_NAMES.agentE}. Channel subscriber on ${AGENT_NAMES.chat} (local). ` + AI_AGENT_DESC
+    desc: 'A local AI agent connected through the edge data plane. ' + AI_AGENT_DESC
   },
   'node_Agent_B': {
     title: 'AI Agent B',
-    desc: `Registered as ${AGENT_NAMES.agentB}. ` + AI_AGENT_DESC
+    desc: 'A cloud-hosted AI agent connected through the cloud data plane. ' + AI_AGENT_DESC
   },
   'node_Agent_C': {
     title: 'AI Agent C',
-    desc: `Registered as ${AGENT_NAMES.agentC}. Channel subscriber on ${AGENT_NAMES.chat} (cloud). ` + AI_AGENT_DESC
+    desc: 'A cloud-hosted AI agent connected through the cloud data plane. ' + AI_AGENT_DESC
   },
   'node_Agent_D': {
     title: 'AI Agent D',
-    desc: `Registered as ${AGENT_NAMES.agentD}. Channel subscriber on ${AGENT_NAMES.chat} (cloud). ` + AI_AGENT_DESC
+    desc: 'A cloud-hosted AI agent connected through the cloud data plane. ' + AI_AGENT_DESC
   },
   'node_Node1': {
     title: 'SLIM Node 1 (Local Data Plane)',
-    desc: 'A local SLIM Data Plane Node. Establishes an outbound connection to the Cloud data plane.'
+    desc: 'A local SLIM data plane node that establishes an outbound connection to the cloud data plane.'
   },
   'node_Node2': {
     title: 'SLIM Node 2 (Cloud Data Plane)',
-    desc: 'Cloud-hosted SLIM Data plane node. Receives inbound connections from other data plane nodes. Cloud hosted Agents connect here without being publicly exposed.'
+    desc: 'A cloud-hosted SLIM data plane node that receives inbound connections from other data plane nodes. Cloud-hosted agents connect here without being publicly exposed.'
   },
   'node_MCP': {
     title: 'MCP Server (Model Context Protocol)',
-    desc: `Registered as ${AGENT_NAMES.mcp}. Receives tool invocation request payloads routed securely over SLIM and returns the executed search or file data.`
+    desc: 'An on-prem MCP server that receives tool invocation requests routed securely over SLIM and returns executed search or file data.'
   }
 };
 

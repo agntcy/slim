@@ -166,14 +166,14 @@ hide:
       <div class="slimctl-terminal-side">
         <div class="slimctl-terminal-intro-group" id="slimctl-terminal-intros">
           <p class="slimctl-terminal-intro" data-intro-level="node" hidden>
-            Start a local node using the slimctl CLI. For other installation options see
-            <a href="slim/slim-howto.md#slim-node">SLIM Node</a>.
+            Start a local node using the slimctl CLI. For other installation options, see
+            <a href="slim/slim-howto/#slim-node">SLIM Node in the Getting Started guide</a>.
           </p>
           <p class="slimctl-terminal-intro" data-intro-level="message" hidden>
             Use the SLIM language bindings to connect and send messages over SLIM.
             See the <a href="https://github.com/agntcy/slim-bindings">slim-bindings</a>
             repository and the
-            <a href="slim/slim-howto.md#install-the-slim-bindings">installation guide</a>.
+            <a href="slim/slim-howto/#slim-bindings">SLIM Bindings installation in the Getting Started guide</a>.
           </p>
         </div>
         <div class="slimctl-terminal-actions">
