@@ -393,15 +393,11 @@ impl RouteService {
             .map_err(|e| tonic::Status::internal(format!("failed to query segment: {e}")))?
             .ok_or_else(|| tonic::Status::not_found(format!("segment '{segment}' not found")))?;
         // Add link (idempotent — ignore duplicate errors)
-        if let Err(e) = self
-            .0
+        self.0
             .db
             .add_link_to_segment(&seg.id, group_a, group_b)
             .await
-            && !matches!(e, crate::error::Error::AlreadyExists { .. })
-        {
-            return Err(tonic::Status::internal(format!("failed to add link: {e}")));
-        }
+            .map_err(|e| tonic::Status::internal(format!("failed to add link: {e}")))?;
         self.load_topology_from_db()
             .await
             .map_err(|e| tonic::Status::internal(format!("failed to reload topology: {e}")))?;

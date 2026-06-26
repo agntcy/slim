@@ -1172,6 +1172,7 @@ impl DataAccess for SqliteDb {
         })?;
         diesel::insert_into(topology_segment_links::table)
             .values(link)
+            .on_conflict_do_nothing()
             .execute(&mut conn)
             .await
             .map_err(|e| Error::DbError {
