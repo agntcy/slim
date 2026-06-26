@@ -194,8 +194,8 @@ impl RouteService {
 
     /// After a topology mutation (add/remove link), re-evaluate links for all
     /// registered nodes. Creates new links where the topology now allows them,
-    /// deletes links that are no longer allowed, and queues affected nodes for
-    /// reconciliation.
+    /// deletes links and associated routes that are no longer allowed, and queues
+    /// affected nodes for reconciliation.
     async fn reconcile_topology_change(&self) {
         let all_nodes = match self.0.db.list_nodes().await {
             Ok(n) => n,
@@ -217,7 +217,8 @@ impl RouteService {
         let mut reconcile_nodes: std::collections::HashSet<String> =
             std::collections::HashSet::new();
 
-        // Delete links whose group pair is no longer allowed by the topology.
+        // Delete links whose group pair is no longer allowed by the topology,
+        // along with any routes that referenced those links.
         for link in &all_links {
             if link.status == crate::db::LinkStatus::Deleted {
                 continue;
@@ -231,6 +232,15 @@ impl RouteService {
                     link.source_group,
                     link.dest_group,
                 );
+                // Delete routes that depended on this link.
+                if let Ok(routes) = self.0.db.get_routes_by_link_id(&link.link_id).await {
+                    for route in &routes {
+                        if let Err(e) = self.0.db.delete_route(&route.id).await {
+                            tracing::error!("reconcile_topology_change: delete_route: {e}");
+                        }
+                        reconcile_nodes.insert(route.source_node_id.clone());
+                    }
+                }
                 if let Err(e) = self.0.db.delete_link(link).await {
                     tracing::error!("reconcile_topology_change: delete_link: {e}");
                 }
@@ -240,8 +250,14 @@ impl RouteService {
         }
 
         // Create new links where the topology now allows them.
+        // Re-read links from DB since we may have deleted some above.
+        let current_links = self.0.db.list_all_links().await.unwrap_or_else(|e| {
+            tracing::error!("reconcile_topology_change: list_all_links (post-delete): {e}");
+            vec![]
+        });
+
         for node in &all_nodes {
-            let node_links: Vec<_> = all_links
+            let node_links: Vec<_> = current_links
                 .iter()
                 .filter(|l| l.source_node_id == node.id || l.dest_node_id == node.id)
                 .cloned()
@@ -252,13 +268,17 @@ impl RouteService {
                     &node.id,
                     &node_links,
                     &all_nodes,
-                    &all_links,
+                    &current_links,
                     &[],
                     &allowed_pairs,
                 )
                 .await;
             reconcile_nodes.extend(affected);
         }
+
+        // Re-expand wildcard routes to pick up new paths via newly created links.
+        self.expand_all_wildcard_routes(&all_nodes, &current_links)
+            .await;
 
         for nid in &reconcile_nodes {
             self.0.queue.add(nid.clone());

@@ -414,6 +414,29 @@ async fn wait_for_route_deleted(client: &mut NbClient, src: &str, dest: &str, ti
     wait_for_route(client, src, dest, ROUTE_DELETED, timeout).await;
 }
 
+/// Wait until no Applied route exists from src to dest (route may be absent or Deleted).
+async fn wait_for_no_applied_route(
+    client: &mut NbClient,
+    src: &str,
+    dest: &str,
+    timeout: Duration,
+) {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let routes = collect_routes(client, src, dest).await;
+        let has_applied = routes.iter().any(|e| {
+            e.source_node_id == src && e.dest_node_id == dest && e.status == ROUTE_APPLIED
+        });
+        if !has_applied {
+            return;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!("timeout waiting for route {src}->{dest} to be removed");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
 /// Wait until NO routes with the given name are active (all DELETED or absent).
 async fn wait_for_no_active_routes_with_name(
     client: &mut NbClient,
@@ -1694,7 +1717,11 @@ async fn test_api_mode_topology_lifecycle() {
     // Wait for link to be created and reach Applied status.
     wait_for_link_between_groups(&mut client, "group-a", "group-b", DEFAULT_TIMEOUT).await;
 
-    // Remove link via API.
+    // Start a subscribing app on node-a → should create a route from node-b to node-a.
+    let app_a = start_subscribing_app(a_port, "org", "ns", "api-svc").await;
+    wait_for_route_applied(&mut client, &id_b, &id_a, DEFAULT_TIMEOUT).await;
+
+    // Remove link via API → routes through that link should be cleaned up.
     client
         .remove_topology_link(RemoveTopologyLinkRequest {
             group_a: "group-a".to_string(),
@@ -1721,13 +1748,31 @@ async fn test_api_mode_topology_lifecycle() {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 
-    // Remove segment.
+    // Verify the route from node-b to node-a is gone after link removal.
+    wait_for_no_applied_route(&mut client, &id_b, &id_a, DEFAULT_TIMEOUT).await;
+
+    // Re-add the link → route should be re-created via expand_all_wildcard_routes.
+    client
+        .add_topology_link(AddTopologyLinkRequest {
+            group_a: "group-a".to_string(),
+            group_b: "group-b".to_string(),
+            segment: "test-seg".to_string(),
+        })
+        .await
+        .expect("re-add topology link failed");
+
+    wait_for_link_between_groups(&mut client, "group-a", "group-b", DEFAULT_TIMEOUT).await;
+    wait_for_route_applied(&mut client, &id_b, &id_a, DEFAULT_TIMEOUT).await;
+
+    // Remove segment (cascades link deletion) → route should be cleaned up again.
     client
         .remove_segment(RemoveSegmentRequest {
             name: "test-seg".to_string(),
         })
         .await
         .expect("remove_segment failed");
+
+    wait_for_no_applied_route(&mut client, &id_b, &id_a, DEFAULT_TIMEOUT).await;
 
     // Verify segment is gone.
     let resp = client
@@ -1740,6 +1785,7 @@ async fn test_api_mode_topology_lifecycle() {
         "segment should have been removed"
     );
 
+    app_a.shutdown().await.ok();
     node_a.shutdown().await.ok();
     node_b.shutdown().await.ok();
     stop_control_plane(cp).await;
