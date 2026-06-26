@@ -277,36 +277,36 @@ where
             }
         }
     }
+}
 
-    /// Builds the Authenticated Data (AAD) for header integrity checks
-    fn build_aad(&self, msg: &Message) -> Vec<u8> {
-        let slim_header = msg.get_slim_header();
-        let session_header = msg.get_session_header();
+/// Builds the Authenticated Data (AAD) for header integrity checks
+pub(crate) fn build_aad(msg: &Message) -> Vec<u8> {
+    let slim_header = msg.get_slim_header();
+    let session_header = msg.get_session_header();
 
-        let payload_type = if let Some(payload) = msg.get_payload() {
-            if let Ok(app_payload) = payload.as_application_payload() {
-                app_payload.payload_type.clone()
-            } else {
-                String::new()
-            }
+    let payload_type = if let Some(payload) = msg.get_payload() {
+        if let Ok(app_payload) = payload.as_application_payload() {
+            app_payload.payload_type.clone()
         } else {
             String::new()
-        };
+        }
+    } else {
+        String::new()
+    };
 
-        let aad = HeaderIntegrityAad {
-            version: 1,
-            source: Some(slim_header.get_source().clone()),
-            destination: Some(slim_header.get_dst().clone()),
-            identity: slim_header.get_identity().to_string(),
-            session_type: session_header.session_type() as i32,
-            session_message_type: session_header.session_message_type() as i32,
-            session_id: session_header.get_session_id(),
-            message_id: session_header.get_message_id(),
-            payload_type,
-        };
+    let aad = HeaderIntegrityAad {
+        version: 1,
+        source: Some(slim_header.get_source().clone()),
+        destination: Some(slim_header.get_dst().clone()),
+        identity: slim_header.get_identity().to_string(),
+        session_type: session_header.session_type() as i32,
+        session_message_type: session_header.session_message_type() as i32,
+        session_id: session_header.get_session_id(),
+        message_id: session_header.get_message_id(),
+        payload_type,
+    };
 
-        aad.encode_to_vec()
-    }
+    aad.encode_to_vec()
 }
 
 /// Async MLS state operations (sync on native via `is_sync`, async on wasm32).
@@ -368,7 +368,7 @@ where
         let payload = msg.get_payload().unwrap().as_application_payload()?;
 
         debug!("Encrypting message for group member");
-        let aad = self.build_aad(msg);
+        let aad = build_aad(msg);
         let encrypted_payload = self.mls.encrypt_message(&payload.blob, aad).await?;
 
         msg.set_payload(
@@ -405,7 +405,7 @@ where
             };
 
             if should_validate {
-                let expected_aad = self.build_aad(msg);
+                let expected_aad = build_aad(msg);
                 if expected_aad != auth_data {
                     let expected_decoded = HeaderIntegrityAad::decode(&expected_aad[..]);
                     let got_decoded = HeaderIntegrityAad::decode(&auth_data[..]);
@@ -1238,10 +1238,9 @@ mod tests {
     async fn test_build_aad_falls_back_to_empty_payload_type() {
         // A control message has no application payload, so build_aad must use
         // an empty payload_type rather than panicking.
-        let state = new_test_mls_state().await;
         let msg = control_msg(ProtoSessionMessageType::GroupAdd, 1);
 
-        let aad = state.build_aad(&msg);
+        let aad = build_aad(&msg);
 
         assert!(!aad.is_empty());
     }

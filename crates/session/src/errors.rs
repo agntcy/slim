@@ -51,6 +51,10 @@ pub enum SessionError {
     MalformedParticipant,
     #[error("missing participant settings")]
     MissingParticipantSettings,
+    #[error("identity key is empty")]
+    SignatureKeyIsEmpty,
+    #[error("identity key collection failed with auth error: {0:?}")]
+    SignatureKeyCollectionFailedWithAuthErr(AuthError),
     #[error("unexpected error")]
     UnexpectedError { source: Box<SessionError> },
 
@@ -79,8 +83,10 @@ pub enum SessionError {
     MlsOp(#[from] MlsError),
 
     // Authorization and roles
-    #[error("auth error")]
+    #[error("auth error: {0}")]
     Auth(#[from] AuthError),
+    #[error("duplicate control message replay: message_id={message_id}")]
+    ControlMessageReplay { message_id: u32 },
 
     // Acknowledgements and routing
     #[error("error receiving ack for message: {0}")]
@@ -162,13 +168,13 @@ pub enum SessionError {
     ModeratorTaskUnsupportedPhase,
     #[error("unexpected timer id: {0}")]
     ModeratorTaskUnexpectedTimerId(u32),
-    #[error("failed to add participant to session")]
+    #[error("failed to add participant to session: {source}")]
     ModeratorTaskAddFailed { source: Box<SessionError> },
-    #[error("failed to remove participant from session")]
+    #[error("failed to remove participant from session: {source}")]
     ModeratorTaskRemoveFailed { source: Box<SessionError> },
-    #[error("failed to update session")]
+    #[error("failed to update session: {source}")]
     ModeratorTaskUpdateFailed { source: Box<SessionError> },
-    #[error("failed to close session")]
+    #[error("failed to close session: {source}")]
     ModeratorTaskCloseFailed { source: Box<SessionError> },
 }
 

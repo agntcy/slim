@@ -237,7 +237,7 @@ impl SharedSecret {
             .collect();
         let full_id = format!("{}_{}", id, random_suffix);
 
-        let signature_keys = (vec![], vec![]);
+        let signature_keys = crate::utils::generate_mls_signature_keys()?;
         let claims_b64 = Self::compute_claims_b64(&signature_keys.1);
         let hmac_key = HmacKey::new(shared_secret.as_bytes());
         let internal = SharedSecretInternal {

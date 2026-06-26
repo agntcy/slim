@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::marker::PhantomData;
+use std::num::NonZeroUsize;
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{NameId, ProtoName};
@@ -415,10 +416,18 @@ where
     {
         let (tx_session, rx_session) = tokio::sync::mpsc::channel(256);
 
+        let config = self.config.unwrap();
+        let max_seen_control_message_ids_size = config
+            .mls_settings
+            .as_ref()
+            .and_then(|m| m.max_seen_control_message_ids_size)
+            .and_then(NonZeroUsize::new)
+            .unwrap_or(crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE);
+
         // Create the base Session layer
         let inner = crate::session::Session::new(
             self.id.unwrap(),
-            self.config.clone().unwrap(),
+            config.clone(),
             &self.source.clone().unwrap(),
             tx_session.clone(),
             self.direction,
@@ -435,7 +444,7 @@ where
             source: self.source.unwrap(),
             destination: self.destination.unwrap(),
             control: self.control.unwrap(),
-            config: self.config.unwrap(),
+            config,
             direction: self.direction,
             slim_tx,
             app_tx,
@@ -446,6 +455,7 @@ where
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
             subscription_manager,
             service_id: self.service_id.unwrap_or_default(),
+            max_seen_control_message_ids_size,
         };
 
         let wrapper = wrapper_constructor(inner, settings.clone());
@@ -852,6 +862,7 @@ mod tests {
         let mut config = create_test_config(true);
         config.mls_settings = Some(MlsSettings {
             header_integrity_validation_percent: 100,
+            max_seen_control_message_ids_size: None,
         });
 
         let builder =

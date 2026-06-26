@@ -196,9 +196,11 @@ impl ControllerSender {
                     ps.missing_pings.remove(&message.get_dst());
                 }
             }
-            slim_datapath::api::ProtoSessionMessageType::JoinRequest => {
-                // setup the group name if not set yet
-                if self.group_name.is_none() {
+            // setup the group name if not set yet
+            slim_datapath::api::ProtoSessionMessageType::JoinRequest
+                if self.group_name.is_none() =>
+            {
+                {
                     if self.session_type == ProtoSessionType::PointToPoint {
                         // in p2p session the group name is equal to the remote name
                         // in the join request message. Data and control messages

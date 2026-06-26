@@ -482,6 +482,7 @@ impl SlimHeader {
             error: flags.error,
             header_mac: None,
             ttl: flags.ttl,
+            e2e_header_sig: None,
         }
     }
 
@@ -650,6 +651,21 @@ impl SessionMessageType {
                 | SessionMessageType::GroupAdd
                 | SessionMessageType::GroupRemove
                 | SessionMessageType::GroupWelcome
+                | SessionMessageType::GroupClose
+                | SessionMessageType::GroupProposal
+                | SessionMessageType::GroupAck
+                | SessionMessageType::GroupNack
+                | SessionMessageType::Ping
+        )
+    }
+
+    pub fn is_post_session_control(&self) -> bool {
+        matches!(
+            self,
+            SessionMessageType::LeaveRequest
+                | SessionMessageType::LeaveReply
+                | SessionMessageType::GroupAdd
+                | SessionMessageType::GroupRemove
                 | SessionMessageType::GroupClose
                 | SessionMessageType::GroupProposal
                 | SessionMessageType::GroupAck
@@ -2187,6 +2203,7 @@ mod message_tests {
             error: None,
             header_mac: None,
             ttl: DEFAULT_TTL,
+            e2e_header_sig: None,
         };
 
         assert!(std::panic::catch_unwind(|| header.get_source()).is_err());

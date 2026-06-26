@@ -212,11 +212,18 @@ impl ClientConfig {
             if path.is_empty() {
                 return Err(ConfigError::UnixSocketMissingPath);
             }
+            let normalized_path;
+            let path_for_uri = if path.starts_with('/') {
+                path
+            } else {
+                normalized_path = format!("/{path}");
+                normalized_path.as_str()
+            };
 
             let uri = Uri::builder()
                 .scheme("unix")
                 .authority("localhost")
-                .path_and_query(path)
+                .path_and_query(path_for_uri)
                 .build()
                 .map_err(ConfigError::UnixSocketInvalidPath)?;
             return Ok(uri);
@@ -548,7 +555,7 @@ mod tests {
         let uri = client.parse_endpoint_uri().expect("valid unix uri");
         assert_eq!(uri.scheme_str(), Some("unix"));
         assert_eq!(uri.authority().map(|auth| auth.as_str()), Some("localhost"));
-        assert_eq!(uri.path(), "tmp/slim.sock");
+        assert_eq!(uri.path(), "/tmp/slim.sock");
     }
 
     #[test]
