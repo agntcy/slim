@@ -141,7 +141,7 @@ var _ = Describe("Group management through channel manager", func() {
 				return exec.Command(
 					slimctlPath,
 					"cm", "create-channel", channelName,
-					"-s", cmEndpoint,
+					"--server", cmEndpoint,
 				)
 			})
 			Expect(createOutput).NotTo(BeEmpty())
@@ -157,7 +157,7 @@ var _ = Describe("Group management through channel manager", func() {
 				return exec.Command(
 					slimctlPath,
 					"cm", "add-participant", channelName, participantA,
-					"-s", cmEndpoint,
+					"--server", cmEndpoint,
 				)
 			})
 			Expect(addClientAOutput).NotTo(BeEmpty())
@@ -170,7 +170,7 @@ var _ = Describe("Group management through channel manager", func() {
 				return exec.Command(
 					slimctlPath,
 					"cm", "add-participant", channelName, participantB,
-					"-s", cmEndpoint,
+					"--server", cmEndpoint,
 				)
 			})
 			Expect(addClientBOutput).NotTo(BeEmpty())
@@ -182,7 +182,7 @@ var _ = Describe("Group management through channel manager", func() {
 				return exec.Command(
 					slimctlPath,
 					"cm", "add-participant", channelName, participantC,
-					"-s", cmEndpoint,
+					"--server", cmEndpoint,
 				)
 			})
 			Expect(addClientCOutput).NotTo(BeEmpty())
@@ -201,7 +201,7 @@ var _ = Describe("Group management through channel manager", func() {
 				return exec.Command(
 					slimctlPath,
 					"cm", "delete-participant", channelName, participantC,
-					"-s", cmEndpoint,
+					"--server", cmEndpoint,
 				)
 			})
 			Expect(deleteParticipantOutput).NotTo(BeEmpty())
@@ -213,7 +213,7 @@ var _ = Describe("Group management through channel manager", func() {
 				return exec.Command(
 					slimctlPath,
 					"cm", "delete-channel", channelName,
-					"-s", cmEndpoint,
+					"--server", cmEndpoint,
 				)
 			})
 			Expect(deleteChannelOutput).NotTo(BeEmpty())
