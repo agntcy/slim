@@ -316,10 +316,14 @@ impl RouteService {
         Ok(())
     }
 
-    /// Remove a segment by name. Returns error if not found.
-    /// Removing the default segment clears its links but re-creates it empty.
+    /// Remove a segment by name. The default segment cannot be removed.
     pub async fn remove_segment(&self, name: &str) -> Result<(), tonic::Status> {
         self.ensure_api_mode()?;
+        if name == DEFAULT_SEGMENT {
+            return Err(tonic::Status::failed_precondition(
+                "the default segment cannot be removed; remove its links instead",
+            ));
+        }
         let seg = self
             .0
             .db
@@ -332,16 +336,6 @@ impl RouteService {
             .delete_segment(&seg.id)
             .await
             .map_err(|e| tonic::Status::internal(format!("failed to delete segment: {e}")))?;
-        // Re-create the default segment so it always exists.
-        if name == DEFAULT_SEGMENT {
-            self.0
-                .db
-                .create_segment(DEFAULT_SEGMENT)
-                .await
-                .map_err(|e| {
-                    tonic::Status::internal(format!("failed to re-create default segment: {e}"))
-                })?;
-        }
         self.load_topology_from_db()
             .await
             .map_err(|e| tonic::Status::internal(format!("failed to reload topology: {e}")))?;
@@ -695,21 +689,11 @@ mod topology_mutation_tests {
     }
 
     #[tokio::test]
-    async fn remove_default_segment_recreates_empty() {
+    async fn remove_default_segment_rejected() {
         let svc = api_managed_service();
-        // Create default segment and add a link
         svc.add_segment(super::DEFAULT_SEGMENT).await.unwrap();
-        register_groups(&svc, &["a", "b"]).await;
-        svc.add_topology_link("a", "b", super::DEFAULT_SEGMENT)
-            .await
-            .unwrap();
-        // Remove default — should succeed and re-create it empty
-        svc.remove_segment(super::DEFAULT_SEGMENT).await.unwrap();
-        let segments = svc.list_segments().await;
-        let default = segments
-            .iter()
-            .find(|(name, _, _)| name == super::DEFAULT_SEGMENT)
-            .expect("default segment should be re-created");
-        assert!(default.2.is_empty(), "links should be cleared");
+        let err = svc.remove_segment(super::DEFAULT_SEGMENT).await.unwrap_err();
+        assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+        assert!(err.message().contains("cannot be removed"));
     }
 }
