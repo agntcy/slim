@@ -30,10 +30,7 @@ use crate::{
     controller_sender::{ControllerSender, PING_INTERVAL},
     session_builder::{ForController, SessionBuilder},
     session_config::SessionConfig,
-    session_settings::{
-        MAX_SEEN_CONTROL_MESSAGE_SENDERS_SIZE,
-        SessionSettings,
-    },
+    session_settings::{MAX_SEEN_CONTROL_MESSAGE_SENDERS_SIZE, SessionSettings},
     traits::{MessageHandler, ProcessingState},
 };
 
