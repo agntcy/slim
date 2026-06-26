@@ -25,14 +25,21 @@ extra:
     org: AGNTCY
 
   copyright: >
-    © Copyright AGNTCY Contributors.
+    © 2026, Agntcy, a Series of LF Projects, LLC. All rights reserved.
 
 extra_css:
   - stylesheets/agntcy-docs.css
+  - stylesheets/slim-landing.css
+  - stylesheets/slimctl-terminal.css
 
 extra_javascript:
   - javascripts/card-links.js
   - javascripts/external-links.js
+  - javascripts/slim-header-scroll.js
+  - javascripts/slim-hero-tagline.js
+  - javascripts/slim-graph-tooltip.js
+  - javascripts/slimctl-demo-data.js
+  - javascripts/slimctl-terminal.js
 
 markdown_extensions:
   - admonition
