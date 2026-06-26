@@ -55,7 +55,6 @@ tonic-prost = { workspace = true }
 getrandom = { workspace = true }
 uuid = { workspace = true, features = ["v4", "js"] }
 
-
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim-testing = { workspace = true }
 anyhow = { workspace = true }
