@@ -1617,4 +1617,96 @@ mod tests {
             .unwrap();
         assert_eq!(db.get_links_for_node("src").await.unwrap().len(), 2);
     }
+
+    // ── Topology tests ────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn topology_create_and_list_segments() {
+        let (_f, db) = tmp_db().await;
+        let seg = db.create_segment("seg-1").await.unwrap();
+        assert_eq!(seg.name, "seg-1");
+        assert!(!seg.id.is_empty());
+
+        let segs = db.list_topology_segments().await.unwrap();
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].name, "seg-1");
+    }
+
+    #[tokio::test]
+    async fn topology_get_segment_by_name() {
+        let (_f, db) = tmp_db().await;
+        db.create_segment("alpha").await.unwrap();
+
+        let found = db.get_segment_by_name("alpha").await.unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().name, "alpha");
+
+        let missing = db.get_segment_by_name("nope").await.unwrap();
+        assert!(missing.is_none());
+    }
+
+    #[tokio::test]
+    async fn topology_delete_segment_cascades() {
+        let (_f, db) = tmp_db().await;
+        let seg = db.create_segment("seg-1").await.unwrap();
+        db.add_group_to_segment(&seg.id, "group-a").await.unwrap();
+        db.add_link_to_segment(&seg.id, "group-a", "group-b").await.unwrap();
+
+        db.delete_segment(&seg.id).await.unwrap();
+
+        assert!(db.list_topology_segments().await.unwrap().is_empty());
+        assert!(db.get_groups_for_segment(&seg.id).await.unwrap().is_empty());
+        assert!(db.get_links_for_segment(&seg.id).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn topology_add_and_remove_group() {
+        let (_f, db) = tmp_db().await;
+        let seg = db.create_segment("seg-1").await.unwrap();
+
+        db.add_group_to_segment(&seg.id, "group-a").await.unwrap();
+        db.add_group_to_segment(&seg.id, "group-b").await.unwrap();
+
+        let groups = db.get_groups_for_segment(&seg.id).await.unwrap();
+        assert_eq!(groups.len(), 2);
+        assert!(groups.contains(&"group-a".to_string()));
+        assert!(groups.contains(&"group-b".to_string()));
+
+        db.remove_group_from_segment(&seg.id, "group-a").await.unwrap();
+        let groups = db.get_groups_for_segment(&seg.id).await.unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0], "group-b");
+    }
+
+    #[tokio::test]
+    async fn topology_add_and_delete_link() {
+        let (_f, db) = tmp_db().await;
+        let seg = db.create_segment("seg-1").await.unwrap();
+
+        db.add_link_to_segment(&seg.id, "group-a", "group-b").await.unwrap();
+        db.add_link_to_segment(&seg.id, "group-b", "group-c").await.unwrap();
+
+        let links = db.get_links_for_segment(&seg.id).await.unwrap();
+        assert_eq!(links.len(), 2);
+
+        db.delete_link_from_segment(&seg.id, "group-a", "group-b").await.unwrap();
+        let links = db.get_links_for_segment(&seg.id).await.unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0], ("group-b".to_string(), "group-c".to_string()));
+    }
+
+    #[tokio::test]
+    async fn topology_clear_wipes_all() {
+        let (_f, db) = tmp_db().await;
+        let seg1 = db.create_segment("seg-1").await.unwrap();
+        let seg2 = db.create_segment("seg-2").await.unwrap();
+        db.add_group_to_segment(&seg1.id, "group-a").await.unwrap();
+        db.add_link_to_segment(&seg2.id, "group-x", "group-y").await.unwrap();
+
+        db.clear_topology().await.unwrap();
+
+        assert!(db.list_topology_segments().await.unwrap().is_empty());
+        assert!(db.get_groups_for_segment(&seg1.id).await.unwrap().is_empty());
+        assert!(db.get_links_for_segment(&seg2.id).await.unwrap().is_empty());
+    }
 }
