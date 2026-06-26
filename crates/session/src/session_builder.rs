@@ -128,7 +128,6 @@ where
     direction: Direction,
     subscription_manager: Option<M>,
     service_id: Option<String>,
-    max_seen_control_message_ids_size: Option<usize>,
     _target: PhantomData<Target>,
     _state: PhantomData<State>,
 }
@@ -156,7 +155,6 @@ where
             direction: Direction::Bidirectional,
             subscription_manager: None,
             service_id: None,
-            max_seen_control_message_ids_size: None,
             _target: PhantomData,
             _state: PhantomData,
         }
@@ -229,11 +227,6 @@ where
         self
     }
 
-    pub fn with_max_seen_control_message_ids_size(mut self, size: usize) -> Self {
-        self.max_seen_control_message_ids_size = Some(size);
-        self
-    }
-
     /// Set a custom subscription manager.  This method changes the manager
     /// type `M`, so it returns a new builder type `SessionBuilder<P, V,
     /// Target, NotReady, N>`.  Call this before `ready()`.
@@ -256,7 +249,6 @@ where
             direction: self.direction,
             subscription_manager: Some(manager),
             service_id: self.service_id,
-            max_seen_control_message_ids_size: self.max_seen_control_message_ids_size,
             _target: PhantomData,
             _state: PhantomData,
         }
@@ -317,7 +309,6 @@ where
             direction: self.direction,
             subscription_manager: self.subscription_manager,
             service_id: self.service_id,
-            max_seen_control_message_ids_size: self.max_seen_control_message_ids_size,
             _target: PhantomData,
             _state: PhantomData,
         })
@@ -424,10 +415,17 @@ where
     {
         let (tx_session, rx_session) = tokio::sync::mpsc::channel(256);
 
+        let config = self.config.unwrap();
+        let max_seen_control_message_ids_size = config
+            .mls_settings
+            .as_ref()
+            .and_then(|m| m.max_seen_control_message_ids_size)
+            .unwrap_or(crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE);
+
         // Create the base Session layer
         let inner = crate::session::Session::new(
             self.id.unwrap(),
-            self.config.clone().unwrap(),
+            config.clone(),
             &self.source.clone().unwrap(),
             tx_session.clone(),
             self.direction,
@@ -444,7 +442,7 @@ where
             source: self.source.unwrap(),
             destination: self.destination.unwrap(),
             control: self.control.unwrap(),
-            config: self.config.unwrap(),
+            config,
             direction: self.direction,
             slim_tx,
             app_tx,
@@ -455,9 +453,7 @@ where
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
             subscription_manager,
             service_id: self.service_id.unwrap_or_default(),
-            max_seen_control_message_ids_size: self
-                .max_seen_control_message_ids_size
-                .unwrap_or(crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE),
+            max_seen_control_message_ids_size,
         };
 
         let wrapper = wrapper_constructor(inner, settings.clone());
@@ -864,6 +860,7 @@ mod tests {
         let mut config = create_test_config(true);
         config.mls_settings = Some(MlsSettings {
             header_integrity_validation_percent: 100,
+            max_seen_control_message_ids_size: None,
         });
 
         let builder =
