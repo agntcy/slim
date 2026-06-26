@@ -21,6 +21,14 @@ impl ControlPlane {
     pub async fn start(cfg: Config) -> Result<Self> {
         let db = crate::db::open(&cfg.database).await?;
 
+        // In config mode, wipe topology tables on startup (config is source of truth).
+        if cfg.topology.is_config_managed() {
+            db.clear_topology().await.context("failed to clear topology tables")?;
+            tracing::info!("topology mode: config-managed");
+        } else {
+            tracing::info!("topology mode: API-managed");
+        }
+
         let cmd_handler = DefaultNodeCommandHandler::new();
         let route_service = RouteService::new(
             db.clone(),
@@ -28,6 +36,14 @@ impl ControlPlane {
             cfg.reconciler,
             cfg.topology,
         );
+
+        // In API mode, load segment graphs from DB (config mode builds them lazily).
+        if route_service.ensure_api_mode().is_ok() {
+            route_service
+                .load_topology_from_db()
+                .await
+                .context("failed to load topology from DB")?;
+        }
         let nb_svc =
             NorthboundApiService::new(db.clone(), cmd_handler.clone(), route_service.clone());
 

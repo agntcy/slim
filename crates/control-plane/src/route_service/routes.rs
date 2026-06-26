@@ -46,11 +46,24 @@ fn build_route_for_gateway(
 }
 
 impl super::RouteService {
-    /// Rebuild the runtime segment graphs from the given set of nodes.
-    /// Extracts distinct group names, expands `$group` templates, and builds
-    /// one graph per segment.
-    /// Returns true if the set of groups changed (a group was added or removed).
+    /// Rebuild the runtime segment graphs from the config-defined topology.
+    ///
+    /// **Config mode only.** Extracts distinct group names from registered nodes,
+    /// expands `$group` templates in segment configs, and rebuilds one graph per
+    /// segment. Called on every node register/deregister so that dynamic `$group`
+    /// expansion picks up new groups.
+    ///
+    /// Returns `true` if the set of groups changed (a group was added or removed),
+    /// `false` if unchanged or if running in API mode.
+    ///
+    /// **API mode:** returns `false` immediately — segment graphs are managed
+    /// exclusively via topology mutation APIs (`add_link_to_segment`, etc.) and
+    /// loaded from DB on startup. Node registration does not alter topology.
     pub(super) async fn rebuild_link_graph(&self, nodes: &[crate::db::Node]) -> bool {
+        if self.0.topology.is_api_managed() {
+            return false;
+        }
+
         let new_groups: HashSet<&str> = nodes
             .iter()
             .map(|n| n.group_name.as_deref().unwrap_or(""))

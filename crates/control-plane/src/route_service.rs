@@ -146,6 +146,44 @@ impl RouteService {
         Ok(())
     }
 
+    /// Load segment graphs from the topology DB tables.
+    ///
+    /// **API mode only.** Reads all segments and their links from the DB,
+    /// builds an undirected graph per segment, and stores them in
+    /// `segment_graphs`. Called on startup and after topology mutations.
+    pub async fn load_topology_from_db(&self) -> anyhow::Result<()> {
+        let segments = self.0.db.list_topology_segments().await.map_err(|e| {
+            anyhow::anyhow!("failed to load topology segments: {e}")
+        })?;
+
+        let mut graphs = Vec::new();
+        for seg in &segments {
+            let links = self.0.db.get_links_for_segment(&seg.id).await.map_err(|e| {
+                anyhow::anyhow!("failed to load links for segment {}: {e}", seg.name)
+            })?;
+
+            let mut graph = UnGraph::<String, u32>::new_undirected();
+            let mut node_map: HashMap<String, petgraph::graph::NodeIndex> = HashMap::new();
+
+            for (src, dst) in &links {
+                let src_idx = *node_map
+                    .entry(src.clone())
+                    .or_insert_with(|| graph.add_node(src.clone()));
+                let dst_idx = *node_map
+                    .entry(dst.clone())
+                    .or_insert_with(|| graph.add_node(dst.clone()));
+                if !graph.contains_edge(src_idx, dst_idx) {
+                    graph.add_edge(src_idx, dst_idx, 1);
+                }
+            }
+
+            graphs.push((seg.name.clone(), graph));
+        }
+
+        *self.0.segment_graphs.write().await = graphs;
+        Ok(())
+    }
+
     /// Stop the reconciler workers and wait for any in-flight reconciliations
     /// to finish before returning.
     pub async fn shutdown(&self) {
