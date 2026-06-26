@@ -442,7 +442,9 @@ impl ControlPlaneService for NorthboundApiService {
     ) -> Result<Response<AddTopologyLinkResponse>, Status> {
         let req = request.get_ref();
         if req.group_a.is_empty() || req.group_b.is_empty() {
-            return Err(Status::invalid_argument("group_a and group_b must not be empty"));
+            return Err(Status::invalid_argument(
+                "group_a and group_b must not be empty",
+            ));
         }
         let segment = if req.segment.is_empty() {
             "default"
@@ -461,7 +463,9 @@ impl ControlPlaneService for NorthboundApiService {
     ) -> Result<Response<RemoveTopologyLinkResponse>, Status> {
         let req = request.get_ref();
         if req.group_a.is_empty() || req.group_b.is_empty() {
-            return Err(Status::invalid_argument("group_a and group_b must not be empty"));
+            return Err(Status::invalid_argument(
+                "group_a and group_b must not be empty",
+            ));
         }
         let segment = if req.segment.is_empty() {
             "default"

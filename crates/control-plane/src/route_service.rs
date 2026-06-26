@@ -152,15 +152,23 @@ impl RouteService {
     /// builds an undirected graph per segment, and stores them in
     /// `segment_graphs`. Called on startup and after topology mutations.
     pub async fn load_topology_from_db(&self) -> anyhow::Result<()> {
-        let segments = self.0.db.list_topology_segments().await.map_err(|e| {
-            anyhow::anyhow!("failed to load topology segments: {e}")
-        })?;
+        let segments = self
+            .0
+            .db
+            .list_topology_segments()
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to load topology segments: {e}"))?;
 
         let mut graphs = Vec::new();
         for seg in &segments {
-            let links = self.0.db.get_links_for_segment(&seg.id).await.map_err(|e| {
-                anyhow::anyhow!("failed to load links for segment {}: {e}", seg.name)
-            })?;
+            let links = self
+                .0
+                .db
+                .get_links_for_segment(&seg.id)
+                .await
+                .map_err(|e| {
+                    anyhow::anyhow!("failed to load links for segment {}: {e}", seg.name)
+                })?;
 
             let mut graph = UnGraph::<String, u32>::new_undirected();
             let mut node_map: HashMap<String, petgraph::graph::NodeIndex> = HashMap::new();
@@ -218,8 +226,10 @@ impl RouteService {
             if !allowed_pairs.contains(&pair) {
                 tracing::info!(
                     "reconcile_topology_change: removing disallowed link {}↔{} (groups {}↔{})",
-                    link.source_node_id, link.dest_node_id,
-                    link.source_group, link.dest_group,
+                    link.source_node_id,
+                    link.dest_node_id,
+                    link.source_group,
+                    link.dest_group,
                 );
                 if let Err(e) = self.0.db.delete_link(link).await {
                     tracing::error!("reconcile_topology_change: delete_link: {e}");
@@ -258,16 +268,12 @@ impl RouteService {
     /// Add a segment. Returns error if already exists.
     pub async fn add_segment(&self, name: &str) -> Result<(), tonic::Status> {
         self.ensure_api_mode()?;
-        self.0
-            .db
-            .create_segment(name)
-            .await
-            .map_err(|e| match e {
-                crate::error::Error::AlreadyExists { .. } => {
-                    tonic::Status::already_exists(format!("segment '{name}' already exists"))
-                }
-                _ => tonic::Status::internal(format!("failed to create segment: {e}")),
-            })?;
+        self.0.db.create_segment(name).await.map_err(|e| match e {
+            crate::error::Error::AlreadyExists { .. } => {
+                tonic::Status::already_exists(format!("segment '{name}' already exists"))
+            }
+            _ => tonic::Status::internal(format!("failed to create segment: {e}")),
+        })?;
         self.load_topology_from_db()
             .await
             .map_err(|e| tonic::Status::internal(format!("failed to reload topology: {e}")))?;
@@ -311,16 +317,16 @@ impl RouteService {
             .get_segment_by_name(segment)
             .await
             .map_err(|e| tonic::Status::internal(format!("failed to query segment: {e}")))?
-            .ok_or_else(|| {
-                tonic::Status::not_found(format!("segment '{segment}' not found"))
-            })?;
+            .ok_or_else(|| tonic::Status::not_found(format!("segment '{segment}' not found")))?;
         // Add link (idempotent — ignore duplicate errors)
-        if let Err(e) = self.0.db.add_link_to_segment(&seg.id, group_a, group_b).await {
-            if !matches!(e, crate::error::Error::AlreadyExists { .. }) {
-                return Err(tonic::Status::internal(format!(
-                    "failed to add link: {e}"
-                )));
-            }
+        if let Err(e) = self
+            .0
+            .db
+            .add_link_to_segment(&seg.id, group_a, group_b)
+            .await
+            && !matches!(e, crate::error::Error::AlreadyExists { .. })
+        {
+            return Err(tonic::Status::internal(format!("failed to add link: {e}")));
         }
         self.load_topology_from_db()
             .await
@@ -343,9 +349,7 @@ impl RouteService {
             .get_segment_by_name(segment)
             .await
             .map_err(|e| tonic::Status::internal(format!("failed to query segment: {e}")))?
-            .ok_or_else(|| {
-                tonic::Status::not_found(format!("segment '{segment}' not found"))
-            })?;
+            .ok_or_else(|| tonic::Status::not_found(format!("segment '{segment}' not found")))?;
         self.0
             .db
             .delete_link_from_segment(&seg.id, group_a, group_b)
@@ -512,7 +516,10 @@ mod topology_mutation_tests {
             .unwrap();
         let segments = svc.list_segments().await;
         let prod = segments.iter().find(|(name, _, _)| name == "prod").unwrap();
-        assert!(prod.2.contains(&("cloud".to_string(), "customer-a".to_string())));
+        assert!(
+            prod.2
+                .contains(&("cloud".to_string(), "customer-a".to_string()))
+        );
     }
 
     #[tokio::test]

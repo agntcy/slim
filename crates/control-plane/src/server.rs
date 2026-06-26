@@ -23,7 +23,9 @@ impl ControlPlane {
 
         // In config mode, wipe topology tables on startup (config is source of truth).
         if cfg.topology.is_config_managed() {
-            db.clear_topology().await.context("failed to clear topology tables")?;
+            db.clear_topology()
+                .await
+                .context("failed to clear topology tables")?;
             tracing::info!("topology mode: config-managed");
         } else {
             tracing::info!("topology mode: API-managed");

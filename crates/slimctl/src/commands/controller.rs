@@ -775,14 +775,26 @@ async fn segment_list(opts: &ClientConfig) -> Result<()> {
 
 async fn segment_add(name: &str, opts: &ClientConfig) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
-    rpc!(client, add_segment, AddSegmentRequest { name: name.to_string() });
+    rpc!(
+        client,
+        add_segment,
+        AddSegmentRequest {
+            name: name.to_string()
+        }
+    );
     println!("Segment '{}' added", name);
     Ok(())
 }
 
 async fn segment_remove(name: &str, opts: &ClientConfig) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
-    rpc!(client, remove_segment, RemoveSegmentRequest { name: name.to_string() });
+    rpc!(
+        client,
+        remove_segment,
+        RemoveSegmentRequest {
+            name: name.to_string()
+        }
+    );
     println!("Segment '{}' removed", name);
     Ok(())
 }
@@ -801,12 +813,20 @@ async fn link_add(group_a: &str, group_b: &str, segment: &str, opts: &ClientConf
     if segment == "default" {
         println!("Link {}↔{} added", group_a, group_b);
     } else {
-        println!("Link {}↔{} added in segment '{}'", group_a, group_b, segment);
+        println!(
+            "Link {}↔{} added in segment '{}'",
+            group_a, group_b, segment
+        );
     }
     Ok(())
 }
 
-async fn link_remove(group_a: &str, group_b: &str, segment: &str, opts: &ClientConfig) -> Result<()> {
+async fn link_remove(
+    group_a: &str,
+    group_b: &str,
+    segment: &str,
+    opts: &ClientConfig,
+) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
     rpc!(
         client,
@@ -820,7 +840,10 @@ async fn link_remove(group_a: &str, group_b: &str, segment: &str, opts: &ClientC
     if segment == "default" {
         println!("Link {}↔{} removed", group_a, group_b);
     } else {
-        println!("Link {}↔{} removed from segment '{}'", group_a, group_b, segment);
+        println!(
+            "Link {}↔{} removed from segment '{}'",
+            group_a, group_b, segment
+        );
     }
     Ok(())
 }
@@ -1032,11 +1055,11 @@ mod tests {
 
         use crate::proto::controller::proto::v1::{ConnectionListResponse, RouteListResponse};
         use crate::proto::controlplane::proto::v1::{
-            AddSegmentRequest, AddSegmentResponse, AddTopologyLinkRequest,
-            AddTopologyLinkResponse, LinkEntry, LinkListRequest, Node as CpNode, NodeEntry,
-            NodeListRequest, RemoveSegmentRequest, RemoveSegmentResponse,
-            RemoveTopologyLinkRequest, RemoveTopologyLinkResponse, RouteEntry, RouteListRequest,
-            SegmentListRequest, SegmentListResponse,
+            AddSegmentRequest, AddSegmentResponse, AddTopologyLinkRequest, AddTopologyLinkResponse,
+            LinkEntry, LinkListRequest, Node as CpNode, NodeEntry, NodeListRequest,
+            RemoveSegmentRequest, RemoveSegmentResponse, RemoveTopologyLinkRequest,
+            RemoveTopologyLinkResponse, RouteEntry, RouteListRequest, SegmentListRequest,
+            SegmentListResponse,
             control_plane_service_server::{ControlPlaneService, ControlPlaneServiceServer},
         };
         use slim_config::grpc::client::ClientConfig;

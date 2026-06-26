@@ -1511,7 +1511,9 @@ mod tests {
         let db = db();
         let seg = db.create_segment("seg-1").await.unwrap();
         db.add_group_to_segment(&seg.id, "group-a").await.unwrap();
-        db.add_link_to_segment(&seg.id, "group-a", "group-b").await.unwrap();
+        db.add_link_to_segment(&seg.id, "group-a", "group-b")
+            .await
+            .unwrap();
 
         db.delete_segment(&seg.id).await.unwrap();
 
@@ -1533,7 +1535,9 @@ mod tests {
         assert!(groups.contains(&"group-a".to_string()));
         assert!(groups.contains(&"group-b".to_string()));
 
-        db.remove_group_from_segment(&seg.id, "group-a").await.unwrap();
+        db.remove_group_from_segment(&seg.id, "group-a")
+            .await
+            .unwrap();
         let groups = db.get_groups_for_segment(&seg.id).await.unwrap();
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0], "group-b");
@@ -1544,13 +1548,19 @@ mod tests {
         let db = db();
         let seg = db.create_segment("seg-1").await.unwrap();
 
-        db.add_link_to_segment(&seg.id, "group-a", "group-b").await.unwrap();
-        db.add_link_to_segment(&seg.id, "group-b", "group-c").await.unwrap();
+        db.add_link_to_segment(&seg.id, "group-a", "group-b")
+            .await
+            .unwrap();
+        db.add_link_to_segment(&seg.id, "group-b", "group-c")
+            .await
+            .unwrap();
 
         let links = db.get_links_for_segment(&seg.id).await.unwrap();
         assert_eq!(links.len(), 2);
 
-        db.delete_link_from_segment(&seg.id, "group-a", "group-b").await.unwrap();
+        db.delete_link_from_segment(&seg.id, "group-a", "group-b")
+            .await
+            .unwrap();
         let links = db.get_links_for_segment(&seg.id).await.unwrap();
         assert_eq!(links.len(), 1);
         assert_eq!(links[0], ("group-b".to_string(), "group-c".to_string()));
@@ -1562,12 +1572,19 @@ mod tests {
         let seg1 = db.create_segment("seg-1").await.unwrap();
         let seg2 = db.create_segment("seg-2").await.unwrap();
         db.add_group_to_segment(&seg1.id, "group-a").await.unwrap();
-        db.add_link_to_segment(&seg2.id, "group-x", "group-y").await.unwrap();
+        db.add_link_to_segment(&seg2.id, "group-x", "group-y")
+            .await
+            .unwrap();
 
         db.clear_topology().await.unwrap();
 
         assert!(db.list_topology_segments().await.unwrap().is_empty());
-        assert!(db.get_groups_for_segment(&seg1.id).await.unwrap().is_empty());
+        assert!(
+            db.get_groups_for_segment(&seg1.id)
+                .await
+                .unwrap()
+                .is_empty()
+        );
         assert!(db.get_links_for_segment(&seg2.id).await.unwrap().is_empty());
     }
 }

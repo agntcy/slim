@@ -1665,8 +1665,14 @@ async fn test_api_mode_topology_lifecycle() {
 
     // Initially no links (API-managed mode with empty topology).
     let links = collect_links(&mut client, "", "").await;
-    let applied: Vec<_> = links.iter().filter(|l| l.status == LINK_APPLIED && !l.deleted).collect();
-    assert!(applied.is_empty(), "expected no links initially in API mode");
+    let applied: Vec<_> = links
+        .iter()
+        .filter(|l| l.status == LINK_APPLIED && !l.deleted)
+        .collect();
+    assert!(
+        applied.is_empty(),
+        "expected no links initially in API mode"
+    );
 
     // Add segment and link via API.
     client
