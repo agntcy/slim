@@ -1,0 +1,21 @@
+# Full mesh topology: all groups link to each other.
+# An empty topology section (or no topology at all) defaults to full mesh.
+
+tracing:
+  log_level: debug
+
+northbound:
+  endpoint: "127.0.0.1:50051"
+  tls:
+    insecure: true
+
+southbound:
+  endpoint: "127.0.0.1:50052"
+  tls:
+    insecure: true
+
+database:
+  type: in_memory
+
+# Empty topology = full mesh (backward compatible default).
+topology: {}

@@ -40,8 +40,9 @@ struct Inner {
     group_locks: tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Topology configuration for link and route filtering.
     topology: TopologyConfig,
-    /// Runtime link graph at the group level. Rebuilt when nodes join/leave.
-    link_graph: tokio::sync::RwLock<UnGraph<String, u32>>,
+    /// Runtime segment graphs at the group level. Rebuilt when nodes join/leave.
+    /// Each entry is (segment_name, graph). For FullMesh/Links, there's a single "default" entry.
+    segment_graphs: tokio::sync::RwLock<Vec<(String, UnGraph<String, u32>)>>,
 }
 
 #[derive(Clone)]
@@ -93,7 +94,7 @@ impl RouteService {
             node_locks: tokio::sync::Mutex::new(HashMap::new()),
             group_locks: tokio::sync::Mutex::new(HashMap::new()),
             topology,
-            link_graph: tokio::sync::RwLock::new(UnGraph::new_undirected()),
+            segment_graphs: tokio::sync::RwLock::new(Vec::new()),
         }));
 
         // Periodic full-sweep reconciliation with clean shutdown support.
@@ -206,17 +207,15 @@ pub(crate) mod test_utils {
     }
 
     pub(super) fn star_topology() -> TopologyConfig {
-        TopologyConfig {
-            links: vec![
-                AdjacencyEntry {
-                    name: "platform".to_string(),
-                    peers: vec!["*".to_string()],
-                },
-                AdjacencyEntry {
-                    name: "*".to_string(),
-                    peers: vec!["platform".to_string()],
-                },
-            ],
-        }
+        TopologyConfig::Links(vec![
+            AdjacencyEntry {
+                name: "platform".to_string(),
+                neighbors: vec!["*".to_string()],
+            },
+            AdjacencyEntry {
+                name: "*".to_string(),
+                neighbors: vec!["platform".to_string()],
+            },
+        ])
     }
 }

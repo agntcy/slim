@@ -64,7 +64,7 @@ chosen sibling node in the same group (see [Gateway Failover](#gateway-failover)
 
 The CP supports configurable topology that controls which groups are
 allowed to form inter-group links. The topology is expressed as an
-**adjacency list**: each entry declares a group name and the peers it
+**adjacency list**: each entry declares a group name and the neighbors it
 connects to. All links are **bidirectional** (if A lists B, then B↔A).
 
 The wildcard `"*"` matches all registered groups and is resolved dynamically
@@ -87,7 +87,7 @@ topology: {}
 topology:
   links:
     - name: cloud
-      peers: ["*"]
+      neighbors: ["*"]
 ```
 
 **Explicit pairs** (customer groups reach cloud but not each other):
@@ -96,7 +96,7 @@ topology:
 topology:
   links:
     - name: cloud
-      peers: [customer-a, customer-b]
+      neighbors: [customer-a, customer-b]
 ```
 
 **Chain** (linear: a↔b↔c↔d, multi-hop):
@@ -105,18 +105,65 @@ topology:
 topology:
   links:
     - name: group-a
-      peers: [group-b]
+      neighbors: [group-b]
     - name: group-b
-      peers: [group-a, group-c]
+      neighbors: [group-a, group-c]
     - name: group-c
-      peers: [group-b, group-d]
+      neighbors: [group-b, group-d]
     - name: group-d
-      peers: [group-c]
+      neighbors: [group-c]
 ```
 
 The topology is enforced during link creation.
 The SPT routing algorithm uses the topology graph to compute
 shortest paths for route expansion across non-adjacent groups.
+
+#### Segments (route isolation)
+
+Segments partition the network into independent routing domains.
+Agents registered in one segment are **invisible** to agents in other
+segments — routes are only expanded within the segment's topology graph.
+
+Each segment has its own `links` adjacency list. The special token
+`$group` is a **template variable** that causes the segment definition
+to be **instantiated once per registered group**. For each group, `$group`
+is replaced with that group's name — it does not expand to a list of
+all groups simultaneously.
+
+**Per-group isolation** (each customer reaches cloud but not other customers):
+
+```yaml
+topology:
+  segments:
+    - name: segment-$group
+      links:
+        - name: cloud
+          neighbors: [$group]
+```
+
+Because `$group` is a template, this produces one segment per group
+(e.g. `segment-customer-a`, `segment-customer-b`). In each generated
+segment the `cloud` group links only to that single customer group.
+Agents in `customer-a` can communicate with agents in `cloud`
+and vice versa, but `customer-a` cannot see `customer-b`.
+
+**Named segments** (explicit multi-tenant isolation):
+
+```yaml
+topology:
+  segments:
+    - name: customer-1
+      links:
+        - name: cloud
+          neighbors: [cluster-a]
+    - name: customer-2
+      links:
+        - name: cloud
+          neighbors: [cluster-b, cluster-c]
+```
+
+When segments are defined, the top-level `topology.links` section is
+ignored — segments fully control both link creation and route expansion.
 
 ### Architecture
 
@@ -609,8 +656,14 @@ database:
 topology:
   links:
     - name: cloud
-      peers: ["*"]  # star: cloud connects to all groups
+      neighbors: ["*"]  # star: cloud connects to all groups
     # Omit topology section or use `topology: {}` for full mesh.
+  # Optional: segments for route isolation (see Topology section above)
+  # segments:
+  #   - name: segment-$group
+  #     links:
+  #       - name: cloud
+  #         neighbors: [$group]
 
 reconciler:
   # Max retry attempts per item before dropping (re-enqueued on next sweep).

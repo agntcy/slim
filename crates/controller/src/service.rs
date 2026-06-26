@@ -392,7 +392,7 @@ impl ControlPlane {
                             Some(res) => {
                                 match res {
                                     Ok(msg) => {
-                                        debug!("Send sub/unsub to control plane for message: {:?}", msg);
+                                        debug!("Received message {:?} from data plane, forwarding to control plane", msg);
                                         match msg.get_type() {
                                             Subscribe(_) => {
                                                 controller.handle_subscribe_message(msg.get_dst(), &clients).await;
@@ -1426,6 +1426,10 @@ impl ControllerService {
             direction: None,
         };
 
+        debug!(
+            "handle_subscribe_message: sending route_to_set to control plane: {:?}",
+            cmd
+        );
         sub_vec.push(cmd);
 
         let ctrl = ControlMessage {
@@ -1465,6 +1469,11 @@ impl ControllerService {
             return;
         }
 
+        debug!(
+            "handle_link_received: notifying control-plane of new link_id: {}",
+            link_id
+        );
+
         let ctrl = ControlMessage {
             message_id: uuid::Uuid::new_v4().to_string(),
             payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
@@ -1488,6 +1497,15 @@ impl ControllerService {
     }
 
     async fn handle_unsubscribe_message(&self, dst: ProtoName, clients: &[ClientConfig]) {
+        // Remove the subscription from our tracking map so the reconciler
+        // knows it needs to re-install it if the route is still desired.
+        // Without this, a reused conn_id would cause create_new_subscriptions
+        // to skip re-creation because it thinks the subscription is still active.
+        self.inner
+            .route_subscription_ids
+            .lock()
+            .retain(|(name, _), _| *name != dst);
+
         let mut unsub_vec = vec![];
 
         let cmd = v1::Route {
@@ -1496,6 +1514,10 @@ impl ControllerService {
             direction: None,
         };
 
+        debug!(
+            "handle_unsubscribe_message: sending route_to_delete to control plane: {:?}",
+            cmd
+        );
         unsub_vec.push(cmd);
 
         let ctrl = ControlMessage {

@@ -196,36 +196,34 @@ impl ControllerSender {
                     ps.missing_pings.remove(&message.get_dst());
                 }
             }
-            // setup the group name if not set yet
             slim_datapath::api::ProtoSessionMessageType::JoinRequest
                 if self.group_name.is_none() =>
             {
-                {
-                    if self.session_type == ProtoSessionType::PointToPoint {
-                        // in p2p session the group name is equal to the remote name
-                        // in the join request message. Data and control messages
-                        // are distributed using the same name.
-                        debug!(
-                            destination = %message.get_dst(),
-                            "update group name on join request message for p2p session",
-                        );
-                        self.group_name = Some(message.get_dst());
-                    } else {
-                        // in multicast session the group name is specified in the
-                        // payload of the message
-                        let mut group_name = message
-                            .extract_join_request()?
-                            .channel
-                            .as_ref()
-                            .ok_or(SessionError::MissingGroupNameInJoinRequest)?
-                            .clone();
-                        group_name.set_id(NameId::CONTROL_CHANNEL_ID);
-                        debug!(
-                            destination = %group_name,
-                            "update group name on join request message for multicast session",
-                        );
-                        self.group_name = Some(group_name);
-                    }
+                // setup the group name if not set yet
+                if self.session_type == ProtoSessionType::PointToPoint {
+                    // in p2p session the group name is equal to the remote name
+                    // in the join request message. Data and control messages
+                    // are distributed using the same name.
+                    debug!(
+                        destination = %message.get_dst(),
+                        "update group name on join request message for p2p session",
+                    );
+                    self.group_name = Some(message.get_dst());
+                } else {
+                    // in multicast session the group name is specified in the
+                    // payload of the message
+                    let mut group_name = message
+                        .extract_join_request()?
+                        .channel
+                        .as_ref()
+                        .ok_or(SessionError::MissingGroupNameInJoinRequest)?
+                        .clone();
+                    group_name.set_id(NameId::CONTROL_CHANNEL_ID);
+                    debug!(
+                        destination = %group_name,
+                        "update group name on join request message for multicast session",
+                    );
+                    self.group_name = Some(group_name);
                 }
             }
             _ => {}

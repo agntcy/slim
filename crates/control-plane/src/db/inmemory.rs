@@ -159,6 +159,24 @@ impl InMemoryDb {
         }
     }
 
+    /// Set a route's status (and message) unless it has already been soft-deleted.
+    fn set_route_status(&self, route_id: &str, status: RouteStatus, msg: &str) -> Result<()> {
+        let mut store = self.routes.write();
+        let route = store
+            .primary
+            .get_mut(route_id)
+            .ok_or_else(|| Error::RouteNotFound {
+                id: route_id.to_string(),
+            })?;
+        if route.status == RouteStatus::Deleted {
+            return Ok(());
+        }
+        route.status = status;
+        route.status_msg = msg.to_string();
+        route.last_updated = SystemTime::now();
+        Ok(())
+    }
+
     /// Find a non-deleted link between two nodes (either direction) in the store.
     fn find_link_in_store(
         store: &LinkStore,
@@ -486,31 +504,11 @@ impl DataAccess for InMemoryDb {
     }
 
     async fn mark_route_applied(&self, route_id: &str) -> Result<()> {
-        let mut store = self.routes.write();
-        let route = store
-            .primary
-            .get_mut(route_id)
-            .ok_or_else(|| Error::RouteNotFound {
-                id: route_id.to_string(),
-            })?;
-        route.status = RouteStatus::Applied;
-        route.status_msg.clear();
-        route.last_updated = SystemTime::now();
-        Ok(())
+        self.set_route_status(route_id, RouteStatus::Applied, "")
     }
 
     async fn mark_route_failed(&self, route_id: &str, msg: &str) -> Result<()> {
-        let mut store = self.routes.write();
-        let route = store
-            .primary
-            .get_mut(route_id)
-            .ok_or_else(|| Error::RouteNotFound {
-                id: route_id.to_string(),
-            })?;
-        route.status = RouteStatus::Failed;
-        route.status_msg = msg.to_string();
-        route.last_updated = SystemTime::now();
-        Ok(())
+        self.set_route_status(route_id, RouteStatus::Failed, msg)
     }
 
     async fn update_route_link_id(&self, route_id: &str, link_id: &str) -> Result<()> {

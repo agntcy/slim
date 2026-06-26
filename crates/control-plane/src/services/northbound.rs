@@ -253,8 +253,11 @@ impl ControlPlaneService for NorthboundApiService {
                     .with_id(
                         r.component_id
                             .as_deref()
-                            .and_then(|s| uuid::Uuid::parse_str(s).ok())
-                            .map(|u| u.as_u128())
+                            .map(|s| {
+                                NameId::try_from(s.to_string())
+                                    .map(u128::from)
+                                    .unwrap_or(NameId::NULL_COMPONENT)
+                            })
                             .unwrap_or(NameId::NULL_COMPONENT),
                     );
                 RouteEntry {

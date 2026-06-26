@@ -1,0 +1,29 @@
+# Arbitrary topology.
+# Links:  node-a — node-b, node-a — node-c, node-c — node-d.
+
+tracing:
+  log_level: debug
+
+northbound:
+  endpoint: "127.0.0.1:50051"
+  tls:
+    insecure: true
+
+southbound:
+  endpoint: "127.0.0.1:50052"
+  tls:
+    insecure: true
+
+database:
+  type: in_memory
+
+topology:
+  segments:
+    - name: segment-1
+      links:
+        - name: group-1
+          neighbors: [group-2]
+    - name: segment-2
+      links:
+        - name: group-3
+          neighbors: [group-4]
