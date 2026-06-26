@@ -601,35 +601,19 @@ fn print_route_row(route: &RouteEntry, widths: &[usize; 7]) {
     print_row(&route_cells(route), widths);
 }
 
-const LINK_HEADERS: [&str; 8] = [
-    "LINK_ID",
-    "SOURCE",
-    "DEST_NODE",
-    "DEST_ENDPOINT",
-    "STATUS",
-    "STATUS_MSG",
-    "DELETED",
-    "LAST_UPDATED",
-];
+const LINK_HEADERS: [&str; 5] = ["LINK_ID", "SOURCE", "DEST_NODE", "DEST_ENDPOINT", "STATUS"];
 
-fn link_cells(l: &LinkEntry) -> [String; 8] {
+fn link_cells(l: &LinkEntry) -> [String; 5] {
     [
         l.link_id.clone(),
         l.source_node_id.clone(),
         l.dest_node_id.clone(),
         l.dest_endpoint.clone(),
         link_status_str(l.status),
-        if l.status_msg.is_empty() {
-            "-".to_string()
-        } else {
-            l.status_msg.clone()
-        },
-        if l.deleted { "Yes" } else { "No" }.to_string(),
-        format_unix_timestamp(l.last_updated),
     ]
 }
 
-fn compute_link_col_widths(links: &[LinkEntry]) -> [usize; 8] {
+fn compute_link_col_widths(links: &[LinkEntry]) -> [usize; 5] {
     let mut widths = LINK_HEADERS.map(|h| h.len());
     for l in links {
         for (w, cell) in widths.iter_mut().zip(link_cells(l).iter()) {
@@ -639,11 +623,11 @@ fn compute_link_col_widths(links: &[LinkEntry]) -> [usize; 8] {
     widths
 }
 
-fn print_link_header(widths: &[usize; 8]) {
+fn print_link_header(widths: &[usize; 5]) {
     print_table_header(&LINK_HEADERS, widths);
 }
 
-fn print_link_row(link: &LinkEntry, widths: &[usize; 8]) {
+fn print_link_row(link: &LinkEntry, widths: &[usize; 5]) {
     print_row(&link_cells(link), widths);
 }
 
@@ -748,13 +732,20 @@ async fn segment_list(opts: &ClientConfig) -> Result<()> {
     let rows: Vec<_> = segments
         .iter()
         .map(|s| {
-            let groups = s.groups.join(", ");
-            let links: String = s
-                .edges
-                .iter()
-                .map(|e| format!("{}↔{}", e.group_a, e.group_b))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let groups = if s.groups.is_empty() {
+                "-".to_string()
+            } else {
+                s.groups.join(", ")
+            };
+            let links: String = if s.edges.is_empty() {
+                "-".to_string()
+            } else {
+                s.edges
+                    .iter()
+                    .map(|e| format!("{}↔{}", e.group_a, e.group_b))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
             (s.name.as_str(), groups, links)
         })
         .collect();

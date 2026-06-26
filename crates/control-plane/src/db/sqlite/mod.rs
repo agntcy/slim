@@ -1191,11 +1191,20 @@ impl DataAccess for SqliteDb {
             context: "delete_link_from_segment pool",
             msg: e.to_string(),
         })?;
+        let seg_id = segment_id.to_string();
+        let src = source_group.to_string();
+        let dst = dest_group.to_string();
         diesel::delete(
             topology_segment_links::table
-                .filter(topology_segment_links::segment_id.eq(segment_id))
-                .filter(topology_segment_links::source_group.eq(source_group))
-                .filter(topology_segment_links::dest_group.eq(dest_group)),
+                .filter(topology_segment_links::segment_id.eq(&seg_id))
+                .filter(
+                    topology_segment_links::source_group
+                        .eq(&src)
+                        .and(topology_segment_links::dest_group.eq(&dst))
+                        .or(topology_segment_links::source_group
+                            .eq(&dst)
+                            .and(topology_segment_links::dest_group.eq(&src))),
+                ),
         )
         .execute(&mut conn)
         .await

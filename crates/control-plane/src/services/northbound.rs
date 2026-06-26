@@ -19,6 +19,7 @@ use crate::api::proto::controlplane::proto::v1::{
 use crate::db::SharedDb;
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
 use crate::route_service::RouteService;
+use crate::types::DEFAULT_SEGMENT;
 
 pub struct NorthboundApiService {
     db: SharedDb,
@@ -447,7 +448,7 @@ impl ControlPlaneService for NorthboundApiService {
             ));
         }
         let segment = if req.segment.is_empty() {
-            "default"
+            DEFAULT_SEGMENT
         } else {
             &req.segment
         };
@@ -468,7 +469,7 @@ impl ControlPlaneService for NorthboundApiService {
             ));
         }
         let segment = if req.segment.is_empty() {
-            "default"
+            DEFAULT_SEGMENT
         } else {
             &req.segment
         };

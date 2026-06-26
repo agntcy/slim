@@ -10,6 +10,7 @@ use crate::node_transport::DefaultNodeCommandHandler;
 use crate::route_service::RouteService;
 use crate::services::northbound::NorthboundApiService;
 use crate::services::southbound::{SharedDrain, SouthboundApiService};
+use crate::types::DEFAULT_SEGMENT;
 
 pub struct ControlPlane {
     route_service: RouteService,
@@ -41,9 +42,8 @@ impl ControlPlane {
 
         // In API mode, ensure "default" segment exists, then load segment graphs from DB.
         if route_service.ensure_api_mode().is_ok() {
-            // Create "default" segment if it doesn't already exist.
-            if db.get_segment_by_name("default").await?.is_none() {
-                db.create_segment("default")
+            if db.get_segment_by_name(DEFAULT_SEGMENT).await?.is_none() {
+                db.create_segment(DEFAULT_SEGMENT)
                     .await
                     .context("failed to create default segment")?;
             }

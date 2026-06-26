@@ -21,6 +21,7 @@ use crate::node_transport::DefaultNodeCommandHandler;
 use crate::workqueue::WorkQueue;
 
 pub use crate::types::ALL_NODES_ID;
+pub use crate::types::DEFAULT_SEGMENT;
 pub(crate) use connection_config::is_connection_not_found;
 
 struct Inner {
@@ -251,19 +252,27 @@ impl RouteService {
 
         // Create new links where the topology now allows them.
         // Re-read links from DB since we may have deleted some above.
-        let current_links = self.0.db.list_all_links().await.unwrap_or_else(|e| {
+        let mut current_links = self.0.db.list_all_links().await.unwrap_or_else(|e| {
             tracing::error!("reconcile_topology_change: list_all_links (post-delete): {e}");
             vec![]
         });
 
+        // Only call ensure_links for one node per group to avoid creating
+        // duplicate inter-group links (the gateway pattern: one link per group pair).
+        // Re-read links after each call so the next group sees newly created links.
+        let mut seen_groups: std::collections::HashSet<String> = std::collections::HashSet::new();
         for node in &all_nodes {
+            let group = node.group_name.as_deref().unwrap_or("").to_string();
+            if !seen_groups.insert(group) {
+                continue;
+            }
             let node_links: Vec<_> = current_links
                 .iter()
                 .filter(|l| l.source_node_id == node.id || l.dest_node_id == node.id)
                 .cloned()
                 .collect();
 
-            let (affected, _new_links) = self
+            let (affected, new_links) = self
                 .ensure_links_for_node(
                     &node.id,
                     &node_links,
@@ -274,6 +283,14 @@ impl RouteService {
                 )
                 .await;
             reconcile_nodes.extend(affected);
+
+            // Update snapshot so the next group sees newly created links.
+            if !new_links.is_empty() {
+                current_links = self.0.db.list_all_links().await.unwrap_or_else(|e| {
+                    tracing::error!("reconcile_topology_change: refresh links: {e}");
+                    current_links.clone()
+                });
+            }
         }
 
         // Re-expand wildcard routes to pick up new paths via newly created links.
@@ -301,6 +318,7 @@ impl RouteService {
     }
 
     /// Remove a segment by name. Returns error if not found.
+    /// Removing the default segment clears its links but re-creates it empty.
     pub async fn remove_segment(&self, name: &str) -> Result<(), tonic::Status> {
         self.ensure_api_mode()?;
         let seg = self
@@ -315,6 +333,16 @@ impl RouteService {
             .delete_segment(&seg.id)
             .await
             .map_err(|e| tonic::Status::internal(format!("failed to delete segment: {e}")))?;
+        // Re-create the default segment so it always exists.
+        if name == DEFAULT_SEGMENT {
+            self.0
+                .db
+                .create_segment(DEFAULT_SEGMENT)
+                .await
+                .map_err(|e| {
+                    tonic::Status::internal(format!("failed to re-create default segment: {e}"))
+                })?;
+        }
         self.load_topology_from_db()
             .await
             .map_err(|e| tonic::Status::internal(format!("failed to reload topology: {e}")))?;
@@ -324,6 +352,7 @@ impl RouteService {
 
     /// Add a bidirectional topology link between two groups in a segment.
     /// The segment must already exist (use `add_segment` first).
+    /// Both groups must have at least one registered node.
     pub async fn add_topology_link(
         &self,
         group_a: &str,
@@ -331,6 +360,31 @@ impl RouteService {
         segment: &str,
     ) -> Result<(), tonic::Status> {
         self.ensure_api_mode()?;
+
+        // Validate that both groups exist (have registered nodes).
+        let all_nodes = self
+            .0
+            .db
+            .list_nodes()
+            .await
+            .map_err(|e| tonic::Status::internal(format!("failed to list nodes: {e}")))?;
+        let has_group_a = all_nodes
+            .iter()
+            .any(|n| n.group_name.as_deref() == Some(group_a));
+        let has_group_b = all_nodes
+            .iter()
+            .any(|n| n.group_name.as_deref() == Some(group_b));
+        if !has_group_a {
+            return Err(tonic::Status::not_found(format!(
+                "group '{group_a}' has no registered nodes"
+            )));
+        }
+        if !has_group_b {
+            return Err(tonic::Status::not_found(format!(
+                "group '{group_b}' has no registered nodes"
+            )));
+        }
+
         let seg = self
             .0
             .db
@@ -370,6 +424,22 @@ impl RouteService {
             .await
             .map_err(|e| tonic::Status::internal(format!("failed to query segment: {e}")))?
             .ok_or_else(|| tonic::Status::not_found(format!("segment '{segment}' not found")))?;
+        // Check if the link exists before deleting.
+        let links = self
+            .0
+            .db
+            .get_links_for_segment(&seg.id)
+            .await
+            .map_err(|e| tonic::Status::internal(format!("failed to query links: {e}")))?;
+        let exists = links.iter().any(|(src, dst)| {
+            (src == group_a && dst == group_b) || (src == group_b && dst == group_a)
+        });
+        if !exists {
+            return Err(tonic::Status::not_found(format!(
+                "link {}↔{} not found in segment '{segment}'",
+                group_a, group_b
+            )));
+        }
         self.0
             .db
             .delete_link_from_segment(&seg.id, group_a, group_b)
@@ -477,10 +547,30 @@ mod topology_mutation_tests {
     use super::test_utils::make_route_service_with_topology;
     use crate::config::TopologyConfig;
     use crate::db::inmemory::InMemoryDb;
+    use crate::db::model::{ConnectionDetails, Node};
+    use std::time::SystemTime;
 
     fn api_managed_service() -> super::RouteService {
         let db = InMemoryDb::shared();
         make_route_service_with_topology(db, TopologyConfig::ApiManaged)
+    }
+
+    /// Helper to register nodes so group validation passes.
+    async fn register_groups(svc: &super::RouteService, groups: &[&str]) {
+        for (i, group) in groups.iter().enumerate() {
+            let node = Node {
+                id: format!("{group}/node-{i}"),
+                group_name: Some(group.to_string()),
+                conn_details: vec![ConnectionDetails {
+                    endpoint: format!("127.0.0.1:{}", 9000 + i),
+                    external_endpoint: None,
+                    spire_mtls: None,
+                }],
+                created_at: SystemTime::now(),
+                last_updated: SystemTime::now(),
+            };
+            svc.0.db.save_node(node).await.unwrap();
+        }
     }
 
     fn config_managed_service() -> super::RouteService {
@@ -531,6 +621,7 @@ mod topology_mutation_tests {
     async fn add_topology_link_succeeds() {
         let svc = api_managed_service();
         svc.add_segment("prod").await.unwrap();
+        register_groups(&svc, &["cloud", "customer-a"]).await;
         svc.add_topology_link("cloud", "customer-a", "prod")
             .await
             .unwrap();
@@ -545,6 +636,7 @@ mod topology_mutation_tests {
     #[tokio::test]
     async fn add_topology_link_segment_not_found() {
         let svc = api_managed_service();
+        register_groups(&svc, &["cloud", "customer-a"]).await;
         let err = svc
             .add_topology_link("cloud", "customer-a", "nonexistent")
             .await
@@ -556,6 +648,7 @@ mod topology_mutation_tests {
     async fn add_topology_link_idempotent() {
         let svc = api_managed_service();
         svc.add_segment("prod").await.unwrap();
+        register_groups(&svc, &["cloud", "customer-a"]).await;
         svc.add_topology_link("cloud", "customer-a", "prod")
             .await
             .unwrap();
@@ -569,6 +662,7 @@ mod topology_mutation_tests {
     async fn remove_topology_link_succeeds() {
         let svc = api_managed_service();
         svc.add_segment("prod").await.unwrap();
+        register_groups(&svc, &["cloud", "customer-a"]).await;
         svc.add_topology_link("cloud", "customer-a", "prod")
             .await
             .unwrap();
@@ -588,5 +682,37 @@ mod topology_mutation_tests {
             .await
             .unwrap_err();
         assert_eq!(err.code(), tonic::Code::NotFound);
+    }
+
+    #[tokio::test]
+    async fn add_topology_link_group_not_found() {
+        let svc = api_managed_service();
+        svc.add_segment("prod").await.unwrap();
+        register_groups(&svc, &["cloud"]).await;
+        let err = svc
+            .add_topology_link("cloud", "nonexistent", "prod")
+            .await
+            .unwrap_err();
+        assert_eq!(err.code(), tonic::Code::NotFound);
+        assert!(err.message().contains("nonexistent"));
+    }
+
+    #[tokio::test]
+    async fn remove_default_segment_recreates_empty() {
+        let svc = api_managed_service();
+        // Create default segment and add a link
+        svc.add_segment(super::DEFAULT_SEGMENT).await.unwrap();
+        register_groups(&svc, &["a", "b"]).await;
+        svc.add_topology_link("a", "b", super::DEFAULT_SEGMENT)
+            .await
+            .unwrap();
+        // Remove default — should succeed and re-create it empty
+        svc.remove_segment(super::DEFAULT_SEGMENT).await.unwrap();
+        let segments = svc.list_segments().await;
+        let default = segments
+            .iter()
+            .find(|(name, _, _)| name == super::DEFAULT_SEGMENT)
+            .expect("default segment should be re-created");
+        assert!(default.2.is_empty(), "links should be cleared");
     }
 }

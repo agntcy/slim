@@ -11,6 +11,9 @@ use crate::error::{Error, Result};
 
 pub const ALL_NODES_ID: &str = crate::db::ALL_NODES_ID;
 
+/// The name of the default segment that always exists in API-managed mode.
+pub const DEFAULT_SEGMENT: &str = "default";
+
 pub fn validate_route_nodes(source_node_id: &str, dest_node_id: &str) -> Result<()> {
     if source_node_id.is_empty() {
         return Err(Error::EmptySourceNodeId);

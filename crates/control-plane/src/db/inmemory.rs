@@ -946,8 +946,8 @@ impl DataAccess for InMemoryDb {
     ) -> Result<()> {
         self.topology_segment_links.write().retain(|link| {
             !(link.segment_id == segment_id
-                && link.source_group == source_group
-                && link.dest_group == dest_group)
+                && ((link.source_group == source_group && link.dest_group == dest_group)
+                    || (link.source_group == dest_group && link.dest_group == source_group)))
         });
         Ok(())
     }
