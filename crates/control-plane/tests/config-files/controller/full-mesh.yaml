@@ -17,6 +17,10 @@ southbound:
 database:
   type: in_memory
 
+#database:
+#  type: sqlite
+#  path: /tmp/slim-test.db
+
 topology:
   links:
     - group: "*"
