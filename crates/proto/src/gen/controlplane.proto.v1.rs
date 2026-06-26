@@ -179,8 +179,12 @@ pub struct AddTopologyLinkRequest {
     #[prost(string, tag = "3")]
     pub segment: ::prost::alloc::string::String,
 }
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct AddTopologyLinkResponse {}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AddTopologyLinkResponse {
+    /// Warnings about missing groups (link stored but no physical link created yet).
+    #[prost(string, repeated, tag = "1")]
+    pub warnings: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
 /// Remove a bidirectional link between two groups within a segment.
 /// If segment is empty, defaults to "default".
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

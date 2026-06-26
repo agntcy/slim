@@ -184,7 +184,10 @@ message AddTopologyLinkRequest {
   string segment = 3; // optional, defaults to "default"
 }
 
-message AddTopologyLinkResponse {}
+message AddTopologyLinkResponse {
+  // Warnings about missing groups (link stored but no physical link created yet).
+  repeated string warnings = 1;
+}
 
 // Remove a bidirectional link between two groups within a segment.
 // If segment is empty, defaults to "default".

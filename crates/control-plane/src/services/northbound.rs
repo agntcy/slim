@@ -350,9 +350,46 @@ impl ControlPlaneService for NorthboundApiService {
                 Status::internal("internal error")
             })?;
 
+        // Collect topology link group pairs to identify pending ones.
+        let segments = self.route_service.list_segments().await;
+        let mut topology_pairs: std::collections::HashSet<(String, String)> =
+            std::collections::HashSet::new();
+        for (_name, _groups, edges) in &segments {
+            for (src, dst) in edges {
+                topology_pairs.insert((src.clone(), dst.clone()));
+                topology_pairs.insert((dst.clone(), src.clone()));
+            }
+        }
+
+        // Track which group pairs have physical links.
+        let mut realized_pairs: std::collections::HashSet<(String, String)> =
+            std::collections::HashSet::new();
+
         let (tx, rx) = tokio::sync::mpsc::channel(64);
+        let links_clone = links.clone();
+        for l in &links_clone {
+            if !l.source_group.is_empty() && !l.dest_group.is_empty() {
+                realized_pairs.insert((l.source_group.clone(), l.dest_group.clone()));
+                realized_pairs.insert((l.dest_group.clone(), l.source_group.clone()));
+            }
+        }
+
+        // Pending topology links (configured but no physical link yet).
+        let mut pending_entries = Vec::new();
+        for (src, dst) in &topology_pairs {
+            if !realized_pairs.contains(&(src.clone(), dst.clone())) {
+                // Only emit one direction per pair.
+                if !pending_entries
+                    .iter()
+                    .any(|(a, b): &(String, String)| a == dst && b == src)
+                {
+                    pending_entries.push((src.clone(), dst.clone()));
+                }
+            }
+        }
+
         tokio::spawn(async move {
-            for l in links {
+            for l in links_clone {
                 let key = format!(
                     "{}|{}|{}|{}",
                     l.source_node_id, l.dest_node_id, l.dest_endpoint, l.link_id
@@ -383,7 +420,25 @@ impl ControlPlaneService for NorthboundApiService {
                     last_updated,
                 };
                 if tx.send(Ok(entry)).await.is_err() {
-                    break;
+                    return;
+                }
+            }
+            // Emit pending topology links.
+            for (src, dst) in pending_entries {
+                let entry = LinkEntry {
+                    id: format!("pending|{}|{}", src, dst),
+                    link_id: "-".to_string(),
+                    source_node_id: src,
+                    dest_node_id: dst,
+                    dest_endpoint: "-".to_string(),
+                    conn_config_data: String::new(),
+                    status: LinkStatus::Pending as i32,
+                    status_msg: String::new(),
+                    deleted: false,
+                    last_updated: 0,
+                };
+                if tx.send(Ok(entry)).await.is_err() {
+                    return;
                 }
             }
         });
@@ -452,10 +507,11 @@ impl ControlPlaneService for NorthboundApiService {
         } else {
             &req.segment
         };
-        self.route_service
+        let warnings = self
+            .route_service
             .add_topology_link(&req.group_a, &req.group_b, segment)
             .await?;
-        Ok(Response::new(AddTopologyLinkResponse {}))
+        Ok(Response::new(AddTopologyLinkResponse { warnings }))
     }
 
     async fn remove_topology_link(

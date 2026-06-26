@@ -357,10 +357,10 @@ impl RouteService {
         group_a: &str,
         group_b: &str,
         segment: &str,
-    ) -> Result<(), tonic::Status> {
+    ) -> Result<Vec<String>, tonic::Status> {
         self.ensure_api_mode()?;
 
-        // Validate that both groups exist (have registered nodes).
+        // Check which groups have registered nodes (for warnings).
         let all_nodes = self
             .0
             .db
@@ -373,15 +373,18 @@ impl RouteService {
         let has_group_b = all_nodes
             .iter()
             .any(|n| n.group_name.as_deref() == Some(group_b));
+        let mut warnings = Vec::new();
         if !has_group_a {
-            return Err(tonic::Status::not_found(format!(
-                "group '{group_a}' has no registered nodes"
-            )));
+            warnings.push(format!(
+                "group '{}' has no registered nodes yet; physical link will be created when nodes register",
+                group_a
+            ));
         }
         if !has_group_b {
-            return Err(tonic::Status::not_found(format!(
-                "group '{group_b}' has no registered nodes"
-            )));
+            warnings.push(format!(
+                "group '{}' has no registered nodes yet; physical link will be created when nodes register",
+                group_b
+            ));
         }
 
         let seg = self
@@ -391,7 +394,6 @@ impl RouteService {
             .await
             .map_err(|e| tonic::Status::internal(format!("failed to query segment: {e}")))?
             .ok_or_else(|| tonic::Status::not_found(format!("segment '{segment}' not found")))?;
-        // Add link (idempotent — ignore duplicate errors)
         self.0
             .db
             .add_link_to_segment(&seg.id, group_a, group_b)
@@ -401,7 +403,7 @@ impl RouteService {
             .await
             .map_err(|e| tonic::Status::internal(format!("failed to reload topology: {e}")))?;
         self.reconcile_topology_change().await;
-        Ok(())
+        Ok(warnings)
     }
 
     /// Remove a bidirectional topology link between two groups in a segment.
@@ -680,16 +682,16 @@ mod topology_mutation_tests {
     }
 
     #[tokio::test]
-    async fn add_topology_link_group_not_found() {
+    async fn add_topology_link_warns_on_missing_group() {
         let svc = api_managed_service();
         svc.add_segment("prod").await.unwrap();
         register_groups(&svc, &["cloud"]).await;
-        let err = svc
+        let warnings = svc
             .add_topology_link("cloud", "nonexistent", "prod")
             .await
-            .unwrap_err();
-        assert_eq!(err.code(), tonic::Code::NotFound);
-        assert!(err.message().contains("nonexistent"));
+            .unwrap();
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("nonexistent"));
     }
 
     #[tokio::test]

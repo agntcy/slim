@@ -792,7 +792,7 @@ async fn segment_remove(name: &str, opts: &ClientConfig) -> Result<()> {
 
 async fn link_add(group_a: &str, group_b: &str, segment: &str, opts: &ClientConfig) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
-    rpc!(
+    let resp = rpc!(
         client,
         add_topology_link,
         AddTopologyLinkRequest {
@@ -808,6 +808,9 @@ async fn link_add(group_a: &str, group_b: &str, segment: &str, opts: &ClientConf
             "Link {}↔{} added in segment '{}'",
             group_a, group_b, segment
         );
+    }
+    for warning in &resp.warnings {
+        println!("  Warning: {}", warning);
     }
     Ok(())
 }
@@ -1147,7 +1150,9 @@ mod tests {
                 &self,
                 _req: tonic::Request<AddTopologyLinkRequest>,
             ) -> Result<tonic::Response<AddTopologyLinkResponse>, tonic::Status> {
-                Ok(tonic::Response::new(AddTopologyLinkResponse {}))
+                Ok(tonic::Response::new(AddTopologyLinkResponse {
+                    warnings: vec![],
+                }))
             }
 
             async fn remove_topology_link(
