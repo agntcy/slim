@@ -53,6 +53,10 @@
     
       <link rel="stylesheet" href="../../stylesheets/agntcy-docs.css">
     
+      <link rel="stylesheet" href="../../stylesheets/slim-landing.css">
+    
+      <link rel="stylesheet" href="../../stylesheets/slimctl-terminal.css">
+    
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -1918,7 +1922,7 @@
 <p>SLIM A2A is a native integration of A2A built on top of SLIM. It utilizes SLIMRPC (SLIM Remote Procedure Call) and the SLIMRPC compiler to compile A2A protobuf file and generate the necessary code to enable A2A functionality on SLIM.</p>
 <h2 id="what-are-slimrpc-and-the-slimrpc-compiler">What are SLIMRPC and the SLIMRPC Compiler?</h2>
 <p>SLIMRPC is a framework that enables Protocol Buffers (protobuf) Remote Procedure Calls (RPC) over SLIM. This is similar to gRPC, which uses HTTP/2 as its transport layer for protobuf-based RPC. For more information, see the <a href="../slim-rpc/">SLIMRPC documentation</a>.</p>
-<p>To compile a protobuf file and generate the clients and service stub you can use the <a href="./slim-slimrpc-compiler.md">SLIMRPC compiler</a>. This works in a similar way to the protoc compiler.</p>
+<p>To compile a protobuf file and generate the clients and service stub you can use the <a href="../slim-slimrpc-compiler/">SLIMRPC compiler</a>. This works in a similar way to the protoc compiler.</p>
 <p>For SLIM A2A we compiled the <a href="https://github.com/a2aproject/A2A/blob/v0.3.0/specification/grpc/a2a.proto">a2a.proto</a> file using the SLIMRPC compiler. The generated code is in <a href="https://github.com/agntcy/slim-a2a-python/blob/main/slima2a/types/a2a_pb2_slimrpc.py">a2a_pb2_slimrpc.py</a>.</p>
 <h2 id="how-to-use-slima2a">How to use SLIMA2A</h2>
 <p>Using SLIM A2A is very similar to using the standard A2A implementation. As a reference example here we use the <a href="https://github.com/agntcy/slim-a2a-python/tree/main/examples/echo_agent">echo agent</a> available in the SLIM A2A Python repository. In the following sections, we highlight and explain the key differences between the standard and SLIM A2A implementations.</p>
@@ -2254,9 +2258,11 @@
   
   <div class="md-footer-meta md-typeset">
     <div class="md-footer-meta__inner md-grid">
-      <div style="text-align: center; font-size: 0.75rem; margin-top: 1rem; color: var(--md-default-fg-color--light);">
-  © Copyright AGNTCY Contributors.
+      <div class="md-copyright md-copyright--centered">
+  <div class="md-copyright__highlight">
+    © 2026, Agntcy, a Series of LF Projects, LLC. All rights reserved.
 
+  </div>
 </div>
       
     </div>
@@ -2280,6 +2286,16 @@
         <script src="../../javascripts/card-links.js"></script>
       
         <script src="../../javascripts/external-links.js"></script>
+      
+        <script src="../../javascripts/slim-header-scroll.js"></script>
+      
+        <script src="../../javascripts/slim-hero-tagline.js"></script>
+      
+        <script src="../../javascripts/slim-graph-tooltip.js"></script>
+      
+        <script src="../../javascripts/slimctl-demo-data.js"></script>
+      
+        <script src="../../javascripts/slimctl-terminal.js"></script>
       
     
   </body>
