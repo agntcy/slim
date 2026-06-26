@@ -365,9 +365,7 @@ impl ControlPlaneService for NorthboundApiService {
         let mut realized_pairs: std::collections::HashSet<(String, String)> =
             std::collections::HashSet::new();
 
-        let (tx, rx) = tokio::sync::mpsc::channel(64);
-        let links_clone = links.clone();
-        for l in &links_clone {
+        for l in &links {
             if !l.source_group.is_empty() && !l.dest_group.is_empty() {
                 realized_pairs.insert((l.source_group.clone(), l.dest_group.clone()));
                 realized_pairs.insert((l.dest_group.clone(), l.source_group.clone()));
@@ -388,8 +386,9 @@ impl ControlPlaneService for NorthboundApiService {
             }
         }
 
+        let (tx, rx) = tokio::sync::mpsc::channel(64);
         tokio::spawn(async move {
-            for l in links_clone {
+            for l in links {
                 let key = format!(
                     "{}|{}|{}|{}",
                     l.source_node_id, l.dest_node_id, l.dest_endpoint, l.link_id

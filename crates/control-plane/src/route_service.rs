@@ -692,7 +692,10 @@ mod topology_mutation_tests {
     async fn remove_default_segment_rejected() {
         let svc = api_managed_service();
         svc.add_segment(super::DEFAULT_SEGMENT).await.unwrap();
-        let err = svc.remove_segment(super::DEFAULT_SEGMENT).await.unwrap_err();
+        let err = svc
+            .remove_segment(super::DEFAULT_SEGMENT)
+            .await
+            .unwrap_err();
         assert_eq!(err.code(), tonic::Code::FailedPrecondition);
         assert!(err.message().contains("cannot be removed"));
     }

@@ -22,12 +22,10 @@ use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 
 use super::model::{
     ALL_NODES_ID, ConnDetailsJson, DbClientConfig, DbTimestamp, JsonStrings, Link, LinkStatus,
-    Node, Route, RouteName, RouteStatus, TopologySegment,
-    TopologySegmentLink, has_connection_details_changed,
+    Node, Route, RouteName, RouteStatus, TopologySegment, TopologySegmentLink,
+    has_connection_details_changed,
 };
-use super::schema::{
-    links, nodes, routes, topology_segment_links, topology_segments,
-};
+use super::schema::{links, nodes, routes, topology_segment_links, topology_segments};
 use super::{DataAccess, SharedDb};
 use crate::error::{Error, Result};
 

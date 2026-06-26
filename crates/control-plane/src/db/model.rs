@@ -12,9 +12,7 @@ use diesel::sql_types::{BigInt, Integer, Text};
 use serde::{Deserialize, Serialize};
 use slim_config::grpc::client::ClientConfig;
 
-use super::schema::{
-    links, nodes, routes, topology_segment_links, topology_segments,
-};
+use super::schema::{links, nodes, routes, topology_segment_links, topology_segments};
 
 /// Wildcard node ID — matches all nodes.
 pub const ALL_NODES_ID: &str = "*";
