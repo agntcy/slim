@@ -20,7 +20,7 @@ use crate::{
     errors::SessionError,
     mls_state::MlsState,
     runtime::maybe_await,
-    session_controller::SessionControllerCommon,
+    session_controller::{SessionControllerCommon, sign_control_messages},
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
     traits::{MessageHandler, ProcessingState},
@@ -300,12 +300,22 @@ where
 {
     #[maybe_async::maybe_async]
     async fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
+        let mut identity_provider = self.common.settings.identity_provider.clone();
+        if let Some(mls_state) = &self.mls_state {
+            identity_provider = mls_state.mls.identity_provider().clone();
+        }
         crate::session_controller::SessionController::apply_identity_to_slim_output(
             output,
-            &self.common.settings.identity_provider,
+            &identity_provider,
         )?;
         if let Some(mls_state) = &mut self.mls_state {
+            self.common
+                .sign_control_messages(output, &identity_provider)?;
             mls_state.encrypt_output(output).await?;
+        } else {
+            // Discovery messages always need to be signed as MLS settings are not available for the
+            // receiver at this point
+            sign_control_messages(output, &identity_provider)?;
         }
         Ok(())
     }
@@ -805,6 +815,8 @@ mod tests {
             graceful_shutdown_timeout: None,
             subscription_manager,
             service_id: String::new(),
+            max_seen_control_message_ids_size:
+                crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
         };
 
         let inner = MockInnerHandler::new();

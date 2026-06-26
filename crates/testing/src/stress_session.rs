@@ -173,6 +173,7 @@ pub async fn run_session_benchmark(
         if let Some(percent) = cfg.validation_percent {
             config.mls_settings = Some(slim_session::session_config::MlsSettings {
                 header_integrity_validation_percent: percent,
+                max_seen_control_message_ids_size: None,
             });
         }
 

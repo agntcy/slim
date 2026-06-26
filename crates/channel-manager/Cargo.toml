@@ -33,7 +33,6 @@ tonic = { workspace = true }
 tonic-prost = { workspace = true }
 tracing = { workspace = true }
 
-
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim = { workspace = true }
 agntcy-slim-config = { workspace = true }

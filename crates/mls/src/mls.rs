@@ -125,6 +125,13 @@ where
         }
     }
 
+    /// Identity provider whose MLS signature keys were installed during
+    /// [`Self::initialize`]. Distinct from session-level clones when `P` stores
+    /// keys per clone (e.g. [`SharedSecret`]).
+    pub fn identity_provider(&self) -> &P {
+        &self.identity_provider
+    }
+
     /// Creates a signing identity from the keys stored in the identity provider.
     /// The provider must have had its MLS keys set via `set_signature_keys`.
     fn create_signing_identity(

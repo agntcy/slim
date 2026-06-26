@@ -524,7 +524,7 @@ where
                 self.handle_join_request(message, id, session_type).await
             }
             ProtoSessionMessageType::DiscoveryRequest => {
-                self.handle_discovery_request(message, id, session_type, session_message_type)
+                self.handle_discovery_request(message, id, session_type)
             }
             _ => {
                 tracing::debug!(?message, "received channel message with unknown session id");
@@ -538,7 +538,6 @@ where
         message: Message,
         id: u32,
         session_type: ProtoSessionType,
-        session_message_type: ProtoSessionMessageType,
     ) -> Result<(), SessionError> {
         let layer = self.clone();
         tokio::spawn(async move {
@@ -548,47 +547,53 @@ where
             };
 
             if let Err(e) =
-                crate::session_controller::verify_identity(&message, &layer.identity_verifier).await
+                // For Discovery messages header validation is always turned on because at this
+                // point there is no Session to collect the MlsSettings from.
+                crate::session_controller::verify_identity(
+                    &message,
+                    &layer.identity_verifier,
+                    true,
+                )
+                .await
             {
-                debug!(
-                    error = %e.chain(),
-                    msg_type = %session_message_type.as_str_name(),
+                let err = e.chain();
+                error!(
+                    error = %err,
+                    msg_type = %ProtoSessionMessageType::DiscoveryRequest.as_str_name(),
                     "dropping pre-session message: identity verification failed",
                 );
                 return;
             }
 
-            let local_name =
-                match layer.get_local_name_for_session(message.get_slim_header().get_dst()) {
-                    Ok(n) => n,
-                    Err(e) => {
-                        debug!(error = %e.chain(), "error handling discovery request");
-                        return;
-                    }
-                };
-
-            let mut reply =
-                match handle_channel_discovery_message(&message, &local_name, id, session_type) {
-                    Ok(r) => r,
-                    Err(e) => {
-                        debug!(error = %e.chain(), "error building discovery reply");
-                        return;
-                    }
-                };
-
-            let identity = match layer.identity_provider.get_token() {
-                Ok(t) => t,
-                Err(e) => {
-                    debug!(error = %e.chain(), "error getting identity token for discovery reply");
-                    return;
-                }
-            };
-            reply.get_slim_header_mut().set_identity(identity);
-            if let Err(e) = layer.tx_slim.send(Ok(reply)).await {
-                debug!(error = %e.chain(), "error sending discovery reply");
+            if let Err(e) = layer
+                .process_discovery_request(message, id, session_type)
+                .await
+            {
+                let err = e.chain();
+                debug!(error = %err, "error handling discovery request");
             }
         });
 
+        Ok(())
+    }
+
+    async fn process_discovery_request(
+        &self,
+        message: Message,
+        id: u32,
+        session_type: ProtoSessionType,
+    ) -> Result<(), SessionError> {
+        let local_name = self.get_local_name_for_session(message.get_slim_header().get_dst())?;
+        let mut reply = handle_channel_discovery_message(&message, &local_name, id, session_type)?;
+        let identity = self.identity_provider.get_token()?;
+        reply.get_slim_header_mut().set_identity(identity);
+        crate::session_controller::sign_outbound_control_message(
+            &mut reply,
+            &self.identity_provider,
+        )?;
+        if let Err(e) = self.tx_slim.send(Ok(reply)).await {
+            debug!(error = %e.chain(), "error sending discovery reply");
+        }
         Ok(())
     }
 
@@ -672,6 +677,7 @@ where
 mod tests {
     use super::*;
     use crate::test_utils::{MockTokenProvider, MockVerifier};
+    use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::Status;
     use slim_datapath::api::{NameId, ProtoName, ProtoSessionType};
     use tokio::sync::mpsc;
@@ -947,6 +953,66 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_discovery_request_without_session() {
+        const TEST_SECRET: &str = "abcdefghijklmnopqrstuvwxyz012345";
+
+        let app_name = make_name(&["test", "app", "v1"]);
+        let remote_auth = SharedSecret::new("remote", TEST_SECRET).unwrap();
+        let local_provider = SharedSecret::new("local", TEST_SECRET).unwrap();
+        let local_verifier = SharedSecret::new("local", TEST_SECRET).unwrap();
+        let (tx_slim, mut rx_slim) = mpsc::channel(16);
+        let (tx_app, _rx_app) = mpsc::channel(16);
+        let session_layer = Arc::new(SessionLayer::new(
+            app_name,
+            local_provider,
+            local_verifier,
+            12345u64,
+            tx_slim,
+            tx_app,
+            Direction::Bidirectional,
+            "test-service".to_string(),
+        ));
+
+        let local_name = make_name(&["local", "app", "v1"]);
+        session_layer.add_app_name(local_name.clone(), 0);
+
+        let source = make_name(&["remote", "app", "v1"]);
+        let mut message = Message::builder()
+            .source(source.clone())
+            .destination(local_name.clone().with_id(session_layer.app_id()))
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::PointToPoint)
+            .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
+            .session_id(100)
+            .message_id(1)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        let identity = remote_auth.get_token().unwrap();
+        message.get_slim_header_mut().set_identity(identity);
+        crate::session_controller::sign_outbound_control_message(&mut message, &remote_auth)
+            .unwrap();
+
+        session_layer
+            .handle_message_from_slim(message)
+            .await
+            .unwrap();
+
+        let sent = tokio::time::timeout(std::time::Duration::from_secs(1), rx_slim.recv())
+            .await
+            .expect("expected a discovery reply")
+            .expect("slim channel closed")
+            .expect("slim delivered an error");
+
+        assert_eq!(
+            sent.get_session_header().session_message_type(),
+            ProtoSessionMessageType::DiscoveryReply
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_discovery_request_without_e2e_sig_is_dropped() {
         let (session_layer, mut rx_slim, _rx_app) = setup_session_layer();
 
         let local_name = make_name(&["local", "app", "v1"]);
@@ -972,16 +1038,8 @@ mod tests {
             .await
             .unwrap();
 
-        let sent = tokio::time::timeout(std::time::Duration::from_secs(1), rx_slim.recv())
-            .await
-            .expect("expected a discovery reply")
-            .expect("slim channel closed")
-            .expect("slim delivered an error");
-
-        assert_eq!(
-            sent.get_session_header().session_message_type(),
-            ProtoSessionMessageType::DiscoveryReply
-        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(rx_slim.try_recv().is_err());
     }
 
     #[tokio::test]
