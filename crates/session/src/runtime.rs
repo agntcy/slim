@@ -23,28 +23,4 @@ macro_rules! maybe_await {
 }
 
 pub(crate) use maybe_await;
-
-/// Spawn a session task, returning a [`tokio::task::JoinHandle`].
-///
-/// On native targets this is `tokio::spawn` (multi-threaded runtime, requires a
-/// `Send` future). On wasm32 the session futures are `!Send` (they await the
-/// SubtleCrypto-backed MLS provider) and the runtime is single-threaded, so we
-/// use `tokio::task::spawn_local`, which yields the same `JoinHandle` type
-/// without the `Send` requirement. Both keep the caller-facing API identical.
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn spawn<F>(future: F) -> tokio::task::JoinHandle<F::Output>
-where
-    F: std::future::Future + Send + 'static,
-    F::Output: Send + 'static,
-{
-    tokio::spawn(future)
-}
-
-#[cfg(target_arch = "wasm32")]
-pub(crate) fn spawn<F>(future: F) -> tokio::task::JoinHandle<F::Output>
-where
-    F: std::future::Future + 'static,
-    F::Output: 'static,
-{
-    tokio::task::spawn_local(future)
-}
+pub(crate) use slim_datapath::runtime::spawn;

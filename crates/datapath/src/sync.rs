@@ -14,7 +14,11 @@ pub mod peer;
 pub mod remote;
 mod state;
 
-pub use forwarder::{ForwardTargets, PeerSync, PeerSyncConfig, PeerTarget};
+pub use forwarder::{ForwardTargets, PeerSync, PeerTarget};
+// `PeerSyncConfig` carries a native-only `PeerTopology`; the browser client
+// uses `PeerSync::standalone`.
+#[cfg(not(target_arch = "wasm32"))]
+pub use forwarder::PeerSyncConfig;
 pub use state::PeerState;
 
 use crate::api::proto::dataplane::v1::Message;

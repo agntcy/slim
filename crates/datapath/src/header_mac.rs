@@ -13,10 +13,55 @@
 
 use std::cell::RefCell;
 
-use aws_lc_rs::hmac;
 use thiserror::Error;
 
+#[cfg(not(target_arch = "wasm32"))]
+use aws_lc_rs::hmac;
+
 use crate::api::proto::dataplane::v1::{Name, SlimHeader};
+
+/// HMAC-SHA256 backend.
+///
+/// Native uses `aws_lc_rs::hmac`; the browser build uses the pure-Rust
+/// `hmac` + `sha2` crates. Both compute an identical RFC 2104 HMAC-SHA256, so
+/// signatures interoperate across a native↔browser link.
+#[cfg(not(target_arch = "wasm32"))]
+type MacKey = hmac::Key;
+#[cfg(target_arch = "wasm32")]
+type MacKey = Vec<u8>;
+
+#[cfg(not(target_arch = "wasm32"))]
+fn mac_new(secret: &[u8]) -> MacKey {
+    hmac::Key::new(hmac::HMAC_SHA256, secret)
+}
+#[cfg(target_arch = "wasm32")]
+fn mac_new(secret: &[u8]) -> MacKey {
+    secret.to_vec()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn mac_sign(key: &MacKey, data: &[u8]) -> Vec<u8> {
+    Vec::from(hmac::sign(key, data).as_ref())
+}
+#[cfg(target_arch = "wasm32")]
+fn mac_sign(key: &MacKey, data: &[u8]) -> Vec<u8> {
+    use hmac::{Hmac, Mac};
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(key).expect("HMAC accepts any key length");
+    mac.update(data);
+    mac.finalize().into_bytes().to_vec()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn mac_verify(key: &MacKey, data: &[u8], tag: &[u8]) -> bool {
+    hmac::verify(key, data, tag).is_ok()
+}
+#[cfg(target_arch = "wasm32")]
+fn mac_verify(key: &MacKey, data: &[u8], tag: &[u8]) -> bool {
+    use hmac::{Hmac, Mac};
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(key).expect("HMAC accepts any key length");
+    mac.update(data);
+    mac.verify_slice(tag).is_ok()
+}
 
 thread_local! {
     static PREIMAGE_BUF: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(512));
@@ -47,7 +92,7 @@ pub enum HeaderMacError {
 /// Per-link HMAC state: only the key material. Preimage buffers are thread-local (see module docs).
 #[derive(Clone)]
 pub struct HeaderMacSession {
-    key: hmac::Key,
+    key: MacKey,
 }
 
 impl std::fmt::Debug for HeaderMacSession {
@@ -63,7 +108,7 @@ impl HeaderMacSession {
             return Err(HeaderMacError::KeyTooShort);
         }
         Ok(Self {
-            key: hmac::Key::new(hmac::HMAC_SHA256, secret),
+            key: mac_new(secret),
         })
     }
 
@@ -82,8 +127,7 @@ impl HeaderMacSession {
             buf.clear();
             reserve_preimage_upper_bound(&mut buf, header, link_id);
             write_preimage(&mut buf, header, link_id.as_bytes());
-            let tag = hmac::sign(&self.key, buf.as_slice());
-            header.header_mac = Some(Vec::from(tag.as_ref()));
+            header.header_mac = Some(mac_sign(&self.key, buf.as_slice()));
             Ok(())
         })
     }
@@ -109,8 +153,11 @@ impl HeaderMacSession {
             buf.clear();
             reserve_preimage_upper_bound(&mut buf, header, link_id);
             write_preimage(&mut buf, header, link_id.as_bytes());
-            hmac::verify(&self.key, buf.as_slice(), tag)
-                .map_err(|_| HeaderMacError::VerificationFailed)
+            if mac_verify(&self.key, buf.as_slice(), tag) {
+                Ok(())
+            } else {
+                Err(HeaderMacError::VerificationFailed)
+            }
         })
     }
 }

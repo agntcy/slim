@@ -8,7 +8,6 @@ use crate::api::ProtoSessionMessageType;
 use crate::api::proto::dataplane::v1::Message;
 use crate::messages::utils::MessageError;
 use agntcy_slim_proto::NameError;
-#[cfg(not(target_arch = "wasm32"))]
 use slim_config::errors::ConfigError;
 use thiserror::Error;
 
@@ -69,7 +68,6 @@ pub enum DataPathError {
     },
 
     // Configuration error
-    #[cfg(not(target_arch = "wasm32"))]
     #[error("configuration error")]
     ConfigurationError(#[from] ConfigError),
 
@@ -88,7 +86,6 @@ pub enum DataPathError {
     #[error("timeout during shutdown")]
     ShutdownTimeoutError,
 
-    #[cfg(not(target_arch = "wasm32"))]
     #[error("SLIM header integrity: {0}")]
     HeaderIntegrity(#[from] crate::header_mac::HeaderMacError),
 
