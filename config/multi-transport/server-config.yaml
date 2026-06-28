@@ -1,0 +1,30 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+#
+# Single SLIM node exposing BOTH transports so browser, native-websocket and
+# native-gRPC participants can all share one channel:
+#   - ws://0.0.0.0:46357  -> browser participants + native WebSocket participant
+#   - 0.0.0.0:46358       -> native gRPC participant (bare host:port => gRPC)
+tracing:
+  log_level: debug
+  display_thread_names: true
+  display_thread_ids: true
+
+runtime:
+  n_cores: 0
+  thread_name: "slim-data-plane"
+  drain_timeout: 10s
+
+services:
+  slim/0:
+    dataplane:
+      servers:
+        # WebSocket listener (browser + native ws client)
+        - endpoint: "ws://0.0.0.0:46357"
+          tls:
+            insecure: true
+        # gRPC listener (native grpc client). Bare host:port => grpc transport.
+        - endpoint: "0.0.0.0:46358"
+          tls:
+            insecure: true
+      clients: []

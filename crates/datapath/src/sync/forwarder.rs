@@ -15,19 +15,27 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use display_error_chain::ErrorChainExt;
 use parking_lot::RwLock;
 use tokio::sync::oneshot;
-use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
+
+// These are only used by the native peer-discovery lifecycle.
+cfg_if::cfg_if! {
+    if #[cfg(not(target_arch = "wasm32"))] {
+        use display_error_chain::ErrorChainExt;
+        use tokio_util::sync::CancellationToken;
+        use tracing::error;
+
+        use crate::peer_discovery::config::PeerTopology;
+        use crate::peer_discovery::{PeerDiscovery, PeerEvent, PeerInfo};
+    }
+}
 
 use crate::api::ProtoName;
 use crate::api::proto::dataplane::v1::Message;
 use crate::errors::DataPathError;
 use crate::message_processing::MessageProcessor;
 use crate::messages::utils::DEFAULT_TTL;
-use crate::peer_discovery::config::PeerTopology;
-use crate::peer_discovery::{PeerDiscovery, PeerEvent, PeerInfo};
 use crate::sync::state::{PeerEntry, PeerState};
 
 use super::peer;
@@ -71,6 +79,7 @@ impl ForwardTargets {
 }
 
 /// Configuration for peer synchronization.
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone)]
 pub struct PeerSyncConfig {
     /// This replica's unique identifier.
@@ -144,6 +153,7 @@ struct PeerSyncInner {
 
 impl PeerSync {
     /// Create a new PeerSync.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new(topology: &PeerTopology) -> Self {
         let (subscription_ttl, sync_filter) = match topology {
             PeerTopology::FullMesh => (2, crate::tables::MatchFilter::EXCLUDE_PEER),
@@ -162,6 +172,7 @@ impl PeerSync {
     }
 
     /// Create a PeerSync with shared peer state (for discovery mode).
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn with_peer_state(topology: &PeerTopology, peer_state: Arc<RwLock<PeerState>>) -> Self {
         let (subscription_ttl, sync_filter) = match topology {
             PeerTopology::FullMesh => (2, crate::tables::MatchFilter::EXCLUDE_PEER),
@@ -274,7 +285,7 @@ impl PeerSync {
         self.add_peer_conn(conn_id);
         let forwarder = self.clone();
         let mp = mp.clone();
-        tokio::spawn(async move {
+        crate::runtime::spawn(async move {
             let ttl = forwarder.inner.subscription_ttl;
             let filter = forwarder.inner.sync_filter;
             let subscriptions = peer::collect_subscriptions(&mp, conn_id, filter);
@@ -302,6 +313,7 @@ impl PeerSync {
     ///
     /// This spawns nothing — it runs as an async loop. The caller is expected
     /// to spawn this (e.g., via `tokio::spawn`).
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn run_discovery<D: PeerDiscovery + Send>(
         &self,
         mp: &MessageProcessor,
@@ -348,6 +360,7 @@ impl PeerSync {
     ///
     /// In full-mesh topology, only the node with the lexicographically smaller
     /// self_id initiates each pairwise connection (tie-breaking for dedup).
+    #[cfg(not(target_arch = "wasm32"))]
     async fn handle_peer_joined(
         &self,
         mp: &MessageProcessor,
@@ -423,6 +436,7 @@ impl PeerSync {
     }
 
     /// Handle a peer leaving the deployment.
+    #[cfg(not(target_arch = "wasm32"))]
     async fn handle_peer_left(&self, mp: &MessageProcessor, peer: PeerInfo) {
         let entry = self
             .inner
@@ -603,7 +617,7 @@ impl PeerSync {
         drain: drain::Watch,
     ) {
         let forwarder = self.clone();
-        tokio::spawn(async move {
+        crate::runtime::spawn(async move {
             tokio::select! {
                 _ = forwarder.forward_and_ack(
                     &mp,

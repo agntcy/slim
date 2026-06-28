@@ -18,6 +18,17 @@ cfg-if = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 
+# Browser build: a minimal client config + gloo-net WebSocket connect. Auth,
+# TLS, proxy and gRPC are intentionally excluded (the browser handles wss://
+# TLS, and header/query-token auth is layered above).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+duration-string = { workspace = true }
+gloo-net = { workspace = true }
+http = { workspace = true }
+percent-encoding = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true, features = ["v4", "js"] }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim-auth = { workspace = true }
 async-trait = { workspace = true }

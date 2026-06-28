@@ -1,0 +1,214 @@
+<!doctype html>
+<!--
+  Copyright AGNTCY Contributors (https://github.com/agntcy)
+  SPDX-License-Identifier: Apache-2.0
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SLIM browser MLS moderator</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 920px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        color: #1b2138;
+      }
+      h1 { font-size: 1.4rem; }
+      fieldset { border: 1px solid #d3d8e8; border-radius: 8px; margin-bottom: 1rem; }
+      legend { font-weight: 600; padding: 0 0.4rem; }
+      label { display: inline-block; min-width: 90px; }
+      input { padding: 0.3rem 0.4rem; margin: 0.2rem 0; border: 1px solid #c2c8db; border-radius: 5px; }
+      input[type="text"] { width: 320px; }
+      .row { margin: 0.3rem 0; }
+      button {
+        padding: 0.4rem 0.9rem; border: none; border-radius: 6px;
+        background: #3b5bdb; color: white; cursor: pointer; margin-right: 0.4rem;
+      }
+      button:disabled { background: #9aa6d6; cursor: not-allowed; }
+      #status { font-weight: 600; }
+      #log {
+        background: #0f1426; color: #c8d2f0; font-family: ui-monospace, monospace;
+        font-size: 0.82rem; padding: 0.8rem; border-radius: 8px; height: 320px;
+        overflow-y: auto; white-space: pre-wrap;
+      }
+      .nm { display: flex; gap: 0.4rem; }
+      .nm input { width: 110px; }
+    </style>
+  </head>
+  <body>
+    <h1>SLIM browser MLS moderator</h1>
+    <p>
+      Drives the <code>SessionLayer</code> compiled to <code>wasm32</code> (via
+      <code>tokio_with_wasm</code>) over a <code>gloo_net</code> WebSocket. The
+      browser is the <strong>moderator</strong>: it creates an MLS group,
+      invites native participants, and broadcasts end-to-end encrypted messages.
+    </p>
+
+    <fieldset>
+      <legend>Connection</legend>
+      <div class="row">
+        <label for="endpoint">Endpoint</label>
+        <input id="endpoint" type="text" value="ws://127.0.0.1:46357" />
+      </div>
+      <div class="row">
+        <label for="token">JWT token</label>
+        <input id="token" type="text" placeholder="(optional) sent as ?token=" />
+      </div>
+      <div class="row">
+        <label for="name">Name</label>
+        <input id="name" type="text" value="org/default/browser" />
+      </div>
+      <div class="row">
+        <button id="connect">Connect</button>
+        <button id="disconnect" disabled>Disconnect</button>
+        <span id="status">disconnected</span>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>1. Create MLS group</legend>
+      <div class="row nm">
+        <input id="grp-org" type="text" value="channel" />
+        <input id="grp-ns" type="text" value="channel" />
+        <input id="grp-name" type="text" value="channel" />
+        <button id="create-group" disabled>Create group</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>2. Invite participant (org/ns/type)</legend>
+      <div class="row nm">
+        <input id="inv-org" type="text" value="org" />
+        <input id="inv-ns" type="text" value="default" />
+        <input id="inv-name" type="text" value="native-ws" />
+        <button id="invite" disabled>Invite</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>3. Broadcast (MLS-encrypted)</legend>
+      <div class="row">
+        <label for="pub-data">Payload</label>
+        <input id="pub-data" type="text" value="hello from the browser" />
+        <button id="publish" disabled>Send</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Log</legend>
+      <div id="log"></div>
+    </fieldset>
+
+    <script type="module">
+      import init, { SlimClient } from "./pkg/slim_web_client.js";
+
+      const $ = (id) => document.getElementById(id);
+      const logEl = $("log");
+      const decoder = new TextDecoder();
+
+      function log(msg) {
+        const ts = new Date().toLocaleTimeString();
+        logEl.textContent += `[${ts}] ${msg}\n`;
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      let client = null;
+
+      let hasGroup = false;
+
+      function setConnected(connected) {
+        $("status").textContent = connected ? "connected" : "disconnected";
+        $("status").style.color = connected ? "#2b8a3e" : "#868e96";
+        $("connect").disabled = connected;
+        $("disconnect").disabled = !connected;
+        $("create-group").disabled = !connected;
+        if (!connected) hasGroup = false;
+        $("invite").disabled = !connected || !hasGroup;
+        $("publish").disabled = !connected || !hasGroup;
+      }
+
+      // Inbound callback: (kind, source, payload: Uint8Array)
+      function onMessage(kind, source, payload) {
+        let extra = "";
+        if (payload && payload.length > 0) {
+          extra = ` | payload="${decoder.decode(payload)}"`;
+        }
+        log(`<= ${kind} from ${source}${extra}`);
+      }
+
+      await init();
+      log("wasm module initialized");
+
+      $("connect").addEventListener("click", async () => {
+        const endpoint = $("endpoint").value.trim();
+        const token = $("token").value.trim();
+        const name = $("name").value.trim() || "org/default/browser";
+        log(`connecting to ${endpoint}${token ? " (with token)" : ""} as ${name} ...`);
+        try {
+          client = await SlimClient.connect(
+            endpoint,
+            token === "" ? undefined : token,
+            name,
+            onMessage,
+          );
+          setConnected(true);
+          log("connected + negotiated");
+        } catch (e) {
+          log(`connect error: ${e}`);
+        }
+      });
+
+      $("disconnect").addEventListener("click", () => {
+        if (!client) return;
+        client.close();
+        client = null;
+        setConnected(false);
+        log("disconnected");
+      });
+
+      $("create-group").addEventListener("click", async () => {
+        if (!client) return;
+        const org = $("grp-org").value.trim();
+        const ns = $("grp-ns").value.trim();
+        const name = $("grp-name").value.trim();
+        try {
+          await client.create_group(org, ns, name);
+          hasGroup = true;
+          $("invite").disabled = false;
+          $("publish").disabled = false;
+          $("create-group").disabled = true;
+          log(`=> created MLS group ${org}/${ns}/${name}`);
+        } catch (e) {
+          log(`create group error: ${e}`);
+        }
+      });
+
+      $("invite").addEventListener("click", async () => {
+        if (!client) return;
+        const org = $("inv-org").value.trim();
+        const ns = $("inv-ns").value.trim();
+        const name = $("inv-name").value.trim();
+        try {
+          await client.invite(org, ns, name);
+          log(`=> invited ${org}/${ns}/${name}`);
+        } catch (e) {
+          log(`invite error: ${e}`);
+        }
+      });
+
+      $("publish").addEventListener("click", async () => {
+        if (!client) return;
+        const data = new TextEncoder().encode($("pub-data").value);
+        try {
+          await client.publish(data);
+          log(`=> sent encrypted (${data.length} bytes)`);
+        } catch (e) {
+          log(`publish error: ${e}`);
+        }
+      });
+    </script>
+  </body>
+</html>

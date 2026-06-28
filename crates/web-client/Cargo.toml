@@ -1,0 +1,46 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "slim-web-client"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "wasm-bindgen bindings exposing the SLIM data-plane browser client to JavaScript"
+publish = false
+
+# Excluded from the workspace (see the root Cargo.toml `exclude`): this is a
+# wasm32-only `cdylib` that depends on gloo-net/js-sys. Build the JS bindings
+# with `wasm-pack build --target web`.
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# SLIM data plane (browser/wasm32 client subset) + its client config.
+agntcy-slim-datapath = { path = "../datapath" }
+agntcy-slim-config = { path = "../config" }
+# Session layer (Multicast + MLS) and identity. These compile on wasm32: the
+# session crate uses the same `tokio_with_wasm` runtime as the datapath, and
+# `SharedSecret` is a pure-Rust HMAC identity with no native-only deps.
+agntcy-slim-session = { path = "../session" }
+agntcy-slim-auth = { path = "../auth" }
+
+# 128-bit hash for deriving the app id from the identity token (mirrors the
+# native `App::new_with_direction`).
+twox-hash = "2.1.1"
+
+# wasm <-> JS glue.
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+tracing = "0.1"
+tracing-wasm = "0.2"
+
+# Async plumbing. `tokio` is the same `tokio_with_wasm` drop-in the datapath
+# uses on wasm, so the local-connection channel types (`mpsc::Sender`/
+# `Receiver<Result<Message, Status>>`) are identical across the crate boundary.
+futures = "0.3"
+tokio = { package = "tokio_with_wasm", version = "0.9", features = ["sync"] }
+tokio-stream = "0.1"
