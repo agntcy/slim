@@ -38,31 +38,33 @@ impl NorthboundApiService {
     }
 
     /// Build a map of link_id → qualified peer name (group/node) for a given node.
-    fn build_link_peer_map<'a>(
+    fn build_link_peer_map(
         node_id: &str,
-        links: &'a [crate::db::Link],
-    ) -> std::collections::HashMap<&'a str, String> {
+        links: &[crate::db::Link],
+    ) -> std::collections::HashMap<String, String> {
         links
             .iter()
             .map(|link| {
                 let peer = if link.source_node_id == node_id {
-                    if link
-                        .dest_node_id
-                        .starts_with(&format!("{}/", link.dest_group))
+                    if link.dest_group.is_empty()
+                        || link
+                            .dest_node_id
+                            .starts_with(&format!("{}/", link.dest_group))
                     {
                         link.dest_node_id.clone()
                     } else {
                         format!("{}/{}", link.dest_group, link.dest_node_id)
                     }
-                } else if link
-                    .source_node_id
-                    .starts_with(&format!("{}/", link.source_group))
+                } else if link.source_group.is_empty()
+                    || link
+                        .source_node_id
+                        .starts_with(&format!("{}/", link.source_group))
                 {
                     link.source_node_id.clone()
                 } else {
                     format!("{}/{}", link.source_group, link.source_node_id)
                 };
-                (link.link_id.as_str(), peer)
+                (link.link_id.clone(), peer)
             })
             .collect()
     }
@@ -114,10 +116,7 @@ impl NorthboundApiService {
                 tracing::warn!("{caller}: failed to fetch links for enrichment: {e}");
                 Vec::new()
             });
-        let link_peer_map = Self::build_link_peer_map(&node.id, &links)
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .collect();
+        let link_peer_map = Self::build_link_peer_map(&node.id, &links);
         (node_group, link_peer_map)
     }
 }
@@ -366,14 +365,21 @@ impl ControlPlaneService for NorthboundApiService {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0);
+                let conn_config_data =
+                    serde_json::to_string(&l.conn_config_data).unwrap_or_else(|e| {
+                        tracing::warn!(
+                            "failed to serialize conn_config_data for link {}: {e}",
+                            l.link_id
+                        );
+                        String::new()
+                    });
                 let entry = LinkEntry {
                     id: key,
                     link_id: l.link_id,
                     source_node_id: l.source_node_id,
                     dest_node_id: l.dest_node_id,
                     dest_endpoint: l.dest_endpoint,
-                    conn_config_data: serde_json::to_string(&l.conn_config_data)
-                        .unwrap_or_default(),
+                    conn_config_data,
                     status: link_status,
                     status_msg: l.status_msg,
                     deleted: l.status == crate::db::LinkStatus::Deleted,
@@ -408,5 +414,73 @@ impl ControlPlaneService for NorthboundApiService {
             })
             .collect();
         Ok(Response::new(SegmentListResponse { segments: entries }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{Link, LinkStatus};
+    use std::time::SystemTime;
+
+    fn make_link(
+        link_id: &str,
+        src_node: &str,
+        src_group: &str,
+        dst_node: &str,
+        dst_group: &str,
+    ) -> Link {
+        Link {
+            link_id: link_id.to_string(),
+            source_node_id: src_node.to_string(),
+            source_group: src_group.to_string(),
+            dest_node_id: dst_node.to_string(),
+            dest_group: dst_group.to_string(),
+            dest_endpoint: "http://127.0.0.1:9000".to_string(),
+            conn_config_data: slim_config::grpc::client::ClientConfig::default()
+                .with_connection_type(slim_config::conn_type::ConnType::Remote),
+            status: LinkStatus::Applied,
+            status_msg: String::new(),
+            created_at: SystemTime::now(),
+            last_updated: SystemTime::now(),
+        }
+    }
+
+    #[test]
+    fn build_link_peer_map_normal_prefix() {
+        // node-a is source, peer should be "group-b/node-b"
+        let links = vec![make_link("l1", "node-a", "group-a", "node-b", "group-b")];
+        let map = NorthboundApiService::build_link_peer_map("node-a", &links);
+        assert_eq!(map.get("l1").unwrap(), "group-b/node-b");
+    }
+
+    #[test]
+    fn build_link_peer_map_already_prefixed() {
+        // dest_node_id already has "group-b/" prefix — should not double it
+        let links = vec![make_link(
+            "l1",
+            "node-a",
+            "group-a",
+            "group-b/node-b",
+            "group-b",
+        )];
+        let map = NorthboundApiService::build_link_peer_map("node-a", &links);
+        assert_eq!(map.get("l1").unwrap(), "group-b/node-b");
+    }
+
+    #[test]
+    fn build_link_peer_map_empty_group() {
+        // Empty dest_group — should return dest_node_id as-is
+        let links = vec![make_link("l1", "node-a", "group-a", "node-b", "")];
+        let map = NorthboundApiService::build_link_peer_map("node-a", &links);
+        assert_eq!(map.get("l1").unwrap(), "node-b");
+    }
+
+    #[test]
+    fn build_link_peer_map_reverse_direction() {
+        // node-b is the current node (dest in the link), peer should be source
+        let links = vec![make_link("l1", "node-a", "group-a", "node-b", "group-b")];
+        let map = NorthboundApiService::build_link_peer_map("node-b", &links);
+        assert_eq!(map.get("l1").unwrap(), "group-a/node-a");
     }
 }

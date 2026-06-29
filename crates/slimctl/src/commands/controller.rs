@@ -86,7 +86,7 @@ pub enum ControllerRouteCommand {
     #[command(visible_alias = "ls")]
     List {
         /// Show routes for a specific node (per-node view)
-        #[arg(short = 'n', long)]
+        #[arg(short = 'n', long, conflicts_with_all = ["origin_node_id", "target_node_id", "all"])]
         node_id: Option<String>,
         /// Filter by source (origin) node ID (controller-wide view only)
         #[arg(short = 'o', long, default_value = "")]
@@ -189,7 +189,7 @@ async fn run_route(args: &ControllerRouteArgs, opts: &ClientConfig) -> Result<()
             all,
         } => match node_id {
             Some(id) => route_list(id, opts).await,
-            None => route_outline(origin_node_id, target_node_id, *all, opts).await,
+            None => route_list_all(origin_node_id, target_node_id, *all, opts).await,
         },
     }
 }
@@ -200,7 +200,7 @@ async fn run_link(args: &ControllerLinkArgs, opts: &ClientConfig) -> Result<()> 
             origin_node_id,
             target_node_id,
             all,
-        } => link_outline(origin_node_id, target_node_id, *all, opts).await,
+        } => link_list_all(origin_node_id, target_node_id, *all, opts).await,
     }
 }
 
@@ -406,7 +406,7 @@ async fn route_list(node_id: &str, opts: &ClientConfig) -> Result<()> {
     Ok(())
 }
 
-async fn route_outline(
+async fn route_list_all(
     origin_node_id: &str,
     target_node_id: &str,
     show_all: bool,
@@ -447,7 +447,7 @@ async fn route_outline(
     Ok(())
 }
 
-async fn link_outline(
+async fn link_list_all(
     origin_node_id: &str,
     target_node_id: &str,
     show_all: bool,
@@ -606,7 +606,7 @@ fn build_subscription_str(route: &RouteEntry) -> String {
     route
         .name
         .as_ref()
-        .map_or_else(|| "None".to_string(), |n| format!("{}", n))
+        .map_or_else(|| "None".to_string(), |n| n.to_string())
 }
 
 fn route_status_str(status: i32) -> String {
@@ -1056,17 +1056,19 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn route_outline_succeeds() {
+        async fn route_list_all_succeeds() {
             let addr = spawn_mock_cp_server().await;
-            route_outline("", "", true, &make_opts(&addr))
+            route_list_all("", "", true, &make_opts(&addr))
                 .await
                 .unwrap();
         }
 
         #[tokio::test]
-        async fn link_outline_succeeds() {
+        async fn link_list_all_succeeds() {
             let addr = spawn_mock_cp_server().await;
-            link_outline("", "", true, &make_opts(&addr)).await.unwrap();
+            link_list_all("", "", true, &make_opts(&addr))
+                .await
+                .unwrap();
         }
 
         #[tokio::test]
@@ -1171,19 +1173,23 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn route_outline_grpc_error_propagates() {
+        async fn route_list_all_grpc_error_propagates() {
             let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
             assert!(
-                route_outline("", "", true, &make_opts(&addr))
+                route_list_all("", "", true, &make_opts(&addr))
                     .await
                     .is_err()
             );
         }
 
         #[tokio::test]
-        async fn link_outline_grpc_error_propagates() {
+        async fn link_list_all_grpc_error_propagates() {
             let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
-            assert!(link_outline("", "", true, &make_opts(&addr)).await.is_err());
+            assert!(
+                link_list_all("", "", true, &make_opts(&addr))
+                    .await
+                    .is_err()
+            );
         }
 
         #[tokio::test]
