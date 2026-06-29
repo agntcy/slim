@@ -521,8 +521,8 @@ impl SlimHeader {
             incoming_conn: flags.incoming_conn,
             error: flags.error,
             header_mac: None,
-            ttl: flags.ttl,
             e2e_header_sig: None,
+            ttl: flags.ttl,
         }
     }
 
@@ -2266,8 +2266,8 @@ mod message_tests {
             incoming_conn: None,
             error: None,
             header_mac: None,
-            ttl: DEFAULT_TTL,
             e2e_header_sig: None,
+            ttl: DEFAULT_TTL,
         };
 
         // get_source/get_dst return ProtoName with empty fields (no panic)

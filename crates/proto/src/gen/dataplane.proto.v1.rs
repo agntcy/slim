@@ -103,12 +103,14 @@ pub struct SlimHeader {
     pub error: ::core::option::Option<bool>,
     #[prost(bytes = "bytes", optional, tag = "11")]
     pub header_mac: ::core::option::Option<::prost::bytes::Bytes>,
+    #[prost(bytes = "bytes", optional, tag = "12")]
+    pub e2e_header_sig: ::core::option::Option<::prost::bytes::Bytes>,
     /// Packed human-readable string components for source (was Name.str_name).
     /// Layout: \[len_0: u32 LE\]\[component_0\]\[len_1: u32 LE\]\[component_1\]\[len_2: u32 LE\]\[component_2\]
-    #[prost(bytes = "bytes", tag = "12")]
+    #[prost(bytes = "bytes", tag = "13")]
     pub source_str: ::prost::bytes::Bytes,
     /// Packed human-readable string components for destination (was Name.str_name).
-    #[prost(bytes = "bytes", tag = "13")]
+    #[prost(bytes = "bytes", tag = "14")]
     pub destination_str: ::prost::bytes::Bytes,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]

@@ -136,7 +136,7 @@ where
     };
     let aad = crate::mls_state::build_aad(msg);
     let signature = slim_auth::utils::sign_header_aad(&aad, &private_key, &public_key)?;
-    msg.get_slim_header_mut().e2e_header_sig = Some(signature);
+    msg.get_slim_header_mut().e2e_header_sig = Some(signature.into());
     Ok(())
 }
 
