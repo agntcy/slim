@@ -128,7 +128,6 @@ pub struct BenchSubArgs {
     ///          process B: --count 2 --start-index 2  (registers sub-2, sub-3)
     #[arg(long, default_value_t = 0)]
     pub start_index: usize,
-
 }
 
 // ── Pub args ───────────────────────────────────────────────────────────────────
@@ -706,8 +705,16 @@ async fn create_and_wait_session(
         // Both max_retries AND interval must be Some for the session to create
         // a timer factory. Without both, the session runs in unreliable mode:
         // CompletionHandles resolve immediately and no ACKs are sent.
-        max_retries: if reliable { Some(SESSION_MAX_RETRIES) } else { None },
-        interval: if reliable { Some(SESSION_RETRY_INTERVAL) } else { None },
+        max_retries: if reliable {
+            Some(SESSION_MAX_RETRIES)
+        } else {
+            None
+        },
+        interval: if reliable {
+            Some(SESSION_RETRY_INTERVAL)
+        } else {
+            None
+        },
         initiator: true,
         metadata: HashMap::new(),
     };
@@ -795,7 +802,15 @@ async fn run_sub(args: &BenchSubArgs, service: &Arc<Service>) -> Result<()> {
             (
                 actual_index,
                 run_sub_worker(
-                    &service, actual_index, &org, &ns, &secret, conn_id, job_cnt, size, reply,
+                    &service,
+                    actual_index,
+                    &org,
+                    &ns,
+                    &secret,
+                    conn_id,
+                    job_cnt,
+                    size,
+                    reply,
                 )
                 .await,
             )
@@ -864,7 +879,14 @@ async fn run_sub_worker(
     let mut msg_cnt = 0u64;
     let mut msg_bytes = 0u64;
 
-    println!("[sub-{i}] expecting {} messages", if job_msg_cnt == 0 { "unlimited".to_string() } else { job_msg_cnt.to_string() });
+    println!(
+        "[sub-{i}] expecting {} messages",
+        if job_msg_cnt == 0 {
+            "unlimited".to_string()
+        } else {
+            job_msg_cnt.to_string()
+        }
+    );
 
     while let Some(msg) = recv_session_message(&mut session_rx, recv_timeout).await {
         if start.is_none() {
@@ -957,7 +979,15 @@ async fn run_pub(args: &BenchPubArgs, service: &Arc<Service>) -> Result<()> {
             (
                 actual_index,
                 run_pub_worker(
-                    &service, actual_index, &org, &ns, &secret, conn_id, msgs, p, request,
+                    &service,
+                    actual_index,
+                    &org,
+                    &ns,
+                    &secret,
+                    conn_id,
+                    msgs,
+                    p,
+                    request,
                     reliable,
                 )
                 .await,
@@ -1574,20 +1604,26 @@ mod tests {
     fn sample_group_aggregate() {
         let now = Instant::now();
         let mut g = SampleGroup::new();
-        g.add("sub-0", Sample {
-            job_msg_cnt: 500,
-            msg_cnt: 500,
-            msg_bytes: 64_000,
-            start: now,
-            end: now + Duration::from_secs(1),
-        });
-        g.add("sub-1", Sample {
-            job_msg_cnt: 500,
-            msg_cnt: 500,
-            msg_bytes: 64_000,
-            start: now,
-            end: now + Duration::from_secs(1),
-        });
+        g.add(
+            "sub-0",
+            Sample {
+                job_msg_cnt: 500,
+                msg_cnt: 500,
+                msg_bytes: 64_000,
+                start: now,
+                end: now + Duration::from_secs(1),
+            },
+        );
+        g.add(
+            "sub-1",
+            Sample {
+                job_msg_cnt: 500,
+                msg_cnt: 500,
+                msg_bytes: 64_000,
+                start: now,
+                end: now + Duration::from_secs(1),
+            },
+        );
         assert!(g.has_samples());
         // Aggregate over the same 1s window → 1000 msgs/s
         assert!((g.aggregate_rate() - 1_000.0).abs() < 1.0);
