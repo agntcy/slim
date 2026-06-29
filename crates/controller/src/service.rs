@@ -1880,7 +1880,8 @@ impl ControllerService {
 
             // Replay local agent subscriptions so the CP recreates route templates.
             if let Some(ref cfg) = config {
-                this.replay_local_subscriptions(&[cfg.clone()]).await;
+                this.replay_local_subscriptions(std::slice::from_ref(cfg))
+                    .await;
             }
 
             let mut drain_fut = std::pin::pin!(watch.clone().signaled());

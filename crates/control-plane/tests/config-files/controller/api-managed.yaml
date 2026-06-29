@@ -14,12 +14,12 @@ southbound:
   tls:
     insecure: true
 
-database:
-  type: in_memory
-
 #database:
-#  type: sqlite
-#  path: /tmp/slim-test.db
+#  type: in_memory
+
+database:
+  type: sqlite
+  path: /tmp/slim-test.db
 
 # Empty topology = API-managed mode.
 topology: {}
