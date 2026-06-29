@@ -509,6 +509,108 @@ impl ClientConfig {
     pub fn resolved_transport(&self) -> TransportProtocol {
         TransportProtocol::from_endpoint(&self.endpoint)
     }
+
+    pub fn merge_server_requirements(&mut self, server: &ServerConnectionConfig) {
+        self.endpoint = server.endpoint.clone();
+
+        if server.tls_required {
+            self.tls_setting.insecure = false;
+            if let RequiredAuthMethod::Spire { trust_domain } = &server.auth_method {
+                use crate::auth::spire::SpireConfig;
+                use crate::tls::common::{CaSource, TlsSource};
+
+                let socket_path = match &self.tls_setting.config.source {
+                    TlsSource::Spire { config } => config.socket_path.clone(),
+                    _ => None,
+                };
+
+                let trust_domains = trust_domain
+                    .as_ref()
+                    .map(|td| vec![td.clone()])
+                    .unwrap_or_default();
+
+                self.tls_setting.config.source = TlsSource::Spire {
+                    config: SpireConfig {
+                        socket_path: socket_path.clone(),
+                        ..Default::default()
+                    },
+                };
+                self.tls_setting.config.ca_source = CaSource::Spire {
+                    config: SpireConfig {
+                        socket_path,
+                        trust_domains: trust_domains.clone(),
+                        ..Default::default()
+                    },
+                }
+            }
+        } else {
+            self.tls_setting.insecure = true;
+        }
+
+        match &server.auth_method {
+            RequiredAuthMethod::None => {
+                self.auth = AuthenticationConfig::None;
+            }
+            RequiredAuthMethod::Spire { trust_domain } => {
+                use crate::auth::spire::SpireConfig;
+                let socket_path = match &self.auth {
+                    AuthenticationConfig::Spire(cfg) => cfg.socket_path.clone(),
+                    _ => None,
+                };
+                let trust_domains = trust_domain
+                    .as_ref()
+                    .map(|td| vec![td.clone()])
+                    .unwrap_or_default();
+                self.auth = AuthenticationConfig::Spire(SpireConfig {
+                    socket_path,
+                    trust_domains,
+                    ..Default::default()
+                });
+            }
+            _ => {} // Basic and JWT local credentials/tokens remain preserved
+        }
+    }
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RequiredAuthMethod {
+    #[default]
+    None,
+    Basic,
+    Jwt,
+    Spire {
+        trust_domain: Option<String>,
+    },
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+pub struct ServerConnectionConfig {
+    pub endpoint: String,
+    pub tls_required: bool,
+    pub auth_method: RequiredAuthMethod,
+}
+
+impl ServerConnectionConfig {
+    pub fn from_client_config(client: &ClientConfig) -> Self {
+        let tls_required = !client.tls_setting.insecure;
+        let auth_method = match &client.auth {
+            AuthenticationConfig::None => RequiredAuthMethod::None,
+            AuthenticationConfig::Basic(_) => RequiredAuthMethod::Basic,
+            AuthenticationConfig::StaticJwt(_) | AuthenticationConfig::Jwt(_) => {
+                RequiredAuthMethod::Jwt
+            }
+            #[cfg(not(target_family = "windows"))]
+            AuthenticationConfig::Spire(cfg) => RequiredAuthMethod::Spire {
+                trust_domain: cfg.trust_domains.first().cloned(),
+            },
+        };
+        Self {
+            endpoint: client.endpoint.clone(),
+            tls_required,
+            auth_method,
+        }
+    }
 }
 
 #[cfg(test)]

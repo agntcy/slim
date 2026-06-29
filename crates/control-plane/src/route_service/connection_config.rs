@@ -1,8 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use slim_config::conn_type::ConnType;
 use slim_config::grpc::client::ClientConfig;
+use slim_config::{client::ServerConnectionConfig, conn_type::ConnType};
 
 use crate::error::{Error, Result};
 
@@ -10,7 +10,7 @@ use crate::error::{Error, Result};
 pub(super) struct ReportedConnection {
     pub(super) endpoint: String,
     pub(super) link_id: String,
-    pub(super) config_data: ClientConfig,
+    pub(super) config_data: ServerConnectionConfig,
 }
 
 impl super::RouteService {
@@ -118,15 +118,10 @@ pub(super) fn generate_config_data(
             })?
     };
 
-    let (effective_endpoint, tls_setting) = if let Some(ref spire) = detail.spire_mtls {
-        let spire_socket = src_node
-            .conn_details
-            .iter()
-            .find_map(|cd| cd.spire_mtls.as_ref().map(|s| s.socket_path.clone()))
-            .unwrap_or_else(|| spire.socket_path.clone());
-
-        let trust_domain = spire
-            .trust_domain
+    let (effective_endpoint, tls_setting) = if detail.tls_required && detail.auth_method == "spire"
+    {
+        let trust_domain = detail
+            .spire_trust_domain
             .as_deref()
             .or(dest_node.group_name.as_deref());
 
@@ -136,7 +131,6 @@ pub(super) fn generate_config_data(
         }
 
         let spire_config = slim_config::auth::spire::SpireConfig {
-            socket_path: Some(spire_socket.clone()),
             trust_domains: trust_domains.clone(),
             ..Default::default()
         };
@@ -146,10 +140,7 @@ pub(super) fn generate_config_data(
             insecure_skip_verify: local_connection,
             config: TlsConfig {
                 source: TlsSource::Spire {
-                    config: slim_config::auth::spire::SpireConfig {
-                        socket_path: Some(spire_socket),
-                        ..Default::default()
-                    },
+                    config: spire_config.clone(),
                 },
                 ca_source: CaSource::Spire {
                     config: spire_config,

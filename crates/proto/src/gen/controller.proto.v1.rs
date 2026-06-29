@@ -162,20 +162,14 @@ pub struct ConnectionDetails {
     pub endpoint: ::prost::alloc::string::String,
     #[prost(string, optional, tag = "2")]
     pub external_endpoint: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(message, optional, tag = "3")]
-    pub spire_mtls: ::core::option::Option<connection_details::SpireMtls>,
-    #[prost(message, optional, tag = "4")]
+    #[prost(bool, tag = "3")]
+    pub tls_required: bool,
+    #[prost(string, tag = "4")]
+    pub auth_method: ::prost::alloc::string::String,
+    #[prost(string, optional, tag = "5")]
+    pub spire_trust_domain: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, optional, tag = "6")]
     pub metadata: ::core::option::Option<::prost_types::Struct>,
-}
-/// Nested message and enum types in `ConnectionDetails`.
-pub mod connection_details {
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct SpireMtls {
-        #[prost(string, tag = "1")]
-        pub socket_path: ::prost::alloc::string::String,
-        #[prost(string, optional, tag = "2")]
-        pub trust_domain: ::core::option::Option<::prost::alloc::string::String>,
-    }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterNodeRequest {

@@ -10,7 +10,7 @@ use diesel::prelude::*;
 use diesel::serialize::{self, Output, ToSql};
 use diesel::sql_types::{BigInt, Integer, Text};
 use serde::{Deserialize, Serialize};
-use slim_config::grpc::client::ClientConfig;
+use slim_config::client::ServerConnectionConfig;
 
 use super::schema::{links, nodes, routes};
 
@@ -121,24 +121,24 @@ where
     }
 }
 
-/// `ClientConfig` ↔ `Text` (JSON).
+/// `ServerConnectionConfig` ↔ `Text` (JSON).
 #[derive(Debug, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Text)]
-pub struct DbClientConfig(pub ClientConfig);
+pub struct DbServerConnectionConfig(pub ServerConnectionConfig);
 
-impl From<DbClientConfig> for ClientConfig {
-    fn from(j: DbClientConfig) -> Self {
+impl From<DbServerConnectionConfig> for ServerConnectionConfig {
+    fn from(j: DbServerConnectionConfig) -> Self {
         j.0
     }
 }
 
-impl From<ClientConfig> for DbClientConfig {
-    fn from(v: ClientConfig) -> Self {
-        DbClientConfig(v)
+impl From<ServerConnectionConfig> for DbServerConnectionConfig {
+    fn from(v: ServerConnectionConfig) -> Self {
+        DbServerConnectionConfig(v)
     }
 }
 
-impl<DB: Backend> FromSql<Text, DB> for DbClientConfig
+impl<DB: Backend> FromSql<Text, DB> for DbServerConnectionConfig
 where
     String: FromSql<Text, DB>,
 {
@@ -146,7 +146,7 @@ where
         let s = String::from_sql(bytes)?;
         let parsed =
             serde_json::from_str(&s).map_err(|e| format!("invalid conn_config_data JSON: {e}"))?;
-        Ok(DbClientConfig(parsed))
+        Ok(DbServerConnectionConfig(parsed))
     }
 }
 
@@ -177,19 +177,18 @@ pub struct SpireMtls {
 pub struct ConnectionDetails {
     pub endpoint: String,
     pub external_endpoint: Option<String>,
-    pub spire_mtls: Option<SpireMtls>,
+    pub tls_required: bool,
+    pub auth_method: String,
+    pub spire_trust_domain: Option<String>,
 }
 
 impl std::fmt::Display for ConnectionDetails {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut parts = vec![format!("endpoint: {}", self.endpoint)];
-        if let Some(ref spire) = self.spire_mtls {
-            parts.push("mtls(spire)".to_string());
-            if let Some(ref td) = spire.trust_domain
-                && !td.is_empty()
-            {
-                parts.push(format!("trustDomain: {td}"));
-            }
+        if let Some(ref td) = self.spire_trust_domain
+            && !td.is_empty()
+        {
+            parts.push(format!("spire(trustDomain: {td})"));
         }
         if let Some(ref ee) = self.external_endpoint
             && !ee.is_empty()
@@ -220,7 +219,7 @@ pub fn has_connection_details_changed(
             None => return true,
             Some(ncd) => {
                 if ecd.external_endpoint != ncd.external_endpoint
-                    || ecd.spire_mtls != ncd.spire_mtls
+                    || ecd.spire_trust_domain != ncd.spire_trust_domain
                 {
                     return true;
                 }
@@ -391,8 +390,8 @@ pub struct Link {
     pub dest_node_id: String,
     pub dest_group: String,
     pub dest_endpoint: String,
-    #[diesel(deserialize_as = DbClientConfig, serialize_as = DbClientConfig)]
-    pub conn_config_data: ClientConfig,
+    #[diesel(deserialize_as = DbServerConnectionConfig, serialize_as = DbServerConnectionConfig)]
+    pub conn_config_data: ServerConnectionConfig,
     pub status: LinkStatus,
     pub status_msg: String,
     #[diesel(deserialize_as = DbTimestamp, serialize_as = DbTimestamp)]
@@ -559,7 +558,7 @@ mod tests {
             dest_node_id: "dst".to_string(),
             dest_group: "grp".to_string(),
             dest_endpoint: "ep:9000".to_string(),
-            conn_config_data: ClientConfig::default()
+            conn_config_data: ServerConnectionConfig::default()
                 .with_connection_type(slim_config::conn_type::ConnType::Remote),
             status: LinkStatus::Pending,
             status_msg: String::new(),
@@ -578,7 +577,7 @@ mod tests {
             dest_node_id: "dst".to_string(),
             dest_group: "grp".to_string(),
             dest_endpoint: "ep:9000".to_string(),
-            conn_config_data: ClientConfig::default()
+            conn_config_data: ServerConnectionConfig::default()
                 .with_connection_type(slim_config::conn_type::ConnType::Remote),
             status: LinkStatus::Applied,
             status_msg: String::new(),

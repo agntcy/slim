@@ -389,11 +389,6 @@ fn parse_conn_details(
     peer_host: &str,
     detail: &crate::api::proto::controller::proto::v1::ConnectionDetails,
 ) -> ConnectionDetails {
-    let spire_mtls = detail.spire_mtls.as_ref().map(|s| crate::db::SpireMtls {
-        socket_path: s.socket_path.clone(),
-        trust_domain: s.trust_domain.clone(),
-    });
-
     // Derive the effective endpoint: if the proto endpoint contains a wildcard
     // address (0.0.0.0 or [::]), substitute the peer host.
     let mut endpoint = detail.endpoint.clone();
@@ -407,6 +402,8 @@ fn parse_conn_details(
     ConnectionDetails {
         endpoint,
         external_endpoint: detail.external_endpoint.clone(),
-        spire_mtls,
+        tls_required: detail.tls_required,
+        auth_method: detail.auth_method.clone(),
+        spire_trust_domain: detail.spire_trust_domain.clone(),
     }
 }

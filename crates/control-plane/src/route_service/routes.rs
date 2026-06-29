@@ -466,6 +466,7 @@ impl super::RouteService {
 mod tests {
     use std::time::SystemTime;
 
+    use slim_config::client::ServerConnectionConfig;
     use slim_config::conn_type::ConnType;
     use slim_config::grpc::client::ClientConfig;
     use slim_datapath::api::ProtoName;
@@ -571,7 +572,8 @@ mod tests {
             dest_node_id: "spoke-a".to_string(),
             dest_group: String::new(),
             dest_endpoint: "spoke-a:8080".to_string(),
-            conn_config_data: ClientConfig::default().with_connection_type(ConnType::Remote),
+            conn_config_data: ServerConnectionConfig::default()
+                .with_connection_type(ConnType::Remote),
             status: LinkStatus::Applied,
             status_msg: String::new(),
             created_at: SystemTime::now(),

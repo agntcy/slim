@@ -216,11 +216,12 @@ async fn node_list(opts: &ClientConfig) -> Result<()> {
                 if let Some(ref ee) = conn.external_endpoint {
                     println!("    ExternalEndpoint: {}", ee);
                 }
-                if let Some(ref spire) = conn.spire_mtls {
-                    println!("    SpireMtls: socket={}", spire.socket_path);
-                    if let Some(ref td) = spire.trust_domain {
-                        println!("              trust_domain={}", td);
+                if conn.tls_required {
+                    println!("    TLS: required");
+                    if let Some(ref td) = conn.spire_trust_domain {
+                        print!(", spire trust_domain={td}");
                     }
+                    println!();
                 }
             }
         } else {

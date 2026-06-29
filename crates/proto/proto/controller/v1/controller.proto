@@ -125,15 +125,12 @@ message Node {
 }
 
 message ConnectionDetails {
-  message SpireMtls {
-    string socket_path = 1;
-    optional string trust_domain = 2;
-  }
-
   string endpoint = 1;
   optional string external_endpoint = 2;
-  optional SpireMtls spire_mtls = 3;
-  google.protobuf.Struct metadata = 4;
+  bool tls_required = 3;
+  string auth_method = 4;
+  optional string spire_trust_domain = 5;
+  google.protobuf.Struct metadata = 6;
 }
 
 message RegisterNodeRequest {

@@ -7,14 +7,13 @@ use tonic::{Request, Response, Status};
 
 use crate::api::proto::controller::proto::v1::{
     ConnectionDetails, ConnectionListResponse, RouteListResponse as NodeRouteListResponse,
-    connection_details::SpireMtls,
 };
 use crate::api::proto::controlplane::proto::v1::{
     AddRouteRequest, AddRouteResponse, DeleteRouteRequest, DeleteRouteResponse, LinkEntry,
     LinkListRequest, LinkStatus, NodeEntry, NodeListRequest, RouteEntry, RouteListRequest,
     RouteStatus, control_plane_service_server::ControlPlaneService,
 };
-use crate::db::SharedDb;
+use crate::db::{DbServerConnectionConfig, SharedDb};
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
 use crate::route_service::RouteService;
 
@@ -76,17 +75,13 @@ impl ControlPlaneService for NorthboundApiService {
                 let connections = node
                     .conn_details
                     .iter()
-                    .map(|cd| {
-                        let spire_mtls = cd.spire_mtls.as_ref().map(|s| SpireMtls {
-                            socket_path: s.socket_path.clone(),
-                            trust_domain: s.trust_domain.clone(),
-                        });
-                        ConnectionDetails {
-                            endpoint: cd.endpoint.clone(),
-                            external_endpoint: cd.external_endpoint.clone(),
-                            spire_mtls,
-                            metadata: None,
-                        }
+                    .map(|cd| ConnectionDetails {
+                        endpoint: cd.endpoint.clone(),
+                        external_endpoint: cd.external_endpoint.clone(),
+                        tls_required: cd.tls_required,
+                        auth_method: cd.auth_method.clone(),
+                        spire_trust_domain: cd.spire_trust_domain.clone(),
+                        ..Default::default()
                     })
                     .collect();
 

@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use slim_config::client::ServerConnectionConfig;
 use slim_config::grpc::client::ClientConfig;
 use slim_datapath::api::NameId;
 
@@ -55,7 +56,7 @@ impl super::RouteService {
             let Some(link_id) = entry.link_id.as_deref().filter(|id| !id.is_empty()) else {
                 continue;
             };
-            if let Ok(config) = serde_json::from_str::<ClientConfig>(&entry.config_data) {
+            if let Ok(config) = serde_json::from_str::<ServerConnectionConfig>(&entry.config_data) {
                 reported.push(ReportedConnection {
                     endpoint: config.endpoint.clone(),
                     link_id: link_id.to_string(),
@@ -212,7 +213,8 @@ impl super::RouteService {
             match self.get_client_config(&link.source_node_id, node_id).await {
                 Ok((endpoint, config_data)) => {
                     link.dest_endpoint = endpoint;
-                    link.conn_config_data = config_data;
+                    link.conn_config_data =
+                        ServerConnectionConfig::from_client_config(&config_data);
                 }
                 Err(e) => {
                     tracing::error!(
@@ -280,7 +282,7 @@ impl super::RouteService {
             .await
         {
             link.dest_endpoint = endpoint;
-            link.conn_config_data = config_data;
+            link.conn_config_data = ServerConnectionConfig::from_client_config(&config_data);
         }
 
         if save_link(

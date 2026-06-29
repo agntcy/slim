@@ -218,7 +218,6 @@ fn build_desired_connections(
         }
         desired_link_ids.insert(link.link_id.clone());
         let config = &mut link.conn_config_data;
-        config.link_id = link.link_id.clone();
         let config_data = serde_json::to_string(config)?;
         desired_connections.push(Connection {
             link_id: link.link_id.clone(),

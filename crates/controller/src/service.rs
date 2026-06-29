@@ -31,6 +31,7 @@ use crate::api::proto::api::v1::{
 use crate::errors::ControllerError;
 use prost_types::Struct;
 use slim_config::client::{ClientConfig, TransportChannel};
+use slim_config::server::AuthenticationConfig;
 use slim_datapath::api::{
     MessageType::Link as LinkMessageType, MessageType::Subscribe,
     MessageType::SubscriptionAck as SubscriptionAckType, MessageType::Unsubscribe,
@@ -195,15 +196,16 @@ pub(crate) fn from_server_config(server_config: &ServerConfig) -> ConnectionDeta
         }
     }
 
-    let spire_mtls = if !server_config.tls_setting.insecure || spire_socket_path.is_some() {
-        Some(v1::connection_details::SpireMtls {
-            socket_path: spire_socket_path.unwrap_or_default(),
-            trust_domain,
-        })
+    let tls_required = !server_config.tls_setting.insecure || spire_socket_path.is_some();
+    let auth_method = if spire_socket_path.is_some() || trust_domain.is_some() {
+        "spire".to_string()
     } else {
-        None
+        match &server_config.auth {
+            AuthenticationConfig::Basic(_) => "basic".to_string(),
+            AuthenticationConfig::Jwt(_) => "jwt".to_string(),
+            _ => "none".to_string(),
+        }
     };
-
     let metadata = if remaining_fields.is_empty() {
         None
     } else {
@@ -215,7 +217,9 @@ pub(crate) fn from_server_config(server_config: &ServerConfig) -> ConnectionDeta
     ConnectionDetails {
         endpoint,
         external_endpoint,
-        spire_mtls,
+        tls_required,
+        auth_method,
+        spire_trust_domain: trust_domain,
         metadata,
     }
 }
