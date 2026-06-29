@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use crate::api::DataPlaneServiceServer;
 use display_error_chain::ErrorChainExt;
+use futures::future::try_join_all;
 use parking_lot::RwLock;
 use slim_config::client::ClientConfig;
 use slim_config::client::TransportChannel;
@@ -16,7 +17,6 @@ use slim_config::server::ServerConfig;
 use slim_config::server_handler::ServerHandler;
 use slim_config::websocket::server as websocket_server;
 use slim_config::websocket::server::AcceptedWebSocketConnection;
-use futures::future::try_join_all;
 use tokio::sync::mpsc::{self, Sender};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;

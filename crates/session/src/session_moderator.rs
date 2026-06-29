@@ -298,11 +298,7 @@ where
         self.group_list
             .iter()
             .map(|(name, p)| {
-                let id = p
-                    .name
-                    .as_ref()
-                    .map(|n| n.id())
-                    .unwrap_or(NULL_COMPONENT); // the name should always be present
+                let id = p.name.as_ref().map(|n| n.id()).unwrap_or(NULL_COMPONENT); // the name should always be present
                 name.clone().with_id(id)
             })
             .collect()
@@ -1759,8 +1755,7 @@ mod tests {
         // Create moderator with agntcy/ns/moderator naming
         let source = ProtoName::from_strings(["agntcy", "ns", "moderator"]).with_id(100);
         let destination = ProtoName::from_strings(["agntcy", "ns", "chat"]);
-        let control =
-            ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(CONTROL_CHANNEL_ID);
+        let control = ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(CONTROL_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -1910,8 +1905,7 @@ mod tests {
         let source = ProtoName::from_strings(["agntcy", "ns", "moderator"]).with_id(100);
         let destination =
             ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(DATA_CHANNEL_ID);
-        let control =
-            ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(CONTROL_CHANNEL_ID);
+        let control = ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(CONTROL_CHANNEL_ID);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;

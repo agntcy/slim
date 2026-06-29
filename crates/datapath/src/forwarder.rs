@@ -149,26 +149,14 @@ mod tests {
         let name_with_id1 = name.clone().with_id(1);
         let (comp1, id1) = name_with_id1.components_and_id();
         assert_eq!(
-            fwd.on_publish_msg_match(
-                comp1,
-                id1,
-                100,
-                1,
-                MatchFilter::ALL
-            )
-            .unwrap(),
+            fwd.on_publish_msg_match(comp1, id1, 100, 1, MatchFilter::ALL)
+                .unwrap(),
             vec![12]
         );
 
         let expected = name.clone().with_id(2);
         let (comp2, id2) = expected.components_and_id();
-        let err = fwd.on_publish_msg_match(
-            comp2,
-            id2,
-            100,
-            1,
-            MatchFilter::ALL,
-        );
+        let err = fwd.on_publish_msg_match(comp2, id2, 100, 1, MatchFilter::ALL);
         assert!(matches!(err, Err(DataPathError::NoMatchEncoded(..))));
 
         assert!(

@@ -631,7 +631,8 @@ mod tests {
                 .unwrap()
                 .as_application_payload()
                 .unwrap()
-                .blob.as_ref(),
+                .blob
+                .as_ref(),
             original_payload.as_ref()
         );
 
@@ -644,7 +645,8 @@ mod tests {
                 .unwrap()
                 .as_application_payload()
                 .unwrap()
-                .blob.as_ref(),
+                .blob
+                .as_ref(),
             original_payload.as_ref()
         );
     }
@@ -699,7 +701,8 @@ mod tests {
                 .unwrap()
                 .as_application_payload()
                 .unwrap()
-                .blob.as_ref(),
+                .blob
+                .as_ref(),
             original_payload.as_ref()
         );
     }
@@ -770,7 +773,8 @@ mod tests {
                 .unwrap()
                 .as_application_payload()
                 .unwrap()
-                .blob.as_ref(),
+                .blob
+                .as_ref(),
             original_payload.as_ref()
         );
     }
@@ -979,7 +983,8 @@ mod tests {
                     .unwrap()
                     .as_application_payload()
                     .unwrap()
-                    .blob.as_ref(),
+                    .blob
+                    .as_ref(),
                 original_payload.as_ref()
             );
         }

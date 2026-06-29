@@ -1,38 +1,38 @@
 [workspace]
 
 members = [
-  "crates/auth",
-  "crates/channel-manager",
-  "crates/config",
-  "crates/control-plane",
-  "crates/controller",
-  "crates/datapath",
-  "crates/examples",
-  "crates/mls",
-  "crates/proto",
-  "crates/service",
-  "crates/session",
-  "crates/signal",
-  "crates/slim",
-  "crates/slimctl",
-  "crates/testing",
-  "crates/tracing",
-  "crates/version",
+    "crates/auth",
+    "crates/channel-manager",
+    "crates/config",
+    "crates/control-plane",
+    "crates/controller",
+    "crates/datapath",
+    "crates/examples",
+    "crates/mls",
+    "crates/proto",
+    "crates/service",
+    "crates/session",
+    "crates/signal",
+    "crates/slim",
+    "crates/slimctl",
+    "crates/testing",
+    "crates/tracing",
+    "crates/version",
 ]
 
 default-members = [
-  "crates/control-plane",
-  "crates/channel-manager",
-  "crates/config",
-  "crates/datapath",
-  "crates/service",
-  "crates/signal",
-  "crates/slim",
-  "crates/tracing",
-  "crates/version",
-  "crates/examples",
-  "crates/slimctl",
-  "crates/testing",
+    "crates/control-plane",
+    "crates/channel-manager",
+    "crates/config",
+    "crates/datapath",
+    "crates/service",
+    "crates/signal",
+    "crates/slim",
+    "crates/tracing",
+    "crates/version",
+    "crates/examples",
+    "crates/slimctl",
+    "crates/testing",
 ]
 
 resolver = "2"
@@ -70,17 +70,17 @@ clap = { version = "4.5.23", features = ["derive", "env"] }
 criterion = { version = "0.5", features = ["html_reports"] }
 diesel = { version = "2.3.10", features = ["sqlite"] }
 diesel-async = { version = "0.9", features = [
-  "sqlite",
-  "deadpool",
-  "migrations",
+    "sqlite",
+    "deadpool",
+    "migrations",
 ] }
 diesel_migrations = { version = "2" }
 display-error-chain = { version = "0.2" }
 drain = { version = "0.2", features = ["retain"] }
 duration-string = { version = "0.5.3", features = ["serde"] }
 fastwebsockets = { version = "0.10.0", features = [
-  "upgrade",
-  "unstable-split",
+    "upgrade",
+    "unstable-split",
 ] }
 futures = "0.3.31"
 futures-timer = "3.0.3"
@@ -96,8 +96,8 @@ http = "1.2.0"
 http-body-util = "0.1.3"
 hyper = { version = "1.8.1", features = ["http1", "server", "client"] }
 hyper-rustls = { version = "0.27", features = [
-  "http2",
-  "aws-lc-rs",
+    "http2",
+    "aws-lc-rs",
 ], default-features = false }
 hyper-util = "0.1.10"
 indexmap = "2"
@@ -107,9 +107,9 @@ js-sys = "0.3"
 jsonwebtoken = { version = "10.3.0", features = ["aws_lc_rs"] }
 k8s-openapi = { version = "0.27", default-features = false }
 kube = { version = "3.1", default-features = false, features = [
-  "client",
-  "runtime",
-  "rustls-tls",
+    "client",
+    "runtime",
+    "rustls-tls",
 ] }
 
 lazy_static = "1.5.0"
@@ -127,16 +127,16 @@ oauth2 = { version = "5", default-features = false, features = ["reqwest"] }
 once_cell = "1.21.0"
 opentelemetry = { version = "0.31.0", features = ["trace", "metrics"] }
 opentelemetry-otlp = { version = "0.31.0", features = [
-  "metrics",
-  "grpc-tonic",
+    "metrics",
+    "grpc-tonic",
 ] }
 opentelemetry-semantic-conventions = { version = "0.31.0", features = [
-  "semconv_experimental",
+    "semconv_experimental",
 ] }
 opentelemetry-stdout = "0.31.0"
 opentelemetry_sdk = { version = "0.31.0", default-features = false, features = [
-  "trace",
-  "rt-tokio",
+    "trace",
+    "rt-tokio",
 ] }
 parking_lot = "0.12.3"
 percent-encoding = "2.3"
@@ -151,12 +151,12 @@ rand = "0.9.0"
 regex = "1.11.1"
 
 reqwest = { version = "0.12", features = [
-  "json",
-  "rustls-tls-no-provider",
-  "charset",
-  "http2",
-  "system-proxy",
-  "blocking",
+    "json",
+    "rustls-tls-no-provider",
+    "charset",
+    "http2",
+    "system-proxy",
+    "blocking",
 ], default-features = false }
 rlimit = "0.11.0"
 rstest = "0.25"
@@ -171,9 +171,9 @@ serde_yaml = "0.9.34"
 sha2 = "0.10"
 smallvec = "1"
 spiffe = { version = "0.12.0", features = [
-  "x509-source",
-  "jwt-source",
-  "jwt-verify-aws-lc-rs",
+    "x509-source",
+    "jwt-source",
+    "jwt-verify-aws-lc-rs",
 ] }
 tempfile = "3"
 test-fork = "0.1.3"
@@ -212,17 +212,17 @@ repository = "https://github.com/agntcy/slim"
 
 [workspace.metadata.cargo-machete]
 ignored = [
-  "agntcy-slim",
-  "agntcy-slim-auth",
-  "agntcy-slim-config",
-  "agntcy-slim-controller",
-  "agntcy-slim-datapath",
-  "agntcy-slim-mls",
-  "agntcy-slim-service",
-  "agntcy-slim-session",
-  "agntcy-slim-signal",
-  "agntcy-slim-testing",
-  "agntcy-slim-tracing",
-  "agntcy-slim-version",
-  "agntcy-slimctl",
+    "agntcy-slim",
+    "agntcy-slim-auth",
+    "agntcy-slim-config",
+    "agntcy-slim-controller",
+    "agntcy-slim-datapath",
+    "agntcy-slim-mls",
+    "agntcy-slim-service",
+    "agntcy-slim-session",
+    "agntcy-slim-signal",
+    "agntcy-slim-testing",
+    "agntcy-slim-tracing",
+    "agntcy-slim-version",
+    "agntcy-slimctl",
 ]

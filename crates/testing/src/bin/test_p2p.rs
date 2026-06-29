@@ -364,8 +364,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 msg.message_type.as_ref()
                             {
                                 let sender = msg.get_source();
-                                let p =
-                                    publish.get_payload().unwrap().into_application_payload().unwrap().blob;
+                                let p = publish
+                                    .get_payload()
+                                    .unwrap()
+                                    .into_application_payload()
+                                    .unwrap()
+                                    .blob;
                                 let val = String::from_utf8(p.to_vec())
                                     .expect("error while parsing received message");
                                 if val != *"hello there" {

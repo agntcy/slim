@@ -172,7 +172,12 @@ fn encoded_name_upper_bound(encoded: &Bytes, str_name: &Bytes) -> usize {
     // 1 byte: encoded presence + 40 bytes (when present)
     // 1 byte: str_name presence + 4 bytes len prefix + N str bytes (when present)
     1 + if encoded.is_empty() { 0 } else { 40 }
-        + 1 + if str_name.is_empty() { 0 } else { 4 + str_name.len() }
+        + 1
+        + if str_name.is_empty() {
+            0
+        } else {
+            4 + str_name.len()
+        }
 }
 
 #[inline]

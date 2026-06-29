@@ -1458,14 +1458,8 @@ mod tests {
         .unwrap();
 
         // Verify the builder forced the correct IDs
-        assert_eq!(
-            ready_builder.destination.unwrap().id(),
-            DATA_CHANNEL_ID
-        );
-        assert_eq!(
-            ready_builder.control.unwrap().id(),
-            CONTROL_CHANNEL_ID
-        );
+        assert_eq!(ready_builder.destination.unwrap().id(), DATA_CHANNEL_ID);
+        assert_eq!(ready_builder.control.unwrap().id(), CONTROL_CHANNEL_ID);
     }
 
     #[test]

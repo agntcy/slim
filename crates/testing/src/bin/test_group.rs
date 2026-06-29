@@ -234,8 +234,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if let Some(slim_datapath::api::ProtoPublishType(publish)) =
                             msg.message_type.as_ref()
                         {
-                            let blob =
-                                publish.get_payload().unwrap().into_application_payload().unwrap().blob;
+                            let blob = publish
+                                .get_payload()
+                                .unwrap()
+                                .into_application_payload()
+                                .unwrap()
+                                .blob;
                             let _ = String::from_utf8(blob.to_vec())
                                 .expect("error while parsing received message");
                             if blob.len() >= 4 {
