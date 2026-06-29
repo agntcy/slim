@@ -429,6 +429,8 @@ impl ControlPlaneService for NorthboundApiService {
                 }
             }
             // Emit pending topology links.
+            // For pending entries, source_node_id/dest_node_id hold group names
+            // (not node IDs) since no physical link exists yet.
             for (src, dst) in pending_entries {
                 let entry = LinkEntry {
                     id: format!("pending|{}|{}", src, dst),

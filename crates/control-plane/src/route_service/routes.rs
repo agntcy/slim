@@ -82,6 +82,7 @@ impl super::RouteService {
 
             // Persist the expanded topology to DB so that API mode can pick it
             // up if the operator later switches modes.
+            tracing::debug!("groups changed, persisting topology to DB");
             self.persist_segments_to_db(&current_segments).await;
         }
 

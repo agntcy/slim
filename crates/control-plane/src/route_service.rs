@@ -286,10 +286,7 @@ impl RouteService {
 
             // Update snapshot so the next group sees newly created links.
             if !new_links.is_empty() {
-                current_links = self.0.db.list_all_links().await.unwrap_or_else(|e| {
-                    tracing::error!("reconcile_topology_change: refresh links: {e}");
-                    current_links.clone()
-                });
+                current_links.extend(new_links);
             }
         }
 
