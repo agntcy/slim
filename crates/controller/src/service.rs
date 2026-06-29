@@ -39,7 +39,7 @@ use slim_datapath::api::{
 use slim_datapath::api::{NameId, ProtoName};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::utils::SlimHeaderFlags;
-use slim_datapath::tables::SubscriptionTable;
+use slim_datapath::tables::{ConnType, SubscriptionTable};
 
 type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
 type TxChannels = HashMap<String, TxChannel>;
@@ -1683,6 +1683,47 @@ impl ControllerService {
         }
     }
 
+    /// Replay all locally-registered agent subscriptions to the control plane.
+    /// Called after (re)connecting so the CP can recreate wildcard route templates.
+    async fn replay_local_subscriptions(&self, clients: &[ClientConfig]) {
+        let mut routes: Vec<v1::Route> = Vec::new();
+        self.inner.message_processor.subscription_table().for_each(
+            |name, id, local, _remote, _peer, edge| {
+                if local.is_empty() && edge.is_empty() {
+                    return;
+                }
+                routes.push(v1::Route {
+                    name: Some(name.clone().with_id(id)),
+                    link_id: None,
+                    direction: None,
+                });
+            },
+        );
+
+        if routes.is_empty() {
+            return;
+        }
+
+        info!(
+            count = routes.len(),
+            "replaying local subscriptions to control plane"
+        );
+
+        let ctrl = ControlMessage {
+            message_id: uuid::Uuid::new_v4().to_string(),
+            payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
+                connections_to_create: vec![],
+                connections_to_delete: vec![],
+                routes_to_set: routes,
+                routes_to_delete: vec![],
+                reconcile: false,
+                connections_received: vec![],
+            })),
+        };
+
+        self.send_or_queue_notification(ctrl, clients).await;
+    }
+
     /// Process the control message stream.
     fn process_control_message_stream(
         &self,
@@ -1837,6 +1878,11 @@ impl ControllerService {
                 }
             }
 
+            // Replay local agent subscriptions so the CP recreates route templates.
+            if let Some(ref cfg) = config {
+                this.replay_local_subscriptions(&[cfg.clone()]).await;
+            }
+
             let mut drain_fut = std::pin::pin!(watch.clone().signaled());
 
             loop {
@@ -1920,6 +1966,30 @@ impl ControllerService {
         cancellation_token: CancellationToken,
     ) -> Result<mpsc::Sender<Result<ControlMessage, Status>>, ControllerError> {
         info!(%config.endpoint, "connecting to control plane");
+
+        // Disconnect all outgoing remote connections — the CP will create
+        // fresh links after re-registration and nodes will reconnect.
+        // This prevents stale connections from causing duplicate links.
+        let mut remote_conn_ids: Vec<u64> = Vec::new();
+        self.inner
+            .message_processor
+            .connection_table()
+            .for_each(|id, conn| {
+                if conn.is_outgoing() && matches!(conn.connection_type(), ConnType::Remote) {
+                    remote_conn_ids.push(id);
+                }
+            });
+        for conn_id in &remote_conn_ids {
+            if let Err(e) = self.inner.message_processor.disconnect(*conn_id) {
+                debug!(conn_id, error = %e.chain(), "failed to disconnect remote connection");
+            }
+        }
+        if !remote_conn_ids.is_empty() {
+            info!(
+                count = remote_conn_ids.len(),
+                "disconnected remote connections for clean restart"
+            );
+        }
 
         // Reset connection state before establishing a new session. The CP
         // will send fresh ConfigCommands after re-registration to rebuild

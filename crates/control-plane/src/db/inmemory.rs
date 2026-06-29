@@ -924,10 +924,11 @@ impl DataAccess for InMemoryDb {
     }
 
     async fn clear_topology(&self) -> Result<()> {
+        self.nodes.write().clear();
+        *self.routes.write() = RouteStore::new();
+        *self.links.write() = LinkStore::new();
         self.topology_segment_links.write().clear();
         self.topology_segments.write().clear();
-        *self.links.write() = LinkStore::new();
-        *self.routes.write() = RouteStore::new();
         Ok(())
     }
 }
@@ -1516,7 +1517,7 @@ mod tests {
 
         // Add a physical link and route so we can verify they are cleared too.
         let link = make_link("node-a", "node-b", "http://127.0.0.1:9000", "link-1");
-        db.insert_link(link).await.unwrap();
+        db.add_link(link).await.unwrap();
         assert_eq!(db.list_all_links().await.unwrap().len(), 1);
 
         db.clear_topology().await.unwrap();
