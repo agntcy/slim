@@ -49,7 +49,7 @@ pub trait SubscriptionTable {
 
     fn for_each<F>(&self, f: F)
     where
-        F: FnMut(&ProtoName, u128, &[u64], &[u64], &[u64]);
+        F: FnMut(&ProtoName, u128, &[u64], &[u64], &[u64], &[u64]);
 
     /// Add a subscription. Returns `true` if this is the first connection for the
     /// given `(name, category)` pair (0→1 transition).

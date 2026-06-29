@@ -192,7 +192,7 @@ async fn wait_for_subscription(service: &Service, prefix: &Name, timeout: Durati
     loop {
         let sub_table = service.message_processor().subscription_table();
         let mut found = false;
-        sub_table.for_each(|name, _id, _local, _remote, peer_conns| {
+        sub_table.for_each(|name, _id, _local, _remote, peer_conns, _edge| {
             if name == prefix && !peer_conns.is_empty() {
                 found = true;
             }
@@ -213,7 +213,7 @@ async fn wait_for_no_subscription(service: &Service, prefix: &Name, timeout: Dur
     loop {
         let sub_table = service.message_processor().subscription_table();
         let mut found = false;
-        sub_table.for_each(|name, _id, _local, _remote, peer_conns| {
+        sub_table.for_each(|name, _id, _local, _remote, peer_conns, _edge| {
             if name == prefix && !peer_conns.is_empty() {
                 found = true;
             }

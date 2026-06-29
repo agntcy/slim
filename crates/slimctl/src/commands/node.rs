@@ -8,11 +8,9 @@ use tokio_stream::StreamExt;
 
 use crate::client::get_controller_client;
 use crate::proto::controller::proto::v1::{
-    ConfigurationCommand, ControlMessage, Route, control_message::Payload,
+    ConnectionDirection, ConnectionType, ControlMessage, control_message::Payload,
 };
-use crate::utils::{VIA_KEYWORD, parse_config_file_with_link_id, parse_route};
 use slim_config::grpc::client::ClientConfig;
-use slim_datapath::api::ProtoName;
 
 #[derive(Args)]
 pub struct NodeArgs {
@@ -42,28 +40,6 @@ pub enum NodeRouteCommand {
     /// List routes on a node
     #[command(visible_alias = "ls")]
     List,
-    /// Add a route to a node
-    ///
-    /// Usage: node route add <org/ns/agent/id> via <config.json>
-    Add {
-        /// Route in org/namespace/agentname/agentid format
-        route: String,
-        /// Literal keyword "via"
-        via: String,
-        /// Path to JSON connection config file
-        config_file: String,
-    },
-    /// Delete a route from a node
-    ///
-    /// Usage: node route del <org/ns/agent/id> via <config.json or link_id>
-    Del {
-        /// Route in org/namespace/agentname/agentid format
-        route: String,
-        /// Literal keyword "via"
-        via: String,
-        /// Path to JSON config file or link_id string
-        destination: String,
-    },
 }
 
 // ── Connection ────────────────────────────────────────────────────────────────
@@ -93,16 +69,6 @@ pub async fn run(args: &NodeArgs, opts: &ClientConfig) -> Result<()> {
 async fn run_route(args: &NodeRouteArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
         NodeRouteCommand::List => route_list(opts).await,
-        NodeRouteCommand::Add {
-            route,
-            via,
-            config_file,
-        } => route_add(route, via, config_file, opts).await,
-        NodeRouteCommand::Del {
-            route,
-            via,
-            destination,
-        } => route_del(route, via, destination, opts).await,
     }
 }
 
@@ -131,134 +97,79 @@ async fn route_list(opts: &ClientConfig) -> Result<()> {
             Ok(Some(Err(e))) => bail!("stream error: {}", e),
             Ok(Some(Ok(msg))) => {
                 if let Some(Payload::RouteListResponse(list_resp)) = msg.payload {
+                    // Flatten: one row per (route, connection) pair.
+                    let headers = ["ROUTE", "TYPE", "ENDPOINT", "LINK_ID"];
+                    let mut rows: Vec<[String; 4]> = Vec::new();
+
                     for e in &list_resp.entries {
-                        let conn_names: Vec<String> = e
-                            .connections
-                            .iter()
-                            .map(|c| {
-                                let peer = c.peer_node_id.as_deref().unwrap_or("-");
-                                format!(
-                                    "{}:{}:{}:{:?}:{:?}:peer={}",
-                                    c.connection_type().as_str_name(),
-                                    c.id,
-                                    c.config_data,
-                                    c.link_id,
-                                    c.direction(),
-                                    peer,
-                                )
-                            })
-                            .collect();
-                        println!("{} connections={:?}", e.name.as_ref().unwrap(), conn_names);
+                        let route_name = e
+                            .name
+                            .as_ref()
+                            .map(|n| n.to_string())
+                            .unwrap_or_else(|| "-".to_string());
+                        if e.connections.is_empty() {
+                            rows.push([route_name, "-".into(), "-".into(), "-".into()]);
+                        } else {
+                            for c in &e.connections {
+                                let conn_type = match c.connection_type() {
+                                    ConnectionType::Local => "Local",
+                                    ConnectionType::Remote => "Remote",
+                                    ConnectionType::Peer => "Peer",
+                                    ConnectionType::Edge => "Edge",
+                                };
+                                let endpoint = if c.connection_type() == ConnectionType::Edge {
+                                    "APP".to_string()
+                                } else {
+                                    c.peer_node_id.as_deref().unwrap_or("-").to_string()
+                                };
+                                let link_id = c.link_id.as_deref().unwrap_or("-").to_string();
+                                rows.push([
+                                    route_name.clone(),
+                                    conn_type.into(),
+                                    endpoint,
+                                    link_id,
+                                ]);
+                            }
+                        }
+                    }
+
+                    println!("{} route(s)\n", list_resp.entries.len());
+                    if !rows.is_empty() {
+                        let mut widths = headers.map(|h| h.len());
+                        for row in &rows {
+                            for (w, cell) in widths.iter_mut().zip(row.iter()) {
+                                *w = (*w).max(cell.len());
+                            }
+                        }
+                        println!(
+                            "  {:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}",
+                            headers[0],
+                            headers[1],
+                            headers[2],
+                            headers[3],
+                            w0 = widths[0],
+                            w1 = widths[1],
+                            w2 = widths[2],
+                            w3 = widths[3],
+                        );
+                        let total: usize = widths.iter().sum::<usize>() + widths.len() * 2;
+                        println!("  {}", "-".repeat(total));
+                        for row in &rows {
+                            println!(
+                                "  {:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}",
+                                row[0],
+                                row[1],
+                                row[2],
+                                row[3],
+                                w0 = widths[0],
+                                w1 = widths[1],
+                                w2 = widths[2],
+                                w3 = widths[3],
+                            );
+                        }
                     }
                     break;
                 }
-            }
-        }
-    }
-    Ok(())
-}
-
-async fn route_add(route: &str, via: &str, config_file: &str, opts: &ClientConfig) -> Result<()> {
-    if !via.eq_ignore_ascii_case(VIA_KEYWORD) {
-        bail!("invalid syntax: expected 'via' keyword, got '{}'", via);
-    }
-    let (org, ns, agent_type, agent_id) = parse_route(route)?;
-    let (conn, link_id) = parse_config_file_with_link_id(config_file)?;
-    let route = Route {
-        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id)),
-        link_id: Some(link_id),
-        direction: None,
-    };
-    let msg = ControlMessage {
-        message_id: uuid::Uuid::new_v4().to_string(),
-        payload: Some(Payload::ConfigCommand(ConfigurationCommand {
-            connections_to_create: vec![conn],
-            connections_to_delete: vec![],
-            routes_to_set: vec![route],
-            routes_to_delete: vec![],
-            reconcile: false,
-            connections_received: vec![],
-        })),
-    };
-    let mut client = get_controller_client(opts).await?;
-    let req = tonic::Request::new(tokio_stream::once(msg));
-    let mut stream = client.open_control_channel(req).await?.into_inner();
-    match stream_timeout(opts.request_timeout.into(), stream.next()).await {
-        Err(_) => bail!("timeout waiting for ACK"),
-        Ok(None) => bail!("stream closed before receiving ACK"),
-        Ok(Some(Err(e))) => bail!("error receiving ACK: {}", e),
-        Ok(Some(Ok(ack_msg))) => {
-            if let Some(Payload::ConfigCommandAck(a)) = ack_msg.payload {
-                for cs in &a.connections_status {
-                    if cs.success {
-                        println!("connection successfully applied: {}", cs.link_id);
-                    } else {
-                        println!(
-                            "failed to create connection {}: {}",
-                            cs.link_id, cs.error_msg
-                        );
-                    }
-                }
-                for ss in &a.routes_status {
-                    if ss.success {
-                        println!("route added successfully: {:?}", ss.route);
-                    } else {
-                        println!("failed to add route {:?}: {}", ss.route, ss.error_msg);
-                    }
-                }
-            } else {
-                bail!("unexpected response type (not an ACK): {:?}", ack_msg);
-            }
-        }
-    }
-    Ok(())
-}
-
-async fn route_del(route: &str, via: &str, destination: &str, opts: &ClientConfig) -> Result<()> {
-    if !via.eq_ignore_ascii_case(VIA_KEYWORD) {
-        bail!("invalid syntax: expected 'via' keyword, got '{}'", via);
-    }
-    let (org, ns, agent_type, agent_id) = parse_route(route)?;
-    let link_id = if destination.ends_with(".json") {
-        let (_, lid) = parse_config_file_with_link_id(destination)?;
-        lid
-    } else {
-        destination.to_string()
-    };
-    let route = Route {
-        name: Some(ProtoName::from_strings([&org, &ns, &agent_type]).with_id(agent_id)),
-        link_id: Some(link_id),
-        direction: None,
-    };
-    let msg = ControlMessage {
-        message_id: uuid::Uuid::new_v4().to_string(),
-        payload: Some(Payload::ConfigCommand(ConfigurationCommand {
-            connections_to_create: vec![],
-            connections_to_delete: vec![],
-            routes_to_set: vec![],
-            routes_to_delete: vec![route],
-            reconcile: false,
-            connections_received: vec![],
-        })),
-    };
-    let mut client = get_controller_client(opts).await?;
-    let req = tonic::Request::new(tokio_stream::once(msg));
-    let mut stream = client.open_control_channel(req).await?.into_inner();
-    match stream_timeout(opts.request_timeout.into(), stream.next()).await {
-        Err(_) => bail!("timeout waiting for ACK"),
-        Ok(None) => bail!("stream closed before receiving ACK"),
-        Ok(Some(Err(e))) => bail!("error receiving ACK: {}", e),
-        Ok(Some(Ok(ack_msg))) => {
-            if let Some(Payload::ConfigCommandAck(a)) = ack_msg.payload {
-                for ss in &a.routes_status {
-                    if ss.success {
-                        println!("route deleted successfully: {:?}", ss.route);
-                    } else {
-                        println!("failed to delete route {:?}: {}", ss.route, ss.error_msg);
-                    }
-                }
-            } else {
-                bail!("unexpected response type (not an ACK): {:?}", ack_msg);
             }
         }
     }
@@ -284,17 +195,75 @@ async fn connection_list(opts: &ClientConfig) -> Result<()> {
             Ok(Some(Err(e))) => bail!("stream error: {}", e),
             Ok(Some(Ok(msg))) => {
                 if let Some(Payload::ConnectionListResponse(list_resp)) = msg.payload {
-                    if list_resp.entries.is_empty() {
-                        println!("No connections configured");
-                    } else {
-                        for e in &list_resp.entries {
+                    let entries = &list_resp.entries;
+                    println!("{} connection(s)\n", entries.len());
+                    if !entries.is_empty() {
+                        let headers = ["CONN_ID", "TYPE", "DIRECTION", "ENDPOINT", "LINK_ID"];
+                        let rows: Vec<_> = entries
+                            .iter()
+                            .map(|e| {
+                                let conn_type = match e.connection_type() {
+                                    ConnectionType::Local => "Local",
+                                    ConnectionType::Remote => "Remote",
+                                    ConnectionType::Peer => "Peer",
+                                    ConnectionType::Edge => "Edge",
+                                };
+                                let direction = match e.direction() {
+                                    ConnectionDirection::Outgoing => "Outgoing",
+                                    ConnectionDirection::Incoming => "Incoming",
+                                };
+                                let endpoint = if e.connection_type() == ConnectionType::Edge {
+                                    "APP".to_string()
+                                } else {
+                                    e.peer_node_id.as_deref().unwrap_or("-").to_string()
+                                };
+                                let link_id = e.link_id.as_deref().unwrap_or("-").to_string();
+                                (
+                                    e.id.to_string(),
+                                    conn_type.to_string(),
+                                    direction.to_string(),
+                                    endpoint,
+                                    link_id,
+                                )
+                            })
+                            .collect();
+
+                        let mut widths = headers.map(|h| h.len());
+                        for (id, ct, dir, ep, lid) in &rows {
+                            widths[0] = widths[0].max(id.len());
+                            widths[1] = widths[1].max(ct.len());
+                            widths[2] = widths[2].max(dir.len());
+                            widths[3] = widths[3].max(ep.len());
+                            widths[4] = widths[4].max(lid.len());
+                        }
+                        println!(
+                            "  {:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {:<w4$}",
+                            headers[0],
+                            headers[1],
+                            headers[2],
+                            headers[3],
+                            headers[4],
+                            w0 = widths[0],
+                            w1 = widths[1],
+                            w2 = widths[2],
+                            w3 = widths[3],
+                            w4 = widths[4],
+                        );
+                        let total: usize = widths.iter().sum::<usize>() + widths.len() * 2;
+                        println!("  {}", "-".repeat(total));
+                        for (id, ct, dir, ep, lid) in &rows {
                             println!(
-                                "id={} direction={:?} link_id={:?} peer={:?} {}",
-                                e.id,
-                                e.direction(),
-                                e.link_id,
-                                e.peer_node_id,
-                                e.config_data
+                                "  {:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {:<w4$}",
+                                id,
+                                ct,
+                                dir,
+                                ep,
+                                lid,
+                                w0 = widths[0],
+                                w1 = widths[1],
+                                w2 = widths[2],
+                                w3 = widths[3],
+                                w4 = widths[4],
                             );
                         }
                     }
@@ -308,14 +277,13 @@ async fn connection_list(opts: &ClientConfig) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
     use std::time::Duration;
 
     use tokio_stream::StreamExt;
     use tokio_stream::wrappers::TcpListenerStream;
 
     use crate::proto::controller::proto::v1::{
-        ConfigurationCommandAck, ConnectionListResponse, ControlMessage, RouteListResponse,
+        ConnectionListResponse, ControlMessage, RouteListResponse,
         control_message::Payload,
         controller_service_server::{ControllerService, ControllerServiceServer},
     };
@@ -362,13 +330,6 @@ mod tests {
                         done: true,
                     })
                 }
-                Some(Payload::ConfigCommand(_)) => {
-                    Payload::ConfigCommandAck(ConfigurationCommandAck {
-                        original_message_id: msg.message_id.clone(),
-                        connections_status: vec![],
-                        routes_status: vec![],
-                    })
-                }
                 _ => return Err(tonic::Status::invalid_argument("unknown message type")),
             };
 
@@ -404,32 +365,6 @@ mod tests {
             .with_request_timeout(Duration::from_secs(5))
     }
 
-    #[test]
-    fn route_add_invalid_via_fails() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let result = rt.block_on(route_add(
-            "a/b/c/0",
-            "not_via",
-            "config.json",
-            &make_opts("127.0.0.1:1"),
-        ));
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("via"));
-    }
-
-    #[test]
-    fn route_del_invalid_via_fails() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let result = rt.block_on(route_del(
-            "a/b/c/0",
-            "wrong",
-            "http://host:80",
-            &make_opts("127.0.0.1:1"),
-        ));
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("via"));
-    }
-
     #[tokio::test]
     async fn route_list_succeeds() {
         let addr = spawn_mock_node_server().await;
@@ -440,35 +375,6 @@ mod tests {
     async fn connection_list_succeeds() {
         let addr = spawn_mock_node_server().await;
         connection_list(&make_opts(&addr)).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn route_add_via_mock_server() {
-        let addr = spawn_mock_node_server().await;
-        let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
-        write!(f, r#"{{"endpoint": "http://127.0.0.1:8080"}}"#).unwrap();
-        let path = f.path().to_str().unwrap().to_string();
-        route_add(
-            "a/b/c/00000000-0000-0000-0000-000000000000",
-            "via",
-            &path,
-            &make_opts(&addr),
-        )
-        .await
-        .unwrap();
-    }
-
-    #[tokio::test]
-    async fn route_del_via_mock_server() {
-        let addr = spawn_mock_node_server().await;
-        route_del(
-            "a/b/c/00000000-0000-0000-0000-000000000000",
-            "via",
-            "http://127.0.0.1:8080",
-            &make_opts(&addr),
-        )
-        .await
-        .unwrap();
     }
 
     // ── error-handling mock services ─────────────────────────────────────────
@@ -519,84 +425,6 @@ mod tests {
         }
     }
 
-    /// Returns a ConfigCommandAck whose per-entry status flags are all false
-    /// (negative ACK), to exercise the "failed to …" print branches.
-    struct NackControllerSvc;
-
-    #[tonic::async_trait]
-    impl ControllerService for NackControllerSvc {
-        type OpenControlChannelStream = std::pin::Pin<
-            Box<
-                dyn tonic::codegen::tokio_stream::Stream<
-                        Item = Result<ControlMessage, tonic::Status>,
-                    > + Send
-                    + 'static,
-            >,
-        >;
-
-        async fn open_control_channel(
-            &self,
-            request: tonic::Request<tonic::Streaming<ControlMessage>>,
-        ) -> Result<tonic::Response<Self::OpenControlChannelStream>, tonic::Status> {
-            use crate::proto::controller::proto::v1::{
-                ConfigurationCommandAck, ConnectionAck, RouteAck,
-            };
-            let mut stream = request.into_inner();
-            let msg = stream
-                .next()
-                .await
-                .ok_or_else(|| tonic::Status::internal("no message"))?
-                .map_err(|e| tonic::Status::internal(e.to_string()))?;
-
-            let ack = ConfigurationCommandAck {
-                original_message_id: msg.message_id.clone(),
-                connections_status: vec![ConnectionAck {
-                    link_id: "c1".to_string(),
-                    success: false,
-                    error_msg: "connection failed".to_string(),
-                }],
-                routes_status: vec![RouteAck {
-                    route: None,
-                    success: false,
-                    error_msg: "route failed".to_string(),
-                }],
-            };
-            let resp = ControlMessage {
-                message_id: uuid::Uuid::new_v4().to_string(),
-                payload: Some(Payload::ConfigCommandAck(ack)),
-            };
-            Ok(tonic::Response::new(Box::pin(tokio_stream::once(Ok(resp)))))
-        }
-    }
-
-    /// Returns an unexpected payload type (not a ConfigCommandAck) in response
-    /// to a ConfigCommand, exercising the `bail!("unexpected response type …")` arm.
-    struct UnexpectedPayloadControllerSvc;
-
-    #[tonic::async_trait]
-    impl ControllerService for UnexpectedPayloadControllerSvc {
-        type OpenControlChannelStream = std::pin::Pin<
-            Box<
-                dyn tonic::codegen::tokio_stream::Stream<
-                        Item = Result<ControlMessage, tonic::Status>,
-                    > + Send
-                    + 'static,
-            >,
-        >;
-
-        async fn open_control_channel(
-            &self,
-            _request: tonic::Request<tonic::Streaming<ControlMessage>>,
-        ) -> Result<tonic::Response<Self::OpenControlChannelStream>, tonic::Status> {
-            use crate::proto::controller::proto::v1::RouteListResponse;
-            let resp = ControlMessage {
-                message_id: uuid::Uuid::new_v4().to_string(),
-                payload: Some(Payload::RouteListResponse(RouteListResponse::default())),
-            };
-            Ok(tonic::Response::new(Box::pin(tokio_stream::once(Ok(resp)))))
-        }
-    }
-
     async fn spawn_svc<S>(svc: S) -> String
     where
         S: crate::proto::controller::proto::v1::controller_service_server::ControllerService,
@@ -629,29 +457,6 @@ mod tests {
         assert!(connection_list(&make_opts(&addr)).await.is_err());
     }
 
-    #[tokio::test]
-    async fn route_add_grpc_error_propagates() {
-        let addr = spawn_svc(ErrorControllerSvc).await;
-        let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
-        write!(f, r#"{{"endpoint": "http://127.0.0.1:8080"}}"#).unwrap();
-        let path = f.path().to_str().unwrap().to_string();
-        assert!(
-            route_add("a/b/c/0", "via", &path, &make_opts(&addr))
-                .await
-                .is_err()
-        );
-    }
-
-    #[tokio::test]
-    async fn route_del_grpc_error_propagates() {
-        let addr = spawn_svc(ErrorControllerSvc).await;
-        assert!(
-            route_del("a/b/c/0", "via", "http://127.0.0.1:8080", &make_opts(&addr))
-                .await
-                .is_err()
-        );
-    }
-
     // ── stream-item error tests ───────────────────────────────────────────────
 
     #[tokio::test]
@@ -666,75 +471,5 @@ mod tests {
         let addr = spawn_svc(StreamErrorControllerSvc).await;
         let err = connection_list(&make_opts(&addr)).await.unwrap_err();
         assert!(err.to_string().contains("stream error"));
-    }
-
-    // ── negative-ACK tests (success = false per entry) ───────────────────────
-
-    #[tokio::test]
-    async fn route_add_negative_ack_prints_failure() {
-        let addr = spawn_svc(NackControllerSvc).await;
-        let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
-        write!(f, r#"{{"endpoint": "http://127.0.0.1:8080"}}"#).unwrap();
-        let path = f.path().to_str().unwrap().to_string();
-        // The client prints the failure but still returns Ok
-        assert!(
-            route_add(
-                "a/b/c/00000000-0000-0000-0000-000000000000",
-                "via",
-                &path,
-                &make_opts(&addr)
-            )
-            .await
-            .is_ok()
-        );
-    }
-
-    #[tokio::test]
-    async fn route_del_negative_ack_prints_failure() {
-        let addr = spawn_svc(NackControllerSvc).await;
-        // The client prints the failure but still returns Ok
-        assert!(
-            route_del(
-                "a/b/c/00000000-0000-0000-0000-000000000000",
-                "via",
-                "http://127.0.0.1:8080",
-                &make_opts(&addr)
-            )
-            .await
-            .is_ok()
-        );
-    }
-
-    // ── unexpected-payload tests ──────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn route_add_unexpected_payload_fails() {
-        let addr = spawn_svc(UnexpectedPayloadControllerSvc).await;
-        let mut f = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
-        write!(f, r#"{{"endpoint": "http://127.0.0.1:8080"}}"#).unwrap();
-        let path = f.path().to_str().unwrap().to_string();
-        let err = route_add(
-            "a/b/c/00000000-0000-0000-0000-000000000000",
-            "via",
-            &path,
-            &make_opts(&addr),
-        )
-        .await
-        .unwrap_err();
-        assert!(err.to_string().contains("unexpected response type"));
-    }
-
-    #[tokio::test]
-    async fn route_del_unexpected_payload_fails() {
-        let addr = spawn_svc(UnexpectedPayloadControllerSvc).await;
-        let err = route_del(
-            "a/b/c/00000000-0000-0000-0000-000000000000",
-            "via",
-            "http://127.0.0.1:8080",
-            &make_opts(&addr),
-        )
-        .await
-        .unwrap_err();
-        assert!(err.to_string().contains("unexpected response type"));
     }
 }

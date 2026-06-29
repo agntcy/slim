@@ -223,6 +223,7 @@ pub enum ConnectionType {
     Local = 0,
     Remote = 1,
     Peer = 2,
+    Edge = 3,
 }
 impl ConnectionType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -234,6 +235,7 @@ impl ConnectionType {
             Self::Local => "CONNECTION_TYPE_LOCAL",
             Self::Remote => "CONNECTION_TYPE_REMOTE",
             Self::Peer => "CONNECTION_TYPE_PEER",
+            Self::Edge => "CONNECTION_TYPE_EDGE",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -242,6 +244,7 @@ impl ConnectionType {
             "CONNECTION_TYPE_LOCAL" => Some(Self::Local),
             "CONNECTION_TYPE_REMOTE" => Some(Self::Remote),
             "CONNECTION_TYPE_PEER" => Some(Self::Peer),
+            "CONNECTION_TYPE_EDGE" => Some(Self::Edge),
             _ => None,
         }
     }

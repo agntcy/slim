@@ -1560,6 +1560,12 @@ impl MessageProcessor {
                 }
                 ConnType::Remote
             }
+            ConnType::Edge => {
+                self.connection_table().update(idx, |conn| {
+                    conn.set_connection_type(ConnType::Edge);
+                });
+                ConnType::Edge
+            }
             other => other,
         };
 

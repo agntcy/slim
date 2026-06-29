@@ -25,47 +25,13 @@ pub struct NodeEntry {
     >,
     #[prost(enumeration = "NodeStatus", tag = "4")]
     pub status: i32,
+    #[prost(string, tag = "5")]
+    pub group: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NodeListResponse {
     #[prost(message, repeated, tag = "1")]
     pub entries: ::prost::alloc::vec::Vec<NodeEntry>,
-}
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct AddRouteRequest {
-    #[prost(message, optional, tag = "1")]
-    pub connection: ::core::option::Option<
-        super::super::super::controller::proto::v1::Connection,
-    >,
-    #[prost(message, optional, tag = "2")]
-    pub route: ::core::option::Option<super::super::super::controller::proto::v1::Route>,
-    #[prost(string, tag = "3")]
-    pub node_id: ::prost::alloc::string::String,
-    /// optional
-    #[prost(string, tag = "4")]
-    pub dest_node_id: ::prost::alloc::string::String,
-}
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct AddRouteResponse {
-    #[prost(bool, tag = "1")]
-    pub success: bool,
-    #[prost(string, tag = "2")]
-    pub route_id: ::prost::alloc::string::String,
-}
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct DeleteRouteRequest {
-    #[prost(message, optional, tag = "1")]
-    pub route: ::core::option::Option<super::super::super::controller::proto::v1::Route>,
-    #[prost(string, tag = "2")]
-    pub node_id: ::prost::alloc::string::String,
-    /// optional
-    #[prost(string, tag = "3")]
-    pub dest_node_id: ::prost::alloc::string::String,
-}
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct DeleteRouteResponse {
-    #[prost(bool, tag = "1")]
-    pub success: bool,
 }
 /// Request to list routes, filtered by optional nodeId and destNodeId
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -157,6 +123,33 @@ pub struct LinkEntry {
 pub struct LinkListResponse {
     #[prost(message, repeated, tag = "1")]
     pub links: ::prost::alloc::vec::Vec<LinkEntry>,
+}
+/// Request to list segments
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SegmentListRequest {}
+/// A segment with its member groups and adjacency edges
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SegmentEntry {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "2")]
+    pub groups: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "3")]
+    pub edges: ::prost::alloc::vec::Vec<SegmentEdge>,
+}
+/// An edge in the segment graph (bidirectional link between two groups)
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct SegmentEdge {
+    #[prost(string, tag = "1")]
+    pub group_a: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub group_b: ::prost::alloc::string::String,
+}
+/// Response containing a list of segments
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SegmentListResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub segments: ::prost::alloc::vec::Vec<SegmentEntry>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -348,64 +341,6 @@ pub mod control_plane_service_client {
             self.inner = self.inner.max_encoding_message_size(limit);
             self
         }
-        pub async fn add_route(
-            &mut self,
-            request: impl tonic::IntoRequest<super::AddRouteRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::AddRouteResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/controlplane.proto.v1.ControlPlaneService/AddRoute",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "controlplane.proto.v1.ControlPlaneService",
-                        "AddRoute",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
-        pub async fn delete_route(
-            &mut self,
-            request: impl tonic::IntoRequest<super::DeleteRouteRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::DeleteRouteResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::unknown(
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic_prost::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/controlplane.proto.v1.ControlPlaneService/DeleteRoute",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "controlplane.proto.v1.ControlPlaneService",
-                        "DeleteRoute",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
         pub async fn list_node_routes(
             &mut self,
             request: impl tonic::IntoRequest<super::Node>,
@@ -557,6 +492,36 @@ pub mod control_plane_service_client {
                 );
             self.inner.server_streaming(req, path, codec).await
         }
+        /// List segments (expanded routing domains) with the groups in each segment
+        pub async fn list_segments(
+            &mut self,
+            request: impl tonic::IntoRequest<super::SegmentListRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::SegmentListResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/controlplane.proto.v1.ControlPlaneService/ListSegments",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "controlplane.proto.v1.ControlPlaneService",
+                        "ListSegments",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -573,20 +538,6 @@ pub mod control_plane_service_server {
     /// Generated trait containing gRPC methods that should be implemented for use with ControlPlaneServiceServer.
     #[async_trait]
     pub trait ControlPlaneService: std::marker::Send + std::marker::Sync + 'static {
-        async fn add_route(
-            &self,
-            request: tonic::Request<super::AddRouteRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::AddRouteResponse>,
-            tonic::Status,
-        >;
-        async fn delete_route(
-            &self,
-            request: tonic::Request<super::DeleteRouteRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::DeleteRouteResponse>,
-            tonic::Status,
-        >;
         async fn list_node_routes(
             &self,
             request: tonic::Request<super::Node>,
@@ -637,6 +588,14 @@ pub mod control_plane_service_server {
             &self,
             request: tonic::Request<super::LinkListRequest>,
         ) -> std::result::Result<tonic::Response<Self::ListLinksStream>, tonic::Status>;
+        /// List segments (expanded routing domains) with the groups in each segment
+        async fn list_segments(
+            &self,
+            request: tonic::Request<super::SegmentListRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::SegmentListResponse>,
+            tonic::Status,
+        >;
     }
     #[derive(Debug)]
     pub struct ControlPlaneServiceServer<T> {
@@ -714,97 +673,6 @@ pub mod control_plane_service_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
-                "/controlplane.proto.v1.ControlPlaneService/AddRoute" => {
-                    #[allow(non_camel_case_types)]
-                    struct AddRouteSvc<T: ControlPlaneService>(pub Arc<T>);
-                    impl<
-                        T: ControlPlaneService,
-                    > tonic::server::UnaryService<super::AddRouteRequest>
-                    for AddRouteSvc<T> {
-                        type Response = super::AddRouteResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::AddRouteRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as ControlPlaneService>::add_route(&inner, request).await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = AddRouteSvc(inner);
-                        let codec = tonic_prost::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/controlplane.proto.v1.ControlPlaneService/DeleteRoute" => {
-                    #[allow(non_camel_case_types)]
-                    struct DeleteRouteSvc<T: ControlPlaneService>(pub Arc<T>);
-                    impl<
-                        T: ControlPlaneService,
-                    > tonic::server::UnaryService<super::DeleteRouteRequest>
-                    for DeleteRouteSvc<T> {
-                        type Response = super::DeleteRouteResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::DeleteRouteRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as ControlPlaneService>::delete_route(&inner, request)
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = DeleteRouteSvc(inner);
-                        let codec = tonic_prost::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
                 "/controlplane.proto.v1.ControlPlaneService/ListNodeRoutes" => {
                     #[allow(non_camel_case_types)]
                     struct ListNodeRoutesSvc<T: ControlPlaneService>(pub Arc<T>);
@@ -1036,6 +904,52 @@ pub mod control_plane_service_server {
                                 max_encoding_message_size,
                             );
                         let res = grpc.server_streaming(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/controlplane.proto.v1.ControlPlaneService/ListSegments" => {
+                    #[allow(non_camel_case_types)]
+                    struct ListSegmentsSvc<T: ControlPlaneService>(pub Arc<T>);
+                    impl<
+                        T: ControlPlaneService,
+                    > tonic::server::UnaryService<super::SegmentListRequest>
+                    for ListSegmentsSvc<T> {
+                        type Response = super::SegmentListResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::SegmentListRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ControlPlaneService>::list_segments(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ListSegmentsSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

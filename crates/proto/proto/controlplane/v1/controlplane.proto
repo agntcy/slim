@@ -8,18 +8,15 @@ import "controller/v1/controller.proto";
 import "data-plane/v1/data_plane.proto";
 
 service ControlPlaneService {
-  rpc AddRoute(AddRouteRequest) returns (AddRouteResponse) {}
-  rpc DeleteRoute(DeleteRouteRequest) returns (DeleteRouteResponse) {}
   rpc ListNodeRoutes(Node) returns (controller.proto.v1.RouteListResponse) {}
   rpc ListConnections(Node) returns (controller.proto.v1.ConnectionListResponse) {}
   rpc ListNodes(NodeListRequest) returns (stream NodeEntry) {}
-
-  // Route management
-
   // List routes registered at the controller with optional filtering by source and destination node IDs
   rpc ListRoutes(RouteListRequest) returns (stream RouteEntry) {}
   // List links stored in the controller DB with optional filtering by source and destination node IDs
   rpc ListLinks(LinkListRequest) returns (stream LinkEntry) {}
+  // List segments (expanded routing domains) with the groups in each segment
+  rpc ListSegments(SegmentListRequest) returns (SegmentListResponse) {}
 }
 
 message ConfigurationCommand {
@@ -43,32 +40,11 @@ message NodeEntry {
   string id = 1;
   repeated controller.proto.v1.ConnectionDetails connections = 2;
   NodeStatus status = 4;
+  string group = 5;
 }
 
 message NodeListResponse {
   repeated NodeEntry entries = 1;
-}
-
-message AddRouteRequest {
-  controller.proto.v1.Connection connection = 1;
-  controller.proto.v1.Route route = 2;
-  string nodeId = 3;
-  string destNodeId = 4; // optional
-}
-
-message AddRouteResponse {
-  bool success = 1;
-  string routeId = 2;
-}
-
-message DeleteRouteRequest {
-  controller.proto.v1.Route route = 1;
-  string nodeId = 2;
-  string destNodeId = 3; // optional
-}
-
-message DeleteRouteResponse {
-  bool success = 1;
 }
 
 // Request to list routes, filtered by optional nodeId and destNodeId
@@ -145,4 +121,25 @@ message LinkEntry {
 // Response containing a list of links
 message LinkListResponse {
   repeated LinkEntry links = 1;
+}
+
+// Request to list segments
+message SegmentListRequest {}
+
+// A segment with its member groups and adjacency edges
+message SegmentEntry {
+  string name = 1;
+  repeated string groups = 2;
+  repeated SegmentEdge edges = 3;
+}
+
+// An edge in the segment graph (bidirectional link between two groups)
+message SegmentEdge {
+  string group_a = 1;
+  string group_b = 2;
+}
+
+// Response containing a list of segments
+message SegmentListResponse {
+  repeated SegmentEntry segments = 1;
 }

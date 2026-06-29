@@ -88,6 +88,37 @@ impl super::RouteService {
         pairs
     }
 
+    /// Return the current segment graphs as (name, groups, edges) tuples.
+    /// Only groups that participate in at least one edge are included.
+    pub async fn list_segments(&self) -> Vec<(String, Vec<String>, Vec<(String, String)>)> {
+        let segments = self.0.segment_graphs.read().await;
+        segments
+            .iter()
+            .map(|(name, graph)| {
+                let mut edges: Vec<(String, String)> = graph
+                    .edge_references()
+                    .map(|e| {
+                        let a = graph[e.source()].clone();
+                        let b = graph[e.target()].clone();
+                        if a <= b { (a, b) } else { (b, a) }
+                    })
+                    .collect();
+                edges.sort();
+                edges.dedup();
+                let mut groups: Vec<String> = {
+                    let mut connected = std::collections::HashSet::new();
+                    for (a, b) in &edges {
+                        connected.insert(a.clone());
+                        connected.insert(b.clone());
+                    }
+                    connected.into_iter().collect()
+                };
+                groups.sort();
+                (name.clone(), groups, edges)
+            })
+            .collect()
+    }
+
     /// Find the inter-group link between two groups using pre-loaded links.
     ///
     /// Searches for an existing (non-deleted) link between any node in `group_a`

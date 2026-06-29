@@ -19,11 +19,9 @@ use slim_config::grpc::server::ServerConfig;
 use slim_config::tls::client::TlsClientConfig;
 use slim_config::tls::provider::initialize_crypto_provider;
 use slim_config::tls::server::TlsServerConfig;
-use slim_control_plane::api::proto::controller::proto::v1::Route;
 use slim_control_plane::api::proto::controlplane::proto::v1::control_plane_service_client::ControlPlaneServiceClient;
 use slim_control_plane::api::proto::controlplane::proto::v1::{
-    AddRouteRequest, LinkEntry, LinkListRequest, NodeEntry, NodeListRequest, RouteEntry,
-    RouteListRequest,
+    LinkEntry, LinkListRequest, NodeEntry, NodeListRequest, RouteEntry, RouteListRequest,
 };
 use slim_control_plane::config::{
     AdjacencyEntry, Config, DatabaseConfig, ReconcilerConfig, SegmentConfig, TopologyConfig,
@@ -294,31 +292,6 @@ async fn collect_links(client: &mut NbClient, src: &str, dest: &str) -> Vec<Link
     entries
 }
 
-async fn add_route(
-    client: &mut NbClient,
-    src_node_id: &str,
-    dest_node_id: &str,
-    c0: &str,
-    c1: &str,
-    c2: &str,
-) {
-    let resp = client
-        .add_route(AddRouteRequest {
-            connection: None,
-            node_id: src_node_id.to_string(),
-            dest_node_id: dest_node_id.to_string(),
-            route: Some(Route {
-                name: Some(Name::from_strings([c0, c1, c2])),
-                link_id: None,
-                direction: None,
-            }),
-        })
-        .await
-        .expect("add_route failed")
-        .into_inner();
-    assert!(resp.success, "add_route returned success=false");
-}
-
 // --- Wait Helpers ---
 
 async fn wait_for_nodes_connected(client: &mut NbClient, node_ids: &[&str], timeout: Duration) {
@@ -557,42 +530,6 @@ async fn test_inter_group_links_created_and_claimed() {
     node_a.shutdown().await.ok();
     node_b.shutdown().await.ok();
     node_c.shutdown().await.ok();
-    stop_control_plane(cp).await;
-}
-
-/// Test 2: Inter-group route applied via northbound API
-///
-/// Scenario:
-///   - Start CP + 2 nodes in different groups.
-///   - Wait for inter-group link to be established.
-///   - Add a route via the northbound API (explicit route, not subscription-driven).
-///   - Verify the route reaches Applied status.
-///
-/// Validates: NB API -> route stored -> reconciler sends to node -> node applies -> Applied.
-#[tokio::test(flavor = "multi_thread")]
-async fn test_inter_group_route_applied() {
-    init_tracing();
-
-    let cp = start_control_plane(TopologyConfig::default()).await;
-    let mut client = create_nb_client(cp.northbound_port).await;
-
-    let a_port = reserve_port();
-    let b_port = reserve_port();
-
-    let node_a = start_single_node("node-a", "group-a", cp.southbound_port, a_port).await;
-    let node_b = start_single_node("node-b", "group-b", cp.southbound_port, b_port).await;
-
-    let id_a = grouped_node_id("group-a", "node-a");
-    let id_b = grouped_node_id("group-b", "node-b");
-
-    wait_for_nodes_connected(&mut client, &[&id_a, &id_b], SHORT_TIMEOUT).await;
-    wait_for_link_between_groups(&mut client, "group-a", "group-b", DEFAULT_TIMEOUT).await;
-
-    add_route(&mut client, &id_a, &id_b, "org", "ns", "svc1").await;
-    wait_for_route_applied(&mut client, &id_a, &id_b, DEFAULT_TIMEOUT).await;
-
-    node_a.shutdown().await.ok();
-    node_b.shutdown().await.ok();
     stop_control_plane(cp).await;
 }
 
