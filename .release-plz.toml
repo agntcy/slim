@@ -84,3 +84,9 @@ name = "agntcy-slim-proto"
 publish = true
 release = true
 changelog_update = true
+
+[[package]]
+name = "agntcy-slim-control-plane"
+publish = false
+release = true
+changelog_update = true
