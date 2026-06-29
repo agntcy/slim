@@ -1173,11 +1173,27 @@ impl DataAccess for SqliteDb {
             context: "clear_topology pool",
             msg: e.to_string(),
         })?;
-        diesel::delete(topology_segment_links::table)
+        // Clear physical routes and links (they will be re-created when nodes reconnect).
+        diesel::delete(routes::table)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "clear_topology routes",
+                msg: e.to_string(),
+            })?;
+        diesel::delete(links::table)
             .execute(&mut conn)
             .await
             .map_err(|e| Error::DbError {
                 context: "clear_topology links",
+                msg: e.to_string(),
+            })?;
+        // Clear logical topology config.
+        diesel::delete(topology_segment_links::table)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "clear_topology segment_links",
                 msg: e.to_string(),
             })?;
         diesel::delete(topology_segments::table)
