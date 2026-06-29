@@ -108,10 +108,16 @@ impl super::RouteService {
         segments
             .iter()
             .map(|(name, graph)| {
-                let edges: Vec<(String, String)> = graph
+                let mut edges: Vec<(String, String)> = graph
                     .edge_references()
-                    .map(|e| (graph[e.source()].clone(), graph[e.target()].clone()))
+                    .map(|e| {
+                        let a = graph[e.source()].clone();
+                        let b = graph[e.target()].clone();
+                        if a <= b { (a, b) } else { (b, a) }
+                    })
                     .collect();
+                edges.sort();
+                edges.dedup();
                 let mut groups: Vec<String> = {
                     let mut connected = std::collections::HashSet::new();
                     for (a, b) in &edges {
