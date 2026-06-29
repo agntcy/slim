@@ -21,14 +21,14 @@ use crate::dataplane::proto::v1::message::MessageType::SubscriptionAck as ProtoS
 use crate::dataplane::proto::v1::message::MessageType::Unsubscribe as ProtoUnsubscribeType;
 use crate::dataplane::proto::v1::{
     ApplicationPayload, CommandPayload, Content, DiscoveryReplyPayload, DiscoveryRequestPayload,
-    GroupAckPayload, GroupAddPayload, GroupClosePayload, GroupNackPayload,
-    GroupProposalPayload, GroupRemovePayload, GroupWelcomePayload, JoinReplyPayload,
-    JoinRequestPayload, LeaveReplyPayload, LeaveRequestPayload, Link as ProtoLink,
-    LinkConnectionType, LinkNegotiationPayload, Message as ProtoMessage, MlsPayload,
-    MlsSettings as ProtoMlsSettings, Name as ProtoName, Participant, ParticipantSettings,
-    PingPayload, Publish as ProtoPublish, SessionHeader, SessionMessageType,
-    SessionType as ProtoSessionType, SlimHeader, Subscribe as ProtoSubscribe,
-    SubscriptionAck as ProtoSubscriptionAck, TimerSettings, Unsubscribe as ProtoUnsubscribe,
+    GroupAckPayload, GroupAddPayload, GroupClosePayload, GroupNackPayload, GroupProposalPayload,
+    GroupRemovePayload, GroupWelcomePayload, JoinReplyPayload, JoinRequestPayload,
+    LeaveReplyPayload, LeaveRequestPayload, Link as ProtoLink, LinkConnectionType,
+    LinkNegotiationPayload, Message as ProtoMessage, MlsPayload, MlsSettings as ProtoMlsSettings,
+    Name as ProtoName, Participant, ParticipantSettings, PingPayload, Publish as ProtoPublish,
+    SessionHeader, SessionMessageType, SessionType as ProtoSessionType, SlimHeader,
+    Subscribe as ProtoSubscribe, SubscriptionAck as ProtoSubscriptionAck, TimerSettings,
+    Unsubscribe as ProtoUnsubscribe,
 };
 
 fn calculate_hash<T: Hash + ?Sized>(t: &T) -> u64 {
@@ -274,7 +274,11 @@ pub(crate) fn decode_name_bytes(b: &bytes::Bytes) -> Option<(u64, u64, u64, u128
     if b.is_empty() {
         return None;
     }
-    assert!(b.len() == 40, "encoded_name must be 40 bytes, got {}", b.len());
+    assert!(
+        b.len() == 40,
+        "encoded_name must be 40 bytes, got {}",
+        b.len()
+    );
     let c0 = u64::from_le_bytes(b[0..8].try_into().unwrap());
     let c1 = u64::from_le_bytes(b[8..16].try_into().unwrap());
     let c2 = u64::from_le_bytes(b[16..24].try_into().unwrap());
@@ -559,8 +563,7 @@ impl SlimHeader {
     }
 
     pub fn get_encoded_source(&self) -> ([u64; 3], u128) {
-        let (c0, c1, c2, id) =
-            decode_name_bytes(&self.source).expect("source not set");
+        let (c0, c1, c2, id) = decode_name_bytes(&self.source).expect("source not set");
         ([c0, c1, c2], id)
     }
 
@@ -572,8 +575,7 @@ impl SlimHeader {
     }
 
     pub fn get_encoded_dst(&self) -> ([u64; 3], u128) {
-        let (c0, c1, c2, id) =
-            decode_name_bytes(&self.destination).expect("destination not set");
+        let (c0, c1, c2, id) = decode_name_bytes(&self.destination).expect("destination not set");
         ([c0, c1, c2], id)
     }
 
@@ -804,7 +806,6 @@ impl ProtoPublish {
         use prost::Message;
         self.msg = payload.encode_to_vec().into();
     }
-
 }
 
 impl From<ProtoMessage> for ProtoPublish {
@@ -1662,7 +1663,11 @@ impl ProtoMessageBuilder {
         self
     }
 
-    pub fn application_payload(mut self, payload_type: &str, blob: impl Into<bytes::Bytes>) -> Self {
+    pub fn application_payload(
+        mut self,
+        payload_type: &str,
+        blob: impl Into<bytes::Bytes>,
+    ) -> Self {
         let app_payload = ApplicationPayload::new(payload_type, blob);
         self.payload = Some(app_payload.as_content());
         self

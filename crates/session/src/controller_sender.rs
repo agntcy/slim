@@ -693,8 +693,8 @@ mod tests {
     use super::*;
     use crate::common::{OutboundMessage, SessionOutput};
     use slim_datapath::api::{
-        CommandPayload, DATA_CHANNEL_ID, Participant, ParticipantSettings,
-        ProtoSessionMessageType, ProtoSessionType,
+        CommandPayload, DATA_CHANNEL_ID, Participant, ParticipantSettings, ProtoSessionMessageType,
+        ProtoSessionType,
     };
     use std::time::Duration;
     use tokio::time::timeout;

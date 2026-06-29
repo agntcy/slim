@@ -833,14 +833,18 @@ mod tests {
         );
 
         // returns three matches on connection 1,2,3
-        let out = t.match_all(name1.components(), name1.id(), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_all(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out.len(), 3);
         assert!(out.contains(&1));
         assert!(out.contains(&2));
         assert!(out.contains(&3));
 
         // return two matches on connection 2,3
-        let out = t.match_all(name1.components(), name1.id(), 1, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_all(name1.components(), name1.id(), 1, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.contains(&2));
         assert!(out.contains(&3));
@@ -851,7 +855,9 @@ mod tests {
         );
 
         // return two matches on connection 1,3
-        let out = t.match_all(name1.components(), name1.id(), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_all(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.contains(&1));
         assert!(out.contains(&3));
@@ -862,7 +868,9 @@ mod tests {
         );
 
         // return one matches on connection 1
-        let out = t.match_all(name1.components(), name1.id(), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_all(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out.len(), 1);
         assert!(out.contains(&1));
 
@@ -877,14 +885,18 @@ mod tests {
         );
 
         // returns two matches on connection 1 and 2
-        let out = t.match_all(name1.components(), name1.id(), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_all(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.contains(&1));
         assert!(out.contains(&2));
 
         // run multiple times for randomness
         for _ in 0..20 {
-            let out = t.match_one(name1.components(), name1.id(), 100, MatchFilter::ALL).unwrap();
+            let out = t
+                .match_one(name1.components(), name1.id(), 100, MatchFilter::ALL)
+                .unwrap();
             if out != 1 && out != 2 {
                 // the output must be 1 or 2
                 panic!("the output must be 1 or 2");
@@ -892,18 +904,24 @@ mod tests {
         }
 
         // return connection 2
-        let out = t.match_one(name1_1.components(), name1_1.id(), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_one(name1_1.components(), name1_1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out, 2);
 
         // return connection 3
-        let out = t.match_one(name2_2.components(), name2_2.id(), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_one(name2_2.components(), name2_2.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out, 3);
         let removed_subs = t.remove_connection(2, ConnType::Remote).unwrap();
         assert_eq!(removed_subs.len(), 1);
         assert!(removed_subs.contains_key(&name1_1));
 
         // returns one match on connection 1
-        let out = t.match_all(name1.components(), name1.id(), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_all(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out.len(), 1);
         assert!(out.contains(&1));
 
@@ -914,7 +932,9 @@ mod tests {
 
         // run multiple times for randomness
         for _ in 0..20 {
-            let out = t.match_one(name2_2.components(), name2_2.id(), 100, MatchFilter::ALL).unwrap();
+            let out = t
+                .match_one(name2_2.components(), name2_2.id(), 100, MatchFilter::ALL)
+                .unwrap();
             if out != 3 && out != 4 {
                 // the output must be 3 or 4
                 panic!("the output must be 3 or 4");
@@ -922,7 +942,9 @@ mod tests {
         }
 
         for _ in 0..20 {
-            let out = t.match_one(name2_2.components(), name2_2.id(), 4, MatchFilter::ALL).unwrap();
+            let out = t
+                .match_one(name2_2.components(), name2_2.id(), 4, MatchFilter::ALL)
+                .unwrap();
             if out != 3 {
                 // the output must be 3
                 panic!("the output must be 3");
@@ -941,22 +963,30 @@ mod tests {
         );
 
         // returns both local (2) and remote (1) connections
-        let out = t.match_all(name1.components(), name1.id(), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_all(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.contains(&2));
         assert!(out.contains(&1));
 
         // returns one match on connection 2
-        let out = t.match_one(name1.components(), name1.id(), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_one(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out, 2);
 
         // returns both local (2) and remote (1) connections, excluding incoming connection (2)
-        let out = t.match_all(name1.components(), name1.id(), 2, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_all(name1.components(), name1.id(), 2, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out.len(), 1);
         assert!(out.contains(&1));
 
         // same here
-        let out = t.match_one(name1.components(), name1.id(), 2, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_one(name1.components(), name1.id(), 2, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out, 1);
 
         // test errors
@@ -1050,7 +1080,9 @@ mod tests {
         );
 
         // Test match_all returns both local and remote connections
-        let result = t.match_all(name.components(), name.id(), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name.components(), name.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(
             result.len(),
             4,
@@ -1062,7 +1094,9 @@ mod tests {
         assert!(result.contains(&4), "Should contain remote connection 4");
 
         // Test excluding incoming connection works for local
-        let result = t.match_all(name.components(), name.id(), 1, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name.components(), name.id(), 1, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(
             result.len(),
             3,
@@ -1077,7 +1111,9 @@ mod tests {
         assert!(result.contains(&4), "Should contain remote connection 4");
 
         // Test excluding incoming connection works for remote
-        let result = t.match_all(name.components(), name.id(), 3, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name.components(), name.id(), 3, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(
             result.len(),
             3,
@@ -1093,7 +1129,9 @@ mod tests {
 
         // Test match_one prefers local over remote
         for _ in 0..20 {
-            let result = t.match_one(name.components(), name.id(), 100, MatchFilter::ALL).unwrap();
+            let result = t
+                .match_one(name.components(), name.id(), 100, MatchFilter::ALL)
+                .unwrap();
             assert!(
                 result == 1 || result == 2,
                 "match_one should always prefer local connections"
@@ -1105,14 +1143,18 @@ mod tests {
         assert!(t.remove_subscription(&name, 2, ConnType::Local, 2).is_ok());
 
         // Now match_all should only return remote connections
-        let result = t.match_all(name.components(), name.id(), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name.components(), name.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result.len(), 2, "Should return only 2 remote connections");
         assert!(result.contains(&3), "Should contain remote connection 3");
         assert!(result.contains(&4), "Should contain remote connection 4");
 
         // And match_one should fall back to remote
         for _ in 0..20 {
-            let result = t.match_one(name.components(), name.id(), 100, MatchFilter::ALL).unwrap();
+            let result = t
+                .match_one(name.components(), name.id(), 100, MatchFilter::ALL)
+                .unwrap();
             assert!(
                 result == 3 || result == 4,
                 "Should return remote connections"
@@ -1283,7 +1325,9 @@ mod tests {
         );
 
         // Both connections should be available
-        let result = t.match_all(name1.components(), name1.id(), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result.len(), 2, "Should have 2 connections");
 
         // Connection 1 dies - should be force-removed regardless of ref count
@@ -1294,13 +1338,17 @@ mod tests {
         assert_eq!(removed[&name1], HashSet::from([301u64, 302, 303]));
 
         // Now only connection 2 should be available
-        let result = t.match_one(name1.components(), name1.id(), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_one(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(
             result, 2,
             "Should only match to connection 2 after conn 1 dies"
         );
 
-        let result = t.match_all(name1.components(), name1.id(), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result.len(), 1, "Should only have 1 connection remaining");
         assert!(result.contains(&2));
     }
@@ -1337,7 +1385,9 @@ mod tests {
 
         // Should prefer local connection
         for _ in 0..10 {
-            let result = t.match_one(name1.components(), name1.id(), 100, MatchFilter::ALL).unwrap();
+            let result = t
+                .match_one(name1.components(), name1.id(), 100, MatchFilter::ALL)
+                .unwrap();
             assert_eq!(result, 1, "Should prefer local connection");
         }
 
@@ -1346,7 +1396,9 @@ mod tests {
             t.remove_subscription(&name1, 1, ConnType::Local, 401)
                 .is_ok()
         );
-        let result = t.match_one(name1.components(), name1.id(), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_one(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result, 1, "Local connection should still exist");
 
         // Remove last local subscription_id - should be gone, fall back to remote
@@ -1355,7 +1407,9 @@ mod tests {
                 .is_ok()
         );
         for _ in 0..10 {
-            let result = t.match_one(name1.components(), name1.id(), 100, MatchFilter::ALL).unwrap();
+            let result = t
+                .match_one(name1.components(), name1.id(), 100, MatchFilter::ALL)
+                .unwrap();
             assert_eq!(result, 2, "Should fall back to remote connection");
         }
 
@@ -1369,7 +1423,9 @@ mod tests {
                 .is_ok()
         );
         // Still has one remaining
-        let result = t.match_one(name1.components(), name1.id(), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_one(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result, 2, "Remote should still exist with one sub");
 
         assert!(
@@ -1420,7 +1476,9 @@ mod tests {
 
         // Test 1: Message with NULL_COMPONENT should match ALL subscriptions
         // (both NULL_COMPONENT and specific IDs)
-        let result = t.match_all(name.components(), name.id(), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name.components(), name.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(
             result.len(),
             4,
@@ -1433,7 +1491,9 @@ mod tests {
 
         // Test 2: Message with specific ID 1 should match ONLY ID 1 subscription
         // (excluding NULL_COMPONENT subscriptions)
-        let result = t.match_all(name_id1.components(), name_id1.id(), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name_id1.components(), name_id1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(
             result.len(),
             1,
@@ -1442,12 +1502,16 @@ mod tests {
         assert!(result.contains(&3), "Should match only conn 3 (ID 1)");
 
         // Test 3: Message with specific ID 2 should match ONLY ID 2 subscription
-        let result = t.match_all(name_id2.components(), name_id2.id(), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name_id2.components(), name_id2.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result.len(), 1);
         assert!(result.contains(&4), "Should match only conn 4 (ID 2)");
 
         // Test 4: match_one should also respect these rules
-        let result = t.match_one(name_id1.components(), name_id1.id(), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_one(name_id1.components(), name_id1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result, 3, "Should return only the specific ID connection");
 
         // Test 5: Remove specific ID subscription, the match for message with that ID should fail
@@ -1462,7 +1526,9 @@ mod tests {
         );
 
         // Test 6: But NULL_COMPONENT message should still match remaining subscriptions
-        let result = t.match_all(name.components(), name.id(), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name.components(), name.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result.len(), 3, "Should match remaining subscriptions");
         assert!(result.contains(&1));
         assert!(result.contains(&2));
@@ -1473,12 +1539,16 @@ mod tests {
         assert!(t.remove_subscription(&name, 2, ConnType::Remote, 2).is_ok());
 
         // NULL_COMPONENT message should still match the specific ID subscription
-        let result = t.match_all(name.components(), name.id(), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name.components(), name.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result.len(), 1);
         assert!(result.contains(&4), "Should match ID 2 subscription");
 
         // Specific ID 2 message should still work
-        let result = t.match_one(name_id2.components(), name_id2.id(), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_one(name_id2.components(), name_id2.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result, 4);
 
         // But specific ID 1 should still fail (was removed earlier)
@@ -1508,7 +1578,9 @@ mod tests {
         );
 
         // MatchFilter::ALL returns all three connections
-        let out = t.match_all(name.components(), name.id(), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_all(name.components(), name.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out.len(), 3);
         assert!(out.contains(&10));
         assert!(out.contains(&20));

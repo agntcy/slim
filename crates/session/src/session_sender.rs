@@ -177,7 +177,11 @@ impl SessionSender {
     ) -> Result<SessionOutput, SessionError> {
         let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
 
-        if is_publish_to && !self.endpoints_list.contains_key(&message.get_encoded_dst().0) {
+        if is_publish_to
+            && !self
+                .endpoints_list
+                .contains_key(&message.get_encoded_dst().0)
+        {
             let dst = message.get_dst();
             debug!(
                 %dst,
@@ -352,7 +356,8 @@ impl SessionSender {
         let mut output = SessionOutput::new();
         if let Some(mut msg) = self.buffer.get(message_id as usize) {
             debug!("the message is still exists, send it as rtx reply");
-            msg.get_slim_header_mut().set_destination(source_proto.clone());
+            msg.get_slim_header_mut()
+                .set_destination(source_proto.clone());
             msg.get_slim_header_mut()
                 .set_forward_to(Some(incoming_conn));
             msg.get_session_header_mut()

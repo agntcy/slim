@@ -1356,11 +1356,7 @@ async fn test_multiple_wildcard_routes_different_names() {
     let wildcard_names: std::collections::HashSet<_> = routes
         .iter()
         .filter(|r| r.status == ROUTE_APPLIED)
-        .filter_map(|r| {
-            r.name
-                .as_ref()
-                .map(|n| n.str_components().2.to_string())
-        })
+        .filter_map(|r| r.name.as_ref().map(|n| n.str_components().2.to_string()))
         .collect();
     assert!(
         wildcard_names.contains("svc-alpha"),
