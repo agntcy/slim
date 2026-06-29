@@ -151,8 +151,12 @@ pub trait DataAccess: Send + Sync {
         dest_group: &str,
     ) -> Result<()>;
     async fn get_links_for_segment(&self, segment_id: &str) -> Result<Vec<(String, String)>>;
-    /// Wipe all topology tables (used on startup in config-managed mode).
-    async fn clear_topology(&self) -> Result<()>;
+    /// Wipe runtime state (nodes, links, routes) but keep topology config.
+    /// Used on startup in API-managed mode.
+    async fn clear_runtime_state(&self) -> Result<()>;
+    /// Wipe all state: runtime + topology config.
+    /// Used on startup in config-managed mode.
+    async fn clear_all_state(&self) -> Result<()>;
 }
 
 pub type SharedDb = Arc<dyn DataAccess>;

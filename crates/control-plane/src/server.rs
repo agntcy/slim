@@ -22,13 +22,18 @@ impl ControlPlane {
     pub async fn start(cfg: Config) -> Result<Self> {
         let db = crate::db::open(&cfg.database).await?;
 
-        // In config mode, wipe topology tables on startup (config is source of truth).
+        // In config mode, wipe all state on startup (config is source of truth).
         if cfg.topology.is_config_managed() {
-            db.clear_topology()
+            db.clear_all_state()
                 .await
-                .context("failed to clear topology tables")?;
+                .context("failed to clear all state")?;
             tracing::info!("topology mode: config-managed");
         } else {
+            // In API mode, clear runtime state (nodes/links/routes) but keep
+            // topology config (segments/segment_links) — nodes will re-register.
+            db.clear_runtime_state()
+                .await
+                .context("failed to clear runtime state")?;
             tracing::info!("topology mode: API-managed");
         }
 

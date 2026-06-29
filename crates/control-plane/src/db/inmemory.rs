@@ -923,10 +923,15 @@ impl DataAccess for InMemoryDb {
             .collect())
     }
 
-    async fn clear_topology(&self) -> Result<()> {
+    async fn clear_runtime_state(&self) -> Result<()> {
         self.nodes.write().clear();
         *self.routes.write() = RouteStore::new();
         *self.links.write() = LinkStore::new();
+        Ok(())
+    }
+
+    async fn clear_all_state(&self) -> Result<()> {
+        self.clear_runtime_state().await?;
         self.topology_segment_links.write().clear();
         self.topology_segments.write().clear();
         Ok(())
@@ -1507,7 +1512,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn clear_topology_wipes_all() {
+    async fn clear_all_state_wipes_everything() {
         let db = db();
         let seg1 = db.create_segment("seg-1").await.unwrap();
         let seg2 = db.create_segment("seg-2").await.unwrap();
@@ -1520,11 +1525,31 @@ mod tests {
         db.add_link(link).await.unwrap();
         assert_eq!(db.list_all_links().await.unwrap().len(), 1);
 
-        db.clear_topology().await.unwrap();
+        db.clear_all_state().await.unwrap();
 
         assert!(db.list_topology_segments().await.unwrap().is_empty());
         assert!(db.get_links_for_segment(&seg1.id).await.unwrap().is_empty());
         assert!(db.get_links_for_segment(&seg2.id).await.unwrap().is_empty());
         assert!(db.list_all_links().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn clear_runtime_state_keeps_topology() {
+        let db = db();
+        let seg = db.create_segment("seg-1").await.unwrap();
+        db.add_link_to_segment(&seg.id, "group-a", "group-b")
+            .await
+            .unwrap();
+
+        let link = make_link("node-a", "node-b", "http://127.0.0.1:9000", "link-1");
+        db.add_link(link).await.unwrap();
+
+        db.clear_runtime_state().await.unwrap();
+
+        // Runtime state cleared
+        assert!(db.list_all_links().await.unwrap().is_empty());
+        // Topology config preserved
+        assert_eq!(db.list_topology_segments().await.unwrap().len(), 1);
+        assert_eq!(db.get_links_for_segment(&seg.id).await.unwrap().len(), 1);
     }
 }

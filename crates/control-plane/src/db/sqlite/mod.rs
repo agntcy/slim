@@ -1168,45 +1168,54 @@ impl DataAccess for SqliteDb {
             })
     }
 
-    async fn clear_topology(&self) -> Result<()> {
+    async fn clear_runtime_state(&self) -> Result<()> {
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
-            context: "clear_topology pool",
+            context: "clear_runtime_state pool",
             msg: e.to_string(),
         })?;
-        // Wipe all tables — config is the source of truth and nodes will re-register.
+        // Delete in dependency order: routes → links → nodes (foreign key constraints)
         diesel::delete(routes::table)
             .execute(&mut conn)
             .await
             .map_err(|e| Error::DbError {
-                context: "clear_topology routes",
+                context: "clear_runtime_state routes",
                 msg: e.to_string(),
             })?;
         diesel::delete(links::table)
             .execute(&mut conn)
             .await
             .map_err(|e| Error::DbError {
-                context: "clear_topology links",
+                context: "clear_runtime_state links",
                 msg: e.to_string(),
             })?;
         diesel::delete(nodes::table)
             .execute(&mut conn)
             .await
             .map_err(|e| Error::DbError {
-                context: "clear_topology nodes",
+                context: "clear_runtime_state nodes",
                 msg: e.to_string(),
             })?;
+        Ok(())
+    }
+
+    async fn clear_all_state(&self) -> Result<()> {
+        self.clear_runtime_state().await?;
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "clear_all_state pool",
+            msg: e.to_string(),
+        })?;
         diesel::delete(topology_segment_links::table)
             .execute(&mut conn)
             .await
             .map_err(|e| Error::DbError {
-                context: "clear_topology segment_links",
+                context: "clear_all_state segment_links",
                 msg: e.to_string(),
             })?;
         diesel::delete(topology_segments::table)
             .execute(&mut conn)
             .await
             .map_err(|e| Error::DbError {
-                context: "clear_topology segments",
+                context: "clear_all_state segments",
                 msg: e.to_string(),
             })?;
         Ok(())
@@ -1656,7 +1665,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn topology_clear_wipes_all() {
+    async fn clear_all_state_wipes_everything() {
         let (_f, db) = tmp_db().await;
         let _seg1 = db.create_segment("seg-1").await.unwrap();
         let seg2 = db.create_segment("seg-2").await.unwrap();
@@ -1664,7 +1673,7 @@ mod tests {
             .await
             .unwrap();
 
-        db.clear_topology().await.unwrap();
+        db.clear_all_state().await.unwrap();
 
         assert!(db.list_topology_segments().await.unwrap().is_empty());
         assert!(db.get_links_for_segment(&seg2.id).await.unwrap().is_empty());

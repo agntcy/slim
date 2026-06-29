@@ -79,9 +79,54 @@ impl super::RouteService {
         if groups_changed {
             let group_vec: Vec<&str> = new_groups.into_iter().collect();
             *current_segments = self.0.topology.build_graph(&group_vec);
+
+            // Persist the expanded topology to DB so that API mode can pick it
+            // up if the operator later switches modes.
+            self.persist_segments_to_db(&current_segments).await;
         }
 
         groups_changed
+    }
+
+    /// Write the current segment graphs to the DB (topology_segments +
+    /// topology_segment_links). Called after config-mode graph expansion so
+    /// the DB always reflects the latest resolved topology.
+    async fn persist_segments_to_db(
+        &self,
+        segments: &[(String, petgraph::graph::UnGraph<String, u32>)],
+    ) {
+        for (seg_name, graph) in segments {
+            let seg = match self.0.db.get_segment_by_name(seg_name).await {
+                Ok(Some(s)) => s,
+                Ok(None) => match self.0.db.create_segment(seg_name).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::error!(%seg_name, error = %e, "failed to persist segment");
+                        continue;
+                    }
+                },
+                Err(e) => {
+                    tracing::error!(%seg_name, error = %e, "failed to check segment");
+                    continue;
+                }
+            };
+
+            for edge in graph.edge_references() {
+                let group_a = &graph[edge.source()];
+                let group_b = &graph[edge.target()];
+                if let Err(e) = self
+                    .0
+                    .db
+                    .add_link_to_segment(&seg.id, group_a, group_b)
+                    .await
+                {
+                    tracing::debug!(
+                        %seg_name, %group_a, %group_b, error = %e,
+                        "failed to persist topology link (may already exist)"
+                    );
+                }
+            }
+        }
     }
 
     /// Compute the set of allowed group pairs from the runtime segment graphs.
