@@ -73,11 +73,12 @@ message SLIMHeader {
   optional uint64 incoming_conn = 9;
   optional bool error = 10;
   optional bytes header_mac = 11;
+  optional bytes e2e_header_sig = 12;
   // Packed human-readable string components for source (was Name.str_name).
   // Layout: [len_0: u32 LE][component_0][len_1: u32 LE][component_1][len_2: u32 LE][component_2]
-  bytes source_str = 12;
+  bytes source_str = 13;
   // Packed human-readable string components for destination (was Name.str_name).
-  bytes destination_str = 13;
+  bytes destination_str = 14;
 }
 
 message SessionHeader {
