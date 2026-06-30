@@ -51,27 +51,6 @@ config:
     max_requeues: 15
     workers: 4
 
-  # Topology management mode:
-  # - Empty or absent = API mode (manage topology via slimctl / gRPC at runtime)
-  # - With links/segments = Config mode (config file is source of truth)
-  #
-  # API mode (default):
-  topology: {}
-  #
-  # Config mode examples:
-  # topology:
-  #   links:
-  #     - group: cloud
-  #       neighbors: ["*"]   # star: cloud connects to all groups
-  #
-  # With segments for route isolation:
-  # topology:
-  #   segments:
-  #     - name: segment-$group
-  #       links:
-  #         - group: cloud
-  #           neighbors: [$group]
-
 spire:
   enabled: false
   # Slim Controller SVIDs will be federated with these trust domains
