@@ -35,6 +35,7 @@ use crate::errors::ConfigError;
 use crate::grpc::compression::CompressionType;
 use crate::grpc::proxy::ProxyConfig;
 use crate::tls::client::TlsClientConfig as TLSSetting;
+use crate::tls::errors::ConfigError as TlsConfigError;
 use crate::transport::{TransportProtocol, validate_endpoint_scheme};
 use crate::websocket::client::WebSocketClientChannel;
 
@@ -510,42 +511,12 @@ impl ClientConfig {
         TransportProtocol::from_endpoint(&self.endpoint)
     }
 
-    pub fn merge_server_requirements(&mut self, server: &ServerConnectionConfig) {
+    pub fn merge_server_requirements(
+        &mut self,
+        server: &ServerConnectionConfig,
+    ) -> Result<(), TlsConfigError> {
         self.endpoint = server.endpoint.clone();
-
-        if server.tls_required {
-            self.tls_setting.insecure = false;
-            if let RequiredAuthMethod::Spire { trust_domain } = &server.auth_method {
-                use crate::auth::spire::SpireConfig;
-                use crate::tls::common::{CaSource, TlsSource};
-
-                let socket_path = match &self.tls_setting.config.source {
-                    TlsSource::Spire { config } => config.socket_path.clone(),
-                    _ => None,
-                };
-
-                let trust_domains = trust_domain
-                    .as_ref()
-                    .map(|td| vec![td.clone()])
-                    .unwrap_or_default();
-
-                self.tls_setting.config.source = TlsSource::Spire {
-                    config: SpireConfig {
-                        socket_path: socket_path.clone(),
-                        ..Default::default()
-                    },
-                };
-                self.tls_setting.config.ca_source = CaSource::Spire {
-                    config: SpireConfig {
-                        socket_path,
-                        trust_domains: trust_domains.clone(),
-                        ..Default::default()
-                    },
-                }
-            }
-        } else {
-            self.tls_setting.insecure = true;
-        }
+        self.tls_setting.insecure = !server.tls_required;
 
         match &server.auth_method {
             RequiredAuthMethod::None => {
@@ -553,22 +524,40 @@ impl ClientConfig {
             }
             RequiredAuthMethod::Spire { trust_domain } => {
                 use crate::auth::spire::SpireConfig;
-                let socket_path = match &self.auth {
-                    AuthenticationConfig::Spire(cfg) => cfg.socket_path.clone(),
-                    _ => None,
-                };
+                use crate::tls::common::{CaSource, TlsSource};
+
                 let trust_domains = trust_domain
                     .as_ref()
                     .map(|td| vec![td.clone()])
                     .unwrap_or_default();
-                self.auth = AuthenticationConfig::Spire(SpireConfig {
-                    socket_path,
-                    trust_domains,
-                    ..Default::default()
-                });
+
+                if server.tls_required {
+                    let tls_socket_path = match &self.tls_setting.config.source {
+                        TlsSource::Spire { config: tls_config } => tls_config.socket_path.clone(),
+                        _ => None,
+                    };
+                    self.tls_setting.config.source = TlsSource::Spire {
+                        config: SpireConfig {
+                            socket_path: tls_socket_path.clone(),
+                            ..Default::default()
+                        },
+                    };
+                    self.tls_setting.config.ca_source = CaSource::Spire {
+                        config: SpireConfig {
+                            socket_path: tls_socket_path,
+                            trust_domains,
+                            ..Default::default()
+                        },
+                    };
+                } else {
+                    return Err(TlsConfigError::Spire(
+                        "TLS needs to be enabled to use Spire".to_string(),
+                    ));
+                }
             }
             _ => {} // Basic and JWT local credentials/tokens remain preserved
         }
+        Ok(())
     }
 }
 

@@ -1092,8 +1092,7 @@ mod tests {
             dest_node_id: dst.to_string(),
             dest_group: String::new(),
             dest_endpoint: ep.to_string(),
-            conn_config_data: slim_config::grpc::client::ServerConnectionConfig::default()
-                .with_connection_type(slim_config::conn_type::ConnType::Remote),
+            conn_config_data: slim_config::client::ServerConnectionConfig::default(),
             status: LinkStatus::Pending,
             status_msg: String::new(),
             created_at: SystemTime::now(),

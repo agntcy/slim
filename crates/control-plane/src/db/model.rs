@@ -427,7 +427,9 @@ mod tests {
         ConnectionDetails {
             endpoint: endpoint.to_string(),
             external_endpoint: external.map(|s| s.to_string()),
-            spire_mtls: None,
+            tls_required: false,
+            auth_method: "none".to_string(),
+            spire_trust_domain: None,
         }
     }
 
@@ -558,8 +560,7 @@ mod tests {
             dest_node_id: "dst".to_string(),
             dest_group: "grp".to_string(),
             dest_endpoint: "ep:9000".to_string(),
-            conn_config_data: ServerConnectionConfig::default()
-                .with_connection_type(slim_config::conn_type::ConnType::Remote),
+            conn_config_data: ServerConnectionConfig::default(),
             status: LinkStatus::Pending,
             status_msg: String::new(),
             created_at: std::time::SystemTime::now(),
@@ -577,8 +578,7 @@ mod tests {
             dest_node_id: "dst".to_string(),
             dest_group: "grp".to_string(),
             dest_endpoint: "ep:9000".to_string(),
-            conn_config_data: ServerConnectionConfig::default()
-                .with_connection_type(slim_config::conn_type::ConnType::Remote),
+            conn_config_data: ServerConnectionConfig::default(),
             status: LinkStatus::Applied,
             status_msg: String::new(),
             created_at: std::time::SystemTime::now(),
@@ -624,13 +624,10 @@ mod tests {
     }
 
     #[test]
-    fn connection_details_changed_different_spire_mtls() {
+    fn connection_details_changed_different_spire_trust_domain() {
         let a = make_cd("ep:8080", None);
         let mut b = make_cd("ep:8080", None);
-        b.spire_mtls = Some(SpireMtls {
-            socket_path: "/run/spire/agent.sock".to_string(),
-            trust_domain: None,
-        });
+        b.spire_trust_domain = Some("example.org".to_string());
         assert!(has_connection_details_changed(&[a], &[b]));
     }
 
@@ -644,25 +641,16 @@ mod tests {
     #[test]
     fn connection_details_changed_different_trust_domain() {
         let mut a = make_cd("ep:8080", None);
-        a.spire_mtls = Some(SpireMtls {
-            socket_path: "/run/spire.sock".to_string(),
-            trust_domain: Some("domain-a.example".to_string()),
-        });
+        a.spire_trust_domain = Some("domain-a.example".to_string());
         let mut b = make_cd("ep:8080", None);
-        b.spire_mtls = Some(SpireMtls {
-            socket_path: "/run/spire.sock".to_string(),
-            trust_domain: Some("domain-b.example".to_string()),
-        });
+        b.spire_trust_domain = Some("domain-b.example".to_string());
         assert!(has_connection_details_changed(&[a], &[b]));
     }
 
     #[test]
     fn connection_details_unchanged_same_trust_domain() {
         let mut a = make_cd("ep:8080", None);
-        a.spire_mtls = Some(SpireMtls {
-            socket_path: "/run/spire.sock".to_string(),
-            trust_domain: Some("domain.example".to_string()),
-        });
+        a.spire_trust_domain = Some("domain.example".to_string());
         let b = a.clone();
         assert!(!has_connection_details_changed(&[a], &[b]));
     }
@@ -685,14 +673,11 @@ mod tests {
     }
 
     #[test]
-    fn connection_details_display_with_spire_mtls_and_external() {
+    fn connection_details_display_with_spire_and_external() {
         let mut cd = make_cd("ep:8080", Some("ext:9090"));
-        cd.spire_mtls = Some(SpireMtls {
-            socket_path: "/run/spire/agent.sock".to_string(),
-            trust_domain: None,
-        });
+        cd.spire_trust_domain = Some("example.org".to_string());
         let s = format!("{cd}");
-        assert!(s.contains("mtls(spire)"));
+        assert!(s.contains("spire(trustDomain:"));
         assert!(s.contains("ext:9090"));
     }
 
@@ -706,10 +691,7 @@ mod tests {
     #[test]
     fn connection_details_display_trust_domain() {
         let mut cd = make_cd("ep:8080", None);
-        cd.spire_mtls = Some(SpireMtls {
-            socket_path: "/run/spire.sock".to_string(),
-            trust_domain: Some("example.org".to_string()),
-        });
+        cd.spire_trust_domain = Some("example.org".to_string());
         let s = format!("{cd}");
         assert!(s.contains("example.org"));
     }

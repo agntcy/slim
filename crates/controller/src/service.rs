@@ -30,7 +30,7 @@ use crate::api::proto::api::v1::{
 };
 use crate::errors::ControllerError;
 use prost_types::Struct;
-use slim_config::client::{ClientConfig, TransportChannel};
+use slim_config::client::{ClientConfig, ServerConnectionConfig, TransportChannel};
 use slim_config::server::AuthenticationConfig;
 use slim_datapath::api::{
     MessageType::Link as LinkMessageType, MessageType::Subscribe,
@@ -40,7 +40,7 @@ use slim_datapath::api::{
 use slim_datapath::api::{NameId, ProtoName};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::utils::SlimHeaderFlags;
-use slim_datapath::tables::SubscriptionTable;
+use slim_datapath::tables::{ConnType, SubscriptionTable};
 
 type TxChannel = mpsc::Sender<Result<ControlMessage, Status>>;
 type TxChannels = HashMap<String, TxChannel>;
@@ -686,38 +686,45 @@ impl ControllerService {
             let mut success = true;
             let mut error_msg = String::new();
 
-            match serde_json::from_str::<ClientConfig>(&conn.config_data) {
+            match serde_json::from_str::<ServerConnectionConfig>(&conn.config_data) {
                 Err(e) => {
                     success = false;
                     error_msg = format!("Failed to parse config: {}", e);
                 }
-                Ok(client_config) => {
-                    match self
-                        .inner
-                        .message_processor
-                        .connect(client_config.clone(), None, None)
-                        .await
-                    {
-                        Err(e) => {
+                Ok(server_config) => {
+                    let mut client_config = ClientConfig::default();
+                    match client_config.merge_server_requirements(&server_config) {
+                        Err(err) => {
                             success = false;
-                            error_msg = format!("Connection failed: {}", e);
-                        }
-                        Ok(conn_id) => {
-                            let requested_link_id = if client_config.link_id.trim().is_empty() {
-                                String::new()
-                            } else {
-                                client_config.link_id.clone()
-                            };
-                            if !requested_link_id.is_empty() {
-                                self.inner
-                                    .link_id_to_conn_id
-                                    .write()
-                                    .insert(requested_link_id, conn_id.1);
-                            }
-                            info!(
-                                link_id = %link_id,
-                                "Successfully created connection"
+                            error_msg = format!(
+                                "Failed to merge connection config to client config: {}",
+                                err
                             );
+                        }
+                        Ok(()) => {
+                            client_config.link_id = link_id.clone();
+                            client_config.connection_type = ConnType::Remote;
+                            match self
+                                .inner
+                                .message_processor
+                                .connect(client_config, None, None)
+                                .await
+                            {
+                                Err(e) => {
+                                    success = false;
+                                    error_msg = format!("Connection failed: {}", e);
+                                }
+                                Ok(conn_id) => {
+                                    self.inner
+                                        .link_id_to_conn_id
+                                        .write()
+                                        .insert(link_id.clone(), conn_id.1);
+                                    info!(
+                                        link_id = %link_id,
+                                        "Successfully created connection"
+                                    );
+                                }
+                            }
                         }
                     }
                 }

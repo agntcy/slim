@@ -158,7 +158,9 @@ pub(crate) mod test_utils {
         ConnectionDetails {
             endpoint: ep.to_string(),
             external_endpoint: external.map(|s| s.to_string()),
-            spire_mtls: None,
+            tls_required: false,
+            auth_method: "none".to_string(),
+            spire_trust_domain: None,
         }
     }
 
