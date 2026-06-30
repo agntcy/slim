@@ -190,8 +190,8 @@ mod tests {
     use crate::commands::channel_manager::ChannelManagerCommand;
     use crate::commands::config_cmd::{ConfigCommand, SetCommand};
     use crate::commands::controller::{
-        ControllerCommand, ControllerConnectionCommand, ControllerNodeCommand,
-        ControllerRouteCommand,
+        ControllerCommand, ControllerConnectionCommand, ControllerGroupCommand,
+        ControllerNodeCommand, ControllerRouteCommand, ControllerSegmentCommand,
     };
     use crate::commands::node::{NodeCommand, NodeConnectionCommand, NodeRouteCommand};
     use crate::commands::slim_cmd::SlimCommand;
@@ -380,107 +380,37 @@ mod tests {
         let ControllerCommand::Route(a) = args.command else {
             panic!()
         };
-        let ControllerRouteCommand::List { node_id } = a.command else {
-            panic!()
-        };
-        assert_eq!(node_id, "node1");
+        let ControllerRouteCommand::List { node_id, .. } = a.command;
+        assert_eq!(node_id, Some("node1".to_string()));
     }
 
     #[test]
-    fn parse_controller_route_add() {
-        let cli = parse_ok(&[
-            "slimctl",
-            "controller",
-            "route",
-            "add",
-            "-n",
-            "node1",
-            "org/ns/agent/42",
-            "via",
-            "dest-node",
-        ]);
+    fn parse_controller_route_list_defaults() {
+        let cli = parse_ok(&["slimctl", "controller", "route", "list"]);
         let Commands::Controller(args) = cli.command else {
             panic!()
         };
         let ControllerCommand::Route(a) = args.command else {
             panic!()
         };
-        let ControllerRouteCommand::Add {
+        let ControllerRouteCommand::List {
             node_id,
-            route,
-            via,
-            destination,
-        } = a.command
-        else {
-            panic!()
-        };
-        assert_eq!(node_id, "node1");
-        assert_eq!(route, "org/ns/agent/42");
-        assert_eq!(via, "via");
-        assert_eq!(destination, "dest-node");
-    }
-
-    #[test]
-    fn parse_controller_route_del() {
-        let cli = parse_ok(&[
-            "slimctl",
-            "controller",
-            "route",
-            "del",
-            "-n",
-            "node1",
-            "org/ns/agent/42",
-            "via",
-            "http://host:8080",
-        ]);
-        let Commands::Controller(args) = cli.command else {
-            panic!()
-        };
-        let ControllerCommand::Route(a) = args.command else {
-            panic!()
-        };
-        let ControllerRouteCommand::Del {
-            node_id,
-            route,
-            via,
-            destination,
-        } = a.command
-        else {
-            panic!()
-        };
-        assert_eq!(node_id, "node1");
-        assert_eq!(route, "org/ns/agent/42");
-        assert_eq!(via, "via");
-        assert_eq!(destination, "http://host:8080");
-    }
-
-    #[test]
-    fn parse_controller_route_outline_defaults() {
-        let cli = parse_ok(&["slimctl", "controller", "route", "outline"]);
-        let Commands::Controller(args) = cli.command else {
-            panic!()
-        };
-        let ControllerCommand::Route(a) = args.command else {
-            panic!()
-        };
-        let ControllerRouteCommand::Outline {
             origin_node_id,
             target_node_id,
-        } = a.command
-        else {
-            panic!()
-        };
+            ..
+        } = a.command;
+        assert_eq!(node_id, None);
         assert_eq!(origin_node_id, "");
         assert_eq!(target_node_id, "");
     }
 
     #[test]
-    fn parse_controller_route_outline_with_filters() {
+    fn parse_controller_route_list_with_filters() {
         let cli = parse_ok(&[
             "slimctl",
             "controller",
             "route",
-            "outline",
+            "list",
             "-o",
             "src-node",
             "-t",
@@ -492,15 +422,37 @@ mod tests {
         let ControllerCommand::Route(a) = args.command else {
             panic!()
         };
-        let ControllerRouteCommand::Outline {
+        let ControllerRouteCommand::List {
             origin_node_id,
             target_node_id,
-        } = a.command
-        else {
-            panic!()
-        };
+            ..
+        } = a.command;
         assert_eq!(origin_node_id, "src-node");
         assert_eq!(target_node_id, "dst-node");
+    }
+
+    #[test]
+    fn parse_controller_group_list() {
+        let cli = parse_ok(&["slimctl", "controller", "group", "list"]);
+        let Commands::Controller(args) = cli.command else {
+            panic!()
+        };
+        let ControllerCommand::Group(a) = args.command else {
+            panic!()
+        };
+        assert!(matches!(a.command, ControllerGroupCommand::List));
+    }
+
+    #[test]
+    fn parse_controller_segment_list() {
+        let cli = parse_ok(&["slimctl", "controller", "segment", "list"]);
+        let Commands::Controller(args) = cli.command else {
+            panic!()
+        };
+        let ControllerCommand::Segment(a) = args.command else {
+            panic!()
+        };
+        assert!(matches!(a.command, ControllerSegmentCommand::List));
     }
 
     // ── node ─────────────────────────────────────────────────────────────────
@@ -515,66 +467,6 @@ mod tests {
             panic!()
         };
         assert!(matches!(a.command, NodeRouteCommand::List));
-    }
-
-    #[test]
-    fn parse_node_route_add() {
-        let cli = parse_ok(&[
-            "slimctl",
-            "node",
-            "route",
-            "add",
-            "org/ns/agent/42",
-            "via",
-            "/path/to/config.json",
-        ]);
-        let Commands::Node(args) = cli.command else {
-            panic!()
-        };
-        let NodeCommand::Route(a) = args.command else {
-            panic!()
-        };
-        let NodeRouteCommand::Add {
-            route,
-            via,
-            config_file,
-        } = a.command
-        else {
-            panic!()
-        };
-        assert_eq!(route, "org/ns/agent/42");
-        assert_eq!(via, "via");
-        assert_eq!(config_file, "/path/to/config.json");
-    }
-
-    #[test]
-    fn parse_node_route_del() {
-        let cli = parse_ok(&[
-            "slimctl",
-            "node",
-            "route",
-            "del",
-            "org/ns/agent/42",
-            "via",
-            "http://host:8080",
-        ]);
-        let Commands::Node(args) = cli.command else {
-            panic!()
-        };
-        let NodeCommand::Route(a) = args.command else {
-            panic!()
-        };
-        let NodeRouteCommand::Del {
-            route,
-            via,
-            destination,
-        } = a.command
-        else {
-            panic!()
-        };
-        assert_eq!(route, "org/ns/agent/42");
-        assert_eq!(via, "via");
-        assert_eq!(destination, "http://host:8080");
     }
 
     #[test]
@@ -1021,12 +913,6 @@ mod tests {
     #[test]
     fn controller_connection_list_missing_node_id_fails() {
         let err = parse_err(&["slimctl", "controller", "connection", "list"]);
-        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
-    }
-
-    #[test]
-    fn controller_route_list_missing_node_id_fails() {
-        let err = parse_err(&["slimctl", "controller", "route", "list"]);
         assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
     }
 

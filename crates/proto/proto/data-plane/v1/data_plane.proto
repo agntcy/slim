@@ -66,6 +66,7 @@ message SLIMHeader {
   optional uint64 incoming_conn = 9;
   optional bool error = 10;
   optional bytes header_mac = 11;
+  optional bytes e2e_header_sig = 12;
 }
 
 message SessionHeader {

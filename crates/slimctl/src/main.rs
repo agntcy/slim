@@ -7,7 +7,6 @@ mod client;
 mod commands;
 mod config;
 mod proto;
-mod utils;
 
 use clap::Parser;
 

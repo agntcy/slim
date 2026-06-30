@@ -19,14 +19,12 @@ use slim_config::grpc::server::ServerConfig;
 use slim_config::tls::client::TlsClientConfig;
 use slim_config::tls::provider::initialize_crypto_provider;
 use slim_config::tls::server::TlsServerConfig;
-use slim_control_plane::api::proto::controller::proto::v1::Route;
 use slim_control_plane::api::proto::controlplane::proto::v1::control_plane_service_client::ControlPlaneServiceClient;
 use slim_control_plane::api::proto::controlplane::proto::v1::{
-    AddRouteRequest, LinkEntry, LinkListRequest, NodeEntry, NodeListRequest, RouteEntry,
-    RouteListRequest,
+    LinkEntry, LinkListRequest, NodeEntry, NodeListRequest, RouteEntry, RouteListRequest,
 };
 use slim_control_plane::config::{
-    AdjacencyEntry, Config, DatabaseConfig, ReconcilerConfig, TopologyConfig,
+    AdjacencyEntry, Config, DatabaseConfig, ReconcilerConfig, SegmentConfig, TopologyConfig,
 };
 use slim_control_plane::server::ControlPlane;
 use slim_datapath::api::ProtoName as Name;
@@ -46,8 +44,6 @@ use tracing_subscriber::EnvFilter;
 /// Route status constants (from protobuf enum).
 const ROUTE_APPLIED: i32 = 1;
 const ROUTE_DELETED: i32 = 3;
-#[allow(dead_code)]
-const ROUTE_PENDING: i32 = 4;
 
 /// Link status constants.
 const LINK_APPLIED: i32 = 2;
@@ -127,14 +123,11 @@ async fn stop_control_plane(tcp: TestControlPlane) {
     tcp.cp.shutdown().await;
 }
 
-#[allow(dead_code)]
 fn star_topology_config(hub_group: &str) -> TopologyConfig {
-    TopologyConfig {
-        links: vec![AdjacencyEntry {
-            name: hub_group.to_string(),
-            peers: vec!["*".to_string()],
-        }],
-    }
+    TopologyConfig::Links(vec![AdjacencyEntry {
+        name: hub_group.to_string(),
+        neighbors: vec!["*".to_string()],
+    }])
 }
 
 // --- Node Management ---
@@ -237,6 +230,8 @@ async fn start_subscribing_app(dp_port: u16, org: &str, ns: &str, component: &st
         )
         .unwrap();
     app.subscribe(&name, Some(conn_id)).await.unwrap();
+    // Leak app and rx so the subscription stays alive for the test duration.
+    // Dropping them would disconnect the app and remove the route.
     std::mem::forget(app);
     std::mem::forget(rx);
     svc
@@ -295,31 +290,6 @@ async fn collect_links(client: &mut NbClient, src: &str, dest: &str) -> Vec<Link
         entries.push(entry.expect("stream error"));
     }
     entries
-}
-
-async fn add_route(
-    client: &mut NbClient,
-    src_node_id: &str,
-    dest_node_id: &str,
-    c0: &str,
-    c1: &str,
-    c2: &str,
-) {
-    let resp = client
-        .add_route(AddRouteRequest {
-            connection: None,
-            node_id: src_node_id.to_string(),
-            dest_node_id: dest_node_id.to_string(),
-            route: Some(Route {
-                name: Some(Name::from_strings([c0, c1, c2])),
-                link_id: None,
-                direction: None,
-            }),
-        })
-        .await
-        .expect("add_route failed")
-        .into_inner();
-    assert!(resp.success, "add_route returned success=false");
 }
 
 // --- Wait Helpers ---
@@ -467,8 +437,9 @@ async fn wait_for_link_between_groups_entry(
     timeout: Duration,
 ) -> LinkEntry {
     let deadline = tokio::time::Instant::now() + timeout;
+    let mut links = vec![];
     loop {
-        let links = collect_links(client, "", "").await;
+        links = collect_links(client, "", "").await;
         if let Some(link) = links.iter().find(|l| {
             if l.deleted || l.status != LINK_APPLIED {
                 return false;
@@ -480,8 +451,7 @@ async fn wait_for_link_between_groups_entry(
             return link.clone();
         }
         if tokio::time::Instant::now() >= deadline {
-            let link_info: Vec<_> = collect_links(client, "", "")
-                .await
+            let link_info: Vec<_> = links
                 .iter()
                 .map(|l| {
                     format!(
@@ -560,42 +530,6 @@ async fn test_inter_group_links_created_and_claimed() {
     node_a.shutdown().await.ok();
     node_b.shutdown().await.ok();
     node_c.shutdown().await.ok();
-    stop_control_plane(cp).await;
-}
-
-/// Test 2: Inter-group route applied via northbound API
-///
-/// Scenario:
-///   - Start CP + 2 nodes in different groups.
-///   - Wait for inter-group link to be established.
-///   - Add a route via the northbound API (explicit route, not subscription-driven).
-///   - Verify the route reaches Applied status.
-///
-/// Validates: NB API -> route stored -> reconciler sends to node -> node applies -> Applied.
-#[tokio::test(flavor = "multi_thread")]
-async fn test_inter_group_route_applied() {
-    init_tracing();
-
-    let cp = start_control_plane(TopologyConfig::default()).await;
-    let mut client = create_nb_client(cp.northbound_port).await;
-
-    let a_port = reserve_port();
-    let b_port = reserve_port();
-
-    let node_a = start_single_node("node-a", "group-a", cp.southbound_port, a_port).await;
-    let node_b = start_single_node("node-b", "group-b", cp.southbound_port, b_port).await;
-
-    let id_a = grouped_node_id("group-a", "node-a");
-    let id_b = grouped_node_id("group-b", "node-b");
-
-    wait_for_nodes_connected(&mut client, &[&id_a, &id_b], SHORT_TIMEOUT).await;
-    wait_for_link_between_groups(&mut client, "group-a", "group-b", DEFAULT_TIMEOUT).await;
-
-    add_route(&mut client, &id_a, &id_b, "org", "ns", "svc1").await;
-    wait_for_route_applied(&mut client, &id_a, &id_b, DEFAULT_TIMEOUT).await;
-
-    node_a.shutdown().await.ok();
-    node_b.shutdown().await.ok();
     stop_control_plane(cp).await;
 }
 
@@ -1203,7 +1137,6 @@ async fn test_app_disconnect_removes_routes() {
 
     // App disconnects.
     app.shutdown().await.ok();
-    tokio::time::sleep(Duration::from_secs(1)).await;
 
     // Routes should be cleaned up.
     wait_for_no_active_routes_with_name(
@@ -1585,6 +1518,106 @@ async fn test_star_topology_hub_crash_and_recovery() {
     app.shutdown().await.ok();
     app2.shutdown().await.ok();
     hub2.shutdown().await.ok();
+    spoke_a.shutdown().await.ok();
+    spoke_b.shutdown().await.ok();
+    stop_control_plane(cp).await;
+}
+
+/// Helper: build a segmented star topology with `$group` template.
+/// Hub group connects to each spoke group in a separate segment.
+fn segmented_star_topology(hub_group: &str) -> TopologyConfig {
+    TopologyConfig::Segments(vec![SegmentConfig {
+        name: "seg-$group".to_string(),
+        links: vec![AdjacencyEntry {
+            name: hub_group.to_string(),
+            neighbors: vec!["$group".to_string()],
+        }],
+    }])
+}
+
+/// Test: Segmented star topology isolates spokes but hub bridges all segments.
+///
+/// Scenario:
+///   - CP with segmented star topology ($group template): platform↔$group.
+///   - 3 nodes: hub (platform), spoke-a (customer-a), spoke-b (customer-b).
+///   - App subscribes on spoke-a → hub gets a route, spoke-b does NOT.
+///   - App subscribes on hub → both spokes get a route.
+///   - No spoke-to-spoke links.
+///
+/// Validates: segment isolation, hub bridging, $group template expansion.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_segmented_star_isolates_spokes() {
+    init_tracing();
+
+    let cp = start_control_plane(segmented_star_topology("platform")).await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+
+    let hub_port = reserve_port();
+    let spoke_a_port = reserve_port();
+    let spoke_b_port = reserve_port();
+
+    let hub = start_single_node("hub", "platform", cp.southbound_port, hub_port).await;
+    let spoke_a =
+        start_single_node("spoke-a", "customer-a", cp.southbound_port, spoke_a_port).await;
+    let spoke_b =
+        start_single_node("spoke-b", "customer-b", cp.southbound_port, spoke_b_port).await;
+
+    let id_hub = grouped_node_id("platform", "hub");
+    let id_spoke_a = grouped_node_id("customer-a", "spoke-a");
+    let id_spoke_b = grouped_node_id("customer-b", "spoke-b");
+
+    wait_for_nodes_connected(
+        &mut client,
+        &[&id_hub, &id_spoke_a, &id_spoke_b],
+        SHORT_TIMEOUT,
+    )
+    .await;
+
+    // Hub should have links to both spokes.
+    wait_for_link_between_groups(&mut client, "customer-a", "platform", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "customer-b", "platform", DEFAULT_TIMEOUT).await;
+
+    // Verify NO spoke-to-spoke link.
+    let links = collect_links(&mut client, "", "").await;
+    let spoke_to_spoke = links.iter().any(|l| {
+        if l.deleted {
+            return false;
+        }
+        let sg = l.source_node_id.split('/').next().unwrap_or("");
+        let dg = l.dest_node_id.split('/').next().unwrap_or("");
+        (sg == "customer-a" && dg == "customer-b") || (sg == "customer-b" && dg == "customer-a")
+    });
+    assert!(
+        !spoke_to_spoke,
+        "segmented star must NOT create spoke-to-spoke links"
+    );
+
+    // --- Part 1: route on spoke-a → hub gets it, spoke-b does NOT ---
+    let app_a = start_subscribing_app(spoke_a_port, "org", "ns", "seg-svc-a").await;
+
+    // Hub should get a route to spoke-a (same segment seg-customer-a).
+    wait_for_route_applied(&mut client, &id_hub, &id_spoke_a, DEFAULT_TIMEOUT).await;
+
+    // Spoke-b should NOT get a route to spoke-a (different segment).
+    // Allow time for any routes to propagate, then verify absence.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let spoke_b_routes = collect_routes(&mut client, &id_spoke_b, &id_spoke_a).await;
+    let spoke_b_has_route = spoke_b_routes.iter().any(|r| r.status == ROUTE_APPLIED);
+    assert!(
+        !spoke_b_has_route,
+        "spoke-b must NOT have a route to spoke-a (segment isolation)"
+    );
+
+    // --- Part 2: route on hub → both spokes get it ---
+    let app_hub = start_subscribing_app(hub_port, "org", "ns", "seg-svc-hub").await;
+
+    // Both spokes should get routes to hub (hub is in both segments).
+    wait_for_route_applied(&mut client, &id_spoke_a, &id_hub, DEFAULT_TIMEOUT).await;
+    wait_for_route_applied(&mut client, &id_spoke_b, &id_hub, DEFAULT_TIMEOUT).await;
+
+    app_a.shutdown().await.ok();
+    app_hub.shutdown().await.ok();
+    hub.shutdown().await.ok();
     spoke_a.shutdown().await.ok();
     spoke_b.shutdown().await.ok();
     stop_control_plane(cp).await;

@@ -138,7 +138,7 @@ var _ = Describe("Routing", func() {
 			return routeName
 		}
 
-		It("should deliver at least one message each way", func() {
+		PIt("should deliver at least one message each way", func() { // TODO: uses removed `route add` command; update to topology-based routing
 			var err error
 
 			clientBSession, err = gexec.Start(
@@ -190,7 +190,7 @@ var _ = Describe("Routing", func() {
 				Should(gbytes.Say(`hello from the b`))
 		})
 
-		It("should have the valid routes and connections", func() {
+		PIt("should have the valid routes and connections", func() { // TODO: uses removed `route add` command; update to topology-based routing
 			var err error
 
 			// Start client B so routes get registered

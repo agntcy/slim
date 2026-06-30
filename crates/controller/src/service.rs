@@ -396,7 +396,7 @@ impl ControlPlane {
                             Some(res) => {
                                 match res {
                                     Ok(msg) => {
-                                        debug!("Send sub/unsub to control plane for message: {:?}", msg);
+                                        debug!("Received message {:?} from data plane, forwarding to control plane", msg);
                                         match msg.get_type() {
                                             Subscribe(_) => {
                                                 controller.handle_subscribe_message(msg.get_dst(), &clients).await;
@@ -1244,7 +1244,7 @@ impl ControllerService {
                         let mut entries = Vec::new();
 
                         self.inner.message_processor.subscription_table().for_each(
-                            |name, id, local, remote, peer| {
+                            |name, id, local, remote, peer, edge| {
                                 let mut entry = RouteEntry {
                                     name: Some(name.clone().with_id(id)),
                                     ..Default::default()
@@ -1261,45 +1261,34 @@ impl ControllerService {
                                     });
                                 }
 
-                                for &cid in remote {
-                                    if let Some(conn) = conn_table.get(cid) {
-                                        entry.connections.push(ConnectionEntry {
-                                            id: cid,
-                                            connection_type: ConnectionType::Remote as i32,
-                                            config_data: match conn.config_data() {
-                                                Some(data) => serde_json::to_string(data)
-                                                    .unwrap_or_else(|_| "{}".to_string()),
-                                                None => "{}".to_string(),
-                                            },
-                                            link_id: conn.link_id(),
-                                            direction: if conn.is_outgoing() {
-                                                ConnectionDirection::Outgoing as i32
-                                            } else {
-                                                ConnectionDirection::Incoming as i32
-                                            },
-                                            peer_node_id: conn.peer_node_id().map(str::to_string),
-                                        });
-                                    } else {
-                                        error!(%cid, "no connection entry for id");
-                                    }
-                                }
-
-                                for &cid in peer {
-                                    if let Some(conn) = conn_table.get(cid) {
-                                        entry.connections.push(ConnectionEntry {
-                                            id: cid,
-                                            connection_type: ConnectionType::Peer as i32,
-                                            config_data: "{}".to_string(),
-                                            link_id: conn.link_id(),
-                                            direction: if conn.is_outgoing() {
-                                                ConnectionDirection::Outgoing as i32
-                                            } else {
-                                                ConnectionDirection::Incoming as i32
-                                            },
-                                            peer_node_id: conn.peer_node_id().map(str::to_string),
-                                        });
-                                    } else {
-                                        error!(%cid, "no connection entry for id (peer)");
+                                let conn_slices = [
+                                    (remote, ConnectionType::Remote),
+                                    (peer, ConnectionType::Peer),
+                                    (edge, ConnectionType::Edge),
+                                ];
+                                for (conns, ct) in conn_slices {
+                                    for &cid in conns {
+                                        if let Some(conn) = conn_table.get(cid) {
+                                            entry.connections.push(ConnectionEntry {
+                                                id: cid,
+                                                connection_type: ct as i32,
+                                                config_data: conn
+                                                    .config_data()
+                                                    .and_then(|d| serde_json::to_string(d).ok())
+                                                    .unwrap_or_else(|| "{}".to_string()),
+                                                link_id: conn.link_id(),
+                                                direction: if conn.is_outgoing() {
+                                                    ConnectionDirection::Outgoing as i32
+                                                } else {
+                                                    ConnectionDirection::Incoming as i32
+                                                },
+                                                peer_node_id: conn
+                                                    .peer_node_id()
+                                                    .map(str::to_string),
+                                            });
+                                        } else {
+                                            error!(%cid, ?ct, "no connection entry for id");
+                                        }
                                     }
                                 }
                                 entries.push(entry);
@@ -1343,22 +1332,21 @@ impl ControllerService {
                             .message_processor
                             .connection_table()
                             .for_each(|id, conn| {
-                                debug!(
-                                    conn_id = id,
-                                    local_addr = ?conn.local_addr(),
-                                    remote_addr = ?conn.remote_addr(),
-                                    is_outgoing = conn.is_outgoing(),
-                                    link_id = ?conn.link_id(),
-                                    "connection entry",
-                                );
+                                let ct = match conn.connection_type() {
+                                    slim_datapath::tables::ConnType::Local => ConnectionType::Local,
+                                    slim_datapath::tables::ConnType::Remote => {
+                                        ConnectionType::Remote
+                                    }
+                                    slim_datapath::tables::ConnType::Peer => ConnectionType::Peer,
+                                    slim_datapath::tables::ConnType::Edge => ConnectionType::Edge,
+                                };
                                 all_entries.push(ConnectionEntry {
                                     id,
-                                    connection_type: ConnectionType::Remote as i32,
-                                    config_data: match conn.config_data() {
-                                        Some(data) => serde_json::to_string(data)
-                                            .unwrap_or_else(|_| "{}".to_string()),
-                                        None => "{}".to_string(),
-                                    },
+                                    connection_type: ct as i32,
+                                    config_data: conn
+                                        .config_data()
+                                        .and_then(|d| serde_json::to_string(d).ok())
+                                        .unwrap_or_else(|| "{}".to_string()),
                                     link_id: conn.link_id(),
                                     direction: if conn.is_outgoing() {
                                         ConnectionDirection::Outgoing as i32
@@ -1437,6 +1425,10 @@ impl ControllerService {
             direction: None,
         };
 
+        debug!(
+            "handle_subscribe_message: sending route_to_set to control plane: {:?}",
+            cmd
+        );
         sub_vec.push(cmd);
 
         let ctrl = ControlMessage {
@@ -1476,6 +1468,11 @@ impl ControllerService {
             return;
         }
 
+        debug!(
+            "handle_link_received: notifying control-plane of new link_id: {}",
+            link_id
+        );
+
         let ctrl = ControlMessage {
             message_id: uuid::Uuid::new_v4().to_string(),
             payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
@@ -1499,6 +1496,15 @@ impl ControllerService {
     }
 
     async fn handle_unsubscribe_message(&self, dst: ProtoName, clients: &[ClientConfig]) {
+        // Remove the subscription from our tracking map so the reconciler
+        // knows it needs to re-install it if the route is still desired.
+        // Without this, a reused conn_id would cause create_new_subscriptions
+        // to skip re-creation because it thinks the subscription is still active.
+        self.inner
+            .route_subscription_ids
+            .lock()
+            .retain(|(name, _), _| *name != dst);
+
         let mut unsub_vec = vec![];
 
         let cmd = v1::Route {
@@ -1507,6 +1513,10 @@ impl ControllerService {
             direction: None,
         };
 
+        debug!(
+            "handle_unsubscribe_message: sending route_to_delete to control plane: {:?}",
+            cmd
+        );
         unsub_vec.push(cmd);
 
         let ctrl = ControlMessage {

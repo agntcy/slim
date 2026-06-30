@@ -233,11 +233,13 @@ async fn test_subscription_propagation_to_peers() {
     for (i, node) in nodes.iter().enumerate().skip(1) {
         let sub_table = node.service.message_processor().subscription_table();
         let mut found = false;
-        sub_table.for_each(|name, _id, _local_conns, _remote_conns, peer_conns| {
-            if name == &prefix && !peer_conns.is_empty() {
-                found = true;
-            }
-        });
+        sub_table.for_each(
+            |name, _id, _local_conns, _remote_conns, peer_conns, _edge_conns| {
+                if name == &prefix && !peer_conns.is_empty() {
+                    found = true;
+                }
+            },
+        );
         assert!(
             found,
             "node {i} should have the subscription from node 0 under peer connections"
@@ -247,11 +249,13 @@ async fn test_subscription_propagation_to_peers() {
     // Verify the originating node has it under local connections
     let sub_table = nodes[0].service.message_processor().subscription_table();
     let mut found_local = false;
-    sub_table.for_each(|name, _id, local_conns, _remote_conns, _peer_conns| {
-        if name == &prefix && !local_conns.is_empty() {
-            found_local = true;
-        }
-    });
+    sub_table.for_each(
+        |name, _id, local_conns, _remote_conns, _peer_conns, _edge_conns| {
+            if name == &prefix && !local_conns.is_empty() {
+                found_local = true;
+            }
+        },
+    );
     assert!(
         found_local,
         "node 0 should have the subscription under local connections"
@@ -390,7 +394,7 @@ async fn test_subscription_not_propagated_to_remote() {
     let prefix = &topic;
     let sub_table = nodes[1].service.message_processor().subscription_table();
     let mut found_on_peer = false;
-    sub_table.for_each(|name, _id, _local, _remote, peer_conns| {
+    sub_table.for_each(|name, _id, _local, _remote, peer_conns, _edge| {
         if name == prefix && !peer_conns.is_empty() {
             found_on_peer = true;
         }
@@ -403,7 +407,7 @@ async fn test_subscription_not_propagated_to_remote() {
     // Verify remote node does NOT have the subscription
     let remote_sub_table = remote_service.message_processor().subscription_table();
     let mut found_on_remote = false;
-    remote_sub_table.for_each(|name, _id, _local, _remote, _peer| {
+    remote_sub_table.for_each(|name, _id, _local, _remote, _peer, _edge| {
         if name == prefix {
             found_on_remote = true;
         }
@@ -454,7 +458,7 @@ fn assert_subscription_on_peers(nodes: &[PeerNode], origin_idx: usize, prefix: &
         }
         let sub_table = node.service.message_processor().subscription_table();
         let mut found = false;
-        sub_table.for_each(|name, _id, _local, _remote, peer_conns| {
+        sub_table.for_each(|name, _id, _local, _remote, peer_conns, _edge| {
             if name == prefix && !peer_conns.is_empty() {
                 found = true;
             }
@@ -476,7 +480,7 @@ fn assert_no_subscription_on_peers(nodes: &[PeerNode], origin_idx: usize, prefix
         }
         let sub_table = node.service.message_processor().subscription_table();
         let mut found = false;
-        sub_table.for_each(|name, _id, _local, _remote, peer_conns| {
+        sub_table.for_each(|name, _id, _local, _remote, peer_conns, _edge| {
             if name == prefix && !peer_conns.is_empty() {
                 found = true;
             }
@@ -536,7 +540,7 @@ async fn test_unsubscribe_propagated_on_connection_drop() {
     // Also verify node 0 itself has no subscription
     let sub_table = nodes[0].service.message_processor().subscription_table();
     let mut found_on_origin = false;
-    sub_table.for_each(|name, _id, local_conns, _remote, _peer| {
+    sub_table.for_each(|name, _id, local_conns, _remote, _peer, _edge| {
         if name == &prefix && !local_conns.is_empty() {
             found_on_origin = true;
         }
@@ -710,7 +714,7 @@ async fn test_no_duplicate_subscriptions_on_peer_reconnect() {
     let count_peer_subs = |service: &Service, prefix: &Name| -> usize {
         let sub_table = service.message_processor().subscription_table();
         let mut count = 0usize;
-        sub_table.for_each(|name, _id, _local, _remote, peer_conns| {
+        sub_table.for_each(|name, _id, _local, _remote, peer_conns, _edge| {
             if name == prefix {
                 count += peer_conns.len();
             }
@@ -811,7 +815,7 @@ async fn test_multiple_subscriptions_restored_on_reconnect() {
     let count_all_peer_subs = |service: &Service| -> usize {
         let sub_table = service.message_processor().subscription_table();
         let mut count = 0usize;
-        sub_table.for_each(|_name, _id, _local, _remote, peer_conns| {
+        sub_table.for_each(|_name, _id, _local, _remote, peer_conns, _edge| {
             count += peer_conns.len();
         });
         count

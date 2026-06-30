@@ -46,8 +46,9 @@ fn build_route_for_gateway(
 }
 
 impl super::RouteService {
-    /// Rebuild the runtime link graph from the given set of nodes.
-    /// Extracts distinct group names and calls `build_graph()` on the topology config.
+    /// Rebuild the runtime segment graphs from the given set of nodes.
+    /// Extracts distinct group names, expands `$group` templates, and builds
+    /// one graph per segment.
     /// Returns true if the set of groups changed (a group was added or removed).
     pub(super) async fn rebuild_link_graph(&self, nodes: &[crate::db::Node]) -> bool {
         let new_groups: HashSet<&str> = nodes
@@ -55,19 +56,67 @@ impl super::RouteService {
             .map(|n| n.group_name.as_deref().unwrap_or(""))
             .collect();
 
-        let mut current_graph = self.0.link_graph.write().await;
-        let current_groups: HashSet<&str> = current_graph
-            .node_indices()
-            .map(|idx| current_graph[idx].as_str())
+        let mut current_segments = self.0.segment_graphs.write().await;
+        let current_groups: HashSet<&str> = current_segments
+            .iter()
+            .flat_map(|(_, g)| g.node_indices().map(|idx| g[idx].as_str()))
             .collect();
         let groups_changed = new_groups != current_groups;
 
         if groups_changed {
             let group_vec: Vec<&str> = new_groups.into_iter().collect();
-            *current_graph = self.0.topology.build_graph(&group_vec);
+            *current_segments = self.0.topology.build_graph(&group_vec);
         }
 
         groups_changed
+    }
+
+    /// Compute the set of allowed group pairs from the runtime segment graphs.
+    /// Two groups can link if they share an edge in any segment.
+    pub(super) async fn allowed_link_pairs(&self) -> HashSet<(String, String)> {
+        let segments = self.0.segment_graphs.read().await;
+        let mut pairs = HashSet::new();
+        for (_, graph) in segments.iter() {
+            for edge in graph.edge_references() {
+                let a = &graph[edge.source()];
+                let b = &graph[edge.target()];
+                // Store both directions for O(1) lookup
+                pairs.insert((a.clone(), b.clone()));
+                pairs.insert((b.clone(), a.clone()));
+            }
+        }
+        pairs
+    }
+
+    /// Return the current segment graphs as (name, groups, edges) tuples.
+    /// Only groups that participate in at least one edge are included.
+    pub async fn list_segments(&self) -> Vec<(String, Vec<String>, Vec<(String, String)>)> {
+        let segments = self.0.segment_graphs.read().await;
+        segments
+            .iter()
+            .map(|(name, graph)| {
+                let mut edges: Vec<(String, String)> = graph
+                    .edge_references()
+                    .map(|e| {
+                        let a = graph[e.source()].clone();
+                        let b = graph[e.target()].clone();
+                        if a <= b { (a, b) } else { (b, a) }
+                    })
+                    .collect();
+                edges.sort();
+                edges.dedup();
+                let mut groups: Vec<String> = {
+                    let mut connected = std::collections::HashSet::new();
+                    for (a, b) in &edges {
+                        connected.insert(a.clone());
+                        connected.insert(b.clone());
+                    }
+                    connected.into_iter().collect()
+                };
+                groups.sort();
+                (name.clone(), groups, edges)
+            })
+            .collect()
     }
 
     /// Find the inter-group link between two groups using pre-loaded links.
@@ -136,82 +185,83 @@ impl super::RouteService {
             .and_then(|n| n.group_name.as_deref())
             .unwrap_or("");
 
-        // Clone the graph to release the read lock before the async loop,
+        // Clone the segment graphs to release the read lock before the async loop,
         // preventing potential deadlocks with concurrent write lock acquisitions.
-        let graph = self.0.link_graph.read().await.clone();
+        // The snapshot may become stale if a concurrent registration from a different
+        // group triggers rebuild_link_graph. This is safe: missing routes will be
+        // installed when the other group's handler runs expand_all_wildcard_routes,
+        // and stale routes are cleaned up by handle_disconnect.
+        let segment_graphs = self.0.segment_graphs.read().await.clone();
 
-        // If the link graph has no inter-group edges, there is nothing for the
-        // control plane to expand (same-group routing is handled by the data plane).
-        if graph.node_count() <= 1 {
-            return;
-        }
-
-        let root_idx = match graph.node_indices().find(|&idx| graph[idx] == dest_group) {
-            Some(idx) => idx,
-            None => {
-                tracing::debug!(
-                    "expand_route_via_spt: dest group '{dest_group}' not in link graph"
-                );
-                return;
-            }
-        };
-
-        // Compute the SPT rooted at the destination group.
-        let spt = match spt::compute_spt(root_idx, &graph) {
-            Some(t) => t,
-            None => return,
-        };
-
-        // For each non-root group in the SPT, install a route on the gateway
-        // node pointing toward the parent group.
-        for (&orig_idx, &tree_idx) in &spt.index_map {
-            if orig_idx == root_idx {
+        for (_seg_name, graph) in &segment_graphs {
+            // If the link graph has no inter-group edges, there is nothing for the
+            // control plane to expand (same-group routing is handled by the data plane).
+            if graph.node_count() <= 1 {
                 continue;
             }
 
-            let child_group = &graph[orig_idx];
-
-            // Find the parent group in the directed tree (incoming edge = from parent).
-            let parent_tree_idx = match spt
-                .tree
-                .edges_directed(tree_idx, petgraph::Direction::Incoming)
-                .next()
-            {
-                Some(edge) => edge.source(),
+            let root_idx = match graph.node_indices().find(|&idx| graph[idx] == dest_group) {
+                Some(idx) => idx,
                 None => continue,
             };
-            let parent_group = &spt.tree[parent_tree_idx];
 
-            // Find the inter-group link from pre-loaded links (O(n) scan, no DB query).
-            let (source_node_id, link_id) = match Self::find_inter_group_link_from_cache(
-                child_group,
-                parent_group,
-                all_nodes,
-                all_links,
-            ) {
-                Some(pair) => pair,
-                None => {
-                    tracing::debug!(
-                        "expand_route_via_spt: no link between '{child_group}' and '{parent_group}', skipping"
-                    );
-                    continue;
-                }
+            // Compute the SPT rooted at the destination group.
+            let spt = match spt::compute_spt(root_idx, graph) {
+                Some(t) => t,
+                None => continue,
             };
 
-            // Create the per-gateway route pointing toward the parent group.
-            let per_node = build_route_for_gateway(
-                &source_node_id,
-                child_group,
-                dest_node_id,
-                dest_group,
-                link_id,
-                component0,
-                component1,
-                component2,
-                component_id,
-            );
-            if let Err(e) = self.add_single_route(per_node).await {
-                tracing::debug!("expand_route_via_spt: route for {source_node_id} skipped: {e}");
+            // For each non-root group in the SPT, install a route on the gateway
+            // node pointing toward the parent group.
+            for (&orig_idx, &tree_idx) in &spt.index_map {
+                if orig_idx == root_idx {
+                    continue;
+                }
+
+                let child_group = &graph[orig_idx];
+
+                // Find the parent group in the directed tree (incoming edge = from parent).
+                let parent_tree_idx = match spt
+                    .tree
+                    .edges_directed(tree_idx, petgraph::Direction::Incoming)
+                    .next()
+                {
+                    Some(edge) => edge.source(),
+                    None => continue,
+                };
+                let parent_group = &spt.tree[parent_tree_idx];
+
+                // Find the inter-group link from pre-loaded links (O(n) scan, no DB query).
+                let (source_node_id, link_id) = match Self::find_inter_group_link_from_cache(
+                    child_group,
+                    parent_group,
+                    all_nodes,
+                    all_links,
+                ) {
+                    Some(pair) => pair,
+                    None => {
+                        tracing::debug!(
+                            "expand_route_via_spt: no link between '{child_group}' and '{parent_group}', skipping"
+                        );
+                        continue;
+                    }
+                };
+
+                // Create the per-gateway route pointing toward the parent group.
+                let per_node = build_route_for_gateway(
+                    &source_node_id,
+                    child_group,
+                    dest_node_id,
+                    dest_group,
+                    link_id,
+                    component0,
+                    component1,
+                    component2,
+                    component_id,
+                );
+                if let Err(e) = self.add_single_route(per_node).await {
+                    tracing::warn!("expand_route_via_spt: route for {source_node_id} skipped: {e}");
+                }
             }
         }
     }
@@ -246,83 +296,90 @@ impl super::RouteService {
             .and_then(|n| n.group_name.as_deref())
             .unwrap_or("");
 
-        // Clone the graph to release the read lock before the async loop.
-        let graph = self.0.link_graph.read().await.clone();
+        // Clone the segment graphs to release the read lock before the async loop.
+        // See expand_route_via_spt for why staleness from concurrent registrations is safe.
+        let segment_graphs = self.0.segment_graphs.read().await.clone();
 
         // If root and announcer are in the same group, the data plane handles
         // routing within that group — nothing for the control plane to do.
-        if graph.node_count() <= 1 || root_group == announcer_group {
+        if root_group == announcer_group {
             return;
         }
 
-        let root_idx = match graph.node_indices().find(|&idx| graph[idx] == root_group) {
-            Some(idx) => idx,
-            None => return,
-        };
-        let announcer_idx = match graph
-            .node_indices()
-            .find(|&idx| graph[idx] == announcer_group)
-        {
-            Some(idx) => idx,
-            None => return,
-        };
-
-        let spt = match spt::compute_spt(root_idx, &graph) {
-            Some(t) => t,
-            None => return,
-        };
-
-        // Walk from announcer up to root in the tree, collecting (parent, child) pairs.
-        let mut current = match spt.index_map.get(&announcer_idx) {
-            Some(&idx) => idx,
-            None => return,
-        };
-        let tree_root = spt.index_map[&root_idx];
-
-        while current != tree_root {
-            // Find parent (incoming edge source).
-            let parent_tree_idx = match spt
-                .tree
-                .edges_directed(current, petgraph::Direction::Incoming)
-                .next()
-            {
-                Some(edge) => edge.source(),
-                None => break,
-            };
-
-            let parent_group = &spt.tree[parent_tree_idx];
-            let child_group = &spt.tree[current];
-
-            // Install route on the parent group's gateway pointing toward child.
-            if let Some((gateway_node_id, link_id)) = Self::find_inter_group_link_from_cache(
-                parent_group,
-                child_group,
-                all_nodes,
-                all_links,
-            ) {
-                let per_node = build_route_for_gateway(
-                    &gateway_node_id,
-                    parent_group,
-                    new_announcer_node_id,
-                    announcer_group,
-                    link_id,
-                    component0,
-                    component1,
-                    component2,
-                    component_id,
-                );
-                if let Err(e) = self.add_single_route(per_node).await {
-                    tracing::debug!(
-                        "install_downward_path: route for {gateway_node_id} skipped: {e}"
-                    );
-                }
-            } else {
-                tracing::debug!(
-                    "install_downward_path: no link between '{parent_group}' and '{child_group}', skipping"
-                );
+        for (_seg_name, graph) in &segment_graphs {
+            if graph.node_count() <= 1 {
+                continue;
             }
 
-            current = parent_tree_idx;
+            let root_idx = match graph.node_indices().find(|&idx| graph[idx] == root_group) {
+                Some(idx) => idx,
+                None => continue,
+            };
+            let announcer_idx = match graph
+                .node_indices()
+                .find(|&idx| graph[idx] == announcer_group)
+            {
+                Some(idx) => idx,
+                None => continue,
+            };
+
+            let spt = match spt::compute_spt(root_idx, graph) {
+                Some(t) => t,
+                None => continue,
+            };
+
+            // Walk from announcer up to root in the tree, collecting (parent, child) pairs.
+            let mut current = match spt.index_map.get(&announcer_idx) {
+                Some(&idx) => idx,
+                None => continue,
+            };
+            let tree_root = spt.index_map[&root_idx];
+
+            while current != tree_root {
+                // Find parent (incoming edge source).
+                let parent_tree_idx = match spt
+                    .tree
+                    .edges_directed(current, petgraph::Direction::Incoming)
+                    .next()
+                {
+                    Some(edge) => edge.source(),
+                    None => break,
+                };
+
+                let parent_group = &spt.tree[parent_tree_idx];
+                let child_group = &spt.tree[current];
+
+                // Install route on the parent group's gateway pointing toward child.
+                if let Some((gateway_node_id, link_id)) = Self::find_inter_group_link_from_cache(
+                    parent_group,
+                    child_group,
+                    all_nodes,
+                    all_links,
+                ) {
+                    let per_node = build_route_for_gateway(
+                        &gateway_node_id,
+                        parent_group,
+                        new_announcer_node_id,
+                        announcer_group,
+                        link_id,
+                        component0,
+                        component1,
+                        component2,
+                        component_id,
+                    );
+                    if let Err(e) = self.add_single_route(per_node).await {
+                        tracing::warn!(
+                            "install_downward_path: route for {gateway_node_id} skipped: {e}"
+                        );
+                    }
+                } else {
+                    tracing::debug!(
+                        "install_downward_path: no link between '{parent_group}' and '{child_group}', skipping"
+                    );
+                }
+
+                current = parent_tree_idx;
+            }
         }
     }
 
@@ -370,7 +427,13 @@ impl super::RouteService {
                             }
                             continue;
                         }
-                        _ => {
+                        Some(existing) => {
+                            // Route already exists with non-Deleted status — a concurrent
+                            // caller won the race. Treat as success since the route is in place.
+                            tracing::debug!("route already exists (concurrent add): {existing}");
+                            return Ok(existing.to_string());
+                        }
+                        None => {
                             return Err(Error::InvalidInput(format!("failed to add route: {e}")));
                         }
                     }
@@ -407,7 +470,10 @@ impl super::RouteService {
     ) {
         let wildcard_routes = match self.0.db.get_routes_for_node(ALL_NODES_ID).await {
             Ok(r) => r,
-            Err(_) => return,
+            Err(e) => {
+                tracing::warn!("expand_all_wildcard_routes: failed to fetch wildcard routes: {e}");
+                return;
+            }
         };
 
         // Group wildcard routes by name. The first (oldest by created_at)
@@ -429,7 +495,13 @@ impl super::RouteService {
         }
 
         for (_name, mut routes) in by_name {
-            routes.sort_by_key(|r| r.created_at);
+            // Sort by creation time, with dest_node_id as tiebreaker for determinism
+            // when timestamps have the same resolution.
+            routes.sort_by(|a, b| {
+                a.created_at
+                    .cmp(&b.created_at)
+                    .then_with(|| a.dest_node_id.cmp(&b.dest_node_id))
+            });
             let root_route = routes[0];
 
             // First announcer: full SPT expansion (upward routes).
@@ -473,7 +545,7 @@ mod tests {
         make_node, make_route_service, make_route_service_with_topology, star_topology,
     };
     use super::*;
-    use crate::config::AdjacencyEntry;
+    use crate::config::{AdjacencyEntry, SegmentConfig};
     use crate::db::inmemory::InMemoryDb;
 
     #[tokio::test]
@@ -636,18 +708,16 @@ mod tests {
         db.save_node(spoke_b).await.unwrap();
 
         // Star topology: platform links to all, spokes link only to platform.
-        let topology = TopologyConfig {
-            links: vec![
-                AdjacencyEntry {
-                    name: "platform".to_string(),
-                    peers: vec!["*".to_string()],
-                },
-                AdjacencyEntry {
-                    name: "*".to_string(),
-                    peers: vec!["platform".to_string()],
-                },
-            ],
-        };
+        let topology = TopologyConfig::Links(vec![
+            AdjacencyEntry {
+                name: "platform".to_string(),
+                neighbors: vec!["*".to_string()],
+            },
+            AdjacencyEntry {
+                name: "*".to_string(),
+                neighbors: vec!["platform".to_string()],
+            },
+        ]);
 
         let svc = make_route_service_with_topology(db.clone(), topology);
 
@@ -883,22 +953,20 @@ mod tests {
         db.save_node(node_c).await.unwrap();
 
         // Chain topology: a↔b, b↔c (no direct a↔c).
-        let topology = TopologyConfig {
-            links: vec![
-                AdjacencyEntry {
-                    name: "group-a".to_string(),
-                    peers: vec!["group-b".to_string()],
-                },
-                AdjacencyEntry {
-                    name: "group-b".to_string(),
-                    peers: vec!["group-a".to_string(), "group-c".to_string()],
-                },
-                AdjacencyEntry {
-                    name: "group-c".to_string(),
-                    peers: vec!["group-b".to_string()],
-                },
-            ],
-        };
+        let topology = TopologyConfig::Links(vec![
+            AdjacencyEntry {
+                name: "group-a".to_string(),
+                neighbors: vec!["group-b".to_string()],
+            },
+            AdjacencyEntry {
+                name: "group-b".to_string(),
+                neighbors: vec!["group-a".to_string(), "group-c".to_string()],
+            },
+            AdjacencyEntry {
+                name: "group-c".to_string(),
+                neighbors: vec!["group-b".to_string()],
+            },
+        ]);
         let svc = make_route_service_with_topology(db.clone(), topology);
         let all_nodes = db.list_nodes().await.unwrap();
         svc.rebuild_link_graph(&all_nodes).await;
@@ -955,6 +1023,172 @@ mod tests {
             route_c.unwrap().link_id.as_deref(),
             Some("link-bc"),
             "node-c should route toward group-b (its parent in the SPT)"
+        );
+    }
+
+    // ── topology: segmented route isolation ──────────────────────────────
+
+    /// Helper: create an Applied link record.
+    fn make_link(id: &str, src: &str, dst: &str) -> crate::db::Link {
+        crate::db::Link {
+            link_id: id.to_string(),
+            source_node_id: src.to_string(),
+            source_group: String::new(),
+            dest_node_id: dst.to_string(),
+            dest_group: String::new(),
+            dest_endpoint: format!("{dst}:8080"),
+            conn_config_data: ClientConfig::default().with_connection_type(ConnType::Remote),
+            status: LinkStatus::Applied,
+            status_msg: String::new(),
+            created_at: SystemTime::now(),
+            last_updated: SystemTime::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn segments_isolate_spokes_but_hub_reaches_all() {
+        // Two segments: platform↔customer-a and platform↔customer-b.
+        // - Route on spoke-a → hub gets it, spoke-b does NOT (isolation).
+        // - Route on hub → both spokes get it (hub bridges segments).
+        let db = InMemoryDb::shared();
+        db.save_node(make_node("hub", Some("platform"), vec![]))
+            .await
+            .unwrap();
+        db.save_node(make_node("spoke-a", Some("customer-a"), vec![]))
+            .await
+            .unwrap();
+        db.save_node(make_node("spoke-b", Some("customer-b"), vec![]))
+            .await
+            .unwrap();
+
+        let topology = TopologyConfig::Segments(vec![
+            SegmentConfig {
+                name: "seg-a".to_string(),
+                links: vec![AdjacencyEntry {
+                    name: "platform".to_string(),
+                    neighbors: vec!["customer-a".to_string()],
+                }],
+            },
+            SegmentConfig {
+                name: "seg-b".to_string(),
+                links: vec![AdjacencyEntry {
+                    name: "platform".to_string(),
+                    neighbors: vec!["customer-b".to_string()],
+                }],
+            },
+        ]);
+        let svc = make_route_service_with_topology(db.clone(), topology);
+
+        db.add_link(make_link("link-hub-a", "hub", "spoke-a"))
+            .await
+            .unwrap();
+        db.add_link(make_link("link-hub-b", "hub", "spoke-b"))
+            .await
+            .unwrap();
+
+        let all_nodes = db.list_nodes().await.unwrap();
+        svc.rebuild_link_graph(&all_nodes).await;
+
+        // Route 1: all → spoke-a (spoke-a's service)
+        let route_a = ProtoRoute {
+            name: Some(ProtoName::from_strings(["org", "ns", "svc-a"])),
+            ..Default::default()
+        };
+        svc.add_route(ALL_NODES_ID, "spoke-a", &route_a)
+            .await
+            .unwrap();
+
+        // Hub should reach spoke-a (same segment seg-a)
+        let hub_routes = db.get_routes_for_node("hub").await.unwrap();
+        assert!(
+            hub_routes.iter().any(|r| r.dest_node_id == "spoke-a"),
+            "hub should have a route to spoke-a"
+        );
+
+        // Spoke-b should NOT reach spoke-a (different segments, no overlap)
+        let spoke_b_routes = db.get_routes_for_node("spoke-b").await.unwrap();
+        assert!(
+            !spoke_b_routes.iter().any(|r| r.dest_node_id == "spoke-a"),
+            "spoke-b should NOT have a route to spoke-a (isolated segments)"
+        );
+
+        // Route 2: all → hub (hub's service)
+        let route_hub = ProtoRoute {
+            name: Some(ProtoName::from_strings(["org", "ns", "svc-hub"])),
+            ..Default::default()
+        };
+        svc.add_route(ALL_NODES_ID, "hub", &route_hub)
+            .await
+            .unwrap();
+
+        // Both spokes should reach hub (hub is in both segments)
+        let spoke_a_routes = db.get_routes_for_node("spoke-a").await.unwrap();
+        assert!(
+            spoke_a_routes.iter().any(|r| r.dest_node_id == "hub"),
+            "spoke-a should have a route to hub"
+        );
+
+        let spoke_b_routes = db.get_routes_for_node("spoke-b").await.unwrap();
+        assert!(
+            spoke_b_routes.iter().any(|r| r.dest_node_id == "hub"),
+            "spoke-b should have a route to hub"
+        );
+    }
+
+    #[tokio::test]
+    async fn segments_group_template_expands_and_isolates() {
+        // Same isolation test but using $group template config.
+        let db = InMemoryDb::shared();
+        db.save_node(make_node("hub", Some("platform"), vec![]))
+            .await
+            .unwrap();
+        db.save_node(make_node("spoke-a", Some("customer-a"), vec![]))
+            .await
+            .unwrap();
+        db.save_node(make_node("spoke-b", Some("customer-b"), vec![]))
+            .await
+            .unwrap();
+
+        let topology = TopologyConfig::Segments(vec![SegmentConfig {
+            name: "seg-$group".to_string(),
+            links: vec![AdjacencyEntry {
+                name: "platform".to_string(),
+                neighbors: vec!["$group".to_string()],
+            }],
+        }]);
+        let svc = make_route_service_with_topology(db.clone(), topology);
+
+        db.add_link(make_link("link-hub-a", "hub", "spoke-a"))
+            .await
+            .unwrap();
+        db.add_link(make_link("link-hub-b", "hub", "spoke-b"))
+            .await
+            .unwrap();
+
+        let all_nodes = db.list_nodes().await.unwrap();
+        svc.rebuild_link_graph(&all_nodes).await;
+
+        // Route: all → spoke-a
+        let route = ProtoRoute {
+            name: Some(ProtoName::from_strings(["org", "ns", "svc-a"])),
+            ..Default::default()
+        };
+        svc.add_route(ALL_NODES_ID, "spoke-a", &route)
+            .await
+            .unwrap();
+
+        // Hub should have a route to spoke-a
+        let hub_routes = db.get_routes_for_node("hub").await.unwrap();
+        assert!(
+            hub_routes.iter().any(|r| r.dest_node_id == "spoke-a"),
+            "hub should have a route to spoke-a ($group template)"
+        );
+
+        // Spoke-b should NOT have a route to spoke-a
+        let spoke_b_routes = db.get_routes_for_node("spoke-b").await.unwrap();
+        assert!(
+            !spoke_b_routes.iter().any(|r| r.dest_node_id == "spoke-a"),
+            "spoke-b should NOT have a route to spoke-a ($group isolation)"
         );
     }
 }

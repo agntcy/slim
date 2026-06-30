@@ -322,6 +322,7 @@ mod tests {
             error: Some(false),
             header_mac: None,
             ttl: DEFAULT_TTL,
+            e2e_header_sig: None,
         }
     }
 
