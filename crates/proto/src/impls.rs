@@ -274,11 +274,9 @@ pub(crate) fn decode_name_bytes(b: &bytes::Bytes) -> Option<(u64, u64, u64, u128
     if b.is_empty() {
         return None;
     }
-    assert!(
-        b.len() == 40,
-        "encoded_name must be 40 bytes, got {}",
-        b.len()
-    );
+    if b.len() != 40 {
+        return None;
+    }
     let c0 = u64::from_le_bytes(b[0..8].try_into().unwrap());
     let c1 = u64::from_le_bytes(b[8..16].try_into().unwrap());
     let c2 = u64::from_le_bytes(b[16..24].try_into().unwrap());
@@ -302,21 +300,21 @@ pub fn encode_str_bytes(s0: &[u8], s1: &[u8], s2: &[u8]) -> bytes::Bytes {
 }
 
 /// Decode packed str_name bytes into three byte slices.
-/// Returns `None` if the slice is empty (field absent).
+/// Returns `None` if the slice is empty (field absent) or malformed.
 #[inline]
 pub fn decode_str_bytes(b: &bytes::Bytes) -> Option<(&[u8], &[u8], &[u8])> {
     if b.is_empty() {
         return None;
     }
     let data = b.as_ref();
-    let len0 = u32::from_le_bytes(data[0..4].try_into().unwrap()) as usize;
-    let s0_end = 4 + len0;
-    let s0 = &data[4..s0_end];
-    let len1 = u32::from_le_bytes(data[s0_end..s0_end + 4].try_into().unwrap()) as usize;
-    let s1_end = s0_end + 4 + len1;
-    let s1 = &data[s0_end + 4..s1_end];
-    let len2 = u32::from_le_bytes(data[s1_end..s1_end + 4].try_into().unwrap()) as usize;
-    let s2 = &data[s1_end + 4..s1_end + 4 + len2];
+    let len0 = u32::from_le_bytes(data.get(0..4)?.try_into().unwrap()) as usize;
+    let s0_end = 4usize.checked_add(len0)?;
+    let s0 = data.get(4..s0_end)?;
+    let len1 = u32::from_le_bytes(data.get(s0_end..s0_end + 4)?.try_into().unwrap()) as usize;
+    let s1_end = s0_end.checked_add(4)?.checked_add(len1)?;
+    let s1 = data.get(s0_end + 4..s1_end)?;
+    let len2 = u32::from_le_bytes(data.get(s1_end..s1_end + 4)?.try_into().unwrap()) as usize;
+    let s2 = data.get(s1_end + 4..s1_end.checked_add(4)?.checked_add(len2)?)?;
     Some((s0, s1, s2))
 }
 
@@ -391,18 +389,14 @@ impl ProtoName {
             .expect("str_name must be set to call str_components()")
     }
 
-    /// Returns the three string components if `str_name` is present, or `None`.
+    /// Returns the three string components if `str_name` is present and valid UTF-8, or `None`.
     fn try_str_components(&self) -> Option<(&str, &str, &str)> {
         let (s0, s1, s2) = decode_str_bytes(&self.str_name)?;
-        // SAFETY: str_name bytes always originate from valid UTF-8 strings
-        // (constructed via from_strings / parse_name, which accept &str / String inputs).
-        unsafe {
-            Some((
-                std::str::from_utf8_unchecked(s0),
-                std::str::from_utf8_unchecked(s1),
-                std::str::from_utf8_unchecked(s2),
-            ))
-        }
+        Some((
+            std::str::from_utf8(s0).ok()?,
+            std::str::from_utf8(s1).ok()?,
+            std::str::from_utf8(s2).ok()?,
+        ))
     }
 
     /// Construct a `ProtoName` from raw hash components and an id, without string names.
