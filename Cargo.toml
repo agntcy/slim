@@ -19,13 +19,6 @@ members = [
   "crates/tracing",
   "crates/version",
 ]
-# The browser data-plane demo is a wasm32-only cdylib (pulls in gloo-net/web-sys),
-# so it must not be part of host-target workspace builds. Build it with
-# `wasm-pack`/`trunk` from `crates/web-client` instead.
-exclude = [
-    "crates/web-client",
-]
-
 default-members = [
   "crates/control-plane",
   "crates/channel-manager",

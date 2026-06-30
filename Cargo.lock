@@ -41,6 +41,7 @@ dependencies = [
  "display-error-chain",
  "ed25519-dalek",
  "futures",
+ "getrandom 0.2.17",
  "getrandom 0.3.4",
  "headers",
  "hmac",
