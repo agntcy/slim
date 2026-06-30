@@ -121,6 +121,13 @@ pub struct BenchSubArgs {
     /// Append results to CSV file
     #[arg(long)]
     pub csv: Option<String>,
+
+    /// Index of the first subscriber in this process.
+    /// Use with --count to distribute subscribers across multiple processes.
+    /// Example: process A: --count 2 --start-index 0  (registers sub-0, sub-1)
+    ///          process B: --count 2 --start-index 2  (registers sub-2, sub-3)
+    #[arg(long, default_value_t = 0)]
+    pub start_index: usize,
 }
 
 // ── Pub args ───────────────────────────────────────────────────────────────────
@@ -158,6 +165,20 @@ pub struct BenchPubArgs {
     /// Append results to CSV file
     #[arg(long)]
     pub csv: Option<String>,
+
+    /// Index of the first publisher in this process.
+    /// Use with --count to distribute publishers across multiple processes.
+    /// Example: process A: --count 2 --start-index 0  (registers pub-0, pub-1)
+    ///          process B: --count 2 --start-index 2  (registers pub-2, pub-3)
+    #[arg(long, default_value_t = 0)]
+    pub start_index: usize,
+
+    /// Run in reliable mode.
+    /// By default the benchmark runs in unreliable (fire-and-forget) mode. With
+    /// --reliable, the session layer retransmits unacknowledged messages and the
+    /// publisher waits for an ACK before sending the next message.
+    #[arg(long)]
+    pub reliable: bool,
 }
 
 // ── Channel args ───────────────────────────────────────────────────────────────
@@ -244,6 +265,13 @@ pub struct BenchChannelPubArgs {
     /// Append results to CSV file
     #[arg(long)]
     pub csv: Option<String>,
+
+    /// Run in reliable mode.
+    /// By default the benchmark runs in unreliable (fire-and-forget) mode. With
+    /// --reliable, the session layer retransmits unacknowledged messages and the
+    /// publisher waits for an ACK before sending the next message.
+    #[arg(long)]
+    pub reliable: bool,
 }
 
 // ── Dispatch ───────────────────────────────────────────────────────────────────
@@ -352,6 +380,7 @@ fn build_sample(
 /// (min start → max end across all samples), matching nats bench semantics.
 struct SampleGroup {
     samples: Vec<Sample>,
+    labels: Vec<String>,
     start: Option<Instant>,
     end: Option<Instant>,
     total_msgs: u64,
@@ -363,6 +392,7 @@ impl SampleGroup {
     fn new() -> Self {
         Self {
             samples: Vec::new(),
+            labels: Vec::new(),
             start: None,
             end: None,
             total_msgs: 0,
@@ -371,7 +401,7 @@ impl SampleGroup {
         }
     }
 
-    fn add(&mut self, s: Sample) {
+    fn add(&mut self, label: impl Into<String>, s: Sample) {
         self.start = Some(match self.start {
             None => s.start,
             Some(existing) => existing.min(s.start),
@@ -383,6 +413,7 @@ impl SampleGroup {
         self.total_msgs += s.msg_cnt;
         self.total_bytes += s.msg_bytes;
         self.job_msg_cnt += s.job_msg_cnt;
+        self.labels.push(label.into());
         self.samples.push(s);
     }
 
@@ -461,23 +492,42 @@ impl SampleGroup {
     }
 
     fn report(&self, label: &str) -> String {
-        let mut out = format!(
-            "{}: {} msgs/sec ~ {}/sec\n",
-            label,
-            comma_format(self.aggregate_rate() as i64),
-            human_bytes(self.aggregate_throughput()),
-        );
+        let mut out = String::new();
         if self.samples.len() > 1 {
-            for (i, s) in self.samples.iter().enumerate() {
-                out.push_str(&format!(
-                    "  [{}] {} ({} msgs)\n",
-                    i + 1,
-                    s,
-                    comma_format(s.job_msg_cnt as i64),
-                ));
+            for (s, lbl) in self.samples.iter().zip(self.labels.iter()) {
+                let count_str = if s.msg_cnt == s.job_msg_cnt {
+                    format!("{} msgs", comma_format(s.msg_cnt as i64))
+                } else {
+                    let dropped = s.job_msg_cnt.saturating_sub(s.msg_cnt);
+                    format!(
+                        "{}/{} msgs, {} dropped",
+                        comma_format(s.msg_cnt as i64),
+                        comma_format(s.job_msg_cnt as i64),
+                        comma_format(dropped as i64),
+                    )
+                };
+                out.push_str(&format!("  [{}] {} ({})\n", lbl, s, count_str));
             }
             out.push_str(&format!("  {}\n", self.statistics()));
         }
+        let agg_count_str = if self.total_msgs == self.job_msg_cnt {
+            format!("{} msgs", comma_format(self.total_msgs as i64))
+        } else {
+            let dropped = self.job_msg_cnt.saturating_sub(self.total_msgs);
+            format!(
+                "{}/{} msgs, {} dropped",
+                comma_format(self.total_msgs as i64),
+                comma_format(self.job_msg_cnt as i64),
+                comma_format(dropped as i64),
+            )
+        };
+        out.push_str(&format!(
+            "{}: {} msgs/sec ~ {}/sec ({})\n",
+            label,
+            comma_format(self.aggregate_rate() as i64),
+            human_bytes(self.aggregate_throughput()),
+            agg_count_str,
+        ));
         out
     }
 
@@ -647,12 +697,24 @@ async fn create_and_wait_session(
     destination: ProtoName,
     timeout: Duration,
     timeout_msg: &str,
+    reliable: bool,
 ) -> Result<SessionContext> {
     let session_config = SessionConfig {
         session_type,
         mls_settings: None,
-        max_retries: Some(SESSION_MAX_RETRIES),
-        interval: Some(SESSION_RETRY_INTERVAL),
+        // Both max_retries AND interval must be Some for the session to create
+        // a timer factory. Without both, the session runs in unreliable mode:
+        // CompletionHandles resolve immediately and no ACKs are sent.
+        max_retries: if reliable {
+            Some(SESSION_MAX_RETRIES)
+        } else {
+            None
+        },
+        interval: if reliable {
+            Some(SESSION_RETRY_INTERVAL)
+        } else {
+            None
+        },
         initiator: true,
         metadata: HashMap::new(),
     };
@@ -697,10 +759,11 @@ async fn run_sub(args: &BenchSubArgs, service: &Arc<Service>) -> Result<()> {
         args.count, args.server
     );
     println!(
-        "  Listening at {}/{}/sub-0..sub-{}",
+        "  Listening at {}/{}/sub-{}..sub-{}",
         org,
         ns,
-        args.count - 1
+        args.start_index,
+        args.start_index + args.count - 1
     );
     if args.msgs > 0 {
         println!(
@@ -722,8 +785,10 @@ async fn run_sub(args: &BenchSubArgs, service: &Arc<Service>) -> Result<()> {
         .await
         .context("connect to server failed")?;
 
+    let start_index = args.start_index;
     let mut join_set: JoinSet<(usize, Result<Sample>)> = JoinSet::new();
     for i in 0..args.count {
+        let actual_index = start_index + i;
         let org = org.clone();
         let ns = ns.clone();
         let secret = args.secret.clone();
@@ -735,9 +800,17 @@ async fn run_sub(args: &BenchSubArgs, service: &Arc<Service>) -> Result<()> {
 
         join_set.spawn(async move {
             (
-                i,
+                actual_index,
                 run_sub_worker(
-                    &service, i, &org, &ns, &secret, conn_id, job_cnt, size, reply,
+                    &service,
+                    actual_index,
+                    &org,
+                    &ns,
+                    &secret,
+                    conn_id,
+                    job_cnt,
+                    size,
+                    reply,
                 )
                 .await,
             )
@@ -748,7 +821,7 @@ async fn run_sub(args: &BenchSubArgs, service: &Arc<Service>) -> Result<()> {
     let mut group = SampleGroup::new();
     while let Some(res) = join_set.join_next().await {
         match res {
-            Ok((_i, Ok(sample))) => group.add(sample),
+            Ok((i, Ok(sample))) => group.add(format!("sub-{i}"), sample),
             Ok((i, Err(e))) => eprintln!("[sub-{i}] error: {e:#}"),
             Err(e) => eprintln!("sub worker panicked: {e}"),
         }
@@ -806,6 +879,15 @@ async fn run_sub_worker(
     let mut msg_cnt = 0u64;
     let mut msg_bytes = 0u64;
 
+    println!(
+        "[sub-{i}] expecting {} messages",
+        if job_msg_cnt == 0 {
+            "unlimited".to_string()
+        } else {
+            job_msg_cnt.to_string()
+        }
+    );
+
     while let Some(msg) = recv_session_message(&mut session_rx, recv_timeout).await {
         if start.is_none() {
             start = Some(Instant::now());
@@ -824,9 +906,12 @@ async fn run_sub_worker(
         }
 
         if job_msg_cnt > 0 && msg_cnt >= job_msg_cnt {
+            println!("[sub-{i}] received all expected messages, exiting");
             break;
         }
     }
+
+    println!("[sub-{i}] received {} messages", msg_cnt);
 
     Ok(build_sample(start, msg_cnt, msg_bytes, job_msg_cnt, size))
 }
@@ -850,10 +935,22 @@ async fn run_pub(args: &BenchPubArgs, service: &Arc<Service>) -> Result<()> {
         "SLIM Bench Pub: {} publisher(s) on {}",
         args.count, args.server
     );
+    println!(
+        "  Publishing at {}/{}/pub-{}..pub-{}",
+        org,
+        ns,
+        args.start_index,
+        args.start_index + args.count - 1
+    );
     println!("  Total messages : {}", comma_format(args.msgs as i64));
     println!("  Payload size   : {} bytes", args.size);
+    let reliable = args.reliable;
     if args.request {
         println!("  Mode           : request-reply (measuring round-trip latency)");
+    } else if reliable {
+        println!("  Mode           : reliable (ACK-gated)");
+    } else {
+        println!("  Mode           : unreliable (fire-and-forget)");
     }
     println!();
 
@@ -866,8 +963,10 @@ async fn run_pub(args: &BenchPubArgs, service: &Arc<Service>) -> Result<()> {
         .await
         .context("connect to server failed")?;
 
+    let start_index = args.start_index;
     let mut join_set: JoinSet<(usize, Result<(Sample, Vec<Duration>)>)> = JoinSet::new();
     for i in 0..args.count {
+        let actual_index = start_index + i;
         let org = org.clone();
         let ns = ns.clone();
         let secret = args.secret.clone();
@@ -878,8 +977,20 @@ async fn run_pub(args: &BenchPubArgs, service: &Arc<Service>) -> Result<()> {
 
         join_set.spawn(async move {
             (
-                i,
-                run_pub_worker(&service, i, &org, &ns, &secret, conn_id, msgs, p, request).await,
+                actual_index,
+                run_pub_worker(
+                    &service,
+                    actual_index,
+                    &org,
+                    &ns,
+                    &secret,
+                    conn_id,
+                    msgs,
+                    p,
+                    request,
+                    reliable,
+                )
+                .await,
             )
         });
     }
@@ -889,8 +1000,8 @@ async fn run_pub(args: &BenchPubArgs, service: &Arc<Service>) -> Result<()> {
     let mut all_latencies = Vec::new();
     while let Some(res) = join_set.join_next().await {
         match res {
-            Ok((_i, Ok((sample, latencies)))) => {
-                group.add(sample);
+            Ok((i, Ok((sample, latencies)))) => {
+                group.add(format!("pub-{i}"), sample);
                 all_latencies.extend(latencies);
             }
             Ok((i, Err(e))) => eprintln!("[pub-{i}] error: {e:#}"),
@@ -930,6 +1041,7 @@ async fn run_pub_worker(
     msg_count: u64,
     payload: Vec<u8>,
     request: bool,
+    reliable: bool,
 ) -> Result<(Sample, Vec<Duration>)> {
     let own_name = make_pub_name(org, ns, i);
     let target_name = make_sub_name(org, ns, i);
@@ -955,6 +1067,7 @@ async fn run_pub_worker(
             "[pub-{i}] session to {target_name} not established within 35 s — \
              is `slimctl bench sub` running with a matching --prefix and --count?"
         ),
+        reliable,
     )
     .await?;
 
@@ -992,6 +1105,8 @@ async fn run_pub_worker(
             latencies.push(t0.elapsed());
         }
     }
+
+    controller.close()?.await?;
 
     let end = Instant::now();
 
@@ -1083,7 +1198,7 @@ async fn run_channel_sub(args: &BenchChannelSubArgs, service: &Arc<Service>) -> 
     let mut group = SampleGroup::new();
     while let Some(res) = join_set.join_next().await {
         match res {
-            Ok((_idx, Ok(sample))) => group.add(sample),
+            Ok((idx, Ok(sample))) => group.add(format!("ch-sub-{idx}"), sample),
             Ok((idx, Err(e))) => eprintln!("[ch-sub-{idx}] error: {e:#}"),
             Err(e) => eprintln!("channel sub worker panicked: {e}"),
         }
@@ -1171,6 +1286,11 @@ async fn run_channel_pub(args: &BenchChannelPubArgs, service: &Arc<Service>) -> 
     println!("  Channel        : {}/{}/channel", org, ns);
     println!("  Total messages : {}", comma_format(args.msgs as i64));
     println!("  Payload size   : {} bytes", args.size);
+    if args.reliable {
+        println!("  Mode           : reliable (ACK-gated)");
+    } else {
+        println!("  Mode           : unreliable (fire-and-forget)");
+    }
     println!();
 
     let payload = vec![0u8; args.size];
@@ -1191,12 +1311,13 @@ async fn run_channel_pub(args: &BenchChannelPubArgs, service: &Arc<Service>) -> 
         args.count,
         args.msgs,
         payload,
+        args.reliable,
     )
     .await
     {
         Ok(sample) => {
             let mut group = SampleGroup::new();
-            group.add(sample);
+            group.add("ch-pub", sample);
             println!("\n{}", group.report("Channel pub stats"));
             if let Some(csv_path) = &args.csv {
                 let run_id = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
@@ -1221,6 +1342,7 @@ async fn run_channel_pub_worker(
     sub_count: usize,
     msg_count: u64,
     payload: Vec<u8>,
+    reliable: bool,
 ) -> Result<Sample> {
     let own_name = make_channel_pub_name(org, ns);
     let channel_name = make_channel_name(org, ns);
@@ -1246,6 +1368,7 @@ async fn run_channel_pub_worker(
         channel_name.clone(),
         Duration::from_secs(5),
         "group session creation timed out unexpectedly",
+        reliable,
     )
     .await?;
 
@@ -1285,6 +1408,8 @@ async fn run_channel_pub_worker(
             .await
             .context("publish completion failed")?;
     }
+
+    controller.close()?.await?;
 
     let end = Instant::now();
 
@@ -1479,20 +1604,26 @@ mod tests {
     fn sample_group_aggregate() {
         let now = Instant::now();
         let mut g = SampleGroup::new();
-        g.add(Sample {
-            job_msg_cnt: 500,
-            msg_cnt: 500,
-            msg_bytes: 64_000,
-            start: now,
-            end: now + Duration::from_secs(1),
-        });
-        g.add(Sample {
-            job_msg_cnt: 500,
-            msg_cnt: 500,
-            msg_bytes: 64_000,
-            start: now,
-            end: now + Duration::from_secs(1),
-        });
+        g.add(
+            "sub-0",
+            Sample {
+                job_msg_cnt: 500,
+                msg_cnt: 500,
+                msg_bytes: 64_000,
+                start: now,
+                end: now + Duration::from_secs(1),
+            },
+        );
+        g.add(
+            "sub-1",
+            Sample {
+                job_msg_cnt: 500,
+                msg_cnt: 500,
+                msg_bytes: 64_000,
+                start: now,
+                end: now + Duration::from_secs(1),
+            },
+        );
         assert!(g.has_samples());
         // Aggregate over the same 1s window → 1000 msgs/s
         assert!((g.aggregate_rate() - 1_000.0).abs() < 1.0);
