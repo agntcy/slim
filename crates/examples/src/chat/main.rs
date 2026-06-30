@@ -1,9 +1,10 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-//! Interactive native group-chat participant built on the **session layer** with
-//! end-to-end **MLS** encryption — the same primitives the browser/wasm client
-//! uses, so native and browser participants interoperate on one encrypted group.
+//! Interactive native group-chat participant built on the **session layer**
+//! with optional end-to-end **MLS** encryption — the same primitives the
+//! browser/wasm client uses, so native and browser participants interoperate in
+//! one group.
 //!
 //! Two roles:
 //!   * **moderator** (`--moderator`): creates the Multicast+MLS session, invites
@@ -45,7 +46,7 @@ use slim_session::session_controller::SessionController;
 const BROADCAST_FANOUT: u32 = 10;
 
 #[derive(Parser)]
-#[command(about = "Interactive native SLIM group chat with MLS encryption")]
+#[command(about = "Interactive native SLIM group chat with optional MLS encryption")]
 struct Args {
     /// SLIM config file (defines the upstream connection, ws:// or grpc).
     #[arg(long)]
@@ -55,11 +56,11 @@ struct Args {
     #[arg(long, default_value = "org/default/native/0")]
     name: String,
 
-    /// The MLS group/channel name as `org/ns/name`. Must match the moderator.
+    /// The group/channel name as `org/ns/name`. Must match the moderator.
     #[arg(long, default_value = "channel/channel/channel")]
     channel: String,
 
-    /// Run as the moderator: create the MLS group and invite participants.
+    /// Run as the moderator: create the group and invite participants.
     #[arg(long, default_value_t = false)]
     moderator: bool,
 
@@ -207,7 +208,9 @@ async fn main() -> Result<()> {
 
         // Route invites/messages toward each participant via the upstream node.
         for p in &invitees {
-            app.set_route(p, conn_id).await.context("set_route failed")?;
+            app.set_route(p, conn_id)
+                .await
+                .context("set_route failed")?;
         }
         // Give the routes a moment to propagate.
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -236,9 +239,13 @@ async fn main() -> Result<()> {
                 .with_context(|| format!("invite {p} failed"))?;
         }
         eprintln!(
-            "MLS group '{}' ready{}",
+            "group '{}' ready{}",
             args.channel,
-            if args.no_mls { " (MLS disabled)" } else { "" }
+            if args.no_mls {
+                " (MLS disabled)"
+            } else {
+                " (MLS enabled)"
+            }
         );
 
         // Print inbound messages from the group.
@@ -277,8 +284,17 @@ async fn main() -> Result<()> {
                     break;
                 }
                 Some(Ok(Notification::NewSession(session_ctx))) => {
-                    eprintln!("joined MLS group '{}'", args.channel);
                     let session = session_ctx.session_arc().context("session dropped")?;
+                    let mls_enabled = session.session_config().mls_settings.is_some();
+                    eprintln!(
+                        "joined group '{}' ({})",
+                        args.channel,
+                        if mls_enabled {
+                            "MLS enabled"
+                        } else {
+                            "MLS disabled"
+                        }
+                    );
 
                     session_ctx.spawn_receiver(|mut rx, _weak| async move {
                         while let Some(item) = rx.recv().await {
