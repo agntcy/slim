@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use slim_config::client::ServerConnectionConfig;
-use slim_config::grpc::client::ClientConfig;
 use slim_datapath::api::NameId;
 
 use crate::api::proto::controller::proto::v1::ConnectionDirection;

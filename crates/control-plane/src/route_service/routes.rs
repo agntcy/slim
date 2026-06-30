@@ -467,8 +467,6 @@ mod tests {
     use std::time::SystemTime;
 
     use slim_config::client::ServerConnectionConfig;
-    use slim_config::conn_type::ConnType;
-    use slim_config::grpc::client::ClientConfig;
     use slim_datapath::api::ProtoName;
 
     use super::super::test_utils::{

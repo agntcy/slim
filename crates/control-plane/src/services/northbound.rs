@@ -13,7 +13,7 @@ use crate::api::proto::controlplane::proto::v1::{
     LinkListRequest, LinkStatus, NodeEntry, NodeListRequest, RouteEntry, RouteListRequest,
     RouteStatus, control_plane_service_server::ControlPlaneService,
 };
-use crate::db::{DbServerConnectionConfig, SharedDb};
+use crate::db::SharedDb;
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
 use crate::route_service::RouteService;
 

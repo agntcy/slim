@@ -56,7 +56,7 @@ pub(super) fn compute_client_config(
         )));
     }
     let (conn, local_connection) = select_connection(dst_node, src_node);
-    generate_config_data(conn, local_connection, dst_node, src_node)
+    generate_config_data(conn, local_connection, dst_node)
 }
 
 /// Select the best connection detail from `dst_node` relative to `src_node`.
@@ -96,7 +96,6 @@ pub(super) fn generate_config_data(
     detail: &crate::db::ConnectionDetails,
     local_connection: bool,
     dest_node: &crate::db::Node,
-    src_node: &crate::db::Node,
 ) -> Result<(String, ClientConfig)> {
     use slim_config::grpc::client::{BackoffConfig, KeepaliveConfig};
     use slim_config::tls::client::TlsClientConfig;
@@ -282,8 +281,7 @@ mod tests {
     fn generate_config_data_local_http() {
         let cd = make_conn_details("host:8080", None);
         let dest = make_node("dst", Some("g"), vec![cd.clone()]);
-        let src = make_node("src", Some("g"), vec![]);
-        let (ep, config) = generate_config_data(&cd, true, &dest, &src).unwrap();
+        let (ep, config) = generate_config_data(&cd, true, &dest).unwrap();
         assert!(ep.starts_with("http://"));
         assert!(config.tls_setting.insecure);
         assert!(config.keepalive.is_some());
@@ -293,8 +291,7 @@ mod tests {
     fn generate_config_data_external_no_mtls() {
         let cd = make_conn_details("host:8080", Some("ext:9090"));
         let dest = make_node("dst", Some("g1"), vec![cd.clone()]);
-        let src = make_node("src", Some("g2"), vec![]);
-        let (ep, config) = generate_config_data(&cd, false, &dest, &src).unwrap();
+        let (ep, config) = generate_config_data(&cd, false, &dest).unwrap();
         assert!(ep.contains("ext:9090"));
         assert!(config.tls_setting.insecure);
     }
@@ -303,8 +300,7 @@ mod tests {
     fn generate_config_data_no_external_endpoint_remote_returns_error() {
         let cd = make_conn_details("host:8080", None);
         let dest = make_node("dst", None, vec![cd.clone()]);
-        let src = make_node("src", None, vec![]);
-        assert!(generate_config_data(&cd, false, &dest, &src).is_err());
+        assert!(generate_config_data(&cd, false, &dest).is_err());
     }
 
     #[tokio::test]
