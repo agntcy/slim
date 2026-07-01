@@ -12,11 +12,11 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 use uuid::Uuid;
 
-use crate::auth::GroupAuthenticator;
 use crate::api::proto::controller::proto::v1::{
     Connection, ControlMessage, RegisterNodeResponse, Route as ProtoRoute,
     control_message::Payload, controller_service_server::ControllerService,
 };
+use crate::auth::GroupAuthenticator;
 use crate::db::{ConnectionDetails, LinkStatus, Node, RouteStatus, SharedDb};
 use crate::error::{Error, Result};
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
@@ -153,12 +153,14 @@ async fn receive_register(
     // Verify group membership before proceeding with registration.
     let claimed_group = reg_req.group_name.as_deref().unwrap_or("");
     authenticator
-        .verify_group_membership(&reg_req.credentials, claimed_group)
+        .verify_group_membership(&reg_req.credentials, claimed_group, &reg_req.node_id)
         .await
         .map_err(|status| {
             Error::InvalidInput(format!(
                 "group auth failed for node '{}' claiming group '{}': {}",
-                reg_req.node_id, claimed_group, status.message()
+                reg_req.node_id,
+                claimed_group,
+                status.message()
             ))
         })?;
 

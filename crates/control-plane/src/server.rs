@@ -65,11 +65,7 @@ impl ControlPlane {
         // Build group authenticator from config (Noop when no auth configured).
         let authenticator = match cfg.registration_auth {
             None => GroupAuthenticator::Noop,
-            Some(_auth_cfg) => {
-                // Phase 5/6 will add SharedSecret and Spire authenticator construction here.
-                tracing::warn!("registration_auth configured but no authenticator implemented yet; accepting all registrations");
-                GroupAuthenticator::Noop
-            }
+            Some(auth_cfg) => Self::build_authenticator(auth_cfg)?,
         };
 
         let (drain_tx, drain_rx) = drain::channel();
@@ -109,5 +105,44 @@ impl ControlPlane {
         self.shared_drain.lock().take();
         self.drain_tx.drain().await;
         self.route_service.shutdown().await;
+    }
+
+    fn build_authenticator(
+        cfg: crate::config::RegistrationAuthConfig,
+    ) -> Result<GroupAuthenticator> {
+        use crate::config::RegistrationAuthConfig;
+        use std::collections::HashMap;
+
+        match cfg {
+            RegistrationAuthConfig::SharedSecret { groups } => {
+                if groups.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "registration_auth.shared_secret.groups cannot be empty"
+                    ));
+                }
+                let mut verifiers = HashMap::with_capacity(groups.len());
+                for (group_name, auth_config) in groups {
+                    let (_, verifier_cfg) = auth_config.to_identity_configs(&group_name);
+                    let verifier = verifier_cfg.build_auth_verifier().map_err(|e| {
+                        anyhow::anyhow!(
+                            "failed to build auth verifier for group '{group_name}': {e}"
+                        )
+                    })?;
+                    verifiers.insert(group_name, verifier);
+                }
+                tracing::info!(
+                    "registration auth: shared_secret for {} group(s)",
+                    verifiers.len()
+                );
+                Ok(GroupAuthenticator::SharedSecret { verifiers })
+            }
+            #[cfg(not(target_family = "windows"))]
+            RegistrationAuthConfig::Spire { socket_path } => {
+                tracing::warn!(
+                    "SPIRE registration auth not yet implemented (socket: {socket_path}); falling back to Noop"
+                );
+                Ok(GroupAuthenticator::Noop)
+            }
+        }
     }
 }
