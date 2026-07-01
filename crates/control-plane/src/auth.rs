@@ -24,7 +24,15 @@ pub enum GroupAuthenticator {
         /// Map of group name → verifier (built from the per-group secret).
         verifiers: HashMap<String, AuthVerifier>,
     },
-    // Future: Spire { ... },
+    /// SPIRE JWT SVID verification.
+    /// Validates the JWT SVID against trust bundles provided by the local SPIRE agent
+    /// (works with both centralized nested SPIRE and federated deployments).
+    /// Convention: trust domain = group name (each cluster has its own trust domain).
+    #[cfg(not(target_family = "windows"))]
+    Spire {
+        /// Verifier that validates JWT SVIDs against available trust bundles.
+        verifier: AuthVerifier,
+    },
 }
 
 impl std::fmt::Debug for GroupAuthenticator {
@@ -35,6 +43,8 @@ impl std::fmt::Debug for GroupAuthenticator {
                 .debug_struct("GroupAuthenticator::SharedSecret")
                 .field("groups", &verifiers.keys().collect::<Vec<_>>())
                 .finish(),
+            #[cfg(not(target_family = "windows"))]
+            Self::Spire { .. } => write!(f, "GroupAuthenticator::Spire"),
         }
     }
 }
@@ -64,18 +74,51 @@ impl GroupAuthenticator {
                     ))
                 })?;
 
-                // Verify HMAC signature (proves the node has the correct secret).
-                verifier.try_verify(credentials).map_err(|e| {
-                    Status::permission_denied(format!("token verification failed: {e}"))
+                // Verify HMAC and extract claims (includes "sub" = token id).
+                let claims: serde_json::Value =
+                    verifier.try_get_claims(credentials).map_err(|e| {
+                        Status::permission_denied(format!("token verification failed: {e}"))
+                    })?;
+
+                // The "sub" field contains "group/node-id_RANDOM_SUFFIX".
+                let sub = claims.get("sub").and_then(|v| v.as_str()).unwrap_or("");
+                let expected_prefix = format!("{claimed_group}/{node_id}");
+                if !sub.starts_with(&expected_prefix) {
+                    return Err(Status::permission_denied(format!(
+                        "token identity mismatch: expected prefix '{expected_prefix}', got '{sub}'"
+                    )));
+                }
+
+                Ok(())
+            }
+            #[cfg(not(target_family = "windows"))]
+            GroupAuthenticator::Spire { verifier } => {
+                if credentials.is_empty() {
+                    return Err(Status::permission_denied(
+                        "credentials required but not provided",
+                    ));
+                }
+
+                // Verify JWT SVID and extract claims (includes "sub" = SPIFFE ID).
+                let claims: serde_json::Value =
+                    verifier.try_get_claims(credentials).map_err(|e| {
+                        Status::permission_denied(format!("JWT SVID verification failed: {e}"))
+                    })?;
+
+                // Extract trust domain from the "sub" claim (SPIFFE ID).
+                // Convention: trust_domain == group_name.
+                let sub = claims
+                    .get("sub")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| Status::permission_denied("missing 'sub' claim in JWT SVID"))?;
+
+                let trust_domain = extract_trust_domain_from_spiffe_id(sub).map_err(|e| {
+                    Status::permission_denied(format!("failed to extract trust domain: {e}"))
                 })?;
 
-                // Extract the token id (first field) and verify it matches
-                // the expected identity: "group/node-id_SUFFIX".
-                let token_id = credentials.split(':').next().unwrap_or("");
-                let expected_prefix = format!("{claimed_group}/{node_id}");
-                if !token_id.starts_with(&expected_prefix) {
+                if trust_domain != claimed_group {
                     return Err(Status::permission_denied(format!(
-                        "token identity mismatch: expected prefix '{expected_prefix}', got '{token_id}'"
+                        "trust domain '{trust_domain}' does not match claimed group '{claimed_group}'"
                     )));
                 }
 
@@ -83,6 +126,27 @@ impl GroupAuthenticator {
             }
         }
     }
+}
+
+/// Extract the trust domain from a SPIFFE ID string.
+/// SPIFFE ID format: `spiffe://<trust_domain>/path/...`
+#[cfg(not(target_family = "windows"))]
+fn extract_trust_domain_from_spiffe_id(spiffe_id: &str) -> Result<String, String> {
+    if !spiffe_id.starts_with("spiffe://") {
+        return Err(format!("not a SPIFFE ID: {spiffe_id}"));
+    }
+
+    let without_scheme = &spiffe_id["spiffe://".len()..];
+    let trust_domain = without_scheme
+        .split('/')
+        .next()
+        .ok_or_else(|| format!("cannot extract trust domain from: {spiffe_id}"))?;
+
+    if trust_domain.is_empty() {
+        return Err(format!("empty trust domain in: {spiffe_id}"));
+    }
+
+    Ok(trust_domain.to_string())
 }
 
 #[cfg(test)]
@@ -194,5 +258,33 @@ mod tests {
             .await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().code(), tonic::Code::PermissionDenied);
+    }
+
+    // ── SPIRE trust domain extraction tests ──────────────────────────────
+
+    #[cfg(not(target_family = "windows"))]
+    #[test]
+    fn extract_trust_domain_valid_spiffe_id() {
+        let td = extract_trust_domain_from_spiffe_id(
+            "spiffe://cluster-a.mc-demo.dev.eticloud.io/ns/slim/sa/node",
+        )
+        .unwrap();
+        assert_eq!(td, "cluster-a.mc-demo.dev.eticloud.io");
+    }
+
+    #[cfg(not(target_family = "windows"))]
+    #[test]
+    fn extract_trust_domain_rejects_non_spiffe() {
+        let result = extract_trust_domain_from_spiffe_id("not-a-spiffe-id");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not a SPIFFE ID"));
+    }
+
+    #[cfg(not(target_family = "windows"))]
+    #[test]
+    fn extract_trust_domain_rejects_empty_domain() {
+        let result = extract_trust_domain_from_spiffe_id("spiffe:///path/only");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("empty trust domain"));
     }
 }

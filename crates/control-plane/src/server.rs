@@ -138,10 +138,17 @@ impl ControlPlane {
             }
             #[cfg(not(target_family = "windows"))]
             RegistrationAuthConfig::Spire { socket_path } => {
-                tracing::warn!(
-                    "SPIRE registration auth not yet implemented (socket: {socket_path}); falling back to Noop"
-                );
-                Ok(GroupAuthenticator::Noop)
+                use slim_config::auth::spire::SpireConfig;
+
+                let spire_cfg = SpireConfig::new().with_socket_path(socket_path);
+                let verifier = spire_cfg
+                    .create_verifier()
+                    .map_err(|e| anyhow::anyhow!("failed to build SPIRE verifier: {e}"))?;
+                let auth_verifier = slim_auth::auth_provider::AuthVerifier::Spire(verifier);
+                tracing::info!("registration auth: spire (trust domain = group name)");
+                Ok(GroupAuthenticator::Spire {
+                    verifier: auth_verifier,
+                })
             }
         }
     }
