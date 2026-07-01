@@ -70,32 +70,98 @@ plugins:
     alias_type: copy
     canonical_version: latest
   redirects:
-    redirect_maps: {}
+    redirect_maps:
+      slim/slim-architecture.md: slim/architecture/index.md
+      slim/slim-naming.md: slim/architecture/naming.md
+      slim/slim-routing.md: slim/architecture/routing.md
+      slim/slim-session.md: slim/architecture/session.md
+      slim/slim-group.md: slim/architecture/group.md
+      slim/slim-authentication.md: slim/architecture/authentication.md
+      slim/slim-data-plane.md: slim/components/data-plane/index.md
+      slim/slim-data-plane-install.md: slim/components/data-plane/install.md
+      slim/slim-data-plane-config.md: slim/components/data-plane/config.md
+      slim/slim-controller.md: slim/components/controller/index.md
+      slim/slim-controller-install.md: slim/components/controller/install.md
+      slim/slim-controller-config.md: slim/components/controller/config.md
+      slim/slim-channel-manager.md: slim/components/channel-manager/index.md
+      slim/slim-channel-manager-install.md: slim/components/channel-manager/install.md
+      slim/slim-channel-manager-config.md: slim/components/channel-manager/config.md
+      slim/slim-cli-install.md: slim/components/cli/install.md
+      slim/slim-controller-reference.md: slim/components/cli/reference.md
+      slim/slim-sdk.md: slim/components/sdk/index.md
+      slim/slim-sdk-install.md: slim/components/sdk/install.md
+      slim/slim-sdk-languages.md: slim/components/sdk/languages.md
+      slim/slim-sdk-tutorial-connect.md: slim/components/sdk/tutorial-connect.md
+      slim/slim-sdk-tutorial-app.md: slim/components/sdk/tutorial-app.md
+      slim/slim-sdk-tutorial-session.md: slim/components/sdk/tutorial-session.md
+      slim/slim-group-tutorial.md: slim/components/sdk/tutorial-group.md
+      slim/slim-deploy-overview.md: slim/deploy/index.md
+      slim/slim-deploy-local.md: slim/deploy/local.md
+      slim/slim-deploy-docker.md: slim/deploy/docker.md
+      slim/slim-deploy-kubernetes.md: slim/deploy/kubernetes.md
+      slim/slim-deploy-daemonset.md: slim/deploy/daemonset.md
+      slim/slim-deploy-multicluster.md: slim/deploy/multicluster.md
+      slim/slim-integrations.md: slim/integrations/index.md
+      slim/slim-rpc.md: slim/integrations/slimrpc/index.md
+      slim/slim-slimrpc-compiler.md: slim/integrations/slimrpc/compiler.md
+      slim/slim-a2a.md: slim/integrations/a2a.md
+      slim/slim-mcp.md: slim/integrations/mcp.md
+      slim/slim-otel.md: slim/integrations/otel.md
 
 nav:
   - Home: index.md
   - Documentation:
-      - Overview: slim/slim-overview.md
-      - Get Started:
-          - Getting Started: slim/slim-howto.md
-          - Configuration Reference: slim/slim-data-plane-config.md
-      - SLIM Controller:
-          - Overview: slim/slim-controller.md
-          - Controller Reference: slim/slim-controller-reference.md
-      - SLIM Messaging Layer:
-          - Overview: slim/slim-data-plane.md
-          - Sessions: slim/slim-session.md
-          - Authentication: slim/slim-authentication.md
-      - SLIM Groups:
-          - Group Creation and Management: slim/slim-group.md
-          - Group Communication Tutorial: slim/slim-group-tutorial.md
+      - Introduction: slim/slim-overview.md
+      - Getting Started: slim/slim-howto.md
+      - Architecture:
+          - slim/architecture/index.md
+          - Naming: slim/architecture/naming.md
+          - Routing: slim/architecture/routing.md
+          - Sessions: slim/architecture/session.md
+          - Groups: slim/architecture/group.md
+          - Authentication: slim/architecture/authentication.md
+      - Components:
+          - slim/components/index.md
+          - SLIM Data Plane:
+              - slim/components/data-plane/index.md
+              - Installation Guide: slim/components/data-plane/install.md
+              - Configuration Reference: slim/components/data-plane/config.md
+          - SLIM Controller:
+              - slim/components/controller/index.md
+              - Installation Guide: slim/components/controller/install.md
+              - Configuration Reference: slim/components/controller/config.md
+          - SLIM Channel Manager:
+              - slim/components/channel-manager/index.md
+              - Installation Guide: slim/components/channel-manager/install.md
+              - Configuration Reference: slim/components/channel-manager/config.md
+          - SLIM CLI:
+              - Installation: slim/components/cli/install.md
+              - Command Reference: slim/components/cli/reference.md
+          - SLIM SDK:
+              - slim/components/sdk/index.md
+              - Installation: slim/components/sdk/install.md
+              - Supported Languages: slim/components/sdk/languages.md
+              - Tutorial:
+                  - Connecting to SLIM: slim/components/sdk/tutorial-connect.md
+                  - Creating an App: slim/components/sdk/tutorial-app.md
+                  - Creating a Session: slim/components/sdk/tutorial-session.md
+                  - Group Communication: slim/components/sdk/tutorial-group.md
+      - Deployment:
+          - slim/deploy/index.md
+          - Local: slim/deploy/local.md
+          - Docker: slim/deploy/docker.md
+          - Kubernetes:
+              - Deployment: slim/deploy/kubernetes.md
+              - DaemonSet: slim/deploy/daemonset.md
+              - Multi-Cluster: slim/deploy/multicluster.md
       - Integrations:
-          - Overview: slim/slim-integrations.md
+          - slim/integrations/index.md
           - SLIMRPC:
-              - Overview: slim/slim-rpc.md
-          - SLIM A2A: slim/slim-a2a.md
-          - MCP over SLIM: slim/slim-mcp.md
-          - OpenTelemetry over SLIM: slim/slim-otel.md
+              - slim/integrations/slimrpc/index.md
+              - Compiler: slim/integrations/slimrpc/compiler.md
+          - SLIM A2A: slim/integrations/a2a.md
+          - MCP over SLIM: slim/integrations/mcp.md
+          - OpenTelemetry over SLIM: slim/integrations/otel.md
   - Community: community.md
   - Specification: https://datatracker.ietf.org/doc/draft-mpsb-agntcy-slim/
   - Blog: https://blogs.agntcy.org/
@@ -115,7 +181,6 @@ theme:
     - navigation.footer
     - navigation.indexes
     - navigation.path
-    - navigation.sections
     - navigation.tabs
     - navigation.tabs.sticky
     - navigation.top
