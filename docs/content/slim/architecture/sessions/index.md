@@ -11,6 +11,20 @@ The session layer is responsible for four concerns:
 - **Session establishment**: The session layer handles the protocol exchange required to bind two or more endpoints together before messages flow, including discovery, key exchange, and MLS group setup.
 - **Channel management**: For group sessions, the session layer manages membership — tracking who is in the group, coordinating additions and removals, and distributing updated key material.
 
+## Session Properties
+
+### Establishment Guarantee
+
+Session creation is asynchronous. The initiating application receives a completion handle that becomes ready only once all underlying protocol exchanges — discovery, invite, and MLS setup — have finished and the remote endpoint is fully connected. Code that waits on this handle is guaranteed to be working with a fully established session.
+
+### Reliability
+
+Sessions can be configured with per-message acknowledgement and retry. When a retry limit is configured, each message must be acknowledged within a timeout window; if not, it is retried up to the limit before a delivery failure is reported. When no retry limit is set, the session operates in best-effort mode with no delivery guarantees beyond the underlying transport.
+
+### End-to-End Encryption
+
+MLS encryption is optional and independent of transport-layer TLS. Enabling it means messages are encrypted by the session layer inside the application before being handed to the data plane, and decrypted only at the destination application. Intermediate SLIM routing nodes cannot access plaintext regardless of their TLS configuration.
+
 ## Session Types
 
 SLIM provides two session types that map to the two fundamental communication patterns in a distributed system.
@@ -29,20 +43,6 @@ Unlike a point-to-point session, a group session has no discovery phase: the cha
 
 For the full membership lifecycle — how participants are added and removed, the protocol exchange involved, and how the moderator role works — see [Groups](./group.md).
 
-## Session Properties
-
-### Establishment Guarantee
-
-Session creation is asynchronous. The initiating application receives a completion handle that becomes ready only once all underlying protocol exchanges — discovery, invite, and MLS setup — have finished and the remote endpoint is fully connected. Code that waits on this handle is guaranteed to be working with a fully established session.
-
-### Reliability
-
-Sessions can be configured with per-message acknowledgement and retry. When a retry limit is configured, each message must be acknowledged within a timeout window; if not, it is retried up to the limit before a delivery failure is reported. When no retry limit is set, the session operates in best-effort mode with no delivery guarantees beyond the underlying transport.
-
-### End-to-End Encryption
-
-MLS encryption is optional and independent of transport-layer TLS. Enabling it means messages are encrypted by the session layer inside the application before being handed to the data plane, and decrypted only at the destination application. Intermediate SLIM routing nodes cannot access plaintext regardless of their TLS configuration.
-
 ## Choosing a Session Type
 
 | | Point-to-Point | Group |
@@ -55,6 +55,7 @@ MLS encryption is optional and independent of transport-layer TLS. Enabling it m
 
 ## Related
 
-- [Groups](./group.md) — The group communication model, moderation, and use cases
+- [Point-to-Point Session](./session-p2p.md) — Establishment sequence, phases, and protocol detail
+- [Group Session](./group.md) — The group communication model, moderation, and use cases
 - [Creating a Session](../../components/sdk/tutorial-session.md) — SDK tutorial with code examples for both session types
 - [Naming](../naming.md) — How channel and client names work
