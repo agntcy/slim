@@ -107,6 +107,5 @@ The control plane manages the routing infrastructure independently from message 
 ## Architecture Sub-topics
 
 - [Naming](./naming.md) — Client and channel naming conventions, anycast vs. unicast
-- [Sessions](./session.md) — Point-to-point and group session types
-- [Groups](./group.md) — Group creation, management, and membership
+- [Sessions](./sessions/index.md) — Point-to-point and group session types
 - [Authentication](./authentication.md) — Identity management with JWT, shared secrets, and SPIRE

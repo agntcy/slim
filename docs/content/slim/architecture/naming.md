@@ -24,7 +24,7 @@ The four-component structure supports two delivery modes:
 
 ## Channel Names
 
-Channels are named endpoints that multiple clients can join to receive every message published to that channel. They underpin [group sessions](./session.md#group-session) and multicast communication.
+Channels are named endpoints that multiple clients can join to receive every message published to that channel. They underpin [group sessions](./sessions/index.md#group-session) and multicast communication.
 
 A channel name uses the same four-component structure, with the last component set to a well-known group identifier:
 

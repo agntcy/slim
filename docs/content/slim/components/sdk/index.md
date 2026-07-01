@@ -48,4 +48,4 @@ Work through the tutorials to learn the fundamentals step by step:
 
 - [Installation](./install.md) — Install the SDK for your language
 - [Architecture](../../architecture/index.md) — Understand the full SLIM architecture
-- [Sessions](../../architecture/session.md) — Deep dive into session types and the session lifecycle
+- [Sessions](../../architecture/sessions/index.md) — Deep dive into session types and the session lifecycle
