@@ -1797,6 +1797,7 @@ impl ControllerService {
                     connection_details: this.inner.connection_details.clone(),
                     connections: active_connections,
                     routes: active_routes,
+                    credentials: String::new(),
                 })),
             };
 
