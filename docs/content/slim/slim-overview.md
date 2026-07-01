@@ -73,10 +73,10 @@ Agents are identified using a hierarchical naming scheme based on Decentralized 
 organization/namespace/service/<hash-of-public-key>
 ```
 
-Groups use the same scheme:
+Group channels use the same scheme, with `0xffffffff` as the last component to fan out to all joined members:
 
 ```
-organization/namespace/group/0xffffffff
+organization/namespace/service/0xffffffff
 ```
 
 ## SLIM vs. Message Queues
