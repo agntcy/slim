@@ -215,19 +215,19 @@ hide:
 
     Run A2A, MCP, SLIMRPC, and OpenTelemetry over SLIM.
 
-    [:octicons-arrow-right-24: Integrations](slim/slim-integrations.md)
+    [:octicons-arrow-right-24: Integrations](slim/integrations/index.md)
 
 - :material-cog:{ .lg .middle } **Data Plane Config Reference**
 
     Tune the data plane for your environment.
 
-    [:octicons-arrow-right-24: Configuration Reference](slim/slim-data-plane-config.md)
+    [:octicons-arrow-right-24: Configuration Reference](slim/data-plane/config.md)
 
 - :material-text-box-outline:{ .lg .middle } **Controller Config Reference**
 
     Controller API and configuration details.
 
-    [:octicons-arrow-right-24: Controller Reference](slim/slim-controller.md#controller-configuration)
+    [:octicons-arrow-right-24: Controller Reference](slim/controller/config.md)
 
 - :material-account-group:{ .lg .middle } **Join the Community**
 
