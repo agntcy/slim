@@ -1037,7 +1037,7 @@ mod tests {
             dest_node_id: dst.to_string(),
             dest_group: String::new(),
             dest_endpoint: format!("{dst}:8080"),
-            conn_config_data: ClientConfig::default().with_connection_type(ConnType::Remote),
+            conn_config_data: slim_config::client::ServerConnectionConfig::default(),
             status: LinkStatus::Applied,
             status_msg: String::new(),
             created_at: SystemTime::now(),

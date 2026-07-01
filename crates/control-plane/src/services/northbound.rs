@@ -432,8 +432,7 @@ mod tests {
             dest_node_id: dst_node.to_string(),
             dest_group: dst_group.to_string(),
             dest_endpoint: "http://127.0.0.1:9000".to_string(),
-            conn_config_data: slim_config::grpc::client::ClientConfig::default()
-                .with_connection_type(slim_config::conn_type::ConnType::Remote),
+            conn_config_data: slim_config::client::ServerConnectionConfig::default(),
             status: LinkStatus::Applied,
             status_msg: String::new(),
             created_at: SystemTime::now(),

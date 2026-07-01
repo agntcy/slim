@@ -252,37 +252,30 @@ async fn node_list(opts: &ClientConfig) -> Result<()> {
                 .first()
                 .and_then(|c| c.external_endpoint.as_deref())
                 .unwrap_or("-");
-            let spire_trust_domain = e
-                .connections
-                .first()
-                .map(|c| c.spire_trust_domain.as_str())
-                .unwrap_or("-");
             (
                 e.id.as_str(),
                 e.group.as_str(),
                 status,
                 endpoint,
                 public_endpoint,
-                spire_trust_domain,
             )
         })
         .collect();
 
-    for (id, group, status, ep, pub_ep, spire_td) in &rows {
+    for (id, group, status, ep, pub_ep) in &rows {
         widths[0] = widths[0].max(id.len());
         widths[1] = widths[1].max(group.len());
         widths[2] = widths[2].max(status.len());
         widths[3] = widths[3].max(ep.len());
         widths[4] = widths[4].max(pub_ep.len());
-        widths[5] = widths[5].max(spire_td.len());
     }
 
     // Print header
     print_table_header(&headers, &widths);
 
     // Print rows
-    for (id, group, status, ep, pub_ep, spire_td) in &rows {
-        print_row(&[*id, *group, *status, *ep, *pub_ep, *spire_td], &widths);
+    for (id, group, status, ep, pub_ep) in &rows {
+        print_row(&[*id, *group, *status, *ep, *pub_ep], &widths);
     }
     Ok(())
 }
