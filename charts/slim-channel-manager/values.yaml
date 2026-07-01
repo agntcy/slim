@@ -1,0 +1,263 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Default values for slim-channel-manager.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# This will set the replicaset count more information can be found here: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/
+replicaCount: 1
+
+# This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
+image:
+  repository: "ghcr.io/agntcy/slim/channel-manager"
+  # This sets the pull policy for images.
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+# This is for the secretes for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+imagePullSecrets: []
+# This is to override the chart name.
+nameOverride: ""
+fullnameOverride: "slim-channel-manager"
+
+config:
+  channel-manager:
+    # Client configuration for connecting to the SLIM data-plane node.
+    # Supports gRPC (http://, https://, unix://) and WebSocket (ws://, wss://) transports.
+    slim-connection:
+      endpoint: "http://slim:46357"
+      tls:
+        insecure: true
+      # origin: ""                     # HTTP Host authority override
+      # server_name: ""                # TLS SNI server name override
+      # compression: "gzip"            # Compression type (gzip, zstd, etc.)
+      # rate_limit: ""                 # Rate limit configuration
+      # connect_timeout: "0s"          # Connection timeout
+      # request_timeout: "0s"          # Per-request timeout
+      # buffer_size: 1048576           # Read buffer size in bytes
+      # require_header_mac: true       # Enforce header integrity validation
+      # connection_type: "edge"        # Connection type: edge, peer, or remote
+      # link_id: ""                    # Link identifier (defaults to random UUID)
+      # keepalive:
+      #   tcp_keepalive: "60s"
+      #   http2_keepalive: "60s"
+      #   timeout: "10s"
+      #   keep_alive_while_idle: false
+      # headers:                       # Custom gRPC headers
+      #   key: "value"
+      # proxy:
+      #   url: ""
+      # auth:
+      #   type: static_jwt
+      #   token_file: "/path/to/token"
+      #   # OR
+      #   type: basic
+      #   username: ""
+      #   password: ""
+      #   # OR
+      #   type: spire
+      #   socket_path: "unix:/tmp/spire-agent/public/api.sock"
+      #   target_spiffe_id: ""
+      #   jwt_audiences: ["slim"]
+      #   trust_domains: []
+      # backoff:
+      #   type: exponential
+      #   base: 1
+      #   factor: 2
+      #   max_delay: "30s"
+      #   max_attempts: 10
+      #   jitter: true
+      #   # OR
+      #   type: fixed_interval
+      #   interval: "5s"
+      #   max_attempts: 10
+      # metadata:                      # Arbitrary user-provided metadata
+      #   key: "value"
+
+    # gRPC server configuration for the channel management API.
+    # Supports gRPC (http://, https://, unix://) and WebSocket (ws://, wss://) transports.
+    api-server:
+      endpoint: "0.0.0.0:{{ .Values.service.port }}"
+      tls:
+        insecure: true
+      # http2_only: true               # Use HTTP/2 only
+      # max_frame_size: 4              # Maximum message size in MiB
+      # max_concurrent_streams: 100    # Limit on concurrent streams per connection
+      # max_header_list_size: null     # Max header list size
+      # read_buffer_size: 1048576      # Read buffer size in bytes
+      # write_buffer_size: 1048576     # Write buffer size in bytes
+      # require_header_mac: true       # Enforce header integrity validation
+      # negotiation_timeout_secs: 5    # Timeout for link negotiation
+      # link_hmac_poll_interval_ms: 5  # Polling interval for HMAC checks
+      # keepalive:
+      #   max_connection_idle: "1h"
+      #   max_connection_age: "2h"
+      #   max_connection_age_grace: "5m"
+      #   time: "2m"
+      #   timeout: "20s"
+      # auth:
+      #   type: jwt
+      #   jwks_url: "https://auth.example.com/.well-known/jwks.json"
+      #   # OR
+      #   type: basic
+      #   username: ""
+      #   password: ""
+      #   # OR
+      #   type: spire
+      #   socket_path: "unix:/tmp/spire-agent/public/api.sock"
+      #   target_spiffe_id: ""
+      #   jwt_audiences: ["slim"]
+      #   trust_domains: []
+      # metadata:                      # Arbitrary user-provided metadata
+      #   key: "value"
+      # TLS with certificates:
+      # tls:
+      #   insecure: false
+      #   source:
+      #     type: file
+      #     cert_file: "/path/to/server.pem"
+      #     key_file: "/path/to/server-key.pem"
+      #     # OR
+      #     type: pem
+      #     cert_pem: "..."
+      #     key_pem: "..."
+      #     # OR
+      #     type: spire
+      #     socket_path: "unix:/tmp/spire-agent/public/api.sock"
+      #   ca_source:
+      #     type: file
+      #     ca_file: "/path/to/ca.pem"
+      #     # OR
+      #     type: pem
+      #     ca_pem: "..."
+      #     # OR
+      #     type: spire
+      #     socket_path: "unix:/tmp/spire-agent/public/api.sock"
+      #   include_system_ca_certs_pool: false
+      #   tls_version: "tls1.2"
+      #   client_ca:
+      #     type: file
+      #     ca_file: "/path/to/client-ca.pem"
+      #   reload_client_ca_file: false
+
+    # Local name for the channel manager in SLIM (org/namespace/app format)
+    local-name: "agntcy/otel/channel-manager"
+
+    # Authentication for the SLIM app identity.
+    auth:
+      type: shared_secret
+      # id: "custom/identity/id"       # Optional, defaults to local-name
+      secret: "change-me"
+    # For SPIRE authentication:
+    # auth:
+    #   type: spire
+    #   socket_path: "unix:/tmp/spire-agent/public/api.sock"
+    #   target_spiffe_id: ""
+    #   jwt_audiences: ["slim"]
+    #   trust_domains: []
+
+    # Channels to create on startup
+    channels: []
+    # - name: "org/namespace/channel"
+    #   participants:
+    #     - "org/namespace/app1"
+    #     - "org/namespace/app2"
+    #   mls-enabled: true
+
+# This section builds out the service account more information can be found here: https://kubernetes.io/docs/concepts/security/service-accounts/
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+# This is for setting Kubernetes Annotations to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
+podAnnotations: {}
+# This is for setting Kubernetes Labels to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+podLabels: {}
+
+podSecurityContext:
+  {}
+  # fsGroup: 2000
+
+securityContext:
+  {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+# This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
+service:
+  # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+  type: ClusterIP
+  port: 10356
+
+# This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
+ingress:
+  enabled: false
+  className: ""
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: chart-example.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+resources:
+  {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+# This section is for setting up autoscaling more information can be found here: https://kubernetes.io/docs/concepts/workloads/autoscaling/
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# Additional volumes on the output Deployment definition.
+volumes: []
+# - name: foo
+#   secret:
+#     secretName: mysecret
+#     optional: false
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts: []
+# - name: foo
+#   mountPath: "/etc/foo"
+#   readOnly: true
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
