@@ -2,53 +2,20 @@
 icon: material/play-circle-outline
 ---
 
-# Getting Started with SLIM
+# Getting Started
 
-This guide walks you through installing and running all SLIM components. For detailed installation instructions for a specific component, see the links in each section.
+By the end of this guide you will have a SLIM node running locally and a Python or Go application connected to it, ready to start exchanging messages.
 
-## Components
+**Time to complete:** ~5 minutes
 
-SLIM consists of four components. Install the ones you need:
+## Prerequisites
 
-| Component | What it does | Installation |
-|-----------|-------------|-------------|
-| **SLIM Node** (Data Plane) | Routes and forwards messages | [Data Plane Installation](./components/data-plane/install.md) |
-| **SLIM Controller** | Manages and configures SLIM nodes | [Controller Installation](./components/controller/install.md) |
-| **slimctl** | CLI for operators and local development | [SLIM CLI Installation](./components/cli/install.md) |
-| **SLIM SDK** (Bindings) | Integrate SLIM into your applications | [SDK Installation](./components/sdk/install.md) |
+- macOS or Linux (Windows supported via pre-built binaries)
+- Python 3.9+ **or** Go 1.21+ for the SDK step
 
-## Quick Start
+## Step 1: Install slimctl
 
-The fastest way to get a SLIM node running locally is with `slimctl`:
-
-**1. Install slimctl**
-
-=== "macOS (Apple Silicon)"
-
-    ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl_1.2.0_darwin_arm64.tar.gz
-    tar -xzf slimctl_1.2.0_darwin_arm64.tar.gz
-    sudo mv slimctl /usr/local/bin/slimctl
-    sudo chmod +x /usr/local/bin/slimctl
-    ```
-
-=== "macOS (Intel)"
-
-    ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl_1.2.0_darwin_amd64.tar.gz
-    tar -xzf slimctl_1.2.0_darwin_amd64.tar.gz
-    sudo mv slimctl /usr/local/bin/slimctl
-    sudo chmod +x /usr/local/bin/slimctl
-    ```
-
-=== "Linux (AMD64)"
-
-    ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl_1.2.0_linux_amd64.tar.gz
-    tar -xzf slimctl_1.2.0_linux_amd64.tar.gz
-    sudo mv slimctl /usr/local/bin/slimctl
-    sudo chmod +x /usr/local/bin/slimctl
-    ```
+`slimctl` is the quickest way to start a local SLIM node. Install it for your platform:
 
 === "macOS (Homebrew)"
 
@@ -57,17 +24,74 @@ The fastest way to get a SLIM node running locally is with `slimctl`:
     brew install slimctl
     ```
 
-See [SLIM CLI Installation](./components/cli/install.md) for all platforms and build-from-source instructions.
+=== "macOS (Apple Silicon)"
 
-**2. Start a SLIM Node**
+    ```bash
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl_1.2.0_darwin_arm64.tar.gz
+    tar -xzf slimctl_1.2.0_darwin_arm64.tar.gz
+    sudo mv slimctl /usr/local/bin/
+    ```
+
+    !!! note "Gatekeeper"
+        If macOS blocks the binary, run:
+        ```bash
+        sudo xattr -rd com.apple.quarantine /usr/local/bin/slimctl
+        ```
+
+=== "macOS (Intel)"
+
+    ```bash
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl_1.2.0_darwin_amd64.tar.gz
+    tar -xzf slimctl_1.2.0_darwin_amd64.tar.gz
+    sudo mv slimctl /usr/local/bin/
+    ```
+
+=== "Linux (AMD64)"
+
+    ```bash
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl_1.2.0_linux_amd64.tar.gz
+    tar -xzf slimctl_1.2.0_linux_amd64.tar.gz
+    sudo mv slimctl /usr/local/bin/
+    ```
+
+=== "Linux (ARM64)"
+
+    ```bash
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl_1.2.0_linux_arm64.tar.gz
+    tar -xzf slimctl_1.2.0_linux_arm64.tar.gz
+    sudo mv slimctl /usr/local/bin/
+    ```
+
+Verify the install:
+
+```bash
+slimctl help
+```
+
+See [CLI Installation](./components/cli/install.md) for Windows binaries and build-from-source instructions.
+
+## Step 2: Start a SLIM node
 
 ```bash
 slimctl slim start
 ```
 
-This starts a SLIM node on `0.0.0.0:46357` with default settings (no TLS). The node is ready to accept connections from SDK applications.
+This starts a SLIM node on `0.0.0.0:46357` with insecure (no TLS) defaults. The node is ready immediately.
 
-**3. Install the SDK for your language**
+```bash
+# Check it is running
+slimctl slim status
+```
+
+To stop it later:
+
+```bash
+slimctl slim stop
+```
+
+## Step 3: Install the SDK
+
+Install the SLIM bindings for your language:
 
 === "Python"
 
@@ -79,6 +103,7 @@ This starts a SLIM node on `0.0.0.0:46357` with default settings (no TLS). The n
 
     ```bash
     go get github.com/agntcy/slim-bindings-go@v1.1.0
+    # Run the setup tool to download the native library
     go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup
     ```
 
@@ -97,32 +122,63 @@ This starts a SLIM node on `0.0.0.0:46357` with default settings (no TLS). The n
     dotnet add package Agntcy.Slim.Bindings
     ```
 
-See [SDK Installation](./components/sdk/install.md) for full per-language instructions.
+See [SDK Installation](./components/sdk/install.md) for full per-language setup details.
 
-**4. Connect your application**
+## Step 4: Connect your first app
 
-Follow the [SDK tutorials](./components/sdk/tutorial-connect.md) to connect your application to the running SLIM node.
+With the node running, initialise the SLIM service and connect:
 
-## Building from Source
+=== "Python"
 
-To build all components from source:
+    ```python
+    import asyncio
+    import slim_bindings
 
-**Prerequisites**: [Taskfile](https://taskfile.dev/), [Rust](https://rustup.rs/), [Go](https://go.dev/doc/install)
+    async def main():
+        # Required for UniFFI async bindings
+        slim_bindings.uniffi_set_event_loop(asyncio.get_running_loop())
 
-```bash
-git clone https://github.com/agntcy/slim
-cd slim
+        # Initialise the global runtime
+        slim_bindings.initialize_with_defaults()
+        service = slim_bindings.get_global_service()
 
-# Build the data plane (Rust)
-task data-plane:build
+        # Connect to the local SLIM node
+        conn_id = await service.connect_async(
+            slim_bindings.new_insecure_client_config("http://127.0.0.1:46357")
+        )
 
-# Build the control plane (Go)
-task control-plane:build
+        # Register an application identity
+        local_name = slim_bindings.Name("myorg", "default", "my-app")
+        app = service.create_app_with_secret(local_name, "my-shared-secret")
+
+        print(f"Connected — app id: {app.id()}")
+
+    asyncio.run(main())
+    ```
+
+=== "Go"
+
+    Refer to the [Go examples](https://github.com/agntcy/slim-bindings-go/tree/main/examples) in the slim-bindings-go repository for the equivalent connection pattern.
+
+Running the Python script should print your app's SLIM identity:
+
 ```
+Connected — app id: myorg/default/my-app/<client-id>
+```
+
+!!! note "Insecure mode"
+    `new_insecure_client_config` skips TLS and is for local development only. See [Authentication](./architecture/authentication.md) for production TLS, mTLS, and SPIRE options.
 
 ## Next Steps
 
-- [Architecture](./architecture/index.md) — Understand how the components work together
-- [SDK Tutorials](./components/sdk/tutorial-connect.md) — Build your first SLIM application
-- [Configuration Reference](./components/data-plane/config.md) — Full SLIM node configuration options
-- [Community](../community.md) — Get help and connect with other SLIM users
+You have a running SLIM node and a connected application. Continue with the SDK tutorials to start exchanging messages:
+
+- [Creating an App](./components/sdk/tutorial-app.md) — register application identities for both sides of a conversation
+- [Creating a Session](./components/sdk/tutorial-session.md) — open a point-to-point session and send your first message
+- [Group Communication](./components/sdk/tutorial-group.md) — broadcast to multiple agents on a shared channel
+
+Or explore further:
+
+- [Architecture](./architecture/index.md) — understand the four-layer SLIM stack
+- [Deployment](./deploy/index.md) — deploy SLIM with Docker or Kubernetes
+- [Authentication](./architecture/authentication.md) — secure your connections
