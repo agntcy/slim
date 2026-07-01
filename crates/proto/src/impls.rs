@@ -307,13 +307,13 @@ pub fn decode_str_bytes(b: &bytes::Bytes) -> Option<(&[u8], &[u8], &[u8])> {
         return None;
     }
     let data = b.as_ref();
-    let len0 = u32::from_le_bytes(data.get(0..4)?.try_into().unwrap()) as usize;
+    let len0 = u32::from_le_bytes(data.get(0..4)?.try_into().ok()?) as usize;
     let s0_end = 4usize.checked_add(len0)?;
     let s0 = data.get(4..s0_end)?;
-    let len1 = u32::from_le_bytes(data.get(s0_end..s0_end + 4)?.try_into().unwrap()) as usize;
+    let len1 = u32::from_le_bytes(data.get(s0_end..s0_end + 4)?.try_into().ok()?) as usize;
     let s1_end = s0_end.checked_add(4)?.checked_add(len1)?;
     let s1 = data.get(s0_end + 4..s1_end)?;
-    let len2 = u32::from_le_bytes(data.get(s1_end..s1_end + 4)?.try_into().unwrap()) as usize;
+    let len2 = u32::from_le_bytes(data.get(s1_end..s1_end + 4)?.try_into().ok()?) as usize;
     let s2 = data.get(s1_end + 4..s1_end.checked_add(4)?.checked_add(len2)?)?;
     Some((s0, s1, s2))
 }
