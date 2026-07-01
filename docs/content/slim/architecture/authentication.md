@@ -3,7 +3,7 @@
 ## Overview
 
 Each SLIM client needs to have a valid identity. In the [SLIM Group
-Communication Tutorial](slim-group-tutorial.md), we used a simple shared secret
+Communication Tutorial](../components/sdk/tutorial-group.md), we used a simple shared secret
 to quickly set up identities for the clients. In a real-world scenario, you
 would typically use a more secure method, such as tokens or certificates, to
 authenticate clients and establish their identities.
@@ -55,7 +55,7 @@ The following prerequisites are required:
 ### Creating a KIND Cluster with a Local Image Registry
 
 The helper script below provisions a KIND cluster and configures a local
-registry (localhost:5001) that the cluster’s container runtime can pull from:
+registry (localhost:5001) that the cluster's container runtime can pull from:
 
 ```bash
 curl -L https://kind.sigs.k8s.io/examples/kind-with-registry.sh | sh
