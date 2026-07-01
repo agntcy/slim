@@ -147,7 +147,7 @@ impl ControlPlane {
                 let auth_verifier = slim_auth::auth_provider::AuthVerifier::Spire(verifier);
                 tracing::info!("registration auth: spire (trust domain = group name)");
                 Ok(GroupAuthenticator::Spire {
-                    verifier: auth_verifier,
+                    verifier: Box::new(auth_verifier),
                 })
             }
         }

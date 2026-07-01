@@ -31,7 +31,9 @@ pub enum GroupAuthenticator {
     #[cfg(not(target_family = "windows"))]
     Spire {
         /// Verifier that validates JWT SVIDs against available trust bundles.
-        verifier: AuthVerifier,
+        /// Boxed because AuthVerifier is ~512 bytes (inline crypto state), while
+        /// the other variants are much smaller on the stack (HashMap is a thin pointer).
+        verifier: Box<AuthVerifier>,
     },
 }
 

@@ -207,6 +207,7 @@ dependencies = [
 name = "agntcy-slim-controller"
 version = "0.8.0"
 dependencies = [
+ "agntcy-slim-auth",
  "agntcy-slim-config",
  "agntcy-slim-datapath",
  "agntcy-slim-proto",

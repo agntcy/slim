@@ -64,6 +64,7 @@ impl Config {
         // Used to extract connection type information required to connect to the node
         // (e.g., TLS settings). This information is used by the control plane.
         dataplane_servers: &[ServerConfig],
+        auth_provider: Option<slim_auth::auth_provider::AuthProvider>,
     ) -> ControlPlane {
         let connection_details = dataplane_servers.iter().map(from_server_config).collect();
 
@@ -74,6 +75,7 @@ impl Config {
             clients: self.clients.clone(),
             message_processor,
             connection_details,
+            auth_provider,
         })
     }
 }
@@ -227,6 +229,7 @@ mod tests {
             group_name,
             message_processor,
             &[server_config],
+            None,
         );
     }
 

@@ -50,6 +50,9 @@ const MAX_QUEUED_NOTIFICATIONS: usize = 1000;
 /// Timeout for waiting on a subscription ack from the datapath.
 const SUBSCRIPTION_ACK_TIMEOUT: Duration = Duration::from_secs(30);
 
+use slim_auth::auth_provider::AuthProvider;
+use slim_auth::traits::TokenProvider;
+
 /// Settings struct for creating a ControlPlane instance
 #[derive(Clone)]
 pub struct ControlPlaneSettings {
@@ -66,6 +69,8 @@ pub struct ControlPlaneSettings {
     /// array of connection details used by the control
     /// plane to store the connection settings (e.g., TLS settings).
     pub connection_details: Vec<ConnectionDetails>,
+    /// Optional auth provider for generating registration credentials.
+    pub auth_provider: Option<AuthProvider>,
 }
 
 /// Inner structure for the controller service
@@ -112,6 +117,9 @@ struct ControllerServiceInternal {
 
     /// JoinHandles for control-plane stream processing tasks, keyed by endpoint.
     stream_handles: parking_lot::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
+
+    /// Optional auth provider for generating registration credentials.
+    auth_provider: Option<AuthProvider>,
 }
 
 #[derive(Clone)]
@@ -261,6 +269,7 @@ impl ControlPlane {
                     route_subscription_ids: parking_lot::Mutex::new(HashMap::new()),
                     link_id_to_conn_id: parking_lot::RwLock::new(HashMap::new()),
                     stream_handles: parking_lot::Mutex::new(HashMap::new()),
+                    auth_provider: config.auth_provider,
                 }),
             },
             drain_signal: parking_lot::RwLock::new(Some(signal)),
@@ -1789,6 +1798,17 @@ impl ControllerService {
                     .collect::<Vec<_>>()
             };
 
+            let credentials = match &this.inner.auth_provider {
+                Some(provider) => match provider.get_token() {
+                    Ok(token) => token,
+                    Err(e) => {
+                        error!(error = %e, "failed to get auth credentials for registration");
+                        String::new()
+                    }
+                },
+                None => String::new(),
+            };
+
             let register_request = ControlMessage {
                 message_id: uuid::Uuid::new_v4().to_string(),
                 payload: Some(Payload::RegisterNodeRequest(v1::RegisterNodeRequest {
@@ -1797,7 +1817,7 @@ impl ControllerService {
                     connection_details: this.inner.connection_details.clone(),
                     connections: active_connections,
                     routes: active_routes,
-                    credentials: String::new(),
+                    credentials,
                 })),
             };
 
@@ -2155,6 +2175,7 @@ mod tests {
             clients: vec![],
             message_processor: message_processor_server,
             connection_details: vec![from_server_config(&server_config)],
+            auth_provider: None,
         });
 
         let control_plane_client = ControlPlane::new(ControlPlaneSettings {
@@ -2164,6 +2185,7 @@ mod tests {
             clients: vec![client_config.clone()],
             message_processor: message_processor_client,
             connection_details: vec![],
+            auth_provider: None,
         });
 
         (control_plane_server, control_plane_client, client_config)

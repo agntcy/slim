@@ -83,6 +83,11 @@ pub struct ServiceConfiguration {
     /// Optional name of the group for the service.
     pub group_name: Option<String>,
 
+    /// Optional authentication configuration for control plane registration.
+    /// When set, the node will generate and send credentials to prove
+    /// group membership during registration.
+    pub auth: Option<slim_config::auth::AuthConfig>,
+
     /// DataPlane API configuration
     pub dataplane: DataplaneConfig,
 
@@ -101,6 +106,7 @@ impl Default for ServiceConfiguration {
             service_id: node_id.clone(),
             node_id,
             group_name: None,
+            auth: None,
             dataplane: DataplaneConfig::default(),
             controller: ControllerConfig::default(),
             peers: None,
@@ -335,11 +341,31 @@ impl Service {
 
         // run the controller
         debug!("starting controller service");
+
+        // Build auth provider if configured
+        let auth_provider = if let Some(auth_config) = &self.config.auth {
+            let identity_name = match &self.config.group_name {
+                Some(group) => format!("{}/{}", group, self.config.node_id),
+                None => self.config.node_id.clone(),
+            };
+            let (provider_config, _) = auth_config.to_identity_configs(&identity_name);
+            let mut provider = provider_config.build_auth_provider().map_err(|e| {
+                ServiceError::InvalidConfig(format!("failed to build auth provider: {e}"))
+            })?;
+            provider.initialize().await.map_err(|e| {
+                ServiceError::InvalidConfig(format!("failed to initialize auth provider: {e}"))
+            })?;
+            Some(provider)
+        } else {
+            None
+        };
+
         let mut controller = self.config.controller.into_service(
             self.config.node_id.clone(),
             self.config.group_name.clone(),
             self.message_processor.clone(),
             self.config.dataplane_servers(),
+            auth_provider,
         );
 
         // run controller service
