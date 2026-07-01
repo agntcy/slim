@@ -87,7 +87,7 @@ plugins:
       slim/slim-channel-manager-install.md: slim/components/channel-manager/install.md
       slim/slim-channel-manager-config.md: slim/components/channel-manager/config.md
       slim/slim-cli-install.md: slim/components/cli/install.md
-      slim/slim-controller-reference.md: slim/components/cli/reference.md
+      slim/slim-controller-reference.md: slim/components/cli/reference/index.md
       slim/slim-sdk.md: slim/components/sdk/index.md
       slim/slim-sdk-install.md: slim/components/sdk/install.md
       slim/slim-sdk-languages.md: slim/components/sdk/languages.md
@@ -137,8 +137,62 @@ nav:
               - Installation Guide: slim/components/channel-manager/install.md
               - Configuration Reference: slim/components/channel-manager/config.md
           - SLIM CLI:
+              - slim/components/cli/index.md
               - Installation: slim/components/cli/install.md
-              - Command Reference: slim/components/cli/reference.md
+              - Command Reference:
+                  - slim/components/cli/reference/index.md
+                  - slimctl slim:
+                      - slim/components/cli/reference/slim/index.md
+                      - start: slim/components/cli/reference/slim/start.md
+                  - slimctl node:
+                      - slim/components/cli/reference/node/index.md
+                      - route:
+                          - slim/components/cli/reference/node/route/index.md
+                          - list: slim/components/cli/reference/node/route/list.md
+                      - connection:
+                          - slim/components/cli/reference/node/connection/index.md
+                          - list: slim/components/cli/reference/node/connection/list.md
+                  - slimctl controller:
+                      - slim/components/cli/reference/controller/index.md
+                      - node:
+                          - slim/components/cli/reference/controller/node/index.md
+                          - list: slim/components/cli/reference/controller/node/list.md
+                      - connection:
+                          - slim/components/cli/reference/controller/connection/index.md
+                          - list: slim/components/cli/reference/controller/connection/list.md
+                      - route:
+                          - slim/components/cli/reference/controller/route/index.md
+                          - list: slim/components/cli/reference/controller/route/list.md
+                      - link:
+                          - slim/components/cli/reference/controller/link/index.md
+                          - list: slim/components/cli/reference/controller/link/list.md
+                      - group:
+                          - slim/components/cli/reference/controller/group/index.md
+                          - list: slim/components/cli/reference/controller/group/list.md
+                      - segment:
+                          - slim/components/cli/reference/controller/segment/index.md
+                          - list: slim/components/cli/reference/controller/segment/list.md
+                  - slimctl channel-manager:
+                      - slim/components/cli/reference/channel-manager/index.md
+                      - create-channel: slim/components/cli/reference/channel-manager/create-channel.md
+                      - delete-channel: slim/components/cli/reference/channel-manager/delete-channel.md
+                      - add-participant: slim/components/cli/reference/channel-manager/add-participant.md
+                      - delete-participant: slim/components/cli/reference/channel-manager/delete-participant.md
+                      - list-channels: slim/components/cli/reference/channel-manager/list-channels.md
+                      - list-participants: slim/components/cli/reference/channel-manager/list-participants.md
+                  - slimctl bench:
+                      - slim/components/cli/reference/bench/index.md
+                      - sub: slim/components/cli/reference/bench/sub.md
+                      - pub: slim/components/cli/reference/bench/pub.md
+                      - channel:
+                          - slim/components/cli/reference/bench/channel/index.md
+                          - sub: slim/components/cli/reference/bench/channel/sub.md
+                          - pub: slim/components/cli/reference/bench/channel/pub.md
+                  - slimctl config:
+                      - slim/components/cli/reference/config/index.md
+                      - list: slim/components/cli/reference/config/list.md
+                      - set: slim/components/cli/reference/config/set.md
+                  - slimctl version: slim/components/cli/reference/version.md
           - SLIM SDK:
               - slim/components/sdk/index.md
               - Installation: slim/components/sdk/install.md
