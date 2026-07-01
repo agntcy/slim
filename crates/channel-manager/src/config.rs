@@ -32,79 +32,9 @@ use std::path::Path;
 
 use anyhow::{Context, bail};
 use serde::Deserialize;
-use slim_config::auth::identity::{IdentityProviderConfig, IdentityVerifierConfig};
-#[cfg(not(target_family = "windows"))]
-use slim_config::auth::spire::SpireConfig;
+use slim_config::auth::AuthConfig;
 use slim_config::client::ClientConfig;
 use slim_config::server::ServerConfig;
-
-/// Authentication configuration for the SLIM app identity.
-///
-/// For `shared_secret`, an optional `id` can be provided. When omitted it
-/// defaults to the `local-name` field of the manager configuration.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "snake_case", tag = "type")]
-pub enum AuthConfig {
-    /// Shared secret authentication (symmetric key)
-    SharedSecret {
-        /// Identity id. Defaults to `local-name` when not provided.
-        id: Option<String>,
-        /// The shared secret value
-        secret: String,
-    },
-    /// SPIRE-based identity (non-Windows only)
-    #[cfg(not(target_family = "windows"))]
-    Spire(SpireConfig),
-}
-
-impl AuthConfig {
-    /// Validate the auth configuration fields.
-    pub fn validate(&self) -> anyhow::Result<()> {
-        match self {
-            AuthConfig::SharedSecret { secret, .. } => {
-                if secret.is_empty() {
-                    bail!("auth.secret cannot be empty for shared_secret");
-                }
-            }
-            #[cfg(not(target_family = "windows"))]
-            AuthConfig::Spire(spire_config) => {
-                if spire_config.socket_path.is_none() {
-                    bail!("auth.socket_path must be set for spire");
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Convert to IdentityProviderConfig + IdentityVerifierConfig pair.
-    /// For shared_secret, uses the explicit `id` if provided, otherwise
-    /// falls back to `local_name`.
-    pub fn to_identity_configs(
-        &self,
-        local_name: &str,
-    ) -> (IdentityProviderConfig, IdentityVerifierConfig) {
-        match self {
-            AuthConfig::SharedSecret { id, secret } => {
-                let identity_id = id.as_deref().unwrap_or(local_name).to_string();
-                (
-                    IdentityProviderConfig::SharedSecret {
-                        id: identity_id.clone(),
-                        data: secret.clone(),
-                    },
-                    IdentityVerifierConfig::SharedSecret {
-                        id: identity_id,
-                        data: secret.clone(),
-                    },
-                )
-            }
-            #[cfg(not(target_family = "windows"))]
-            AuthConfig::Spire(spire_config) => (
-                IdentityProviderConfig::Spire(spire_config.clone()),
-                IdentityVerifierConfig::Spire(spire_config.clone()),
-            ),
-        }
-    }
-}
 
 /// Top-level configuration
 #[derive(Debug, Deserialize)]
@@ -227,6 +157,7 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slim_config::auth::identity::{IdentityProviderConfig, IdentityVerifierConfig};
     use slim_config::transport::TransportProtocol;
 
     // ── Helpers ───────────────────────────────────────────────────────────
