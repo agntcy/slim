@@ -19,7 +19,6 @@ members = [
   "crates/tracing",
   "crates/version",
 ]
-
 default-members = [
   "crates/control-plane",
   "crates/channel-manager",
@@ -87,12 +86,16 @@ futures = "0.3.31"
 futures-timer = "3.0.3"
 
 getrandom = { version = "0.3", features = ["wasm_js"] }
+# Browser WebSocket transport for the wasm32 build of the data plane.
+gloo-net = { version = "0.6", default-features = false, features = ["websocket"] }
 h2 = "0.4.7"
 headers = "0.4.1"
 hex = "0.4.3"
 # Pure-Rust HMAC-SHA256 for the wasm32 build of SharedSecret (aws-lc-rs is
 # native-only).
 hmac = "0.12"
+# Pure-Rust HKDF-SHA256 for the wasm32 inter-node link key derivation.
+hkdf = "0.12"
 http = "1.2.0"
 http-body-util = "0.1.3"
 hyper = { version = "1.8.1", features = ["http1", "server", "client"] }
@@ -201,7 +204,11 @@ trait-variant = "0.1"
 twox-hash = "2.1.1"
 url = "2.5.0"
 uuid = { version = "1.15.1", features = ["v4"] }
+wasm-bindgen-futures = "0.4"
 web-time = "1"
+# Pure-Rust X25519 ECDH for the wasm32 inter-node link negotiation (aws-lc-rs is
+# native-only). `static_secrets` exposes the bytes we need for HKDF.
+x25519-dalek = { version = "2", default-features = false, features = ["static_secrets"] }
 
 wiremock = "0.6"
 

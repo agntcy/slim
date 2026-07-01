@@ -3,33 +3,42 @@
 
 pub mod conn_type;
 
-// TODO(wasm32): expose a browser-friendly transport (tonic-web-wasm-client + browser WS).
 cfg_if::cfg_if! {
-if #[cfg(not(target_arch = "wasm32"))] {
-pub mod auth;
-pub mod backoff;
-pub mod client;
-pub mod component;
-pub mod errors;
-pub mod grpc;
-pub mod provider;
-pub mod server;
-pub mod server_handler;
-pub mod testutils;
-pub mod tls;
-pub mod transport;
-mod transport_common;
-pub mod websocket;
+    if #[cfg(not(target_arch = "wasm32"))] {
+        pub mod auth;
+        pub mod backoff;
+        pub mod client;
+        pub mod component;
+        pub mod errors;
+        pub mod grpc;
+        pub mod provider;
+        pub mod server;
+        pub mod server_handler;
+        pub mod testutils;
+        pub mod tls;
+        pub mod transport;
+        mod transport_common;
+        pub mod websocket;
 
-mod opaque;
+        mod opaque;
 
-#[cfg(test)]
-mod test_env;
+        #[cfg(test)]
+        mod test_env;
 
-pub use server_handler::ServerHandler;
+        pub use server_handler::ServerHandler;
 
-pub const CLIENT_CONFIG_SCHEMA_JSON: &str =
-    include_str!("./schema/client-config.schema.json");
-pub const SERVER_CONFIG_SCHEMA_JSON: &str =
-    include_str!("./schema/server-config.schema.json");
-}}
+        pub const CLIENT_CONFIG_SCHEMA_JSON: &str =
+            include_str!("./schema/client-config.schema.json");
+        pub const SERVER_CONFIG_SCHEMA_JSON: &str =
+            include_str!("./schema/server-config.schema.json");
+    } else {
+        // Browser (wasm32) build: a minimal client-only transport surface. The data
+        // plane connects out over `wss://` using `gloo_net`; the gRPC/native-WebSocket
+        // server side, TLS, proxy and auth modules are native-only and stay disabled.
+        pub mod client;
+        pub mod component;
+        pub mod errors;
+        pub mod transport;
+        pub mod websocket;
+    }
+}

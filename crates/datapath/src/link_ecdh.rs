@@ -1,10 +1,18 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-//! X25519 ECDH + HKDF-SHA256 for per-inter-node-link HMAC keys (`aws_lc_rs` only).
+//! X25519 ECDH + HKDF-SHA256 for per-inter-node-link HMAC keys.
+//!
+//! Native uses `aws_lc_rs`; the browser build uses the pure-Rust
+//! `x25519-dalek` + `hkdf` + `sha2` crates, seeded from the workspace
+//! `getrandom` (0.3, `wasm_js` backend). Both implement the same X25519 DH and
+//! HKDF-SHA256 expansion, so a native↔browser link derives the same key.
 
+#[cfg(not(target_arch = "wasm32"))]
 use aws_lc_rs::agreement::{self, EphemeralPrivateKey, UnparsedPublicKey, agree_ephemeral};
+#[cfg(not(target_arch = "wasm32"))]
 use aws_lc_rs::hkdf;
+#[cfg(not(target_arch = "wasm32"))]
 use aws_lc_rs::rand::SystemRandom;
 
 use crate::header_mac::{HeaderMacError, HeaderMacSession};
@@ -14,8 +22,16 @@ pub const X25519_PUBLIC_KEY_LEN: usize = 32;
 
 const HKDF_INFO: &[u8] = b"SLIM-DP-inter-node-hmac-v1";
 
+/// Opaque ephemeral private key, backend-specific. Held between
+/// [`generate_x25519_ephemeral`] and [`derive_header_mac_from_ecdh`].
+#[cfg(not(target_arch = "wasm32"))]
+pub type EphemeralKey = EphemeralPrivateKey;
+#[cfg(target_arch = "wasm32")]
+pub type EphemeralKey = x25519_dalek::StaticSecret;
+
 /// Generate an ephemeral X25519 keypair for link negotiation.
-pub fn generate_x25519_ephemeral() -> Result<(EphemeralPrivateKey, Vec<u8>), HeaderMacError> {
+#[cfg(not(target_arch = "wasm32"))]
+pub fn generate_x25519_ephemeral() -> Result<(EphemeralKey, Vec<u8>), HeaderMacError> {
     let rng = SystemRandom::new();
     EphemeralPrivateKey::generate(&agreement::X25519, &rng)
         .map_err(|_| {
@@ -30,9 +46,22 @@ pub fn generate_x25519_ephemeral() -> Result<(EphemeralPrivateKey, Vec<u8>), Hea
         })
 }
 
+#[cfg(target_arch = "wasm32")]
+pub fn generate_x25519_ephemeral() -> Result<(EphemeralKey, Vec<u8>), HeaderMacError> {
+    use x25519_dalek::{PublicKey, StaticSecret};
+
+    let mut secret = [0u8; X25519_PUBLIC_KEY_LEN];
+    getrandom::fill(&mut secret)
+        .map_err(|e| HeaderMacError::KeyGenerationFailed(e.to_string()))?;
+    let sk = StaticSecret::from(secret);
+    let pk = PublicKey::from(&sk);
+    Ok((sk, pk.as_bytes().to_vec()))
+}
+
 /// Derive a [`HeaderMacSession`] from our ephemeral secret and the peer's public key.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn derive_header_mac_from_ecdh(
-    my_private: EphemeralPrivateKey,
+    my_private: EphemeralKey,
     peer_public: &[u8],
     link_id: &str,
 ) -> Result<HeaderMacSession, HeaderMacError> {
@@ -51,6 +80,27 @@ pub fn derive_header_mac_from_ecdh(
             .map_err(|_| HeaderMacError::KeyAgreement)?;
         Ok(())
     })?;
+    HeaderMacSession::new(&okm)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn derive_header_mac_from_ecdh(
+    my_private: EphemeralKey,
+    peer_public: &[u8],
+    link_id: &str,
+) -> Result<HeaderMacSession, HeaderMacError> {
+    use x25519_dalek::PublicKey;
+
+    let peer_bytes: [u8; X25519_PUBLIC_KEY_LEN] = peer_public
+        .try_into()
+        .map_err(|_| HeaderMacError::KeyAgreement)?;
+    let peer = PublicKey::from(peer_bytes);
+    let shared = my_private.diffie_hellman(&peer);
+
+    let hk = hkdf::Hkdf::<sha2::Sha256>::new(Some(link_id.as_bytes()), shared.as_bytes());
+    let mut okm = [0u8; 32];
+    hk.expand(HKDF_INFO, &mut okm)
+        .map_err(|_| HeaderMacError::KeyAgreement)?;
     HeaderMacSession::new(&okm)
 }
 

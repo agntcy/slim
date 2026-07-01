@@ -24,7 +24,6 @@ ed25519-dalek = { version = "2.1", default-features = false, features = [
 http = { workspace = true }
 itoa = "1"
 mls-rs-core = { workspace = true }
-mls-rs-crypto-awslc = { workspace = true }
 p256 = { version = "0.13", default-features = false, features = [
     "ecdsa",
     "pkcs8",
@@ -50,6 +49,7 @@ display-error-chain = { workspace = true }
 futures = { workspace = true }
 headers = { workspace = true }
 jsonwebtoken = { workspace = true }
+mls-rs-crypto-awslc = { workspace = true }
 notify = { workspace = true }
 oauth2 = { workspace = true, features = ["reqwest"] }
 pin-project = { workspace = true }
@@ -67,6 +67,9 @@ wiremock = { workspace = true }
 # `rand` works in the browser.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true }
+# ed25519-dalek/p256 still use rand_core 0.6, which pulls getrandom 0.2.
+# Enable its browser backend in addition to workspace getrandom 0.3.
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
 hmac = { workspace = true }
 sha2 = { workspace = true }
 

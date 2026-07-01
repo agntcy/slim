@@ -2,36 +2,43 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod configuration;
-pub mod id;
 
-#[async_trait::async_trait]
-pub trait Component {
-    // Error type for component operations
-    type Error: std::error::Error + Send + Sync + 'static;
+cfg_if::cfg_if! {
+    if #[cfg(not(target_arch = "wasm32"))] {
+        pub mod id;
 
-    // Get name of the component
-    fn identifier(&self) -> &id::ID;
+        #[async_trait::async_trait]
+        pub trait Component {
+            // Error type for component operations
+            type Error: std::error::Error + Send + Sync + 'static;
 
-    // start the component
-    async fn start(&mut self) -> Result<(), Self::Error>;
-}
+            // Get name of the component
+            fn identifier(&self) -> &id::ID;
 
-pub trait ComponentBuilder {
-    // Associated types
-    type Config;
-    type Component: Component;
+            // start the component
+            async fn start(&mut self) -> Result<(), Self::Error>;
+        }
 
-    /// ID of the component
-    fn kind(&self) -> id::Kind;
+        pub trait ComponentBuilder {
+            // Associated types
+            type Config;
+            type Component: Component;
 
-    /// Build the component
-    fn build(&self, name: String)
-    -> Result<Self::Component, <Self::Component as Component>::Error>;
+            /// ID of the component
+            fn kind(&self) -> id::Kind;
 
-    /// Build the component with configuration
-    fn build_with_config(
-        &self,
-        name: &str,
-        config: &Self::Config,
-    ) -> Result<Self::Component, <Self::Component as Component>::Error>;
+            /// Build the component
+            fn build(
+                &self,
+                name: String,
+            ) -> Result<Self::Component, <Self::Component as Component>::Error>;
+
+            /// Build the component with configuration
+            fn build_with_config(
+                &self,
+                name: &str,
+                config: &Self::Config,
+            ) -> Result<Self::Component, <Self::Component as Component>::Error>;
+        }
+    }
 }
