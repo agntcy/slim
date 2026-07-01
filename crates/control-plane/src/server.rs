@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 
 use crate::api::proto::controller::proto::v1::controller_service_server::ControllerServiceServer;
 use crate::api::proto::controlplane::proto::v1::control_plane_service_server::ControlPlaneServiceServer;
+use crate::auth::GroupAuthenticator;
 use crate::config::Config;
 use crate::node_transport::DefaultNodeCommandHandler;
 use crate::route_service::RouteService;
@@ -61,12 +62,27 @@ impl ControlPlane {
         let nb_svc =
             NorthboundApiService::new(db.clone(), cmd_handler.clone(), route_service.clone());
 
+        // Build group authenticator from config (Noop when no auth configured).
+        let authenticator = match cfg.registration_auth {
+            None => GroupAuthenticator::Noop,
+            Some(_auth_cfg) => {
+                // Phase 5/6 will add SharedSecret and Spire authenticator construction here.
+                tracing::warn!("registration_auth configured but no authenticator implemented yet; accepting all registrations");
+                GroupAuthenticator::Noop
+            }
+        };
+
         let (drain_tx, drain_rx) = drain::channel();
 
         let shared_drain: SharedDrain =
             std::sync::Arc::new(parking_lot::Mutex::new(Some(drain_rx.clone())));
-        let sb_svc =
-            SouthboundApiService::new(db, cmd_handler, route_service.clone(), shared_drain.clone());
+        let sb_svc = SouthboundApiService::new(
+            db,
+            cmd_handler,
+            route_service.clone(),
+            shared_drain.clone(),
+            authenticator,
+        );
 
         cfg.northbound
             .run_grpc_server(&[ControlPlaneServiceServer::new(nb_svc)], drain_rx.clone())

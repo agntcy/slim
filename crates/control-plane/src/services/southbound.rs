@@ -12,6 +12,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 use uuid::Uuid;
 
+use crate::auth::GroupAuthenticator;
 use crate::api::proto::controller::proto::v1::{
     Connection, ControlMessage, RegisterNodeResponse, Route as ProtoRoute,
     control_message::Payload, controller_service_server::ControllerService,
@@ -30,6 +31,7 @@ pub struct SouthboundApiService {
     cmd_handler: DefaultNodeCommandHandler,
     route_service: RouteService,
     drain: SharedDrain,
+    authenticator: GroupAuthenticator,
 }
 
 impl SouthboundApiService {
@@ -38,12 +40,14 @@ impl SouthboundApiService {
         cmd_handler: DefaultNodeCommandHandler,
         route_service: RouteService,
         drain: SharedDrain,
+        authenticator: GroupAuthenticator,
     ) -> Self {
         Self {
             db,
             cmd_handler,
             route_service,
             drain,
+            authenticator,
         }
     }
 }
@@ -68,6 +72,7 @@ impl ControllerService for SouthboundApiService {
         let db = self.db.clone();
         let cmd_handler = self.cmd_handler.clone();
         let route_service = self.route_service.clone();
+        let authenticator = self.authenticator.clone();
         let drain = self.drain.lock().clone();
 
         tokio::spawn(async move {
@@ -78,6 +83,7 @@ impl ControllerService for SouthboundApiService {
                 &cmd_handler,
                 &route_service,
                 &tx,
+                &authenticator,
             )
             .await
             {
@@ -118,6 +124,7 @@ async fn receive_register(
     cmd_handler: &DefaultNodeCommandHandler,
     route_service: &RouteService,
     tx: &mpsc::UnboundedSender<Result<ControlMessage, Status>>,
+    authenticator: &GroupAuthenticator,
 ) -> Result<(String, u64)> {
     let msg = tokio::time::timeout(Duration::from_secs(REGISTER_TIMEOUT_SECS), stream.message())
         .await
@@ -142,6 +149,18 @@ async fn receive_register(
             )));
         }
     };
+
+    // Verify group membership before proceeding with registration.
+    let claimed_group = reg_req.group_name.as_deref().unwrap_or("");
+    authenticator
+        .verify_group_membership(&reg_req.credentials, claimed_group)
+        .await
+        .map_err(|status| {
+            Error::InvalidInput(format!(
+                "group auth failed for node '{}' claiming group '{}': {}",
+                reg_req.node_id, claimed_group, status.message()
+            ))
+        })?;
 
     let mut node_id = reg_req.node_id.clone();
     if let Some(ref group) = reg_req.group_name

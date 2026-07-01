@@ -1,11 +1,14 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
+
 use duration_string::DurationString;
 use serde::Deserialize;
 use serde::de::{self, MapAccess, Visitor};
 use std::time::Duration;
 
+use slim_config::auth::AuthConfig;
 use slim_config::grpc::server::ServerConfig;
 use slim_config::tls::server::TlsServerConfig;
 use slim_tracing::TracingConfiguration;
@@ -27,6 +30,9 @@ pub struct Config {
     /// Topology configuration: controls link creation and route visibility
     /// between node groups.
     pub topology: TopologyConfig,
+    /// Optional authentication for node group membership on registration.
+    /// When absent, all registrations are accepted.
+    pub registration_auth: Option<RegistrationAuthConfig>,
 }
 
 impl Default for Config {
@@ -46,6 +52,7 @@ impl Default for Config {
             database: DatabaseConfig::default(),
             tracing: TracingConfiguration::default(),
             topology: TopologyConfig::default(),
+            registration_auth: None,
         }
     }
 }
@@ -427,6 +434,40 @@ impl SegmentConfig {
                 .collect(),
         }
     }
+}
+
+/// Configuration for authenticating node group membership on registration.
+///
+/// ```yaml
+/// registration_auth:
+///   type: shared_secret
+///   groups:
+///     cluster-a:
+///       secret: "secret-for-cluster-a"
+///     cluster-b:
+///       secret: "secret-for-cluster-b"
+/// ```
+///
+/// Or for SPIRE (trust domain = group name):
+/// ```yaml
+/// registration_auth:
+///   type: spire
+///   socket_path: "/run/spire/agent-sockets/api.sock"
+/// ```
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+pub enum RegistrationAuthConfig {
+    /// Per-group shared secret authentication.
+    SharedSecret {
+        /// Map of group name → auth config with the secret for that group.
+        groups: HashMap<String, AuthConfig>,
+    },
+    /// SPIRE-based authentication. Trust domain = group name by convention.
+    #[cfg(not(target_family = "windows"))]
+    Spire {
+        /// Path to the SPIRE agent socket for JWT SVID validation.
+        socket_path: String,
+    },
 }
 
 #[cfg(test)]
