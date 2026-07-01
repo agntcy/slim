@@ -547,3 +547,158 @@ h1#agent-directory-service {
 .md-content--home .md-sidebar--secondary {
   display: none;
 }
+
+/* ----------------------------------------------------------------------------
+   404 page (Material override + root gh-pages fallback)
+---------------------------------------------------------------------------- */
+
+body:has(.slim-not-found) .md-sidebar--primary,
+body:has(.slim-not-found) .md-sidebar--secondary {
+  display: none;
+}
+
+body:has(.slim-not-found) .md-content {
+  max-width: none;
+}
+
+body:has(.slim-not-found) .md-content__inner {
+  display: flex;
+  justify-content: center;
+  margin: 0 auto;
+  padding-top: 3rem;
+}
+
+body:has(.slim-not-found) .md-content__inner::before {
+  display: none;
+}
+
+.slim-not-found {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  width: 100%;
+  max-width: 36rem;
+  margin: 0 auto 4rem;
+  padding: 0 1rem;
+}
+
+.slim-not-found__code {
+  margin: 0 0 0.75rem;
+  font-size: clamp(4rem, 12vw, 6.5rem);
+  font-weight: 700;
+  line-height: 1;
+  background: linear-gradient(
+    101.5deg,
+    rgb(251, 171, 44) 0%,
+    rgb(24, 122, 220) 53%,
+    rgb(0, 20, 43) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.md-typeset .slim-not-found__title {
+  margin: 0 0 1rem;
+  font-weight: 300;
+  font-size: 1.75rem;
+  line-height: 1.25;
+  text-align: center;
+  color: var(--md-default-fg-color);
+}
+
+.md-typeset .slim-not-found__lede {
+  margin: 0 0 2rem;
+  max-width: 28rem;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.md-typeset .slim-not-found__lede p {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--md-default-fg-color--light);
+}
+
+.md-typeset .slim-not-found__lede p + p {
+  margin-top: 0.35rem;
+}
+
+.slim-not-found__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+.md-typeset .slim-not-found__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.6rem 1.5rem;
+  border-radius: 50px;
+  background: var(--slim-action-btn-bg, var(--md-default-bg-color--light));
+  color: var(--slim-action-btn-color, var(--md-default-fg-color));
+  border: 1px solid var(--slim-action-btn-border, var(--md-default-fg-color--lightest));
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.md-typeset .slim-not-found__btn:not(.slim-not-found__btn--primary):hover,
+.md-typeset .slim-not-found__btn:not(.slim-not-found__btn--primary):focus-visible {
+  color: var(--md-accent-fg-color);
+  background: var(--slim-action-btn-bg-active, var(--md-default-bg-color));
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(2, 81, 175, 0.12);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .slim-not-found__btn:not(.slim-not-found__btn--primary):hover,
+[data-md-color-scheme="slate"] .md-typeset .slim-not-found__btn:not(.slim-not-found__btn--primary):focus-visible {
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.md-typeset .slim-not-found__btn:focus-visible {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: 3px;
+}
+
+.md-typeset .slim-not-found__btn svg {
+  fill: currentColor;
+  height: 1.1em;
+  width: 1.1em;
+  flex-shrink: 0;
+}
+
+.md-typeset .slim-not-found__btn--primary {
+  background: var(--md-accent-fg-color);
+  border-color: var(--md-accent-fg-color);
+  color: rgb(255, 255, 255);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .slim-not-found__btn--primary {
+  color: rgb(3, 20, 43);
+}
+
+.md-typeset .slim-not-found__btn--primary:hover,
+.md-typeset .slim-not-found__btn--primary:focus-visible {
+  background: var(--md-accent-fg-color);
+  border-color: var(--md-accent-fg-color);
+  color: rgb(255, 255, 255);
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(2, 81, 175, 0.2);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .slim-not-found__btn--primary:hover,
+[data-md-color-scheme="slate"] .md-typeset .slim-not-found__btn--primary:focus-visible {
+  color: rgb(3, 20, 43);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
