@@ -395,7 +395,7 @@ impl MessageProcessor {
         match channel {
             TransportChannel::Grpc(grpc_channel) => {
                 let mut client = DataPlaneServiceClient::new(grpc_channel);
-                let (tx, rx) = mpsc::channel(128);
+                let (tx, rx) = mpsc::channel(1024);
                 let stream = client
                     .open_channel(Request::new(ReceiverStream::new(rx)))
                     .await?;
