@@ -177,5 +177,5 @@ cmctl --client-config client-config.yaml list-channels
 ## Related
 
 - [Installation Guide](./install.md) — Build and run the Channel Manager
-- [Groups](../../architecture/group.md) — The group communication model and moderator role
+- [Groups](../../architecture/sessions/group.md) — The group communication model and moderator role
 - [Authentication](../../architecture/authentication.md) — TLS, mTLS, JWT, and SPIRE authentication options

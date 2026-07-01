@@ -200,4 +200,4 @@ This ensures that multi-hop routing (e.g. spoke-a → hub → spoke-b in a star 
 - [SLIM Controller Overview](../components/controller/index.md) — The component that manages groups, links, and segments
 - [Controller Configuration Reference](../components/controller/config.md) — Full topology configuration options
 - [Naming](./naming.md) — How client and channel names work in SLIM
-- [Groups](./group.md) — Group sessions for multi-agent communication (distinct from routing groups)
+- [Groups](./sessions/group.md) — Group sessions for multi-agent communication (distinct from routing groups)
