@@ -1,0 +1,21 @@
+{#-
+  Copyright AGNTCY Contributors (https://github.com/agntcy)
+  SPDX-License-Identifier: Apache-2.0
+-#}
+{% extends "main.html" %}
+{% block content %}
+  <div class="slim-not-found">
+    <p class="slim-not-found__code" aria-hidden="true">404</p>
+    <h1 class="slim-not-found__title">Page not found</h1>
+    <p class="slim-not-found__lede">
+      The page you requested does not exist or may have moved. Try the search box above,
+      or head back to the documentation home.
+    </p>
+    <div class="slim-not-found__actions">
+      <a class="slim-not-found__btn slim-not-found__btn--primary" href="{{ nav.homepage.url | url }}">
+        Back to home
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+      </a>
+    </div>
+  </div>
+{% endblock %}
