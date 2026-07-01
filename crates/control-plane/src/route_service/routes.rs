@@ -69,24 +69,29 @@ impl super::RouteService {
             .map(|n| n.group_name.as_deref().unwrap_or(""))
             .collect();
 
-        let mut current_segments = self.0.segment_graphs.write().await;
-        let current_groups: HashSet<&str> = current_segments
-            .iter()
-            .flat_map(|(_, g)| g.node_indices().map(|idx| g[idx].as_str()))
-            .collect();
-        let groups_changed = new_groups != current_groups;
+        let snapshot = {
+            let mut current_segments = self.0.segment_graphs.write().await;
+            let current_groups: HashSet<&str> = current_segments
+                .iter()
+                .flat_map(|(_, g)| g.node_indices().map(|idx| g[idx].as_str()))
+                .collect();
 
-        if groups_changed {
+            if new_groups == current_groups {
+                return false;
+            }
+
             let group_vec: Vec<&str> = new_groups.into_iter().collect();
             *current_segments = self.0.topology.build_graph(&group_vec);
+            current_segments.clone()
+            // write guard dropped here
+        };
 
-            // Persist the expanded topology to DB so that API mode can pick it
-            // up if the operator later switches modes.
-            tracing::debug!("groups changed, persisting topology to DB");
-            self.persist_segments_to_db(&current_segments).await;
-        }
+        // Persist outside the lock — DB writes are best-effort and must not
+        // block concurrent readers (allowed_link_pairs, expand_wildcard, etc.).
+        tracing::debug!("groups changed, persisting topology to DB");
+        self.persist_segments_to_db(&snapshot).await;
 
-        groups_changed
+        true
     }
 
     /// Write the current segment graphs to the DB (topology_segments +
@@ -124,6 +129,37 @@ impl super::RouteService {
                     tracing::debug!(
                         %seg_name, %group_a, %group_b, error = %e,
                         "failed to persist topology link (may already exist)"
+                    );
+                }
+            }
+
+            // Remove stale links no longer in the graph (config mode only).
+            let current_edges: HashSet<(String, String)> = graph
+                .edge_references()
+                .map(|e| (graph[e.source()].clone(), graph[e.target()].clone()))
+                .collect();
+            match self.0.db.get_links_for_segment(&seg.id).await {
+                Ok(stored) => {
+                    for (src, dst) in stored {
+                        if !current_edges.contains(&(src.clone(), dst.clone()))
+                            && !current_edges.contains(&(dst.clone(), src.clone()))
+                            && let Err(e) = self
+                                .0
+                                .db
+                                .delete_link_from_segment(&seg.id, &src, &dst)
+                                .await
+                        {
+                            tracing::error!(
+                                %seg_name, %src, %dst, error = %e,
+                                "failed to remove stale topology link"
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(
+                        %seg_name, error = %e,
+                        "failed to fetch stored links for stale cleanup"
                     );
                 }
             }

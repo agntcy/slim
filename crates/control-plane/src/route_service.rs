@@ -234,12 +234,22 @@ impl RouteService {
                     link.dest_group,
                 );
                 // Delete routes that depended on this link.
-                if let Ok(routes) = self.0.db.get_routes_by_link_id(&link.link_id).await {
-                    for route in &routes {
-                        if let Err(e) = self.0.db.delete_route(&route.id).await {
-                            tracing::error!("reconcile_topology_change: delete_route: {e}");
+                match self.0.db.get_routes_by_link_id(&link.link_id).await {
+                    Ok(routes) => {
+                        for route in &routes {
+                            if let Err(e) = self.0.db.delete_route(&route.id).await {
+                                tracing::error!("reconcile_topology_change: delete_route: {e}");
+                            }
+                            reconcile_nodes.insert(route.source_node_id.clone());
                         }
-                        reconcile_nodes.insert(route.source_node_id.clone());
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            link_id = %link.link_id,
+                            "reconcile_topology_change: get_routes_by_link_id: {e}; \
+                             skipping link deletion to retry on next cycle"
+                        );
+                        continue;
                     }
                 }
                 if let Err(e) = self.0.db.delete_link(link).await {

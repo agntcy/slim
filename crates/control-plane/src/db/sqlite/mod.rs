@@ -1018,10 +1018,6 @@ impl DataAccess for SqliteDb {
     // ── Topology (API-managed mode) ───────────────────────────────────────
 
     async fn create_segment(&self, name: &str) -> Result<TopologySegment> {
-        // Return existing segment if it already exists (idempotent).
-        if let Some(existing) = self.get_segment_by_name(name).await? {
-            return Ok(existing);
-        }
         let segment = TopologySegment {
             id: uuid::Uuid::new_v4().to_string(),
             name: name.to_string(),
@@ -1032,7 +1028,7 @@ impl DataAccess for SqliteDb {
             msg: e.to_string(),
         })?;
         diesel::insert_into(topology_segments::table)
-            .values(segment.clone())
+            .values(segment)
             .on_conflict_do_nothing()
             .execute(&mut conn)
             .await
@@ -1040,7 +1036,14 @@ impl DataAccess for SqliteDb {
                 context: "create_segment",
                 msg: e.to_string(),
             })?;
-        Ok(segment)
+        // Always re-fetch to return the authoritative row (handles both
+        // fresh inserts and races where another writer won).
+        self.get_segment_by_name(name)
+            .await?
+            .ok_or_else(|| Error::DbError {
+                context: "create_segment",
+                msg: "row vanished after insert".to_string(),
+            })
     }
 
     async fn delete_segment(&self, id: &str) -> Result<()> {
