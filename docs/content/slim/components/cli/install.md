@@ -122,5 +122,5 @@ tls:
 
 ## Next Steps
 
-- [Command Reference](./reference.md) — Full reference for all `slimctl` commands
+- [Command Reference](./reference/index.md) — Full reference for all `slimctl` commands
 - [SLIM Controller Overview](../controller/index.md) — Learn how the Controller manages SLIM nodes

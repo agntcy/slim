@@ -173,4 +173,4 @@ Routes between SLIM nodes are automatically created by the Controller upon recei
 - [Installation Guide](./install.md) — Install the SLIM Controller
 - [Configuration Reference](./config.md) — Full YAML configuration reference
 - [SLIM CLI](../cli/install.md) — Install and configure `slimctl`
-- [Command Reference](../cli/reference.md) — Full `slimctl` command reference
+- [Command Reference](../cli/reference/index.md) — Full `slimctl` command reference
