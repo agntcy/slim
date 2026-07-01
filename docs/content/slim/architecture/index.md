@@ -4,9 +4,11 @@ icon: material/layers-triple
 
 # Architecture
 
-SLIM is designed as a layered system that separates concerns cleanly across four levels: applications and language bindings at the top, the session layer for end-to-end security and reliable delivery, the data plane for message routing and transport, and the control plane for infrastructure management.
+SLIM separates message delivery from infrastructure management across three network layers, with an independent control plane that configures the network without participating in message routing.
 
-## Architectural Layers
+## Network Stack
+
+The three layers that carry messages between applications:
 
 ```
 Applications (Python / Go / .NET / JS bindings)
@@ -14,19 +16,19 @@ Applications (Python / Go / .NET / JS bindings)
 Session Layer (Rust) — MLS encryption, reliable delivery, group communication
     ↓
 Data Plane (Rust) — hierarchical name-based message routing, TLS/mTLS/auth
-    ↓
-Control Plane (Go) — config management, orchestration, slimctl CLI
 ```
-
-Each layer has a distinct role:
 
 - **Applications and Bindings**: Your agents and services communicate through language-native bindings (Python, Go, .NET, JavaScript). The bindings expose a simple API for sending and receiving messages, establishing sessions, and managing groups without needing to deal directly with the underlying protocols.
 
 - **Session Layer**: Sits inside each application node. Provides end-to-end encryption using the [MLS protocol](https://www.rfc-editor.org/rfc/rfc9420.html), handles session setup and teardown, manages group membership, and ensures reliable message delivery. The session layer is invisible to intermediate routing nodes — only the communicating endpoints hold the session keys.
 
-- **Data Plane**: The routing and forwarding engine. SLIM routing nodes run the data plane and forward messages based on hierarchical names. Routing nodes do not participate in application sessions and never see plaintext message content, keeping the infrastructure lightweight and the architecture zero-trust.
+- **Data Plane**: The routing and forwarding engine. SLIM nodes run the data plane and forward messages based on hierarchical names. Routing nodes do not participate in application sessions and never see plaintext message content, keeping the infrastructure lightweight and the architecture zero-trust.
 
-- **Control Plane**: The management layer. The SLIM Controller monitors and configures data plane nodes, manages route tables, and provides the `slimctl` CLI for operators. It communicates with nodes via northbound (operator-facing) and southbound (node-facing) gRPC interfaces.
+## Control Plane
+
+The Control Plane sits alongside the network stack as a separate management component — it is not a layer that messages pass through. The SLIM Controller configures data plane nodes, manages route tables, and handles node registration. Operators interact with it via the `slimctl` CLI and its northbound gRPC API; data plane nodes receive configuration updates via the southbound gRPC interface.
+
+The data plane operates independently and can run without any control plane deployed. The control plane becomes valuable at scale — particularly for multi-cluster deployments where routing topology needs to be managed centrally.
 
 ## Component Topology
 
