@@ -7,7 +7,7 @@ This tutorial shows how to create point-to-point and group sessions to exchange 
 - Completed [Creating an App](./tutorial-app.md)
 - Two running SLIM applications or two instances of the same service
 
-For conceptual background on session types, see [Sessions](../../architecture/session.md).
+For conceptual background on session types, see [Sessions](../../architecture/sessions/index.md).
 
 ## Point-to-Point Session
 
@@ -305,6 +305,6 @@ The [slim-bindings repository](https://github.com/agntcy/slim-bindings) contains
 
 ## Next Steps
 
-- [Sessions](../../architecture/session.md) — Deep dive into session types, sequence diagrams, and the full API
-- [Groups](../../architecture/group.md) — Group creation and membership management via the SLIM Controller
+- [Sessions](../../architecture/sessions/index.md) — Deep dive into session types, sequence diagrams, and the full API
+- [Groups](../../architecture/sessions/group.md) — Group creation and membership management via the SLIM Controller
 - [Group Communication Tutorial](./tutorial-group.md) — End-to-end tutorial using identity and authentication

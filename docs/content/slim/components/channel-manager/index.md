@@ -74,7 +74,7 @@ slimctl channel-manager --endpoint http://192.168.1.100:10356 list-channels
 
 ## Related
 
-- [Groups](../../architecture/group.md) — The group communication model and the moderator role
+- [Groups](../../architecture/sessions/group.md) — The group communication model and the moderator role
 - [Installation Guide](./install.md) — Build and run the Channel Manager
 - [Configuration Reference](./config.md) — All configuration options
 - [Group Communication Tutorial](../sdk/tutorial-group.md) — End-to-end walkthrough using the Channel Manager

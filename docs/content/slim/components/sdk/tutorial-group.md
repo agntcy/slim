@@ -122,7 +122,7 @@ Simple symmetric key authentication.
 
 Now that you know how to set up a SLIM application, we can see how to create a group where multiple participants can exchange messages. We start by showing how to create a group session using the Python bindings.
 
-In this setting, one participant acts as moderator: it creates the group session and invites participants by sending invitation control messages. A detailed description of group sessions and the invitation process is available in the [SLIM documentation](../../architecture/session.md).
+In this setting, one participant acts as moderator: it creates the group session and invites participants by sending invitation control messages. A detailed description of group sessions and the invitation process is available in the [SLIM documentation](../../architecture/sessions/index.md).
 
 ### Creating the Group Session and Inviting Members
 
