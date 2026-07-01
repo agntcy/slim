@@ -1,5 +1,5 @@
-# Full mesh topology: all groups link to each other.
-# Expressed as a wildcard link entry in config-managed mode.
+# API-managed topology mode: no topology section means the DB owns
+# topology state and CRUD operations are available via gRPC/CLI.
 
 tracing:
   log_level: debug
@@ -21,7 +21,5 @@ database:
   type: sqlite
   path: /tmp/slim-test.db
 
-topology:
-  links:
-    - group: "*"
-      neighbors: ["*"]
+# Empty topology = API-managed mode.
+topology: {}

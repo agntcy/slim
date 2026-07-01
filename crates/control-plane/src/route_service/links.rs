@@ -334,7 +334,7 @@ mod tests {
         db.save_node(node_b.clone()).await.unwrap();
         db.save_node(node_c.clone()).await.unwrap();
 
-        // Default topology = full mesh
+        // Full mesh topology (wildcard links)
         let svc = make_route_service(db.clone());
         let all_nodes = db.list_nodes().await.unwrap();
         svc.rebuild_link_graph(&all_nodes).await;
@@ -376,14 +376,14 @@ mod tests {
             SegmentConfig {
                 name: "seg-a".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "platform".to_string(),
+                    group: "platform".to_string(),
                     neighbors: vec!["customer-a".to_string()],
                 }],
             },
             SegmentConfig {
                 name: "seg-b".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "platform".to_string(),
+                    group: "platform".to_string(),
                     neighbors: vec!["customer-b".to_string()],
                 }],
             },

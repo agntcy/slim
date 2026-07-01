@@ -15,12 +15,16 @@ southbound:
   tls:
     insecure: true
 
+#database:
+#  type: in_memory
+
 database:
-  type: in_memory
+  type: sqlite
+  path: /tmp/slim-test.db
 
 topology:
   segments:
     - name: segment-$group
       links:
-        - name: group-1
+        - group: group-1
           neighbors: [$group]
