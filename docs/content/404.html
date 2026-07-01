@@ -90,6 +90,24 @@
       line-height: 1.25;
     }
 
+    .slim-not-found__lede {
+      margin: 0 0 2rem;
+      max-width: 28rem;
+      text-align: center;
+      text-wrap: balance;
+    }
+
+    .slim-not-found__lede p {
+      margin: 0;
+      font-size: 0.95rem;
+      line-height: 1.6;
+      color: var(--slim-fg-muted);
+    }
+
+    .slim-not-found__lede p + p {
+      margin-top: 0.35rem;
+    }
+
     p {
       margin: 0 0 2rem;
       font-size: 0.95rem;
@@ -224,10 +242,10 @@
     </a>
     <p class="slim-not-found__code" aria-hidden="true">404</p>
     <h1>Page not found</h1>
-    <p>
-      The page you requested does not exist or may have moved.
-      If you followed an old link, we will try to send you to the latest docs.
-    </p>
+    <div class="slim-not-found__lede">
+      <p>The page you requested does not exist or may have moved.</p>
+      <p>If you followed an old link, we will try to send you to the latest docs.</p>
+    </div>
     <div class="slim-not-found__actions">
       <a class="slim-not-found__btn slim-not-found__btn--primary" href="/slim/latest/">
         Back to home

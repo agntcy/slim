@@ -610,10 +610,20 @@ body:has(.slim-not-found) .md-content__inner::before {
 
 .md-typeset .slim-not-found__lede {
   margin: 0 0 2rem;
+  max-width: 28rem;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.md-typeset .slim-not-found__lede p {
+  margin: 0;
   font-size: 0.95rem;
   line-height: 1.6;
-  text-align: center;
   color: var(--md-default-fg-color--light);
+}
+
+.md-typeset .slim-not-found__lede p + p {
+  margin-top: 0.35rem;
 }
 
 .slim-not-found__actions {
