@@ -18,7 +18,7 @@ use crate::api::proto::controller::proto::v1::{
 use crate::db::{LinkStatus, RouteStatus, SharedDb};
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus, ResponseKind};
 use crate::workqueue::WorkQueue;
-use slim_datapath::api::{NULL_COMPONENT, ProtoName};
+use slim_datapath::api::{NULL_COMPONENT, ProtoName, id_from_str};
 
 use super::is_connection_not_found;
 
@@ -334,8 +334,7 @@ async fn build_desired_routes<'a>(
                         route
                             .component_id
                             .as_deref()
-                            .and_then(|s| uuid::Uuid::parse_str(s).ok())
-                            .map(|u| u.as_u128())
+                            .and_then(|s| id_from_str(s).ok())
                             .unwrap_or(NULL_COMPONENT),
                     ),
             ),

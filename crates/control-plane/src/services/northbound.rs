@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use slim_datapath::api::{NULL_COMPONENT, ProtoName};
+use slim_datapath::api::{NULL_COMPONENT, ProtoName, id_from_str};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
@@ -286,8 +286,7 @@ impl ControlPlaneService for NorthboundApiService {
                     .with_id(
                         r.component_id
                             .as_deref()
-                            .and_then(|s| uuid::Uuid::parse_str(s).ok())
-                            .map(|u| u.as_u128())
+                            .and_then(|s| id_from_str(s).ok())
                             .unwrap_or(NULL_COMPONENT),
                     );
                 RouteEntry {

@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use slim_datapath::api::{NULL_COMPONENT, ProtoName};
+use slim_datapath::api::{NULL_COMPONENT, ProtoName, id_from_str};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -266,8 +266,7 @@ async fn build_node_routes(db: &SharedDb, node_id: &str) -> Vec<ProtoRoute> {
                     route
                         .component_id
                         .as_deref()
-                        .and_then(|s| uuid::Uuid::parse_str(s).ok())
-                        .map(|u| u.as_u128())
+                        .and_then(|s| id_from_str(s).ok())
                         .unwrap_or(NULL_COMPONENT),
                 );
         routes.push(ProtoRoute {
