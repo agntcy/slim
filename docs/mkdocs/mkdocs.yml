@@ -117,8 +117,10 @@ nav:
           - slim/architecture/index.md
           - Naming: slim/architecture/naming.md
           - Routing: slim/architecture/routing.md
-          - Sessions: slim/architecture/session.md
-          - Groups: slim/architecture/group.md
+          - Sessions:
+              - slim/architecture/sessions/index.md
+              - Point to Point: slim/architecture/sessions/session-p2p.md
+              - Groups: slim/architecture/sessions/group.md
           - Authentication: slim/architecture/authentication.md
       - Components:
           - slim/components/index.md

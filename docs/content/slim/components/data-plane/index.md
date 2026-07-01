@@ -49,4 +49,4 @@ The session layer offers two primary APIs for establishing new sessions:
 Every message sent to the channel is delivered to all current participants.
 
 For more information about each session type, see the
-[SLIM session](../../architecture/session.md) documentation.
+[SLIM session](../../architecture/sessions/index.md) documentation.
