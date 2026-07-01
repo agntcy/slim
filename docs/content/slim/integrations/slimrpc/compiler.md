@@ -8,4 +8,4 @@ For installation, usage, and examples, see the
 [SLIMRPC compiler documentation](https://github.com/agntcy/slim-bindings/blob/main/slimrpc-compiler/README.md)
 in the [slim-bindings](https://github.com/agntcy/slim-bindings) repository.
 
-For an overview of SLIMRPC, see [SLIMRPC](./slim-rpc.md).
+For an overview of SLIMRPC, see [SLIMRPC](./index.md).

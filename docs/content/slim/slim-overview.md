@@ -1,123 +1,111 @@
-# Overview
+---
+icon: material/information-outline
+---
 
-Secure Low-Latency Interactive Messaging (SLIM) is a secure, scalable, and developer-friendly messaging framework that
-provides the transport layer for agent communication protocols like A2A. While
-A2A defines *what* agents say (message formats, task semantics, coordination
-patterns), SLIM defines *how* these messages are securely delivered across
-distributed networks.
+# Introduction
 
-At its core, SLIM combines:
+**SLIM (Secure Low-Latency Interactive Messaging)** is the transport layer for the agentic AI era — a secure, peer-to-peer messaging framework that lets agents communicate across networks, organizations, and trust boundaries without rebuilding the same infrastructure every time.
 
-- **gRPC's performance and reliability** — Built on HTTP/2 for efficient,
-  multiplexed transport
-- **Messaging capabilities** — Native support for channels and group
-  communication
-- **End-to-end encryption** — Using Message Layer Security (MLS) protocol
-- **Native RPC support** — SRPC (SLIM RPC) for request-response patterns
-  alongside messaging
-- **Distributed architecture** — Separate control and data planes for
-  scalability and management
-- **Protocol flexibility** — Transport layer for A2A, MCP, and custom agent
-  protocols
+## Why SLIM?
 
-SLIM enables AI agents to communicate securely whether they're running in a data
-center, in a browser, on mobile devices, or across organizational boundaries —
-all while maintaining low latencies and strong security guarantees.
+Modern agentic workloads share three characteristics that make communication hard:
 
-## SLIM Components
+<div class="grid cards" markdown>
 
-SLIM is composed of two main components that work together to provide secure,
-scalable messaging infrastructure:
+-   :material-account-group:{ .lg .middle } **Collaborative**
 
-- [SLIM Messaging Layer](./slim-data-plane.md): The data plane component
-  that handles message routing, delivery, and secure communication between
-  applications. It consists of two layers: the session layer that provides
-  end-to-end encryption (using the MLS protocol) and reliable message delivery,
-  and the data plane that enables efficient message distribution across the
-  network.
+    ---
 
-- [SLIM Controller](./slim-controller.md): The control plane component that
-  manages SLIM node configurations, monitors the network, and provides a unified
-  interface for administering the messaging infrastructure. It enables
-  centralized management of routes, connections, and node deployments.
+    Agents share high volumes of context in real time and coordinate complex multi-step tasks. Communication must be bidirectional, low-latency, and support multiparty interaction patterns natively.
 
-### Architecture Overview
+-   :material-shield-lock:{ .lg .middle } **Sensitive**
 
-The following diagram illustrates how SLIM components are distributed across
-applications and intermediate routing nodes:
+    ---
 
-```mermaid
-graph TB
-    subgraph "Application Node (Agent A)"
-        A1[Session Layer 1]
-        A2[Session Layer 2]
-        A3[Data Plane Client]
-        A1 --> A3
-        A2 --> A3
-    end
-    
-    subgraph "Intermediate SLIM Node 1"
-        I1[Data Plane]
-    end
-    
-    subgraph "Intermediate SLIM Node 2"
-        I2[Data Plane]
-    end
-    
-    subgraph "Application Node (Agent B)"
-        B1[Session Layer 1]
-        B2[Session Layer 2]
-        B3[Data Plane Client]
-        B1 --> B3
-        B2 --> B3
-    end
-    
-    subgraph "Control Plane"
-        CP[Configuration & Monitoring]
-    end
-    
-    A3 -.->|encrypted messages| I1
-    I1 -.->|route| I2
-    I2 -.->|encrypted messages| B3
-    
-    CP -.->|manages| I1
-    CP -.->|manages| I2
-    
-    style A1 fill:#4a90e2,stroke:#2e5c8a,stroke-width:2px,color:#fff
-    style A2 fill:#4a90e2,stroke:#2e5c8a,stroke-width:2px,color:#fff
-    style A3 fill:#f39c12,stroke:#d68910,stroke-width:2px,color:#fff
-    style B1 fill:#4a90e2,stroke:#2e5c8a,stroke-width:2px,color:#fff
-    style B2 fill:#4a90e2,stroke:#2e5c8a,stroke-width:2px,color:#fff
-    style B3 fill:#f39c12,stroke:#d68910,stroke-width:2px,color:#fff
-    style I1 fill:#f39c12,stroke:#d68910,stroke-width:2px,color:#fff
-    style I2 fill:#f39c12,stroke:#d68910,stroke-width:2px,color:#fff
-    style CP fill:#7f8c8d,stroke:#5a6970,stroke-width:2px,color:#fff
+    Agents share sensitive data — code, plans, personal information, business logic. Network-level TLS is not enough: if a node is compromised, traffic can be read. Data must be encrypted end-to-end.
+
+-   :material-earth:{ .lg .middle } **Distributed**
+
+    ---
+
+    Agents run across multiple clouds, organizations, and networks. Communication must traverse NAT, firewalls, and organizational boundaries without requiring agents to be directly internet-exposed.
+
+</div>
+
+### The gap in existing solutions
+
+No single existing technology addresses all three requirements:
+
+| System | Gap |
+|--------|-----|
+| **Message queues** (SQS, RabbitMQ, Kafka, NATS) | One-directional; no E2E encryption; can't cross org boundaries; no native RPC |
+| **HTTP / gRPC** | No group communication; no E2E encryption; requires agents to be directly internet-exposed |
+
+The result: developers keep re-implementing the missing pieces in every application.
+
+### What SLIM brings
+
+SLIM is built from the ground up for agentic workloads:
+
+| Capability | How SLIM delivers it |
+|-----------|----------------------|
+| **Bidirectional, low-latency transport** | Built on gRPC over HTTP/2 — multiplexed, efficient, and NAT/firewall-friendly without any special configuration |
+| **End-to-end encryption** | [MLS (RFC 9420)](https://www.rfc-editor.org/rfc/rfc9420.txt) encrypts data at the session layer — even a compromised routing node cannot read message content |
+| **Group communication** | Native multicast and group sessions; agents join shared channels identified by hierarchical names |
+| **Cross-org federation** | SPIRE-based identity federation lets agents in different organizations communicate with verified cryptographic identities |
+| **No central broker** | Peer-to-peer architecture; no single point of failure or trust |
+| **Native RPC** | SLIMRPC provides Protobuf RPC over SLIM — all the capabilities of gRPC, plus multicast RPC over group channels |
+
+## Interaction Patterns
+
+SLIM natively supports four interaction patterns between agents:
+
+| Pattern | Description |
+|---------|-------------|
+| **Point-to-Point** | One agent sends directly to another, identified by a hierarchical DID-based name |
+| **Group / Multicast** | One agent broadcasts to a shared channel; all members receive the message |
+| **RPC (P2P)** | Request-response between two agents — like gRPC but over SLIM's encrypted overlay |
+| **RPC (Multicast)** | One client calls many servers simultaneously — fan-out requests to a group channel |
+
+Agents are identified using a hierarchical naming scheme based on Decentralized Identifiers:
+
+```
+organization/namespace/service/<hash-of-public-key>
 ```
 
-### Component Distribution
+Groups use the same scheme:
 
-SLIM's architecture enables efficient distribution of components:
+```
+organization/namespace/group/0xffffffff
+```
 
-### Pure Data Plane
+## SLIM vs. Message Queues
 
-The `slim` binary and Docker images are distributed as pure
-data-plane artifacts. Since SLIM routing nodes only forward messages and don't
-participate in application sessions, they don't need the session layer. This
-keeps the infrastructure lightweight, fast, and simple to deploy.
+| Capability | Message Queue | SLIM |
+|-----------|---------------|------|
+| Bidirectional communication | ❌ Needs a response topic | ✅ Native |
+| End-to-end encryption | ❌ Broker can read all traffic | ✅ MLS E2E |
+| Cross-org / internet exposure | ❌ Many impossible to expose | ✅ Works across organizations |
+| Native RPC | ❌ Not natively supported | ✅ SLIMRPC |
+| Group sessions (multi-party) | ❌ Topic fan-out only | ✅ MLS groups |
+| Multi-org federation | ❌ Complex bespoke work | ✅ Built-in with SPIRE |
+| Works behind NAT / firewalls | ⚠️ Depends on deployment | ✅ Registration model |
 
-### Language Bindings
+## Components
 
-Libraries (Python, Go, etc.) include both the data plane
-client and the session layer on top. Applications use these bindings to get
-the full stack: secure, reliable, encrypted communication with automatic session
-management.
+SLIM is composed of five components:
 
-### Separation of Concerns
+- **[Data Plane](./components/data-plane/index.md)** — high-performance message routing node that forwards messages between applications
+- **[Controller](./components/controller/index.md)** — manages route tables, node registration, and group membership across clusters
+- **[Channel Manager](./components/channel-manager/index.md)** — operator-managed service for creating and moderating group channels
+- **[CLI (`slimctl`)](./components/cli/install.md)** — command-line tool for operating and interacting with SLIM nodes
+- **[SDK](./components/sdk/index.md)** — language-native bindings (Python, Go, .NET, JavaScript) for building applications on SLIM
 
-You can run a global network of SLIM routing nodes
-without any application logic, while your agents use the rich, full-featured
-language bindings for their communication needs. The control plane manages the
-routing infrastructure independently, ensuring the network operates efficiently.
+For a detailed breakdown of how the layers fit together, see [Architecture](./architecture/index.md).
 
-To get started with SLIM, see the [Getting Started with
-SLIM](../slim/slim-howto.md) guide.
+## Next Steps
+
+- [Getting Started](./slim-howto.md) — install all components and send your first message
+- [Architecture](./architecture/index.md) — understand the four-layer SLIM stack
+- [Components](./components/index.md) — explore each component in depth
+- [Deployment](./deploy/index.md) — choose a deployment topology for your use case
