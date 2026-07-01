@@ -395,8 +395,7 @@ impl MessageProcessor {
         match channel {
             TransportChannel::Grpc(grpc_channel) => {
                 let mut client = DataPlaneServiceClient::new(grpc_channel);
-                // Buffer of 1024 reduces backpressure on high-throughput forwarding paths.
-                let (tx, rx) = mpsc::channel(1024);
+                let (tx, rx) = mpsc::channel(128);
                 let stream = client
                     .open_channel(Request::new(ReceiverStream::new(rx)))
                     .await?;
