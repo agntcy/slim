@@ -20,9 +20,6 @@ example in the slim-bindings repo.
 - **End-to-End Encryption**: Ensures secure communication using the [MLS
   protocol](https://datatracker.ietf.org/doc/html/rfc9420).
 
-!!! note "Language Examples"
-    The code examples in this section show Python. For code in other languages, see the links at the bottom of this page under [Runnable Examples](#runnable-examples).
-
 ## Configure Client Identity and Implement the SLIM App
 
 Every participant in a group requires a unique identity for authentication and for use by the MLS protocol. This section explains how to set up identity and create a SLIM application instance.
@@ -252,7 +249,28 @@ communication.
 
 === "Node.js"
 
-    Group sessions are not yet supported in the Node.js bindings.
+    ```typescript
+    // Create group session configuration
+    const sessionConfig = {
+        sessionType: "group" as const,
+        enableMls: true,  // Enable MLS end-to-end encryption
+        maxRetries: 5,
+        interval: 5000, // milliseconds
+        metadata: new Map()
+    };
+
+    // Create session — resolves when ready
+    const session = await app.createSessionAndWaitAsync(sessionConfig, chatChannel);
+
+    // Invite each participant
+    for (const inviteId of invites) {
+        const parts = inviteId.split('/');
+        const inviteName = new slimBindings.Name(parts[0], parts[1], parts[2]);
+        await app.setRoute(inviteName, Number(connId));
+        await session.inviteAndWaitAsync(inviteName);
+        console.log(`${local} -> add ${inviteId} to the group`);
+    }
+    ```
 
 === ".NET"
 
@@ -284,7 +302,26 @@ communication.
 
 === "React Native"
 
-    Group sessions are not yet supported in the React Native bindings.
+    ```tsx
+    // Create group session configuration
+    const sessionConfig = {
+        sessionType: slimBindings.SessionType.Group,
+        enableMls: true,  // Enable MLS end-to-end encryption
+        metadata: new Map()
+    };
+
+    // Create session — resolves when ready
+    const session = await app.createSessionAndWaitAsync(sessionConfig, chatChannel);
+
+    // Invite each participant
+    for (const inviteId of invites) {
+        const parts = inviteId.split('/');
+        const inviteName = new slimBindings.Name(parts[0], parts[1], parts[2]);
+        await app.setRoute(inviteName, connId);
+        await session.inviteAndWaitAsync(inviteName);
+        console.log(`${local} -> add ${inviteId} to the group`);
+    }
+    ```
 
 This code comes from the
 [group.py](https://github.com/agntcy/slim-bindings/tree/main/python/examples/group.py)
@@ -449,7 +486,23 @@ for invites. Once they receive the invite, they can read and write on the shared
 
 === "Node.js"
 
-    Group sessions are not yet supported in the Node.js bindings.
+    ```typescript
+    // Non-moderator: wait for an incoming session invitation
+    const session = await app.listenForSessionAsync(60000); // timeout in ms, null to wait forever
+    console.log(`Joined group: ${session.destination}`);
+
+    // Receive loop
+    while (true) {
+        try {
+            const msg = await session.getMessageAsync(30000);
+            const text = Buffer.from(msg.payload).toString();
+            console.log(`${msg.context.sourceName} > ${text}`);
+            await session.publishToAndWaitAsync(msg.context, Buffer.from(`received`), undefined, undefined);
+        } catch (e) {
+            break;  // Session closed or timeout
+        }
+    }
+    ```
 
 === ".NET"
 
@@ -480,7 +533,24 @@ for invites. Once they receive the invite, they can read and write on the shared
 
 === "React Native"
 
-    Group sessions are not yet supported in the React Native bindings.
+    ```tsx
+    // Non-moderator: wait for an incoming session invitation
+    const session = await app.listenForSessionAsync(60000); // timeout in ms
+    console.log(`Joined group: ${session.destination}`);
+
+    // Receive loop
+    while (true) {
+        try {
+            const msg = await session.getMessageAsync(30000);
+            const text = String.fromCharCode(...new Uint8Array(msg.payload));
+            console.log(`${msg.context.sourceName} > ${text}`);
+            const reply = new Uint8Array('received'.split('').map(c => c.charCodeAt(0)));
+            await session.publishToAndWaitAsync(msg.context, reply, undefined, undefined);
+        } catch (e) {
+            break;  // Session closed or timeout
+        }
+    }
+    ```
 
 Each non-moderator participant listens for an incoming session using
 `local_app.listen_for_session_async(None)`. The `None` parameter means wait indefinitely for a session.
@@ -635,7 +705,10 @@ All participants can publish messages on the shared channel:
 
 === "Node.js"
 
-    Group sessions are not yet supported in the Node.js bindings.
+    ```typescript
+    // Publish a message to all group participants
+    await session.publishAndWaitAsync(Buffer.from(userInput), undefined, undefined);
+    ```
 
 === ".NET"
 
@@ -646,7 +719,11 @@ All participants can publish messages on the shared channel:
 
 === "React Native"
 
-    Group sessions are not yet supported in the React Native bindings.
+    ```tsx
+    // Publish a message to all group participants
+    const payload = new Uint8Array(userInput.split('').map(c => c.charCodeAt(0)));
+    await session.publishAndWaitAsync(payload, undefined, undefined);
+    ```
 
 Messages are sent using `session.publish_async(payload, payload_type, metadata)`.
 The payload is the message bytes, while payload_type and metadata are optional.
