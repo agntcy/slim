@@ -220,8 +220,7 @@ impl super::RouteService {
             match self.get_client_config(&link.source_node_id, node_id).await {
                 Ok((endpoint, config_data)) => {
                     link.dest_endpoint = endpoint;
-                    link.conn_config_data =
-                        ServerConnectionConfig::from_client_config(&config_data);
+                    link.conn_config_data = config_data;
                 }
                 Err(e) => {
                     tracing::error!(
@@ -289,7 +288,7 @@ impl super::RouteService {
             .await
         {
             link.dest_endpoint = endpoint;
-            link.conn_config_data = ServerConnectionConfig::from_client_config(&config_data);
+            link.conn_config_data = config_data;
         }
 
         if save_link(

@@ -557,6 +557,13 @@ impl ClientConfig {
             }
             _ => {} // Basic and JWT local credentials/tokens remain preserved
         }
+        if let Some(ms) = server.timeout {
+            self.connect_timeout = Duration::from_millis(ms as u64).into();
+        }
+        if let Some(ms) = server.backoff {
+            self.backoff =
+                BackoffConfig::new_fixed_interval(Duration::from_millis(ms as u64), usize::MAX);
+        }
         Ok(())
     }
 }
@@ -578,6 +585,8 @@ pub struct ServerConnectionConfig {
     pub endpoint: String,
     pub tls_required: bool,
     pub auth_method: RequiredAuthMethod,
+    pub timeout: Option<u32>,
+    pub backoff: Option<u32>,
 }
 
 impl ServerConnectionConfig {
@@ -598,6 +607,8 @@ impl ServerConnectionConfig {
             endpoint: client.endpoint.clone(),
             tls_required,
             auth_method,
+            timeout: None,
+            backoff: None,
         }
     }
 }
@@ -796,6 +807,7 @@ mod tests {
             endpoint: "http://new:5678".to_string(),
             tls_required: false,
             auth_method: RequiredAuthMethod::None,
+            ..Default::default()
         };
         client.merge_server_requirements(&server).unwrap();
         assert_eq!(client.endpoint, "http://new:5678");
@@ -811,6 +823,7 @@ mod tests {
             endpoint: "http://new:5678".to_string(),
             tls_required: true,
             auth_method: RequiredAuthMethod::Basic,
+            ..Default::default()
         };
         client.merge_server_requirements(&server).unwrap();
         assert_eq!(client.endpoint, "http://new:5678");
@@ -826,6 +839,7 @@ mod tests {
             endpoint: "http://new:9999".to_string(),
             tls_required: false,
             auth_method: RequiredAuthMethod::Jwt,
+            ..Default::default()
         };
         client.merge_server_requirements(&server).unwrap();
         assert_eq!(client.endpoint, "http://new:9999");
@@ -844,6 +858,7 @@ mod tests {
             auth_method: RequiredAuthMethod::Spire {
                 trust_domain: Some("example.org".to_string()),
             },
+            ..Default::default()
         };
         client.merge_server_requirements(&server).unwrap();
         assert_eq!(client.endpoint, "http://new:5678");
@@ -877,6 +892,7 @@ mod tests {
             auth_method: RequiredAuthMethod::Spire {
                 trust_domain: Some("example.org".to_string()),
             },
+            ..Default::default()
         };
         client.merge_server_requirements(&server).unwrap();
         if let TlsSource::Spire { config } = &client.tls_setting.config.source {
@@ -902,6 +918,7 @@ mod tests {
             endpoint: "http://new:5678".to_string(),
             tls_required: true,
             auth_method: RequiredAuthMethod::Spire { trust_domain: None },
+            ..Default::default()
         };
         client.merge_server_requirements(&server).unwrap();
         if let CaSource::Spire { config } = &client.tls_setting.config.ca_source {
@@ -921,6 +938,7 @@ mod tests {
             auth_method: RequiredAuthMethod::Spire {
                 trust_domain: Some("example.org".to_string()),
             },
+            ..Default::default()
         };
         assert!(client.merge_server_requirements(&server).is_err());
     }

@@ -5,7 +5,6 @@ use std::collections::HashSet;
 use std::time::SystemTime;
 
 use rand::seq::SliceRandom;
-use slim_config::client::ServerConnectionConfig;
 use uuid::Uuid;
 
 use crate::db::LinkStatus;
@@ -193,12 +192,7 @@ impl super::RouteService {
                 } else {
                     Uuid::new_v4().to_string()
                 };
-                (
-                    ep,
-                    ServerConnectionConfig::from_client_config(&cd),
-                    lid,
-                    LinkStatus::Pending,
-                )
+                (ep, cd, lid, LinkStatus::Pending)
             };
 
         let link = crate::db::Link {

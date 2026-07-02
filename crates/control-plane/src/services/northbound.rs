@@ -6,7 +6,8 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use crate::api::proto::controller::proto::v1::{
-    ConnectionDetails, ConnectionListResponse, RouteListResponse as NodeRouteListResponse,
+    AuthMethod as ProtoAuthMethod, ConnectionDetails, ConnectionListResponse,
+    RouteListResponse as NodeRouteListResponse,
 };
 use crate::api::proto::controlplane::proto::v1::{
     AddSegmentRequest, AddSegmentResponse, AddTopologyLinkRequest, AddTopologyLinkResponse,
@@ -15,7 +16,7 @@ use crate::api::proto::controlplane::proto::v1::{
     RouteListRequest, RouteStatus, SegmentEdge, SegmentEntry, SegmentListRequest,
     SegmentListResponse, control_plane_service_server::ControlPlaneService,
 };
-use crate::db::SharedDb;
+use crate::db::{SharedDb, model};
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
 use crate::route_service::RouteService;
 use crate::types::DEFAULT_SEGMENT;
@@ -165,7 +166,12 @@ impl ControlPlaneService for NorthboundApiService {
                         endpoint: cd.endpoint.clone(),
                         external_endpoint: cd.external_endpoint.clone(),
                         tls_required: cd.tls_required,
-                        auth_method: cd.auth_method.clone(),
+                        auth_method: match cd.auth_method {
+                            model::AuthMethod::Spire => ProtoAuthMethod::Spire as i32,
+                            model::AuthMethod::Basic => ProtoAuthMethod::Basic as i32,
+                            model::AuthMethod::Jwt => ProtoAuthMethod::Jwt as i32,
+                            model::AuthMethod::None => ProtoAuthMethod::None as i32,
+                        },
                         spire_trust_domain: cd.spire_trust_domain.clone(),
                         ..Default::default()
                     })

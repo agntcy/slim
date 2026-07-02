@@ -20,8 +20,8 @@ use tracing::{debug, error, info};
 use crate::api::proto::api::v1::control_message::Payload;
 use crate::api::proto::api::v1::controller_service_server::ControllerServiceServer;
 use crate::api::proto::api::v1::{
-    self, ConnectionDetails, ConnectionDirection, ConnectionListResponse, ConnectionType,
-    RouteListResponse,
+    self, AuthMethod, ConnectionDetails, ConnectionDirection, ConnectionListResponse,
+    ConnectionType, RouteListResponse,
 };
 use crate::api::proto::api::v1::{
     ConnectionEntry, ControlMessage, RouteEntry,
@@ -197,15 +197,18 @@ pub(crate) fn from_server_config(server_config: &ServerConfig) -> ConnectionDeta
     }
 
     let tls_required = !server_config.tls_setting.insecure || spire_socket_path.is_some();
-    let auth_method = if spire_socket_path.is_some() || trust_domain.is_some() {
-        "spire".to_string()
+    let auth_method = if spire_socket_path.is_some()
+        || trust_domain.is_some()
+        || matches!(server_config.auth, AuthenticationConfig::Spire(_))
+    {
+        AuthMethod::Spire
     } else {
         match &server_config.auth {
-            AuthenticationConfig::Basic(_) => "basic".to_string(),
-            AuthenticationConfig::Jwt(_) => "jwt".to_string(),
-            _ => "none".to_string(),
+            AuthenticationConfig::Basic(_) => AuthMethod::Basic,
+            AuthenticationConfig::Jwt(_) => AuthMethod::Jwt,
+            _ => AuthMethod::None,
         }
-    };
+    } as i32;
     let metadata = if remaining_fields.is_empty() {
         None
     } else {

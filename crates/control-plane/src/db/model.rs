@@ -152,6 +152,16 @@ where
 
 // ─── Node ─────────────────────────────────────────────────────────────────────
 
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthMethod {
+    #[default]
+    None,
+    Spire,
+    Basic,
+    Jwt,
+}
+
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable, Insertable)]
 #[diesel(table_name = nodes)]
 pub struct Node {
@@ -165,20 +175,13 @@ pub struct Node {
     pub last_updated: SystemTime,
 }
 
-/// SPIRE mTLS configuration for a node's connection.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SpireMtls {
-    pub socket_path: String,
-    pub trust_domain: Option<String>,
-}
-
 /// Per-node connection detail.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ConnectionDetails {
     pub endpoint: String,
     pub external_endpoint: Option<String>,
     pub tls_required: bool,
-    pub auth_method: String,
+    pub auth_method: AuthMethod,
     pub spire_trust_domain: Option<String>,
 }
 
@@ -199,39 +202,16 @@ impl std::fmt::Display for ConnectionDetails {
     }
 }
 
-/// Returns true if two `ConnectionDetails` slices differ in any meaningful way.
+/// Returns true if two `ConnectionDetails` slices differ.
 pub fn has_connection_details_changed(
     existing: &[ConnectionDetails],
     new: &[ConnectionDetails],
 ) -> bool {
-    if existing.len() != new.len() {
-        return true;
-    }
-    let existing_map: std::collections::HashMap<&str, &ConnectionDetails> = existing
-        .iter()
-        .map(|cd| (cd.endpoint.as_str(), cd))
-        .collect();
-    let new_map: std::collections::HashMap<&str, &ConnectionDetails> =
-        new.iter().map(|cd| (cd.endpoint.as_str(), cd)).collect();
-
-    for (key, ecd) in &existing_map {
-        match new_map.get(key) {
-            None => return true,
-            Some(ncd) => {
-                if ecd.external_endpoint != ncd.external_endpoint
-                    || ecd.spire_trust_domain != ncd.spire_trust_domain
-                {
-                    return true;
-                }
-            }
-        }
-    }
-    for key in new_map.keys() {
-        if !existing_map.contains_key(key) {
-            return true;
-        }
-    }
-    false
+    let mut a = existing.to_vec();
+    let mut b = new.to_vec();
+    a.sort();
+    b.sort();
+    a != b
 }
 
 /// Groups the four route-name components used in route lookups.
@@ -447,7 +427,7 @@ mod tests {
             endpoint: endpoint.to_string(),
             external_endpoint: external.map(|s| s.to_string()),
             tls_required: false,
-            auth_method: "none".to_string(),
+            auth_method: AuthMethod::None,
             spire_trust_domain: None,
         }
     }

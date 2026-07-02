@@ -956,7 +956,7 @@ mod tests {
                 endpoint: format!("{id}:8080"),
                 external_endpoint: None,
                 spire_trust_domain: None,
-                auth_method: "none".to_string(),
+                auth_method: crate::db::model::AuthMethod::None,
                 tls_required: false,
             }],
             created_at: SystemTime::now(),

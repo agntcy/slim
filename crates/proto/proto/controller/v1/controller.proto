@@ -125,11 +125,18 @@ message Node {
   string id = 1;
 }
 
+enum AuthMethod {
+  AUTH_METHOD_NONE = 0;
+  AUTH_METHOD_SPIRE = 1;
+  AUTH_METHOD_BASIC = 2;
+  AUTH_METHOD_JWT = 3;
+}
+
 message ConnectionDetails {
   string endpoint = 1;
   optional string external_endpoint = 2;
   bool tls_required = 3;
-  string auth_method = 4;
+  AuthMethod auth_method = 4;
   optional string spire_trust_domain = 5;
   google.protobuf.Struct metadata = 6;
 }
