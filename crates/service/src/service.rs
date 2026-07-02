@@ -12,6 +12,7 @@ use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
+use slim_auth::traits::TokenProvider;
 use slim_config::client::ClientConfig;
 use slim_config::component::configuration::Configuration;
 use slim_config::component::id::{ID, Kind};
@@ -35,7 +36,7 @@ use crate::errors::ServiceError;
 #[cfg(feature = "session")]
 use {
     crate::app::App,
-    slim_auth::traits::{TokenProvider, Verifier},
+    slim_auth::traits::Verifier,
     slim_datapath::api::ProtoName,
     slim_session::notification::Notification,
     slim_session::{Direction, SessionError},
@@ -83,6 +84,11 @@ pub struct ServiceConfiguration {
     /// Optional name of the group for the service.
     pub group_name: Option<String>,
 
+    /// Optional authentication configuration for control plane registration.
+    /// When set, the node will generate and send credentials to prove
+    /// group membership during registration.
+    pub auth: Option<slim_config::auth::AuthConfig>,
+
     /// DataPlane API configuration
     pub dataplane: DataplaneConfig,
 
@@ -101,6 +107,7 @@ impl Default for ServiceConfiguration {
             service_id: node_id.clone(),
             node_id,
             group_name: None,
+            auth: None,
             dataplane: DataplaneConfig::default(),
             controller: ControllerConfig::default(),
             peers: None,
@@ -335,11 +342,41 @@ impl Service {
 
         // run the controller
         debug!("starting controller service");
+
+        // Build auth provider if configured
+        let auth_provider = if let Some(auth_config) = &self.config.auth {
+            // Both group_name and node_id are required when auth is configured —
+            // the CP verifier expects the token subject to be "{group}/{node_id}".
+            let group = self.config.group_name.as_ref().ok_or_else(|| {
+                ServiceError::InvalidConfig(
+                    "group_name must be set when auth is configured".to_string(),
+                )
+            })?;
+            if self.config.node_id.is_empty() {
+                return Err(ServiceError::InvalidConfig(
+                    "node_id must be set when auth is configured".to_string(),
+                ));
+            }
+            let identity_name = format!("{}/{}", group, self.config.node_id);
+            let registration_auth = auth_config.clone().with_identity_id(identity_name.clone());
+            let (provider_config, _) = registration_auth.to_identity_configs(&identity_name);
+            let mut provider = provider_config.build_auth_provider().map_err(|e| {
+                ServiceError::InvalidConfig(format!("failed to build auth provider: {e}"))
+            })?;
+            provider.initialize().await.map_err(|e| {
+                ServiceError::InvalidConfig(format!("failed to initialize auth provider: {e}"))
+            })?;
+            Some(provider)
+        } else {
+            None
+        };
+
         let mut controller = self.config.controller.into_service(
             self.config.node_id.clone(),
             self.config.group_name.clone(),
             self.message_processor.clone(),
             self.config.dataplane_servers(),
+            auth_provider,
         );
 
         // run controller service

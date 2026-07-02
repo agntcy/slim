@@ -247,7 +247,8 @@ sequenceDiagram
     DP->>CP: OpenControlChannel
     CP-->>DP: Initial ACK
 
-    DP->>CP: RegisterNodeRequest {node_id, group_name, connection_details[], connections[]}
+    DP->>CP: RegisterNodeRequest {node_id, group_name, credentials, connection_details[], connections[]}
+    Note right of CP: verify_group_membership(credentials, group_name, node_id)
     Note right of CP: 15 s timeout
     Note right of CP: save_node(Node)<br/>add_stream(node_id, tx)
     CP-->>DP: Registration ACK
@@ -304,6 +305,34 @@ the stream, the route service performs several operations:
 
 4. **Enqueue reconciliation.** All affected nodes are enqueued for link and
    route reconciliation.
+
+### Registration Authentication
+
+The CP can optionally verify that a node is authorized to join its claimed
+group. This prevents rogue nodes from declaring arbitrary group membership.
+
+**How it works:**
+
+1. Node loads auth config (shared secret or SPIRE) and builds an `AuthProvider`
+2. On registration, the node calls `provider.get_token()` and sends the result
+   in the `credentials` field of `RegisterNodeRequest`
+3. The CP's `GroupAuthenticator` verifies the credentials before allowing
+   registration:
+   - `Noop` (default): accepts all nodes (backward compatible)
+   - `SharedSecret`: per-group HMAC verification — each group has its own
+     secret, and the token's identity must match `{group_name}/{node_id}`
+   - `Spire`: validates the JWT SVID signature via trust bundles and asserts
+     the trust domain in the SPIFFE ID equals the claimed `group_name`
+
+**Identity derivation:** The node always uses `{group_name}/{node_id}` as its
+token identity, regardless of any `id` field in the config. This prevents
+typo-based authentication failures.
+
+**Failure modes:**
+- If auth is configured but the node sends empty credentials → `PERMISSION_DENIED`
+- If the node has no `group_name` but auth is required → rejected
+- If `get_token()` fails on the node side → registration attempt is aborted
+  (not sent with empty credentials)
 
 ### Deregistration
 
@@ -715,6 +744,22 @@ reconciler:
 
   # Parallel reconciler workers per queue (link and route).
   workers: 4
+
+  # Registration authentication (optional).
+  # When configured, nodes must prove group membership to register.
+  # Omit entirely to accept all nodes (default).
+  #
+  # Shared secret example (one secret per group):
+  # registration_auth:
+  #   type: shared_secret
+  #   secrets:
+  #     cluster-a: "secret-for-cluster-a-min-32-bytes-long"
+  #     cluster-b: "secret-for-cluster-b-min-32-bytes-long"
+  #
+  # SPIRE example (trust domain = group name):
+  # registration_auth:
+  #   type: spire
+  #   socket_path: "/run/spire/agent-sockets/api.sock"
 ```
 
 The CP exposes two gRPC endpoints:

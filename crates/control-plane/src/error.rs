@@ -74,6 +74,14 @@ pub enum Error {
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 
+    // ── auth ──────────────────────────────────────────────────────────────────
+    /// Invalid SPIFFE ID format.
+    #[error("invalid SPIFFE ID '{spiffe_id}': {reason}")]
+    InvalidSpiffeId {
+        spiffe_id: String,
+        reason: &'static str,
+    },
+
     // ── topology ─────────────────────────────────────────────────────────────
     /// A routing policy allows visibility between groups that have no direct
     /// link and no transit path (topology is not star-shaped).

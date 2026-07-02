@@ -16,6 +16,7 @@ use crate::api::proto::controller::proto::v1::{
     Connection, ControlMessage, RegisterNodeResponse, Route as ProtoRoute,
     control_message::Payload, controller_service_server::ControllerService,
 };
+use crate::auth::GroupAuthenticator;
 use crate::db::{ConnectionDetails, LinkStatus, Node, RouteStatus, SharedDb};
 use crate::error::{Error, Result};
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
@@ -29,6 +30,7 @@ pub struct SouthboundApiService {
     db: SharedDb,
     cmd_handler: DefaultNodeCommandHandler,
     route_service: RouteService,
+    authenticator: GroupAuthenticator,
     drain: SharedDrain,
 }
 
@@ -37,12 +39,14 @@ impl SouthboundApiService {
         db: SharedDb,
         cmd_handler: DefaultNodeCommandHandler,
         route_service: RouteService,
+        authenticator: GroupAuthenticator,
         drain: SharedDrain,
     ) -> Self {
         Self {
             db,
             cmd_handler,
             route_service,
+            authenticator,
             drain,
         }
     }
@@ -68,6 +72,7 @@ impl ControllerService for SouthboundApiService {
         let db = self.db.clone();
         let cmd_handler = self.cmd_handler.clone();
         let route_service = self.route_service.clone();
+        let authenticator = self.authenticator.clone();
         let drain = self.drain.lock().clone();
 
         tokio::spawn(async move {
@@ -78,6 +83,7 @@ impl ControllerService for SouthboundApiService {
                 &cmd_handler,
                 &route_service,
                 &tx,
+                &authenticator,
             )
             .await
             {
@@ -118,6 +124,7 @@ async fn receive_register(
     cmd_handler: &DefaultNodeCommandHandler,
     route_service: &RouteService,
     tx: &mpsc::UnboundedSender<Result<ControlMessage, Status>>,
+    authenticator: &GroupAuthenticator,
 ) -> Result<(String, u64)> {
     let msg = tokio::time::timeout(Duration::from_secs(REGISTER_TIMEOUT_SECS), stream.message())
         .await
@@ -142,6 +149,26 @@ async fn receive_register(
             )));
         }
     };
+
+    // Verify group membership before proceeding with registration.
+    let claimed_group = reg_req.group_name.as_deref().unwrap_or("");
+    if claimed_group.is_empty() && !matches!(authenticator, GroupAuthenticator::Noop) {
+        return Err(Error::InvalidInput(format!(
+            "node '{}' must specify a group_name when auth is required",
+            reg_req.node_id,
+        )));
+    }
+    authenticator
+        .verify_group_membership(&reg_req.credentials, claimed_group, &reg_req.node_id)
+        .await
+        .map_err(|status| {
+            Error::InvalidInput(format!(
+                "group auth failed for node '{}' claiming group '{}': {}",
+                reg_req.node_id,
+                claimed_group,
+                status.message()
+            ))
+        })?;
 
     let mut node_id = reg_req.node_id.clone();
     if let Some(ref group) = reg_req.group_name
