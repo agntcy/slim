@@ -48,17 +48,17 @@ RUST_LOG=debug slimctl slim start --config data-plane/config/base/server-config.
 
 ### Configuration File Examples
 
-Sample configuration files are available in the [`data-plane/config/`](https://github.com/agntcy/slim/tree/main/data-plane/config) directory of the repository:
+Sample configuration files are available in the [`config/`](https://github.com/agntcy/slim/tree/main/config) directory of the repository:
 
 | Directory | Description |
 |-----------|-------------|
-| [`base/`](https://github.com/agntcy/slim/tree/main/data-plane/config/base) | Plaintext, no authentication |
-| [`tls/`](https://github.com/agntcy/slim/tree/main/data-plane/config/tls) | TLS-secured server |
-| [`mtls/`](https://github.com/agntcy/slim/tree/main/data-plane/config/mtls) | Mutual TLS authentication |
-| [`basic-auth/`](https://github.com/agntcy/slim/tree/main/data-plane/config/basic-auth) | HTTP Basic authentication |
-| [`jwt-auth-rsa/`](https://github.com/agntcy/slim/tree/main/data-plane/config/jwt-auth-rsa) | JWT with RSA signing |
-| [`spire/`](https://github.com/agntcy/slim/tree/main/data-plane/config/spire) | SPIFFE/SPIRE workload identity |
-| [`telemetry/`](https://github.com/agntcy/slim/tree/main/data-plane/config/telemetry) | OpenTelemetry integration |
+| [`base/`](https://github.com/agntcy/slim/tree/main/config/base) | Plaintext, no authentication |
+| [`tls/`](https://github.com/agntcy/slim/tree/main/config/tls) | TLS-secured server |
+| [`mtls/`](https://github.com/agntcy/slim/tree/main/config/mtls) | Mutual TLS authentication |
+| [`basic-auth/`](https://github.com/agntcy/slim/tree/main/config/basic-auth) | HTTP Basic authentication |
+| [`jwt-auth-rsa/`](https://github.com/agntcy/slim/tree/main/config/jwt-auth-rsa) | JWT with RSA signing |
+| [`spire/`](https://github.com/agntcy/slim/tree/main/config/spire) | SPIFFE/SPIRE workload identity |
+| [`telemetry/`](https://github.com/agntcy/slim/tree/main/config/telemetry) | OpenTelemetry integration |
 
 ## Inherited Options
 
