@@ -1802,8 +1802,8 @@ impl ControllerService {
                 Some(provider) => match provider.get_token() {
                     Ok(token) => token,
                     Err(e) => {
-                        error!(error = %e, "failed to get auth credentials for registration");
-                        String::new()
+                        error!(error = %e, "failed to get auth credentials for registration, aborting");
+                        return;
                     }
                 },
                 None => String::new(),

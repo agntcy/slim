@@ -152,6 +152,12 @@ async fn receive_register(
 
     // Verify group membership before proceeding with registration.
     let claimed_group = reg_req.group_name.as_deref().unwrap_or("");
+    if claimed_group.is_empty() && !matches!(authenticator, GroupAuthenticator::Noop) {
+        return Err(Error::InvalidInput(format!(
+            "node '{}' must specify a group_name when auth is required",
+            reg_req.node_id,
+        )));
+    }
     authenticator
         .verify_group_membership(&reg_req.credentials, claimed_group, &reg_req.node_id)
         .await

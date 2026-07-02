@@ -15,9 +15,10 @@ use slim_auth::traits::Verifier;
 use tonic::Status;
 
 /// Verifies that a node's credentials authorize it to join a group.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub enum GroupAuthenticator {
     /// Accepts all registrations unconditionally.
+    #[default]
     Noop,
     /// Per-group shared secret verification.
     SharedSecret {
@@ -54,6 +55,9 @@ impl std::fmt::Debug for GroupAuthenticator {
 impl GroupAuthenticator {
     /// Verify that `credentials` prove membership in `claimed_group`.
     ///
+    /// For `Noop`, always succeeds (credentials are ignored).
+    /// For `SharedSecret`/`Spire`, credentials must be non-empty and valid.
+    ///
     /// Returns `Ok(())` on success, or a `PERMISSION_DENIED` status on failure.
     pub async fn verify_group_membership(
         &self,
@@ -63,13 +67,10 @@ impl GroupAuthenticator {
     ) -> Result<(), Status> {
         match self {
             GroupAuthenticator::Noop => Ok(()),
+            _ if credentials.is_empty() => Err(Status::permission_denied(
+                "credentials required but not provided",
+            )),
             GroupAuthenticator::SharedSecret { verifiers } => {
-                if credentials.is_empty() {
-                    return Err(Status::permission_denied(
-                        "credentials required but not provided",
-                    ));
-                }
-
                 let verifier = verifiers.get(claimed_group).ok_or_else(|| {
                     Status::permission_denied(format!(
                         "no auth configured for group '{claimed_group}'"
@@ -82,12 +83,16 @@ impl GroupAuthenticator {
                         Status::permission_denied(format!("token verification failed: {e}"))
                     })?;
 
-                // The "sub" field contains "group/node-id_RANDOM_SUFFIX".
+                // The "sub" field contains "group/node-id" or "group/node-id_RANDOM_SUFFIX".
+                // Use exact match or "_" separator to prevent prefix impersonation
+                // (e.g., node-10 impersonating node-1).
                 let sub = claims.get("sub").and_then(|v| v.as_str()).unwrap_or("");
                 let expected_prefix = format!("{claimed_group}/{node_id}");
-                if !sub.starts_with(&expected_prefix) {
+                let valid =
+                    sub == expected_prefix || sub.starts_with(&format!("{expected_prefix}_"));
+                if !valid {
                     return Err(Status::permission_denied(format!(
-                        "token identity mismatch: expected prefix '{expected_prefix}', got '{sub}'"
+                        "token identity mismatch: expected '{expected_prefix}[_suffix]', got '{sub}'"
                     )));
                 }
 
@@ -95,12 +100,6 @@ impl GroupAuthenticator {
             }
             #[cfg(not(target_family = "windows"))]
             GroupAuthenticator::Spire { verifier } => {
-                if credentials.is_empty() {
-                    return Err(Status::permission_denied(
-                        "credentials required but not provided",
-                    ));
-                }
-
                 // Verify JWT SVID and extract claims (includes "sub" = SPIFFE ID).
                 let claims: serde_json::Value =
                     verifier.try_get_claims(credentials).map_err(|e| {
@@ -133,19 +132,29 @@ impl GroupAuthenticator {
 /// Extract the trust domain from a SPIFFE ID string.
 /// SPIFFE ID format: `spiffe://<trust_domain>/path/...`
 #[cfg(not(target_family = "windows"))]
-fn extract_trust_domain_from_spiffe_id(spiffe_id: &str) -> Result<String, String> {
+fn extract_trust_domain_from_spiffe_id(spiffe_id: &str) -> Result<String, crate::error::Error> {
     if !spiffe_id.starts_with("spiffe://") {
-        return Err(format!("not a SPIFFE ID: {spiffe_id}"));
+        return Err(crate::error::Error::InvalidSpiffeId {
+            spiffe_id: spiffe_id.to_string(),
+            reason: "missing spiffe:// prefix",
+        });
     }
 
     let without_scheme = &spiffe_id["spiffe://".len()..];
-    let trust_domain = without_scheme
-        .split('/')
-        .next()
-        .ok_or_else(|| format!("cannot extract trust domain from: {spiffe_id}"))?;
+    let trust_domain =
+        without_scheme
+            .split('/')
+            .next()
+            .ok_or_else(|| crate::error::Error::InvalidSpiffeId {
+                spiffe_id: spiffe_id.to_string(),
+                reason: "cannot extract trust domain",
+            })?;
 
     if trust_domain.is_empty() {
-        return Err(format!("empty trust domain in: {spiffe_id}"));
+        return Err(crate::error::Error::InvalidSpiffeId {
+            spiffe_id: spiffe_id.to_string(),
+            reason: "empty trust domain",
+        });
     }
 
     Ok(trust_domain.to_string())
@@ -264,6 +273,22 @@ mod tests {
 
     // ── SPIRE trust domain extraction tests ──────────────────────────────
 
+    #[tokio::test]
+    async fn shared_secret_rejects_prefix_collision() {
+        // Security: node-10's token must NOT pass verification for node-1
+        // (prefix "cluster-a/node-1" is a prefix of "cluster-a/node-10_XYZ")
+        let auth = make_shared_secret_authenticator("cluster-a", TEST_SECRET);
+        let provider =
+            AuthProvider::shared_secret_from_str("cluster-a/node-10", TEST_SECRET).unwrap();
+        let token = provider.get_token().unwrap();
+
+        let result = auth
+            .verify_group_membership(&token, "cluster-a", "node-1")
+            .await;
+        assert!(result.is_err(), "node-10 must not impersonate node-1");
+        assert_eq!(result.unwrap_err().code(), tonic::Code::PermissionDenied);
+    }
+
     #[cfg(not(target_family = "windows"))]
     #[test]
     fn extract_trust_domain_valid_spiffe_id() {
@@ -279,7 +304,12 @@ mod tests {
     fn extract_trust_domain_rejects_non_spiffe() {
         let result = extract_trust_domain_from_spiffe_id("not-a-spiffe-id");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not a SPIFFE ID"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("missing spiffe:// prefix")
+        );
     }
 
     #[cfg(not(target_family = "windows"))]
@@ -287,6 +317,11 @@ mod tests {
     fn extract_trust_domain_rejects_empty_domain() {
         let result = extract_trust_domain_from_spiffe_id("spiffe:///path/only");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("empty trust domain"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("empty trust domain")
+        );
     }
 }

@@ -8,7 +8,6 @@ use serde::Deserialize;
 use serde::de::{self, MapAccess, Visitor};
 use std::time::Duration;
 
-use slim_config::auth::AuthConfig;
 use slim_config::grpc::server::ServerConfig;
 use slim_config::tls::server::TlsServerConfig;
 use slim_tracing::TracingConfiguration;
@@ -441,11 +440,9 @@ impl SegmentConfig {
 /// ```yaml
 /// registration_auth:
 ///   type: shared_secret
-///   groups:
-///     cluster-a:
-///       secret: "secret-for-cluster-a"
-///     cluster-b:
-///       secret: "secret-for-cluster-b"
+///   secrets:
+///     cluster-a: "secret-for-cluster-a-abcdefghi-1234567890"
+///     cluster-b: "secret-for-cluster-b-abcdefghi-1234567890"
 /// ```
 ///
 /// Or for SPIRE (trust domain = group name):
@@ -458,9 +455,10 @@ impl SegmentConfig {
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum RegistrationAuthConfig {
     /// Per-group shared secret authentication.
+    /// Map of group name → secret string.
     SharedSecret {
-        /// Map of group name → auth config with the secret for that group.
-        groups: HashMap<String, AuthConfig>,
+        /// Map of group name → shared secret value.
+        secrets: HashMap<String, String>,
     },
     /// SPIRE-based authentication. Trust domain = group name by convention.
     #[cfg(not(target_family = "windows"))]

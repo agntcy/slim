@@ -8,7 +8,6 @@
 //! in a segmented (multi-group) topology.
 
 use rlimit::increase_nofile_limit;
-use std::collections::HashMap;
 use std::time::Duration;
 
 use slim_auth::metadata::{MetadataMap, MetadataValue};
@@ -61,42 +60,33 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const SHORT_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Per-group registration secrets (each group has its own secret for isolation).
+const TEST_GROUP_SECRETS: &[(&str, &str)] = &[
+    ("group-a", "secret-group-a-00112233445566778899"),
+    ("group-b", "secret-group-b-00112233445566778899"),
+    ("group-c", "secret-group-c-00112233445566778899"),
+    ("group-d", "secret-group-d-00112233445566778899"),
+    ("platform", "secret-platform-001122334455667788"),
+    ("customer-a", "secret-customer-a-0011223344556677"),
+    ("customer-b", "secret-customer-b-0011223344556677"),
+];
+
+/// Look up the test secret for a group.
 fn group_secret(group: &str) -> &'static str {
-    match group {
-        "group-a" => "secret-group-a-00112233445566778899",
-        "group-b" => "secret-group-b-00112233445566778899",
-        "group-c" => "secret-group-c-00112233445566778899",
-        "group-d" => "secret-group-d-00112233445566778899",
-        "platform" => "secret-platform-001122334455667788",
-        "customer-a" => "secret-customer-a-0011223344556677",
-        "customer-b" => "secret-customer-b-0011223344556677",
-        _ => panic!("no test secret configured for group '{group}'"),
-    }
+    TEST_GROUP_SECRETS
+        .iter()
+        .find(|(g, _)| *g == group)
+        .unwrap_or_else(|| panic!("no test secret for group '{group}'"))
+        .1
 }
 
 /// Build the registration auth config with per-group shared secrets.
 fn test_registration_auth() -> RegistrationAuthConfig {
-    let groups: HashMap<String, AuthConfig> = [
-        "group-a",
-        "group-b",
-        "group-c",
-        "group-d",
-        "platform",
-        "customer-a",
-        "customer-b",
-    ]
-    .into_iter()
-    .map(|g| {
-        (
-            g.to_string(),
-            AuthConfig::SharedSecret {
-                id: None,
-                secret: group_secret(g).to_string(),
-            },
-        )
-    })
-    .collect();
-    RegistrationAuthConfig::SharedSecret { groups }
+    RegistrationAuthConfig::SharedSecret {
+        secrets: TEST_GROUP_SECRETS
+            .iter()
+            .map(|(g, s)| (g.to_string(), s.to_string()))
+            .collect(),
+    }
 }
 
 fn raise_fd_limit() {

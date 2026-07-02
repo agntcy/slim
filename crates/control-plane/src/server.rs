@@ -65,7 +65,7 @@ impl ControlPlane {
         // Build group authenticator from config (Noop when no auth configured).
         let authenticator = match cfg.registration_auth {
             None => GroupAuthenticator::Noop,
-            Some(auth_cfg) => Self::build_authenticator(auth_cfg)?,
+            Some(auth_cfg) => Self::build_authenticator(auth_cfg).await?,
         };
 
         let (drain_tx, drain_rx) = drain::channel();
@@ -107,21 +107,26 @@ impl ControlPlane {
         self.route_service.shutdown().await;
     }
 
-    fn build_authenticator(
+    async fn build_authenticator(
         cfg: crate::config::RegistrationAuthConfig,
     ) -> Result<GroupAuthenticator> {
         use crate::config::RegistrationAuthConfig;
         use std::collections::HashMap;
 
         match cfg {
-            RegistrationAuthConfig::SharedSecret { groups } => {
-                if groups.is_empty() {
+            RegistrationAuthConfig::SharedSecret { secrets } => {
+                if secrets.is_empty() {
                     return Err(anyhow::anyhow!(
-                        "registration_auth.shared_secret.groups cannot be empty"
+                        "registration_auth.shared_secret.secrets cannot be empty"
                     ));
                 }
-                let mut verifiers = HashMap::with_capacity(groups.len());
-                for (group_name, auth_config) in groups {
+                let mut verifiers = HashMap::with_capacity(secrets.len());
+                for (group_name, secret) in secrets {
+                    // id is not used on the verifier side — it only matters for
+                    // token generation (provider). The verifier validates the HMAC
+                    // using the secret alone.
+                    let auth_config =
+                        slim_config::auth::AuthConfig::SharedSecret { id: None, secret };
                     let (_, verifier_cfg) = auth_config.to_identity_configs(&group_name);
                     let verifier = verifier_cfg.build_auth_verifier().map_err(|e| {
                         anyhow::anyhow!(
@@ -141,9 +146,13 @@ impl ControlPlane {
                 use slim_config::auth::spire::SpireConfig;
 
                 let spire_cfg = SpireConfig::new().with_socket_path(socket_path);
-                let verifier = spire_cfg
+                let mut verifier = spire_cfg
                     .create_verifier()
                     .map_err(|e| anyhow::anyhow!("failed to build SPIRE verifier: {e}"))?;
+                verifier
+                    .initialize()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("failed to initialize SPIRE verifier: {e}"))?;
                 let auth_verifier = slim_auth::auth_provider::AuthVerifier::Spire(verifier);
                 tracing::info!("registration auth: spire (trust domain = group name)");
                 Ok(GroupAuthenticator::Spire {
