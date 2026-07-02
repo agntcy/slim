@@ -147,5 +147,6 @@ When MLS is disabled, the group still has consistent membership state and reliab
 
 - [Sessions](./index.md) — Session types, properties, and the SDK API for creating group sessions
 - [Naming](../naming.md) — Channel naming conventions
-- [Group Communication Tutorial](../../components/sdk/tutorial-group.md) — End-to-end walkthrough using the Controller to manage group membership
+- [Creating a Session](../../components/sdk/tutorial-session.md) — SDK tutorial showing group session creation and inviting participants
+- [Receiving a Session](../../components/sdk/tutorial-receive.md) — SDK tutorial for the participant side: listen for invitations and receive messages
 - [Creating a Session](../../components/sdk/tutorial-session.md) — SDK tutorial showing group session creation in Python and Go

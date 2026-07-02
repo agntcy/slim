@@ -97,7 +97,8 @@ plugins:
       slim/slim-sdk-tutorial-connect.md: slim/components/sdk/tutorial-connect.md
       slim/slim-sdk-tutorial-app.md: slim/components/sdk/tutorial-app.md
       slim/slim-sdk-tutorial-session.md: slim/components/sdk/tutorial-session.md
-      slim/slim-group-tutorial.md: slim/components/sdk/tutorial-group.md
+      slim/slim-group-tutorial.md: slim/components/sdk/tutorial-receive.md
+      slim/components/sdk/tutorial-group.md: slim/components/sdk/tutorial-receive.md
       slim/slim-deploy-overview.md: slim/deploy/index.md
       slim/slim-deploy-local.md: slim/deploy/local.md
       slim/slim-deploy-docker.md: slim/deploy/docker.md
@@ -208,7 +209,7 @@ nav:
                   - Connecting to SLIM: slim/components/sdk/tutorial-connect.md
                   - Creating an App: slim/components/sdk/tutorial-app.md
                   - Creating a Session: slim/components/sdk/tutorial-session.md
-                  - Group Communication: slim/components/sdk/tutorial-group.md
+                  - Receiving a Session: slim/components/sdk/tutorial-receive.md
       - Deployment:
           - slim/deploy/index.md
           - Local: slim/deploy/local.md
