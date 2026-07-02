@@ -69,13 +69,13 @@ SLIM natively supports four interaction patterns between agents:
 
 Agents are identified using a hierarchical naming scheme based on Decentralized Identifiers:
 
-```
+```text
 organization/namespace/service/<hash-of-public-key>
 ```
 
 Group channels use the same scheme, with `0xffffffff` as the last component to fan out to all joined members:
 
-```
+```text
 organization/namespace/service/0xffffffff
 ```
 

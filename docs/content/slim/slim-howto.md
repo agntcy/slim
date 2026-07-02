@@ -162,7 +162,7 @@ With the node running, initialise the SLIM service and connect:
 
 Running the Python script should print your app's SLIM identity:
 
-```
+```text
 Connected — app id: myorg/default/my-app/<client-id>
 ```
 
