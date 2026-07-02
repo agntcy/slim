@@ -8,15 +8,7 @@ SLIM is the secure transport layer for agent communication. Beyond its native me
 
 <div class="grid cards" markdown>
 
--   :material-api:{ .lg .middle } **SLIMRPC**
-
-    ---
-
-    Protobuf RPC over SLIM, analogous to gRPC with end-to-end encryption and topology-independent routing.
-
-    [:octicons-arrow-right-24: Learn more](./slimrpc/index.md)
-
--   :material-robot:{ .lg .middle } **SLIM A2A**
+-   :material-robot:{ .lg .middle } **A2A**
 
     ---
 
@@ -24,7 +16,7 @@ SLIM is the secure transport layer for agent communication. Beyond its native me
 
     [:octicons-arrow-right-24: Learn more](./a2a.md)
 
--   :material-connection:{ .lg .middle } **MCP over SLIM**
+-   :material-connection:{ .lg .middle } **MCP**
 
     ---
 
@@ -32,7 +24,7 @@ SLIM is the secure transport layer for agent communication. Beyond its native me
 
     [:octicons-arrow-right-24: Learn more](./mcp.md)
 
--   :material-chart-timeline-variant:{ .lg .middle } **OpenTelemetry over SLIM**
+-   :material-chart-timeline-variant:{ .lg .middle } **OpenTelemetry**
 
     ---
 

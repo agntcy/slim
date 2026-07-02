@@ -201,14 +201,14 @@ nav:
               - slim/components/sdk/index.md
               - Installation: slim/components/sdk/install.md
               - Supported Languages: slim/components/sdk/languages.md
+              - SLIMRPC:
+                  - slim/components/sdk/slimrpc/index.md
+                  - Compiler: slim/components/sdk/slimrpc/compiler.md
               - Tutorial:
                   - Connecting to SLIM: slim/components/sdk/tutorial-connect.md
                   - Creating an App: slim/components/sdk/tutorial-app.md
                   - Creating a Session: slim/components/sdk/tutorial-session.md
                   - Group Communication: slim/components/sdk/tutorial-group.md
-              - SLIMRPC:
-                  - slim/components/sdk/slimrpc/index.md
-                  - Compiler: slim/components/sdk/slimrpc/compiler.md
       - Deployment:
           - slim/deploy/index.md
           - Local: slim/deploy/local.md
@@ -219,9 +219,9 @@ nav:
               - Multi-Cluster: slim/deploy/multicluster.md
       - Integrations:
           - slim/integrations/index.md
-          - SLIM A2A: slim/integrations/a2a.md
-          - MCP over SLIM: slim/integrations/mcp.md
-          - OpenTelemetry over SLIM: slim/integrations/otel.md
+          - A2A: slim/integrations/a2a.md
+          - MCP: slim/integrations/mcp.md
+          - OpenTelemetry: slim/integrations/otel.md
   - Community: community.md
   - Specification: https://datatracker.ietf.org/doc/draft-mpsb-agntcy-slim/
   - Blog: https://blogs.agntcy.org/
