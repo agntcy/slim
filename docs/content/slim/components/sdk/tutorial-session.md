@@ -402,7 +402,21 @@ A group session enables many-to-many communication on a named channel. Every mes
 
 === "Node.js"
 
-    Group sessions are not yet supported in the Node.js bindings.
+    ```typescript
+    // sessionType "group" works the same as "pointToPoint" — just change the type
+    const sessionConfig = {
+        sessionType: "group" as const,
+        enableMls: false,
+        maxRetries: 5,
+        interval: 5000, // milliseconds
+        metadata: new Map()
+    };
+
+    // Create the group session on the given channel
+    const session = await app.createSessionAndWaitAsync(sessionConfig, channelName);
+
+    console.log(`Group session created on channel: ${channelName}`);
+    ```
 
 === ".NET"
 
@@ -426,7 +440,18 @@ A group session enables many-to-many communication on a named channel. Every mes
 
 === "React Native"
 
-    Group sessions are not yet supported in the React Native bindings.
+    ```tsx
+    const sessionConfig = {
+        sessionType: slimBindings.SessionType.Group,
+        enableMls: false,
+        metadata: new Map()
+    };
+
+    // Create the group session on the given channel
+    const session = await app.createSessionAndWaitAsync(sessionConfig, channelName);
+
+    console.log(`Group session created on channel: ${channelName}`);
+    ```
 
 ### Invite a Participant
 
@@ -494,7 +519,15 @@ The session creator acts as a moderator and can invite other applications to joi
 
 === "Node.js"
 
-    Group sessions are not yet supported in the Node.js bindings.
+    ```typescript
+    // Set the route to the participant first
+    await app.setRoute(inviteName, Number(connId));
+
+    // Invite the participant
+    await session.inviteAndWaitAsync(inviteName);
+
+    console.log(`Invited ${inviteName} to the group`);
+    ```
 
 === ".NET"
 
@@ -511,7 +544,15 @@ The session creator acts as a moderator and can invite other applications to joi
 
 === "React Native"
 
-    Group sessions are not yet supported in the React Native bindings.
+    ```tsx
+    // Set the route to the participant first
+    await app.setRoute(inviteName, connId);
+
+    // Invite the participant
+    await session.inviteAndWaitAsync(inviteName);
+
+    console.log(`Invited ${inviteName} to the group`);
+    ```
 
 ### Broadcast to the Group
 
@@ -569,7 +610,14 @@ The session creator acts as a moderator and can invite other applications to joi
 
 === "Node.js"
 
-    Group sessions are not yet supported in the Node.js bindings.
+    ```typescript
+    // Broadcast to all participants
+    await session.publishAndWaitAsync(Buffer.from("hello everyone"), undefined, undefined);
+
+    // Receive messages from the group
+    const msg = await session.getMessageAsync(30000);
+    console.log("Channel message:", Buffer.from(msg.payload).toString());
+    ```
 
 === ".NET"
 
@@ -584,7 +632,16 @@ The session creator acts as a moderator and can invite other applications to joi
 
 === "React Native"
 
-    Group sessions are not yet supported in the React Native bindings.
+    ```tsx
+    // Broadcast to all participants
+    const payload = new Uint8Array("hello everyone".split('').map(c => c.charCodeAt(0)));
+    await session.publishAndWaitAsync(payload, undefined, undefined);
+
+    // Receive messages from the group
+    const msg = await session.getMessageAsync(30000);
+    const text = String.fromCharCode(...new Uint8Array(msg.payload));
+    console.log("Channel message:", text);
+    ```
 
 ## Enabling End-to-End Encryption
 
