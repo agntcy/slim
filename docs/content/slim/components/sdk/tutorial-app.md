@@ -39,15 +39,75 @@ Pass the `service` obtained from initialisation to create an app bound to a name
 
 === "Go"
 
-    Refer to the [Go examples](https://github.com/agntcy/slim-bindings-go/tree/main/examples) in the slim-bindings-go repository.
+    ```go
+    // Define the application name (org / namespace / service)
+    appName, err := slim.NameFromString("myorg/default/my-service")
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Create the app — registers this name with the cryptographic identity
+    app, err := slim.GetGlobalService().CreateAppWithSecret(appName, "my-shared-secret")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer app.Destroy()
+
+    fmt.Printf("App created, id=%d\n", app.Id())
+    ```
+
+=== "Java"
+
+    ```java
+    // Define the application name (org / namespace / service)
+    Name localName = Name.fromString("myorg/default/my-service");
+
+    // Create the app — registers this name with the cryptographic identity
+    App app = service.createAppWithSecret(localName, "my-shared-secret");
+
+    System.out.println("App created, id=" + app.id());
+    ```
 
 === "Kotlin"
 
-    Refer to the [Kotlin examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples) in the slim-bindings repository.
+    ```kotlin
+    // Define the application name (org / namespace / service)
+    val localName = Name.fromString("myorg/default/my-service")
+
+    // Create the app — registers this name with the cryptographic identity
+    val localApp = service.createAppWithSecret(localName, "my-shared-secret")
+
+    println("App created, id=${localApp.id()}")
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    // Define the application name (org / namespace / service)
+    const localName = new slimBindings.Name("myorg", "default", "my-service");
+
+    // Create the app — registers this name with the cryptographic identity
+    const app = service.createAppWithSecret(localName, "my-shared-secret");
+
+    console.log(`App created, id=${app.id()}`);
+    ```
 
 === ".NET"
 
-    Refer to the [.NET examples](https://github.com/agntcy/slim-bindings/tree/main/dotnet/examples) in the slim-bindings repository.
+    ```csharp
+    // Define the application name (org / namespace / service)
+    // clientId is derived from the cryptographic identity and assigned by SLIM
+    using var localName = SlimName.Parse("myorg/default/my-service");
+
+    // Create the app — service is obtained from Slim.GetGlobalService() (see previous tutorial)
+    var app = service.CreateApp(localName, "my-shared-secret");
+
+    Console.WriteLine($"App created, id={app.Id}");
+    ```
+
+=== "React Native"
+
+    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
 
 ## Step 2: Subscribe to Receive Messages
 
@@ -64,15 +124,54 @@ Subscribing tells the SLIM node to route inbound messages for this name to your 
 
 === "Go"
 
-    Refer to the [Go examples](https://github.com/agntcy/slim-bindings-go/tree/main/examples).
+    ```go
+    // Subscribe — the SLIM node will now deliver messages for appName to this app
+    if err := app.SubscribeAsync(app.Name(), &connID); err != nil {
+        log.Fatal(err)
+    }
+
+    fmt.Println("Subscribed as:", appName)
+    ```
+
+=== "Java"
+
+    ```java
+    // Subscribe — the SLIM node will now deliver messages for localName to this app
+    app.subscribe(app.name(), connId);
+
+    System.out.println("Subscribed as: " + localName);
+    ```
 
 === "Kotlin"
 
-    Refer to the [Kotlin examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples).
+    ```kotlin
+    // Subscribe — the SLIM node will now deliver messages for localName to this app
+    localApp.subscribeAsync(localName, connId)
+
+    println("Subscribed as: $localName")
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    // Subscribe — the SLIM node will now deliver messages for localName to this app
+    await app.subscribeAsync(localName, BigInt(connId));
+
+    console.log(`Subscribed as: ${localName}`);
+    ```
 
 === ".NET"
 
-    Refer to the [.NET examples](https://github.com/agntcy/slim-bindings/tree/main/dotnet/examples).
+    ```csharp
+    // Subscribe — the SLIM node will now deliver messages for localName to this app
+    app.Subscribe(app.Name, connId);
+
+    Console.WriteLine($"Subscribed as: {app.Name}");
+    ```
+
+=== "React Native"
+
+    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
 
 ## Step 3: Set a Route (Optional)
 
@@ -89,40 +188,210 @@ Before establishing a session to a remote application, your local SLIM node must
 
 === "Go"
 
-    Refer to the [Go examples](https://github.com/agntcy/slim-bindings-go/tree/main/examples).
+    ```go
+    // Tell the local SLIM node how to reach the remote service
+    remoteName, _ := slim.NameFromString("myorg/default/other-service")
+
+    if err := app.SetRouteAsync(remoteName, connID); err != nil {
+        log.Fatal(err)
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    // Tell the local SLIM node how to reach the remote service
+    Name remoteName = Name.fromString("myorg/default/other-service");
+
+    app.setRoute(remoteName, connId);
+    ```
 
 === "Kotlin"
 
-    Refer to the [Kotlin examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples).
+    ```kotlin
+    // Tell the local SLIM node how to reach the remote service
+    val remoteName = Name.fromString("myorg/default/other-service")
+
+    localApp.setRouteAsync(remoteName, connId)
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    // Tell the local SLIM node how to reach the remote service
+    const remoteName = new slimBindings.Name("myorg", "default", "other-service");
+
+    app.setRoute(remoteName, Number(connId));
+    ```
 
 === ".NET"
 
-    Refer to the [.NET examples](https://github.com/agntcy/slim-bindings/tree/main/dotnet/examples).
+    ```csharp
+    // Tell the local SLIM node how to reach the remote service
+    using var remoteName = SlimName.Parse("myorg/default/other-service");
+    app.SetRoute(remoteName, connId);
+    ```
+
+=== "React Native"
+
+    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
 
 ## Putting It Together
 
-```python
-import asyncio
-import slim_bindings
+=== "Python"
 
-async def main():
-    slim_bindings.uniffi_set_event_loop(asyncio.get_running_loop())
-    slim_bindings.initialize_with_defaults()
+    ```python
+    import asyncio
+    import slim_bindings
 
-    service = slim_bindings.get_global_service()
+    async def main():
+        slim_bindings.uniffi_set_event_loop(asyncio.get_running_loop())
+        slim_bindings.initialize_with_defaults()
 
-    client_config = slim_bindings.new_insecure_client_config("http://127.0.0.1:46357")
-    conn_id = await service.connect_async(client_config)
+        service = slim_bindings.get_global_service()
 
-    local_name = slim_bindings.Name("myorg", "default", "my-service")
-    local_app = service.create_app_with_secret(local_name, "my-shared-secret")
-    await local_app.subscribe_async(local_name, conn_id)
+        client_config = slim_bindings.new_insecure_client_config("http://127.0.0.1:46357")
+        conn_id = await service.connect_async(client_config)
 
-    print(f"App ready: {local_name}, id={local_app.id()}")
-    # local_app and conn_id are passed to create_session in the next tutorial
+        local_name = slim_bindings.Name("myorg", "default", "my-service")
+        local_app = service.create_app_with_secret(local_name, "my-shared-secret")
+        await local_app.subscribe_async(local_name, conn_id)
 
-asyncio.run(main())
-```
+        print(f"App ready: {local_name}, id={local_app.id()}")
+        # local_app and conn_id are passed to create_session in the next tutorial
+
+    asyncio.run(main())
+    ```
+
+=== "Go"
+
+    ```go
+    package main
+
+    import (
+        "fmt"
+        "log"
+
+        slim "github.com/agntcy/slim-bindings-go"
+    )
+
+    func main() {
+        slim.InitializeWithDefaults()
+
+        config := slim.NewInsecureClientConfig("http://127.0.0.1:46357")
+        connID, err := slim.GetGlobalService().ConnectAsync(config)
+        if err != nil {
+            log.Fatal(err)
+        }
+
+        appName, err := slim.NameFromString("myorg/default/my-service")
+        if err != nil {
+            log.Fatal(err)
+        }
+
+        app, err := slim.GetGlobalService().CreateAppWithSecret(appName, "my-shared-secret")
+        if err != nil {
+            log.Fatal(err)
+        }
+        defer app.Destroy()
+
+        if err := app.SubscribeAsync(app.Name(), &connID); err != nil {
+            log.Fatal(err)
+        }
+
+        fmt.Printf("App ready: %s, id=%d\n", appName, app.Id())
+        // app and connID are passed to create_session in the next tutorial
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    import io.agntcy.slim.bindings.*;
+
+    public class Main {
+        public static void main(String[] args) {
+            SlimBindings.initializeWithDefaults();
+            Service service = SlimBindings.getGlobalService();
+
+            ClientConfig config = SlimBindings.newInsecureClientConfig("http://127.0.0.1:46357");
+            Long connId = service.connect(config);
+
+            Name localName = Name.fromString("myorg/default/my-service");
+            App app = service.createAppWithSecret(localName, "my-shared-secret");
+            app.subscribe(app.name(), connId);
+
+            System.out.println("App ready: " + localName + ", id=" + app.id());
+            // app and connId are passed to create_session in the next tutorial
+        }
+    }
+    ```
+
+=== "Kotlin"
+
+    ```kotlin
+    import io.agntcy.slim.bindings.*
+
+    fun main() {
+        initializeWithDefaults()
+        val service = getGlobalService()
+
+        val clientConfig = newInsecureClientConfig("http://127.0.0.1:46357")
+        val connId: ULong = service.connectAsync(clientConfig)
+
+        val localName = Name.fromString("myorg/default/my-service")
+        val localApp = service.createAppWithSecret(localName, "my-shared-secret")
+        localApp.subscribeAsync(localName, connId)
+
+        println("App ready: $localName, id=${localApp.id()}")
+        // localApp and connId are passed to create_session in the next tutorial
+    }
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    import slimBindings from '@agntcy/slim-bindings';
+
+    async function main() {
+        slimBindings.initializeWithDefaults();
+        const service = slimBindings.getGlobalService();
+
+        const config = slimBindings.newInsecureClientConfig("http://127.0.0.1:46357");
+        const connId = await service.connectAsync(config);
+
+        const localName = new slimBindings.Name("myorg", "default", "my-service");
+        const app = service.createAppWithSecret(localName, "my-shared-secret");
+        await app.subscribeAsync(localName, BigInt(connId));
+
+        console.log(`App ready: ${localName}, id=${app.id()}`);
+        // app and connId are passed to create_session in the next tutorial
+    }
+
+    main();
+    ```
+
+=== ".NET"
+
+    ```csharp
+    using Agntcy.Slim;
+
+    Slim.Initialize();
+
+    var connId = Slim.Connect("http://127.0.0.1:46357");
+
+    using var localName = SlimName.Parse("myorg/default/my-service");
+    using var service = Slim.GetGlobalService();
+    var app = service.CreateApp(localName, "my-shared-secret");
+    app.Subscribe(app.Name, connId);
+
+    Console.WriteLine($"App ready: {app.Name}, id={app.Id}");
+    // app and connId are passed to CreateSession in the next tutorial
+    ```
+
+=== "React Native"
+
+    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
 
 ## Next Steps
 
