@@ -284,7 +284,7 @@ communication.
 
 === "React Native"
 
-    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
+    Group sessions are not yet supported in the React Native bindings.
 
 This code comes from the
 [group.py](https://github.com/agntcy/slim-bindings/tree/main/python/examples/group.py)
@@ -480,7 +480,7 @@ for invites. Once they receive the invite, they can read and write on the shared
 
 === "React Native"
 
-    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
+    Group sessions are not yet supported in the React Native bindings.
 
 Each non-moderator participant listens for an incoming session using
 `local_app.listen_for_session_async(None)`. The `None` parameter means wait indefinitely for a session.
@@ -646,7 +646,7 @@ All participants can publish messages on the shared channel:
 
 === "React Native"
 
-    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
+    Group sessions are not yet supported in the React Native bindings.
 
 Messages are sent using `session.publish_async(payload, payload_type, metadata)`.
 The payload is the message bytes, while payload_type and metadata are optional.
