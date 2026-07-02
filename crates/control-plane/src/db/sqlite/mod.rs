@@ -22,9 +22,10 @@ use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 
 use super::model::{
     ALL_NODES_ID, ConnDetailsJson, DbServerConnectionConfig, DbTimestamp, JsonStrings, Link,
-    LinkStatus, Node, Route, RouteName, RouteStatus, has_connection_details_changed,
+    LinkStatus, Node, Route, RouteName, RouteStatus, TopologySegment, TopologySegmentLink,
+    has_connection_details_changed,
 };
-use super::schema::{links, nodes, routes};
+use super::schema::{links, nodes, routes, topology_segment_links, topology_segments};
 use super::{DataAccess, SharedDb};
 use crate::error::{Error, Result};
 
@@ -1019,6 +1020,215 @@ impl DataAccess for SqliteDb {
 
         Ok(link)
     }
+
+    // ── Topology (API-managed mode) ───────────────────────────────────────
+
+    async fn create_segment(&self, name: &str) -> Result<TopologySegment> {
+        let segment = TopologySegment {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: name.to_string(),
+            created_at: SystemTime::now(),
+        };
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "create_segment pool",
+            msg: e.to_string(),
+        })?;
+        diesel::insert_into(topology_segments::table)
+            .values(segment)
+            .on_conflict_do_nothing()
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "create_segment",
+                msg: e.to_string(),
+            })?;
+        // Always re-fetch to return the authoritative row (handles both
+        // fresh inserts and races where another writer won).
+        self.get_segment_by_name(name)
+            .await?
+            .ok_or_else(|| Error::DbError {
+                context: "create_segment",
+                msg: "row vanished after insert".to_string(),
+            })
+    }
+
+    async fn delete_segment(&self, id: &str) -> Result<()> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "delete_segment pool",
+            msg: e.to_string(),
+        })?;
+        diesel::delete(topology_segments::table.find(id))
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "delete_segment",
+                msg: e.to_string(),
+            })?;
+        Ok(())
+    }
+
+    async fn get_segment_by_name(&self, name: &str) -> Result<Option<TopologySegment>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "get_segment_by_name pool",
+            msg: e.to_string(),
+        })?;
+        topology_segments::table
+            .filter(topology_segments::name.eq(name))
+            .first::<TopologySegment>(&mut conn)
+            .await
+            .optional()
+            .map_err(|e| Error::DbError {
+                context: "get_segment_by_name",
+                msg: e.to_string(),
+            })
+    }
+
+    async fn list_topology_segments(&self) -> Result<Vec<TopologySegment>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "list_topology_segments pool",
+            msg: e.to_string(),
+        })?;
+        topology_segments::table
+            .load::<TopologySegment>(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "list_topology_segments",
+                msg: e.to_string(),
+            })
+    }
+
+    async fn add_link_to_segment(
+        &self,
+        segment_id: &str,
+        source_group: &str,
+        dest_group: &str,
+    ) -> Result<()> {
+        let link = TopologySegmentLink {
+            segment_id: segment_id.to_string(),
+            source_group: source_group.to_string(),
+            dest_group: dest_group.to_string(),
+        };
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "add_link_to_segment pool",
+            msg: e.to_string(),
+        })?;
+        diesel::insert_into(topology_segment_links::table)
+            .values(link)
+            .on_conflict_do_nothing()
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "add_link_to_segment",
+                msg: e.to_string(),
+            })?;
+        Ok(())
+    }
+
+    async fn delete_link_from_segment(
+        &self,
+        segment_id: &str,
+        source_group: &str,
+        dest_group: &str,
+    ) -> Result<()> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "delete_link_from_segment pool",
+            msg: e.to_string(),
+        })?;
+        let seg_id = segment_id.to_string();
+        let src = source_group.to_string();
+        let dst = dest_group.to_string();
+        diesel::delete(
+            topology_segment_links::table
+                .filter(topology_segment_links::segment_id.eq(&seg_id))
+                .filter(
+                    topology_segment_links::source_group
+                        .eq(&src)
+                        .and(topology_segment_links::dest_group.eq(&dst))
+                        .or(topology_segment_links::source_group
+                            .eq(&dst)
+                            .and(topology_segment_links::dest_group.eq(&src))),
+                ),
+        )
+        .execute(&mut conn)
+        .await
+        .map_err(|e| Error::DbError {
+            context: "delete_link_from_segment",
+            msg: e.to_string(),
+        })?;
+        Ok(())
+    }
+
+    async fn get_links_for_segment(&self, segment_id: &str) -> Result<Vec<(String, String)>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "get_links_for_segment pool",
+            msg: e.to_string(),
+        })?;
+        topology_segment_links::table
+            .filter(topology_segment_links::segment_id.eq(segment_id))
+            .select((
+                topology_segment_links::source_group,
+                topology_segment_links::dest_group,
+            ))
+            .load::<(String, String)>(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "get_links_for_segment",
+                msg: e.to_string(),
+            })
+    }
+
+    async fn clear_runtime_state(&self) -> Result<()> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "clear_runtime_state pool",
+            msg: e.to_string(),
+        })?;
+        // Delete in dependency order: routes → links → nodes (foreign key constraints)
+        diesel::delete(routes::table)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "clear_runtime_state routes",
+                msg: e.to_string(),
+            })?;
+        diesel::delete(links::table)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "clear_runtime_state links",
+                msg: e.to_string(),
+            })?;
+        diesel::delete(nodes::table)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "clear_runtime_state nodes",
+                msg: e.to_string(),
+            })?;
+        Ok(())
+    }
+
+    async fn clear_all_state(&self) -> Result<()> {
+        self.clear_runtime_state().await?;
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "clear_all_state pool",
+            msg: e.to_string(),
+        })?;
+        diesel::delete(topology_segment_links::table)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "clear_all_state segment_links",
+                msg: e.to_string(),
+            })?;
+        diesel::delete(topology_segments::table)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "clear_all_state segments",
+                msg: e.to_string(),
+            })?;
+        Ok(())
+    }
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -1398,5 +1608,84 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(db.get_links_for_node("src").await.unwrap().len(), 2);
+    }
+
+    // ── Topology tests ────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn topology_create_and_list_segments() {
+        let (_f, db) = tmp_db().await;
+        let seg = db.create_segment("seg-1").await.unwrap();
+        assert_eq!(seg.name, "seg-1");
+        assert!(!seg.id.is_empty());
+
+        let segs = db.list_topology_segments().await.unwrap();
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].name, "seg-1");
+    }
+
+    #[tokio::test]
+    async fn topology_get_segment_by_name() {
+        let (_f, db) = tmp_db().await;
+        db.create_segment("alpha").await.unwrap();
+
+        let found = db.get_segment_by_name("alpha").await.unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().name, "alpha");
+
+        let missing = db.get_segment_by_name("nope").await.unwrap();
+        assert!(missing.is_none());
+    }
+
+    #[tokio::test]
+    async fn topology_delete_segment_cascades() {
+        let (_f, db) = tmp_db().await;
+        let seg = db.create_segment("seg-1").await.unwrap();
+        db.add_link_to_segment(&seg.id, "group-a", "group-b")
+            .await
+            .unwrap();
+
+        db.delete_segment(&seg.id).await.unwrap();
+
+        assert!(db.list_topology_segments().await.unwrap().is_empty());
+        assert!(db.get_links_for_segment(&seg.id).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn topology_add_and_delete_link() {
+        let (_f, db) = tmp_db().await;
+        let seg = db.create_segment("seg-1").await.unwrap();
+
+        db.add_link_to_segment(&seg.id, "group-a", "group-b")
+            .await
+            .unwrap();
+        db.add_link_to_segment(&seg.id, "group-b", "group-c")
+            .await
+            .unwrap();
+
+        let links = db.get_links_for_segment(&seg.id).await.unwrap();
+        assert_eq!(links.len(), 2);
+
+        db.delete_link_from_segment(&seg.id, "group-a", "group-b")
+            .await
+            .unwrap();
+        let links = db.get_links_for_segment(&seg.id).await.unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0], ("group-b".to_string(), "group-c".to_string()));
+    }
+
+    #[tokio::test]
+    async fn clear_all_state_wipes_everything() {
+        let (_f, db) = tmp_db().await;
+        let _seg1 = db.create_segment("seg-1").await.unwrap();
+        let seg2 = db.create_segment("seg-2").await.unwrap();
+        db.add_link_to_segment(&seg2.id, "group-x", "group-y")
+            .await
+            .unwrap();
+
+        db.clear_all_state().await.unwrap();
+
+        assert!(db.list_topology_segments().await.unwrap().is_empty());
+        assert!(db.get_links_for_segment(&seg2.id).await.unwrap().is_empty());
     }
 }

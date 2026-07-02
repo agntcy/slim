@@ -10,6 +10,7 @@ use crate::node_transport::DefaultNodeCommandHandler;
 use crate::route_service::RouteService;
 use crate::services::northbound::NorthboundApiService;
 use crate::services::southbound::{SharedDrain, SouthboundApiService};
+use crate::types::DEFAULT_SEGMENT;
 
 pub struct ControlPlane {
     route_service: RouteService,
@@ -21,13 +22,42 @@ impl ControlPlane {
     pub async fn start(cfg: Config) -> Result<Self> {
         let db = crate::db::open(&cfg.database).await?;
 
+        // In config mode, wipe all state on startup (config is source of truth).
+        if cfg.topology.is_config_managed() {
+            db.clear_all_state()
+                .await
+                .context("failed to clear all state")?;
+            tracing::info!("topology mode: config-managed");
+        } else {
+            // In API mode, clear runtime state (nodes/links/routes) but keep
+            // topology config (segments/segment_links) — nodes will re-register.
+            db.clear_runtime_state()
+                .await
+                .context("failed to clear runtime state")?;
+            tracing::info!("topology mode: API-managed");
+        }
+
         let cmd_handler = DefaultNodeCommandHandler::new();
+        let is_api_managed = cfg.topology.is_api_managed();
         let route_service = RouteService::new(
             db.clone(),
             cmd_handler.clone(),
             cfg.reconciler,
             cfg.topology,
         );
+
+        // In API mode, ensure "default" segment exists, then load segment graphs from DB.
+        if is_api_managed {
+            if db.get_segment_by_name(DEFAULT_SEGMENT).await?.is_none() {
+                db.create_segment(DEFAULT_SEGMENT)
+                    .await
+                    .context("failed to create default segment")?;
+            }
+            route_service
+                .load_topology_from_db()
+                .await
+                .context("failed to load topology from DB")?;
+        }
         let nb_svc =
             NorthboundApiService::new(db.clone(), cmd_handler.clone(), route_service.clone());
 

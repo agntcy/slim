@@ -20,10 +20,10 @@ database:
 
 topology:
   links:
-    - name: group-1
+    - group: group-1
       neighbors: [group-2]
-    - name: group-2 
+    - group: group-2 
       neighbors: [group-3]
-    - name: group-3
+    - group: group-3
       neighbors: [group-4]
 

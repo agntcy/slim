@@ -46,29 +46,124 @@ fn build_route_for_gateway(
 }
 
 impl super::RouteService {
-    /// Rebuild the runtime segment graphs from the given set of nodes.
-    /// Extracts distinct group names, expands `$group` templates, and builds
-    /// one graph per segment.
-    /// Returns true if the set of groups changed (a group was added or removed).
+    /// Rebuild the runtime segment graphs from the config-defined topology.
+    ///
+    /// **Config mode only.** Extracts distinct group names from registered nodes,
+    /// expands `$group` templates in segment configs, and rebuilds one graph per
+    /// segment. Called on every node register/deregister so that dynamic `$group`
+    /// expansion picks up new groups.
+    ///
+    /// Returns `true` if the set of groups changed (a group was added or removed),
+    /// `false` if unchanged or if running in API mode.
+    ///
+    /// **API mode:** returns `false` immediately — segment graphs are managed
+    /// exclusively via topology mutation APIs (`add_link_to_segment`, etc.) and
+    /// loaded from DB on startup. Node registration does not alter topology.
     pub(super) async fn rebuild_link_graph(&self, nodes: &[crate::db::Node]) -> bool {
+        if self.0.topology.is_api_managed() {
+            return false;
+        }
+
         let new_groups: HashSet<&str> = nodes
             .iter()
             .map(|n| n.group_name.as_deref().unwrap_or(""))
             .collect();
 
-        let mut current_segments = self.0.segment_graphs.write().await;
-        let current_groups: HashSet<&str> = current_segments
-            .iter()
-            .flat_map(|(_, g)| g.node_indices().map(|idx| g[idx].as_str()))
-            .collect();
-        let groups_changed = new_groups != current_groups;
+        let snapshot = {
+            let mut current_segments = self.0.segment_graphs.write().await;
+            let current_groups: HashSet<&str> = current_segments
+                .iter()
+                .flat_map(|(_, g)| g.node_indices().map(|idx| g[idx].as_str()))
+                .collect();
 
-        if groups_changed {
+            if new_groups == current_groups {
+                return false;
+            }
+
             let group_vec: Vec<&str> = new_groups.into_iter().collect();
             *current_segments = self.0.topology.build_graph(&group_vec);
-        }
+            current_segments.clone()
+            // write guard dropped here
+        };
 
-        groups_changed
+        // Persist outside the lock — DB writes are best-effort and must not
+        // block concurrent readers (allowed_link_pairs, expand_wildcard, etc.).
+        tracing::debug!("groups changed, persisting topology to DB");
+        self.persist_segments_to_db(&snapshot).await;
+
+        true
+    }
+
+    /// Write the current segment graphs to the DB (topology_segments +
+    /// topology_segment_links). Called after config-mode graph expansion so
+    /// the DB always reflects the latest resolved topology.
+    async fn persist_segments_to_db(
+        &self,
+        segments: &[(String, petgraph::graph::UnGraph<String, u32>)],
+    ) {
+        for (seg_name, graph) in segments {
+            let seg = match self.0.db.get_segment_by_name(seg_name).await {
+                Ok(Some(s)) => s,
+                Ok(None) => match self.0.db.create_segment(seg_name).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::error!(%seg_name, error = %e, "failed to persist segment");
+                        continue;
+                    }
+                },
+                Err(e) => {
+                    tracing::error!(%seg_name, error = %e, "failed to check segment");
+                    continue;
+                }
+            };
+
+            for edge in graph.edge_references() {
+                let group_a = &graph[edge.source()];
+                let group_b = &graph[edge.target()];
+                if let Err(e) = self
+                    .0
+                    .db
+                    .add_link_to_segment(&seg.id, group_a, group_b)
+                    .await
+                {
+                    tracing::debug!(
+                        %seg_name, %group_a, %group_b, error = %e,
+                        "failed to persist topology link (may already exist)"
+                    );
+                }
+            }
+
+            // Remove stale links no longer in the graph (config mode only).
+            let current_edges: HashSet<(String, String)> = graph
+                .edge_references()
+                .map(|e| (graph[e.source()].clone(), graph[e.target()].clone()))
+                .collect();
+            match self.0.db.get_links_for_segment(&seg.id).await {
+                Ok(stored) => {
+                    for (src, dst) in stored {
+                        if !current_edges.contains(&(src.clone(), dst.clone()))
+                            && !current_edges.contains(&(dst.clone(), src.clone()))
+                            && let Err(e) = self
+                                .0
+                                .db
+                                .delete_link_from_segment(&seg.id, &src, &dst)
+                                .await
+                        {
+                            tracing::error!(
+                                %seg_name, %src, %dst, error = %e,
+                                "failed to remove stale topology link"
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(
+                        %seg_name, error = %e,
+                        "failed to fetch stored links for stale cleanup"
+                    );
+                }
+            }
+        }
     }
 
     /// Compute the set of allowed group pairs from the runtime segment graphs.
@@ -710,11 +805,11 @@ mod tests {
         // Star topology: platform links to all, spokes link only to platform.
         let topology = TopologyConfig::Links(vec![
             AdjacencyEntry {
-                name: "platform".to_string(),
+                group: "platform".to_string(),
                 neighbors: vec!["*".to_string()],
             },
             AdjacencyEntry {
-                name: "*".to_string(),
+                group: "*".to_string(),
                 neighbors: vec!["platform".to_string()],
             },
         ]);
@@ -891,7 +986,7 @@ mod tests {
         db.save_node(node_b).await.unwrap();
         db.save_node(node_c).await.unwrap();
 
-        // Default topology = full mesh.
+        // Full mesh topology (wildcard links).
         let svc = make_route_service(db.clone());
         let all_nodes = db.list_nodes().await.unwrap();
         svc.rebuild_link_graph(&all_nodes).await;
@@ -955,15 +1050,15 @@ mod tests {
         // Chain topology: a↔b, b↔c (no direct a↔c).
         let topology = TopologyConfig::Links(vec![
             AdjacencyEntry {
-                name: "group-a".to_string(),
+                group: "group-a".to_string(),
                 neighbors: vec!["group-b".to_string()],
             },
             AdjacencyEntry {
-                name: "group-b".to_string(),
+                group: "group-b".to_string(),
                 neighbors: vec!["group-a".to_string(), "group-c".to_string()],
             },
             AdjacencyEntry {
-                name: "group-c".to_string(),
+                group: "group-c".to_string(),
                 neighbors: vec!["group-b".to_string()],
             },
         ]);
@@ -1065,14 +1160,14 @@ mod tests {
             SegmentConfig {
                 name: "seg-a".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "platform".to_string(),
+                    group: "platform".to_string(),
                     neighbors: vec!["customer-a".to_string()],
                 }],
             },
             SegmentConfig {
                 name: "seg-b".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "platform".to_string(),
+                    group: "platform".to_string(),
                     neighbors: vec!["customer-b".to_string()],
                 }],
             },
@@ -1152,7 +1247,7 @@ mod tests {
         let topology = TopologyConfig::Segments(vec![SegmentConfig {
             name: "seg-$group".to_string(),
             links: vec![AdjacencyEntry {
-                name: "platform".to_string(),
+                group: "platform".to_string(),
                 neighbors: vec!["$group".to_string()],
             }],
         }]);

@@ -10,8 +10,8 @@ use uuid::Uuid;
 use async_trait::async_trait;
 
 use super::model::{
-    ALL_NODES_ID, Link, LinkStatus, Node, Route, RouteName, RouteStatus,
-    has_connection_details_changed,
+    ALL_NODES_ID, Link, LinkStatus, Node, Route, RouteName, RouteStatus, TopologySegment,
+    TopologySegmentLink, has_connection_details_changed,
 };
 use super::{DataAccess, SharedDb};
 use crate::error::{Error, Result};
@@ -148,6 +148,8 @@ pub struct InMemoryDb {
     nodes: RwLock<HashMap<String, Node>>,
     routes: RwLock<RouteStore>,
     links: RwLock<LinkStore>,
+    topology_segments: RwLock<HashMap<String, TopologySegment>>,
+    topology_segment_links: RwLock<Vec<TopologySegmentLink>>,
 }
 
 impl InMemoryDb {
@@ -156,6 +158,8 @@ impl InMemoryDb {
             nodes: RwLock::new(HashMap::new()),
             routes: RwLock::new(RouteStore::new()),
             links: RwLock::new(LinkStore::new()),
+            topology_segments: RwLock::new(HashMap::new()),
+            topology_segment_links: RwLock::new(Vec::new()),
         }
     }
 
@@ -835,6 +839,103 @@ impl DataAccess for InMemoryDb {
 
         Ok(Some(link))
     }
+
+    // ── Topology (API-managed mode) ───────────────────────────────────────
+
+    async fn create_segment(&self, name: &str) -> Result<TopologySegment> {
+        let mut segments = self.topology_segments.write();
+        if let Some(existing) = segments.values().find(|s| s.name == name) {
+            return Ok(existing.clone());
+        }
+
+        let segment = TopologySegment {
+            id: Uuid::new_v4().to_string(),
+            name: name.to_string(),
+            created_at: SystemTime::now(),
+        };
+        segments.insert(segment.id.clone(), segment.clone());
+        Ok(segment)
+    }
+
+    async fn delete_segment(&self, id: &str) -> Result<()> {
+        self.topology_segments.write().remove(id);
+        self.topology_segment_links
+            .write()
+            .retain(|link| link.segment_id != id);
+        Ok(())
+    }
+
+    async fn get_segment_by_name(&self, name: &str) -> Result<Option<TopologySegment>> {
+        Ok(self
+            .topology_segments
+            .read()
+            .values()
+            .find(|segment| segment.name == name)
+            .cloned())
+    }
+
+    async fn list_topology_segments(&self) -> Result<Vec<TopologySegment>> {
+        Ok(self.topology_segments.read().values().cloned().collect())
+    }
+
+    async fn add_link_to_segment(
+        &self,
+        segment_id: &str,
+        source_group: &str,
+        dest_group: &str,
+    ) -> Result<()> {
+        let mut links = self.topology_segment_links.write();
+        if !links.iter().any(|link| {
+            link.segment_id == segment_id
+                && link.source_group == source_group
+                && link.dest_group == dest_group
+        }) {
+            links.push(TopologySegmentLink {
+                segment_id: segment_id.to_string(),
+                source_group: source_group.to_string(),
+                dest_group: dest_group.to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    async fn delete_link_from_segment(
+        &self,
+        segment_id: &str,
+        source_group: &str,
+        dest_group: &str,
+    ) -> Result<()> {
+        self.topology_segment_links.write().retain(|link| {
+            !(link.segment_id == segment_id
+                && ((link.source_group == source_group && link.dest_group == dest_group)
+                    || (link.source_group == dest_group && link.dest_group == source_group)))
+        });
+        Ok(())
+    }
+
+    async fn get_links_for_segment(&self, segment_id: &str) -> Result<Vec<(String, String)>> {
+        Ok(self
+            .topology_segment_links
+            .read()
+            .iter()
+            .filter(|link| link.segment_id == segment_id)
+            .map(|link| (link.source_group.clone(), link.dest_group.clone()))
+            .collect())
+    }
+
+    async fn clear_runtime_state(&self) -> Result<()> {
+        self.nodes.write().clear();
+        *self.routes.write() = RouteStore::new();
+        *self.links.write() = LinkStore::new();
+        Ok(())
+    }
+
+    async fn clear_all_state(&self) -> Result<()> {
+        self.clear_runtime_state().await?;
+        self.topology_segment_links.write().clear();
+        self.topology_segments.write().clear();
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1346,5 +1447,110 @@ mod tests {
         let found = db.filter_routes_by_src_dest("src", "dst").await.unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].dest_node_id, "dst");
+    }
+
+    // ── Topology tests ────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn create_and_list_segments() {
+        let db = db();
+        let seg = db.create_segment("seg-1").await.unwrap();
+        assert_eq!(seg.name, "seg-1");
+        assert!(!seg.id.is_empty());
+
+        let segs = db.list_topology_segments().await.unwrap();
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].name, "seg-1");
+    }
+
+    #[tokio::test]
+    async fn get_segment_by_name() {
+        let db = db();
+        db.create_segment("alpha").await.unwrap();
+        let found = db.get_segment_by_name("alpha").await.unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().name, "alpha");
+
+        let missing = db.get_segment_by_name("nope").await.unwrap();
+        assert!(missing.is_none());
+    }
+
+    #[tokio::test]
+    async fn delete_segment_cascades() {
+        let db = db();
+        let seg = db.create_segment("seg-1").await.unwrap();
+        db.add_link_to_segment(&seg.id, "group-a", "group-b")
+            .await
+            .unwrap();
+
+        db.delete_segment(&seg.id).await.unwrap();
+
+        assert!(db.list_topology_segments().await.unwrap().is_empty());
+        assert!(db.get_links_for_segment(&seg.id).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn add_and_delete_link_from_segment() {
+        let db = db();
+        let seg = db.create_segment("seg-1").await.unwrap();
+
+        db.add_link_to_segment(&seg.id, "group-a", "group-b")
+            .await
+            .unwrap();
+        db.add_link_to_segment(&seg.id, "group-b", "group-c")
+            .await
+            .unwrap();
+
+        let links = db.get_links_for_segment(&seg.id).await.unwrap();
+        assert_eq!(links.len(), 2);
+
+        db.delete_link_from_segment(&seg.id, "group-a", "group-b")
+            .await
+            .unwrap();
+        let links = db.get_links_for_segment(&seg.id).await.unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0], ("group-b".to_string(), "group-c".to_string()));
+    }
+
+    #[tokio::test]
+    async fn clear_all_state_wipes_everything() {
+        let db = db();
+        let seg1 = db.create_segment("seg-1").await.unwrap();
+        let seg2 = db.create_segment("seg-2").await.unwrap();
+        db.add_link_to_segment(&seg2.id, "group-x", "group-y")
+            .await
+            .unwrap();
+
+        // Add a physical link and route so we can verify they are cleared too.
+        let link = make_link("node-a", "node-b", "http://127.0.0.1:9000", "link-1");
+        db.add_link(link).await.unwrap();
+        assert_eq!(db.list_all_links().await.unwrap().len(), 1);
+
+        db.clear_all_state().await.unwrap();
+
+        assert!(db.list_topology_segments().await.unwrap().is_empty());
+        assert!(db.get_links_for_segment(&seg1.id).await.unwrap().is_empty());
+        assert!(db.get_links_for_segment(&seg2.id).await.unwrap().is_empty());
+        assert!(db.list_all_links().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn clear_runtime_state_keeps_topology() {
+        let db = db();
+        let seg = db.create_segment("seg-1").await.unwrap();
+        db.add_link_to_segment(&seg.id, "group-a", "group-b")
+            .await
+            .unwrap();
+
+        let link = make_link("node-a", "node-b", "http://127.0.0.1:9000", "link-1");
+        db.add_link(link).await.unwrap();
+
+        db.clear_runtime_state().await.unwrap();
+
+        // Runtime state cleared
+        assert!(db.list_all_links().await.unwrap().is_empty());
+        // Topology config preserved
+        assert_eq!(db.list_topology_segments().await.unwrap().len(), 1);
+        assert_eq!(db.get_links_for_segment(&seg.id).await.unwrap().len(), 1);
     }
 }

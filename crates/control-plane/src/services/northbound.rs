@@ -9,13 +9,16 @@ use crate::api::proto::controller::proto::v1::{
     ConnectionDetails, ConnectionListResponse, RouteListResponse as NodeRouteListResponse,
 };
 use crate::api::proto::controlplane::proto::v1::{
-    LinkEntry, LinkListRequest, LinkStatus, NodeEntry, NodeListRequest, RouteEntry,
+    AddSegmentRequest, AddSegmentResponse, AddTopologyLinkRequest, AddTopologyLinkResponse,
+    LinkEntry, LinkListRequest, LinkStatus, NodeEntry, NodeListRequest, RemoveSegmentRequest,
+    RemoveSegmentResponse, RemoveTopologyLinkRequest, RemoveTopologyLinkResponse, RouteEntry,
     RouteListRequest, RouteStatus, SegmentEdge, SegmentEntry, SegmentListRequest,
     SegmentListResponse, control_plane_service_server::ControlPlaneService,
 };
 use crate::db::SharedDb;
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
 use crate::route_service::RouteService;
+use crate::types::DEFAULT_SEGMENT;
 
 pub struct NorthboundApiService {
     db: SharedDb,
@@ -341,6 +344,42 @@ impl ControlPlaneService for NorthboundApiService {
                 Status::internal("internal error")
             })?;
 
+        // Collect topology link group pairs to identify pending ones.
+        let segments = self.route_service.list_segments().await;
+        let mut topology_pairs: std::collections::HashSet<(String, String)> =
+            std::collections::HashSet::new();
+        for (_name, _groups, edges) in &segments {
+            for (src, dst) in edges {
+                topology_pairs.insert((src.clone(), dst.clone()));
+                topology_pairs.insert((dst.clone(), src.clone()));
+            }
+        }
+
+        // Track which group pairs have physical links.
+        let mut realized_pairs: std::collections::HashSet<(String, String)> =
+            std::collections::HashSet::new();
+
+        for l in &links {
+            if !l.source_group.is_empty() && !l.dest_group.is_empty() {
+                realized_pairs.insert((l.source_group.clone(), l.dest_group.clone()));
+                realized_pairs.insert((l.dest_group.clone(), l.source_group.clone()));
+            }
+        }
+
+        // Pending topology links (configured but no physical link yet).
+        let mut pending_entries = Vec::new();
+        for (src, dst) in &topology_pairs {
+            if !realized_pairs.contains(&(src.clone(), dst.clone())) {
+                // Only emit one direction per pair.
+                if !pending_entries
+                    .iter()
+                    .any(|(a, b): &(String, String)| a == dst && b == src)
+                {
+                    pending_entries.push((src.clone(), dst.clone()));
+                }
+            }
+        }
+
         let (tx, rx) = tokio::sync::mpsc::channel(64);
         tokio::spawn(async move {
             for l in links {
@@ -381,7 +420,27 @@ impl ControlPlaneService for NorthboundApiService {
                     last_updated,
                 };
                 if tx.send(Ok(entry)).await.is_err() {
-                    break;
+                    return;
+                }
+            }
+            // Emit pending topology links.
+            // For pending entries, source_node_id/dest_node_id hold group names
+            // (not node IDs) since no physical link exists yet.
+            for (src, dst) in pending_entries {
+                let entry = LinkEntry {
+                    id: format!("pending|{}|{}", src, dst),
+                    link_id: "-".to_string(),
+                    source_node_id: src,
+                    dest_node_id: dst,
+                    dest_endpoint: "-".to_string(),
+                    conn_config_data: String::new(),
+                    status: LinkStatus::Pending as i32,
+                    status_msg: String::new(),
+                    deleted: false,
+                    last_updated: 0,
+                };
+                if tx.send(Ok(entry)).await.is_err() {
+                    return;
                 }
             }
         });
@@ -409,6 +468,73 @@ impl ControlPlaneService for NorthboundApiService {
             })
             .collect();
         Ok(Response::new(SegmentListResponse { segments: entries }))
+    }
+
+    async fn add_segment(
+        &self,
+        request: Request<AddSegmentRequest>,
+    ) -> Result<Response<AddSegmentResponse>, Status> {
+        let name = &request.get_ref().name;
+        if name.is_empty() {
+            return Err(Status::invalid_argument("segment name must not be empty"));
+        }
+        self.route_service.add_segment(name).await?;
+        Ok(Response::new(AddSegmentResponse {}))
+    }
+
+    async fn remove_segment(
+        &self,
+        request: Request<RemoveSegmentRequest>,
+    ) -> Result<Response<RemoveSegmentResponse>, Status> {
+        let name = &request.get_ref().name;
+        if name.is_empty() {
+            return Err(Status::invalid_argument("segment name must not be empty"));
+        }
+        self.route_service.remove_segment(name).await?;
+        Ok(Response::new(RemoveSegmentResponse {}))
+    }
+
+    async fn add_topology_link(
+        &self,
+        request: Request<AddTopologyLinkRequest>,
+    ) -> Result<Response<AddTopologyLinkResponse>, Status> {
+        let req = request.get_ref();
+        if req.group_a.is_empty() || req.group_b.is_empty() {
+            return Err(Status::invalid_argument(
+                "group_a and group_b must not be empty",
+            ));
+        }
+        let segment = if req.segment.is_empty() {
+            DEFAULT_SEGMENT
+        } else {
+            &req.segment
+        };
+        let warnings = self
+            .route_service
+            .add_topology_link(&req.group_a, &req.group_b, segment)
+            .await?;
+        Ok(Response::new(AddTopologyLinkResponse { warnings }))
+    }
+
+    async fn remove_topology_link(
+        &self,
+        request: Request<RemoveTopologyLinkRequest>,
+    ) -> Result<Response<RemoveTopologyLinkResponse>, Status> {
+        let req = request.get_ref();
+        if req.group_a.is_empty() || req.group_b.is_empty() {
+            return Err(Status::invalid_argument(
+                "group_a and group_b must not be empty",
+            ));
+        }
+        let segment = if req.segment.is_empty() {
+            DEFAULT_SEGMENT
+        } else {
+            &req.segment
+        };
+        self.route_service
+            .remove_topology_link(&req.group_a, &req.group_b, segment)
+            .await?;
+        Ok(Response::new(RemoveTopologyLinkResponse {}))
     }
 }
 

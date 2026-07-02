@@ -59,7 +59,7 @@ struct GlobalOpts {
     basic_auth_creds: Option<String>,
 
     /// SLIM gRPC control API endpoint (host:port)
-    #[arg(short = 's', long, env = "SLIMCTL_COMMON_OPTS_SERVER", global = true)]
+    #[arg(long, env = "SLIMCTL_COMMON_OPTS_SERVER", global = true)]
     server: Option<String>,
 
     /// gRPC request timeout (e.g. 15s, 1m)
@@ -835,12 +835,6 @@ mod tests {
     #[test]
     fn global_flag_server_long() {
         let cli = parse_ok(&["slimctl", "--server", "custom:9090", "version"]);
-        assert_eq!(cli.global.server.as_deref(), Some("custom:9090"));
-    }
-
-    #[test]
-    fn global_flag_server_short() {
-        let cli = parse_ok(&["slimctl", "-s", "custom:9090", "version"]);
         assert_eq!(cli.global.server.as_deref(), Some("custom:9090"));
     }
 
