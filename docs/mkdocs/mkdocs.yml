@@ -208,6 +208,9 @@ nav:
                   - Creating an App: slim/components/sdk/tutorial-app.md
                   - Creating a Session: slim/components/sdk/tutorial-session.md
                   - Receiving a Session: slim/components/sdk/tutorial-receive.md
+                  - Serving a SLIMRPC Server: slim/components/sdk/slimrpc/tutorial-serve.md
+                  - Using a SLIMRPC Server: slim/components/sdk/slimrpc/tutorial-client.md
+                  - Multicast SLIMRPC: slim/components/sdk/slimrpc/tutorial-multicast.md
       - Deployment:
           - slim/deploy/index.md
           - Local: slim/deploy/local.md
