@@ -73,4 +73,5 @@ Both connect to `127.0.0.1:10356` by default. Use `--endpoint` (slimctl) or `--s
 ## Next Steps
 
 - [Configuration Reference](./config.md) — Configure the SLIM connection, gRPC API server, authentication, and startup channels
-- [Group Communication Tutorial](../sdk/tutorial-group.md) — Walkthrough of setting up and using a group channel with the Channel Manager
+- [Creating a Session](../sdk/tutorial-session.md) — Create a group session and invite participants
+- [Receiving a Session](../sdk/tutorial-receive.md) — Listen for session invitations and receive messages
