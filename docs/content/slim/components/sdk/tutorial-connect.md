@@ -110,6 +110,9 @@ The SLIM service is the global runtime that manages connections and application 
 
     // Initialise the global SLIM service with defaults
     Slim.Initialize();
+
+    // Obtain a reference to the global service
+    using var service = Slim.GetGlobalService();
     ```
 
 === "React Native"
@@ -319,11 +322,12 @@ With the service initialised, connect to a SLIM node. The connection returns a `
     using Agntcy.Slim;
 
     Slim.Initialize();
+    using var service = Slim.GetGlobalService();
 
     var connId = Slim.Connect("http://127.0.0.1:46357");
 
     Console.WriteLine($"Connected, connId={connId}");
-    // connId is passed to CreateApp in the next tutorial
+    // service and connId are passed to CreateApp in the next tutorial
     ```
 
 === "React Native"
