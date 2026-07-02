@@ -11,4 +11,8 @@ metadata:
     {{- include "channel-manager.labels" . | nindent 4 }}
 data:
   config.yaml: |
+    {{- if .Values.overrideConfig }}
+    {{- tpl (toYaml .Values.overrideConfig) . | nindent 4 }}
+    {{- else }}
     {{- tpl (toYaml .Values.config) . | nindent 4 }}
+    {{- end }}

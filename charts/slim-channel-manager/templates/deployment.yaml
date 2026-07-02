@@ -10,9 +10,7 @@ metadata:
   labels:
     {{- include "channel-manager.labels" . | nindent 4 }}
 spec:
-  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
-  {{- end }}
   selector:
     matchLabels:
       {{- include "channel-manager.selectorLabels" . | nindent 6 }}
@@ -53,18 +51,22 @@ spec:
             - "/config.yaml"
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           volumeMounts:
             - name: config-volume
               mountPath: /config.yaml
               subPath: config.yaml
-          {{- with .Values.volumeMounts }}
+          {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
       volumes:
         - name: config-volume
           configMap:
             name: {{ include "channel-manager.fullname" . }}
-      {{- with .Values.volumes }}
+      {{- with .Values.extraVolumes }}
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with .Values.nodeSelector }}
