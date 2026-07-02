@@ -12,6 +12,7 @@ function "get_tag" {
   params = [tags, name]
   // Check if IMAGE_REPO ends with name to avoid repetition
   result = [for tag in coalescelist(tags, [IMAGE_TAG]):
+    IMAGE_REPO == "" ? "${name}:${tag}" :
     can(regex("${name}$", IMAGE_REPO)) ?
       "${IMAGE_REPO}:${tag}" :
       "${IMAGE_REPO}/${name}:${tag}"
@@ -31,6 +32,12 @@ group "control-plane" {
   ]
 }
 
+group "channel-manager" {
+  targets = [
+    "channel-manager",
+    "channel-manager-debug",
+  ]
+}
 
 target "_common" {
   output = [
@@ -88,4 +95,26 @@ target "control-plane-debug" {
     "docker-metadata-action",
   ]
   tags = get_tag(target.docker-metadata-action.tags, "${target.control-plane-debug.name}")
+}
+
+target "channel-manager" {
+  context    = "."
+  dockerfile = "./Dockerfile"
+  target     = "channel-manager-release"
+  inherits = [
+    "_common",
+    "docker-metadata-action",
+  ]
+  tags = get_tag(target.docker-metadata-action.tags, "${target.channel-manager.name}")
+}
+
+target "channel-manager-debug" {
+  context    = "."
+  dockerfile = "./Dockerfile"
+  target     = "channel-manager-debug"
+  inherits = [
+    "_common",
+    "docker-metadata-action",
+  ]
+  tags = get_tag(target.docker-metadata-action.tags, "${target.channel-manager-debug.name}")
 }
