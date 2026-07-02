@@ -28,7 +28,7 @@ SLIM is the secure transport layer for agent communication. Beyond its native me
 
     ---
 
-    Export traces and metrics from SLIM nodes and agents using OpenTelemetry.
+    Carry OpenTelemetry traces and metrics between collectors and receivers over SLIM.
 
     [:octicons-arrow-right-24: Learn more](./otel.md)
 
