@@ -13,10 +13,10 @@ use tonic::{Request, Response, Status, Streaming};
 use uuid::Uuid;
 
 use crate::api::proto::controller::proto::v1::{
-    Connection, ControlMessage, RegisterNodeResponse, Route as ProtoRoute,
-    control_message::Payload, controller_service_server::ControllerService,
+    AuthMethod as ProtoAuthMethod, Connection, ControlMessage, RegisterNodeResponse,
+    Route as ProtoRoute, control_message::Payload, controller_service_server::ControllerService,
 };
-use crate::db::{ConnectionDetails, LinkStatus, Node, RouteStatus, SharedDb};
+use crate::db::{ConnectionDetails, LinkStatus, Node, RouteStatus, SharedDb, model::AuthMethod};
 use crate::error::{Error, Result};
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
 use crate::route_service::{ALL_NODES_ID, RouteService};
@@ -226,15 +226,14 @@ async fn build_node_connections(
         if link.link_id.is_empty() {
             continue;
         }
-        let mut config = match route_service
+        let server_config = match route_service
             .get_client_config(&link.source_node_id, &link.dest_node_id)
             .await
         {
             Ok((_endpoint, cfg)) => cfg,
             Err(_) => continue,
         };
-        config.link_id = link.link_id.clone();
-        let config_data = match serde_json::to_string(&config) {
+        let config_data = match serde_json::to_string(&server_config) {
             Ok(d) => d,
             Err(_) => continue,
         };
@@ -392,11 +391,6 @@ fn parse_conn_details(
     peer_host: &str,
     detail: &crate::api::proto::controller::proto::v1::ConnectionDetails,
 ) -> ConnectionDetails {
-    let spire_mtls = detail.spire_mtls.as_ref().map(|s| crate::db::SpireMtls {
-        socket_path: s.socket_path.clone(),
-        trust_domain: s.trust_domain.clone(),
-    });
-
     // Derive the effective endpoint: if the proto endpoint contains a wildcard
     // address (0.0.0.0 or [::]), substitute the peer host.
     let mut endpoint = detail.endpoint.clone();
@@ -410,6 +404,13 @@ fn parse_conn_details(
     ConnectionDetails {
         endpoint,
         external_endpoint: detail.external_endpoint.clone(),
-        spire_mtls,
+        tls_required: detail.tls_required,
+        auth_method: match ProtoAuthMethod::try_from(detail.auth_method).unwrap_or_default() {
+            ProtoAuthMethod::Spire => AuthMethod::Spire,
+            ProtoAuthMethod::Basic => AuthMethod::Basic,
+            ProtoAuthMethod::Jwt => AuthMethod::Jwt,
+            ProtoAuthMethod::None => AuthMethod::None,
+        },
+        spire_trust_domain: detail.spire_trust_domain.clone(),
     }
 }

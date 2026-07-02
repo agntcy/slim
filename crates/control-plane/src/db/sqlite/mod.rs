@@ -21,8 +21,8 @@ use diesel_async::sync_connection_wrapper::SyncConnectionWrapper;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 
 use super::model::{
-    ALL_NODES_ID, ConnDetailsJson, DbClientConfig, DbTimestamp, JsonStrings, Link, LinkStatus,
-    Node, Route, RouteName, RouteStatus, TopologySegment, TopologySegmentLink,
+    ALL_NODES_ID, ConnDetailsJson, DbServerConnectionConfig, DbTimestamp, JsonStrings, Link,
+    LinkStatus, Node, Route, RouteName, RouteStatus, TopologySegment, TopologySegmentLink,
     has_connection_details_changed,
 };
 use super::schema::{links, nodes, routes, topology_segment_links, topology_segments};
@@ -82,7 +82,7 @@ impl ToSql<Text, Sqlite> for JsonStrings {
     }
 }
 
-impl ToSql<Text, Sqlite> for DbClientConfig {
+impl ToSql<Text, Sqlite> for DbServerConnectionConfig {
     fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
         let s = serde_json::to_string(&self.0).map_err(|e| format!("{e}"))?;
         out.set_value(s);
@@ -589,7 +589,9 @@ impl DataAccess for SqliteDb {
             ))
             .do_update()
             .set((
-                links::conn_config_data.eq(DbClientConfig::from(link.conn_config_data.clone())),
+                links::conn_config_data.eq(DbServerConnectionConfig::from(
+                    link.conn_config_data.clone(),
+                )),
                 links::status.eq(link.status),
                 links::status_msg.eq(&link.status_msg),
                 links::last_updated.eq(ts),
@@ -624,7 +626,9 @@ impl DataAccess for SqliteDb {
                 .filter(links::dest_endpoint.eq(&link.dest_endpoint)),
         )
         .set((
-            links::conn_config_data.eq(DbClientConfig::from(link.conn_config_data.clone())),
+            links::conn_config_data.eq(DbServerConnectionConfig::from(
+                link.conn_config_data.clone(),
+            )),
             links::status.eq(link.status),
             links::status_msg.eq(&link.status_msg),
             links::last_updated.eq(ts),
@@ -835,7 +839,9 @@ impl DataAccess for SqliteDb {
                 ))
                 .do_update()
                 .set((
-                    links::conn_config_data.eq(DbClientConfig::from(link.conn_config_data.clone())),
+                    links::conn_config_data.eq(DbServerConnectionConfig::from(
+                        link.conn_config_data.clone(),
+                    )),
                     links::status.eq(link.status),
                     links::status_msg.eq(&link.status_msg),
                     links::last_updated.eq(ts),
@@ -1247,7 +1253,9 @@ mod tests {
             conn_details: vec![ConnectionDetails {
                 endpoint: format!("{id}:8080"),
                 external_endpoint: None,
-                spire_mtls: None,
+                tls_required: false,
+                auth_method: crate::db::model::AuthMethod::None,
+                spire_trust_domain: None,
             }],
             created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
@@ -1281,8 +1289,7 @@ mod tests {
             dest_node_id: dst.to_string(),
             dest_group: String::new(),
             dest_endpoint: ep.to_string(),
-            conn_config_data: slim_config::grpc::client::ClientConfig::default()
-                .with_connection_type(slim_config::conn_type::ConnType::Remote),
+            conn_config_data: slim_config::client::ServerConnectionConfig::default(),
             status: LinkStatus::Pending,
             status_msg: String::new(),
             created_at: SystemTime::now(),

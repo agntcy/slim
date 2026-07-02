@@ -1,16 +1,16 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use slim_config::conn_type::ConnType;
-use slim_config::grpc::client::ClientConfig;
+use slim_config::client::ServerConnectionConfig;
 
+use crate::db::model;
 use crate::error::{Error, Result};
 
 #[derive(Clone, Debug)]
 pub(super) struct ReportedConnection {
     pub(super) endpoint: String,
     pub(super) link_id: String,
-    pub(super) config_data: ClientConfig,
+    pub(super) config_data: ServerConnectionConfig,
 }
 
 impl super::RouteService {
@@ -20,7 +20,7 @@ impl super::RouteService {
         &self,
         source_node_id: &str,
         dest_node_id: &str,
-    ) -> Result<(String, ClientConfig)> {
+    ) -> Result<(String, ServerConnectionConfig)> {
         let dest_node =
             self.0
                 .db
@@ -48,7 +48,7 @@ impl super::RouteService {
 pub(super) fn compute_client_config(
     src_node: &crate::db::Node,
     dst_node: &crate::db::Node,
-) -> Result<(String, ClientConfig)> {
+) -> Result<(String, ServerConnectionConfig)> {
     if dst_node.conn_details.is_empty() {
         return Err(Error::InvalidInput(format!(
             "no connections for destination node {}",
@@ -56,7 +56,7 @@ pub(super) fn compute_client_config(
         )));
     }
     let (conn, local_connection) = select_connection(dst_node, src_node);
-    generate_config_data(conn, local_connection, dst_node, src_node)
+    generate_config_data(conn, local_connection, dst_node)
 }
 
 /// Select the best connection detail from `dst_node` relative to `src_node`.
@@ -96,12 +96,8 @@ pub(super) fn generate_config_data(
     detail: &crate::db::ConnectionDetails,
     local_connection: bool,
     dest_node: &crate::db::Node,
-    src_node: &crate::db::Node,
-) -> Result<(String, ClientConfig)> {
-    use slim_config::grpc::client::{BackoffConfig, KeepaliveConfig};
-    use slim_config::tls::client::TlsClientConfig;
-    use slim_config::tls::common::{CaSource, Config as TlsConfig, TlsSource};
-    use std::time::Duration;
+) -> Result<(String, ServerConnectionConfig)> {
+    use slim_config::client::RequiredAuthMethod;
 
     let endpoint = if local_connection {
         detail.endpoint.clone()
@@ -118,71 +114,35 @@ pub(super) fn generate_config_data(
             })?
     };
 
-    let (effective_endpoint, tls_setting) = if let Some(ref spire) = detail.spire_mtls {
-        let spire_socket = src_node
-            .conn_details
-            .iter()
-            .find_map(|cd| cd.spire_mtls.as_ref().map(|s| s.socket_path.clone()))
-            .unwrap_or_else(|| spire.socket_path.clone());
-
-        let trust_domain = spire
-            .trust_domain
-            .as_deref()
-            .or(dest_node.group_name.as_deref());
-
-        let mut trust_domains = Vec::new();
-        if let Some(td) = trust_domain {
-            trust_domains.push(td.to_string());
-        }
-
-        let spire_config = slim_config::auth::spire::SpireConfig {
-            socket_path: Some(spire_socket.clone()),
-            trust_domains: trust_domains.clone(),
-            ..Default::default()
+    let (effective_endpoint, tls_required, auth_method) =
+        if detail.tls_required && detail.auth_method == model::AuthMethod::Spire {
+            let trust_domain = detail
+                .spire_trust_domain
+                .as_deref()
+                .or(dest_node.group_name.as_deref())
+                .map(|s| s.to_string());
+            (
+                format!("https://{endpoint}"),
+                true,
+                RequiredAuthMethod::Spire { trust_domain },
+            )
+        } else {
+            (
+                format!("http://{endpoint}"),
+                false,
+                RequiredAuthMethod::None,
+            )
         };
 
-        let tls = TlsClientConfig {
-            insecure: false,
-            insecure_skip_verify: local_connection,
-            config: TlsConfig {
-                source: TlsSource::Spire {
-                    config: slim_config::auth::spire::SpireConfig {
-                        socket_path: Some(spire_socket),
-                        ..Default::default()
-                    },
-                },
-                ca_source: CaSource::Spire {
-                    config: spire_config,
-                },
-                ..Default::default()
-            },
-        };
-
-        (format!("https://{endpoint}"), tls)
-    } else {
-        let tls = TlsClientConfig {
-            insecure: true,
-            ..Default::default()
-        };
-        (format!("http://{endpoint}"), tls)
-    };
-
-    let client_config = ClientConfig {
+    let server_config = ServerConnectionConfig {
         endpoint: effective_endpoint.clone(),
-        tls_setting,
-        backoff: BackoffConfig::new_fixed_interval(Duration::from_millis(2000), usize::MAX),
-        keepalive: Some(KeepaliveConfig {
-            tcp_keepalive: Duration::from_secs(20).into(),
-            http2_keepalive: Duration::from_secs(20).into(),
-            timeout: Duration::from_secs(20).into(),
-            keep_alive_while_idle: false,
-        }),
-        link_id: String::new(),
-        connection_type: ConnType::Remote,
-        ..Default::default()
+        tls_required,
+        auth_method,
+        backoff: Some(2000),
+        timeout: None,
     };
 
-    Ok((effective_endpoint, client_config))
+    Ok((effective_endpoint, server_config))
 }
 
 pub(super) fn find_reported_connection<'a>(
@@ -291,29 +251,25 @@ mod tests {
     fn generate_config_data_local_http() {
         let cd = make_conn_details("host:8080", None);
         let dest = make_node("dst", Some("g"), vec![cd.clone()]);
-        let src = make_node("src", Some("g"), vec![]);
-        let (ep, config) = generate_config_data(&cd, true, &dest, &src).unwrap();
+        let (ep, config) = generate_config_data(&cd, true, &dest).unwrap();
         assert!(ep.starts_with("http://"));
-        assert!(config.tls_setting.insecure);
-        assert!(config.keepalive.is_some());
+        assert!(!config.tls_required);
     }
 
     #[test]
     fn generate_config_data_external_no_mtls() {
         let cd = make_conn_details("host:8080", Some("ext:9090"));
         let dest = make_node("dst", Some("g1"), vec![cd.clone()]);
-        let src = make_node("src", Some("g2"), vec![]);
-        let (ep, config) = generate_config_data(&cd, false, &dest, &src).unwrap();
+        let (ep, config) = generate_config_data(&cd, false, &dest).unwrap();
         assert!(ep.contains("ext:9090"));
-        assert!(config.tls_setting.insecure);
+        assert!(!config.tls_required);
     }
 
     #[test]
     fn generate_config_data_no_external_endpoint_remote_returns_error() {
         let cd = make_conn_details("host:8080", None);
         let dest = make_node("dst", None, vec![cd.clone()]);
-        let src = make_node("src", None, vec![]);
-        assert!(generate_config_data(&cd, false, &dest, &src).is_err());
+        assert!(generate_config_data(&cd, false, &dest).is_err());
     }
 
     #[tokio::test]

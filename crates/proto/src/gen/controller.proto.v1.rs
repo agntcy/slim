@@ -162,20 +162,14 @@ pub struct ConnectionDetails {
     pub endpoint: ::prost::alloc::string::String,
     #[prost(string, optional, tag = "2")]
     pub external_endpoint: ::core::option::Option<::prost::alloc::string::String>,
-    #[prost(message, optional, tag = "3")]
-    pub spire_mtls: ::core::option::Option<connection_details::SpireMtls>,
-    #[prost(message, optional, tag = "4")]
+    #[prost(bool, tag = "3")]
+    pub tls_required: bool,
+    #[prost(enumeration = "AuthMethod", tag = "4")]
+    pub auth_method: i32,
+    #[prost(string, optional, tag = "5")]
+    pub spire_trust_domain: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, optional, tag = "6")]
     pub metadata: ::core::option::Option<::prost_types::Struct>,
-}
-/// Nested message and enum types in `ConnectionDetails`.
-pub mod connection_details {
-    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-    pub struct SpireMtls {
-        #[prost(string, tag = "1")]
-        pub socket_path: ::prost::alloc::string::String,
-        #[prost(string, optional, tag = "2")]
-        pub trust_domain: ::core::option::Option<::prost::alloc::string::String>,
-    }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterNodeRequest {
@@ -271,6 +265,38 @@ impl ConnectionDirection {
         match value {
             "CONNECTION_DIRECTION_OUTGOING" => Some(Self::Outgoing),
             "CONNECTION_DIRECTION_INCOMING" => Some(Self::Incoming),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum AuthMethod {
+    None = 0,
+    Spire = 1,
+    Basic = 2,
+    Jwt = 3,
+}
+impl AuthMethod {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::None => "AUTH_METHOD_NONE",
+            Self::Spire => "AUTH_METHOD_SPIRE",
+            Self::Basic => "AUTH_METHOD_BASIC",
+            Self::Jwt => "AUTH_METHOD_JWT",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "AUTH_METHOD_NONE" => Some(Self::None),
+            "AUTH_METHOD_SPIRE" => Some(Self::Spire),
+            "AUTH_METHOD_BASIC" => Some(Self::Basic),
+            "AUTH_METHOD_JWT" => Some(Self::Jwt),
             _ => None,
         }
     }

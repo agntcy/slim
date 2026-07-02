@@ -35,6 +35,7 @@ use crate::errors::ConfigError;
 use crate::grpc::compression::CompressionType;
 use crate::grpc::proxy::ProxyConfig;
 use crate::tls::client::TlsClientConfig as TLSSetting;
+use crate::tls::errors::ConfigError as TlsConfigError;
 use crate::transport::{TransportProtocol, validate_endpoint_scheme};
 use crate::websocket::client::WebSocketClientChannel;
 
@@ -509,6 +510,107 @@ impl ClientConfig {
     pub fn resolved_transport(&self) -> TransportProtocol {
         TransportProtocol::from_endpoint(&self.endpoint)
     }
+
+    pub fn merge_server_requirements(
+        &mut self,
+        server: &ServerConnectionConfig,
+    ) -> Result<(), TlsConfigError> {
+        self.endpoint = server.endpoint.clone();
+        self.tls_setting.insecure = !server.tls_required;
+
+        match &server.auth_method {
+            RequiredAuthMethod::None => {
+                self.auth = AuthenticationConfig::None;
+            }
+            RequiredAuthMethod::Spire { trust_domain } => {
+                use crate::auth::spire::SpireConfig;
+                use crate::tls::common::{CaSource, TlsSource};
+
+                let trust_domains = trust_domain
+                    .as_ref()
+                    .map(|td| vec![td.clone()])
+                    .unwrap_or_default();
+
+                if server.tls_required {
+                    let tls_socket_path = match &self.tls_setting.config.source {
+                        TlsSource::Spire { config: tls_config } => tls_config.socket_path.clone(),
+                        _ => None,
+                    };
+                    self.tls_setting.config.source = TlsSource::Spire {
+                        config: SpireConfig {
+                            socket_path: tls_socket_path.clone(),
+                            ..Default::default()
+                        },
+                    };
+                    self.tls_setting.config.ca_source = CaSource::Spire {
+                        config: SpireConfig {
+                            socket_path: tls_socket_path,
+                            trust_domains,
+                            ..Default::default()
+                        },
+                    };
+                } else {
+                    return Err(TlsConfigError::Spire(
+                        "TLS needs to be enabled to use Spire".to_string(),
+                    ));
+                }
+            }
+            _ => {} // Basic and JWT local credentials/tokens remain preserved
+        }
+        if let Some(ms) = server.timeout {
+            self.connect_timeout = Duration::from_millis(ms as u64).into();
+        }
+        if let Some(ms) = server.backoff {
+            self.backoff =
+                BackoffConfig::new_fixed_interval(Duration::from_millis(ms as u64), usize::MAX);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RequiredAuthMethod {
+    #[default]
+    None,
+    Basic,
+    Jwt,
+    Spire {
+        trust_domain: Option<String>,
+    },
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+pub struct ServerConnectionConfig {
+    pub endpoint: String,
+    pub tls_required: bool,
+    pub auth_method: RequiredAuthMethod,
+    pub timeout: Option<u32>,
+    pub backoff: Option<u32>,
+}
+
+impl ServerConnectionConfig {
+    pub fn from_client_config(client: &ClientConfig) -> Self {
+        let tls_required = !client.tls_setting.insecure;
+        let auth_method = match &client.auth {
+            AuthenticationConfig::None => RequiredAuthMethod::None,
+            AuthenticationConfig::Basic(_) => RequiredAuthMethod::Basic,
+            AuthenticationConfig::StaticJwt(_) | AuthenticationConfig::Jwt(_) => {
+                RequiredAuthMethod::Jwt
+            }
+            #[cfg(not(target_family = "windows"))]
+            AuthenticationConfig::Spire(cfg) => RequiredAuthMethod::Spire {
+                trust_domain: cfg.trust_domains.first().cloned(),
+            },
+        };
+        Self {
+            endpoint: client.endpoint.clone(),
+            tls_required,
+            auth_method,
+            timeout: None,
+            backoff: None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -695,5 +797,149 @@ mod tests {
         let mut config = ClientConfig::with_endpoint("http://localhost:1234");
         config.link_id = "my-custom-link-id".to_string();
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_merge_server_requirements_none_auth() {
+        let mut client = ClientConfig::with_endpoint("http://old:1234")
+            .with_auth(AuthenticationConfig::Basic(Default::default()));
+        let server = ServerConnectionConfig {
+            endpoint: "http://new:5678".to_string(),
+            tls_required: false,
+            auth_method: RequiredAuthMethod::None,
+            ..Default::default()
+        };
+        client.merge_server_requirements(&server).unwrap();
+        assert_eq!(client.endpoint, "http://new:5678");
+        assert!(client.tls_setting.insecure);
+        assert_eq!(client.auth, AuthenticationConfig::None);
+    }
+
+    #[test]
+    fn test_merge_server_requirements_basic_auth_preserved() {
+        let basic = AuthenticationConfig::Basic(Default::default());
+        let mut client = ClientConfig::with_endpoint("http://old:1234").with_auth(basic.clone());
+        let server = ServerConnectionConfig {
+            endpoint: "http://new:5678".to_string(),
+            tls_required: true,
+            auth_method: RequiredAuthMethod::Basic,
+            ..Default::default()
+        };
+        client.merge_server_requirements(&server).unwrap();
+        assert_eq!(client.endpoint, "http://new:5678");
+        assert!(!client.tls_setting.insecure);
+        assert_eq!(client.auth, basic);
+    }
+
+    #[test]
+    fn test_merge_server_requirements_jwt_auth_preserved() {
+        let jwt = AuthenticationConfig::StaticJwt(Default::default());
+        let mut client = ClientConfig::with_endpoint("http://old:1234").with_auth(jwt.clone());
+        let server = ServerConnectionConfig {
+            endpoint: "http://new:9999".to_string(),
+            tls_required: false,
+            auth_method: RequiredAuthMethod::Jwt,
+            ..Default::default()
+        };
+        client.merge_server_requirements(&server).unwrap();
+        assert_eq!(client.endpoint, "http://new:9999");
+        assert_eq!(client.auth, jwt);
+    }
+
+    #[cfg(not(target_family = "windows"))]
+    #[test]
+    fn test_merge_server_requirements_spire_with_tls_sets_sources() {
+        use crate::tls::common::{CaSource, TlsSource};
+
+        let mut client = ClientConfig::with_endpoint("http://old:1234");
+        let server = ServerConnectionConfig {
+            endpoint: "http://new:5678".to_string(),
+            tls_required: true,
+            auth_method: RequiredAuthMethod::Spire {
+                trust_domain: Some("example.org".to_string()),
+            },
+            ..Default::default()
+        };
+        client.merge_server_requirements(&server).unwrap();
+        assert_eq!(client.endpoint, "http://new:5678");
+        assert!(!client.tls_setting.insecure);
+        assert!(matches!(
+            client.tls_setting.config.source,
+            TlsSource::Spire { .. }
+        ));
+        assert!(matches!(
+            client.tls_setting.config.ca_source,
+            CaSource::Spire { .. }
+        ));
+    }
+
+    #[cfg(not(target_family = "windows"))]
+    #[test]
+    fn test_merge_server_requirements_spire_preserves_socket_path() {
+        use crate::auth::spire::SpireConfig;
+        use crate::tls::common::{CaSource, TlsSource};
+
+        let mut client = ClientConfig::with_endpoint("http://old:1234");
+        client.tls_setting.config.source = TlsSource::Spire {
+            config: SpireConfig {
+                socket_path: Some("/run/spire.sock".to_string()),
+                ..Default::default()
+            },
+        };
+        let server = ServerConnectionConfig {
+            endpoint: "http://new:5678".to_string(),
+            tls_required: true,
+            auth_method: RequiredAuthMethod::Spire {
+                trust_domain: Some("example.org".to_string()),
+            },
+            ..Default::default()
+        };
+        client.merge_server_requirements(&server).unwrap();
+        if let TlsSource::Spire { config } = &client.tls_setting.config.source {
+            assert_eq!(config.socket_path.as_deref(), Some("/run/spire.sock"));
+        } else {
+            panic!("expected TlsSource::Spire");
+        }
+        if let CaSource::Spire { config } = &client.tls_setting.config.ca_source {
+            assert_eq!(config.socket_path.as_deref(), Some("/run/spire.sock"));
+            assert_eq!(config.trust_domains, vec!["example.org"]);
+        } else {
+            panic!("expected CaSource::Spire");
+        }
+    }
+
+    #[cfg(not(target_family = "windows"))]
+    #[test]
+    fn test_merge_server_requirements_spire_no_trust_domain() {
+        use crate::tls::common::CaSource;
+
+        let mut client = ClientConfig::with_endpoint("http://old:1234");
+        let server = ServerConnectionConfig {
+            endpoint: "http://new:5678".to_string(),
+            tls_required: true,
+            auth_method: RequiredAuthMethod::Spire { trust_domain: None },
+            ..Default::default()
+        };
+        client.merge_server_requirements(&server).unwrap();
+        if let CaSource::Spire { config } = &client.tls_setting.config.ca_source {
+            assert!(config.trust_domains.is_empty());
+        } else {
+            panic!("expected CaSource::Spire");
+        }
+    }
+
+    #[cfg(not(target_family = "windows"))]
+    #[test]
+    fn test_merge_server_requirements_spire_without_tls_errors() {
+        let mut client = ClientConfig::with_endpoint("http://old:1234");
+        let server = ServerConnectionConfig {
+            endpoint: "http://new:5678".to_string(),
+            tls_required: false,
+            auth_method: RequiredAuthMethod::Spire {
+                trust_domain: Some("example.org".to_string()),
+            },
+            ..Default::default()
+        };
+        assert!(client.merge_server_requirements(&server).is_err());
     }
 }
