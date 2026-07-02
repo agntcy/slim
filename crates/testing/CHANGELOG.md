@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/agntcy/slim/compare/slim-testutils-v0.7.1...slim-testutils-v0.7.2) (2026-07-02)
+
+
+### Features
+
+* add header integrity check and replay protection to control messages ([#1740](https://github.com/agntcy/slim/issues/1740)) ([07440be](https://github.com/agntcy/slim/commit/07440be908cfb443ac6b8f01d8d0dbf84ad31b29))
+
 ## [0.7.1](https://github.com/agntcy/slim/compare/slim-testutils-v0.7.0...slim-testutils-v0.7.1) (2025-11-21)
 
 
