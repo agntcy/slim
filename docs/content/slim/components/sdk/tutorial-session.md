@@ -23,10 +23,9 @@ A point-to-point session connects your application to a single remote instance. 
     import slim_bindings
 
     async def run_client(app, remote_name):
-        # Configure the session
         session_config = slim_bindings.SessionConfig(
             session_type=slim_bindings.SessionType.POINT_TO_POINT,
-            enable_mls=False,       # Set True to enable end-to-end encryption
+            enable_mls=True,
             max_retries=5,
             interval=datetime.timedelta(seconds=5),
         )
@@ -53,10 +52,11 @@ A point-to-point session connects your application to a single remote instance. 
     )
 
     func runClient(app *slim.App, remoteName slim.Name) *slim.Session {
-        // Configure the session
         config := slim.SessionConfig{
             SessionType: slim.SessionTypePointToPoint,
-            MlsSettings: nil, // Set to &slim.MlsSettings{...} to enable E2E encryption
+            MlsSettings: &slim.MlsSettings{
+                HeaderIntegrityValidationPercent: 100,
+            },
         }
 
         // Create the session — discovery happens automatically
@@ -79,13 +79,12 @@ A point-to-point session connects your application to a single remote instance. 
     import java.util.Map;
 
     Session runClient(App app, Name remoteName) {
-        // Configure the session
         SessionConfig sessionConfig = new SessionConfig(
             SessionType.POINT_TO_POINT,
             5,                       // maxRetries
             Duration.ofSeconds(5),   // interval
             Map.of(),                // metadata
-            null                     // mlsSettings (set to new MlsSettings(100) for E2E encryption)
+            new MlsSettings(100)     // Enable E2E encryption
         );
 
         // Create the session — discovery happens automatically
@@ -104,13 +103,12 @@ A point-to-point session connects your application to a single remote instance. 
     import java.time.Duration
 
     suspend fun runClient(app: App, remoteName: Name): Session {
-        // Configure the session
         val sessionConfig = SessionConfig(
             sessionType = SessionType.POINT_TO_POINT,
             maxRetries = 5u,
             interval = Duration.ofSeconds(5),
             metadata = emptyMap(),
-            mlsSettings = null // Set to MlsSettings(100u) for E2E encryption
+            mlsSettings = MlsSettings(100u)
         )
 
         // Create the session — discovery happens automatically
@@ -131,10 +129,9 @@ A point-to-point session connects your application to a single remote instance. 
     import slimBindings from '@agntcy/slim-bindings';
 
     async function runClient(app, remoteName) {
-        // Configure the session
         const sessionConfig = {
             sessionType: "pointToPoint" as const,
-            enableMls: false, // Set true to enable end-to-end encryption
+            enableMls: true,
             maxRetries: 5,
             interval: 5000, // milliseconds
             metadata: new Map()
@@ -154,11 +151,13 @@ A point-to-point session connects your application to a single remote instance. 
     ```csharp
     using Agntcy.Slim;
 
-    // Configure the session
     var config = new SlimSessionConfig
     {
         SessionType = SlimSessionType.PointToPoint,
-        MlsSettings = null  // Set to new SlimMlsSettings() to enable E2E encryption
+        MlsSettings = new SlimMlsSettings(),
+        MaxRetries = 5,
+        RetryInterval = TimeSpan.FromSeconds(5),
+        Metadata = new Dictionary<string, string>()
     };
 
     // Create the session — discovery happens automatically
@@ -171,10 +170,11 @@ A point-to-point session connects your application to a single remote instance. 
 === "React Native"
 
     ```tsx
-    // Configure the session — SessionType is an enum, metadata must be a Map
     const sessionConfig = {
         sessionType: slimBindings.SessionType.PointToPoint,
-        enableMls: false,  // set true to enable E2E encryption
+        enableMls: true,
+        maxRetries: 5,
+        interval: 5000, // milliseconds
         metadata: new Map()
     };
 
@@ -182,128 +182,6 @@ A point-to-point session connects your application to a single remote instance. 
     const session = await app.createSessionAndWaitAsync(sessionConfig, remoteName);
 
     console.log("Point-to-point session established");
-    ```
-
-### Send and Receive Messages
-
-=== "Python"
-
-    ```python
-    # Send a message
-    await session.publish_async(
-        b"hello",   # payload: bytes
-        None,       # payload_type: str | None
-        None,       # metadata: dict | None
-    )
-
-    # Receive a reply
-    received = await session.get_message_async(
-        timeout=datetime.timedelta(seconds=30)
-    )
-    print("Received:", received.payload.decode())
-
-    # Echo the message back
-    await session.publish_async(received.payload, None, None)
-    ```
-
-=== "Go"
-
-    ```go
-    import "time"
-
-    // Send a message
-    if err := session.PublishAndWaitAsync([]byte("hello"), nil, nil); err != nil {
-        log.Fatal(err)
-    }
-
-    // Receive a reply
-    timeout := 30 * time.Second
-    msg, err := session.GetMessageAsync(&timeout)
-    if err != nil {
-        log.Fatal(err)
-    }
-    fmt.Println("Received:", string(msg.Payload))
-
-    // Echo the message back
-    if err := session.PublishAndWaitAsync(msg.Payload, nil, nil); err != nil {
-        log.Fatal(err)
-    }
-    ```
-
-=== "Java"
-
-    ```java
-    import java.time.Duration;
-
-    // Send a message
-    session.publishAndWait("hello".getBytes(), null, null);
-
-    // Receive a reply
-    ReceivedMessage msg = session.getMessage(Duration.ofSeconds(30));
-    System.out.println("Received: " + new String(msg.payload()));
-
-    // Echo the message back
-    session.publishAndWait(msg.payload(), null, null);
-    ```
-
-=== "Kotlin"
-
-    ```kotlin
-    import java.time.Duration
-
-    // Send a message
-    session.publishAsync("hello".toByteArray(), null, null)
-
-    // Receive a reply
-    val msg = session.getMessageAsync(Duration.ofSeconds(30))
-    println("Received: " + String(msg.payload))
-
-    // Echo the message back
-    session.publishAsync(msg.payload, null, null)
-    ```
-
-=== "Node.js"
-
-    ```typescript
-    // Send a message
-    await session.publishAndWaitAsync(Buffer.from("hello"), undefined, undefined);
-
-    // Receive a reply
-    const msg = await session.getMessageAsync(30000); // timeout in milliseconds
-    console.log("Received:", Buffer.from(msg.payload).toString());
-
-    // Echo the message back
-    await session.publishAndWaitAsync(msg.payload, undefined, undefined);
-    ```
-
-=== ".NET"
-
-    ```csharp
-    // Send a message
-    await session.PublishAsync("hello");
-
-    // Receive a reply
-    var msg = await session.GetMessageAsync(TimeSpan.FromSeconds(30));
-    Console.WriteLine($"Received: {msg.Text}");
-
-    // Echo the message back
-    await session.ReplyAsync(msg, msg.Text);
-    ```
-
-=== "React Native"
-
-    ```tsx
-    // Send a message — payload is Uint8Array in React Native
-    const payload = new Uint8Array("hello".split('').map(c => c.charCodeAt(0)));
-    await session.publishAndWaitAsync(payload, undefined, undefined);
-
-    // Receive a reply (timeout in milliseconds)
-    const msg = await session.getMessageAsync(30000);
-    const text = String.fromCharCode(...new Uint8Array(msg.payload));
-    console.log("Received:", text);
-
-    // Echo the message back
-    await session.publishToAndWaitAsync(msg.context, msg.payload, undefined, undefined);
     ```
 
 ## Group Session
@@ -318,7 +196,7 @@ A group session enables many-to-many communication on a named channel. Every mes
     async def create_group_session(app, channel_name):
         session_config = slim_bindings.SessionConfig(
             session_type=slim_bindings.SessionType.GROUP,
-            enable_mls=False,
+            enable_mls=True,
             max_retries=5,
             interval=datetime.timedelta(seconds=5),
         )
@@ -340,7 +218,9 @@ A group session enables many-to-many communication on a named channel. Every mes
     func createGroupSession(app *slim.App, channelName slim.Name) *slim.Session {
         config := slim.SessionConfig{
             SessionType: slim.SessionTypeGroup,
-            MlsSettings: nil,
+            MlsSettings: &slim.MlsSettings{
+                HeaderIntegrityValidationPercent: 100,
+            },
         }
 
         // Create the session on the given channel
@@ -364,7 +244,7 @@ A group session enables many-to-many communication on a named channel. Every mes
             5,                       // maxRetries
             Duration.ofSeconds(5),   // interval
             Map.of(),                // metadata
-            null                     // mlsSettings
+            new MlsSettings(100)     // Enable E2E encryption
         );
 
         // Create the session on the given channel
@@ -385,7 +265,7 @@ A group session enables many-to-many communication on a named channel. Every mes
             maxRetries = 5u,
             interval = Duration.ofSeconds(5),
             metadata = emptyMap(),
-            mlsSettings = null
+            mlsSettings = MlsSettings(100u)
         )
 
         // Create the session on the given channel
@@ -403,10 +283,9 @@ A group session enables many-to-many communication on a named channel. Every mes
 === "Node.js"
 
     ```typescript
-    // sessionType "group" works the same as "pointToPoint" — just change the type
     const sessionConfig = {
         sessionType: "group" as const,
-        enableMls: false,
+        enableMls: true,
         maxRetries: 5,
         interval: 5000, // milliseconds
         metadata: new Map()
@@ -426,7 +305,7 @@ A group session enables many-to-many communication on a named channel. Every mes
     var config = new SlimSessionConfig
     {
         SessionType = SlimSessionType.Group,
-        MlsSettings = null,  // Set to new SlimMlsSettings() to enable E2E encryption
+        MlsSettings = new SlimMlsSettings(),
         MaxRetries = 5,
         RetryInterval = TimeSpan.FromSeconds(5),
         Metadata = new Dictionary<string, string>()
@@ -443,7 +322,9 @@ A group session enables many-to-many communication on a named channel. Every mes
     ```tsx
     const sessionConfig = {
         sessionType: slimBindings.SessionType.Group,
-        enableMls: false,
+        enableMls: true,
+        maxRetries: 5,
+        interval: 5000, // milliseconds
         metadata: new Map()
     };
 
@@ -554,176 +435,209 @@ The session creator acts as a moderator and can invite other applications to joi
     console.log(`Invited ${inviteName} to the group`);
     ```
 
-### Broadcast to the Group
+## Send a Message
+
+`publish_async` / `PublishAndWaitAsync` delivers the message to all current session participants. For point-to-point sessions this is just the single remote peer; for group sessions every member receives it.
 
 === "Python"
 
     ```python
-    # Broadcast to all participants
-    await session.publish_async(b"hello everyone", None, None)
-
-    # Receive messages from the group
-    received = await session.get_message_async(
-        timeout=datetime.timedelta(seconds=30)
+    await session.publish_async(
+        b"hello",   # payload: bytes
+        None,       # payload_type: str | None
+        None,       # metadata: dict | None
     )
-    print("Channel message:", received.payload.decode())
     ```
 
 === "Go"
 
     ```go
-    // Broadcast to all participants
-    if err := session.PublishAndWaitAsync([]byte("hello everyone"), nil, nil); err != nil {
+    if err := session.PublishAndWaitAsync([]byte("hello"), nil, nil); err != nil {
         log.Fatal(err)
     }
+    ```
 
-    // Receive messages from the group
+=== "Java"
+
+    ```java
+    session.publishAndWait("hello".getBytes(), null, null);
+    ```
+
+=== "Kotlin"
+
+    ```kotlin
+    session.publishAsync("hello".toByteArray(), null, null)
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    await session.publishAndWaitAsync(Buffer.from("hello"), undefined, undefined);
+    ```
+
+=== ".NET"
+
+    ```csharp
+    await session.PublishAsync("hello");
+    ```
+
+=== "React Native"
+
+    ```tsx
+    // Payload is Uint8Array in React Native
+    const payload = new Uint8Array("hello".split('').map(c => c.charCodeAt(0)));
+    await session.publishAndWaitAsync(payload, undefined, undefined);
+    ```
+
+## Listen for a Reply
+
+After sending, call `get_message_async` to wait for an inbound message on the same session.
+
+=== "Python"
+
+    ```python
+    import datetime
+
+    received = await session.get_message_async(
+        timeout=datetime.timedelta(seconds=30)
+    )
+    print("Received:", received.payload.decode())
+    ```
+
+=== "Go"
+
+    ```go
+    import "time"
+
     timeout := 30 * time.Second
     msg, err := session.GetMessageAsync(&timeout)
     if err != nil {
         log.Fatal(err)
     }
-    fmt.Println("Channel message:", string(msg.Payload))
+    fmt.Println("Received:", string(msg.Payload))
     ```
 
 === "Java"
 
     ```java
-    // Broadcast to all participants
-    session.publishAndWait("hello everyone".getBytes(), null, null);
+    import java.time.Duration;
 
-    // Receive messages from the group
     ReceivedMessage msg = session.getMessage(Duration.ofSeconds(30));
-    System.out.println("Channel message: " + new String(msg.payload()));
+    System.out.println("Received: " + new String(msg.payload()));
     ```
 
 === "Kotlin"
 
     ```kotlin
-    // Broadcast to all participants
-    session.publishAsync("hello everyone".toByteArray(), null, null)
+    import java.time.Duration
 
-    // Receive messages from the group
     val msg = session.getMessageAsync(Duration.ofSeconds(30))
-    println("Channel message: " + String(msg.payload))
+    println("Received: " + String(msg.payload))
     ```
 
 === "Node.js"
 
     ```typescript
-    // Broadcast to all participants
-    await session.publishAndWaitAsync(Buffer.from("hello everyone"), undefined, undefined);
-
-    // Receive messages from the group
-    const msg = await session.getMessageAsync(30000);
-    console.log("Channel message:", Buffer.from(msg.payload).toString());
+    const msg = await session.getMessageAsync(30000); // timeout in milliseconds
+    console.log("Received:", Buffer.from(msg.payload).toString());
     ```
 
 === ".NET"
 
     ```csharp
-    // Broadcast to all participants
-    await session.PublishAsync("hello everyone");
-
-    // Receive messages from the group
     var msg = await session.GetMessageAsync(TimeSpan.FromSeconds(30));
-    Console.WriteLine($"Channel message: {msg.Text}");
+    Console.WriteLine($"Received: {msg.Text}");
     ```
 
 === "React Native"
 
     ```tsx
-    // Broadcast to all participants
-    const payload = new Uint8Array("hello everyone".split('').map(c => c.charCodeAt(0)));
-    await session.publishAndWaitAsync(payload, undefined, undefined);
-
-    // Receive messages from the group
     const msg = await session.getMessageAsync(30000);
     const text = String.fromCharCode(...new Uint8Array(msg.payload));
-    console.log("Channel message:", text);
+    console.log("Received:", text);
     ```
 
-## Enabling End-to-End Encryption
+## Send to a Specific Participant
 
-Set `enable_mls=True` (Python) or provide an `MlsSettings` object (Go, Java, Kotlin) in the `SessionConfig` to enable MLS-based end-to-end encryption. The session layer handles all key establishment automatically — your application code stays the same.
+In a group session, `publish_to_async` / `PublishToAndWaitAsync` sends to a single participant using the context from a previously received message. Other group members do not see the message.
 
 === "Python"
 
     ```python
-    session_config = slim_bindings.SessionConfig(
-        session_type=slim_bindings.SessionType.POINT_TO_POINT,
-        enable_mls=True,  # Enable MLS encryption
-        max_retries=5,
-        interval=datetime.timedelta(seconds=5),
+    # received is a ReceivedMessage obtained from session.get_message_async(...)
+    await session.publish_to_async(
+        received.context,
+        b"private reply",
+        None,   # payload_type
+        {},     # metadata
     )
     ```
 
 === "Go"
 
     ```go
-    config := slim.SessionConfig{
-        SessionType: slim.SessionTypePointToPoint,
-        MlsSettings: &slim.MlsSettings{
-            HeaderIntegrityValidationPercent: 100,
-        },
+    // msg is obtained from session.GetMessageAsync(...)
+    if err := session.PublishToAndWaitAsync(msg.Context, []byte("private reply"), nil, nil); err != nil {
+        log.Fatal(err)
     }
     ```
 
 === "Java"
 
     ```java
-    SessionConfig sessionConfig = new SessionConfig(
-        SessionType.POINT_TO_POINT,
-        5,                       // maxRetries
-        Duration.ofSeconds(5),   // interval
-        Map.of(),                // metadata
-        new MlsSettings(100)     // Enable MLS encryption
-    );
+    // msg is obtained from session.getMessage(...)
+    session.publishToAndWait(msg.context(), "private reply".getBytes(), null, null);
     ```
 
 === "Kotlin"
 
     ```kotlin
-    val sessionConfig = SessionConfig(
-        sessionType = SessionType.POINT_TO_POINT,
-        maxRetries = 5u,
-        interval = Duration.ofSeconds(5),
-        metadata = emptyMap(),
-        mlsSettings = MlsSettings(100u) // Enable MLS encryption
-    )
+    // msg is obtained from session.getMessageAsync(...)
+    session.publishToAsync(msg.context, "private reply".toByteArray(), null, null)
     ```
 
 === "Node.js"
 
     ```typescript
-    const sessionConfig = {
-        sessionType: "pointToPoint" as const,
-        enableMls: true, // Enable MLS encryption
-        maxRetries: 5,
-        interval: 5000,
-        metadata: new Map()
-    };
+    // msg is obtained from session.getMessageAsync(...)
+    await session.publishToAndWaitAsync(
+        msg.context,
+        Buffer.from("private reply"),
+        undefined,
+        undefined
+    );
     ```
 
 === ".NET"
 
     ```csharp
-    var config = new SlimSessionConfig
-    {
-        SessionType = SlimSessionType.PointToPoint,
-        MlsSettings = new SlimMlsSettings()  // Enable MLS encryption
-    };
+    // msg is obtained from session.GetMessageAsync(...)
+    await session.ReplyAsync(msg, "private reply");
     ```
 
 === "React Native"
 
     ```tsx
-    const sessionConfig = {
-        sessionType: slimBindings.SessionType.PointToPoint,
-        enableMls: true,  // Enable MLS encryption
-        metadata: new Map()
-    };
+    // msg is obtained from session.getMessageAsync(...)
+    const payload = new Uint8Array("private reply".split('').map(c => c.charCodeAt(0)));
+    await session.publishToAndWaitAsync(msg.context, payload, undefined, undefined);
     ```
+
+## Advanced Session Config
+
+### Reliability
+
+By default, if `max_retries` and `interval` are omitted (or set to `null`/`nil`), the session layer sends messages fire-and-forget — no acknowledgement is requested and no retransmission occurs.
+
+When `max_retries` and `interval` are set, the session layer requests an acknowledgement for each message. If no ack arrives within `interval`, the message is resent. This repeats up to `max_retries` times before the session reports a delivery failure to your application.
+
+The code examples in this tutorial use `max_retries=5` and a 5-second interval. Set both to `null`/`nil`/`0` for unreliable (fire-and-forget) delivery.
+
+### End-to-End Encryption
+
+Set `enable_mls=True` (Python) or provide an `MlsSettings` object (Go, Java, Kotlin) in the `SessionConfig` to enable MLS-based end-to-end encryption. The session layer handles all key establishment automatically — your application code stays the same.
+
+The examples in this tutorial already have MLS enabled. To disable it, set `enable_mls=False` / `MlsSettings = null` / `MlsSettings: nil`.
 
 ## Runnable Examples
 
@@ -738,6 +652,6 @@ The [slim-bindings repository](https://github.com/agntcy/slim-bindings) contains
 
 ## Next Steps
 
+- [Receiving a Session](./tutorial-receive.md) — Listen for incoming sessions, receive messages, and reply
 - [Sessions](../../architecture/sessions/index.md) — Deep dive into session types, sequence diagrams, and the full API
 - [Groups](../../architecture/sessions/group.md) — Group creation and membership management via the SLIM Controller
-- [Group Communication Tutorial](./tutorial-group.md) — End-to-end tutorial using identity and authentication
