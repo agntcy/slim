@@ -27,7 +27,7 @@ dependencies = ["slim-bindings~=1.0"]
 |---|---|
 | **Package** | `github.com/agntcy/slim-bindings-go` |
 | **Requirements** | Go 1.20+, C compiler (CGO) |
-| **Examples** | [examples](https://github.com/agntcy/slim-bindings-go/tree/main/examples) |
+| **Examples** | [examples](https://github.com/agntcy/slim-bindings/tree/main/go/examples) |
 
 ```bash
 go get github.com/agntcy/slim-bindings-go
@@ -48,7 +48,7 @@ go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup
 |---|---|
 | **Package** | `Agntcy.Slim` on NuGet |
 | **Requirements** | .NET 8.0+ |
-| **Examples** | [dotnet/examples](https://github.com/agntcy/slim-bindings/tree/main/dotnet/examples) |
+| **Examples** | [dotnet/](https://github.com/agntcy/slim-bindings/tree/main/dotnet) |
 
 ```bash
 dotnet add package Agntcy.Slim
