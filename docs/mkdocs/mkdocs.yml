@@ -205,7 +205,7 @@ nav:
               - SLIMRPC:
                   - slim/components/sdk/slimrpc/index.md
                   - Compiler: slim/components/sdk/slimrpc/compiler.md
-              - Tutorial:
+              - Tutorials:
                   - Connecting to SLIM: slim/components/sdk/tutorial-connect.md
                   - Creating an App: slim/components/sdk/tutorial-app.md
                   - Creating a Session: slim/components/sdk/tutorial-session.md
