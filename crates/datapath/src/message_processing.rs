@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use crate::api::DataPlaneServiceServer;
 use display_error_chain::ErrorChainExt;
+use futures::future::try_join_all;
 use parking_lot::RwLock;
 use slim_config::client::ClientConfig;
 use slim_config::client::TransportChannel;
@@ -394,7 +395,7 @@ impl MessageProcessor {
         match channel {
             TransportChannel::Grpc(grpc_channel) => {
                 let mut client = DataPlaneServiceClient::new(grpc_channel);
-                let (tx, rx) = mpsc::channel(128);
+                let (tx, rx) = mpsc::channel(1024);
                 let stream = client
                     .open_channel(Request::new(ReceiverStream::new(rx)))
                     .await?;
@@ -670,10 +671,12 @@ impl MessageProcessor {
                         // Must run *after* sign so the tag does not cover the mutated preimage fields.
                         #[cfg(debug_assertions)]
                         if std::env::var("SLIM_TEST_TAMPER_DESTINATION").is_ok()
-                            && let Some(dest) = header.destination.as_mut()
-                            && let Some(sn) = dest.str_name.as_mut()
+                            && let Some((s0, s1, s2)) =
+                                crate::api::decode_str_bytes(&header.destination_str)
                         {
-                            sn.str_component_2.push_str("-integrity-test-tamper");
+                            let tampered: Vec<u8> = [s2, b"-integrity-test-tamper"].concat();
+                            header.destination_str =
+                                crate::api::encode_str_bytes(s0, s1, &tampered);
                         }
                     } else {
                         return Err(DataPathError::HeaderMacAwaitingLinkNegotiation(out_conn));
@@ -739,11 +742,11 @@ impl MessageProcessor {
             return self.send_msg(msg, val).await;
         }
 
-        let encoded = header.get_encoded_dst();
+        let (components, id) = header.get_encoded_dst();
 
         match self
             .forwarder()
-            .on_publish_msg_match(encoded, in_connection, fanout, filter)
+            .on_publish_msg_match(components, id, in_connection, fanout, filter)
         {
             Ok(out_vec) => {
                 let len = out_vec.len();
@@ -760,12 +763,15 @@ impl MessageProcessor {
                     len as u32,
                 );
 
-                let mut i = 0usize;
-                while i < len - 1 {
-                    self.send_msg_raw(msg.clone(), out_vec[i]).await?;
-                    i += 1;
-                }
-                self.send_msg_raw(msg, out_vec[i]).await?;
+                // Send to all subscribers concurrently: a single slow/full
+                // outbound channel no longer blocks delivery to the others.
+                let last = len - 1;
+                let mut sends: Vec<_> = out_vec[..last]
+                    .iter()
+                    .map(|&conn| self.send_msg_raw(msg.clone(), conn))
+                    .collect();
+                sends.push(self.send_msg_raw(msg, out_vec[last]));
+                try_join_all(sends).await?;
                 Ok(())
             }
             Err(e) => {
@@ -1637,6 +1643,11 @@ impl MessageProcessor {
             };
 
             let mut watch = std::pin::pin!(watch.signaled());
+            // Tracks the wall-clock instant at which we last finished processing
+            // a message (or entered the loop for the first time). The elapsed
+            // time when stream.next() returns is the inbound stream wait time:
+            // near-zero means messages were already buffered in the h2 receive
+            // window; a larger value means the loop was idle waiting for data.
             loop {
                 tokio::select! {
                     next = stream.next() => {
@@ -1778,12 +1789,19 @@ impl MessageProcessor {
                 {
                     let fwd = self_clone.peer_sync();
                     for name in local_subs.keys() {
-                        let still_reachable = name.name.is_some_and(|enc| {
+                        let still_reachable = !name.encoded_name.is_empty() && {
+                            let (comp, id) = name.components_and_id();
                             self_clone
                                 .forwarder()
-                                .on_publish_msg_match(enc, u64::MAX, u32::MAX, MatchFilter::ALL)
+                                .on_publish_msg_match(
+                                    comp,
+                                    id,
+                                    u64::MAX,
+                                    u32::MAX,
+                                    MatchFilter::ALL,
+                                )
                                 .is_ok()
-                        });
+                        };
                         if !still_reachable {
                             debug!(
                                 %name,
@@ -2187,10 +2205,9 @@ mod tests {
             .expect("sign header");
 
         let header = msg.get_slim_header_mut();
-        if let Some(dest) = header.destination.as_mut()
-            && let Some(sn) = dest.str_name.as_mut()
-        {
-            sn.str_component_2.push_str("-integrity-test-tamper");
+        if let Some((s0, s1, s2)) = crate::api::decode_str_bytes(&header.destination_str) {
+            let tampered: Vec<u8> = [s2, b"-integrity-test-tamper"].concat();
+            header.destination_str = crate::api::encode_str_bytes(s0, s1, &tampered);
         }
 
         let err = processor
@@ -2226,12 +2243,13 @@ mod tests {
 
         let sent_msg = rx.recv().await.unwrap().unwrap();
         let header = sent_msg.get_slim_header();
-        let dest_name = header.destination.as_ref().expect("destination");
-        let str_name = dest_name.str_name.as_ref().expect("str_name");
         let require_header_mac = true;
 
         // The tampering happens in send_msg_raw if the env var is set.
-        assert!(str_name.str_component_2.ends_with("-integrity-test-tamper"));
+        // Decode the packed str_name bytes and check the third component.
+        let (_, _, s2) =
+            crate::api::decode_str_bytes(&header.destination_str).expect("str_name must be set");
+        assert!(s2.ends_with(b"-integrity-test-tamper"));
 
         // Also verify that verify_remote_header_mac rejects it.
         let err = processor

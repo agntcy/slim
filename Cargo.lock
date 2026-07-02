@@ -246,6 +246,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "aws-lc-rs",
+ "bytes",
  "cfg-if",
  "criterion",
  "display-error-chain",
@@ -306,6 +307,7 @@ version = "0.1.0"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
+ "bytes",
  "prost",
  "prost-types",
  "protoc-bin-vendored",
@@ -402,6 +404,7 @@ dependencies = [
  "aws-lc-rs",
  "base64 0.22.1",
  "bollard",
+ "bytes",
  "clap",
  "futures",
  "jsonwebtoken",

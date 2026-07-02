@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 // Third-party crates
 use display_error_chain::ErrorChainExt;
-use slim_datapath::api::NameId;
+use slim_datapath::api::{RESERVED_IDS, is_reserved_id};
 use slim_datapath::errors::ErrorPayload;
 use slim_session::Direction;
 use tokio::sync::mpsc;
@@ -117,8 +117,8 @@ where
             Ok(token_id) => {
                 // Use XXH3-128 for a native 128-bit hash of the token ID
                 let mut id_hash = twox_hash::XxHash3_128::oneshot(token_id.as_bytes());
-                if NameId::is_reserved_id(id_hash) {
-                    id_hash %= u128::MAX - NameId::RESERVED_IDS;
+                if is_reserved_id(id_hash) {
+                    id_hash %= u128::MAX - RESERVED_IDS;
                 }
 
                 app_name.clone().with_id(id_hash)
@@ -451,7 +451,7 @@ mod tests {
     use crate::SubscriptionAckError;
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::api::{
-        CommandPayload, NameId, Participant, ParticipantSettings, ProtoMessage,
+        CommandPayload, DATA_CHANNEL_ID, Participant, ParticipantSettings, ProtoMessage,
         ProtoSessionMessageType, ProtoSessionType,
     };
     use slim_datapath::messages::utils::SlimHeaderFlags;
@@ -1226,7 +1226,7 @@ mod tests {
 
             // For multicast sessions, the destination is the channel name with DATA_CHANNEL_ID
             let dst = session_arc.dst();
-            let expected_dst = channel_name.clone().with_id(NameId::DATA_CHANNEL_ID);
+            let expected_dst = channel_name.clone().with_id(DATA_CHANNEL_ID);
             assert_eq!(dst, &expected_dst);
 
             total_received_sessions += 1;
@@ -1577,7 +1577,7 @@ mod tests {
                     .as_application_payload()
                     .unwrap()
                     .blob
-                    .clone();
+                    .to_vec();
             } else {
                 println!("Ignoring control message");
             }
@@ -1683,8 +1683,9 @@ mod tests {
                 .unwrap()
                 .as_application_payload()
                 .unwrap()
-                .blob,
-            msg2
+                .blob
+                .as_ref(),
+            msg2.as_ref()
         );
 
         let spy_payload2 = receive_spy_msg(&mut spy_rx).await;

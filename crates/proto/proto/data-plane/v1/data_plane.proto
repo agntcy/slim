@@ -26,7 +26,10 @@ message Unsubscribe {
 message Publish {
   SLIMHeader header = 1;
   SessionHeader session = 2;
-  Content msg = 3;
+  // Raw-bytes encoding of a Content message. Stored as bytes so that
+  // data-plane-only forwarding nodes can pass it through without decoding.
+  // Wire-compatible with the original `Content msg = 3` field (same wire type 2).
+  bytes msg = 3;
 }
 
 message Message {
@@ -55,11 +58,15 @@ message Link {
 // incomingConn = connection from where the packet was received
 // error = if true the publication contains an error notification
 message SLIMHeader {
-  Name source = 1;
-  Name destination = 2;
-  string identity = 3;
+  // Flat 40-byte encoded name (3×u64 LE hash components + u128 LE id).
+  // Replaces the former `Name source = 1` message field for zero-copy routing.
+  bytes source = 1;
+  // Flat 40-byte encoded name (3×u64 LE hash components + u128 LE id).
+  // Replaces the former `Name destination = 2` message field for zero-copy routing.
+  bytes destination = 2;
+  bytes identity = 3;
   uint32 fanout = 4;
-  string version = 5;
+  bytes version = 5;
   uint32 ttl = 6;
   optional uint64 recv_from = 7;
   optional uint64 forward_to = 8;
@@ -67,6 +74,11 @@ message SLIMHeader {
   optional bool error = 10;
   optional bytes header_mac = 11;
   optional bytes e2e_header_sig = 12;
+  // Packed human-readable string components for source (was Name.str_name).
+  // Layout: [len_0: u32 LE][component_0][len_1: u32 LE][component_1][len_2: u32 LE][component_2]
+  bytes source_str = 13;
+  // Packed human-readable string components for destination (was Name.str_name).
+  bytes destination_str = 14;
 }
 
 message SessionHeader {
@@ -76,29 +88,20 @@ message SessionHeader {
   uint32 message_id = 4;
 }
 
+// Name encodes a hierarchical 3-component SLIM name.
+//
+// encoded_name: 40-byte flat encoding of the numeric components and id.
+//   Layout: [component_0: u64 LE][component_1: u64 LE][component_2: u64 LE]
+//           [id_0: u64 LE][id_1: u64 LE]
+//   Empty bytes = name not set. id = u128::MAX (NULL_COMPONENT) means "no id".
+//
+// str_name: packed human-readable components.
+//   Layout: [len_0: u32 LE][component_0 bytes][len_1: u32 LE][component_1 bytes]
+//           [len_2: u32 LE][component_2 bytes]
+//   Empty bytes = str_name not set.
 message Name {
-  EncodedName name = 1;
-  StringName str_name = 2;
-}
-
-message NameId {
-  // higher 64 bits
-  uint64 id_0 = 1;
-  // lower 64 bits
-  uint64 id_1 = 2;
-}
-
-message EncodedName {
-  uint64 component_0 = 1;
-  uint64 component_1 = 2;
-  uint64 component_2 = 3;
-  NameId name_id = 4;
-}
-
-message StringName {
-  string str_component_0 = 1;
-  string str_component_1 = 2;
-  string str_component_2 = 3;
+  bytes encoded_name = 1;
+  bytes str_name = 2;
 }
 
 enum SessionType {

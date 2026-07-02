@@ -240,6 +240,14 @@ impl ClientConfig {
             builder = builder.buffer_size(size);
         }
 
+        // set HTTP/2 flow control window sizes
+        if let Some(sz) = self.initial_stream_window_size {
+            builder = builder.initial_stream_window_size(sz);
+        }
+        if let Some(sz) = self.initial_connection_window_size {
+            builder = builder.initial_connection_window_size(sz);
+        }
+
         // set keepalive settings
         if let Some(keepalive) = &self.keepalive {
             builder = builder

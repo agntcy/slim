@@ -21,14 +21,14 @@ use crate::dataplane::proto::v1::message::MessageType::SubscriptionAck as ProtoS
 use crate::dataplane::proto::v1::message::MessageType::Unsubscribe as ProtoUnsubscribeType;
 use crate::dataplane::proto::v1::{
     ApplicationPayload, CommandPayload, Content, DiscoveryReplyPayload, DiscoveryRequestPayload,
-    EncodedName, GroupAckPayload, GroupAddPayload, GroupClosePayload, GroupNackPayload,
-    GroupProposalPayload, GroupRemovePayload, GroupWelcomePayload, JoinReplyPayload,
-    JoinRequestPayload, LeaveReplyPayload, LeaveRequestPayload, Link as ProtoLink,
-    LinkConnectionType, LinkNegotiationPayload, Message as ProtoMessage, MlsPayload,
-    MlsSettings as ProtoMlsSettings, Name as ProtoName, NameId, Participant, ParticipantSettings,
-    PingPayload, Publish as ProtoPublish, SessionHeader, SessionMessageType,
-    SessionType as ProtoSessionType, SlimHeader, StringName, Subscribe as ProtoSubscribe,
-    SubscriptionAck as ProtoSubscriptionAck, TimerSettings, Unsubscribe as ProtoUnsubscribe,
+    GroupAckPayload, GroupAddPayload, GroupClosePayload, GroupNackPayload, GroupProposalPayload,
+    GroupRemovePayload, GroupWelcomePayload, JoinReplyPayload, JoinRequestPayload,
+    LeaveReplyPayload, LeaveRequestPayload, Link as ProtoLink, LinkConnectionType,
+    LinkNegotiationPayload, Message as ProtoMessage, MlsPayload, MlsSettings as ProtoMlsSettings,
+    Name as ProtoName, Participant, ParticipantSettings, PingPayload, Publish as ProtoPublish,
+    SessionHeader, SessionMessageType, SessionType as ProtoSessionType, SlimHeader,
+    Subscribe as ProtoSubscribe, SubscriptionAck as ProtoSubscriptionAck, TimerSettings,
+    Unsubscribe as ProtoUnsubscribe,
 };
 
 fn calculate_hash<T: Hash + ?Sized>(t: &T) -> u64 {
@@ -85,12 +85,8 @@ pub const DEFAULT_TTL: u32 = 8;
 pub enum MessageError {
     #[error("SLIM header not found")]
     SlimHeaderNotFound,
-    #[error("source not found")]
-    SourceNotFound,
     #[error("source encoded name not found")]
     SourceEncodedNameNotFound,
-    #[error("destination not found")]
-    DestinationNotFound,
     #[error("destination encoded name not found")]
     DestinationEncodedNameNotFound,
     #[error("session header not found")]
@@ -211,145 +207,204 @@ impl SlimHeaderFlags {
     }
 }
 
-impl NameId {
-    pub const NULL_COMPONENT: u128 = u128::MAX;
-    pub const DATA_CHANNEL_ID: u128 = u128::MAX - 2;
-    pub const CONTROL_CHANNEL_ID: u128 = u128::MAX - 3;
-    pub const RESERVED_IDS: u128 = 50;
+// ---------------------------------------------------------------------------
+// NameId constants and helpers (previously proto-generated NameId struct)
+// ---------------------------------------------------------------------------
 
-    pub const fn is_reserved_id(id: u128) -> bool {
-        id >= (u128::MAX - Self::RESERVED_IDS)
+/// `NULL_COMPONENT` is used to represent an id component that is not set.
+pub const NULL_COMPONENT: u128 = u128::MAX;
+/// `DATA_CHANNEL_ID` is the id for the data channel name.
+pub const DATA_CHANNEL_ID: u128 = u128::MAX - 2;
+/// `CONTROL_CHANNEL_ID` is the id for the control channel name.
+pub const CONTROL_CHANNEL_ID: u128 = u128::MAX - 3;
+/// `RESERVED_IDS` is the number of reserved IDs `[u128::MAX - RESERVED_IDS, u128::MAX)`
+/// that are not valid for user-defined names.
+pub const RESERVED_IDS: u128 = 50;
+
+/// Returns true if `id` is one of the reserved values.
+pub const fn is_reserved_id(id: u128) -> bool {
+    id >= (u128::MAX - RESERVED_IDS)
+}
+
+/// Converts an id `u128` to its string representation.
+pub fn id_to_string(id: u128) -> String {
+    match id {
+        NULL_COMPONENT => "NULL_COMPONENT".to_string(),
+        DATA_CHANNEL_ID => "DATA_CHANNEL_ID".to_string(),
+        CONTROL_CHANNEL_ID => "CONTROL_CHANNEL_ID".to_string(),
+        other => uuid::Uuid::from_u128(other).to_string(),
     }
 }
 
-impl std::fmt::Display for NameId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s: String = (*self).into();
-        write!(f, "{}", s)
-    }
-}
-
-impl From<u128> for NameId {
-    fn from(id: u128) -> Self {
-        NameId {
-            id_0: (id >> 64) as u64,
-            id_1: (id & 0xFFFFFFFFFFFFFFFF) as u64,
-        }
-    }
-}
-
-impl From<NameId> for u128 {
-    fn from(name_id: NameId) -> Self {
-        (name_id.id_0 as u128) << 64 | (name_id.id_1 as u128)
-    }
-}
-
-impl TryFrom<String> for NameId {
-    type Error = NameError;
-
-    fn try_from(s: String) -> Result<Self, Self::Error> {
-        match s.as_str() {
-            "NULL_COMPONENT" => Ok(Self::from(Self::NULL_COMPONENT)),
-            "DATA_CHANNEL_ID" => Ok(Self::from(Self::DATA_CHANNEL_ID)),
-            "CONTROL_CHANNEL_ID" => Ok(Self::from(Self::CONTROL_CHANNEL_ID)),
-            _ => {
-                if let Ok(uuid) = uuid::Uuid::parse_str(&s) {
-                    return Ok(Self::from(uuid.as_u128()));
-                }
-                Err(NameError::InvalidNameIdFormat(s))
+/// Parses a string as an id `u128`.
+pub fn id_from_str(s: &str) -> Result<u128, NameError> {
+    match s {
+        "NULL_COMPONENT" => Ok(NULL_COMPONENT),
+        "DATA_CHANNEL_ID" => Ok(DATA_CHANNEL_ID),
+        "CONTROL_CHANNEL_ID" => Ok(CONTROL_CHANNEL_ID),
+        _ => {
+            if let Ok(uuid) = uuid::Uuid::parse_str(s) {
+                return Ok(uuid.as_u128());
             }
+            Err(NameError::InvalidNameIdFormat(s.to_string()))
         }
     }
 }
 
-impl From<NameId> for String {
-    fn from(name_id: NameId) -> String {
-        let val: u128 = name_id.into();
-        match val {
-            NameId::NULL_COMPONENT => "NULL_COMPONENT".to_string(),
-            NameId::DATA_CHANNEL_ID => "DATA_CHANNEL_ID".to_string(),
-            NameId::CONTROL_CHANNEL_ID => "CONTROL_CHANNEL_ID".to_string(),
-            id => uuid::Uuid::from_u128(id).to_string(),
-        }
-    }
+// ---------------------------------------------------------------------------
+// Private encode/decode helpers for flat bytes fields
+// ---------------------------------------------------------------------------
+
+/// Encode 3 hash components + a u128 id into a 40-byte `Bytes` value.
+#[inline]
+fn encode_name_bytes(c0: u64, c1: u64, c2: u64, id: u128) -> bytes::Bytes {
+    let mut buf = [0u8; 40];
+    buf[0..8].copy_from_slice(&c0.to_le_bytes());
+    buf[8..16].copy_from_slice(&c1.to_le_bytes());
+    buf[16..24].copy_from_slice(&c2.to_le_bytes());
+    buf[24..32].copy_from_slice(&((id >> 64) as u64).to_le_bytes());
+    buf[32..40].copy_from_slice(&((id & 0xFFFF_FFFF_FFFF_FFFF) as u64).to_le_bytes());
+    bytes::Bytes::copy_from_slice(&buf)
 }
 
-impl EncodedName {
-    pub fn id(&self) -> u128 {
-        self.name_id
-            .as_ref()
-            .map_or(NameId::NULL_COMPONENT, |nid| (*nid).into())
+/// Decode a 40-byte flat `Bytes` value into `(c0, c1, c2, id)`.
+/// Returns `None` if the slice is empty (field absent).
+#[inline]
+pub(crate) fn decode_name_bytes(b: &bytes::Bytes) -> Option<(u64, u64, u64, u128)> {
+    if b.is_empty() {
+        return None;
     }
+    if b.len() != 40 {
+        return None;
+    }
+    let c0 = u64::from_le_bytes(b[0..8].try_into().unwrap());
+    let c1 = u64::from_le_bytes(b[8..16].try_into().unwrap());
+    let c2 = u64::from_le_bytes(b[16..24].try_into().unwrap());
+    let id_hi = u64::from_le_bytes(b[24..32].try_into().unwrap()) as u128;
+    let id_lo = u64::from_le_bytes(b[32..40].try_into().unwrap()) as u128;
+    Some((c0, c1, c2, (id_hi << 64) | id_lo))
+}
 
-    pub fn string_id(&self) -> String {
-        self.name_id
-            .as_ref()
-            .map_or("NULL_COMPONENT".to_string(), |nid| (*nid).into())
+/// Encode three string components into a packed `Bytes` value.
+#[inline]
+pub fn encode_str_bytes(s0: &[u8], s1: &[u8], s2: &[u8]) -> bytes::Bytes {
+    let total = 4 + s0.len() + 4 + s1.len() + 4 + s2.len();
+    let mut buf = Vec::with_capacity(total);
+    buf.extend_from_slice(&(s0.len() as u32).to_le_bytes());
+    buf.extend_from_slice(s0);
+    buf.extend_from_slice(&(s1.len() as u32).to_le_bytes());
+    buf.extend_from_slice(s1);
+    buf.extend_from_slice(&(s2.len() as u32).to_le_bytes());
+    buf.extend_from_slice(s2);
+    bytes::Bytes::from(buf)
+}
+
+/// Decode packed str_name bytes into three byte slices.
+/// Returns `None` if the slice is empty (field absent) or malformed.
+#[inline]
+pub fn decode_str_bytes(b: &bytes::Bytes) -> Option<(&[u8], &[u8], &[u8])> {
+    if b.is_empty() {
+        return None;
     }
+    let data = b.as_ref();
+    let len0 = u32::from_le_bytes(data.get(0..4)?.try_into().ok()?) as usize;
+    let s0_end = 4usize.checked_add(len0)?;
+    let s0 = data.get(4..s0_end)?;
+    let len1 = u32::from_le_bytes(data.get(s0_end..s0_end + 4)?.try_into().ok()?) as usize;
+    let s1_end = s0_end.checked_add(4)?.checked_add(len1)?;
+    let s1 = data.get(s0_end + 4..s1_end)?;
+    let len2 = u32::from_le_bytes(data.get(s1_end..s1_end + 4)?.try_into().ok()?) as usize;
+    let s2 = data.get(s1_end + 4..s1_end.checked_add(4)?.checked_add(len2)?)?;
+    Some((s0, s1, s2))
 }
 
 impl ProtoName {
-    pub fn from_strings(components: [impl Into<String>; 3]) -> Self {
-        let [s0, s1, s2] = components.map(Into::into);
+    /// Construct from three string components (org, namespace, app).
+    pub fn from_strings(components: [impl AsRef<str>; 3]) -> Self {
+        let s0 = components[0].as_ref();
+        let s1 = components[1].as_ref();
+        let s2 = components[2].as_ref();
+        let c0 = calculate_hash(s0);
+        let c1 = calculate_hash(s1);
+        let c2 = calculate_hash(s2);
         Self {
-            name: Some(EncodedName {
-                component_0: calculate_hash(&s0),
-                component_1: calculate_hash(&s1),
-                component_2: calculate_hash(&s2),
-                name_id: Some(NameId::from(NameId::NULL_COMPONENT)),
-            }),
-            str_name: Some(StringName {
-                str_component_0: s0,
-                str_component_1: s1,
-                str_component_2: s2,
-            }),
+            encoded_name: encode_name_bytes(c0, c1, c2, NULL_COMPONENT),
+            str_name: encode_str_bytes(s0.as_bytes(), s1.as_bytes(), s2.as_bytes()),
         }
     }
 
+    /// Builder-style: set the ID.
     pub fn with_id(mut self, id: u128) -> Self {
-        self.name.as_mut().expect("encoded name missing").name_id = Some(NameId::from(id));
+        self.set_id(id);
         self
     }
 
+    /// Returns both components and id in a single decode pass.
+    #[inline]
+    pub fn components_and_id(&self) -> ([u64; 3], u128) {
+        let (c0, c1, c2, id) = decode_name_bytes(&self.encoded_name)
+            .expect("encoded_name must be set to call components_and_id()");
+        ([c0, c1, c2], id)
+    }
+
+    /// Returns the three hash components as `[u64; 3]`.
+    pub fn components(&self) -> [u64; 3] {
+        let (c0, c1, c2, _) = decode_name_bytes(&self.encoded_name)
+            .expect("encoded_name must be set to call components()");
+        [c0, c1, c2]
+    }
+
     pub fn id(&self) -> u128 {
-        self.name.as_ref().expect("encoded name missing").id()
+        decode_name_bytes(&self.encoded_name).map_or(NULL_COMPONENT, |(_, _, _, id)| id)
     }
 
     pub fn string_id(&self) -> String {
-        self.name
-            .as_ref()
-            .expect("encoded name missing")
-            .string_id()
-    }
-
-    pub fn name_id(&self) -> Option<NameId> {
-        self.name.as_ref().expect("encoded name missing").name_id
+        id_to_string(self.id())
     }
 
     pub fn has_id(&self) -> bool {
-        self.id() != NameId::NULL_COMPONENT
+        self.id() != NULL_COMPONENT
     }
 
     pub fn set_id(&mut self, id: u128) {
-        self.name.as_mut().expect("encoded name missing").name_id = Some(NameId::from(id));
+        let (c0, c1, c2, _) = decode_name_bytes(&self.encoded_name)
+            .expect("encoded_name must be set to call set_id()");
+        self.encoded_name = encode_name_bytes(c0, c1, c2, id);
     }
 
     pub fn reset_id(&mut self) {
-        self.name.as_mut().expect("encoded name missing").name_id =
-            Some(NameId::from(NameId::NULL_COMPONENT));
+        self.set_id(NULL_COMPONENT);
     }
 
     pub fn match_prefix(&self, other: &ProtoName) -> bool {
-        let a = self.name.as_ref().expect("encoded name missing");
-        let b = other.name.as_ref().expect("encoded name missing");
-        a.component_0 == b.component_0
-            && a.component_1 == b.component_1
-            && a.component_2 == b.component_2
+        // encoded_name is always 40 bytes when present, or empty when absent.
+        if self.encoded_name.is_empty() || other.encoded_name.is_empty() {
+            return false;
+        }
+        self.encoded_name[..24] == other.encoded_name[..24]
     }
 
     pub fn str_components(&self) -> (&str, &str, &str) {
-        let s = self.str_name.as_ref().expect("string name missing");
-        (&s.str_component_0, &s.str_component_1, &s.str_component_2)
+        self.try_str_components()
+            .expect("str_name must be set to call str_components()")
+    }
+
+    /// Returns the three string components if `str_name` is present and valid UTF-8, or `None`.
+    fn try_str_components(&self) -> Option<(&str, &str, &str)> {
+        let (s0, s1, s2) = decode_str_bytes(&self.str_name)?;
+        Some((
+            std::str::from_utf8(s0).ok()?,
+            std::str::from_utf8(s1).ok()?,
+            std::str::from_utf8(s2).ok()?,
+        ))
+    }
+
+    /// Construct a `ProtoName` from raw hash components and an id, without string names.
+    pub fn from_components(prefix: [u64; 3], id: u128) -> Self {
+        Self {
+            encoded_name: encode_name_bytes(prefix[0], prefix[1], prefix[2], id),
+            str_name: bytes::Bytes::new(),
+        }
     }
 
     pub fn parse_name(s: &str) -> Result<ProtoName, NameError> {
@@ -367,29 +422,10 @@ impl ProtoName {
 
 impl std::fmt::Display for ProtoName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(s) = &self.str_name {
-            write!(
-                f,
-                "{}/{}/{}/{}",
-                s.str_component_0,
-                s.str_component_1,
-                s.str_component_2,
-                self.name
-                    .as_ref()
-                    .and_then(|n| n.name_id)
-                    .map_or("NULL_COMPONENT".to_string(), |id| id.to_string())
-            )
-        } else if let Some(enc) = &self.name {
-            write!(
-                f,
-                "{}/{}/{}/{}",
-                enc.component_0,
-                enc.component_1,
-                enc.component_2,
-                enc.name_id
-                    .as_ref()
-                    .map_or("NULL_COMPONENT".to_string(), |id| id.to_string())
-            )
+        if let Some((c0, c1, c2)) = self.try_str_components() {
+            write!(f, "{}/{}/{}/{}", c0, c1, c2, id_to_string(self.id()))
+        } else if let Some((c0, c1, c2, id)) = decode_name_bytes(&self.encoded_name) {
+            write!(f, "{}/{}/{}/{}", c0, c1, c2, id_to_string(id))
         } else {
             write!(f, "<empty>")
         }
@@ -471,18 +507,20 @@ impl SlimHeader {
     ) -> Self {
         let flags = flags.unwrap_or_default();
         Self {
-            source: Some(source),
-            destination: Some(destination),
-            identity: identity.to_string(),
+            source: source.encoded_name,
+            destination: destination.encoded_name,
+            source_str: source.str_name,
+            destination_str: destination.str_name,
+            identity: identity.to_string().into(),
             fanout: flags.fanout,
-            version: version().to_string(),
+            version: version().to_string().into(),
             recv_from: flags.recv_from,
             forward_to: flags.forward_to,
             incoming_conn: flags.incoming_conn,
             error: flags.error,
             header_mac: None,
-            ttl: flags.ttl,
             e2e_header_sig: None,
+            ttl: flags.ttl,
         }
     }
 
@@ -512,47 +550,45 @@ impl SlimHeader {
     }
 
     pub fn get_source(&self) -> ProtoName {
-        self.source.clone().expect("source not found")
+        ProtoName {
+            encoded_name: self.source.clone(),
+            str_name: self.source_str.clone(),
+        }
     }
 
-    pub fn get_encoded_source(&self) -> EncodedName {
-        self.source
-            .as_ref()
-            .expect("source not found")
-            .name
-            .expect("source encoded name not found")
+    pub fn get_encoded_source(&self) -> ([u64; 3], u128) {
+        let (c0, c1, c2, id) = decode_name_bytes(&self.source).expect("source not set");
+        ([c0, c1, c2], id)
     }
 
     pub fn get_dst(&self) -> ProtoName {
-        self.destination.clone().expect("destination not found")
+        ProtoName {
+            encoded_name: self.destination.clone(),
+            str_name: self.destination_str.clone(),
+        }
     }
 
-    pub fn get_encoded_dst(&self) -> EncodedName {
-        self.destination
-            .as_ref()
-            .expect("destination not found")
-            .name
-            .expect("destination encoded name not found")
+    pub fn get_encoded_dst(&self) -> ([u64; 3], u128) {
+        let (c0, c1, c2, id) = decode_name_bytes(&self.destination).expect("destination not set");
+        ([c0, c1, c2], id)
     }
 
-    pub fn get_identity(&self) -> String {
-        self.identity.clone()
-    }
-
-    pub fn get_version(&self) -> String {
-        self.version.clone()
+    pub fn get_identity(&self) -> &str {
+        std::str::from_utf8(&self.identity).unwrap_or("")
     }
 
     pub fn set_source(&mut self, source: ProtoName) {
-        self.source = Some(source);
+        self.source = source.encoded_name;
+        self.source_str = source.str_name;
     }
 
     pub fn set_destination(&mut self, dst: ProtoName) {
-        self.destination = Some(dst);
+        self.destination = dst.encoded_name;
+        self.destination_str = dst.str_name;
     }
 
-    pub fn set_identity(&mut self, identity: String) {
-        self.identity = identity;
+    pub fn set_identity(&mut self, identity: impl Into<bytes::Bytes>) {
+        self.identity = identity.into();
     }
 
     pub fn set_fanout(&mut self, fanout: u32) {
@@ -573,10 +609,6 @@ impl SlimHeader {
 
     pub fn set_incoming_conn(&mut self, incoming_conn: Option<u64>) {
         self.incoming_conn = incoming_conn;
-    }
-
-    pub fn set_error_flag(&mut self, error: Option<bool>) {
-        self.error = error;
     }
 
     pub fn get_ttl(&self) -> u32 {
@@ -729,7 +761,7 @@ impl ProtoPublish {
     fn with_header(
         header: Option<SlimHeader>,
         session: Option<SessionHeader>,
-        payload: Option<Content>,
+        payload: bytes::Bytes,
     ) -> Self {
         ProtoPublish {
             header,
@@ -754,48 +786,19 @@ impl ProtoPublish {
         self.session.as_mut().expect("session header missing")
     }
 
-    pub fn get_payload(&self) -> &Content {
-        self.msg.as_ref().expect("payload missing")
+    /// Decodes the raw `msg` bytes into a [`Content`], returning `None` if absent.
+    pub fn get_payload(&self) -> Option<Content> {
+        if self.msg.is_empty() {
+            None
+        } else {
+            use prost::Message;
+            Content::decode(self.msg.as_ref()).ok()
+        }
     }
 
     pub fn set_payload(&mut self, payload: Content) {
-        self.msg = Some(payload);
-    }
-
-    pub fn is_command(&self) -> bool {
-        match &self
-            .get_payload()
-            .content_type
-            .as_ref()
-            .expect("content missing")
-        {
-            ContentType::AppPayload(_) => false,
-            ContentType::CommandPayload(_) => true,
-        }
-    }
-
-    pub fn get_application_payload(&self) -> &ApplicationPayload {
-        match self
-            .get_payload()
-            .content_type
-            .as_ref()
-            .expect("content missing")
-        {
-            ContentType::AppPayload(application_payload) => application_payload,
-            ContentType::CommandPayload(_) => panic!("the payload is not an application payload"),
-        }
-    }
-
-    pub fn get_command_payload(&self) -> &CommandPayload {
-        match self
-            .get_payload()
-            .content_type
-            .as_ref()
-            .expect("content missing")
-        {
-            ContentType::AppPayload(_) => panic!("the payload is not a command payload"),
-            ContentType::CommandPayload(command_payload) => command_payload,
-        }
+        use prost::Message;
+        self.msg = payload.encode_to_vec().into();
     }
 }
 
@@ -808,10 +811,14 @@ impl From<ProtoMessage> for ProtoPublish {
     }
 }
 
+// Macro to generate payload extraction methods for ProtoMessage.
+// Uses the consuming `into_*` getters on CommandPayload so callers
+// receive owned payload types (no references to temporary values).
 macro_rules! impl_payload_extractors {
     ($($method_name:ident => $getter_method:ident($payload_type:ty)),* $(,)?) => {
         $(
-            pub fn $method_name(&self) -> Result<&$payload_type, MessageError> {
+            /// Extracts a specific command payload from the message.
+            pub fn $method_name(&self) -> Result<$payload_type, MessageError> {
                 self.extract_command_payload()?.$getter_method()
             }
         )*
@@ -834,17 +841,11 @@ impl ProtoMessage {
     }
 
     fn validate_routed_header(slim_header: &SlimHeader) -> Result<(), MessageError> {
-        match &slim_header.source {
-            None => return Err(MessageError::SourceNotFound),
-            Some(src) if src.name.is_none() => return Err(MessageError::SourceEncodedNameNotFound),
-            _ => {}
+        if slim_header.source.is_empty() {
+            return Err(MessageError::SourceEncodedNameNotFound);
         }
-        match &slim_header.destination {
-            None => return Err(MessageError::DestinationNotFound),
-            Some(dst) if dst.name.is_none() => {
-                return Err(MessageError::DestinationEncodedNameNotFound);
-            }
-            _ => {}
+        if slim_header.destination.is_empty() {
+            return Err(MessageError::DestinationEncodedNameNotFound);
         }
         Ok(())
     }
@@ -1000,7 +1001,7 @@ impl ProtoMessage {
         self.get_slim_header().get_source()
     }
 
-    pub fn get_encoded_source(&self) -> EncodedName {
+    pub fn get_encoded_source(&self) -> ([u64; 3], u128) {
         self.get_slim_header().get_encoded_source()
     }
 
@@ -1008,11 +1009,11 @@ impl ProtoMessage {
         self.get_slim_header().get_dst()
     }
 
-    pub fn get_encoded_dst(&self) -> EncodedName {
+    pub fn get_encoded_dst(&self) -> ([u64; 3], u128) {
         self.get_slim_header().get_encoded_dst()
     }
 
-    pub fn get_identity(&self) -> String {
+    pub fn get_identity(&self) -> &str {
         self.get_slim_header().get_identity()
     }
 
@@ -1049,14 +1050,15 @@ impl ProtoMessage {
         }
     }
 
-    pub fn get_payload(&self) -> Option<&Content> {
+    /// Decodes and returns the [`Content`] payload, or `None` if absent.
+    pub fn get_payload(&self) -> Option<Content> {
         match &self.message_type {
-            Some(ProtoPublishType(p)) => p.msg.as_ref(),
-            Some(ProtoSubscribeType(_))
-            | Some(ProtoUnsubscribeType(_))
-            | Some(ProtoLinkMessageType(_))
-            | Some(ProtoSubscriptionAckType(_))
-            | None => panic!("payload not found"),
+            Some(ProtoPublishType(p)) => p.get_payload(),
+            Some(ProtoSubscribeType(_)) => panic!("payload not found"),
+            Some(ProtoUnsubscribeType(_)) => panic!("payload not found"),
+            Some(ProtoLinkMessageType(_)) => panic!("payload not found"),
+            Some(ProtoSubscriptionAckType(_)) => panic!("payload not found"),
+            None => panic!("payload not found"),
         }
     }
 
@@ -1100,10 +1102,6 @@ impl ProtoMessage {
 
     pub fn set_incoming_conn(&mut self, incoming_conn: Option<u64>) {
         self.get_slim_header_mut().set_incoming_conn(incoming_conn);
-    }
-
-    pub fn set_error_flag(&mut self, error: Option<bool>) {
-        self.get_slim_header_mut().set_error_flag(error);
     }
 
     pub fn get_ttl(&self) -> u32 {
@@ -1204,27 +1202,29 @@ impl ProtoMessage {
         }
     }
 
-    pub fn extract_command_payload(&self) -> Result<&CommandPayload, MessageError> {
+    /// Extracts the command payload from the message.
+    pub fn extract_command_payload(&self) -> Result<CommandPayload, MessageError> {
         self.get_payload()
             .ok_or(MessageError::ContentTypeNotSet)?
-            .as_command_payload()
+            .into_command_payload()
     }
 
+    // Generate all payload extraction methods (return owned types via consuming getters)
     impl_payload_extractors! {
-        extract_discovery_request => as_discovery_request_payload(DiscoveryRequestPayload),
-        extract_discovery_reply => as_discovery_reply_payload(DiscoveryReplyPayload),
-        extract_join_request => as_join_request_payload(JoinRequestPayload),
-        extract_join_reply => as_join_reply_payload(JoinReplyPayload),
-        extract_leave_request => as_leave_request_payload(LeaveRequestPayload),
-        extract_leave_reply => as_leave_reply_payload(LeaveReplyPayload),
-        extract_group_add => as_group_add_payload(GroupAddPayload),
-        extract_group_remove => as_group_remove_payload(GroupRemovePayload),
-        extract_group_welcome => as_welcome_payload(GroupWelcomePayload),
-        extract_group_close => as_group_close_payload(GroupClosePayload),
-        extract_group_proposal => as_group_proposal_payload(GroupProposalPayload),
-        extract_group_ack => as_group_ack_payload(GroupAckPayload),
-        extract_group_nack => as_group_nack_payload(GroupNackPayload),
-        extract_ping => as_ping_payload(PingPayload),
+        extract_discovery_request => into_discovery_request_payload(DiscoveryRequestPayload),
+        extract_discovery_reply => into_discovery_reply_payload(DiscoveryReplyPayload),
+        extract_join_request => into_join_request_payload(JoinRequestPayload),
+        extract_join_reply => into_join_reply_payload(JoinReplyPayload),
+        extract_leave_request => into_leave_request_payload(LeaveRequestPayload),
+        extract_leave_reply => into_leave_reply_payload(LeaveReplyPayload),
+        extract_group_add => into_group_add_payload(GroupAddPayload),
+        extract_group_remove => into_group_remove_payload(GroupRemovePayload),
+        extract_group_welcome => into_welcome_payload(GroupWelcomePayload),
+        extract_group_close => into_group_close_payload(GroupClosePayload),
+        extract_group_proposal => into_group_proposal_payload(GroupProposalPayload),
+        extract_group_ack => into_group_ack_payload(GroupAckPayload),
+        extract_group_nack => into_group_nack_payload(GroupNackPayload),
+        extract_ping => into_ping_payload(PingPayload),
     }
 
     pub fn builder() -> ProtoMessageBuilder {
@@ -1248,13 +1248,31 @@ impl Content {
             None => Err(MessageError::ContentTypeNotSet),
         }
     }
+
+    /// Consuming variant: extracts the [`ApplicationPayload`] by value.
+    pub fn into_application_payload(self) -> Result<ApplicationPayload, MessageError> {
+        match self.content_type {
+            Some(ContentType::AppPayload(app_payload)) => Ok(app_payload),
+            Some(ContentType::CommandPayload(_)) => Err(MessageError::NotApplicationPayload),
+            None => Err(MessageError::ContentTypeNotSet),
+        }
+    }
+
+    /// Consuming variant: extracts the [`CommandPayload`] by value.
+    pub fn into_command_payload(self) -> Result<CommandPayload, MessageError> {
+        match self.content_type {
+            Some(ContentType::AppPayload(_)) => Err(MessageError::NotCommandPayload),
+            Some(ContentType::CommandPayload(comm_payload)) => Ok(comm_payload),
+            None => Err(MessageError::ContentTypeNotSet),
+        }
+    }
 }
 
 impl ApplicationPayload {
-    pub fn new(payload_type: &str, blob: Vec<u8>) -> Self {
+    pub fn new(payload_type: &str, blob: impl Into<bytes::Bytes>) -> Self {
         Self {
             payload_type: payload_type.to_string(),
-            blob,
+            blob: blob.into(),
         }
     }
 
@@ -1265,11 +1283,36 @@ impl ApplicationPayload {
     }
 }
 
+// Macro to generate borrowing getter methods for all CommandPayloadType variants
 macro_rules! impl_command_payload_getters {
     ($($method_name:ident => $variant:ident($payload_type:ty)),* $(,)?) => {
         $(
             pub fn $method_name(&self) -> Result<&$payload_type, MessageError> {
                 match &self.command_payload_type {
+                    Some(CommandPayloadType::$variant(payload)) => Ok(payload),
+                    Some(other) => Err(MessageError::InvalidCommandPayloadType {
+                        expected: Box::new(stringify!($variant).to_string()),
+                        got: Box::new(format!("{:?}", other)),
+                    }),
+                    None => Err(MessageError::InvalidCommandPayloadType {
+                        expected: Box::new(stringify!($variant).to_string()),
+                        got: Box::new("None".to_string()),
+                    }),
+                }
+            }
+        )*
+    };
+}
+
+// Macro to generate consuming getter methods for all CommandPayloadType variants.
+// Used by extract_* methods that build on get_payload() returning an owned Content.
+macro_rules! impl_command_payload_into_getters {
+    ($(
+        $method_name:ident => $variant:ident($payload_type:ty)
+    ),* $(,)?) => {
+        $(
+            pub fn $method_name(self) -> Result<$payload_type, MessageError> {
+                match self.command_payload_type {
                     Some(CommandPayloadType::$variant(payload)) => Ok(payload),
                     Some(other) => Err(MessageError::InvalidCommandPayloadType {
                         expected: Box::new(stringify!($variant).to_string()),
@@ -1307,6 +1350,24 @@ impl CommandPayload {
         as_group_ack_payload => GroupAck(GroupAckPayload),
         as_group_nack_payload => GroupNack(GroupNackPayload),
         as_ping_payload => Ping(PingPayload),
+    }
+
+    // Consuming getter methods (by value) for all CommandPayloadType variants
+    impl_command_payload_into_getters! {
+        into_discovery_request_payload => DiscoveryRequest(DiscoveryRequestPayload),
+        into_discovery_reply_payload => DiscoveryReply(DiscoveryReplyPayload),
+        into_join_request_payload => JoinRequest(JoinRequestPayload),
+        into_join_reply_payload => JoinReply(JoinReplyPayload),
+        into_leave_request_payload => LeaveRequest(LeaveRequestPayload),
+        into_leave_reply_payload => LeaveReply(LeaveReplyPayload),
+        into_group_add_payload => GroupAdd(GroupAddPayload),
+        into_group_remove_payload => GroupRemove(GroupRemovePayload),
+        into_welcome_payload => GroupWelcome(GroupWelcomePayload),
+        into_group_close_payload => GroupClose(GroupClosePayload),
+        into_group_proposal_payload => GroupProposal(GroupProposalPayload),
+        into_group_ack_payload => GroupAck(GroupAckPayload),
+        into_group_nack_payload => GroupNack(GroupNackPayload),
+        into_ping_payload => Ping(PingPayload),
     }
 
     pub fn builder() -> CommandPayloadBuilder {
@@ -1596,7 +1657,11 @@ impl ProtoMessageBuilder {
         self
     }
 
-    pub fn application_payload(mut self, payload_type: &str, blob: Vec<u8>) -> Self {
+    pub fn application_payload(
+        mut self,
+        payload_type: &str,
+        blob: impl Into<bytes::Bytes>,
+    ) -> Self {
         let app_payload = ApplicationPayload::new(payload_type, blob);
         self.payload = Some(app_payload.as_content());
         self
@@ -1608,14 +1673,20 @@ impl ProtoMessageBuilder {
     }
 
     pub fn with_slim_header(mut self, header: SlimHeader) -> Self {
-        if let Some(src) = header.source.clone() {
-            self.source = Some(src);
+        if !header.source.is_empty() {
+            self.source = Some(ProtoName {
+                encoded_name: header.source.clone(),
+                str_name: header.source_str.clone(),
+            });
         }
-        if let Some(dst) = header.destination.clone() {
-            self.destination = Some(dst);
+        if !header.destination.is_empty() {
+            self.destination = Some(ProtoName {
+                encoded_name: header.destination.clone(),
+                str_name: header.destination_str.clone(),
+            });
         }
         if !header.identity.is_empty() {
-            self.identity = Some(header.identity.clone());
+            self.identity = Some(String::from_utf8_lossy(&header.identity).into_owned());
         }
 
         self.flags = Some(SlimHeaderFlags {
@@ -1682,8 +1753,17 @@ impl ProtoMessageBuilder {
             Some(SessionHeader::default())
         };
 
-        let publish = ProtoPublish::with_header(slim_header, session_header, self.payload);
-        Ok(ProtoMessage::new(self.metadata, ProtoPublishType(publish)))
+        let msg_bytes: bytes::Bytes = self
+            .payload
+            .map(|p| {
+                use prost::Message;
+                p.encode_to_vec().into()
+            })
+            .unwrap_or_default();
+
+        let publish = ProtoPublish::with_header(slim_header, session_header, msg_bytes);
+        let message = ProtoMessage::new(self.metadata, ProtoPublishType(publish));
+        Ok(message)
     }
 
     pub fn build_subscribe(self) -> Result<ProtoMessage, MessageError> {
@@ -1792,7 +1872,7 @@ mod name_tests {
     fn test_proto_name_reset_id() {
         let mut n = ProtoName::from_strings(["a", "b", "c"]).with_id(42);
         n.reset_id();
-        assert_eq!(n.id(), NameId::NULL_COMPONENT);
+        assert_eq!(n.id(), NULL_COMPONENT);
         assert!(!n.has_id());
     }
 
@@ -1818,66 +1898,58 @@ mod name_tests {
     #[test]
     fn test_proto_name_hash_stability() {
         let proto = ProtoName::from_strings(["Org", "Default", "App"]).with_id(7);
-        let enc = proto.name.unwrap();
         let proto2 = ProtoName::from_strings(["Org", "Default", "App"]).with_id(7);
-        let enc2 = proto2.name.unwrap();
-        assert_eq!(enc, enc2);
-        assert_eq!(enc.id(), 7);
+        assert_eq!(proto, proto2);
+        assert_eq!(proto.id(), 7);
     }
 
     #[test]
     fn test_name_id_roundtrip() {
         let values = [0u128, 1, 42, u128::MAX / 2, u128::MAX - 4];
         for v in values {
-            let nid = NameId::from(v);
-            let result: u128 = nid.into();
-            assert_eq!(result, v, "roundtrip failed for {v}");
+            let n = ProtoName::from_strings(["a", "b", "c"]).with_id(v);
+            assert_eq!(n.id(), v, "roundtrip failed for {v}");
         }
     }
 
     #[test]
     fn test_name_id_from_string_valid_uuid() {
-        let nid = NameId::try_from("00000000-0000-0000-0000-00000000002a".to_string())
+        let id = id_from_str("00000000-0000-0000-0000-00000000002a")
             .expect("valid UUID string should parse");
-        let result: u128 = nid.into();
-        assert_eq!(result, 42);
+        assert_eq!(id, 42);
     }
 
     #[test]
     fn test_name_id_from_string_invalid() {
-        assert!(NameId::try_from("not-a-uuid".to_string()).is_err());
-        assert!(NameId::try_from("".to_string()).is_err());
+        assert!(id_from_str("not-a-uuid").is_err());
+        assert!(id_from_str("").is_err());
     }
 
     #[test]
     fn test_name_id_display_uuid() {
-        let nid = NameId::from(42);
-        assert_eq!(nid.to_string(), "00000000-0000-0000-0000-00000000002a");
+        assert_eq!(id_to_string(42), "00000000-0000-0000-0000-00000000002a");
     }
 
     #[test]
     fn test_name_id_display_reserved() {
-        let mut str_nid: String = NameId::from(NameId::NULL_COMPONENT).into();
-        assert_eq!(str_nid, "NULL_COMPONENT");
-        str_nid = NameId::from(NameId::DATA_CHANNEL_ID).into();
-        assert_eq!(str_nid, "DATA_CHANNEL_ID");
-        str_nid = NameId::from(NameId::CONTROL_CHANNEL_ID).into();
-        assert_eq!(str_nid, "CONTROL_CHANNEL_ID");
+        assert_eq!(id_to_string(NULL_COMPONENT), "NULL_COMPONENT");
+        assert_eq!(id_to_string(DATA_CHANNEL_ID), "DATA_CHANNEL_ID");
+        assert_eq!(id_to_string(CONTROL_CHANNEL_ID), "CONTROL_CHANNEL_ID");
     }
 
     #[test]
     fn test_name_id_is_reserved() {
-        assert!(NameId::is_reserved_id(NameId::NULL_COMPONENT));
-        assert!(NameId::is_reserved_id(NameId::DATA_CHANNEL_ID));
-        assert!(NameId::is_reserved_id(NameId::CONTROL_CHANNEL_ID));
-        assert!(!NameId::is_reserved_id(0));
-        assert!(!NameId::is_reserved_id(42));
+        assert!(is_reserved_id(NULL_COMPONENT));
+        assert!(is_reserved_id(DATA_CHANNEL_ID));
+        assert!(is_reserved_id(CONTROL_CHANNEL_ID));
+        assert!(!is_reserved_id(0));
+        assert!(!is_reserved_id(42));
     }
 
     #[test]
     fn test_proto_name_default_id_is_null_component() {
         let n = ProtoName::from_strings(["a", "b", "c"]);
-        assert_eq!(n.id(), NameId::NULL_COMPONENT);
+        assert_eq!(n.id(), NULL_COMPONENT);
         assert!(!n.has_id());
     }
 
@@ -1907,18 +1979,6 @@ mod name_tests {
         let n = ProtoName::from_strings(["org", "ns", "app"]);
         let s = format!("{}", n);
         assert_eq!(s, "org/ns/app/NULL_COMPONENT");
-    }
-
-    #[test]
-    fn test_encoded_name_id_when_name_id_none() {
-        let enc = EncodedName {
-            component_0: 0,
-            component_1: 0,
-            component_2: 0,
-            name_id: None,
-        };
-        assert_eq!(enc.id(), NameId::NULL_COMPONENT);
-        assert_eq!(enc.string_id(), "NULL_COMPONENT");
     }
 
     #[test]
@@ -2191,23 +2251,32 @@ mod message_tests {
 
     #[test]
     fn test_panic_header() {
+        // create an unusual SLIM header with empty source/destination
         let header = SlimHeader {
-            source: None,
-            destination: None,
-            identity: String::new(),
+            source: Default::default(),
+            destination: Default::default(),
+            source_str: Default::default(),
+            destination_str: Default::default(),
+            identity: Default::default(),
             fanout: 0,
-            version: version().to_string(),
+            version: version().to_string().into(),
             recv_from: None,
             forward_to: None,
             incoming_conn: None,
             error: None,
             header_mac: None,
-            ttl: DEFAULT_TTL,
             e2e_header_sig: None,
+            ttl: DEFAULT_TTL,
         };
 
-        assert!(std::panic::catch_unwind(|| header.get_source()).is_err());
-        assert!(std::panic::catch_unwind(|| header.get_dst()).is_err());
+        // get_source/get_dst return ProtoName with empty fields (no panic)
+        // get_encoded_source/get_encoded_dst panic when encoded bytes are empty
+        let result = std::panic::catch_unwind(|| header.get_encoded_source());
+        assert!(result.is_err());
+
+        let result = std::panic::catch_unwind(|| header.get_encoded_dst());
+        assert!(result.is_err());
+
         assert!(std::panic::catch_unwind(|| header.get_recv_from()).is_ok());
         assert!(std::panic::catch_unwind(|| header.get_forward_to()).is_ok());
         assert!(std::panic::catch_unwind(|| header.get_incoming_conn()).is_ok());
@@ -2475,11 +2544,9 @@ mod message_tests {
     fn test_validate_subscribe_missing_source_encoded_name() {
         let valid = ProtoName::from_strings(["org", "ns", "agent"]);
         let hdr = SlimHeader {
-            source: Some(ProtoName {
-                name: None,
-                str_name: None,
-            }),
-            destination: Some(valid),
+            source: Default::default(), // empty = not set
+            destination: valid.encoded_name,
+            destination_str: valid.str_name,
             ..Default::default()
         };
         let msg = ProtoMessage::new(
@@ -2499,11 +2566,9 @@ mod message_tests {
     fn test_validate_subscribe_missing_destination_encoded_name() {
         let valid = ProtoName::from_strings(["org", "ns", "agent"]);
         let hdr = SlimHeader {
-            source: Some(valid),
-            destination: Some(ProtoName {
-                name: None,
-                str_name: None,
-            }),
+            source: valid.encoded_name,
+            source_str: valid.str_name,
+            destination: Default::default(), // empty = not set
             ..Default::default()
         };
         let msg = ProtoMessage::new(

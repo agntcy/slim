@@ -36,7 +36,7 @@ use slim_datapath::api::{
     MessageType::SubscriptionAck as SubscriptionAckType, MessageType::Unsubscribe,
     ProtoMessage as DataPlaneMessage,
 };
-use slim_datapath::api::{NameId, ProtoName};
+use slim_datapath::api::{NULL_COMPONENT, ProtoName};
 use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 use slim_datapath::tables::{ConnType, SubscriptionTable};
@@ -1054,7 +1054,7 @@ impl ControllerService {
 
                                 if let Ok(Some(conn)) = conn {
                                     let name = route.name.clone().unwrap();
-                                    let source = name.clone().with_id(NameId::NULL_COMPONENT);
+                                    let source = name.clone().with_id(NULL_COMPONENT);
 
                                     let msg = DataPlaneMessage::builder()
                                         .source(source.clone())
@@ -1110,7 +1110,7 @@ impl ControllerService {
 
                                 if let Ok(Some(conn)) = conn {
                                     let name = route.name.clone().unwrap();
-                                    let source = name.clone().with_id(NameId::NULL_COMPONENT);
+                                    let source = name.clone().with_id(NULL_COMPONENT);
 
                                     let msg = DataPlaneMessage::builder()
                                         .source(source.clone())

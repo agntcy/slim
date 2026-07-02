@@ -38,14 +38,14 @@ fn spawn_session_receiver(
                         match msg_result {
                             Some(Ok(message)) => match &message.message_type {
                                 Some(slim_datapath::api::MessageType::Publish(msg)) => {
-                                    let payload = msg.get_payload();
-                                    match std::str::from_utf8(&payload.as_application_payload().unwrap().blob) {
+                                    let payload = msg.get_payload().unwrap().into_application_payload().unwrap();
+                                    match std::str::from_utf8(&payload.blob) {
                                         Ok(text) => {
                                             info!(msg = %text, "received message");
                                         }
                                         Err(_) => {
                                             info!(
-                                                msg_len = %payload.as_application_payload().unwrap().blob.len(),
+                                                msg_len = %payload.blob.len(),
                                                 "received encrypted message",
                                             );
                                         }

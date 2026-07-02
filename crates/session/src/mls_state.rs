@@ -365,7 +365,7 @@ where
             return Ok(());
         }
 
-        let payload = msg.get_payload().unwrap().as_application_payload()?;
+        let payload = msg.get_payload().unwrap().into_application_payload()?;
 
         debug!("Encrypting message for group member");
         let aad = build_aad(msg);
@@ -391,7 +391,7 @@ where
             return Ok(());
         }
 
-        let payload = msg.get_payload().unwrap().as_application_payload()?;
+        let payload = msg.get_payload().unwrap().into_application_payload()?;
 
         debug!("Decrypting message for group member");
         let (decrypted_payload, auth_data) = self.mls.decrypt_message(&payload.blob).await?;
@@ -631,8 +631,9 @@ mod tests {
                 .unwrap()
                 .as_application_payload()
                 .unwrap()
-                .blob,
-            original_payload
+                .blob
+                .as_ref(),
+            original_payload.as_ref()
         );
 
         let mut bob_msg = alice_msg.clone();
@@ -644,8 +645,9 @@ mod tests {
                 .unwrap()
                 .as_application_payload()
                 .unwrap()
-                .blob,
-            original_payload
+                .blob
+                .as_ref(),
+            original_payload.as_ref()
         );
     }
 
@@ -699,8 +701,9 @@ mod tests {
                 .unwrap()
                 .as_application_payload()
                 .unwrap()
-                .blob,
-            original_payload
+                .blob
+                .as_ref(),
+            original_payload.as_ref()
         );
     }
 
@@ -770,8 +773,9 @@ mod tests {
                 .unwrap()
                 .as_application_payload()
                 .unwrap()
-                .blob,
-            original_payload
+                .blob
+                .as_ref(),
+            original_payload.as_ref()
         );
     }
 
@@ -979,8 +983,9 @@ mod tests {
                     .unwrap()
                     .as_application_payload()
                     .unwrap()
-                    .blob,
-                original_payload
+                    .blob
+                    .as_ref(),
+                original_payload.as_ref()
             );
         }
     }

@@ -4,7 +4,7 @@
 use std::time::SystemTime;
 
 use crate::api::proto::controller::proto::v1::Route as ProtoRoute;
-use slim_datapath::api::NameId;
+use slim_datapath::api::NULL_COMPONENT;
 
 use crate::db::RouteStatus;
 use crate::error::{Error, Result};
@@ -47,7 +47,7 @@ impl ProtoRouteExt for ProtoRoute {
     ) -> crate::db::Route {
         let n = self.name.as_ref().unwrap();
         let (c0, c1, c2) = n.str_components();
-        let comp_id = if n.id() == NameId::NULL_COMPONENT {
+        let comp_id = if n.id() == NULL_COMPONENT {
             None
         } else {
             Some(n.string_id())

@@ -227,6 +227,16 @@ impl ServerConfig {
             None => builder,
         };
 
+        let builder = match self.initial_stream_window_size {
+            Some(sz) => builder.initial_stream_window_size(sz),
+            None => builder,
+        };
+
+        let builder = match self.initial_connection_window_size {
+            Some(sz) => builder.initial_connection_window_size(sz),
+            None => builder,
+        };
+
         let builder = builder.http2_keepalive_interval(Some(self.keepalive.time.into()));
         let builder = builder.http2_keepalive_timeout(Some(self.keepalive.timeout.into()));
 

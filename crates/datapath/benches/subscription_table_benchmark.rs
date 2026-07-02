@@ -2,20 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
-use slim_datapath::api::{EncodedName, ProtoName};
+use slim_datapath::api::ProtoName;
 use slim_datapath::tables::SubscriptionTable;
 use slim_datapath::tables::subscription_table::SubscriptionTableImpl;
 use slim_datapath::tables::{ConnType, MatchFilter};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn encoded(name: &ProtoName) -> EncodedName {
-    name.name.unwrap()
-}
-
 /// Build a table with `n` distinct specific IDs under one prefix.
 /// The target is the last-inserted ID — worst-case scan position.
-fn build_specific_ids(n: usize) -> (SubscriptionTableImpl, EncodedName) {
+fn build_specific_ids(n: usize) -> (SubscriptionTableImpl, ([u64; 3], u128)) {
     let base = ProtoName::from_strings(["org", "ns", "svc"]);
     let table = SubscriptionTableImpl::default();
     for i in 1..=n {
@@ -25,13 +21,13 @@ fn build_specific_ids(n: usize) -> (SubscriptionTableImpl, EncodedName) {
             .unwrap();
     }
     let target = base.with_id(n as u128);
-    (table, encoded(&target))
+    (table, (target.components(), target.id()))
 }
 
 /// Build a table with `n` entries under one prefix: 1 NULL_COMPONENT entry
 /// (conn 1) plus n−1 specific IDs, each with 1 remote connection.
 /// Returns the encoded NULL_COMPONENT name for fan-out benchmarks.
-fn build_with_null(n: usize) -> (SubscriptionTableImpl, EncodedName) {
+fn build_with_null(n: usize) -> (SubscriptionTableImpl, ([u64; 3], u128)) {
     let base = ProtoName::from_strings(["org", "ns", "svc"]);
     let table = SubscriptionTableImpl::default();
     table
@@ -43,12 +39,12 @@ fn build_with_null(n: usize) -> (SubscriptionTableImpl, EncodedName) {
             .add_subscription(name, (i + 100) as u64, ConnType::Remote, (i + 100) as u64)
             .unwrap();
     }
-    (table, encoded(&base))
+    (table, (base.components(), base.id()))
 }
 
 /// Build a table with a single specific ID (42) having `n_conns` connections.
 /// The first half are local, the rest remote.
-fn build_one_id_n_conns(n_conns: usize) -> (SubscriptionTableImpl, EncodedName) {
+fn build_one_id_n_conns(n_conns: usize) -> (SubscriptionTableImpl, ([u64; 3], u128)) {
     let name = ProtoName::from_strings(["org", "ns", "svc"]).with_id(42);
     let table = SubscriptionTableImpl::default();
     let half = n_conns.div_ceil(2);
@@ -62,7 +58,7 @@ fn build_one_id_n_conns(n_conns: usize) -> (SubscriptionTableImpl, EncodedName) 
             .add_subscription(name.clone(), (i + 10) as u64, category, i as u64)
             .unwrap();
     }
-    (table, encoded(&name))
+    (table, (name.components(), name.id()))
 }
 
 /// Build a table with `n` distinct prefixes (org/ns/svcN), each with 1
@@ -70,7 +66,7 @@ fn build_one_id_n_conns(n_conns: usize) -> (SubscriptionTableImpl, EncodedName) 
 /// last-inserted prefix — every lookup costs exactly one HashMap probe
 /// regardless of table size, so this group isolates HashMap / cache-miss
 /// overhead as the routing table grows.
-fn build_many_prefixes(n: usize) -> (SubscriptionTableImpl, EncodedName) {
+fn build_many_prefixes(n: usize) -> (SubscriptionTableImpl, ([u64; 3], u128)) {
     let table = SubscriptionTableImpl::default();
     for i in 0..n {
         let svc = format!("svc{i}");
@@ -81,7 +77,7 @@ fn build_many_prefixes(n: usize) -> (SubscriptionTableImpl, EncodedName) {
     }
     let last_svc = format!("svc{}", n - 1);
     let target = ProtoName::from_strings(["org", "ns", last_svc.as_str()]).with_id(1);
-    (table, encoded(&target))
+    (table, (target.components(), target.id()))
 }
 
 // ── match_one benchmarks ──────────────────────────────────────────────────────
@@ -93,7 +89,14 @@ fn bench_match_one_specific_id(c: &mut Criterion) {
     for &n in &[1usize, 4, 8, 16, 64, 256, 1024] {
         let (table, enc) = build_specific_ids(n);
         group.bench_with_input(BenchmarkId::from_parameter(n), &enc, |b, e| {
-            b.iter(|| black_box(table.match_one(black_box(e), u64::MAX, MatchFilter::ALL)))
+            b.iter(|| {
+                black_box(table.match_one(
+                    black_box(e.0),
+                    black_box(e.1),
+                    u64::MAX,
+                    MatchFilter::ALL,
+                ))
+            })
         });
     }
     group.finish();
@@ -105,7 +108,14 @@ fn bench_match_one_null_component(c: &mut Criterion) {
     for &n in &[1usize, 4, 8, 16, 64, 256] {
         let (table, enc) = build_with_null(n);
         group.bench_with_input(BenchmarkId::from_parameter(n), &enc, |b, e| {
-            b.iter(|| black_box(table.match_one(black_box(e), u64::MAX, MatchFilter::ALL)))
+            b.iter(|| {
+                black_box(table.match_one(
+                    black_box(e.0),
+                    black_box(e.1),
+                    u64::MAX,
+                    MatchFilter::ALL,
+                ))
+            })
         });
     }
     group.finish();
@@ -127,9 +137,16 @@ fn bench_match_one_local_preference(c: &mut Criterion) {
             .add_subscription(name.clone(), i, ConnType::Local, i)
             .unwrap();
     }
-    let enc = encoded(&name);
+    let (components, id) = (name.components(), name.id());
     c.bench_function("match_one/local_preference", |b| {
-        b.iter(|| black_box(table.match_one(black_box(&enc), u64::MAX, MatchFilter::ALL)))
+        b.iter(|| {
+            black_box(table.match_one(
+                black_box(components),
+                black_box(id),
+                u64::MAX,
+                MatchFilter::ALL,
+            ))
+        })
     });
 }
 
@@ -141,7 +158,14 @@ fn bench_match_one_many_prefixes(c: &mut Criterion) {
     for &n in &[64usize, 256, 1024, 4096] {
         let (table, enc) = build_many_prefixes(n);
         group.bench_with_input(BenchmarkId::from_parameter(n), &enc, |b, e| {
-            b.iter(|| black_box(table.match_one(black_box(e), u64::MAX, MatchFilter::ALL)))
+            b.iter(|| {
+                black_box(table.match_one(
+                    black_box(e.0),
+                    black_box(e.1),
+                    u64::MAX,
+                    MatchFilter::ALL,
+                ))
+            })
         });
     }
     group.finish();
@@ -155,7 +179,14 @@ fn bench_match_all_specific_id(c: &mut Criterion) {
     for &n in &[1usize, 4, 8, 16, 64, 256] {
         let (table, enc) = build_one_id_n_conns(n);
         group.bench_with_input(BenchmarkId::from_parameter(n), &enc, |b, e| {
-            b.iter(|| black_box(table.match_all(black_box(e), u64::MAX, MatchFilter::ALL)))
+            b.iter(|| {
+                black_box(table.match_all(
+                    black_box(e.0),
+                    black_box(e.1),
+                    u64::MAX,
+                    MatchFilter::ALL,
+                ))
+            })
         });
     }
     group.finish();
@@ -167,7 +198,14 @@ fn bench_match_all_null_component(c: &mut Criterion) {
     for &n in &[1usize, 4, 8, 16, 64, 256] {
         let (table, enc) = build_with_null(n);
         group.bench_with_input(BenchmarkId::from_parameter(n), &enc, |b, e| {
-            b.iter(|| black_box(table.match_all(black_box(e), u64::MAX, MatchFilter::ALL)))
+            b.iter(|| {
+                black_box(table.match_all(
+                    black_box(e.0),
+                    black_box(e.1),
+                    u64::MAX,
+                    MatchFilter::ALL,
+                ))
+            })
         });
     }
     group.finish();
@@ -180,7 +218,14 @@ fn bench_match_all_many_prefixes(c: &mut Criterion) {
     for &n in &[64usize, 256, 1024, 4096] {
         let (table, enc) = build_many_prefixes(n);
         group.bench_with_input(BenchmarkId::from_parameter(n), &enc, |b, e| {
-            b.iter(|| black_box(table.match_all(black_box(e), u64::MAX, MatchFilter::ALL)))
+            b.iter(|| {
+                black_box(table.match_all(
+                    black_box(e.0),
+                    black_box(e.1),
+                    u64::MAX,
+                    MatchFilter::ALL,
+                ))
+            })
         });
     }
     group.finish();

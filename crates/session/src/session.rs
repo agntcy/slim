@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use slim_datapath::api::{
-    EncodedName, Participant, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
+    Participant, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
 };
 
 use tokio::sync::mpsc::{self};
@@ -218,7 +218,7 @@ impl Session {
         &mut self,
         id: u32,
         message_type: ProtoSessionMessageType,
-        name: Option<EncodedName>,
+        name: Option<[u64; 3]>,
     ) -> Result<SessionOutput, SessionError> {
         match message_type {
             ProtoSessionMessageType::Msg => match self.sender.as_mut() {
@@ -243,7 +243,7 @@ impl Session {
         &mut self,
         id: u32,
         message_type: ProtoSessionMessageType,
-        name: Option<EncodedName>,
+        name: Option<[u64; 3]>,
     ) -> Result<SessionOutput, SessionError> {
         match message_type {
             ProtoSessionMessageType::Msg => match self.sender.as_mut() {
