@@ -564,7 +564,9 @@ mod topology_mutation_tests {
                 conn_details: vec![ConnectionDetails {
                     endpoint: format!("127.0.0.1:{}", 9000 + i),
                     external_endpoint: None,
-                    spire_mtls: None,
+                    tls_required: false,
+                    auth_method: "none".to_string(),
+                    spire_trust_domain: None,
                 }],
                 created_at: SystemTime::now(),
                 last_updated: SystemTime::now(),
