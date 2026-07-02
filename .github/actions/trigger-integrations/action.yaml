@@ -38,10 +38,9 @@ runs:
           await github.rest.actions.createWorkflowDispatch({
               owner: 'agntcy',
               repo: 'csit',
-              workflow_id: 'test-integrations.yaml',
+              workflow_id: 'test-slim-integration.yaml',
               ref: 'main',
               inputs: {
-                  skip_slim_test: false,
                   override_slim_image_tag: '${{ steps.tags.outputs.IMAGE_TAG }}',
                   override_slim_chart_tag: '${{ steps.tags.outputs.CHART_TAG }}',
               },
