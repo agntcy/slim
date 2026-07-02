@@ -1,121 +1,125 @@
-# SLIM SDK Installation
+# SLIM SDK — Language Bindings
 
-Install the SLIM language bindings for your target language. Each binding wraps the same Rust core and provides the full session layer and data plane client.
+All bindings are maintained in [agntcy/slim-bindings](https://github.com/agntcy/slim-bindings) and generated from the same Rust core via [UniFFI](https://github.com/mozilla/uniffi-rs). The Go binding is distributed through a separate [agntcy/slim-bindings-go](https://github.com/agntcy/slim-bindings-go) module because Go's module system requires source hosting rather than a package registry.
 
-=== "Python"
+## Python
 
-    Install using pip:
+| | |
+|---|---|
+| **Package** | `slim-bindings` on PyPI |
+| **Requirements** | Python 3.9+ |
+| **Examples** | [python/examples](https://github.com/agntcy/slim-bindings/tree/main/python/examples) |
 
-    ```bash
-    pip install slim-bindings
-    ```
+```bash
+pip install slim-bindings
+```
 
-    Or add to your `pyproject.toml`:
+Or add to your `pyproject.toml`:
 
-    ```toml
-    [project]
-    dependencies = ["slim-bindings~=1.0"]
-    ```
+```toml
+[project]
+dependencies = ["slim-bindings~=1.0"]
+```
 
-    **Requirements**: Python 3.9+
+## Go
 
-    For more information, see the [Python examples](https://github.com/agntcy/slim-bindings/tree/main/python/examples) in the slim-bindings repository.
+| | |
+|---|---|
+| **Package** | `github.com/agntcy/slim-bindings-go` |
+| **Requirements** | Go 1.20+, C compiler (CGO) |
+| **Examples** | [examples](https://github.com/agntcy/slim-bindings-go/tree/main/examples) |
 
-=== "Go"
+```bash
+go get github.com/agntcy/slim-bindings-go
+```
 
-    Install the Go bindings:
+Then run the setup tool to install the native libraries:
 
-    ```bash
-    go get github.com/agntcy/slim-bindings-go@v1.1.0
-    ```
+```bash
+go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup
+```
 
-    Run the setup tool to install native libraries:
+!!! warning "CGO Requirement"
+    The Go bindings use native libraries via [CGO](https://pkg.go.dev/cmd/cgo). A C compiler (GCC or Clang) must be installed.
 
-    ```bash
-    go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup
-    ```
+## .NET
 
-    Add to your `go.mod`:
+| | |
+|---|---|
+| **Package** | `Agntcy.Slim` on NuGet |
+| **Requirements** | .NET 8.0+ |
+| **Examples** | [dotnet/examples](https://github.com/agntcy/slim-bindings/tree/main/dotnet/examples) |
 
-    ```go
-    require github.com/agntcy/slim-bindings-go v1.1.0
-    ```
+```bash
+dotnet add package Agntcy.Slim
+```
 
-    !!! warning "C Compiler Required"
-        The Go bindings use native libraries via [CGO](https://pkg.go.dev/cmd/cgo), so you'll need a C compiler installed on your system.
+## Java
 
-    For more information, see the [Go examples](https://github.com/agntcy/slim-bindings-go/tree/main/examples) in the repository.
+| | |
+|---|---|
+| **Package** | Maven Central |
+| **Requirements** | Java 21+, Maven 3.8+, JNA |
+| **Examples** | [java/examples](https://github.com/agntcy/slim-bindings/tree/main/java/examples) |
 
-=== "Kotlin"
+The Java bindings provide synchronous methods with `CompletableFuture`-based async variants.
 
-    Add the Kotlin bindings to your Gradle project:
+## Kotlin
 
-    === "Maven Central"
+| | |
+|---|---|
+| **Package** | Maven Central |
+| **Requirements** | JDK 17+, JNA |
+| **Examples** | [kotlin/examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples) |
 
-        Add to your `build.gradle.kts`:
+Add to your `build.gradle.kts`:
 
-        ```kotlin
-        dependencies {
-            implementation("io.agntcy.slim:slim-bindings-kotlin:1.2.0")
-        }
-        ```
+```kotlin
+dependencies {
+    implementation("io.agntcy.slim:slim-bindings-kotlin:1.2.0")
+}
+```
 
-        `mavenCentral()` is the default repository in Gradle, so no additional repository configuration is needed.
+## Node.js
 
-    === "GitHub Packages"
+| | |
+|---|---|
+| **Package** | `@agntcy/slim-bindings` on npm |
+| **Requirements** | Node.js 18+ |
 
-        Add the GitHub Packages repository and dependency to your `build.gradle.kts`:
+```bash
+npm install @agntcy/slim-bindings
+```
 
-        ```kotlin
-        repositories {
-            maven {
-                url = uri("https://maven.pkg.github.com/agntcy/slim")
-                credentials {
-                    username = project.findProperty("gpr.user") as String? ?: System.getenv("GITHUB_ACTOR")
-                    password = project.findProperty("gpr.key") as String? ?: System.getenv("GITHUB_TOKEN")
-                }
-            }
-        }
-        dependencies {
-            implementation("io.agntcy.slim:slim-bindings-kotlin:1.2.0")
-        }
-        ```
+## React Native
 
-        !!! note "GitHub Token Required"
-            To use GitHub Packages, you need a personal access token with `read:packages` scope.
+| | |
+|---|---|
+| **Package** | `@agntcy/slim-bindings-react-native` on npm |
+| **Requirements** | iOS or Android |
 
-    !!! note "JDK 17+ Required"
-        The Kotlin bindings use [JNA](https://github.com/java-native-access/jna) for native library loading and require JDK 17 or higher.
+```bash
+npm install @agntcy/slim-bindings-react-native
+```
 
-    For more information, see the [Kotlin examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples).
-
-=== ".NET"
-
-    Install from NuGet:
-
-    ```bash
-    dotnet add package Agntcy.Slim.Bindings
-    ```
-
-    For more information, see the [.NET examples](https://github.com/agntcy/slim-bindings/tree/main/dotnet/examples) in the slim-bindings repository.
-
-## Building Bindings from Source
+## Building from Source
 
 To build the bindings from source:
 
 ```bash
-git clone https://github.com/agntcy/slim
-cd slim
+git clone https://github.com/agntcy/slim-bindings
+cd slim-bindings
 
-# Python (requires maturin and uv)
-task python:bindings:build
+# Build the Rust FFI library
+cd rust && task bindings:build
 
-# All language bindings
-task data-plane:bindings:build
+# Build a specific binding (example: Python)
+cd python && task bindings:build
 ```
+
+See the README in each binding directory for language-specific build instructions.
 
 ## Next Steps
 
 - [Connecting to SLIM](./tutorial-connect.md) — Your first connection to a SLIM node
 - [SLIM SDK Overview](./index.md) — Learn what the SDK provides
-- [Supported Languages](./languages.md) — API documentation and feature parity details per language

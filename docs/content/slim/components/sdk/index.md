@@ -9,14 +9,9 @@ Each binding bundles two components:
 
 ## Supported Languages
 
-| Language | Package | Repository |
-|----------|---------|-----------|
-| Python | `slim-bindings` (PyPI) | [agntcy/slim-bindings](https://github.com/agntcy/slim-bindings) |
-| Go | `slim-bindings-go` | [agntcy/slim-bindings-go](https://github.com/agntcy/slim-bindings-go) |
-| Kotlin | `slim-bindings-kotlin` (Maven Central) | [agntcy/slim-bindings](https://github.com/agntcy/slim-bindings) |
-| .NET | NuGet | [agntcy/slim-bindings](https://github.com/agntcy/slim-bindings) |
+Python, Go, .NET, Java, Kotlin, Node.js, and React Native.
 
-See [Supported Languages](./languages.md) for per-language installation instructions, API documentation links, and feature parity notes.
+See [Installation](./install.md) for per-language package names, requirements, and install commands.
 
 ## How It Fits Into SLIM
 
