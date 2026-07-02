@@ -52,15 +52,69 @@ The SLIM service is the global runtime that manages connections and application 
 
 === "Go"
 
-    Refer to the [Go examples](https://github.com/agntcy/slim-bindings-go/tree/main/examples) in the slim-bindings-go repository for the equivalent initialisation pattern.
+    ```go
+    import slim "github.com/agntcy/slim-bindings-go"
+
+    func main() {
+        // Initialise the global SLIM service with defaults
+        slim.InitializeWithDefaults()
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    import io.agntcy.slim.bindings.*;
+
+    public class Main {
+        public static void main(String[] args) {
+            // Initialise the global SLIM service with defaults
+            SlimBindings.initializeWithDefaults();
+
+            // Obtain a reference to the global service
+            Service service = SlimBindings.getGlobalService();
+        }
+    }
+    ```
 
 === "Kotlin"
 
-    Refer to the [Kotlin examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples) in the slim-bindings repository.
+    ```kotlin
+    import io.agntcy.slim.bindings.*
+
+    fun main() {
+        // Initialise the global SLIM service with defaults
+        initializeWithDefaults()
+
+        // Obtain a reference to the global service
+        val service = getGlobalService()
+    }
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    import slimBindings from '@agntcy/slim-bindings';
+
+    // Initialise the global SLIM service with defaults
+    slimBindings.initializeWithDefaults();
+
+    // Obtain a reference to the global service
+    const service = slimBindings.getGlobalService();
+    ```
 
 === ".NET"
 
-    Refer to the [.NET examples](https://github.com/agntcy/slim-bindings/tree/main/dotnet/examples) in the slim-bindings repository.
+    ```csharp
+    using Agntcy.Slim;
+
+    // Initialise the global SLIM service with defaults
+    Slim.Initialize();
+    ```
+
+=== "React Native"
+
+    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
 
 ## Step 2: Connect to a SLIM Node
 
@@ -90,39 +144,191 @@ With the service initialised, connect to a SLIM node. The connection returns a `
 
 === "Go"
 
-    Refer to the [Go examples](https://github.com/agntcy/slim-bindings-go/tree/main/examples) in the slim-bindings-go repository.
+    ```go
+    // Build a client config pointing at your SLIM node
+    config := slim.NewInsecureClientConfig("http://127.0.0.1:46357")
+
+    // Connect — returns a connection ID used in later calls
+    connID, err := slim.GetGlobalService().ConnectAsync(config)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    fmt.Printf("Connected, connID=%d\n", connID)
+    ```
+
+=== "Java"
+
+    ```java
+    // Build a client config pointing at your SLIM node
+    ClientConfig config = SlimBindings.newInsecureClientConfig("http://127.0.0.1:46357");
+
+    // Connect — returns a connection ID used in later calls
+    Long connId = service.connect(config);
+
+    System.out.println("Connected, connId=" + connId);
+    ```
 
 === "Kotlin"
 
-    Refer to the [Kotlin examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples).
+    ```kotlin
+    // Build a client config pointing at your SLIM node
+    val clientConfig = newInsecureClientConfig("http://127.0.0.1:46357")
+
+    // Connect — returns a connection ID used in later calls
+    val connId: ULong = service.connectAsync(clientConfig)
+
+    println("Connected, connId=$connId")
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    // Build a client config pointing at your SLIM node
+    const config = slimBindings.newInsecureClientConfig("http://127.0.0.1:46357");
+
+    // Connect — returns a connection ID used in later calls
+    const connId = await service.connectAsync(config);
+
+    console.log(`Connected, connId=${connId}`);
+    ```
 
 === ".NET"
 
-    Refer to the [.NET examples](https://github.com/agntcy/slim-bindings/tree/main/dotnet/examples).
+    ```csharp
+    // Connect to the SLIM node — returns a connection ID used in later calls
+    var connId = Slim.Connect("http://127.0.0.1:46357");
+
+    Console.WriteLine($"Connected, connId={connId}");
+    ```
+
+=== "React Native"
+
+    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
 
 !!! note "TLS in Production"
     `new_insecure_client_config` skips TLS verification and is for development only. See [Authentication](../../architecture/authentication.md) for production TLS, mTLS, and JWT options.
 
 ## Putting It Together
 
-```python
-import asyncio
-import slim_bindings
+=== "Python"
 
-async def main():
-    slim_bindings.uniffi_set_event_loop(asyncio.get_running_loop())
-    slim_bindings.initialize_with_defaults()
+    ```python
+    import asyncio
+    import slim_bindings
 
-    service = slim_bindings.get_global_service()
+    async def main():
+        slim_bindings.uniffi_set_event_loop(asyncio.get_running_loop())
+        slim_bindings.initialize_with_defaults()
 
-    client_config = slim_bindings.new_insecure_client_config("http://127.0.0.1:46357")
-    conn_id = await service.connect_async(client_config)
+        service = slim_bindings.get_global_service()
 
-    print(f"Connected, conn_id={conn_id}")
-    # service and conn_id are passed to create_app in the next tutorial
+        client_config = slim_bindings.new_insecure_client_config("http://127.0.0.1:46357")
+        conn_id = await service.connect_async(client_config)
 
-asyncio.run(main())
-```
+        print(f"Connected, conn_id={conn_id}")
+        # service and conn_id are passed to create_app in the next tutorial
+
+    asyncio.run(main())
+    ```
+
+=== "Go"
+
+    ```go
+    package main
+
+    import (
+        "fmt"
+        "log"
+
+        slim "github.com/agntcy/slim-bindings-go"
+    )
+
+    func main() {
+        slim.InitializeWithDefaults()
+
+        config := slim.NewInsecureClientConfig("http://127.0.0.1:46357")
+        connID, err := slim.GetGlobalService().ConnectAsync(config)
+        if err != nil {
+            log.Fatal(err)
+        }
+
+        fmt.Printf("Connected, connID=%d\n", connID)
+        // service and connID are passed to create_app in the next tutorial
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    import io.agntcy.slim.bindings.*;
+
+    public class Main {
+        public static void main(String[] args) {
+            SlimBindings.initializeWithDefaults();
+            Service service = SlimBindings.getGlobalService();
+
+            ClientConfig config = SlimBindings.newInsecureClientConfig("http://127.0.0.1:46357");
+            Long connId = service.connect(config);
+
+            System.out.println("Connected, connId=" + connId);
+            // service and connId are passed to create_app in the next tutorial
+        }
+    }
+    ```
+
+=== "Kotlin"
+
+    ```kotlin
+    import io.agntcy.slim.bindings.*
+
+    fun main() {
+        initializeWithDefaults()
+        val service = getGlobalService()
+
+        val clientConfig = newInsecureClientConfig("http://127.0.0.1:46357")
+        val connId: ULong = service.connectAsync(clientConfig)
+
+        println("Connected, connId=$connId")
+        // service and connId are passed to create_app in the next tutorial
+    }
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    import slimBindings from '@agntcy/slim-bindings';
+
+    async function main() {
+        slimBindings.initializeWithDefaults();
+        const service = slimBindings.getGlobalService();
+
+        const config = slimBindings.newInsecureClientConfig("http://127.0.0.1:46357");
+        const connId = await service.connectAsync(config);
+
+        console.log(`Connected, connId=${connId}`);
+        // service and connId are passed to create_app in the next tutorial
+    }
+
+    main();
+    ```
+
+=== ".NET"
+
+    ```csharp
+    using Agntcy.Slim;
+
+    Slim.Initialize();
+
+    var connId = Slim.Connect("http://127.0.0.1:46357");
+
+    Console.WriteLine($"Connected, connId={connId}");
+    // connId is passed to CreateApp in the next tutorial
+    ```
+
+=== "React Native"
+
+    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
 
 ## Next Steps
 

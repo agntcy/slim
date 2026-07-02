@@ -46,44 +46,131 @@ A point-to-point session connects your application to a single remote instance. 
 
     ```go
     import (
-        "context"
         "fmt"
-        "time"
+        "log"
+
         slim "github.com/agntcy/slim-bindings-go"
     )
 
-    func runClient(ctx context.Context, app *slim.SlimApp, remoteName slim.Name) (*slim.Session, error) {
+    func runClient(app *slim.App, remoteName slim.Name) *slim.Session {
         // Configure the session
-        sessionConfig := slim.SessionConfig{
+        config := slim.SessionConfig{
             SessionType: slim.SessionTypePointToPoint,
-            EnableMls:   false, // Set true to enable end-to-end encryption
-            MaxRetries:  5,
-            Interval:    5 * time.Second,
+            MlsSettings: nil, // Set to &slim.MlsSettings{...} to enable E2E encryption
         }
 
         // Create the session — discovery happens automatically
-        sessionCtx, err := app.CreateSession(ctx, sessionConfig, remoteName)
+        // Blocks until the session is fully established
+        session, err := app.CreateSessionAndWaitAsync(config, remoteName)
         if err != nil {
-            return nil, err
-        }
-
-        // Wait until the session is fully established
-        if err := sessionCtx.Completion.Wait(ctx); err != nil {
-            return nil, err
+            log.Fatal(err)
         }
 
         fmt.Println("Point-to-point session established")
-        return sessionCtx.Session, nil
+        return session
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    import io.agntcy.slim.bindings.*;
+    import java.time.Duration;
+    import java.util.Map;
+
+    Session runClient(App app, Name remoteName) {
+        // Configure the session
+        SessionConfig sessionConfig = new SessionConfig(
+            SessionType.POINT_TO_POINT,
+            5,                       // maxRetries
+            Duration.ofSeconds(5),   // interval
+            Map.of(),                // metadata
+            null                     // mlsSettings (set to new MlsSettings(100) for E2E encryption)
+        );
+
+        // Create the session — discovery happens automatically
+        // Blocks until the session is fully established
+        Session session = app.createSessionAndWait(sessionConfig, remoteName);
+
+        System.out.println("Point-to-point session established");
+        return session;
     }
     ```
 
 === "Kotlin"
 
-    Refer to the [Kotlin examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples) in the slim-bindings repository.
+    ```kotlin
+    import io.agntcy.slim.bindings.*
+    import java.time.Duration
+
+    suspend fun runClient(app: App, remoteName: Name): Session {
+        // Configure the session
+        val sessionConfig = SessionConfig(
+            sessionType = SessionType.POINT_TO_POINT,
+            maxRetries = 5u,
+            interval = Duration.ofSeconds(5),
+            metadata = emptyMap(),
+            mlsSettings = null // Set to MlsSettings(100u) for E2E encryption
+        )
+
+        // Create the session — discovery happens automatically
+        val sessionContext = app.createSession(sessionConfig, remoteName)
+
+        // Wait until the session is fully established
+        sessionContext.completion.waitAsync()
+
+        val session = sessionContext.session
+        println("Point-to-point session established")
+        return session
+    }
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    import slimBindings from '@agntcy/slim-bindings';
+
+    async function runClient(app, remoteName) {
+        // Configure the session
+        const sessionConfig = {
+            sessionType: "pointToPoint" as const,
+            enableMls: false, // Set true to enable end-to-end encryption
+            maxRetries: 5,
+            interval: 5000, // milliseconds
+            metadata: new Map()
+        };
+
+        // Create the session — discovery happens automatically
+        // Resolves when the session is fully established
+        const session = await app.createSessionAndWaitAsync(sessionConfig, remoteName);
+
+        console.log("Point-to-point session established");
+        return session;
+    }
+    ```
 
 === ".NET"
 
-    Refer to the [.NET examples](https://github.com/agntcy/slim-bindings/tree/main/dotnet/examples) in the slim-bindings repository.
+    ```csharp
+    using Agntcy.Slim;
+
+    // Configure the session
+    var config = new SlimSessionConfig
+    {
+        SessionType = SlimSessionType.PointToPoint,
+        MlsSettings = null  // Set to new SlimMlsSettings() to enable E2E encryption
+    };
+
+    // Create the session — discovery happens automatically
+    // Blocks until the session is fully established
+    using var session = await app.CreateSessionAsync(remoteName, config);
+
+    Console.WriteLine("Point-to-point session established");
+    ```
+
+=== "React Native"
+
+    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
 
 ### Send and Receive Messages
 
@@ -110,31 +197,90 @@ A point-to-point session connects your application to a single remote instance. 
 === "Go"
 
     ```go
+    import "time"
+
     // Send a message
-    if err := session.Publish(ctx, []byte("hello"), nil, nil); err != nil {
-        panic(err)
+    if err := session.PublishAndWaitAsync([]byte("hello"), nil, nil); err != nil {
+        log.Fatal(err)
     }
 
     // Receive a reply
-    msg, err := session.GetMessage(ctx, 30*time.Second)
+    timeout := 30 * time.Second
+    msg, err := session.GetMessageAsync(&timeout)
     if err != nil {
-        panic(err)
+        log.Fatal(err)
     }
     fmt.Println("Received:", string(msg.Payload))
 
     // Echo the message back
-    if err := session.Publish(ctx, msg.Payload, nil, nil); err != nil {
-        panic(err)
+    if err := session.PublishAndWaitAsync(msg.Payload, nil, nil); err != nil {
+        log.Fatal(err)
     }
+    ```
+
+=== "Java"
+
+    ```java
+    import java.time.Duration;
+
+    // Send a message
+    session.publishAndWait("hello".getBytes(), null, null);
+
+    // Receive a reply
+    ReceivedMessage msg = session.getMessage(Duration.ofSeconds(30));
+    System.out.println("Received: " + new String(msg.payload()));
+
+    // Echo the message back
+    session.publishAndWait(msg.payload(), null, null);
     ```
 
 === "Kotlin"
 
-    Refer to the [Kotlin examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples).
+    ```kotlin
+    import java.time.Duration
+
+    // Send a message
+    session.publishAsync("hello".toByteArray(), null, null)
+
+    // Receive a reply
+    val msg = session.getMessageAsync(Duration.ofSeconds(30))
+    println("Received: " + String(msg.payload))
+
+    // Echo the message back
+    session.publishAsync(msg.payload, null, null)
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    // Send a message
+    await session.publishAndWaitAsync(Buffer.from("hello"), undefined, undefined);
+
+    // Receive a reply
+    const msg = await session.getMessageAsync(30000); // timeout in milliseconds
+    console.log("Received:", Buffer.from(msg.payload).toString());
+
+    // Echo the message back
+    await session.publishAndWaitAsync(msg.payload, undefined, undefined);
+    ```
 
 === ".NET"
 
-    Refer to the [.NET examples](https://github.com/agntcy/slim-bindings/tree/main/dotnet/examples).
+    ```csharp
+    // Send a message
+    await session.PublishAsync("hello");
+
+    // Receive a reply
+    var msg = await session.GetMessageAsync(TimeSpan.FromSeconds(30));
+    Console.WriteLine($"Received: {msg.Text}");
+
+    // Echo the message back
+    await session.ReplyAsync(msg, msg.Text);
+    ```
+
+=== "React Native"
+
+    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
 
 ## Group Session
 
@@ -167,37 +313,96 @@ A group session enables many-to-many communication on a named channel. Every mes
 === "Go"
 
     ```go
-    func createGroupSession(ctx context.Context, app *slim.SlimApp, channelName slim.Name) (*slim.Session, error) {
-        sessionConfig := slim.SessionConfig{
+    func createGroupSession(app *slim.App, channelName slim.Name) *slim.Session {
+        config := slim.SessionConfig{
             SessionType: slim.SessionTypeGroup,
-            EnableMls:   false,
-            MaxRetries:  5,
-            Interval:    5 * time.Second,
+            MlsSettings: nil,
         }
 
         // Create the session on the given channel
-        sessionCtx, err := app.CreateSession(ctx, sessionConfig, channelName)
+        // Blocks until the session is ready
+        session, err := app.CreateSessionAndWaitAsync(config, channelName)
         if err != nil {
-            return nil, err
+            log.Fatal(err)
         }
 
-        // Wait until the session is ready
-        if err := sessionCtx.Completion.Wait(ctx); err != nil {
-            return nil, err
-        }
+        fmt.Println("Group session created on channel:", channelName)
+        return session
+    }
+    ```
 
-        fmt.Println("Group session created")
-        return sessionCtx.Session, nil
+=== "Java"
+
+    ```java
+    Session createGroupSession(App app, Name channelName) {
+        SessionConfig sessionConfig = new SessionConfig(
+            SessionType.GROUP,
+            5,                       // maxRetries
+            Duration.ofSeconds(5),   // interval
+            Map.of(),                // metadata
+            null                     // mlsSettings
+        );
+
+        // Create the session on the given channel
+        // Blocks until the session is ready
+        Session session = app.createSessionAndWait(sessionConfig, channelName);
+
+        System.out.println("Group session created on channel: " + channelName);
+        return session;
     }
     ```
 
 === "Kotlin"
 
-    Refer to the [Kotlin examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples).
+    ```kotlin
+    suspend fun createGroupSession(app: App, channelName: Name): Session {
+        val sessionConfig = SessionConfig(
+            sessionType = SessionType.GROUP,
+            maxRetries = 5u,
+            interval = Duration.ofSeconds(5),
+            metadata = emptyMap(),
+            mlsSettings = null
+        )
+
+        // Create the session on the given channel
+        val sessionContext = app.createSession(sessionConfig, channelName)
+
+        // Wait until the session is ready
+        sessionContext.completion.waitAsync()
+
+        val session = sessionContext.session
+        println("Group session created on channel: $channelName")
+        return session
+    }
+    ```
+
+=== "Node.js"
+
+    Group sessions are not yet supported in the Node.js bindings.
 
 === ".NET"
 
-    Refer to the [.NET examples](https://github.com/agntcy/slim-bindings/tree/main/dotnet/examples).
+    ```csharp
+    using Agntcy.Slim;
+
+    var config = new SlimSessionConfig
+    {
+        SessionType = SlimSessionType.Group,
+        MlsSettings = null,  // Set to new SlimMlsSettings() to enable E2E encryption
+        MaxRetries = 5,
+        RetryInterval = TimeSpan.FromSeconds(5),
+        Metadata = new Dictionary<string, string>()
+    };
+
+    // Create the group session on the given channel
+    using var session = await app.CreateSessionAsync(channelName, config);
+
+    Console.WriteLine($"Group session created on channel: {channelName}");
+    ```
+
+=== "React Native"
+
+    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
 
 ### Invite a Participant
 
@@ -220,28 +425,69 @@ The session creator acts as a moderator and can invite other applications to joi
 === "Go"
 
     ```go
-    func inviteParticipant(ctx context.Context, app *slim.SlimApp, session *slim.Session, name slim.Name, connID slim.ConnID) error {
+    func inviteParticipant(app *slim.App, session *slim.Session, name slim.Name, connID slim.ConnID) error {
         // Set the route to the participant first
-        if err := app.SetRoute(ctx, name, connID); err != nil {
+        if err := app.SetRouteAsync(name, connID); err != nil {
             return err
         }
 
-        // Invite the participant
-        handle, err := session.Invite(ctx, name)
-        if err != nil {
+        // Invite the participant — this performs discovery + MLS key exchange
+        if err := session.InviteAndWaitAsync(name); err != nil {
             return err
         }
-        return handle.Wait(ctx)
+        return nil
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    void inviteParticipant(App app, Session session, Name participantName, Long connId) {
+        // Set the route to the participant first
+        app.setRoute(participantName, connId);
+
+        // Invite the participant — this performs discovery + MLS key exchange
+        session.inviteAndWait(participantName);
+
+        System.out.println("Invited " + participantName + " to the group");
     }
     ```
 
 === "Kotlin"
 
-    Refer to the [Kotlin examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples).
+    ```kotlin
+    suspend fun inviteParticipant(app: App, session: Session, participantName: Name, connId: ULong) {
+        // Set the route to the participant first
+        app.setRouteAsync(participantName, connId)
+
+        // Invite the participant — this performs discovery + MLS key exchange
+        val handle = session.inviteAsync(participantName)
+        handle.waitAsync()
+
+        println("Invited $participantName to the group")
+    }
+    ```
+
+=== "Node.js"
+
+    Group sessions are not yet supported in the Node.js bindings.
 
 === ".NET"
 
-    Refer to the [.NET examples](https://github.com/agntcy/slim-bindings/tree/main/dotnet/examples).
+    ```csharp
+    // Set the route to the participant first
+    using var inviteName = SlimName.Parse("myorg/default/participant");
+    app.SetRoute(inviteName, connId);
+
+    // Invite the participant (synchronous)
+    session.Invite(inviteName);
+
+    Console.WriteLine($"Invited {inviteName} to the group");
+    ```
+
+=== "React Native"
+
+    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
 
 ### Broadcast to the Group
 
@@ -262,38 +508,135 @@ The session creator acts as a moderator and can invite other applications to joi
 
     ```go
     // Broadcast to all participants
-    if err := session.Publish(ctx, []byte("hello everyone"), nil, nil); err != nil {
-        panic(err)
+    if err := session.PublishAndWaitAsync([]byte("hello everyone"), nil, nil); err != nil {
+        log.Fatal(err)
     }
 
     // Receive messages from the group
-    msg, err := session.GetMessage(ctx, 30*time.Second)
+    timeout := 30 * time.Second
+    msg, err := session.GetMessageAsync(&timeout)
     if err != nil {
-        panic(err)
+        log.Fatal(err)
     }
     fmt.Println("Channel message:", string(msg.Payload))
     ```
 
+=== "Java"
+
+    ```java
+    // Broadcast to all participants
+    session.publishAndWait("hello everyone".getBytes(), null, null);
+
+    // Receive messages from the group
+    ReceivedMessage msg = session.getMessage(Duration.ofSeconds(30));
+    System.out.println("Channel message: " + new String(msg.payload()));
+    ```
+
 === "Kotlin"
 
-    Refer to the [Kotlin examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples).
+    ```kotlin
+    // Broadcast to all participants
+    session.publishAsync("hello everyone".toByteArray(), null, null)
+
+    // Receive messages from the group
+    val msg = session.getMessageAsync(Duration.ofSeconds(30))
+    println("Channel message: " + String(msg.payload))
+    ```
+
+=== "Node.js"
+
+    Group sessions are not yet supported in the Node.js bindings.
 
 === ".NET"
 
-    Refer to the [.NET examples](https://github.com/agntcy/slim-bindings/tree/main/dotnet/examples).
+    ```csharp
+    // Broadcast to all participants
+    await session.PublishAsync("hello everyone");
+
+    // Receive messages from the group
+    var msg = await session.GetMessageAsync(TimeSpan.FromSeconds(30));
+    Console.WriteLine($"Channel message: {msg.Text}");
+    ```
+
+=== "React Native"
+
+    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
 
 ## Enabling End-to-End Encryption
 
-Set `enable_mls=True` (Python) or `EnableMls: true` (Go) in the `SessionConfig` to enable MLS-based end-to-end encryption. The session layer handles all key establishment automatically — your application code stays the same.
+Set `enable_mls=True` (Python) or provide an `MlsSettings` object (Go, Java, Kotlin) in the `SessionConfig` to enable MLS-based end-to-end encryption. The session layer handles all key establishment automatically — your application code stays the same.
 
-```python
-session_config = slim_bindings.SessionConfig(
-    session_type=slim_bindings.SessionType.POINT_TO_POINT,
-    enable_mls=True,  # Enable MLS encryption
-    max_retries=5,
-    interval=datetime.timedelta(seconds=5),
-)
-```
+=== "Python"
+
+    ```python
+    session_config = slim_bindings.SessionConfig(
+        session_type=slim_bindings.SessionType.POINT_TO_POINT,
+        enable_mls=True,  # Enable MLS encryption
+        max_retries=5,
+        interval=datetime.timedelta(seconds=5),
+    )
+    ```
+
+=== "Go"
+
+    ```go
+    config := slim.SessionConfig{
+        SessionType: slim.SessionTypePointToPoint,
+        MlsSettings: &slim.MlsSettings{
+            HeaderIntegrityValidationPercent: 100,
+        },
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    SessionConfig sessionConfig = new SessionConfig(
+        SessionType.POINT_TO_POINT,
+        5,                       // maxRetries
+        Duration.ofSeconds(5),   // interval
+        Map.of(),                // metadata
+        new MlsSettings(100)     // Enable MLS encryption
+    );
+    ```
+
+=== "Kotlin"
+
+    ```kotlin
+    val sessionConfig = SessionConfig(
+        sessionType = SessionType.POINT_TO_POINT,
+        maxRetries = 5u,
+        interval = Duration.ofSeconds(5),
+        metadata = emptyMap(),
+        mlsSettings = MlsSettings(100u) // Enable MLS encryption
+    )
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    const sessionConfig = {
+        sessionType: "pointToPoint" as const,
+        enableMls: true, // Enable MLS encryption
+        maxRetries: 5,
+        interval: 5000,
+        metadata: new Map()
+    };
+    ```
+
+=== ".NET"
+
+    ```csharp
+    var config = new SlimSessionConfig
+    {
+        SessionType = SlimSessionType.PointToPoint,
+        MlsSettings = new SlimMlsSettings()  // Enable MLS encryption
+    };
+    ```
+
+=== "React Native"
+
+    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
 
 ## Runnable Examples
 
@@ -302,6 +645,9 @@ The [slim-bindings repository](https://github.com/agntcy/slim-bindings) contains
 - [Python point-to-point example](https://github.com/agntcy/slim-bindings/blob/main/python/examples/point_to_point.py)
 - [Python group example](https://github.com/agntcy/slim-bindings/blob/main/python/examples/group.py)
 - [Go examples](https://github.com/agntcy/slim-bindings-go/tree/main/examples)
+- [Java examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples)
+- [Kotlin examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples)
+- [Node.js examples](https://github.com/agntcy/slim-bindings/tree/main/node/examples)
 
 ## Next Steps
 

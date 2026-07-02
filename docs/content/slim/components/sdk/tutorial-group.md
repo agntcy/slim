@@ -20,6 +20,9 @@ example in the slim-bindings repo.
 - **End-to-End Encryption**: Ensures secure communication using the [MLS
   protocol](https://datatracker.ietf.org/doc/html/rfc9420).
 
+!!! note "Language Examples"
+    The code examples in this section show Python. For code in other languages, see the links at the bottom of this page under [Runnable Examples](#runnable-examples).
+
 ## Configure Client Identity and Implement the SLIM App
 
 Every participant in a group requires a unique identity for authentication and for use by the MLS protocol. This section explains how to set up identity and create a SLIM application instance.
@@ -139,30 +142,149 @@ session. This ensures that all messages exchanged within the session are
 end-to-end encrypted, providing confidentiality and integrity for the group
 communication.
 
-```python
-# Create group session configuration
-session_config = slim_bindings.SessionConfig(
-    session_type=slim_bindings.SessionType.GROUP,
-    enable_mls=enable_mls,  # Enable Messaging Layer Security for end-to-end encrypted & authenticated group communication.
-    max_retries=5,  # Max per-message resend attempts upon missing ack before reporting a delivery failure.
-    interval=datetime.timedelta(seconds=5),  # Ack / delivery wait window; after this duration a retry is triggered (until max_retries).
-    metadata={},
-)
+=== "Python"
 
-# Create session - returns a SessionContext
-session = local_app.create_session(session_config, chat_channel)
-# Wait for session to be established
-await session.completion.wait_async()
-created_session = session.session
+    ```python
+    # Create group session configuration
+    session_config = slim_bindings.SessionConfig(
+        session_type=slim_bindings.SessionType.GROUP,
+        enable_mls=enable_mls,  # Enable Messaging Layer Security for end-to-end encrypted & authenticated group communication.
+        max_retries=5,  # Max per-message resend attempts upon missing ack before reporting a delivery failure.
+        interval=datetime.timedelta(seconds=5),  # Ack / delivery wait window; after this duration a retry is triggered (until max_retries).
+        metadata={},
+    )
 
-# Invite each provided participant
-for invite in invites:
-    invite_name = split_id(invite)
-    await local_app.set_route_async(invite_name, conn_id)
-    handle = await created_session.invite_async(invite_name)
-    await handle.wait_async()
-    print(f"{local} -> add {invite_name} to the group")
-```
+    # Create session - returns a SessionContext
+    session = local_app.create_session(session_config, chat_channel)
+    # Wait for session to be established
+    await session.completion.wait_async()
+    created_session = session.session
+
+    # Invite each provided participant
+    for invite in invites:
+        invite_name = split_id(invite)
+        await local_app.set_route_async(invite_name, conn_id)
+        handle = await created_session.invite_async(invite_name)
+        await handle.wait_async()
+        print(f"{local} -> add {invite_name} to the group")
+    ```
+
+=== "Go"
+
+    ```go
+    // Create group session configuration
+    config := slim.SessionConfig{
+        SessionType: slim.SessionTypeGroup,
+        MlsSettings: &slim.MlsSettings{
+            HeaderIntegrityValidationPercent: 100,
+        },
+    }
+
+    // Create session — blocks until ready
+    session, err := app.CreateSessionAndWaitAsync(config, chatChannel)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Invite each provided participant
+    for _, invite := range invites {
+        inviteName, _ := slim.NameFromString(invite)
+        if err := app.SetRouteAsync(inviteName, connID); err != nil {
+            log.Fatal(err)
+        }
+        if err := session.InviteAndWaitAsync(inviteName); err != nil {
+            log.Fatal(err)
+        }
+        fmt.Printf("%s -> add %s to the group\n", local, inviteName)
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    // Create group session configuration
+    SessionConfig sessionConfig = new SessionConfig(
+        SessionType.GROUP,
+        5,                       // maxRetries
+        Duration.ofSeconds(5),   // interval
+        Map.of(),                // metadata
+        new MlsSettings(100)     // Enable MLS encryption
+    );
+
+    // Create session — blocks until ready
+    Session session = app.createSessionAndWait(sessionConfig, chatChannel);
+
+    // Invite each provided participant
+    for (String invite : invites) {
+        Name inviteName = Name.fromString(invite);
+        app.setRoute(inviteName, connId);
+        session.inviteAndWait(inviteName);
+        System.out.println(local + " -> add " + inviteName + " to the group");
+    }
+    ```
+
+=== "Kotlin"
+
+    ```kotlin
+    // Create group session configuration
+    val sessionConfig = SessionConfig(
+        sessionType = SessionType.GROUP,
+        maxRetries = 5u,
+        interval = Duration.ofSeconds(5),
+        metadata = emptyMap(),
+        mlsSettings = MlsSettings(100u) // Enable MLS encryption
+    )
+
+    // Create session
+    val sessionContext = localApp.createSession(sessionConfig, chatChannel)
+    sessionContext.completion.waitAsync()
+    val createdSession = sessionContext.session
+
+    // Invite each provided participant
+    for (invite in invites) {
+        val inviteName = Name.fromString(invite)
+        localApp.setRouteAsync(inviteName, connId)
+        val handle = createdSession.inviteAsync(inviteName)
+        handle.waitAsync()
+        println("$local -> add $inviteName to the group")
+    }
+    ```
+
+=== "Node.js"
+
+    Group sessions are not yet supported in the Node.js bindings.
+
+=== ".NET"
+
+    ```csharp
+    using Agntcy.Slim;
+
+    // Create group session configuration
+    var config = new SlimSessionConfig
+    {
+        SessionType = SlimSessionType.Group,
+        MlsSettings = null,  // Set to new SlimMlsSettings() for E2E encryption
+        MaxRetries = 5,
+        RetryInterval = TimeSpan.FromSeconds(5),
+        Metadata = new Dictionary<string, string>()
+    };
+
+    // Create session — returns when the session is ready
+    using var session = await app.CreateSessionAsync(channelName, config);
+
+    // Invite each participant
+    foreach (var inviteId in invites)
+    {
+        using var inviteName = SlimName.Parse(inviteId);
+        app.SetRoute(inviteName, connId);
+        session.Invite(inviteName);
+        Console.WriteLine($"Invited {inviteId} to the group");
+    }
+    ```
+
+=== "React Native"
+
+    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
 
 This code comes from the
 [group.py](https://github.com/agntcy/slim-bindings/tree/main/python/examples/group.py)
@@ -189,65 +311,176 @@ The group participants are implemented in a similar way, but they
 do not create the session. They create the SLIM service instance and wait
 for invites. Once they receive the invite, they can read and write on the shared channel.
 
-```python
-async def receive_loop(
-    local_app: slim_bindings.App,
-    created_session: slim_bindings.Session | None,
-    session_ready: asyncio.Event,
-    shared_session_container: list,
-):
-    """
-    Receive messages for the bound session.
+=== "Python"
 
-    Behavior:
-      * If not moderator: wait for a new group session (listen_for_session_async()).
-      * If moderator: reuse the created_session reference.
-      * Loop forever until cancellation or an error occurs.
-    """
-    if created_session is None:
-        print_formatted_text("Waiting for session...", style=custom_style)
-        session = await local_app.listen_for_session_async(None)
-    else:
-        session = created_session
+    ```python
+    async def receive_loop(
+        local_app: slim_bindings.App,
+        created_session: slim_bindings.Session | None,
+        session_ready: asyncio.Event,
+        shared_session_container: list,
+    ):
+        """
+        Receive messages for the bound session.
 
-    # Make session available to other tasks
-    shared_session_container[0] = session
-    session_ready.set()
+        Behavior:
+          * If not moderator: wait for a new group session (listen_for_session_async()).
+          * If moderator: reuse the created_session reference.
+          * Loop forever until cancellation or an error occurs.
+        """
+        if created_session is None:
+            print_formatted_text("Waiting for session...", style=custom_style)
+            session = await local_app.listen_for_session_async(None)
+        else:
+            session = created_session
 
-    # Get source and destination names for display
-    source_name = session.source()
+        # Make session available to other tasks
+        shared_session_container[0] = session
+        session_ready.set()
 
-    while True:
-        try:
-            # Await next inbound message from the group session.
-            # Returns a ReceivedMessage object with context and payload.
-            received_msg = await session.get_message_async(
-                timeout=datetime.timedelta(seconds=30)
-            )
-            ctx = received_msg.context
-            payload = received_msg.payload
+        # Get source and destination names for display
+        source_name = session.source()
 
-            # Display sender name and message
-            sender = ctx.source_name if hasattr(ctx, "source_name") else source_name
-            print_formatted_text(
-                f"{sender} > {payload.decode()}",
-                style=custom_style,
-            )
+        while True:
+            try:
+                # Await next inbound message from the group session.
+                # Returns a ReceivedMessage object with context and payload.
+                received_msg = await session.get_message_async(
+                    timeout=datetime.timedelta(seconds=30)
+                )
+                ctx = received_msg.context
+                payload = received_msg.payload
 
-            # if the message metadata contains PUBLISH_TO this message is a reply
-            # to a previous one. In this case we do not reply to avoid loops
-            if "PUBLISH_TO" not in ctx.metadata:
-                reply = f"message received by {source_name}"
-                await session.publish_to_async(ctx, reply.encode(), None, ctx.metadata)
-        except asyncio.CancelledError:
-            # Graceful shutdown path (ctrl-c or program exit).
-            break
-        except Exception as e:
-            # Break if session is closed, otherwise continue listening
-            if "session closed" in str(e).lower():
+                # Display sender name and message
+                sender = ctx.source_name if hasattr(ctx, "source_name") else source_name
+                print_formatted_text(
+                    f"{sender} > {payload.decode()}",
+                    style=custom_style,
+                )
+
+                # if the message metadata contains PUBLISH_TO this message is a reply
+                # to a previous one. In this case we do not reply to avoid loops
+                if "PUBLISH_TO" not in ctx.metadata:
+                    reply = f"message received by {source_name}"
+                    await session.publish_to_async(ctx, reply.encode(), None, ctx.metadata)
+            except asyncio.CancelledError:
+                # Graceful shutdown path (ctrl-c or program exit).
                 break
-            continue
-```
+            except Exception as e:
+                # Break if session is closed, otherwise continue listening
+                if "session closed" in str(e).lower():
+                    break
+                continue
+    ```
+
+=== "Go"
+
+    ```go
+    func receiveLoop(app *slim.App, createdSession *slim.Session) {
+        var session *slim.Session
+
+        if createdSession == nil {
+            fmt.Println("Waiting for session...")
+            var err error
+            session, err = app.ListenForSessionAsync(nil)
+            if err != nil {
+                log.Fatal(err)
+            }
+        } else {
+            session = createdSession
+        }
+
+        for {
+            timeout := 30 * time.Second
+            msg, err := session.GetMessageAsync(&timeout)
+            if err != nil {
+                break
+            }
+            fmt.Printf("%s > %s\n", msg.Context.SourceName, string(msg.Payload))
+        }
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    void receiveLoop(App app, Session createdSession) {
+        Session session;
+
+        if (createdSession == null) {
+            System.out.println("Waiting for session...");
+            session = app.listenForSession(null);
+        } else {
+            session = createdSession;
+        }
+
+        while (true) {
+            try {
+                ReceivedMessage msg = session.getMessage(Duration.ofSeconds(30));
+                System.out.println(msg.context().sourceName() + " > " + new String(msg.payload()));
+            } catch (Exception e) {
+                break;
+            }
+        }
+    }
+    ```
+
+=== "Kotlin"
+
+    ```kotlin
+    suspend fun receiveLoop(app: App, createdSession: Session?) {
+        val session: Session = if (createdSession == null) {
+            println("Waiting for session...")
+            app.listenForSessionAsync(null)
+        } else {
+            createdSession
+        }
+
+        while (true) {
+            try {
+                val msg = session.getMessageAsync(Duration.ofSeconds(30))
+                println("${msg.context.sourceName} > ${String(msg.payload)}")
+            } catch (e: Exception) {
+                break
+            }
+        }
+    }
+    ```
+
+=== "Node.js"
+
+    Group sessions are not yet supported in the Node.js bindings.
+
+=== ".NET"
+
+    ```csharp
+    // Non-moderator: wait for an incoming session invitation
+    using var session = await app.ListenForSessionAsync(TimeSpan.FromSeconds(60));
+    Console.WriteLine($"Joined group: {session.Destination}");
+
+    // Receive loop
+    while (true)
+    {
+        try
+        {
+            var msg = await session.GetMessageAsync(TimeSpan.FromSeconds(30));
+            Console.WriteLine($"Received: {msg.Text}");
+            await session.ReplyAsync(msg, $"received by {app.Name}");
+        }
+        catch (Exception ex) when (ex.Message.Contains("timeout"))
+        {
+            continue;
+        }
+        catch
+        {
+            break;  // Session closed
+        }
+    }
+    ```
+
+=== "React Native"
+
+    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
 
 Each non-moderator participant listens for an incoming session using
 `local_app.listen_for_session_async(None)`. The `None` parameter means wait indefinitely for a session.
@@ -268,87 +501,152 @@ contains "PUBLISH_TO" in its metadata (indicating it's a reply), which prevents 
 
 All participants can publish messages on the shared channel:
 
-```python
-async def keyboard_loop(
-    created_session: slim_bindings.Session,
-    session_ready: asyncio.Event,
-    shared_session_container: list[slim_bindings.Session],
-    local_app: slim_bindings.App,
-):
-    """
-    Interactive loop allowing participants to publish messages.
+=== "Python"
 
-    Typing 'exit' or 'quit' (case-insensitive) terminates the loop.
-    Typing 'remove NAME' removes a participant from the group
-    Typing 'invite NAME' invites a participant to the group
-    Each line is published to the group channel as UTF-8 bytes.
-    """
-    try:
-        # 1. Initialize an async session
-        prompt_session = PromptSession(style=custom_style)
+    ```python
+    async def keyboard_loop(
+        created_session: slim_bindings.Session,
+        session_ready: asyncio.Event,
+        shared_session_container: list[slim_bindings.Session],
+        local_app: slim_bindings.App,
+    ):
+        """
+        Interactive loop allowing participants to publish messages.
 
-        # Wait for the session to be established
-        await session_ready.wait()
+        Typing 'exit' or 'quit' (case-insensitive) terminates the loop.
+        Typing 'remove NAME' removes a participant from the group
+        Typing 'invite NAME' invites a participant to the group
+        Each line is published to the group channel as UTF-8 bytes.
+        """
+        try:
+            # 1. Initialize an async session
+            prompt_session = PromptSession(style=custom_style)
 
-        session = shared_session_container[0]
-        source_name = session.source()
-        dest_name = session.destination()
+            # Wait for the session to be established
+            await session_ready.wait()
 
-        if created_session:
-            print_formatted_text(
-                f"Welcome to the group {dest_name}!\n"
-                "Commands:\n"
-                "  - Type a message to send it to the group\n"
-                "  - 'remove NAME' to remove a participant\n"
-                "  - 'invite NAME' to invite a participant\n"
-                "  - 'exit' or 'quit' to leave the group",
-                style=custom_style,
-            )
-        else:
-            print_formatted_text(
-                f"Welcome to the group {dest_name}!\n"
-                "Commands:\n"
-                "  - Type a message to send it to the group\n"
-                "  - 'exit' or 'quit' to leave the group",
-                style=custom_style,
-            )
+            session = shared_session_container[0]
+            source_name = session.source()
+            dest_name = session.destination()
 
-        while True:
-            # Run blocking input() in a worker thread so we do not block the event loop.
-            user_input = await prompt_session.prompt_async(f"{source_name} > ")
-
-            if user_input.lower() in ("exit", "quit") and created_session:
-                # Delete the session
-                handle = await local_app.delete_session_async(
-                    shared_session_container[0]
+            if created_session:
+                print_formatted_text(
+                    f"Welcome to the group {dest_name}!\n"
+                    "Commands:\n"
+                    "  - Type a message to send it to the group\n"
+                    "  - 'remove NAME' to remove a participant\n"
+                    "  - 'invite NAME' to invite a participant\n"
+                    "  - 'exit' or 'quit' to leave the group",
+                    style=custom_style,
                 )
-                await handle.wait_async()
+            else:
+                print_formatted_text(
+                    f"Welcome to the group {dest_name}!\n"
+                    "Commands:\n"
+                    "  - Type a message to send it to the group\n"
+                    "  - 'exit' or 'quit' to leave the group",
+                    style=custom_style,
+                )
+
+            while True:
+                # Run blocking input() in a worker thread so we do not block the event loop.
+                user_input = await prompt_session.prompt_async(f"{source_name} > ")
+
+                if user_input.lower() in ("exit", "quit") and created_session:
+                    # Delete the session
+                    handle = await local_app.delete_session_async(
+                        shared_session_container[0]
+                    )
+                    await handle.wait_async()
+                    break
+
+                if user_input.lower().startswith("invite ") and created_session:
+                    invite_id = user_input[7:].strip()  # Skip "invite " (7 chars)
+                    await handle_invite(shared_session_container[0], invite_id)
+                    continue
+
+                if user_input.lower().startswith("remove ") and created_session:
+                    remove_id = user_input[7:].strip()  # Skip "remove " (7 chars)
+                    await handle_remove(shared_session_container[0], remove_id)
+                    continue
+
+                # Send message to the channel_name specified when creating the session.
+                # As the session is group, all participants will receive it.
+                await shared_session_container[0].publish_async(
+                    user_input.encode(), None, None
+                )
+        except KeyboardInterrupt:
+            # Handle Ctrl+C gracefully
+            pass
+        except asyncio.CancelledError:
+            # Handle task cancellation gracefully
+            pass
+        except Exception as e:
+            print_formatted_text(f"-> Error sending message: {e}")
+    ```
+
+=== "Go"
+
+    ```go
+    func publishLoop(session *slim.Session) {
+        scanner := bufio.NewScanner(os.Stdin)
+        for scanner.Scan() {
+            input := scanner.Text()
+            if input == "exit" || input == "quit" {
                 break
+            }
+            if err := session.PublishAndWaitAsync([]byte(input), nil, nil); err != nil {
+                fmt.Println("Error sending message:", err)
+                break
+            }
+        }
+    }
+    ```
 
-            if user_input.lower().startswith("invite ") and created_session:
-                invite_id = user_input[7:].strip()  # Skip "invite " (7 chars)
-                await handle_invite(shared_session_container[0], invite_id)
-                continue
+=== "Java"
 
-            if user_input.lower().startswith("remove ") and created_session:
-                remove_id = user_input[7:].strip()  # Skip "remove " (7 chars)
-                await handle_remove(shared_session_container[0], remove_id)
-                continue
+    ```java
+    void publishLoop(Session session) {
+        Scanner scanner = new Scanner(System.in);
+        while (scanner.hasNextLine()) {
+            String input = scanner.nextLine();
+            if (input.equalsIgnoreCase("exit") || input.equalsIgnoreCase("quit")) {
+                break;
+            }
+            session.publishAndWait(input.getBytes(), null, null);
+        }
+    }
+    ```
 
-            # Send message to the channel_name specified when creating the session.
-            # As the session is group, all participants will receive it.
-            await shared_session_container[0].publish_async(
-                user_input.encode(), None, None
-            )
-    except KeyboardInterrupt:
-        # Handle Ctrl+C gracefully
-        pass
-    except asyncio.CancelledError:
-        # Handle task cancellation gracefully
-        pass
-    except Exception as e:
-        print_formatted_text(f"-> Error sending message: {e}")
-```
+=== "Kotlin"
+
+    ```kotlin
+    fun publishLoop(session: Session) {
+        val scanner = java.util.Scanner(System.`in`)
+        while (scanner.hasNextLine()) {
+            val input = scanner.nextLine()
+            if (input.equals("exit", ignoreCase = true) || input.equals("quit", ignoreCase = true)) {
+                break
+            }
+            session.publishAsync(input.toByteArray(), null, null)
+        }
+    }
+    ```
+
+=== "Node.js"
+
+    Group sessions are not yet supported in the Node.js bindings.
+
+=== ".NET"
+
+    ```csharp
+    // Publish a message to all group participants
+    await session.PublishAsync(userInput);
+    ```
+
+=== "React Native"
+
+    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
 
 Messages are sent using `session.publish_async(payload, payload_type, metadata)`.
 The payload is the message bytes, while payload_type and metadata are optional.
@@ -717,3 +1015,14 @@ slimctl channel-manager delete-channel agntcy/ns/team-chat
 ```
 
 All applications connected to the group stop as their receive loops terminate.
+
+## Runnable Examples
+
+Complete, runnable group communication examples are available for each language:
+
+- [Python group example](https://github.com/agntcy/slim-bindings/blob/main/python/examples/group.py)
+- [Go examples](https://github.com/agntcy/slim-bindings-go/tree/main/examples)
+- [Java examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples)
+- [Kotlin examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples)
+- [.NET examples](https://github.com/agntcy/slim-bindings/tree/main/dotnet/examples)
+- [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples)
