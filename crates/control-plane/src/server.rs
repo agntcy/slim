@@ -76,8 +76,8 @@ impl ControlPlane {
             db,
             cmd_handler,
             route_service.clone(),
-            shared_drain.clone(),
             authenticator,
+            shared_drain.clone(),
         );
 
         cfg.northbound

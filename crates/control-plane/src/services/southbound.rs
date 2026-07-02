@@ -30,8 +30,8 @@ pub struct SouthboundApiService {
     db: SharedDb,
     cmd_handler: DefaultNodeCommandHandler,
     route_service: RouteService,
-    drain: SharedDrain,
     authenticator: GroupAuthenticator,
+    drain: SharedDrain,
 }
 
 impl SouthboundApiService {
@@ -39,15 +39,15 @@ impl SouthboundApiService {
         db: SharedDb,
         cmd_handler: DefaultNodeCommandHandler,
         route_service: RouteService,
-        drain: SharedDrain,
         authenticator: GroupAuthenticator,
+        drain: SharedDrain,
     ) -> Self {
         Self {
             db,
             cmd_handler,
             route_service,
-            drain,
             authenticator,
+            drain,
         }
     }
 }
