@@ -2,47 +2,257 @@
 <!--
   Copyright AGNTCY Contributors (https://github.com/agntcy)
   SPDX-License-Identifier: Apache-2.0
+
+  GitHub Pages site-wide 404. Deployed to the gh-pages branch root by deploy_root_files.sh.
+  Unversioned doc URLs are redirected to /slim/latest/... before this page is shown.
 -->
-<html>
-
+<html lang="en">
 <head>
-    <meta charset="utf-8">
-    <title>Redirecting...</title>
-    <script>
-        (function () {
-            const basePath = '/slim/';
-            const latestVersion = 'latest';
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Page not found — SLIM</title>
+  <link rel="icon" href="/slim/latest/assets/agntcy/favicon.ico">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --slim-bg: rgb(239, 243, 252);
+      --slim-fg: rgb(28, 30, 33);
+      --slim-fg-muted: rgba(28, 30, 33, 0.72);
+      --slim-accent: rgb(2, 81, 175);
+      --slim-btn-bg: rgb(239, 243, 252);
+      --slim-btn-border: rgb(213, 223, 247);
+    }
 
-            const path = window.location.pathname;
-            const redirected = sessionStorage.getItem('redirected');
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --slim-bg: rgb(3, 20, 43);
+        --slim-fg: rgb(227, 227, 227);
+        --slim-fg-muted: rgba(227, 227, 227, 0.78);
+        --slim-accent: rgb(251, 175, 70);
+        --slim-btn-bg: rgb(0, 42, 77);
+        --slim-btn-border: rgb(13, 39, 77);
+      }
+    }
 
-            if (redirected) {
-                sessionStorage.removeItem('redirected');
-                console.warn('Redirect loop detected. Stopping redirect.');
-                return;
-            }
+    * {
+      box-sizing: border-box;
+    }
 
-            // Skip assets and already-versioned paths (e.g. /slim/latest/ or /slim/1.2.0/).
-            const isAsset = path.includes('/assets/') || path.includes('/stylesheets/');
-            const isVersioned = new RegExp(`${basePath}(v?(\\d+\\.\\d+(\\.\\d+)?)|${latestVersion})/`).test(path);
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1.25rem;
+      font-family: Roboto, system-ui, -apple-system, sans-serif;
+      background: var(--slim-bg);
+      color: var(--slim-fg);
+    }
 
-            if (!isVersioned && !isAsset) {
-                // Example: /slim/slim-howto/ -> /slim/latest/slim-howto/
-                const newPath = path.replace(basePath, basePath + latestVersion + '/');
-                sessionStorage.setItem('redirected', 'true');
-                window.location.replace(newPath + window.location.search + window.location.hash);
-            } else {
-                window.location.replace('https://agntcy.github.io/slim/');
-            }
-        })();
-    </script>
+    .slim-not-found {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      max-width: 36rem;
+    }
+
+    .slim-not-found__logo {
+      display: block;
+      height: 2rem;
+      width: auto;
+      margin-bottom: 2rem;
+    }
+
+    .slim-not-found__code {
+      margin: 0 0 0.75rem;
+      font-size: clamp(4rem, 12vw, 6.5rem);
+      font-weight: 700;
+      line-height: 1;
+      background: linear-gradient(
+        101.5deg,
+        rgb(251, 171, 44) 0%,
+        rgb(24, 122, 220) 53%,
+        rgb(0, 20, 43) 100%
+      );
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    h1 {
+      margin: 0 0 1rem;
+      font-weight: 300;
+      font-size: 1.75rem;
+      line-height: 1.25;
+    }
+
+    .slim-not-found__lede {
+      margin: 0 0 2rem;
+      max-width: 28rem;
+      text-align: center;
+      text-wrap: balance;
+    }
+
+    .slim-not-found__lede p {
+      margin: 0;
+      font-size: 0.95rem;
+      line-height: 1.6;
+      color: var(--slim-fg-muted);
+    }
+
+    .slim-not-found__lede p + p {
+      margin-top: 0.35rem;
+    }
+
+    p {
+      margin: 0 0 2rem;
+      font-size: 0.95rem;
+      line-height: 1.6;
+      color: var(--slim-fg-muted);
+    }
+
+    .slim-not-found__actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      justify-content: center;
+    }
+
+    .slim-not-found__btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.6rem 1.5rem;
+      border-radius: 50px;
+      background: var(--slim-btn-bg);
+      color: var(--slim-fg);
+      border: 1px solid var(--slim-btn-border);
+      font-size: 0.9rem;
+      font-weight: 500;
+      text-decoration: none;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .slim-not-found__btn:hover,
+    .slim-not-found__btn:focus-visible {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(2, 81, 175, 0.12);
+    }
+
+    .slim-not-found__btn--primary {
+      background: var(--slim-accent);
+      border-color: var(--slim-accent);
+      color: #fff;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .slim-not-found__btn--primary {
+        color: rgb(3, 20, 43);
+      }
+    }
+
+    .slim-not-found__btn--primary:hover,
+    .slim-not-found__btn--primary:focus-visible {
+      background: var(--slim-accent);
+      border-color: var(--slim-accent);
+      color: #fff;
+      filter: brightness(1.08);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .slim-not-found__btn--primary:hover,
+      .slim-not-found__btn--primary:focus-visible {
+        color: rgb(3, 20, 43);
+      }
+    }
+
+    .slim-not-found__btn svg {
+      fill: currentColor;
+      height: 1.1em;
+      width: 1.1em;
+      flex-shrink: 0;
+    }
+
+    .slim-not-found__status {
+      margin-top: 1.5rem;
+      font-size: 0.85rem;
+      color: var(--slim-fg-muted);
+    }
+
+    .slim-not-found__status[hidden] {
+      display: none;
+    }
+  </style>
+  <script>
+    (function () {
+      const basePath = "/slim/";
+      const latestVersion = "latest";
+      const homeUrl = basePath + latestVersion + "/";
+      const path = window.location.pathname;
+      const redirected = sessionStorage.getItem("redirected");
+
+      if (redirected) {
+        sessionStorage.removeItem("redirected");
+        return;
+      }
+
+      const isAsset = path.includes("/assets/") || path.includes("/stylesheets/");
+      const isVersioned = new RegExp(
+        `${basePath}(v?(\\d+\\.\\d+(\\.\\d+)?)|${latestVersion})/`
+      ).test(path);
+
+      if (!isVersioned && !isAsset) {
+        const newPath = path.replace(basePath, basePath + latestVersion + "/");
+        sessionStorage.setItem("redirected", "true");
+        window.location.replace(newPath + window.location.search + window.location.hash);
+        return;
+      }
+
+      const status = document.getElementById("redirect-status");
+      if (status) {
+        status.hidden = false;
+        status.textContent = "Redirecting to the documentation home…";
+      }
+      window.setTimeout(function () {
+        window.location.replace(homeUrl);
+      }, 1200);
+    })();
+  </script>
 </head>
-
 <body>
-    <h1>SLIM - Page Not Found</h1>
-    <p>We are attempting to redirect you to the latest version of this page.</p>
-    <p>If you are not redirected automatically, please navigate to the
-        <a href="https://agntcy.github.io/slim/">SLIM documentation homepage</a>.</p>
+  <main class="slim-not-found">
+    <a href="/slim/latest/">
+      <picture>
+        <source
+          media="(prefers-color-scheme: dark)"
+          srcset="/slim/latest/assets/agntcy/img/logo-dark.svg"
+        >
+        <img
+          class="slim-not-found__logo"
+          src="/slim/latest/assets/agntcy/img/logo-light.svg"
+          alt="SLIM"
+          width="120"
+          height="32"
+        >
+      </picture>
+    </a>
+    <p class="slim-not-found__code" aria-hidden="true">404</p>
+    <h1>Page not found</h1>
+    <div class="slim-not-found__lede">
+      <p>The page you requested does not exist or may have moved.</p>
+      <p>If you followed an old link, we will try to send you to the latest docs.</p>
+    </div>
+    <div class="slim-not-found__actions">
+      <a class="slim-not-found__btn slim-not-found__btn--primary" href="/slim/latest/">
+        Back to home
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+      </a>
+    </div>
+    <p id="redirect-status" class="slim-not-found__status" hidden></p>
+  </main>
 </body>
-
 </html>
