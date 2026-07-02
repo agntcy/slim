@@ -106,7 +106,7 @@ helm upgrade --install slim-spire \
 
 ### Step 2: Configure SPIRE Federation
 
-Exchange SPIFFE trust bundles between clusters so each SPIRE server can verify SVIDs from the other trust domains. The exact steps depend on your SPIRE deployment; refer to the [SPIRE federation documentation](https://spiffe.io/docs/latest/spire-about/spire-concepts/#federation).
+Exchange SPIFFE trust bundles between clusters so each SPIRE server can verify SVIDs from the other trust domains. The exact steps depend on your SPIRE deployment; refer to the [SPIRE federation documentation](https://spiffe.io/docs/latest/spire-about/spire-concepts/).
 
 ### Step 3: Deploy the Controller (Admin Cluster)
 

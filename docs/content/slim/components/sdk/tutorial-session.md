@@ -645,7 +645,7 @@ The [slim-bindings repository](https://github.com/agntcy/slim-bindings) contains
 
 - [Python point-to-point example](https://github.com/agntcy/slim-bindings/blob/main/python/examples/point_to_point.py)
 - [Python group example](https://github.com/agntcy/slim-bindings/blob/main/python/examples/group.py)
-- [Go examples](https://github.com/agntcy/slim-bindings-go/tree/main/examples)
+- [Go examples](https://github.com/agntcy/slim-bindings/tree/main/go/examples)
 - [Java examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples)
 - [Kotlin examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples)
 - [Node.js examples](https://github.com/agntcy/slim-bindings/tree/main/node/examples)
