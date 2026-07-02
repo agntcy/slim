@@ -117,7 +117,16 @@ The SLIM service is the global runtime that manages connections and application 
 
 === "React Native"
 
-    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
+    ```tsx
+    import slimBindings from '@agntcy/slim-bindings-react-native';
+
+    // Wait for JSI native module, then initialise (call once per app lifecycle)
+    await slimBindings.waitForJSIBindings(5000);
+    slimBindings.initializeWithDefaults();
+
+    // Obtain a reference to the global service
+    const service = slimBindings.getGlobalService();
+    ```
 
 ## Step 2: Connect to a SLIM Node
 
@@ -207,7 +216,13 @@ With the service initialised, connect to a SLIM node. The connection returns a `
 
 === "React Native"
 
-    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
+    ```tsx
+    // Create client config and connect — connect is synchronous in React Native
+    const config = slimBindings.newInsecureClientConfig("http://192.168.1.x:46357");
+    const connId = service.connect(config);
+
+    console.log(`Connected, connId=${connId}`);
+    ```
 
 !!! note "TLS in Production"
     `new_insecure_client_config` skips TLS verification and is for development only. See [Authentication](../../architecture/authentication.md) for production TLS, mTLS, and JWT options.
@@ -332,7 +347,19 @@ With the service initialised, connect to a SLIM node. The connection returns a `
 
 === "React Native"
 
-    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
+    ```tsx
+    import slimBindings from '@agntcy/slim-bindings-react-native';
+
+    await slimBindings.waitForJSIBindings(5000);
+    slimBindings.initializeWithDefaults();
+    const service = slimBindings.getGlobalService();
+
+    const config = slimBindings.newInsecureClientConfig("http://192.168.1.x:46357");
+    const connId = service.connect(config);
+
+    console.log(`Connected, connId=${connId}`);
+    // service and connId are passed to createApp in the next tutorial
+    ```
 
 ## Next Steps
 

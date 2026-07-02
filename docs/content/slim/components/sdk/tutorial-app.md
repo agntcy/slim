@@ -107,7 +107,16 @@ Pass the `service` obtained from initialisation to create an app bound to a name
 
 === "React Native"
 
-    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
+    ```tsx
+    // Define the application name (org / namespace / service)
+    // clientId is derived from the cryptographic identity and assigned by SLIM
+    const localName = new slimBindings.Name("myorg", "default", "my-service");
+
+    // Create the app — service is from the previous tutorial
+    const app = service.createAppWithSecret(localName, "my-shared-secret");
+
+    console.log(`App created, id=${app.id()}`);
+    ```
 
 ## Step 2: Subscribe to Receive Messages
 
@@ -171,7 +180,12 @@ Subscribing tells the SLIM node to route inbound messages for this name to your 
 
 === "React Native"
 
-    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
+    ```tsx
+    // Subscribe — the SLIM node will now deliver messages for localName to this app
+    await app.subscribeAsync(localName, connId);
+
+    console.log(`Subscribed as: ${localName}`);
+    ```
 
 ## Step 3: Set a Route (Optional)
 
@@ -234,7 +248,11 @@ Before establishing a session to a remote application, your local SLIM node must
 
 === "React Native"
 
-    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
+    ```tsx
+    // Tell the local SLIM node how to reach the remote service
+    const remoteName = new slimBindings.Name("myorg", "default", "other-service");
+    await app.setRoute(remoteName, connId);
+    ```
 
 ## Putting It Together
 
@@ -391,7 +409,23 @@ Before establishing a session to a remote application, your local SLIM node must
 
 === "React Native"
 
-    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
+    ```tsx
+    import slimBindings from '@agntcy/slim-bindings-react-native';
+
+    await slimBindings.waitForJSIBindings(5000);
+    slimBindings.initializeWithDefaults();
+    const service = slimBindings.getGlobalService();
+
+    const config = slimBindings.newInsecureClientConfig("http://192.168.1.x:46357");
+    const connId = service.connect(config);
+
+    const localName = new slimBindings.Name("myorg", "default", "my-service");
+    const app = service.createAppWithSecret(localName, "my-shared-secret");
+    await app.subscribeAsync(localName, connId);
+
+    console.log(`App ready: ${localName}, id=${app.id()}`);
+    // app and connId are passed to createSession in the next tutorial
+    ```
 
 ## Next Steps
 

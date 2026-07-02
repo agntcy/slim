@@ -170,7 +170,19 @@ A point-to-point session connects your application to a single remote instance. 
 
 === "React Native"
 
-    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
+    ```tsx
+    // Configure the session — SessionType is an enum, metadata must be a Map
+    const sessionConfig = {
+        sessionType: slimBindings.SessionType.PointToPoint,
+        enableMls: false,  // set true to enable E2E encryption
+        metadata: new Map()
+    };
+
+    // Create the session — discovery happens automatically
+    const session = await app.createSessionAndWaitAsync(sessionConfig, remoteName);
+
+    console.log("Point-to-point session established");
+    ```
 
 ### Send and Receive Messages
 
@@ -280,7 +292,19 @@ A point-to-point session connects your application to a single remote instance. 
 
 === "React Native"
 
-    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
+    ```tsx
+    // Send a message — payload is Uint8Array in React Native
+    const payload = new Uint8Array("hello".split('').map(c => c.charCodeAt(0)));
+    await session.publishAndWaitAsync(payload, undefined, undefined);
+
+    // Receive a reply (timeout in milliseconds)
+    const msg = await session.getMessageAsync(30000);
+    const text = String.fromCharCode(...new Uint8Array(msg.payload));
+    console.log("Received:", text);
+
+    // Echo the message back
+    await session.publishToAndWaitAsync(msg.context, msg.payload, undefined, undefined);
+    ```
 
 ## Group Session
 
@@ -402,7 +426,7 @@ A group session enables many-to-many communication on a named channel. Every mes
 
 === "React Native"
 
-    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
+    Group sessions are not yet supported in the React Native bindings.
 
 ### Invite a Participant
 
@@ -487,7 +511,7 @@ The session creator acts as a moderator and can invite other applications to joi
 
 === "React Native"
 
-    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
+    Group sessions are not yet supported in the React Native bindings.
 
 ### Broadcast to the Group
 
@@ -560,7 +584,7 @@ The session creator acts as a moderator and can invite other applications to joi
 
 === "React Native"
 
-    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
+    Group sessions are not yet supported in the React Native bindings.
 
 ## Enabling End-to-End Encryption
 
@@ -636,7 +660,13 @@ Set `enable_mls=True` (Python) or provide an `MlsSettings` object (Go, Java, Kot
 
 === "React Native"
 
-    Refer to the [React Native examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in the slim-bindings repository.
+    ```tsx
+    const sessionConfig = {
+        sessionType: slimBindings.SessionType.PointToPoint,
+        enableMls: true,  // Enable MLS encryption
+        metadata: new Map()
+    };
+    ```
 
 ## Runnable Examples
 
