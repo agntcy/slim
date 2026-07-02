@@ -90,7 +90,8 @@ plugins:
       slim/slim-controller-reference.md: slim/components/cli/reference/index.md
       slim/slim-sdk.md: slim/components/sdk/index.md
       slim/slim-sdk-install.md: slim/components/sdk/install.md
-      slim/slim-sdk-languages.md: slim/components/sdk/languages.md
+      slim/slim-sdk-languages.md: slim/components/sdk/install.md
+      slim/components/sdk/languages.md: slim/components/sdk/install.md
       slim/slim-sdk-tutorial-connect.md: slim/components/sdk/tutorial-connect.md
       slim/slim-sdk-tutorial-app.md: slim/components/sdk/tutorial-app.md
       slim/slim-sdk-tutorial-session.md: slim/components/sdk/tutorial-session.md
@@ -198,7 +199,6 @@ nav:
           - SLIM SDK:
               - slim/components/sdk/index.md
               - Installation: slim/components/sdk/install.md
-              - Supported Languages: slim/components/sdk/languages.md
               - SLIMRPC:
                   - slim/components/sdk/slimrpc/index.md
                   - Compiler: slim/components/sdk/slimrpc/compiler.md
