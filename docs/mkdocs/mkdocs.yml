@@ -104,8 +104,10 @@ plugins:
       slim/slim-deploy-daemonset.md: slim/deploy/daemonset.md
       slim/slim-deploy-multicluster.md: slim/deploy/multicluster.md
       slim/slim-integrations.md: slim/integrations/index.md
-      slim/slim-rpc.md: slim/integrations/slimrpc/index.md
-      slim/slim-slimrpc-compiler.md: slim/integrations/slimrpc/compiler.md
+      slim/slim-rpc.md: slim/components/sdk/slimrpc/index.md
+      slim/slim-slimrpc-compiler.md: slim/components/sdk/slimrpc/compiler.md
+      slim/integrations/slimrpc/index.md: slim/components/sdk/slimrpc/index.md
+      slim/integrations/slimrpc/compiler.md: slim/components/sdk/slimrpc/compiler.md
       slim/slim-a2a.md: slim/integrations/a2a.md
       slim/slim-mcp.md: slim/integrations/mcp.md
       slim/slim-otel.md: slim/integrations/otel.md
@@ -204,6 +206,9 @@ nav:
                   - Creating an App: slim/components/sdk/tutorial-app.md
                   - Creating a Session: slim/components/sdk/tutorial-session.md
                   - Group Communication: slim/components/sdk/tutorial-group.md
+              - SLIMRPC:
+                  - slim/components/sdk/slimrpc/index.md
+                  - Compiler: slim/components/sdk/slimrpc/compiler.md
       - Deployment:
           - slim/deploy/index.md
           - Local: slim/deploy/local.md
@@ -214,9 +219,6 @@ nav:
               - Multi-Cluster: slim/deploy/multicluster.md
       - Integrations:
           - slim/integrations/index.md
-          - SLIMRPC:
-              - slim/integrations/slimrpc/index.md
-              - Compiler: slim/integrations/slimrpc/compiler.md
           - SLIM A2A: slim/integrations/a2a.md
           - MCP over SLIM: slim/integrations/mcp.md
           - OpenTelemetry over SLIM: slim/integrations/otel.md
