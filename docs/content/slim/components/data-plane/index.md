@@ -1,52 +1,61 @@
 # SLIM Data Plane
 
-The [SLIM](../../../index.md) Data Plane implements an efficient message routing and
-delivery system between applications.
+The SLIM Data Plane is the core routing engine of a SLIM deployment. It is a high-performance Rust process that accepts connections from applications and other SLIM nodes, routes messages by hierarchical name, and enforces authentication at every connection.
 
-## Client and Channel Naming
+## Responsibilities
 
-SLIM uses a hierarchical naming scheme to identify all endpoints:
+- **Message routing** — delivers messages to named endpoints using anycast (any instance of a service) or unicast (a specific instance) addressing
+- **Connection management** — accepts inbound connections from applications over gRPC or WebSocket; maintains outbound connections to peer SLIM nodes to form a mesh
+- **Transport security** — secures connections with TLS or mTLS between applications and nodes, and between peer nodes
+- **Controller integration** — registers with the SLIM Controller and receives route and connection configuration updates via the Controller's southbound API
+- **Observability** — exports traces and metrics via OpenTelemetry
 
-```text
-org/namespace/service/client
-```
+## Architecture
 
-Messages can be delivered to a single specific instance (unicast) or to any
-available instance of a service (anycast). Channels use the same naming
-structure for many-to-many group communication.
+Internally the Data Plane is composed of two main layers:
 
-For full details on the naming scheme, see [Naming](../../architecture/naming.md).
+- **Service layer** — bootstraps the process, owns the transports (gRPC and WebSocket listeners), and spawns per-connection tasks. Each accepted connection runs in its own async task and feeds received messages into the core routing engine.
+- **Datapath layer** — the `MessageProcessor` is the central hub. It owns a `ConnectionTable` (all active connections) and a `SubscriptionTable` (name-to-connection mappings that drive routing). A `Forwarder` executes the fanout: given a message, it looks up matching subscriptions and writes the message to each matched connection.
 
-## SLIM Sessions Layer
+### Message Flow
 
-The SLIM platform includes a session layer that connects application frameworks
-to the underlying SLIM messaging infrastructure. This layer provides a simple
-interface that abstracts the complexity of secure messaging and message
-distribution from the application.
+1. A connection task receives a message and performs basic validation: HMAC integrity check and TTL decrement. Messages that fail validation or whose TTL reaches zero are dropped.
+2. The message type determines dispatch: **subscribe** updates the subscription table, **publish** triggers a routing table lookup, **link** (peer control) updates the connection table.
+3. For publish messages the Forwarder looks up all subscriptions matching the destination name, then round-robins across the matching connections and writes the message to each.
 
-The session layer offers several functionalities:
+### Connection Types
 
-- **Security**: All messages in SLIM are encrypted by default using the [MLS
-  protocol](https://www.rfc-editor.org/rfc/rfc9420.html), which guarantees
-  end-to-end encryption even when messages traverse intermediate nodes where TLS
-  connections are terminated. The session layer is responsible for MLS group
-  creation and updates, as well as message encryption and decryption.
-- **Channel Management**: The session layer enables clients to be invited to or
-  removed from a channel as needed.
-- **Message Delivery**: The session layer abstracts message passing between
-  applications and the SLIM message distribution network. It handles message
-  formatting, routing, and delivery confirmation, while providing simple send
-  and receive primitives to applications.
+The Data Plane distinguishes four connection categories:
 
-The session layer offers two primary APIs for establishing new sessions:
+| Type | Description |
+|------|-------------|
+| **Local** | In-process applications connected via the SDK |
+| **Remote** | Applications connected over the network (gRPC or WebSocket) |
+| **Peer** | Other Data Plane nodes in the same deployment (replica peers) |
+| **Edge** | Data Plane nodes in remote deployments (inter-cluster links) |
 
-- **Point-to-Point**: Facilitates point-to-point communication with a specific service
-  instance. This session performs a discovery phase to bind the session
-  to a single instance; all subsequent messages in the session are sent to that
-  same endpoint.
+Peer connections enforce a one-hop rule: messages received from a peer are never forwarded to another peer, preventing routing loops.
 
-- **Group**: Supports many-to-many communication over a named channel.
-Every message sent to the channel is delivered to all current participants.
+### Link Negotiation
 
-For more information about each session type, see the
-[SLIM session](../../architecture/sessions/index.md) documentation.
+Before a new peer connection is inserted into the routing table, both sides perform an X25519 ECDH key exchange to derive a shared HMAC session key. This key is used to sign and verify the integrity of control messages on that link.
+
+### Routing Table Design
+
+Both the connection table and subscription table use copy-on-write data structures (ArcSwap) so that the read path — which runs on every message — is lock-free. Writes (subscription updates, connection changes) replace the table atomically without blocking in-flight reads.
+
+### Peer Discovery and Sync
+
+When a Data Plane node connects to a peer, it performs a full routing table exchange so both sides converge on the same view of the network. Peer addresses are discovered either from static configuration or from Kubernetes EndpointSlices, enabling automatic peer formation when running as a Deployment or DaemonSet.
+
+## In This Section
+
+- [Installation Guide](./install.md) — Build or download the SLIM Data Plane binary and run it
+- [Configuration Reference](./config.md) — Full YAML configuration reference
+
+## Related
+
+- [Architecture](../../architecture/index.md) — How the Data Plane fits into the overall SLIM architecture
+- [Naming](../../architecture/naming.md) — The hierarchical name scheme used for routing
+- [Sessions](../../architecture/sessions/index.md) — The session layer that applications use to communicate over the Data Plane
+- [SLIM Controller](../controller/index.md) — The control plane component that manages Data Plane nodes
