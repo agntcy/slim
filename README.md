@@ -331,7 +331,7 @@ task lint
 
 - 📚 [Documentation](https://docs.agntcy.org/slim/overview)
 - 📖 [IETF Specification](https://datatracker.ietf.org/doc/draft-slim-protocol/)
-- 💬 [Slack Community](https://join.slack.com/t/agntcy/shared_invite/)
+- 💬 [Slack Community](https://join.slack.com/t/agntcy/shared_invite/zt-3xozr6nzq-i6LXv2P8l2kVW4_Prnny2w)
 - 🎥 [YouTube Channel](https://www.youtube.com/@agntcy-lf)
 
 ## License
