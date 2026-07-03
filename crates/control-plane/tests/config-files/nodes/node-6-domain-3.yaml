@@ -1,25 +1,25 @@
-# SLIM node-5 (group-3)
+# SLIM node-6 (domain-3)
 tracing:
   log_level: debug
 
 services:
-  slim/node-5:
-    group_name: group-3
-    node_id: node-5
+  slim/node-6:
+    domain_name: domain-3
+    node_id: node-6
     auth:
       type: shared_secret
-      secret: "secret-for-group-3-abcdefghi-1234567890"
+      secret: "secret-for-domain-3-abcdefghi-1234567890"
 
     dataplane:
       servers:
-        - endpoint: "127.0.0.1:46105"
+        - endpoint: "127.0.0.1:46106"
           metadata:
-            external_endpoint: "127.0.0.1:46105"
+            external_endpoint: "127.0.0.1:46106"
           tls:
             insecure: true
     controller:
       servers:
-        - endpoint: "127.0.0.1:47105"
+        - endpoint: "127.0.0.1:47106"
           tls:
             insecure: true
       clients:
@@ -27,7 +27,7 @@ services:
           tls:
             insecure: true
     peers:
-      deployment_name: "group-3"
+      deployment_name: "domain-3"
       topology: "full_mesh"
       discovery:
         type: static

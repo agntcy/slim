@@ -58,8 +58,8 @@ use slim_auth::traits::TokenProvider;
 pub struct ControlPlaneSettings {
     /// Node ID of this SLIM instance
     pub id: String,
-    /// Optional group name
-    pub group_name: Option<String>,
+    /// Optional domain name
+    pub domain_name: Option<String>,
     /// Server configurations
     pub servers: Vec<ServerConfig>,
     /// Client configurations
@@ -81,8 +81,8 @@ struct ControllerServiceInternal {
     /// Node ID of this SLIM instance
     id: String,
 
-    /// optional group name
-    group_name: Option<String>,
+    /// optional domain name
+    domain_name: Option<String>,
 
     /// underlying message processor
     message_processor: MessageProcessor,
@@ -257,7 +257,7 @@ impl ControlPlane {
             controller: ControllerService {
                 inner: Arc::new(ControllerServiceInternal {
                     id: config.id,
-                    group_name: config.group_name,
+                    domain_name: config.domain_name,
                     message_processor: config.message_processor,
                     subscription_manager: SubscriptionManager::new(tx_slim.clone()),
                     tx_slim,
@@ -629,7 +629,7 @@ impl ControllerService {
             .message_processor
             .connection_table()
             .for_each(|_id, conn| {
-                // Only manage Remote connections (CP-managed inter-group links).
+                // Only manage Remote connections (CP-managed inter-domain links).
                 // Peer connections are managed by the peer sync system and must not
                 // be deleted by the reconciler.
                 if conn.is_outgoing()
@@ -1813,7 +1813,7 @@ impl ControllerService {
                 message_id: uuid::Uuid::new_v4().to_string(),
                 payload: Some(Payload::RegisterNodeRequest(v1::RegisterNodeRequest {
                     node_id: this.inner.id.clone(),
-                    group_name: this.inner.group_name.clone(),
+                    domain_name: this.inner.domain_name.clone(),
                     connection_details: this.inner.connection_details.clone(),
                     connections: active_connections,
                     routes: active_routes,
@@ -2170,7 +2170,7 @@ mod tests {
 
         let control_plane_server = ControlPlane::new(ControlPlaneSettings {
             id: server_name.to_string(),
-            group_name: None,
+            domain_name: None,
             servers: vec![server_config.clone()],
             clients: vec![],
             message_processor: message_processor_server,
@@ -2180,7 +2180,7 @@ mod tests {
 
         let control_plane_client = ControlPlane::new(ControlPlaneSettings {
             id: client_name.to_string(),
-            group_name: None,
+            domain_name: None,
             servers: vec![],
             clients: vec![client_config.clone()],
             message_processor: message_processor_client,

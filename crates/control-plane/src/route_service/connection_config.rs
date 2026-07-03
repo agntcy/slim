@@ -74,8 +74,8 @@ pub(super) fn select_connection<'a>(
         "select_connection called with empty conn_details for node {}",
         dst_node.id
     );
-    let same_group = dst_node.group_name == src_node.group_name;
-    if same_group {
+    let same_domain = dst_node.domain_name == src_node.domain_name;
+    if same_domain {
         return (&dst_node.conn_details[0], true);
     }
     for conn in &dst_node.conn_details {
@@ -128,7 +128,7 @@ pub(super) fn generate_config_data(
         let trust_domain = spire
             .trust_domain
             .as_deref()
-            .or(dest_node.group_name.as_deref());
+            .or(dest_node.domain_name.as_deref());
 
         let mut trust_domains = Vec::new();
         if let Some(td) = trust_domain {
@@ -246,7 +246,7 @@ mod tests {
     use crate::db::inmemory::InMemoryDb;
 
     #[test]
-    fn select_connection_same_group_returns_first() {
+    fn select_connection_same_domain_returns_first() {
         let dst = make_node(
             "dst",
             Some("grp"),
@@ -259,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    fn select_connection_different_group_prefers_external() {
+    fn select_connection_different_domain_prefers_external() {
         let dst = make_node(
             "dst",
             Some("grp1"),
@@ -275,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn select_connection_different_group_no_external_falls_back() {
+    fn select_connection_different_domain_no_external_falls_back() {
         let dst = make_node(
             "dst",
             Some("grp1"),
@@ -330,7 +330,7 @@ mod tests {
         let db = InMemoryDb::shared();
         let dst = crate::db::Node {
             id: "dst".to_string(),
-            group_name: None,
+            domain_name: None,
             conn_details: vec![make_conn_details("dst:8080", None)],
             created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
@@ -347,7 +347,7 @@ mod tests {
         let db = InMemoryDb::shared();
         let dst = crate::db::Node {
             id: "dst".to_string(),
-            group_name: None,
+            domain_name: None,
             conn_details: vec![],
             created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
@@ -355,7 +355,7 @@ mod tests {
         db.save_node(dst).await.unwrap();
         let src = crate::db::Node {
             id: "src".to_string(),
-            group_name: None,
+            domain_name: None,
             conn_details: vec![],
             created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
@@ -367,11 +367,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_client_config_same_group_local() {
+    async fn get_client_config_same_domain_local() {
         let db = InMemoryDb::shared();
         let dst = crate::db::Node {
             id: "dst".to_string(),
-            group_name: Some("grp".to_string()),
+            domain_name: Some("grp".to_string()),
             conn_details: vec![make_conn_details("dst:8080", None)],
             created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
@@ -379,7 +379,7 @@ mod tests {
         db.save_node(dst).await.unwrap();
         let src = crate::db::Node {
             id: "src".to_string(),
-            group_name: Some("grp".to_string()),
+            domain_name: Some("grp".to_string()),
             conn_details: vec![],
             created_at: SystemTime::now(),
             last_updated: SystemTime::now(),

@@ -58,7 +58,7 @@ impl Config {
     pub fn into_service(
         &self,
         node_id: String,
-        group_name: Option<String>,
+        domain_name: Option<String>,
         message_processor: MessageProcessor,
         // List of server configurations for the dataplane services.
         // Used to extract connection type information required to connect to the node
@@ -70,7 +70,7 @@ impl Config {
 
         ControlPlane::new(ControlPlaneSettings {
             id: node_id,
-            group_name,
+            domain_name,
             servers: self.servers.clone(),
             clients: self.clients.clone(),
             message_processor,
@@ -221,12 +221,12 @@ mod tests {
             .with_servers(vec![server_config.clone()])
             .with_clients(vec![client_config]);
 
-        let group_name = Some("test-group".to_string());
+        let domain_name = Some("test-group".to_string());
         let message_processor = MessageProcessor::new();
 
         let _control_plane = config.into_service(
             "test-instance".to_string(),
-            group_name,
+            domain_name,
             message_processor,
             &[server_config],
             None,

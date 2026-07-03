@@ -432,8 +432,8 @@ mod tests {
     }
 
     #[test]
-    fn parse_controller_group_list() {
-        let cli = parse_ok(&["slimctl", "controller", "group", "list"]);
+    fn parse_controller_domain_list() {
+        let cli = parse_ok(&["slimctl", "controller", "domain", "list"]);
         let Commands::Controller(args) = cli.command else {
             panic!()
         };

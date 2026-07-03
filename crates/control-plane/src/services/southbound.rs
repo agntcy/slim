@@ -16,7 +16,7 @@ use crate::api::proto::controller::proto::v1::{
     Connection, ControlMessage, RegisterNodeResponse, Route as ProtoRoute,
     control_message::Payload, controller_service_server::ControllerService,
 };
-use crate::auth::GroupAuthenticator;
+use crate::auth::DomainAuthenticator;
 use crate::db::{ConnectionDetails, LinkStatus, Node, RouteStatus, SharedDb};
 use crate::error::{Error, Result};
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
@@ -30,7 +30,7 @@ pub struct SouthboundApiService {
     db: SharedDb,
     cmd_handler: DefaultNodeCommandHandler,
     route_service: RouteService,
-    authenticator: GroupAuthenticator,
+    authenticator: DomainAuthenticator,
     drain: SharedDrain,
 }
 
@@ -39,7 +39,7 @@ impl SouthboundApiService {
         db: SharedDb,
         cmd_handler: DefaultNodeCommandHandler,
         route_service: RouteService,
-        authenticator: GroupAuthenticator,
+        authenticator: DomainAuthenticator,
         drain: SharedDrain,
     ) -> Self {
         Self {
@@ -124,7 +124,7 @@ async fn receive_register(
     cmd_handler: &DefaultNodeCommandHandler,
     route_service: &RouteService,
     tx: &mpsc::UnboundedSender<Result<ControlMessage, Status>>,
-    authenticator: &GroupAuthenticator,
+    authenticator: &DomainAuthenticator,
 ) -> Result<(String, u64)> {
     let msg = tokio::time::timeout(Duration::from_secs(REGISTER_TIMEOUT_SECS), stream.message())
         .await
@@ -150,31 +150,31 @@ async fn receive_register(
         }
     };
 
-    // Verify group membership before proceeding with registration.
-    let claimed_group = reg_req.group_name.as_deref().unwrap_or("");
-    if claimed_group.is_empty() && !matches!(authenticator, GroupAuthenticator::Noop) {
+    // Verify domain membership before proceeding with registration.
+    let claimed_domain = reg_req.domain_name.as_deref().unwrap_or("");
+    if claimed_domain.is_empty() && !matches!(authenticator, DomainAuthenticator::Noop) {
         return Err(Error::InvalidInput(format!(
-            "node '{}' must specify a group_name when auth is required",
+            "node '{}' must specify a domain_name when auth is required",
             reg_req.node_id,
         )));
     }
     authenticator
-        .verify_group_membership(&reg_req.credentials, claimed_group, &reg_req.node_id)
+        .verify_domain_membership(&reg_req.credentials, claimed_domain, &reg_req.node_id)
         .await
         .map_err(|status| {
             Error::InvalidInput(format!(
-                "group auth failed for node '{}' claiming group '{}': {}",
+                "domain auth failed for node '{}' claiming domain '{}': {}",
                 reg_req.node_id,
-                claimed_group,
+                claimed_domain,
                 status.message()
             ))
         })?;
 
     let mut node_id = reg_req.node_id.clone();
-    if let Some(ref group) = reg_req.group_name
-        && !group.is_empty()
+    if let Some(ref domain) = reg_req.domain_name
+        && !domain.is_empty()
     {
-        node_id = format!("{group}/{node_id}");
+        node_id = format!("{domain}/{node_id}");
     }
     tracing::info!("southbound: registering node {node_id}");
 
@@ -187,7 +187,7 @@ async fn receive_register(
     let (_, conn_details_updated) = db
         .save_node(Node {
             id: node_id.clone(),
-            group_name: reg_req.group_name.clone(),
+            domain_name: reg_req.domain_name.clone(),
             conn_details,
             created_at: std::time::SystemTime::now(),
             last_updated: std::time::SystemTime::now(),
@@ -220,7 +220,7 @@ async fn receive_register(
     route_service
         .node_registered(
             &node_id,
-            reg_req.group_name.as_deref().unwrap_or(""),
+            reg_req.domain_name.as_deref().unwrap_or(""),
             conn_details_updated,
             reg_req.connections,
             reg_req.routes,

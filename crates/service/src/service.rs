@@ -81,12 +81,12 @@ pub struct ServiceConfiguration {
     #[serde(skip)]
     pub service_id: String,
 
-    /// Optional name of the group for the service.
-    pub group_name: Option<String>,
+    /// Optional name of the domain for the service.
+    pub domain_name: Option<String>,
 
     /// Optional authentication configuration for control plane registration.
     /// When set, the node will generate and send credentials to prove
-    /// group membership during registration.
+    /// domain membership during registration.
     pub auth: Option<slim_config::auth::AuthConfig>,
 
     /// DataPlane API configuration
@@ -106,7 +106,7 @@ impl Default for ServiceConfiguration {
         Self {
             service_id: node_id.clone(),
             node_id,
-            group_name: None,
+            domain_name: None,
             auth: None,
             dataplane: DataplaneConfig::default(),
             controller: ControllerConfig::default(),
@@ -225,7 +225,7 @@ impl std::fmt::Debug for Service {
             .field("id", &self.id)
             .field("dataplane_servers", &self.config.dataplane_servers())
             .field("dataplane_clients", &self.config.dataplane_clients())
-            .field("group_name", &self.config.group_name)
+            .field("domain_name", &self.config.domain_name)
             .field("controller", &self.config.controller)
             .finish()
     }
@@ -345,11 +345,11 @@ impl Service {
 
         // Build auth provider if configured
         let auth_provider = if let Some(auth_config) = &self.config.auth {
-            // Both group_name and node_id are required when auth is configured —
-            // the CP verifier expects the token subject to be "{group}/{node_id}".
-            let group = self.config.group_name.as_ref().ok_or_else(|| {
+            // Both domain_name and node_id are required when auth is configured —
+            // the CP verifier expects the token subject to be "{domain}/{node_id}".
+            let domain = self.config.domain_name.as_ref().ok_or_else(|| {
                 ServiceError::InvalidConfig(
-                    "group_name must be set when auth is configured".to_string(),
+                    "domain_name must be set when auth is configured".to_string(),
                 )
             })?;
             if self.config.node_id.is_empty() {
@@ -357,7 +357,7 @@ impl Service {
                     "node_id must be set when auth is configured".to_string(),
                 ));
             }
-            let identity_name = format!("{}/{}", group, self.config.node_id);
+            let identity_name = format!("{}/{}", domain, self.config.node_id);
             let registration_auth = auth_config.clone().with_identity_id(identity_name.clone());
             let (provider_config, _) = registration_auth.to_identity_configs(&identity_name);
             let mut provider = provider_config.build_auth_provider().map_err(|e| {
@@ -373,7 +373,7 @@ impl Service {
 
         let mut controller = self.config.controller.into_service(
             self.config.node_id.clone(),
-            self.config.group_name.clone(),
+            self.config.domain_name.clone(),
             self.message_processor.clone(),
             self.config.dataplane_servers(),
             auth_provider,

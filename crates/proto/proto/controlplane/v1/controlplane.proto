@@ -15,7 +15,7 @@ service ControlPlaneService {
   rpc ListRoutes(RouteListRequest) returns (stream RouteEntry) {}
   // List links stored in the controller DB with optional filtering by source and destination node IDs
   rpc ListLinks(LinkListRequest) returns (stream LinkEntry) {}
-  // List segments (expanded routing domains) with the groups in each segment
+  // List segments (expanded routing domains) with the domains in each segment
   rpc ListSegments(SegmentListRequest) returns (SegmentListResponse) {}
 
   // Topology mutation APIs (API-managed mode only).
@@ -24,13 +24,13 @@ service ControlPlaneService {
   // Add a new segment (routing domain). If a segment with the given name already exists,
   // returns ALREADY_EXISTS.
   rpc AddSegment(AddSegmentRequest) returns (AddSegmentResponse) {}
-  // Remove a segment by name. Deletes all associated group memberships and links.
+  // Remove a segment by name. Deletes all associated domain memberships and links.
   // Returns NOT_FOUND if the segment does not exist.
   rpc RemoveSegment(RemoveSegmentRequest) returns (RemoveSegmentResponse) {}
-  // Add a bidirectional link between two groups within a segment.
+  // Add a bidirectional link between two domains within a segment.
   // The segment must already exist. Idempotent — succeeds if the link already exists.
   rpc AddTopologyLink(AddTopologyLinkRequest) returns (AddTopologyLinkResponse) {}
-  // Remove a bidirectional link between two groups within a segment.
+  // Remove a bidirectional link between two domains within a segment.
   // Returns NOT_FOUND if the segment or link does not exist.
   rpc RemoveTopologyLink(RemoveTopologyLinkRequest) returns (RemoveTopologyLinkResponse) {}
 }
@@ -56,7 +56,7 @@ message NodeEntry {
   string id = 1;
   repeated controller.proto.v1.ConnectionDetails connections = 2;
   NodeStatus status = 4;
-  string group = 5;
+  string domain = 5;
 }
 
 message NodeListResponse {
@@ -142,17 +142,17 @@ message LinkListResponse {
 // Request to list segments
 message SegmentListRequest {}
 
-// A segment with its member groups and adjacency edges
+// A segment with its member domains and adjacency edges
 message SegmentEntry {
   string name = 1;
-  repeated string groups = 2;
+  repeated string domains = 2;
   repeated SegmentEdge edges = 3;
 }
 
-// An edge in the segment graph (bidirectional link between two groups)
+// An edge in the segment graph (bidirectional link between two domains)
 message SegmentEdge {
-  string group_a = 1;
-  string group_b = 2;
+  string domain_a = 1;
+  string domain_b = 2;
 }
 
 // Response containing a list of segments
@@ -169,31 +169,31 @@ message AddSegmentRequest {
 
 message AddSegmentResponse {}
 
-// Remove a segment by name, cascading deletion of groups and links
+// Remove a segment by name, cascading deletion of domains and links
 message RemoveSegmentRequest {
   string name = 1;
 }
 
 message RemoveSegmentResponse {}
 
-// Add a bidirectional link between two groups within a segment.
+// Add a bidirectional link between two domains within a segment.
 // The segment must already exist. If segment is empty, defaults to "default".
 message AddTopologyLinkRequest {
-  string group_a = 1;
-  string group_b = 2;
+  string domain_a = 1;
+  string domain_b = 2;
   string segment = 3; // optional, defaults to "default"
 }
 
 message AddTopologyLinkResponse {
-  // Warnings about missing groups (link stored but no physical link created yet).
+  // Warnings about missing domains (link stored but no physical link created yet).
   repeated string warnings = 1;
 }
 
-// Remove a bidirectional link between two groups within a segment.
+// Remove a bidirectional link between two domains within a segment.
 // If segment is empty, defaults to "default".
 message RemoveTopologyLinkRequest {
-  string group_a = 1;
-  string group_b = 2;
+  string domain_a = 1;
+  string domain_b = 2;
   string segment = 3; // optional, defaults to "default"
 }
 

@@ -184,7 +184,7 @@ pub struct RegisterNodeRequest {
     #[prost(message, repeated, tag = "2")]
     pub connection_details: ::prost::alloc::vec::Vec<ConnectionDetails>,
     #[prost(string, optional, tag = "3")]
-    pub group_name: ::core::option::Option<::prost::alloc::string::String>,
+    pub domain_name: ::core::option::Option<::prost::alloc::string::String>,
     /// Active connections on the data plane at the time of registration.
     /// Allows the control plane to reconcile link state without an extra round-trip.
     #[prost(message, repeated, tag = "4")]
@@ -192,7 +192,7 @@ pub struct RegisterNodeRequest {
     /// Active routes on the data plane at the time of registration.
     #[prost(message, repeated, tag = "5")]
     pub routes: ::prost::alloc::vec::Vec<Route>,
-    /// Credentials proving authorization to join the claimed group.
+    /// Credentials proving authorization to join the claimed domain.
     /// Empty string when no auth is configured.
     #[prost(string, tag = "6")]
     pub credentials: ::prost::alloc::string::String,

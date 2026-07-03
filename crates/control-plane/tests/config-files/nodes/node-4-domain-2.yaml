@@ -1,14 +1,14 @@
-# SLIM node-4 (group-2)
+# SLIM node-4 (domain-2)
 tracing:
   log_level: debug
 
 services:
   slim/node-4:
-    group_name: group-2
+    domain_name: domain-2
     node_id: node-4
     auth:
       type: shared_secret
-      secret: "secret-for-group-2-abcdefghi-1234567890"
+      secret: "secret-for-domain-2-abcdefghi-1234567890"
 
     dataplane:
       servers:
@@ -27,7 +27,7 @@ services:
           tls:
             insecure: true
     peers:
-      deployment_name: "group-2"
+      deployment_name: "domain-2"
       topology: "full_mesh"
       discovery:
         type: static

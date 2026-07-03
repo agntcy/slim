@@ -77,7 +77,7 @@ fn build_peer_configs(count: usize) -> Vec<(u16, String, PeerConfig)> {
         .collect();
 
     let peer_config = PeerConfig {
-        deployment_name: "test-group".to_string(),
+        deployment_name: "test-domain".to_string(),
         topology: PeerTopology::FullMesh,
         discovery: PeerDiscoveryConfig::Static { peers },
     };

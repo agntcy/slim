@@ -49,23 +49,23 @@ impl NorthboundApiService {
             .iter()
             .map(|link| {
                 let peer = if link.source_node_id == node_id {
-                    if link.dest_group.is_empty()
+                    if link.dest_domain.is_empty()
                         || link
                             .dest_node_id
-                            .starts_with(&format!("{}/", link.dest_group))
+                            .starts_with(&format!("{}/", link.dest_domain))
                     {
                         link.dest_node_id.clone()
                     } else {
-                        format!("{}/{}", link.dest_group, link.dest_node_id)
+                        format!("{}/{}", link.dest_domain, link.dest_node_id)
                     }
-                } else if link.source_group.is_empty()
+                } else if link.source_domain.is_empty()
                     || link
                         .source_node_id
-                        .starts_with(&format!("{}/", link.source_group))
+                        .starts_with(&format!("{}/", link.source_domain))
                 {
                     link.source_node_id.clone()
                 } else {
-                    format!("{}/{}", link.source_group, link.source_node_id)
+                    format!("{}/{}", link.source_domain, link.source_node_id)
                 };
                 (link.link_id.clone(), peer)
             })
@@ -75,7 +75,7 @@ impl NorthboundApiService {
     /// Enrich `peer_node_id` on connection entries using group information.
     fn enrich_peer_node_ids(
         entries: &mut [crate::api::proto::controller::proto::v1::ConnectionEntry],
-        node_group: &str,
+        node_domain: &str,
         link_peer_map: &std::collections::HashMap<String, String>,
     ) {
         use crate::api::proto::controller::proto::v1::ConnectionType;
@@ -83,10 +83,10 @@ impl NorthboundApiService {
             match entry.connection_type() {
                 ConnectionType::Peer => {
                     if let Some(bare_id) = entry.peer_node_id.take() {
-                        if bare_id.starts_with(&format!("{}/", node_group)) {
+                        if bare_id.starts_with(&format!("{}/", node_domain)) {
                             entry.peer_node_id = Some(bare_id);
                         } else {
-                            entry.peer_node_id = Some(format!("{}/{}", node_group, bare_id));
+                            entry.peer_node_id = Some(format!("{}/{}", node_domain, bare_id));
                         }
                     }
                 }
@@ -103,14 +103,14 @@ impl NorthboundApiService {
     }
 
     /// Fetch link data for a node and build the enrichment context.
-    /// Returns `(node_group, link_peer_map)`. Logs a warning on DB errors
+    /// Returns `(node_domain, link_peer_map)`. Logs a warning on DB errors
     /// and continues with an empty map (enrichment is best-effort).
     async fn enrichment_context(
         &self,
         node: &crate::db::Node,
         caller: &str,
     ) -> (String, std::collections::HashMap<String, String>) {
-        let node_group = node.group_name.clone().unwrap_or_default();
+        let node_domain = node.domain_name.clone().unwrap_or_default();
         let links = self
             .db
             .get_links_for_node(&node.id)
@@ -120,7 +120,7 @@ impl NorthboundApiService {
                 Vec::new()
             });
         let link_peer_map = Self::build_link_peer_map(&node.id, &links);
-        (node_group, link_peer_map)
+        (node_domain, link_peer_map)
     }
 }
 
@@ -176,12 +176,12 @@ impl ControlPlaneService for NorthboundApiService {
                     })
                     .collect();
 
-                let group = node.group_name.unwrap_or_default();
+                let domain = node.domain_name.unwrap_or_default();
                 let entry = NodeEntry {
                     id: node.id,
                     connections,
                     status,
-                    group,
+                    domain,
                 };
                 if tx.send(Ok(entry)).await.is_err() {
                     break;
@@ -217,10 +217,10 @@ impl ControlPlaneService for NorthboundApiService {
             })?;
 
         // Enrich peer_node_id with group prefix (same logic as list_connections).
-        let (node_group, link_peer_map) = self.enrichment_context(&node, "list_node_routes").await;
+        let (node_domain, link_peer_map) = self.enrichment_context(&node, "list_node_routes").await;
 
         for entry in &mut resp.entries {
-            Self::enrich_peer_node_ids(&mut entry.connections, &node_group, &link_peer_map);
+            Self::enrich_peer_node_ids(&mut entry.connections, &node_domain, &link_peer_map);
         }
 
         Ok(Response::new(resp))
@@ -251,8 +251,8 @@ impl ControlPlaneService for NorthboundApiService {
             })?;
 
         // Enrich peer_node_id with group prefix using link information.
-        let (node_group, link_peer_map) = self.enrichment_context(&node, "list_connections").await;
-        Self::enrich_peer_node_ids(&mut resp.entries, &node_group, &link_peer_map);
+        let (node_domain, link_peer_map) = self.enrichment_context(&node, "list_connections").await;
+        Self::enrich_peer_node_ids(&mut resp.entries, &node_domain, &link_peer_map);
 
         Ok(Response::new(resp))
     }
@@ -349,25 +349,25 @@ impl ControlPlaneService for NorthboundApiService {
                 Status::internal("internal error")
             })?;
 
-        // Collect topology link group pairs to identify pending ones.
+        // Collect topology link domain pairs to identify pending ones.
         let segments = self.route_service.list_segments().await;
         let mut topology_pairs: std::collections::HashSet<(String, String)> =
             std::collections::HashSet::new();
-        for (_name, _groups, edges) in &segments {
+        for (_name, _domains, edges) in &segments {
             for (src, dst) in edges {
                 topology_pairs.insert((src.clone(), dst.clone()));
                 topology_pairs.insert((dst.clone(), src.clone()));
             }
         }
 
-        // Track which group pairs have physical links.
+        // Track which domain pairs have physical links.
         let mut realized_pairs: std::collections::HashSet<(String, String)> =
             std::collections::HashSet::new();
 
         for l in &links {
-            if !l.source_group.is_empty() && !l.dest_group.is_empty() {
-                realized_pairs.insert((l.source_group.clone(), l.dest_group.clone()));
-                realized_pairs.insert((l.dest_group.clone(), l.source_group.clone()));
+            if !l.source_domain.is_empty() && !l.dest_domain.is_empty() {
+                realized_pairs.insert((l.source_domain.clone(), l.dest_domain.clone()));
+                realized_pairs.insert((l.dest_domain.clone(), l.source_domain.clone()));
             }
         }
 
@@ -429,7 +429,7 @@ impl ControlPlaneService for NorthboundApiService {
                 }
             }
             // Emit pending topology links.
-            // For pending entries, source_node_id/dest_node_id hold group names
+            // For pending entries, source_node_id/dest_node_id hold domain names
             // (not node IDs) since no physical link exists yet.
             for (src, dst) in pending_entries {
                 let entry = LinkEntry {
@@ -460,14 +460,14 @@ impl ControlPlaneService for NorthboundApiService {
         let segments = self.route_service.list_segments().await;
         let entries = segments
             .into_iter()
-            .map(|(name, groups, edges)| SegmentEntry {
+            .map(|(name, domains, edges)| SegmentEntry {
                 name,
-                groups,
+                domains,
                 edges: edges
                     .into_iter()
                     .map(|(a, b)| SegmentEdge {
-                        group_a: a,
-                        group_b: b,
+                        domain_a: a,
+                        domain_b: b,
                     })
                     .collect(),
             })
@@ -504,9 +504,9 @@ impl ControlPlaneService for NorthboundApiService {
         request: Request<AddTopologyLinkRequest>,
     ) -> Result<Response<AddTopologyLinkResponse>, Status> {
         let req = request.get_ref();
-        if req.group_a.is_empty() || req.group_b.is_empty() {
+        if req.domain_a.is_empty() || req.domain_b.is_empty() {
             return Err(Status::invalid_argument(
-                "group_a and group_b must not be empty",
+                "domain_a and domain_b must not be empty",
             ));
         }
         let segment = if req.segment.is_empty() {
@@ -516,7 +516,7 @@ impl ControlPlaneService for NorthboundApiService {
         };
         let warnings = self
             .route_service
-            .add_topology_link(&req.group_a, &req.group_b, segment)
+            .add_topology_link(&req.domain_a, &req.domain_b, segment)
             .await?;
         Ok(Response::new(AddTopologyLinkResponse { warnings }))
     }
@@ -526,9 +526,9 @@ impl ControlPlaneService for NorthboundApiService {
         request: Request<RemoveTopologyLinkRequest>,
     ) -> Result<Response<RemoveTopologyLinkResponse>, Status> {
         let req = request.get_ref();
-        if req.group_a.is_empty() || req.group_b.is_empty() {
+        if req.domain_a.is_empty() || req.domain_b.is_empty() {
             return Err(Status::invalid_argument(
-                "group_a and group_b must not be empty",
+                "domain_a and domain_b must not be empty",
             ));
         }
         let segment = if req.segment.is_empty() {
@@ -537,7 +537,7 @@ impl ControlPlaneService for NorthboundApiService {
             &req.segment
         };
         self.route_service
-            .remove_topology_link(&req.group_a, &req.group_b, segment)
+            .remove_topology_link(&req.domain_a, &req.domain_b, segment)
             .await?;
         Ok(Response::new(RemoveTopologyLinkResponse {}))
     }
@@ -552,16 +552,16 @@ mod tests {
     fn make_link(
         link_id: &str,
         src_node: &str,
-        src_group: &str,
+        src_domain: &str,
         dst_node: &str,
-        dst_group: &str,
+        dst_domain: &str,
     ) -> Link {
         Link {
             link_id: link_id.to_string(),
             source_node_id: src_node.to_string(),
-            source_group: src_group.to_string(),
+            source_domain: src_domain.to_string(),
             dest_node_id: dst_node.to_string(),
-            dest_group: dst_group.to_string(),
+            dest_domain: dst_domain.to_string(),
             dest_endpoint: "http://127.0.0.1:9000".to_string(),
             conn_config_data: slim_config::grpc::client::ClientConfig::default()
                 .with_connection_type(slim_config::conn_type::ConnType::Remote),
@@ -574,30 +574,30 @@ mod tests {
 
     #[test]
     fn build_link_peer_map_normal_prefix() {
-        // node-a is source, peer should be "group-b/node-b"
-        let links = vec![make_link("l1", "node-a", "group-a", "node-b", "group-b")];
+        // node-a is source, peer should be "domain-b/node-b"
+        let links = vec![make_link("l1", "node-a", "domain-a", "node-b", "domain-b")];
         let map = NorthboundApiService::build_link_peer_map("node-a", &links);
-        assert_eq!(map.get("l1").unwrap(), "group-b/node-b");
+        assert_eq!(map.get("l1").unwrap(), "domain-b/node-b");
     }
 
     #[test]
     fn build_link_peer_map_already_prefixed() {
-        // dest_node_id already has "group-b/" prefix — should not double it
+        // dest_node_id already has "domain-b/" prefix — should not double it
         let links = vec![make_link(
             "l1",
             "node-a",
-            "group-a",
-            "group-b/node-b",
-            "group-b",
+            "domain-a",
+            "domain-b/node-b",
+            "domain-b",
         )];
         let map = NorthboundApiService::build_link_peer_map("node-a", &links);
-        assert_eq!(map.get("l1").unwrap(), "group-b/node-b");
+        assert_eq!(map.get("l1").unwrap(), "domain-b/node-b");
     }
 
     #[test]
-    fn build_link_peer_map_empty_group() {
-        // Empty dest_group — should return dest_node_id as-is
-        let links = vec![make_link("l1", "node-a", "group-a", "node-b", "")];
+    fn build_link_peer_map_empty_domain() {
+        // Empty dest_domain — should return dest_node_id as-is
+        let links = vec![make_link("l1", "node-a", "domain-a", "node-b", "")];
         let map = NorthboundApiService::build_link_peer_map("node-a", &links);
         assert_eq!(map.get("l1").unwrap(), "node-b");
     }
@@ -605,8 +605,8 @@ mod tests {
     #[test]
     fn build_link_peer_map_reverse_direction() {
         // node-b is the current node (dest in the link), peer should be source
-        let links = vec![make_link("l1", "node-a", "group-a", "node-b", "group-b")];
+        let links = vec![make_link("l1", "node-a", "domain-a", "node-b", "domain-b")];
         let map = NorthboundApiService::build_link_peer_map("node-b", &links);
-        assert_eq!(map.get("l1").unwrap(), "group-a/node-a");
+        assert_eq!(map.get("l1").unwrap(), "domain-a/node-a");
     }
 }

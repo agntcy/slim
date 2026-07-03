@@ -26,7 +26,7 @@ pub struct NodeEntry {
     #[prost(enumeration = "NodeStatus", tag = "4")]
     pub status: i32,
     #[prost(string, tag = "5")]
-    pub group: ::prost::alloc::string::String,
+    pub domain: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NodeListResponse {
@@ -127,23 +127,23 @@ pub struct LinkListResponse {
 /// Request to list segments
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SegmentListRequest {}
-/// A segment with its member groups and adjacency edges
+/// A segment with its member domains and adjacency edges
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SegmentEntry {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
     #[prost(string, repeated, tag = "2")]
-    pub groups: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    pub domains: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(message, repeated, tag = "3")]
     pub edges: ::prost::alloc::vec::Vec<SegmentEdge>,
 }
-/// An edge in the segment graph (bidirectional link between two groups)
+/// An edge in the segment graph (bidirectional link between two domains)
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SegmentEdge {
     #[prost(string, tag = "1")]
-    pub group_a: ::prost::alloc::string::String,
+    pub domain_a: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub group_b: ::prost::alloc::string::String,
+    pub domain_b: ::prost::alloc::string::String,
 }
 /// Response containing a list of segments
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -159,7 +159,7 @@ pub struct AddSegmentRequest {
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AddSegmentResponse {}
-/// Remove a segment by name, cascading deletion of groups and links
+/// Remove a segment by name, cascading deletion of domains and links
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RemoveSegmentRequest {
     #[prost(string, tag = "1")]
@@ -167,32 +167,32 @@ pub struct RemoveSegmentRequest {
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RemoveSegmentResponse {}
-/// Add a bidirectional link between two groups within a segment.
+/// Add a bidirectional link between two domains within a segment.
 /// The segment must already exist. If segment is empty, defaults to "default".
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AddTopologyLinkRequest {
     #[prost(string, tag = "1")]
-    pub group_a: ::prost::alloc::string::String,
+    pub domain_a: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub group_b: ::prost::alloc::string::String,
+    pub domain_b: ::prost::alloc::string::String,
     /// optional, defaults to "default"
     #[prost(string, tag = "3")]
     pub segment: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AddTopologyLinkResponse {
-    /// Warnings about missing groups (link stored but no physical link created yet).
+    /// Warnings about missing domains (link stored but no physical link created yet).
     #[prost(string, repeated, tag = "1")]
     pub warnings: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
-/// Remove a bidirectional link between two groups within a segment.
+/// Remove a bidirectional link between two domains within a segment.
 /// If segment is empty, defaults to "default".
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RemoveTopologyLinkRequest {
     #[prost(string, tag = "1")]
-    pub group_a: ::prost::alloc::string::String,
+    pub domain_a: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub group_b: ::prost::alloc::string::String,
+    pub domain_b: ::prost::alloc::string::String,
     /// optional, defaults to "default"
     #[prost(string, tag = "3")]
     pub segment: ::prost::alloc::string::String,
@@ -540,7 +540,7 @@ pub mod control_plane_service_client {
                 );
             self.inner.server_streaming(req, path, codec).await
         }
-        /// List segments (expanded routing domains) with the groups in each segment
+        /// List segments (expanded routing domains) with the domains in each segment
         pub async fn list_segments(
             &mut self,
             request: impl tonic::IntoRequest<super::SegmentListRequest>,
@@ -601,7 +601,7 @@ pub mod control_plane_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Remove a segment by name. Deletes all associated group memberships and links.
+        /// Remove a segment by name. Deletes all associated domain memberships and links.
         /// Returns NOT_FOUND if the segment does not exist.
         pub async fn remove_segment(
             &mut self,
@@ -632,7 +632,7 @@ pub mod control_plane_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Add a bidirectional link between two groups within a segment.
+        /// Add a bidirectional link between two domains within a segment.
         /// The segment must already exist. Idempotent — succeeds if the link already exists.
         pub async fn add_topology_link(
             &mut self,
@@ -663,7 +663,7 @@ pub mod control_plane_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Remove a bidirectional link between two groups within a segment.
+        /// Remove a bidirectional link between two domains within a segment.
         /// Returns NOT_FOUND if the segment or link does not exist.
         pub async fn remove_topology_link(
             &mut self,
@@ -760,7 +760,7 @@ pub mod control_plane_service_server {
             &self,
             request: tonic::Request<super::LinkListRequest>,
         ) -> std::result::Result<tonic::Response<Self::ListLinksStream>, tonic::Status>;
-        /// List segments (expanded routing domains) with the groups in each segment
+        /// List segments (expanded routing domains) with the domains in each segment
         async fn list_segments(
             &self,
             request: tonic::Request<super::SegmentListRequest>,
@@ -777,7 +777,7 @@ pub mod control_plane_service_server {
             tonic::Response<super::AddSegmentResponse>,
             tonic::Status,
         >;
-        /// Remove a segment by name. Deletes all associated group memberships and links.
+        /// Remove a segment by name. Deletes all associated domain memberships and links.
         /// Returns NOT_FOUND if the segment does not exist.
         async fn remove_segment(
             &self,
@@ -786,7 +786,7 @@ pub mod control_plane_service_server {
             tonic::Response<super::RemoveSegmentResponse>,
             tonic::Status,
         >;
-        /// Add a bidirectional link between two groups within a segment.
+        /// Add a bidirectional link between two domains within a segment.
         /// The segment must already exist. Idempotent — succeeds if the link already exists.
         async fn add_topology_link(
             &self,
@@ -795,7 +795,7 @@ pub mod control_plane_service_server {
             tonic::Response<super::AddTopologyLinkResponse>,
             tonic::Status,
         >;
-        /// Remove a bidirectional link between two groups within a segment.
+        /// Remove a bidirectional link between two domains within a segment.
         /// Returns NOT_FOUND if the segment or link does not exist.
         async fn remove_topology_link(
             &self,

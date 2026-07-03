@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 
 use crate::api::proto::controller::proto::v1::controller_service_server::ControllerServiceServer;
 use crate::api::proto::controlplane::proto::v1::control_plane_service_server::ControlPlaneServiceServer;
-use crate::auth::GroupAuthenticator;
+use crate::auth::DomainAuthenticator;
 use crate::config::Config;
 use crate::node_transport::DefaultNodeCommandHandler;
 use crate::route_service::RouteService;
@@ -62,9 +62,9 @@ impl ControlPlane {
         let nb_svc =
             NorthboundApiService::new(db.clone(), cmd_handler.clone(), route_service.clone());
 
-        // Build group authenticator from config (Noop when no auth configured).
+        // Build domain authenticator from config (Noop when no auth configured).
         let authenticator = match cfg.registration_auth {
-            None => GroupAuthenticator::Noop,
+            None => DomainAuthenticator::Noop,
             Some(auth_cfg) => Self::build_authenticator(auth_cfg).await?,
         };
 
@@ -109,7 +109,7 @@ impl ControlPlane {
 
     async fn build_authenticator(
         cfg: crate::config::RegistrationAuthConfig,
-    ) -> Result<GroupAuthenticator> {
+    ) -> Result<DomainAuthenticator> {
         use crate::config::RegistrationAuthConfig;
         use std::collections::HashMap;
 
@@ -121,25 +121,25 @@ impl ControlPlane {
                     ));
                 }
                 let mut verifiers = HashMap::with_capacity(secrets.len());
-                for (group_name, secret) in secrets {
+                for (domain_name, secret) in secrets {
                     // id is not used on the verifier side — it only matters for
                     // token generation (provider). The verifier validates the HMAC
                     // using the secret alone.
                     let auth_config =
                         slim_config::auth::AuthConfig::SharedSecret { id: None, secret };
-                    let (_, verifier_cfg) = auth_config.to_identity_configs(&group_name);
+                    let (_, verifier_cfg) = auth_config.to_identity_configs(&domain_name);
                     let verifier = verifier_cfg.build_auth_verifier().map_err(|e| {
                         anyhow::anyhow!(
-                            "failed to build auth verifier for group '{group_name}': {e}"
+                            "failed to build auth verifier for domain '{domain_name}': {e}"
                         )
                     })?;
-                    verifiers.insert(group_name, verifier);
+                    verifiers.insert(domain_name, verifier);
                 }
                 tracing::info!(
-                    "registration auth: shared_secret for {} group(s)",
+                    "registration auth: shared_secret for {} domain(s)",
                     verifiers.len()
                 );
-                Ok(GroupAuthenticator::SharedSecret { verifiers })
+                Ok(DomainAuthenticator::SharedSecret { verifiers })
             }
             #[cfg(not(target_family = "windows"))]
             RegistrationAuthConfig::Spire { socket_path } => {
@@ -154,8 +154,8 @@ impl ControlPlane {
                     .await
                     .map_err(|e| anyhow::anyhow!("failed to initialize SPIRE verifier: {e}"))?;
                 let auth_verifier = slim_auth::auth_provider::AuthVerifier::Spire(verifier);
-                tracing::info!("registration auth: spire (trust domain = group name)");
-                Ok(GroupAuthenticator::Spire {
+                tracing::info!("registration auth: spire (trust domain = domain name)");
+                Ok(DomainAuthenticator::Spire {
                     verifier: Box::new(auth_verifier),
                 })
             }

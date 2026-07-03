@@ -140,13 +140,13 @@ message ConnectionDetails {
 message RegisterNodeRequest {
   string node_id = 1;
   repeated ConnectionDetails connection_details = 2;
-  optional string group_name = 3;
+  optional string domain_name = 3;
   // Active connections on the data plane at the time of registration.
   // Allows the control plane to reconcile link state without an extra round-trip.
   repeated ConnectionEntry connections = 4;
   // Active routes on the data plane at the time of registration.
   repeated Route routes = 5;
-  // Credentials proving authorization to join the claimed group.
+  // Credentials proving authorization to join the claimed domain.
   // Empty string when no auth is configured.
   string credentials = 6;
 }

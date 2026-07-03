@@ -4,7 +4,7 @@ tracing:
 
 services:
   slim/node-d:
-    group_name: deployment-d
+    domain_name: deployment-d
     dataplane:
       servers:
         - endpoint: "127.0.0.1:46103"
