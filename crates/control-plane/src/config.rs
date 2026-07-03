@@ -106,32 +106,31 @@ impl Default for ReconcilerConfig {
     }
 }
 
-/// Topology configuration: defines the physical link graph between node groups.
-///
-/// The topology is expressed as an adjacency list. Each entry declares
-/// a group name and the neighbors it connects to. All links are **bidirectional**:
-/// if group A lists B as a peer, then B↔A is implied.
-///
-/// The wildcard `"*"` matches all registered groups and is resolved dynamically
-/// at node registration time.
-///
-/// If no topology is configured (empty links), the controller defaults to
-/// **full mesh**: every group links to every other group.
-///
-/// Topology configuration: controls link creation and route visibility.
+/// Topology configuration: controls link creation and route visibility
+/// between node groups.
 ///
 /// The topology mode is determined by which field is present in YAML:
-/// - Neither `links` nor `segments` → full mesh (default)
-/// - `links` → single routing domain with custom link graph
-/// - `segments` → multiple independent routing domains
+/// - Neither `links` nor `segments` → **API-managed mode** (DB owns topology)
+/// - `links` → config-managed, single routing domain with custom link graph
+/// - `segments` → config-managed, multiple independent routing domains
 /// - Both → deserialization error
 ///
 /// # Examples
 ///
-/// **Full mesh (default):** no `topology` key needed, all groups interconnect.
+/// **API-managed mode (default):** no `topology` key or empty section.
+/// Topology is built via gRPC/CLI at runtime.
 ///
 /// ```yaml
 /// topology: {}
+/// ```
+///
+/// **Full mesh (config-managed):** use wildcard link entry.
+///
+/// ```yaml
+/// topology:
+///   links:
+///     - group: "*"
+///       neighbors: ["*"]
 /// ```
 ///
 /// **Single segment with star topology:**
@@ -139,7 +138,7 @@ impl Default for ReconcilerConfig {
 /// ```yaml
 /// topology:
 ///   links:
-///     - name: hub
+///     - group: hub
 ///       neighbors: [spoke-a, spoke-b]
 /// ```
 ///
@@ -150,17 +149,18 @@ impl Default for ReconcilerConfig {
 ///   segments:
 ///     - name: segment-$group
 ///       links:
-///         - name: platform
+///         - group: platform
 ///           neighbors: [$group]
 /// ```
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum TopologyConfig {
-    /// No topology configured: all groups can link to all groups.
+    /// No topology configured: API-managed mode. The DB owns topology state
+    /// and full CRUD operations are available via gRPC/CLI.
     #[default]
-    FullMesh,
-    /// Single routing domain with a custom link graph.
+    ApiManaged,
+    /// Single routing domain with a custom link graph (config-managed).
     Links(Vec<AdjacencyEntry>),
-    /// Multiple independent routing domains, each with its own link graph.
+    /// Multiple independent routing domains, each with its own link graph (config-managed).
     Segments(Vec<SegmentConfig>),
 }
 
@@ -178,12 +178,12 @@ pub struct SegmentConfig {
     pub links: Vec<AdjacencyEntry>,
 }
 
-/// An adjacency list entry: nodes in group `name` connect to nodes
+/// An adjacency list entry: nodes in the specified `group` connect to nodes
 /// in any of the groups listed in `neighbors`. Links are bidirectional.
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct AdjacencyEntry {
-    /// Group name (or `"*"` to match any group, or `$group` for template expansion).
-    pub name: String,
+    /// Source group name (or `"*"` to match any group, or `$group` for template expansion).
+    pub group: String,
     /// Groups this group connects to. `"*"` matches any, `$group` for template.
     pub neighbors: Vec<String>,
 }
@@ -235,19 +235,19 @@ impl<'de> Deserialize<'de> for TopologyConfig {
                     )),
                     (Some(l), None) => {
                         if l.is_empty() {
-                            Ok(TopologyConfig::FullMesh)
+                            Ok(TopologyConfig::ApiManaged)
                         } else {
                             Ok(TopologyConfig::Links(l))
                         }
                     }
                     (None, Some(s)) => {
                         if s.is_empty() {
-                            Ok(TopologyConfig::FullMesh)
+                            Ok(TopologyConfig::ApiManaged)
                         } else {
                             Ok(TopologyConfig::Segments(s))
                         }
                     }
-                    (None, None) => Ok(TopologyConfig::FullMesh),
+                    (None, None) => Ok(TopologyConfig::ApiManaged),
                 }
             }
         }
@@ -257,7 +257,8 @@ impl<'de> Deserialize<'de> for TopologyConfig {
 }
 
 impl TopologyConfig {
-    /// Build one graph per segment. For FullMesh/Links returns a single "default" entry.
+    /// Build one graph per segment. For Links returns a single "default" entry.
+    /// For ApiManaged, returns an empty vec (topology is loaded from DB, not config).
     /// Wildcard `"*"` is expanded to all groups in `known_groups`.
     pub fn build_graph(
         &self,
@@ -272,6 +273,16 @@ impl TopologyConfig {
                 )
             })
             .collect()
+    }
+
+    /// Returns `true` if this is API-managed mode (no config-driven topology).
+    pub fn is_api_managed(&self) -> bool {
+        matches!(self, Self::ApiManaged)
+    }
+
+    /// Returns `true` if topology is config-managed (links or segments defined).
+    pub fn is_config_managed(&self) -> bool {
+        !self.is_api_managed()
     }
 
     fn build_graph_from_links(
@@ -290,12 +301,12 @@ impl TopologyConfig {
         }
 
         for entry in links {
-            let sources: Vec<&str> = if entry.name == "*" {
+            let sources: Vec<&str> = if entry.group == "*" {
                 known_groups.to_vec()
             } else {
                 known_groups
                     .iter()
-                    .filter(|&&g| g == entry.name)
+                    .filter(|&&g| g == entry.group)
                     .copied()
                     .collect()
             };
@@ -332,7 +343,7 @@ impl TopologyConfig {
     /// Returns true if this config uses `$group` template expansion.
     pub fn has_group_template(&self) -> bool {
         match self {
-            Self::FullMesh | Self::Links(_) => false,
+            Self::ApiManaged | Self::Links(_) => false,
             Self::Segments(segments) => segments.iter().any(|seg| seg.has_group_template()),
         }
     }
@@ -342,13 +353,7 @@ impl TopologyConfig {
     /// from expansion. Non-template segments pass through unchanged.
     pub fn expand_segments(&self, known_groups: &[&str]) -> Vec<SegmentConfig> {
         match self {
-            Self::FullMesh => vec![SegmentConfig {
-                name: "default".to_string(),
-                links: vec![AdjacencyEntry {
-                    name: "*".to_string(),
-                    neighbors: vec!["*".to_string()],
-                }],
-            }],
+            Self::ApiManaged => vec![],
             Self::Links(links) => vec![SegmentConfig {
                 name: "default".to_string(),
                 links: links.clone(),
@@ -363,8 +368,8 @@ impl TopologyConfig {
                             .iter()
                             .flat_map(|e| {
                                 let mut names = vec![];
-                                if e.name != "*" && !e.name.contains("$group") {
-                                    names.push(e.name.as_str());
+                                if e.group != "*" && !e.group.contains("$group") {
+                                    names.push(e.group.as_str());
                                 }
                                 for n in &e.neighbors {
                                     if n != "*" && !n.contains("$group") {
@@ -400,7 +405,7 @@ impl SegmentConfig {
         }
         self.links
             .iter()
-            .any(|e| e.name.contains("$group") || e.neighbors.iter().any(|n| n.contains("$group")))
+            .any(|e| e.group.contains("$group") || e.neighbors.iter().any(|n| n.contains("$group")))
     }
 
     /// Expand this template segment for a specific group value.
@@ -412,7 +417,7 @@ impl SegmentConfig {
                 .links
                 .iter()
                 .map(|e| AdjacencyEntry {
-                    name: e.name.replace("$group", group),
+                    group: e.group.replace("$group", group),
                     neighbors: e
                         .neighbors
                         .iter()
@@ -437,7 +442,8 @@ mod tests {
         /// Test helper: check if group `a` is allowed to link to group `b`.
         fn can_link(&self, a: &str, b: &str) -> bool {
             match self {
-                Self::FullMesh => true,
+                // In API mode, config allows no links. Allowed pairs come from DB.
+                Self::ApiManaged => false,
                 Self::Links(links) => Self::can_link_in(links, a, b),
                 Self::Segments(segments) => segments
                     .iter()
@@ -447,9 +453,9 @@ mod tests {
 
         fn can_link_in(links: &[AdjacencyEntry], a: &str, b: &str) -> bool {
             links.iter().any(|entry| {
-                (matches_group(&entry.name, a)
+                (matches_group(&entry.group, a)
                     && entry.neighbors.iter().any(|p| matches_group(p, b)))
-                    || (matches_group(&entry.name, b)
+                    || (matches_group(&entry.group, b)
                         && entry.neighbors.iter().any(|p| matches_group(p, a)))
             })
         }
@@ -476,21 +482,23 @@ mod tests {
     }
 
     #[test]
-    fn topology_default_is_full_mesh() {
+    fn topology_default_is_api_managed() {
         let t = TopologyConfig::default();
-        assert!(t.can_link("a", "b"));
-        assert!(t.can_link("x", "y"));
+        assert!(t.is_api_managed());
+        // ApiManaged allows no links from config — topology comes from DB.
+        assert!(!t.can_link("a", "b"));
+        assert!(!t.can_link("x", "y"));
     }
 
     #[test]
     fn topology_can_link_star() {
         let t = TopologyConfig::Links(vec![
             AdjacencyEntry {
-                name: "platform".to_string(),
+                group: "platform".to_string(),
                 neighbors: vec!["*".to_string()],
             },
             AdjacencyEntry {
-                name: "*".to_string(),
+                group: "*".to_string(),
                 neighbors: vec!["platform".to_string()],
             },
         ]);
@@ -502,7 +510,7 @@ mod tests {
     #[test]
     fn topology_can_link_explicit_pair() {
         let t = TopologyConfig::Links(vec![AdjacencyEntry {
-            name: "node-a".to_string(),
+            group: "node-a".to_string(),
             neighbors: vec!["node-b".to_string()],
         }]);
         // Bidirectional
@@ -515,7 +523,10 @@ mod tests {
 
     #[test]
     fn build_graph_full_mesh() {
-        let t = TopologyConfig::default();
+        let t = TopologyConfig::Links(vec![AdjacencyEntry {
+            group: "*".to_string(),
+            neighbors: vec!["*".to_string()],
+        }]);
         let groups = vec!["a", "b", "c", "d"];
         let segments = t.build_graph(&groups);
 
@@ -530,7 +541,7 @@ mod tests {
     #[test]
     fn build_graph_star() {
         let t = TopologyConfig::Links(vec![AdjacencyEntry {
-            name: "hub".to_string(),
+            group: "hub".to_string(),
             neighbors: vec!["*".to_string()],
         }]);
         let groups = vec!["hub", "a", "b", "c"];
@@ -546,15 +557,15 @@ mod tests {
     fn build_graph_chain() {
         let t = TopologyConfig::Links(vec![
             AdjacencyEntry {
-                name: "a".to_string(),
+                group: "a".to_string(),
                 neighbors: vec!["b".to_string()],
             },
             AdjacencyEntry {
-                name: "b".to_string(),
+                group: "b".to_string(),
                 neighbors: vec!["c".to_string()],
             },
             AdjacencyEntry {
-                name: "c".to_string(),
+                group: "c".to_string(),
                 neighbors: vec!["d".to_string()],
             },
         ]);
@@ -570,7 +581,7 @@ mod tests {
     #[test]
     fn build_graph_no_self_links() {
         let t = TopologyConfig::Links(vec![AdjacencyEntry {
-            name: "*".to_string(),
+            group: "*".to_string(),
             neighbors: vec!["*".to_string()],
         }]);
         let groups = vec!["a", "b"];
@@ -587,11 +598,11 @@ mod tests {
         // Both entries create a↔b, but should only be 1 edge
         let t = TopologyConfig::Links(vec![
             AdjacencyEntry {
-                name: "a".to_string(),
+                group: "a".to_string(),
                 neighbors: vec!["b".to_string()],
             },
             AdjacencyEntry {
-                name: "b".to_string(),
+                group: "b".to_string(),
                 neighbors: vec!["a".to_string()],
             },
         ]);
@@ -604,7 +615,7 @@ mod tests {
     #[test]
     fn build_graph_unknown_group_ignored() {
         let t = TopologyConfig::Links(vec![AdjacencyEntry {
-            name: "a".to_string(),
+            group: "a".to_string(),
             neighbors: vec!["unknown".to_string()],
         }]);
         let groups = vec!["a", "b"];
@@ -619,23 +630,23 @@ mod tests {
     // --- Deserialization tests ---
 
     #[test]
-    fn deserialize_empty_topology_is_full_mesh() {
+    fn deserialize_empty_topology_is_api_managed() {
         let t: TopologyConfig = serde_yaml::from_str("{}").unwrap();
-        assert_eq!(t, TopologyConfig::FullMesh);
+        assert_eq!(t, TopologyConfig::ApiManaged);
     }
 
     #[test]
     fn deserialize_links_topology() {
         let yaml = r#"
 links:
-  - name: hub
+  - group: hub
     neighbors: ["*"]
 "#;
         let t: TopologyConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
             t,
             TopologyConfig::Links(vec![AdjacencyEntry {
-                name: "hub".to_string(),
+                group: "hub".to_string(),
                 neighbors: vec!["*".to_string()],
             }])
         );
@@ -647,7 +658,7 @@ links:
 segments:
   - name: seg-$group
     links:
-      - name: hub
+      - group: hub
         neighbors: [$group]
 "#;
         let t: TopologyConfig = serde_yaml::from_str(yaml).unwrap();
@@ -658,12 +669,12 @@ segments:
     fn deserialize_both_links_and_segments_errors() {
         let yaml = r#"
 links:
-  - name: hub
+  - group: hub
     neighbors: ["*"]
 segments:
   - name: seg
     links:
-      - name: a
+      - group: a
         neighbors: [b]
 "#;
         let result: Result<TopologyConfig, _> = serde_yaml::from_str(yaml);
@@ -677,7 +688,7 @@ segments:
         let seg = SegmentConfig {
             name: "seg-$group".to_string(),
             links: vec![AdjacencyEntry {
-                name: "hub".to_string(),
+                group: "hub".to_string(),
                 neighbors: vec!["$group".to_string()],
             }],
         };
@@ -686,7 +697,7 @@ segments:
         let seg_no_template = SegmentConfig {
             name: "static-seg".to_string(),
             links: vec![AdjacencyEntry {
-                name: "a".to_string(),
+                group: "a".to_string(),
                 neighbors: vec!["b".to_string()],
             }],
         };
@@ -698,13 +709,13 @@ segments:
         let seg = SegmentConfig {
             name: "seg-$group".to_string(),
             links: vec![AdjacencyEntry {
-                name: "hub".to_string(),
+                group: "hub".to_string(),
                 neighbors: vec!["$group".to_string()],
             }],
         };
         let expanded = seg.expand_for_group("customer-a");
         assert_eq!(expanded.name, "seg-customer-a");
-        assert_eq!(expanded.links[0].name, "hub");
+        assert_eq!(expanded.links[0].group, "hub");
         assert_eq!(expanded.links[0].neighbors, vec!["customer-a"]);
     }
 
@@ -713,7 +724,7 @@ segments:
         let t = TopologyConfig::Segments(vec![SegmentConfig {
             name: "seg-$group".to_string(),
             links: vec![AdjacencyEntry {
-                name: "hub".to_string(),
+                group: "hub".to_string(),
                 neighbors: vec!["$group".to_string()],
             }],
         }]);
@@ -732,7 +743,7 @@ segments:
         let t = TopologyConfig::Segments(vec![SegmentConfig {
             name: "static".to_string(),
             links: vec![AdjacencyEntry {
-                name: "a".to_string(),
+                group: "a".to_string(),
                 neighbors: vec!["b".to_string()],
             }],
         }]);
@@ -750,14 +761,14 @@ segments:
             SegmentConfig {
                 name: "seg-$group".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "hub".to_string(),
+                    group: "hub".to_string(),
                     neighbors: vec!["$group".to_string()],
                 }],
             },
             SegmentConfig {
                 name: "shared".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "hub".to_string(),
+                    group: "hub".to_string(),
                     neighbors: vec!["monitoring".to_string()],
                 }],
             },
@@ -782,14 +793,14 @@ segments:
             SegmentConfig {
                 name: "seg-a".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "hub".to_string(),
+                    group: "hub".to_string(),
                     neighbors: vec!["a".to_string()],
                 }],
             },
             SegmentConfig {
                 name: "seg-b".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "hub".to_string(),
+                    group: "hub".to_string(),
                     neighbors: vec!["b".to_string()],
                 }],
             },
@@ -811,14 +822,14 @@ segments:
             SegmentConfig {
                 name: "seg-a".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "hub".to_string(),
+                    group: "hub".to_string(),
                     neighbors: vec!["a".to_string()],
                 }],
             },
             SegmentConfig {
                 name: "seg-b".to_string(),
                 links: vec![AdjacencyEntry {
-                    name: "hub".to_string(),
+                    group: "hub".to_string(),
                     neighbors: vec!["b".to_string()],
                 }],
             },

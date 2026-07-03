@@ -122,7 +122,7 @@ var _ = Describe("Routing", func() {
 				out, err := exec.Command(
 					slimctlPath, "n",
 					"route", "list",
-					"-s", fmt.Sprintf("127.0.0.1:%d", controllerPort),
+					"--server", fmt.Sprintf("127.0.0.1:%d", controllerPort),
 				).CombinedOutput()
 				if err != nil {
 					return ""
@@ -158,7 +158,7 @@ var _ = Describe("Routing", func() {
 				return exec.Command(slimctlPath, "n",
 					"route", "add", routeB,
 					"via", clientBConfigVia,
-					"-s", fmt.Sprintf("127.0.0.1:%d", controllerAPort),
+					"--server", fmt.Sprintf("127.0.0.1:%d", controllerAPort),
 				)
 			})
 
@@ -179,7 +179,7 @@ var _ = Describe("Routing", func() {
 				return exec.Command(slimctlPath, "n",
 					"route", "add", routeA,
 					"via", clientAConfigVia,
-					"-s", fmt.Sprintf("127.0.0.1:%d", controllerBPort),
+					"--server", fmt.Sprintf("127.0.0.1:%d", controllerBPort),
 				)
 			})
 
@@ -210,7 +210,7 @@ var _ = Describe("Routing", func() {
 				return exec.Command(slimctlPath, "n",
 					"route", "add", routeB,
 					"via", clientBConfigVia,
-					"-s", fmt.Sprintf("127.0.0.1:%d", controllerAPort),
+					"--server", fmt.Sprintf("127.0.0.1:%d", controllerAPort),
 				)
 			})
 
@@ -218,7 +218,7 @@ var _ = Describe("Routing", func() {
 			routeListOut, err := exec.Command(
 				slimctlPath, "n",
 				"route", "list",
-				"-s", fmt.Sprintf("127.0.0.1:%d", controllerAPort),
+				"--server", fmt.Sprintf("127.0.0.1:%d", controllerAPort),
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl route list failed: %s", string(routeListOut))
 
@@ -229,7 +229,7 @@ var _ = Describe("Routing", func() {
 			connectionListOut, err := exec.Command(
 				slimctlPath, "n",
 				"connection", "list",
-				"-s", fmt.Sprintf("127.0.0.1:%d", controllerAPort),
+				"--server", fmt.Sprintf("127.0.0.1:%d", controllerAPort),
 			).CombinedOutput()
 			Expect(err).NotTo(HaveOccurred(), "slimctl connection list failed: %s", string(connectionListOut))
 

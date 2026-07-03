@@ -92,7 +92,7 @@ var _ = Describe("Group management through channel manager with timeout", func()
 				return exec.Command(
 					slimctlPath,
 					"cm", "create-channel", channelName,
-					"-s", cmEndpoint,
+					"--server", cmEndpoint,
 				)
 			})
 			Expect(createOutput).NotTo(BeEmpty())
@@ -103,7 +103,7 @@ var _ = Describe("Group management through channel manager with timeout", func()
 			addClientAOutput, errA := exec.Command(
 				slimctlPath,
 				"cm", "add-participant", channelName, participantA,
-				"-s", cmEndpoint,
+				"--server", cmEndpoint,
 			).CombinedOutput()
 
 			time.Sleep(2000 * time.Millisecond)

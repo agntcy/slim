@@ -21,7 +21,9 @@ use slim_config::tls::provider::initialize_crypto_provider;
 use slim_config::tls::server::TlsServerConfig;
 use slim_control_plane::api::proto::controlplane::proto::v1::control_plane_service_client::ControlPlaneServiceClient;
 use slim_control_plane::api::proto::controlplane::proto::v1::{
-    LinkEntry, LinkListRequest, NodeEntry, NodeListRequest, RouteEntry, RouteListRequest,
+    AddSegmentRequest, AddTopologyLinkRequest, LinkEntry, LinkListRequest, NodeEntry,
+    NodeListRequest, RemoveSegmentRequest, RemoveTopologyLinkRequest, RouteEntry, RouteListRequest,
+    SegmentListRequest,
 };
 use slim_control_plane::config::{
     AdjacencyEntry, Config, DatabaseConfig, ReconcilerConfig, SegmentConfig, TopologyConfig,
@@ -125,7 +127,15 @@ async fn stop_control_plane(tcp: TestControlPlane) {
 
 fn star_topology_config(hub_group: &str) -> TopologyConfig {
     TopologyConfig::Links(vec![AdjacencyEntry {
-        name: hub_group.to_string(),
+        group: hub_group.to_string(),
+        neighbors: vec!["*".to_string()],
+    }])
+}
+
+/// Full-mesh topology: every group can link to every other group.
+fn full_mesh_topology() -> TopologyConfig {
+    TopologyConfig::Links(vec![AdjacencyEntry {
+        group: "*".to_string(),
         neighbors: vec!["*".to_string()],
     }])
 }
@@ -404,6 +414,29 @@ async fn wait_for_route_deleted(client: &mut NbClient, src: &str, dest: &str, ti
     wait_for_route(client, src, dest, ROUTE_DELETED, timeout).await;
 }
 
+/// Wait until no Applied route exists from src to dest (route may be absent or Deleted).
+async fn wait_for_no_applied_route(
+    client: &mut NbClient,
+    src: &str,
+    dest: &str,
+    timeout: Duration,
+) {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let routes = collect_routes(client, src, dest).await;
+        let has_applied = routes.iter().any(|e| {
+            e.source_node_id == src && e.dest_node_id == dest && e.status == ROUTE_APPLIED
+        });
+        if !has_applied {
+            return;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!("timeout waiting for route {src}->{dest} to be removed");
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
 /// Wait until NO routes with the given name are active (all DELETED or absent).
 async fn wait_for_no_active_routes_with_name(
     client: &mut NbClient,
@@ -493,7 +526,7 @@ fn init_tracing() {
 async fn test_inter_group_links_created_and_claimed() {
     init_tracing();
 
-    let cp = start_control_plane(TopologyConfig::default()).await;
+    let cp = start_control_plane(full_mesh_topology()).await;
     let mut client = create_nb_client(cp.northbound_port).await;
 
     let a_port = reserve_port();
@@ -549,7 +582,7 @@ async fn test_inter_group_links_created_and_claimed() {
 async fn test_subscription_routing() {
     init_tracing();
 
-    let cp = start_control_plane(TopologyConfig::default()).await;
+    let cp = start_control_plane(full_mesh_topology()).await;
     let mut client = create_nb_client(cp.northbound_port).await;
 
     let a_port = reserve_port();
@@ -629,7 +662,7 @@ async fn test_subscription_routing() {
 async fn test_bidirectional_inter_group_routes() {
     init_tracing();
 
-    let cp = start_control_plane(TopologyConfig::default()).await;
+    let cp = start_control_plane(full_mesh_topology()).await;
     let mut client = create_nb_client(cp.northbound_port).await;
 
     let a_port = reserve_port();
@@ -745,7 +778,7 @@ async fn test_spt_route_via_hub() {
 async fn test_multicast_no_duplicate_routes() {
     init_tracing();
 
-    let cp = start_control_plane(TopologyConfig::default()).await;
+    let cp = start_control_plane(full_mesh_topology()).await;
     let mut client = create_nb_client(cp.northbound_port).await;
 
     let a_port = reserve_port();
@@ -817,7 +850,7 @@ async fn test_multicast_no_duplicate_routes() {
 async fn test_source_gateway_failover() {
     init_tracing();
 
-    let cp = start_control_plane(TopologyConfig::default()).await;
+    let cp = start_control_plane(full_mesh_topology()).await;
     let mut client = create_nb_client(cp.northbound_port).await;
 
     let a1_port = reserve_port();
@@ -915,7 +948,7 @@ async fn test_source_gateway_failover() {
 async fn test_dest_gateway_failover() {
     init_tracing();
 
-    let cp = start_control_plane(TopologyConfig::default()).await;
+    let cp = start_control_plane(full_mesh_topology()).await;
     let mut client = create_nb_client(cp.northbound_port).await;
 
     let a_port = reserve_port();
@@ -1010,7 +1043,7 @@ async fn test_dest_gateway_failover() {
 async fn test_wildcard_route_deleted_on_node_crash() {
     init_tracing();
 
-    let cp = start_control_plane(TopologyConfig::default()).await;
+    let cp = start_control_plane(full_mesh_topology()).await;
     let mut client = create_nb_client(cp.northbound_port).await;
 
     let a_port = reserve_port();
@@ -1056,7 +1089,7 @@ async fn test_wildcard_route_deleted_on_node_crash() {
 async fn test_route_restored_after_reconnect() {
     init_tracing();
 
-    let cp = start_control_plane(TopologyConfig::default()).await;
+    let cp = start_control_plane(full_mesh_topology()).await;
     let mut client = create_nb_client(cp.northbound_port).await;
 
     let a_port = reserve_port();
@@ -1116,7 +1149,7 @@ async fn test_route_restored_after_reconnect() {
 async fn test_app_disconnect_removes_routes() {
     init_tracing();
 
-    let cp = start_control_plane(TopologyConfig::default()).await;
+    let cp = start_control_plane(full_mesh_topology()).await;
     let mut client = create_nb_client(cp.northbound_port).await;
 
     let a_port = reserve_port();
@@ -1167,7 +1200,7 @@ async fn test_app_disconnect_removes_routes() {
 async fn test_last_node_removes_group_links() {
     init_tracing();
 
-    let cp = start_control_plane(TopologyConfig::default()).await;
+    let cp = start_control_plane(full_mesh_topology()).await;
     let mut client = create_nb_client(cp.northbound_port).await;
 
     let a_port = reserve_port();
@@ -1236,7 +1269,7 @@ async fn test_last_node_removes_group_links() {
 async fn test_node_crash_and_link_recovery() {
     init_tracing();
 
-    let cp = start_control_plane(TopologyConfig::default()).await;
+    let cp = start_control_plane(full_mesh_topology()).await;
     let mut client = create_nb_client(cp.northbound_port).await;
 
     let a_port = reserve_port();
@@ -1289,7 +1322,7 @@ async fn test_node_crash_and_link_recovery() {
 async fn test_multiple_wildcard_routes_different_names() {
     init_tracing();
 
-    let cp = start_control_plane(TopologyConfig::default()).await;
+    let cp = start_control_plane(full_mesh_topology()).await;
     let mut client = create_nb_client(cp.northbound_port).await;
 
     let a_port = reserve_port();
@@ -1379,7 +1412,7 @@ async fn test_multiple_wildcard_routes_different_names() {
 async fn test_reconnect_different_endpoint() {
     init_tracing();
 
-    let cp = start_control_plane(TopologyConfig::default()).await;
+    let cp = start_control_plane(full_mesh_topology()).await;
     let mut client = create_nb_client(cp.northbound_port).await;
 
     let a_port = reserve_port();
@@ -1529,7 +1562,7 @@ fn segmented_star_topology(hub_group: &str) -> TopologyConfig {
     TopologyConfig::Segments(vec![SegmentConfig {
         name: "seg-$group".to_string(),
         links: vec![AdjacencyEntry {
-            name: hub_group.to_string(),
+            group: hub_group.to_string(),
             neighbors: vec!["$group".to_string()],
         }],
     }])
@@ -1620,5 +1653,189 @@ async fn test_segmented_star_isolates_spokes() {
     hub.shutdown().await.ok();
     spoke_a.shutdown().await.ok();
     spoke_b.shutdown().await.ok();
+    stop_control_plane(cp).await;
+}
+
+// =============================================================================
+// API-managed topology tests
+// =============================================================================
+
+/// Test: API-managed topology lifecycle
+///
+/// Scenario:
+///   - Start CP in API-managed mode (no topology config).
+///   - Pre-configure segment + link before nodes exist (returns warnings).
+///   - Start two nodes in different groups → link becomes Applied.
+///   - Verify idempotent add_topology_link (SQLite ON CONFLICT DO NOTHING).
+///   - Remove the link → link is torn down, route cleaned up.
+///   - Re-add link → route restored.
+///   - Remove the segment → segment disappears from list.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_api_mode_topology_lifecycle() {
+    init_tracing();
+
+    let cp = start_control_plane(TopologyConfig::ApiManaged).await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+
+    // Pre-configure topology BEFORE nodes register.
+    client
+        .add_segment(AddSegmentRequest {
+            name: "test-seg".to_string(),
+        })
+        .await
+        .expect("add_segment failed");
+
+    let resp = client
+        .add_topology_link(AddTopologyLinkRequest {
+            group_a: "group-a".to_string(),
+            group_b: "group-b".to_string(),
+            segment: "test-seg".to_string(),
+        })
+        .await
+        .expect("add_topology_link before nodes should succeed")
+        .into_inner();
+    // Should have warnings about missing groups.
+    assert!(
+        !resp.warnings.is_empty(),
+        "expected warnings about missing groups, got none"
+    );
+
+    // Verify idempotency: adding the same link again should succeed.
+    client
+        .add_topology_link(AddTopologyLinkRequest {
+            group_a: "group-a".to_string(),
+            group_b: "group-b".to_string(),
+            segment: "test-seg".to_string(),
+        })
+        .await
+        .expect("add_topology_link should be idempotent");
+
+    // Now start nodes — link should become Applied via reconciliation.
+    let a_port = reserve_port();
+    let b_port = reserve_port();
+
+    let node_a = start_single_node("node-a", "group-a", cp.southbound_port, a_port).await;
+    let node_b = start_single_node("node-b", "group-b", cp.southbound_port, b_port).await;
+
+    let id_a = grouped_node_id("group-a", "node-a");
+    let id_b = grouped_node_id("group-b", "node-b");
+
+    wait_for_nodes_connected(&mut client, &[&id_a, &id_b], SHORT_TIMEOUT).await;
+
+    // Wait for link to be created and reach Applied status.
+    wait_for_link_between_groups(&mut client, "group-a", "group-b", DEFAULT_TIMEOUT).await;
+
+    // Start a subscribing app on node-a → should create a route from node-b to node-a.
+    let app_a = start_subscribing_app(a_port, "org", "ns", "api-svc").await;
+    wait_for_route_applied(&mut client, &id_b, &id_a, DEFAULT_TIMEOUT).await;
+
+    // Remove link via API → routes through that link should be cleaned up.
+    client
+        .remove_topology_link(RemoveTopologyLinkRequest {
+            group_a: "group-a".to_string(),
+            group_b: "group-b".to_string(),
+            segment: "test-seg".to_string(),
+        })
+        .await
+        .expect("remove_topology_link failed");
+
+    // Wait for link to be torn down (deleted or gone).
+    let deadline = tokio::time::Instant::now() + DEFAULT_TIMEOUT;
+    loop {
+        let links = collect_links(&mut client, "", "").await;
+        let active: Vec<_> = links
+            .iter()
+            .filter(|l| l.status == LINK_APPLIED && !l.deleted)
+            .collect();
+        if active.is_empty() {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!("timeout waiting for link removal");
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    // Verify the route from node-b to node-a is gone after link removal.
+    wait_for_no_applied_route(&mut client, &id_b, &id_a, DEFAULT_TIMEOUT).await;
+
+    // Re-add the link → route should be re-created via expand_all_wildcard_routes.
+    client
+        .add_topology_link(AddTopologyLinkRequest {
+            group_a: "group-a".to_string(),
+            group_b: "group-b".to_string(),
+            segment: "test-seg".to_string(),
+        })
+        .await
+        .expect("re-add topology link failed");
+
+    wait_for_link_between_groups(&mut client, "group-a", "group-b", DEFAULT_TIMEOUT).await;
+    wait_for_route_applied(&mut client, &id_b, &id_a, DEFAULT_TIMEOUT).await;
+
+    // Remove segment (cascades link deletion) → route should be cleaned up again.
+    client
+        .remove_segment(RemoveSegmentRequest {
+            name: "test-seg".to_string(),
+        })
+        .await
+        .expect("remove_segment failed");
+
+    wait_for_no_applied_route(&mut client, &id_b, &id_a, DEFAULT_TIMEOUT).await;
+
+    // Verify segment is gone.
+    let resp = client
+        .list_segments(SegmentListRequest {})
+        .await
+        .expect("list_segments failed")
+        .into_inner();
+    assert!(
+        !resp.segments.iter().any(|s| s.name == "test-seg"),
+        "segment should have been removed"
+    );
+
+    app_a.shutdown().await.ok();
+    node_a.shutdown().await.ok();
+    node_b.shutdown().await.ok();
+    stop_control_plane(cp).await;
+}
+
+/// Test: Config-managed mode rejects topology mutation APIs
+///
+/// Scenario:
+///   - Start CP with a config-managed topology (explicit links).
+///   - Attempt to add a segment via gRPC API → expect FAILED_PRECONDITION.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_config_mode_rejects_topology_mutations() {
+    init_tracing();
+
+    let cp = start_control_plane(full_mesh_topology()).await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+
+    let err = client
+        .add_segment(AddSegmentRequest {
+            name: "should-fail".to_string(),
+        })
+        .await
+        .expect_err("add_segment should fail in config mode");
+
+    assert_eq!(
+        err.code(),
+        tonic::Code::FailedPrecondition,
+        "expected FAILED_PRECONDITION, got {:?}: {}",
+        err.code(),
+        err.message()
+    );
+
+    let err = client
+        .add_topology_link(AddTopologyLinkRequest {
+            group_a: "a".to_string(),
+            group_b: "b".to_string(),
+            segment: "default".to_string(),
+        })
+        .await
+        .expect_err("add_topology_link should fail in config mode");
+
+    assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+
     stop_control_plane(cp).await;
 }
