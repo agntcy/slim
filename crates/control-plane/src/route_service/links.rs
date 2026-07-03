@@ -14,10 +14,10 @@ use super::connection_config::{
     ReportedConnection, compute_client_config, find_reported_connection_for_dest,
 };
 impl super::RouteService {
-    /// Ensure inter-group links exist between `node_id` and nodes in other
-    /// groups allowed by the topology link policy. Same-group connectivity
+    /// Ensure inter-domain links exist between `node_id` and nodes in other
+    /// domains allowed by the topology link policy. Same-domain connectivity
     /// is handled by the data plane.
-    /// `allowed_pairs` is a pre-computed set of (group_a, group_b) pairs that
+    /// `allowed_pairs` is a pre-computed set of (domain_a, domain_b) pairs that
     /// are allowed to link (derived from the runtime segment graphs).
     /// Returns (affected_node_ids, newly_created_links).
     pub(super) async fn ensure_links_for_node(
@@ -51,7 +51,7 @@ impl super::RouteService {
             })
             .collect();
 
-        // Track which destination groups already have an active inter-group link
+        // Track which destination domains already have an active inter-domain link
         // from or to the source group (across ALL nodes in the domain, not just this one).
         let src_domain = src_node.domain_name.as_deref().unwrap_or("");
         let mut linked_domains: HashSet<String> = all_links
@@ -79,7 +79,7 @@ impl super::RouteService {
                 .unwrap_or(false)
         });
 
-        // Shuffle nodes to randomly distribute the gateway role across group members.
+        // Shuffle nodes to randomly distribute the gateway role across domain members.
         let mut candidates: Vec<_> = all_nodes.to_vec();
         candidates.shuffle(&mut rand::rng());
 
@@ -90,7 +90,7 @@ impl super::RouteService {
             if connected_peers.contains(&other.id) {
                 continue;
             }
-            // Same-group links are handled by the data plane automatically.
+            // Same-domain links are handled by the data plane automatically.
             let dst_domain = other.domain_name.as_deref().unwrap_or("");
             if src_domain == dst_domain {
                 continue;
@@ -143,8 +143,8 @@ impl super::RouteService {
         (affected.into_iter().collect(), new_links)
     }
 
-    /// Ensure an inter-group link exists between src_node and a node in the
-    /// destination group. The `dest_node_id` is left empty because the actual
+    /// Ensure an inter-domain link exists between src_node and a node in the
+    /// destination domain. The `dest_node_id` is left empty because the actual
     /// destination node is unknown until the remote side claims the link.
     /// `dst_node` is used only to derive the dest_domain and endpoint.
     async fn ensure_link_internal(
@@ -298,7 +298,7 @@ mod tests {
             .ensure_links_for_node("spoke-a", &[], &all_nodes, &[], &[], &allowed_pairs)
             .await;
 
-        // spoke-a should link to hub's group (platform) but NOT to spoke-b's group
+        // spoke-a should link to hub's domain (platform) but NOT to spoke-b's domain
         assert!(affected.contains(&"spoke-a".to_string()));
         assert!(
             new_links

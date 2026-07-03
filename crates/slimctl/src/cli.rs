@@ -190,7 +190,7 @@ mod tests {
     use crate::commands::channel_manager::ChannelManagerCommand;
     use crate::commands::config_cmd::{ConfigCommand, SetCommand};
     use crate::commands::controller::{
-        ControllerCommand, ControllerConnectionCommand, ControllerGroupCommand,
+        ControllerCommand, ControllerConnectionCommand, ControllerDomainCommand,
         ControllerNodeCommand, ControllerRouteCommand, ControllerSegmentCommand,
     };
     use crate::commands::node::{NodeCommand, NodeConnectionCommand, NodeRouteCommand};
@@ -437,10 +437,10 @@ mod tests {
         let Commands::Controller(args) = cli.command else {
             panic!()
         };
-        let ControllerCommand::Group(a) = args.command else {
+        let ControllerCommand::Domain(a) = args.command else {
             panic!()
         };
-        assert!(matches!(a.command, ControllerGroupCommand::List));
+        assert!(matches!(a.command, ControllerDomainCommand::List));
     }
 
     #[test]

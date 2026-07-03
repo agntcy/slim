@@ -499,7 +499,7 @@ async fn wait_for_no_active_routes_with_name(
     }
 }
 
-/// Wait for an Applied link between two groups (in either direction) and return it.
+/// Wait for an Applied link between two domains (in either direction) and return it.
 async fn wait_for_link_between_domains_entry(
     client: &mut NbClient,
     domain_a: &str,
@@ -550,7 +550,7 @@ fn init_tracing() {
 // Tests
 // =============================================================================
 
-/// Test 1: Inter-group links created and claimed
+/// Test 1: Inter-domain links created and claimed
 ///
 /// Scenario:
 ///   - Start a control plane with full-mesh topology (default).
@@ -1223,16 +1223,16 @@ async fn test_app_disconnect_removes_routes() {
     stop_control_plane(cp).await;
 }
 
-/// Test 12: Last node in group removes group from topology
+/// Test 12: Last node in domain removes domain from topology
 ///
 /// Scenario:
-///   - Start CP + 3 nodes in 3 different groups.
-///   - Verify links between all groups.
-///   - Shut down the node in one group (removing the group entirely).
-///   - Verify links involving that group are cleaned up.
-///   - Verify remaining groups still have their link.
+///   - Start CP + 3 nodes in 3 different domains.
+///   - Verify links between all domains.
+///   - Shut down the node in one domain (removing the domain entirely).
+///   - Verify links involving that domain are cleaned up.
+///   - Verify remaining domains still have their link.
 ///
-/// Validates: group removal from link graph when all nodes depart.
+/// Validates: domain removal from link graph when all nodes depart.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_last_node_removes_domain_links() {
     init_tracing();
@@ -1301,7 +1301,7 @@ async fn test_last_node_removes_domain_links() {
 ///   - Restart node-b on the same port.
 ///   - Verify the link is re-established and expanded route becomes Applied again.
 ///
-/// Validates: full crash->recovery cycle for a single-node group with subscription-based routes.
+/// Validates: full crash->recovery cycle for a single-node domain with subscription-based routes.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_node_crash_and_link_recovery() {
     init_tracing();
@@ -1485,7 +1485,7 @@ async fn test_reconnect_different_endpoint() {
     wait_for_route_applied(&mut client, &id_b, &id_a, DEFAULT_TIMEOUT).await;
 
     // Verify the link involves node-b's new endpoint. The link direction may
-    // vary, so check that the link is between the groups and active.
+    // vary, so check that the link is between the domains and active.
     let link =
         wait_for_link_between_domains_entry(&mut client, "domain-a", "domain-b", SHORT_TIMEOUT).await;
     // The link should be fully established (both source and dest populated).
@@ -1594,7 +1594,7 @@ async fn test_star_topology_hub_crash_and_recovery() {
 }
 
 /// Helper: build a segmented star topology with `$domain` template.
-/// Hub group connects to each spoke group in a separate segment.
+/// Hub domain connects to each spoke domain in a separate segment.
 fn segmented_star_topology(hub_domain: &str) -> TopologyConfig {
     TopologyConfig::Segments(vec![SegmentConfig {
         name: "seg-$domain".to_string(),

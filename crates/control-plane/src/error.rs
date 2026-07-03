@@ -83,7 +83,7 @@ pub enum Error {
     },
 
     // ── topology ─────────────────────────────────────────────────────────────
-    /// A routing policy allows visibility between groups that have no direct
+    /// A routing policy allows visibility between domains that have no direct
     /// link and no transit path (topology is not star-shaped).
     #[error(
         "routing policy allows '{from}' to reach '{to}' but no direct link exists \

@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-//! Group authentication for node registration.
+//! Domain authentication for node registration.
 //!
 //! The [`DomainAuthenticator`] enum defines how the control plane verifies
 //! that a node is authorized to join its claimed domain. The default
@@ -83,7 +83,7 @@ impl DomainAuthenticator {
                         Status::permission_denied(format!("token verification failed: {e}"))
                     })?;
 
-                // The "sub" field contains "group/node-id" or "group/node-id_RANDOM_SUFFIX".
+                // The "sub" field contains "domain/node-id" or "domain/node-id_RANDOM_SUFFIX".
                 // Use exact match or "_" separator to prevent prefix impersonation
                 // (e.g., node-10 impersonating node-1).
                 let sub = claims.get("sub").and_then(|v| v.as_str()).unwrap_or("");
@@ -179,7 +179,7 @@ mod tests {
     async fn noop_accepts_everything() {
         let auth = DomainAuthenticator::Noop;
         assert!(
-            auth.verify_domain_membership("", "any-group", "any-node")
+            auth.verify_domain_membership("", "any-domain", "any-node")
                 .await
                 .is_ok()
         );

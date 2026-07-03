@@ -51,7 +51,7 @@ impl super::RouteService {
             None
         };
 
-        // Resolve groups for route record.
+        // Resolve domains for route record.
         let source_domain = if source_node_id == ALL_NODES_ID {
             ALL_NODES_ID.to_string()
         } else {
@@ -266,7 +266,7 @@ impl super::RouteService {
     /// Called when a node reports it received an incoming connection (after the
     /// data-plane link negotiation). Claims the unclaimed link for this node.
     pub async fn connection_received(&self, node_id: &str, link_id: &str) {
-        // Determine the node's group.
+        // Determine the node's domain.
         let node_domain = match self.0.db.get_node(node_id).await {
             Ok(Some(n)) => n.domain_name.unwrap_or_default(),
             Ok(None) => {

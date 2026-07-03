@@ -28,7 +28,7 @@ impl super::RouteService {
     ) {
         // Serialize link creation and lifecycle operations across all nodes in the
         // same domain. This prevents: (1) concurrent registrations from creating
-        // duplicate inter-group links, and (2) a rapid disconnect-reconnect race
+        // duplicate inter-domain links, and (2) a rapid disconnect-reconnect race
         // from leaving stale link records.
         let domain_lock = {
             let mut locks = self.0.domain_locks.lock().await;
@@ -337,7 +337,7 @@ impl super::RouteService {
 
     /// Called when a node disconnects ungracefully (stream error, crash).
     /// Unlike `node_deregistered`, keeps the node record (expecting reconnection)
-    /// and attempts gateway failover for inter-group links.
+    /// and attempts gateway failover for inter-domain links.
     pub async fn node_disconnected(&self, node_id: &str) {
         // Serialize with node_registered/node_deregistered for the same node.
         let node_lock = {
@@ -421,7 +421,7 @@ impl super::RouteService {
         }
     }
 
-    /// Handle inter-group links for a departing node. If other connected nodes
+    /// Handle inter-domain links for a departing node. If other connected nodes
     /// exist in the domain, reassigns links to a new gateway. Otherwise
     /// soft-deletes links and rebuilds the link graph.
     async fn handle_links_for_departing_node(&self, node_id: &str) {
@@ -682,7 +682,7 @@ impl super::RouteService {
             .await;
     }
 
-    /// Last node in group — soft-delete all links, rebuild graph, re-expand routes.
+    /// Last node in domain — soft-delete all links, rebuild graph, re-expand routes.
     async fn handle_last_node_in_domain(&self, links: &[crate::db::Link], node_id: &str) {
         tracing::info!(
             "handle_last_node_in_domain: soft-deleting {} links",

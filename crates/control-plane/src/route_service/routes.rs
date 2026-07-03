@@ -51,9 +51,9 @@ impl super::RouteService {
     /// **Config mode only.** Extracts distinct domain names from registered nodes,
     /// expands `$domain` templates in segment configs, and rebuilds one graph per
     /// segment. Called on every node register/deregister so that dynamic `$domain`
-    /// expansion picks up new groups.
+    /// expansion picks up new domains.
     ///
-    /// Returns `true` if the set of groups changed (a domain was added or removed),
+    /// Returns `true` if the set of domains changed (a domain was added or removed),
     /// `false` if unchanged or if running in API mode.
     ///
     /// **API mode:** returns `false` immediately — segment graphs are managed
@@ -167,7 +167,7 @@ impl super::RouteService {
     }
 
     /// Compute the set of allowed domain pairs from the runtime segment graphs.
-    /// Two groups can link if they share an edge in any segment.
+    /// Two domains can link if they share an edge in any segment.
     pub(super) async fn allowed_link_pairs(&self) -> HashSet<(String, String)> {
         let segments = self.0.segment_graphs.read().await;
         let mut pairs = HashSet::new();
@@ -183,8 +183,8 @@ impl super::RouteService {
         pairs
     }
 
-    /// Return the current segment graphs as (name, groups, edges) tuples.
-    /// Only groups that participate in at least one edge are included.
+    /// Return the current segment graphs as (name, domains, edges) tuples.
+    /// Only domains that participate in at least one edge are included.
     pub async fn list_segments(&self) -> Vec<(String, Vec<String>, Vec<(String, String)>)> {
         let segments = self.0.segment_graphs.read().await;
         segments
@@ -214,7 +214,7 @@ impl super::RouteService {
             .collect()
     }
 
-    /// Find the inter-group link between two groups using pre-loaded links.
+    /// Find the inter-domain link between two domains using pre-loaded links.
     ///
     /// Searches for an existing (non-deleted) link between any node in `domain_a`
     /// and any node in `domain_b`. Returns the node_id in `domain_a` (the gateway)
@@ -260,8 +260,8 @@ impl super::RouteService {
     /// Expand a wildcard route using the Shortest Path Tree.
     ///
     /// Given a route template (dest_node_id + name components), computes the SPT
-    /// rooted at the destination's group. For each non-root group in the tree,
-    /// selects a gateway node and installs a route pointing toward the parent group.
+    /// rooted at the destination's domain. For each non-root domain in the tree,
+    /// selects a gateway node and installs a route pointing toward the parent domain.
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn expand_route_via_spt(
         &self,
@@ -273,7 +273,7 @@ impl super::RouteService {
         all_nodes: &[crate::db::Node],
         all_links: &[crate::db::Link],
     ) {
-        // Resolve the destination node's group — this is the root of the SPT.
+        // Resolve the destination node's domain — this is the root of the SPT.
         let dest_domain = all_nodes
             .iter()
             .find(|n| n.id == dest_node_id)
@@ -283,14 +283,14 @@ impl super::RouteService {
         // Clone the segment graphs to release the read lock before the async loop,
         // preventing potential deadlocks with concurrent write lock acquisitions.
         // The snapshot may become stale if a concurrent registration from a different
-        // group triggers rebuild_link_graph. This is safe: missing routes will be
-        // installed when the other group's handler runs expand_all_wildcard_routes,
+        // domain triggers rebuild_link_graph. This is safe: missing routes will be
+        // installed when the other domain's handler runs expand_all_wildcard_routes,
         // and stale routes are cleaned up by handle_disconnect.
         let segment_graphs = self.0.segment_graphs.read().await.clone();
 
         for (_seg_name, graph) in &segment_graphs {
-            // If the link graph has no inter-group edges, there is nothing for the
-            // control plane to expand (same-group routing is handled by the data plane).
+            // If the link graph has no inter-domain edges, there is nothing for the
+            // control plane to expand (same-domain routing is handled by the data plane).
             if graph.node_count() <= 1 {
                 continue;
             }
@@ -300,14 +300,14 @@ impl super::RouteService {
                 None => continue,
             };
 
-            // Compute the SPT rooted at the destination group.
+            // Compute the SPT rooted at the destination domain.
             let spt = match spt::compute_spt(root_idx, graph) {
                 Some(t) => t,
                 None => continue,
             };
 
-            // For each non-root group in the SPT, install a route on the gateway
-            // node pointing toward the parent group.
+            // For each non-root domain in the SPT, install a route on the gateway
+            // node pointing toward the parent domain.
             for (&orig_idx, &tree_idx) in &spt.index_map {
                 if orig_idx == root_idx {
                     continue;
@@ -315,7 +315,7 @@ impl super::RouteService {
 
                 let child_domain = &graph[orig_idx];
 
-                // Find the parent group in the directed tree (incoming edge = from parent).
+                // Find the parent domain in the directed tree (incoming edge = from parent).
                 let parent_tree_idx = match spt
                     .tree
                     .edges_directed(tree_idx, petgraph::Direction::Incoming)
@@ -326,7 +326,7 @@ impl super::RouteService {
                 };
                 let parent_domain = &spt.tree[parent_tree_idx];
 
-                // Find the inter-group link from pre-loaded links (O(n) scan, no DB query).
+                // Find the inter-domain link from pre-loaded links (O(n) scan, no DB query).
                 let (source_node_id, link_id) = match Self::find_inter_domain_link_from_cache(
                     child_domain,
                     parent_domain,
@@ -342,7 +342,7 @@ impl super::RouteService {
                     }
                 };
 
-                // Create the per-gateway route pointing toward the parent group.
+                // Create the per-gateway route pointing toward the parent domain.
                 let per_node = build_route_for_gateway(
                     &source_node_id,
                     child_domain,
@@ -364,8 +364,8 @@ impl super::RouteService {
     /// Install downward routes from the SPT root toward a new announcer.
     ///
     /// When a name already has an SPT (first announcer = root), subsequent
-    /// announcers need routes along the path from root down to their group.
-    /// Walks from the new announcer's group up to the root in the SPT and
+    /// announcers need routes along the path from root down to their domain.
+    /// Walks from the new announcer's domain up to the root in the SPT and
     /// installs a route on each intermediate parent pointing toward the child.
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn install_downward_path(
@@ -396,7 +396,7 @@ impl super::RouteService {
         let segment_graphs = self.0.segment_graphs.read().await.clone();
 
         // If root and announcer are in the same domain, the data plane handles
-        // routing within that group — nothing for the control plane to do.
+        // routing within that domain — nothing for the control plane to do.
         if root_domain == announcer_domain {
             return;
         }
@@ -444,7 +444,7 @@ impl super::RouteService {
                 let parent_domain = &spt.tree[parent_tree_idx];
                 let child_domain = &spt.tree[current];
 
-                // Install route on the parent group's gateway pointing toward child.
+                // Install route on the parent domain's gateway pointing toward child.
                 if let Some((gateway_node_id, link_id)) = Self::find_inter_domain_link_from_cache(
                     parent_domain,
                     child_domain,
@@ -730,7 +730,7 @@ mod tests {
         let all_nodes = db.list_nodes().await.unwrap();
         svc.rebuild_link_graph(&all_nodes).await;
 
-        // Create inter-group links (star: hub↔spoke-a, hub↔spoke-b).
+        // Create inter-domain links (star: hub↔spoke-a, hub↔spoke-b).
         let link_hub_a = crate::db::Link {
             link_id: "link-hub-a".to_string(),
             source_node_id: "hub-node".to_string(),
@@ -992,7 +992,7 @@ mod tests {
         let all_nodes = db.list_nodes().await.unwrap();
         svc.rebuild_link_graph(&all_nodes).await;
 
-        // Create all inter-group links (full mesh).
+        // Create all inter-domain links (full mesh).
         for (src, dst, lid) in [
             ("node-a", "node-b", "link-ab"),
             ("node-a", "node-c", "link-ac"),

@@ -113,7 +113,7 @@ async fn handle_request(
         .unwrap_or_default();
 
     // Single query for all links, then filter to those relevant to this node
-    // or its group (avoids separate get_links_for_node + list_all_links calls).
+    // or its domain (avoids separate get_links_for_node + list_all_links calls).
     let all_links = db.list_all_links().await?;
     let mut links: Vec<_> = all_links
         .into_iter()
@@ -249,13 +249,13 @@ async fn build_desired_routes<'a>(
         let link_id = match route.link_id.as_deref() {
             Some(id) => id,
             None => {
-                // No link_id yet — find a link from this node to the dest node's group.
+                // No link_id yet — find a link from this node to the dest node's domain.
                 let found_link = node_links.iter().find(|l| {
                     l.source_node_id == route.source_node_id
                         && l.status != LinkStatus::Deleted
                         && l.dest_domain == route.dest_domain
                 });
-                // Also check reverse direction (link where dest claimed by source's group).
+                // Also check reverse direction (link where dest claimed by source's domain).
                 let found_link = found_link.or_else(|| {
                     node_links.iter().find(|l| {
                         l.dest_node_id == route.source_node_id

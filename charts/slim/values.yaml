@@ -38,10 +38,10 @@ slim:
         # Should be unique for each SLIM instance.
         node_id: ${env:SLIM_NODE_ID}
         # Required in case of multi-cluster setup or when SLIM nodes are behind a NAT or Load Balancer.
-        # Used by the Controller to identify which group a SLIM node belongs to.
-        # Controller sets up connections between nodes using group names.
-        # SLIM nodes in the same group are connected directly, via local_endpoint.
-        # SLIM nodes in different groups are connected via external_endpoint. See 'metadata' below.
+        # Used by the Controller to identify which domain a SLIM node belongs to.
+        # Controller sets up connections between nodes using domain names.
+        # SLIM nodes in the same domain are connected directly, via local_endpoint.
+        # SLIM nodes in different domains are connected via external_endpoint. See 'metadata' below.
         # domain_name: "cluster-a"
         peers:
           deployment_name: "slim-peers"
@@ -67,7 +67,7 @@ slim:
               #   # external_endpoint is required to be set when SLIM nodes are behind a NAT or Load Balancer
               #   external_endpoint: 'slim.example.com:{{ (index .Values.slim.service.data 0).port }}'
               #   # trust_domain is used to properly setup spire mtls. By default is the same as the domain_name (cluster name),
-              #   # but can be overridden in case of trust domain names different then group name (cluster name).
+              #   # but can be overridden in case of trust domain names different then domain name (cluster name).
               #   trust_domain: "cluster-a"
           clients: []
         controller:

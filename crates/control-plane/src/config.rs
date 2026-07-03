@@ -155,7 +155,7 @@ impl Default for ReconcilerConfig {
 ///   segments:
 ///     - name: segment-$domain
 ///       links:
-///         - group: platform
+///         - domain: platform
 ///           neighbors: [$domain]
 /// ```
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -175,7 +175,7 @@ pub enum TopologyConfig {
 ///
 /// The `name` and link entries can use `$domain` as a template variable.
 /// When present, the segment is expanded at runtime into one concrete
-/// segment per registered domain (excluding groups already named explicitly).
+/// segment per registered domain (excluding domains already named explicitly).
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct SegmentConfig {
     /// Segment name. May contain `$domain` for template expansion.
@@ -184,13 +184,13 @@ pub struct SegmentConfig {
     pub links: Vec<AdjacencyEntry>,
 }
 
-/// An adjacency list entry: nodes in the specified `group` connect to nodes
+/// An adjacency list entry: nodes in the specified `domain` connect to nodes
 /// in any of the domains listed in `neighbors`. Links are bidirectional.
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct AdjacencyEntry {
     /// Source domain name (or `"*"` to match any domain, or `$domain` for template expansion).
     pub domain: String,
-    /// Groups this domain connects to. `"*"` matches any, `$domain` for template.
+    /// Domains this domain connects to. `"*"` matches any, `$domain` for template.
     pub neighbors: Vec<String>,
 }
 
@@ -265,7 +265,7 @@ impl<'de> Deserialize<'de> for TopologyConfig {
 impl TopologyConfig {
     /// Build one graph per segment. For Links returns a single "default" entry.
     /// For ApiManaged, returns an empty vec (topology is loaded from DB, not config).
-    /// Wildcard `"*"` is expanded to all groups in `known_domains`.
+    /// Wildcard `"*"` is expanded to all domains in `known_domains`.
     pub fn build_graph(
         &self,
         known_domains: &[&str],
@@ -368,7 +368,7 @@ impl TopologyConfig {
                 let mut result = Vec::new();
                 for seg in segments {
                     if seg.has_domain_template() {
-                        // Find groups explicitly named (not templates/wildcards)
+                        // Find domains explicitly named (not templates/wildcards)
                         let explicit: Vec<&str> = seg
                             .links
                             .iter()
@@ -414,7 +414,7 @@ impl SegmentConfig {
             .any(|e| e.domain.contains("$domain") || e.neighbors.iter().any(|n| n.contains("$domain")))
     }
 
-    /// Expand this template segment for a specific group value.
+    /// Expand this template segment for a specific domain value.
     /// Replaces all `$domain` occurrences with the concrete domain name.
     pub fn expand_for_domain(&self, domain: &str) -> SegmentConfig {
         SegmentConfig {
@@ -478,7 +478,7 @@ mod tests {
     }
 
     impl TopologyConfig {
-        /// Test helper: check if group `a` is allowed to link to group `b`.
+        /// Test helper: check if domain `a` is allowed to link to domain `b`.
         fn can_link(&self, a: &str, b: &str) -> bool {
             match self {
                 // In API mode, config allows no links. Allowed pairs come from DB.

@@ -40,7 +40,7 @@ impl NorthboundApiService {
         }
     }
 
-    /// Build a map of link_id → qualified peer name (group/node) for a given node.
+    /// Build a map of link_id → qualified peer name (domain/node) for a given node.
     fn build_link_peer_map(
         node_id: &str,
         links: &[crate::db::Link],
@@ -72,7 +72,7 @@ impl NorthboundApiService {
             .collect()
     }
 
-    /// Enrich `peer_node_id` on connection entries using group information.
+    /// Enrich `peer_node_id` on connection entries using domain information.
     fn enrich_peer_node_ids(
         entries: &mut [crate::api::proto::controller::proto::v1::ConnectionEntry],
         node_domain: &str,
@@ -216,7 +216,7 @@ impl ControlPlaneService for NorthboundApiService {
                 Status::internal("internal error")
             })?;
 
-        // Enrich peer_node_id with group prefix (same logic as list_connections).
+        // Enrich peer_node_id with domain prefix (same logic as list_connections).
         let (node_domain, link_peer_map) = self.enrichment_context(&node, "list_node_routes").await;
 
         for entry in &mut resp.entries {
@@ -250,7 +250,7 @@ impl ControlPlaneService for NorthboundApiService {
                 Status::internal("internal error")
             })?;
 
-        // Enrich peer_node_id with group prefix using link information.
+        // Enrich peer_node_id with domain prefix using link information.
         let (node_domain, link_peer_map) = self.enrichment_context(&node, "list_connections").await;
         Self::enrich_peer_node_ids(&mut resp.entries, &node_domain, &link_peer_map);
 
