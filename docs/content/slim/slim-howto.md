@@ -12,10 +12,11 @@ You can install the SLIM Node using Docker, Cargo, Helm, or the CLI binary. Choo
 
 === "Docker"
 
-    Pull the SLIM container image and run it with a configuration file:
+    Pull the SLIM container image and run it with a configuration file. Use the
+    latest release tag from [GitHub releases](https://github.com/agntcy/slim/releases):
 
     ```bash
-    docker pull ghcr.io/agntcy/slim:1.0.0
+    docker pull ghcr.io/agntcy/slim:latest
     ```
 
     Create a configuration file:
@@ -48,7 +49,7 @@ You can install the SLIM Node using Docker, Cargo, Helm, or the CLI binary. Choo
     ```bash
     docker run -it \
         -v ./config.yaml:/config.yaml -p 46357:46357 \
-        ghcr.io/agntcy/slim:1.0.0 /slim --config /config.yaml
+        ghcr.io/agntcy/slim:latest /slim --config /config.yaml
     ```
 
 === "Cargo"
@@ -95,11 +96,12 @@ You can install the SLIM Node using Docker, Cargo, Helm, or the CLI binary. Choo
     For Kubernetes deployments, use the official Helm chart:
 
     ```bash
-    helm pull oci://ghcr.io/agntcy/slim/helm/slim --version v1.1.0
+    helm pull oci://ghcr.io/agntcy/slim/helm/slim --version <chart-version>
     ```
 
     !!! note "Configuration"
-        For detailed configuration options, see the [values.yaml](https://github.com/agntcy/slim/blob/slim-v1.1.0/charts/slim/values.yaml) in the repository.
+        For the latest chart version, see [GitHub releases](https://github.com/agntcy/slim/releases).
+        For configuration options, see [values.yaml](https://github.com/agntcy/slim/blob/main/charts/slim/values.yaml).
 
 === "CLI Binary"
 
@@ -156,10 +158,11 @@ The SLIM Controller manages SLIM Nodes and provides a user-friendly interface fo
 
 === "Docker"
 
-    Pull the controller image:
+    Pull the control plane image (use the latest tag from
+    [GitHub releases](https://github.com/agntcy/slim/releases)):
 
     ```bash
-    docker pull ghcr.io/agntcy/slim/control-plane:1.0.0
+    docker pull ghcr.io/agntcy/slim/control-plane:latest
     ```
 
     Create a configuration file:
@@ -167,36 +170,36 @@ The SLIM Controller manages SLIM Nodes and provides a user-friendly interface fo
     ```yaml
     # slim-control-plane.yaml
     northbound:
-      httpHost: 0.0.0.0
-      httpPort: 50051
-      logging:
-        level: INFO
+      endpoint: "0.0.0.0:50051"
+      tls:
+        insecure: true
 
     southbound:
-      httpHost: 0.0.0.0
-      httpPort: 50052
-      logging:
-        level: INFO
+      endpoint: "0.0.0.0:50052"
+      tls:
+        insecure: true
 
-    reconciler:
-      maxRequeues: 15
-      maxNumOfParallelReconciles: 1000
-
-    logging:
-      level: INFO
+    tracing:
+      log_level: info
 
     database:
-      filePath: /db/controlplane.db
+      type: sqlite
+      path: /db/controlplane.db
+
+    reconciler:
+      max_requeues: 15
+      base_retry_delay: 200ms
+      reconcile_period: 30s
     ```
 
-    Run the controller:
+    Run the control plane:
 
     ```bash
     docker run -it \
         -v ./slim-control-plane.yaml:/config.yaml -v .:/db \
-        -p 50051:50051 -p 50052:50052                      \
-        ghcr.io/agntcy/slim/control-plane:1.0.0           \
-        -config /config.yaml
+        -p 50051:50051 -p 50052:50052 \
+        ghcr.io/agntcy/slim/control-plane:latest \
+        --config /config.yaml
     ```
 
 === "Helm"
@@ -204,8 +207,10 @@ The SLIM Controller manages SLIM Nodes and provides a user-friendly interface fo
     For Kubernetes deployments:
 
     ```bash
-    helm pull oci://ghcr.io/agntcy/slim/helm/slim-control-plane --version v1.1.0
+    helm pull oci://ghcr.io/agntcy/slim/helm/slim-control-plane --version <chart-version>
     ```
+
+    See [GitHub releases](https://github.com/agntcy/slim/releases) for the latest chart version.
 
 ### SLIM Bindings
 
@@ -299,86 +304,29 @@ Language bindings allow you to integrate SLIM with your applications.
 
 ### Slimctl
 
-`slimctl` is a command-line tool for managing SLIM Nodes and Controllers.
+`slimctl` is a command-line tool for managing SLIM nodes, the control plane,
+channel manager, and local development workflows.
 
 #### Installation
 
-Choose your platform:
+Download pre-built binaries from the [GitHub releases page](https://github.com/agntcy/slim/releases).
+Look for assets named `slimctl_<version>_<platform>.tar.gz` (or `.zip` on Windows).
 
-=== "macOS (Apple Silicon)"
+Alternatively, install via Homebrew on macOS:
 
-    ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl_1.2.0_darwin_arm64.tar.gz
-    tar -xzf slimctl_1.2.0_darwin_arm64.tar.gz
-    sudo mv slimctl /usr/local/bin/slimctl
-    sudo chmod +x /usr/local/bin/slimctl
-    ```
+```bash
+brew tap agntcy/slim https://github.com/agntcy/slim.git
+brew install slimctl
+```
 
-    !!! warning "macOS Security"
-        You may need to allow the binary to run if blocked by Gatekeeper:
+Or build from source (requires [Rust](https://rustup.rs/) and [Task](https://taskfile.dev/)):
 
-        ```bash
-        sudo xattr -rd com.apple.quarantine /usr/local/bin/slimctl
-        ```
-
-        Alternatively, go to **System Settings > Privacy & Security** and allow the application when prompted.
-
-=== "macOS (Intel)"
-
-    ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl_1.2.0_darwin_amd64.tar.gz
-    tar -xzf slimctl_1.2.0_darwin_amd64.tar.gz
-    sudo mv slimctl /usr/local/bin/slimctl
-    sudo chmod +x /usr/local/bin/slimctl
-    ```
-
-=== "Linux (AMD64)"
-
-    ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl_1.2.0_linux_amd64.tar.gz
-    tar -xzf slimctl_1.2.0_linux_amd64.tar.gz
-    sudo mv slimctl /usr/local/bin/slimctl
-    sudo chmod +x /usr/local/bin/slimctl
-    ```
-
-=== "Linux (ARM64)"
-
-    ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl_1.2.0_linux_arm64.tar.gz
-    tar -xzf slimctl_1.2.0_linux_arm64.tar.gz
-    sudo mv slimctl /usr/local/bin/slimctl
-    sudo chmod +x /usr/local/bin/slimctl
-    ```
-
-=== "Windows (AMD64)"
-
-    Download and extract the Windows binary:
-
-    ```powershell
-    # Using PowerShell
-    Invoke-WebRequest -Uri "https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl-windows-amd64.zip" -OutFile "slimctl.zip"
-    Expand-Archive -Path "slimctl.zip" -DestinationPath "."
-    
-    # Move to a directory in your PATH (e.g., C:\Program Files\slimctl\)
-    # Or add the current directory to your PATH
-    ```
-
-    Alternatively, download directly from the [releases page](https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl-windows-amd64.zip).
-
-=== "Windows (ARM64)"
-
-    Download and extract the Windows binary:
-
-    ```powershell
-    # Using PowerShell
-    Invoke-WebRequest -Uri "https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl-windows-arm64.zip" -OutFile "slimctl.zip"
-    Expand-Archive -Path "slimctl.zip" -DestinationPath "."
-    
-    # Move to a directory in your PATH (e.g., C:\Program Files\slimctl\)
-    # Or add the current directory to your PATH
-    ```
-
-    Alternatively, download directly from the [releases page](https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl-windows-arm64.zip).
+```bash
+git clone https://github.com/agntcy/slim
+cd slim
+task slimctl:build
+# Binary: .dist/bin/slimctl
+```
 
 Check the [slimctl documentation](./slim-controller.md) for additional installation methods.
 
@@ -402,7 +350,7 @@ Install the following tools on your system:
 
 - [Taskfile](https://taskfile.dev/)
 - [Rust](https://rustup.rs/)
-- [Go](https://go.dev/doc/install)
+- [Go](https://go.dev/doc/install) (for integration tests only)
 
 ### Building SLIM
 
@@ -413,11 +361,12 @@ Once all prerequisites are installed, clone the repository and build the compone
 git clone https://github.com/agntcy/slim
 cd slim
 
-# Build the data plane (Rust)
-task data-plane:build
+# Build all workspace binaries (data plane, control plane, slimctl, etc.)
+task build PROFILE=release
 
-# Build the control plane (Go)
+# Or build individual components
 task control-plane:build
+task slimctl:build
 ```
 
 For more information on the build system and development workflow, see the [SLIM repository](https://github.com/agntcy/slim).

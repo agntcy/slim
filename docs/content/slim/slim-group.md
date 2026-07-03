@@ -115,54 +115,66 @@ await shared_session_container[0].publish_async(
 )
 ```
 
-## Creating Groups with the SLIM Controller
+## Creating Groups with the Channel Manager
 
 Another way to create a group in a SLIM network is to use the
-[SLIM Controller](./slim-controller.md). For a complete description
-on how to run it and the commands to use for the group creation and
-management, please refer to the [Group Communication Tutorial](./slim-group-tutorial.md).
-In this section, we list the `slimctl` commands to replicate
-what we showed in the previous section.
+[Channel Manager](./slim-channel-manager.md). The channel manager is a separate
+service that creates group sessions and invites participants on your behalf, so
+applications only need to wait for session invitations.
+
+For a complete walkthrough, see the
+[Group Communication Tutorial](./slim-group-tutorial.md). This section lists the
+`slimctl` commands equivalent to the bindings workflow above.
+
+### Prerequisites
+
+1. A running SLIM node (data plane on port 46357)
+2. A running [channel manager](./slim-channel-manager.md) instance (API on port 10356)
+3. Application instances connected to the SLIM node
 
 ### Create the Channel
 
-First of all, you need to run the applications that you want to add to the group.
-At that point, you can create the group by specifying the first participant in the
-group. This will assign the role of moderator (like in the Python bindings examples),
-but all the invites/removals will be done using the Controller and no action needs to be
-performed in the application.
-
-To create the group, run:
+Create a named channel. Choose a channel name in `org/namespace/channel` format:
 
 ```bash
-slimctl controller channel create moderators=agntcy/ns/client-1/10494544672403736104
+slimctl channel-manager create-channel agntcy/ns/my-group
 ```
 
-The outcome should be something similar to this:
+Expected output:
+
+```text
+Channel agntcy/ns/my-group created successfully
+```
+
+### Add Participants
+
+Add participants by their application identity (`org/namespace/app`):
 
 ```bash
-Received response: agntcy/ns/hDxc8CKpElJUfTTief
+slimctl channel-manager add-participant agntcy/ns/my-group agntcy/ns/client-1
+slimctl channel-manager add-participant agntcy/ns/my-group agntcy/ns/client-2
 ```
 
-The name in the response is the name of the new channel created, with only one participant
-added (e.g. `moderators=agntcy/ns/client-1/10494544672403736104`).
+Expected output:
 
-### Invite Participants to the Channel
+```text
+Participant agntcy/ns/client-2 added to channel agntcy/ns/my-group
+```
 
-Now that the channel is created, you can start to invite new participants. To do so, you can use
-the following command:
+Participants receive a session invitation automatically. Message reception and
+publishing work the same way as in the bindings example above.
+
+### Remove a Participant
 
 ```bash
-slimctl controller participant add -c agntcy/ns/hDxc8CKpElJUfTTief agntcy/ns/client-2
+slimctl channel-manager delete-participant agntcy/ns/my-group agntcy/ns/client-2
 ```
 
-The reply to the command should be similar to this:
+### Delete the Channel
 
 ```bash
-Adding participant to channel ID agntcy/ns/hDxc8CKpElJUfTTief: agntcy/ns/client-2
-Participant added successfully to channel ID agntcy/ns/hDxc8CKpElJUfTTief: agntcy/ns/client-2
+slimctl channel-manager delete-channel agntcy/ns/my-group
 ```
 
-Now the channel has two participants that can start to communicate
-over the shared channel `agntcy/ns/hDxc8CKpElJUfTTief`. Message reception and publishing
-must be done within the application in the same way as shown in the previous section.
+See the [Controller Reference](./slim-controller-reference.md#channel-manager-group-channel-management)
+for all channel-manager commands.

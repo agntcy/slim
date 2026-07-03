@@ -428,7 +428,7 @@ You can run the SLIM instance using Docker:
 ```bash
 docker run -it \
     -v ./config.yaml:/config.yaml -p 46357:46357 \
-    ghcr.io/agntcy/slim:1.0.0 /slim --config /config.yaml
+    ghcr.io/agntcy/slim:latest /slim --config /config.yaml
 ```
 
 If everything goes fine, you should see an output like this one:
@@ -517,88 +517,31 @@ At this point, you can write messages from any terminal and they will be receive
 Writing 'exit' or 'quit' from the moderator will close all the applications.
 You can also remove and add participants by using the `remove` and `invite` commands from the moderator.
 
-## Group Communication Using the SLIM Controller
+## Group Communication Using the Channel Manager
 
-Previously, we saw how to run group communication using the Python bindings with an in-application moderator.
-This participant creates the group session and invites all other participants.
-In this section, we describe how to create and orchestrate a group using the SLIM Controller, and we show how all
-these functions can be delegated to the controller. We reuse the same group example code in this section as well.
+Previously, we saw how to run group communication using the Python bindings with an
+in-application moderator. This section shows how to delegate group lifecycle to the
+[Channel Manager](./slim-channel-manager.md) instead. Applications only need to
+implement the `receive_loop` — no moderator or invitation logic in code.
 
-### Application Differences
+### Application differences
 
-With the controller, you do not need to set up a moderator in your application. All participants can be run as we did for `client-1` and `client-2` in the previous examples. In code, this means you can avoid creating a new group session (using `local_app.create_session`) and the invitation loop. You only need to implement the `receive_loop` where the application waits for new sessions. This greatly simplifies your code.
+With the channel manager, you do not need a moderator in your application. Every
+participant runs the same code: connect to SLIM and wait for session invitations via
+`listen_for_session_async`. Avoid `create_session` and the invitation loop.
 
-### Run the Group Communication Example
+### Run the group communication example
 
-Now we will show how to set up a group using the SLIM Controller. The reference code for the
-application is still [group.py](https://github.com/agntcy/slim-bindings/tree/main/python/examples/group.py). To run this example, follow the steps listed here.
+Reference code: [group.py](https://github.com/agntcy/slim-bindings/tree/main/python/examples/group.py).
 
-#### Run the SLIM Controller
+#### Run the SLIM node
 
-First, start the SLIM Controller. Full details are in the [SLIM Controller](./slim-controller.md) documentation; here we reproduce the minimal setup. Create a configuration file:
-
-```bash
-cat << EOF > ./config-controller.yaml
-northbound:
-  httpHost: 0.0.0.0
-  httpPort: 50051
-  logging:
-    level: INFO
-
-southbound:
-  httpHost: 0.0.0.0
-  httpPort: 50052
-  logging:
-    level: INFO
-
-reconciler:
-  maxRequeues: 15
-  maxNumOfParallelReconciles: 1000
-
-logging:
-  level: INFO
-
-database:
-  filePath: /db/controlplane.db
-EOF
-```
-
-This config defines two APIs exposed by the controller:
-
-- Northbound API: used by an operator (e.g. via slimctl) to configure channels and participants, as well as the SLIM network.
-- Southbound API: used by SLIM nodes to synchronize with the controller.
-
-Start the controller with Docker:
+Create `config-slim.yaml`:
 
 ```bash
-docker run -it \
-    -v ./config-controller.yaml:/config.yaml -v .:/db -p 50051:50051 -p 50052:50052 \
-    ghcr.io/agntcy/slim/control-plane:1.0.0 --config /config.yaml
-```
-
-If everything goes fine, you should see an output like this:
-
-```bash
-2026-01-28T15:26:53Z INF Starting Route Reconciler thread_name=reconciler
-2026-01-28T15:26:53Z INF Northbound API Service is listening on [::]:50051
-2026-01-28T15:26:53Z INF Southbound API Service is Listening on [::]:50052
-```
-
-#### Run the SLIM Node
-
-With the controller running, start a SLIM node configured to talk to it over the Southbound API. This node config includes two additional settings compared to the file from the previous section:
-
-- A controller client used to connect to the Southbound API running on port 50052.
-- A shared secret token provider that will be used by the SLIM node to send messages over the SLIM network. As with the normal application, you can use a shared secret or a proper JWT.
-
-Create the `config-slim.yaml` for the node using the command below. We use the `host.docker.internal` endpoint to reach the controller from inside the Docker container via the host.
-
-```bash
-cat << EOF > ./config-slim.yaml
+cat << 'EOF' > ./config-slim.yaml
 tracing:
   log_level: info
-  display_thread_names: true
-  display_thread_ids: true
 
 runtime:
   n_cores: 0
@@ -612,57 +555,56 @@ services:
         - endpoint: "0.0.0.0:46357"
           tls:
             insecure: true
-
       clients: []
     controller:
       servers: []
-      clients:
-        - endpoint: "http://host.docker.internal:50052"
-          tls:
-            insecure: true
-      token_provider:
-        type: shared_secret
-        id: "slim/0"
-        data: "very-long-shared-secret-value-0123456789abcdef"
+      clients: []
 EOF
 ```
 
-This starts a SLIM node that connects to the controller:
+Start the node (use the latest release tag from [GitHub releases](https://github.com/agntcy/slim/releases)):
 
 ```bash
 docker run -it \
     -v ./config-slim.yaml:/config.yaml -p 46357:46357 \
-    ghcr.io/agntcy/slim:1.0.0 /slim --config /config.yaml
+    ghcr.io/agntcy/slim:latest /slim --config /config.yaml
 ```
 
-If everything goes fine, you should see an output like this one:
+#### Run the channel manager
+
+Create `config-channel-manager.yaml`:
 
 ```bash
-2026-01-28T15:40:45.189063Z  INFO main ThreadId(01) application_lifecycle: slim: 52: Runtime started
-2026-01-28T15:40:45.189274Z  INFO main ThreadId(01) application_lifecycle: slim_service::service: 338: dataplane server started endpoint=0.0.0.0:46357
-2026-01-28T15:40:45.189348Z  INFO main ThreadId(01) application_lifecycle: slim_controller::service: 1634: connecting to control plane config.endpoint=http://host.docker.internal:50052
-2026-01-28T15:40:45.192773Z  INFO slim-data-plane ThreadId(03) slim_controller::service: 1518: connected to control plane endpoint=http://host.docker.internal:50052
-2026-01-28T15:40:45.192777Z  INFO            main ThreadId(01) application_lifecycle: slim: 65: service started service=slim/0
-2026-01-28T15:40:45.196599Z  INFO slim-data-plane ThreadId(04) slim_controller::service: 890: Processed ConfigurationCommand connections=0 subscriptions_to_set=0 subscriptions_to_del=0
-...
+cat << 'EOF' > ./config-channel-manager.yaml
+channel-manager:
+  slim-connection:
+    endpoint: "http://host.docker.internal:46357"
+    tls:
+      insecure: true
+  api-server:
+    endpoint: "0.0.0.0:10356"
+    tls:
+      insecure: true
+  local-name: "agntcy/ns/channel-manager"
+  auth:
+    type: shared_secret
+    secret: "very-long-shared-secret-value-0123456789abcdef"
+EOF
 ```
 
-On the Controller side, you can see that the new node registers with the controller. The
-output should be similar to this:
+Start the channel manager from a local build:
 
 ```bash
-2026-01-28T15:40:45Z INF Registering node with ID: slim/0 svc=southbound
-2026-01-28T15:40:45Z INF Connection details: [endpoint: 192.168.65.1:46357] nodeID=slim/0 svc=southbound
-2026-01-28T15:40:45Z INF Create generic routes for node node_id=slim/0 service=RouteService
-2026-01-28T15:40:45Z INF Sending routes to registered node slim/0 node_id=slim/0
-2026-01-28T15:40:45Z INF Sending configuration command to registered node connections_count=0 message_id=95c75638-aa2d-4043-8f27-cb26f453716e node_id=slim/0 subscriptions_count=0 subscriptions_to_delete_count=0
-2026-01-28T15:40:45Z INF Configuration command processing completed node_id=slim/0 original_message_id=95c75638-aa2d-4043-8f27-cb26f453716e
+cargo build -p agntcy-slim-channel-manager --bin channel-manager
+./target/debug/channel-manager --config-file ./config-channel-manager.yaml
 ```
 
-#### Run the Participants
+The channel manager connects to the SLIM node and exposes its management API on
+port 10356.
 
-Because the controller manages the group lifecycle, no participant needs to be designated as moderator in code. Every application instance just waits for a session invite. In three separate terminals, from the folder
-`slim-bindings/python/examples` run:
+#### Run the participants
+
+In three separate terminals, from `slim-bindings/python/examples`:
 
 ```bash
 uv run slim-bindings-group \
@@ -682,120 +624,52 @@ uv run slim-bindings-group \
     --shared-secret "very-long-shared-secret-value-0123456789abcdef"
 ```
 
-Each terminal should show output similar to:
+Each terminal should show the application waiting for a session.
 
-```bash
-2026-01-28T15:44:59.125043Z  INFO slim slim_service::service: 402: client connected endpoint=http://127.0.0.1:46357 conn_id=0
-Using shared-secret authentication.
-10494544672403736104                         Created app
-Waiting for session..
-```
+#### Manage the group with slimctl
 
-At this point all applications are waiting for a new session.
-
-#### Manage the Group with slimctl
-
-Use `slimctl` (see [SLIM Controller](./slim-controller.md)) to send administrative commands to the controller.
-
-First, you need to run `slimctl`. To install it see the [slimctl documentation](./slim-controller.md#installing-slimctl).
-
-To verify that `slimctl` was downloaded successfully, run the following command:
+Install `slimctl` (see [SLIM Controller](./slim-controller.md#installing-slimctl)) and
+verify:
 
 ```bash
 slimctl version
 ```
 
-##### Create the Group
-
-Select any running participant to be the initial member of the group. This participant acts as the logical
-moderator of the channel, similar to the Python bindings example. However, you don't
-need to handle this explicitly in the code. Run the following command to create the channel:
+Point slimctl at the channel manager API:
 
 ```bash
-slimctl controller channel create moderators=agntcy/ns/client-1/10494544672403736104 
+slimctl --server 127.0.0.1:10356 channel-manager create-channel agntcy/ns/my-group
 ```
 
-The full name of the application can be taken from the output in the console. The value
-`10494544672403736104` is the actual ID of the `client-1` application returned by
-SLIM and is visible in the logs. In your case, this value will be different.
+Expected output:
 
-The expected response from `slimctl` is:
+```text
+Channel agntcy/ns/my-group created successfully
+```
+
+Add participants:
 
 ```bash
-Received response: agntcy/ns/hDxc8CKpElJUfTTief
+slimctl --server 127.0.0.1:10356 channel-manager add-participant agntcy/ns/my-group agntcy/ns/client-1
+slimctl --server 127.0.0.1:10356 channel-manager add-participant agntcy/ns/my-group agntcy/ns/client-2
+slimctl --server 127.0.0.1:10356 channel-manager add-participant agntcy/ns/my-group agntcy/ns/client-3
 ```
 
-The value `agntcy/ns/hDxc8CKpElJUfTTief` is the channel (or group) identifier (name) that must be used in subsequent commands.
+Each participant should receive a welcome message and join the group. Messages
+sent from any terminal are delivered to all members.
 
-On the application side, `client-1` was added to the session, so you should see
-something like this:
+##### Remove a participant
 
 ```bash
-Welcome to the group agntcy/ns/hDxc8CKpElJUfTTief/ffffffffffffffff!
-Commands:
-  - Type a message to send it to the group
-  - 'exit' or 'quit' to leave the group
-agntcy/ns/client-1/91a41cc6ee17c628 >
+slimctl --server 127.0.0.1:10356 channel-manager delete-participant agntcy/ns/my-group agntcy/ns/client-3
 ```
 
-##### Add Participants
+The `client-3` application exits when its session closes.
 
-Now that the new group is created, add the additional participants `client-2` and `client-3` using the following `slimctl` commands:
+##### Delete the channel
 
 ```bash
-slimctl controller participant add -c agntcy/ns/xyIGhc2igNGmkeBDlZ agntcy/ns/client-2
-slimctl controller participant add -c agntcy/ns/xyIGhc2igNGmkeBDlZ agntcy/ns/client-3
+slimctl --server 127.0.0.1:10356 channel-manager delete-channel agntcy/ns/my-group
 ```
 
-The expected `slimctl` output is:
-
-```bash
-Adding participant to channel ID agntcy/ns/hDxc8CKpElJUfTTief: agntcy/ns/client-2
-Participant added successfully to channel ID agntcy/ns/hDxc8CKpElJUfTTief: agntcy/ns/client-2
-```
-
-Now all the participants are part of the same group, and so each client log should show that the join was successful:
-
-```bash
-Welcome to the group agntcy/ns/hDxc8CKpElJUfTTief/ffffffffffffffff!
-Commands:
-  - Type a message to send it to the group
-  - 'exit' or 'quit' to leave the group
-agntcy/ns/client-2/e9b95e5edaee3e2c >
-```
-
-At this point, every member can send messages, and they will be received by all the other participants.
-
-##### Remove a Participant
-
-To remove one of the participants from the channel, run the following command:
-
-```bash
-slimctl controller participant delete -c agntcy/ns/xyIGhc2igNGmkeBDlZ agntcy/ns/client-3
-```
-
-The `slimctl` expected output is this:
-
-```bash
-Deleting participant from channel ID agntcy/ns/hDxc8CKpElJUfTTief: agntcy/ns/client-3
-Participant deleted successfully from channel ID agntcy/ns/hDxc8CKpElJUfTTief: agntcy/ns/client-3
-```
-
-The application on `client-3` exits because the session related to the group was closed, which breaks the
-receive loop in the Python code.
-
-##### Delete channel
-
-To delete the channel, run the following command:
-
-```bash
-slimctl controller channel delete agntcy/ns/xyIGhc2igNGmkeBDlZ
-```
-
-The `slimctl` output is this:
-
-```bash
-Channel deleted successfully with ID: agntcy/ns/hDxc8CKpElJUfTTief
-```
-
-All applications connected to the group stop as their receive loops terminate.
+All connected applications stop as their receive loops terminate.

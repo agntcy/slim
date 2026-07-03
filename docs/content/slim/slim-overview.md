@@ -26,20 +26,21 @@ all while maintaining low latencies and strong security guarantees.
 
 ## SLIM Components
 
-SLIM is composed of two main components that work together to provide secure,
-scalable messaging infrastructure:
+SLIM is composed of three operational components that work together to provide
+secure, scalable messaging infrastructure:
 
 - [SLIM Messaging Layer](./slim-data-plane.md): The data plane component
   that handles message routing, delivery, and secure communication between
-  applications. It consists of two layers: the session layer that provides
-  end-to-end encryption (using the MLS protocol) and reliable message delivery,
-  and the data plane that enables efficient message distribution across the
-  network.
+  applications. It consists of the session layer (end-to-end encryption via MLS
+  and reliable delivery) and the data plane (efficient message distribution).
 
 - [SLIM Controller](./slim-controller.md): The control plane component that
-  manages SLIM node configurations, monitors the network, and provides a unified
-  interface for administering the messaging infrastructure. It enables
-  centralized management of routes, connections, and node deployments.
+  manages node registration, topology (links and segments), and route
+  reconciliation across a fleet of SLIM nodes.
+
+- [Channel Manager](./slim-channel-manager.md): A service that creates and
+  manages group sessions (channels) and participant invitations, delegating
+  group lifecycle from application code to infrastructure.
 
 ### Architecture Overview
 
@@ -73,7 +74,11 @@ graph TB
     end
     
     subgraph "Control Plane"
-        CP[Configuration & Monitoring]
+        CP[Topology and Routes]
+    end
+
+    subgraph "Channel Manager"
+        CM[Group Sessions]
     end
     
     A3 -.->|encrypted messages| I1
@@ -82,6 +87,7 @@ graph TB
     
     CP -.->|manages| I1
     CP -.->|manages| I2
+    CM -.->|group sessions| I1
     
     style A1 fill:#4a90e2,stroke:#2e5c8a,stroke-width:2px,color:#fff
     style A2 fill:#4a90e2,stroke:#2e5c8a,stroke-width:2px,color:#fff
@@ -92,6 +98,7 @@ graph TB
     style I1 fill:#f39c12,stroke:#d68910,stroke-width:2px,color:#fff
     style I2 fill:#f39c12,stroke:#d68910,stroke-width:2px,color:#fff
     style CP fill:#7f8c8d,stroke:#5a6970,stroke-width:2px,color:#fff
+    style CM fill:#9b59b6,stroke:#6a3a7c,stroke-width:2px,color:#fff
 ```
 
 ### Component Distribution
@@ -116,8 +123,9 @@ management.
 
 You can run a global network of SLIM routing nodes
 without any application logic, while your agents use the rich, full-featured
-language bindings for their communication needs. The control plane manages the
-routing infrastructure independently, ensuring the network operates efficiently.
+language bindings for their communication needs. The control plane manages
+inter-group topology and route reconciliation; the channel manager handles
+group session lifecycle independently.
 
 To get started with SLIM, see the [Getting Started with
 SLIM](../slim/slim-howto.md) guide.

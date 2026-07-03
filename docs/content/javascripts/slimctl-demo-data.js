@@ -25,18 +25,26 @@ window.SlimctlDemoData = {
         "  - Endpoint: 127.0.0.1:46357",
     },
     { type: "pause", ms: 1400 },
+    { type: "command", text: "slimctl controller route list -n slim/a" },
     {
-      type: "command",
+      type: "output",
       text:
-        "slimctl controller route add org/default/alice/0 via slim/b --node-id slim/a",
+        "Routes for node: slim/a\n" +
+        "1 route(s)\n\n" +
+        "  ROUTE  TYPE    ENDPOINT  LINK_ID\n" +
+        "  --------------------------------\n" +
+        "  org/default/alice/0  Remote  slim/b  link-1",
     },
-    { type: "output", text: "Route added: org/default/alice/0 → slim/b" },
     { type: "pause", ms: 1400 },
+    { type: "command", text: "slimctl controller link list" },
     {
-      type: "command",
-      text: "slimctl controller route del org/default/alice/0 via slim/b --node-id slim/a",
+      type: "output",
+      text:
+        "Links: 1 (applied only)\n\n" +
+        "  LINK_ID  SOURCE   DEST_NODE  DEST_ENDPOINT  STATUS\n" +
+        "  ---------------------------------------------------\n" +
+        "  link-1     slim/a   slim/b     127.0.0.1:46457  APPLIED",
     },
-    { type: "output", text: "Route deleted: org/default/alice/0" },
     { type: "pause", ms: 4000 },
   ],
 

@@ -4,8 +4,8 @@ This document provides comprehensive documentation for configuring the SLIM data
 
 This documentation corresponds to the JSON schemas in the SLIM repository:
   
-- [Client Configuration Schema](https://github.com/agntcy/slim/blob/slim-v1.1.0/data-plane/core/config/src/grpc/schema/client-config.schema.json)
-- [Server Configuration Schema](https://github.com/agntcy/slim/blob/slim-v1.1.0/data-plane/core/config/src/grpc/schema/server-config.schema.json)
+- [Client Configuration Schema](https://github.com/agntcy/slim/blob/main/crates/config/src/schema/client-config.schema.json)
+- [Server Configuration Schema](https://github.com/agntcy/slim/blob/main/crates/config/src/schema/server-config.schema.json)
 
 ## Configuration Structure Overview
 
@@ -136,6 +136,9 @@ services:
     # If not specified, uses the service identifier
     node_id: "my-node-01"
 
+    # Optional group name for control-plane registration
+    group_name: "my-group"
+
     # Data plane API configuration
     dataplane:
       servers: [...] # Server endpoints this instance will listen on
@@ -145,7 +148,52 @@ services:
     controller:
       servers: [...] # Control plane server endpoints
       clients: [...] # Control plane client connections
+
+    # Peer discovery for intra-deployment full-mesh (optional)
+    peers:
+      deployment_name: "my-deployment"
+      topology: "full_mesh"
+      discovery:
+        type: static
+        peers:
+          - node_id: "slim-1"
+            endpoint: "http://127.0.0.1:46357"
+            tls:
+              insecure: true
 ```
+
+### Service-level fields
+
+| Field | Description |
+|-------|-------------|
+| `node_id` | Override the node identifier (defaults to the service key) |
+| `group_name` | Group/deployment name for control-plane registration and inter-group routing |
+| `peers` | Peer discovery configuration for full-mesh intra-group connectivity |
+
+For inter-group routing, configure topology on the
+[control plane](./slim-control-plane-config.md) rather than per-node routes.
+
+### Client connection options
+
+Each entry in `dataplane.clients` or `controller.clients` supports these
+additional fields beyond endpoint and TLS:
+
+```yaml
+dataplane:
+  clients:
+    - endpoint: "http://remote-slim:46357"
+      tls:
+        insecure: true
+      connection_type: remote  # edge (default), peer, or remote
+      require_header_mac: true  # default: true
+      link_id: "my-link-uuid"   # optional; defaults to random UUID
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `connection_type` | `edge` | `edge` for local clients, `peer` for replica peers, `remote` for control-plane-managed links |
+| `require_header_mac` | `true` | Enforce header integrity validation on this connection |
+| `link_id` | random UUID | Link identifier used during link negotiation |
 
 ## TLS Configuration
 

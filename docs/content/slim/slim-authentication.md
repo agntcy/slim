@@ -107,8 +107,10 @@ documentation](https://github.com/spiffe/spire-controller-manager/blob/main/docs
 helm install \
     --create-namespace \
     -n slim \
-    slim oci://ghcr.io/agntcy/slim/helm/slim:v1.1.0
+    slim oci://ghcr.io/agntcy/slim/helm/slim --version <chart-version>
 ```
+
+See [GitHub releases](https://github.com/agntcy/slim/releases) for the latest chart version.
 
 Confirm the pod is running:
 

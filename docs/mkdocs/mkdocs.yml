@@ -78,7 +78,8 @@ nav:
       - Overview: slim/slim-overview.md
       - Get Started:
           - Getting Started: slim/slim-howto.md
-          - Configuration Reference: slim/slim-data-plane-config.md
+          - Data Plane Configuration: slim/slim-data-plane-config.md
+          - Control Plane Configuration: slim/slim-control-plane-config.md
       - SLIM Controller:
           - Overview: slim/slim-controller.md
           - Controller Reference: slim/slim-controller-reference.md
@@ -89,6 +90,7 @@ nav:
       - SLIM Groups:
           - Group Creation and Management: slim/slim-group.md
           - Group Communication Tutorial: slim/slim-group-tutorial.md
+          - Channel Manager: slim/slim-channel-manager.md
       - Integrations:
           - Overview: slim/slim-integrations.md
           - SLIMRPC:

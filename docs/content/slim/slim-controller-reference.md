@@ -1,125 +1,271 @@
 # SLIM Controller Reference
 
-## `slimctl` Commands
+Command-line reference for `slimctl`, the unified CLI for managing SLIM nodes, the
+control plane, channel manager, and local development instances.
 
-### `slim` - Local SLIM Instances
+## Global options
 
-Run standalone SLIM instances for development and testing using production configurations.
+These flags apply to all subcommands (may appear before or after the subcommand):
+
+| Flag | Environment variable | Description |
+|------|---------------------|-------------|
+| `--config <file>` | `SLIMCTL_CONFIG` | Path to slimctl client configuration file |
+| `--server <host:port>` | `SLIMCTL_COMMON_OPTS_SERVER` | Override the gRPC endpoint |
+| `--timeout <duration>` | `SLIMCTL_COMMON_OPTS_TIMEOUT` | Request timeout (e.g. `15s`, `1m`) |
+| `-b`, `--basic-auth-creds <user:pass>` | `SLIMCTL_COMMON_OPTS_BASIC_AUTH_CREDS` | HTTP basic auth credentials |
+| `--tls.insecure_skip_verify` | `SLIMCTL_COMMON_OPTS_TLS_INSECURE_SKIP_VERIFY` | Skip TLS certificate verification |
+| `--tls.ca_file <path>` | `SLIMCTL_COMMON_OPTS_TLS_CA_FILE` | CA certificate file |
+| `--tls.cert_file <path>` | `SLIMCTL_COMMON_OPTS_TLS_CERT_FILE` | Client certificate file |
+| `--tls.key_file <path>` | `SLIMCTL_COMMON_OPTS_TLS_KEY_FILE` | Client key file |
+
+### Default endpoints
+
+When `--server` is not set and the config file has no endpoint, slimctl uses a
+per-subcommand default:
+
+| Subcommand | Default endpoint |
+|------------|------------------|
+| `slimctl controller` | `127.0.0.1:50051` (control plane northbound API) |
+| `slimctl node` | `127.0.0.1:46358` (node control API) |
+| `slimctl channel-manager` | `127.0.0.1:10356` (channel manager API) |
+| `slimctl slim start` (no config) | `127.0.0.1:46357` (data plane) |
+
+### Configuration file
+
+slimctl looks for configuration at:
+
+1. `--config` / `SLIMCTL_CONFIG` if set
+2. `$HOME/.slimctl/config.yaml`
+3. `./config.yaml`
+
+Example `~/.slimctl/config.yaml`:
+
+```yaml
+endpoint: "127.0.0.1:50051"
+request_timeout: 15s
+connect_timeout: 15s
+tls:
+  insecure: true
+```
+
+Use `slimctl config list` to print the resolved configuration and
+`slimctl config set` to update values:
+
+```bash
+slimctl config set server 127.0.0.1:50051
+slimctl config set timeout 30s
+slimctl config set basic-auth-creds admin:secret
+slimctl config set tls-ca-file /path/to/ca.pem
+slimctl config set tls-cert /path/to/cert.pem /path/to/key.pem
+slimctl config set tls-insecure-skip-verify true
+```
+
+## `slim` — Local SLIM instances
+
+Run standalone SLIM instances for development and testing.
 
 **Start with a configuration file:**
 
 ```bash
-# Start with base configuration (insecure)
-slimctl slim start --config data-plane/config/base/server-config.yaml
-
-# Start with TLS configuration
-slimctl slim start --config data-plane/config/tls/server-config.yaml
+slimctl slim start --config config/base/server-config.yaml
+slimctl slim start --config config/tls/server-config.yaml
 ```
 
-**Quick start just specifying a custom listening endpoint:**
+**Quick start with a custom listening endpoint:**
 
 ```bash
 slimctl slim start --endpoint 127.0.0.1:12345
 ```
 
 !!! note
-    The server will start without TLS when using this command.
+    `--config` and `--endpoint` are mutually exclusive. The server starts without
+    TLS when using `--endpoint`.
 
 **Control log level:**
 
 ```bash
-RUST_LOG=debug slimctl slim start --config data-plane/config/base/server-config.yaml
+RUST_LOG=debug slimctl slim start --config config/base/server-config.yaml
 ```
 
-The log level can also be set directly in the configuration file via the `tracing.log_level` field.
-See [data-plane/config/base/server-config.yaml](https://github.com/agntcy/slim/blob/slim-v1.1.0/data-plane/config/base/server-config.yaml)
-for an example.
+The log level can also be set in the configuration file via `tracing.log_level`.
+See [config/base/server-config.yaml](https://github.com/agntcy/slim/blob/main/config/base/server-config.yaml).
 
-**Available flags:**
+| Flag | Environment variable | Description |
+|------|---------------------|-------------|
+| `-c`, `--config <file>` | — | Path to SLIM node YAML configuration |
+| `--endpoint <addr>` | `SLIMCTL_SLIM_ENDPOINT` | Listen address (no config file) |
 
-- `--config` - Path to YAML configuration file (production SLIM format)
-- `--endpoint` - Server endpoint (sets `SLIMCTL_SLIM_ENDPOINT` environment variable)
+**Example configs** in [config/](https://github.com/agntcy/slim/tree/main/config):
 
-**Configuration files:** See example configs from [data-plane/config/](https://github.com/agntcy/slim/tree/slim-v1.1.0/data-plane/config):
+- [base](https://github.com/agntcy/slim/tree/main/config/base) — basic insecure configuration
+- [tls](https://github.com/agntcy/slim/tree/main/config/tls) — TLS-enabled server
+- [mtls](https://github.com/agntcy/slim/tree/main/config/mtls) — mutual TLS
+- [basic-auth](https://github.com/agntcy/slim/tree/main/config/basic-auth) — HTTP Basic authentication
+- `jwt-auth-*` — JWT ([RSA](https://github.com/agntcy/slim/tree/main/config/jwt-auth-rsa),
+  [ECDSA](https://github.com/agntcy/slim/tree/main/config/jwt-auth-ecdsa),
+  [HMAC](https://github.com/agntcy/slim/tree/main/config/jwt-auth-hmac))
+- [spire](https://github.com/agntcy/slim/tree/main/config/spire) — SPIFFE/SPIRE workload identity
+- [proxy](https://github.com/agntcy/slim/tree/main/config/proxy) — HTTP proxy
+- [telemetry](https://github.com/agntcy/slim/tree/main/config/telemetry) — OpenTelemetry
 
-- [base](https://github.com/agntcy/slim/blob/slim-v1.1.0/data-plane/config/base) - Basic insecure configuration
-- [tls](https://github.com/agntcy/slim/tree/slim-v1.1.0/data-plane/config/tls) - TLS-enabled server
-- [mtls](https://github.com/agntcy/slim/blob/slim-v1.1.0/data-plane/config/mtls) - Mutual TLS authentication
-- [basic-auth](https://github.com/agntcy/slim/blob/slim-v1.1.0/data-plane/config/basic-auth) - HTTP Basic authentication
-- `jwt-auth-*` - JWT authentication ([RSA](https://github.com/agntcy/slim/tree/slim-v1.1.0/data-plane/config/jwt-auth-rsa),
-    [ECDSA](https://github.com/agntcy/slim/tree/slim-v1.1.0/data-plane/config/jwt-auth-ecdsa),
-    [HMAC](https://github.com/agntcy/slim/tree/slim-v1.1.0/data-plane/config/jwt-auth-hmac))
-- [spire](https://github.com/agntcy/slim/tree/slim-v1.1.0/data-plane/config/spire) - SPIFFE/SPIRE workload identity
-- [proxy](https://github.com/agntcy/slim/tree/slim-v1.1.0/data-plane/config/proxy) - HTTP proxy configuration
-- [telemetry](https://github.com/agntcy/slim/tree/slim-v1.1.0/data-plane/config/telemetry) - OpenTelemetry integration
+## `controller` — Control plane management
 
-### `route` - Route Management
+Talks to the control plane northbound API (default `127.0.0.1:50051`). Routes are
+**reconciled** from topology configuration (links and segments) — they are not added
+or deleted imperatively via the CLI. See [Control Plane Configuration](./slim-control-plane-config.md).
 
-Manage message routes on SLIM nodes via the Control Plane.
+### `controller node`
 
-**List routes:**
-
-```bash
-slimctl controller route list --node-id=my-node
-```
-
-**Add a route:**
-
-```bash
-# Create connection configuration
-cat > connection_config.json <<EOF
-{
-  "endpoint": "http://127.0.0.1:46357"
-}
-EOF
-
-# Add the route
-slimctl controller route add org/namespace/service via connection_config.json --node-id=my-node
-```
-
-**Delete a route:**
-
-```bash
-slimctl controller route del org/namespace/service/0 via http://localhost:46357 --node-id=my-node
-```
-
-### `connection` - Connection Management
-
-Monitor active connections on SLIM nodes via the Control Plane.
-
-**List connections:**
-
-```bash
-slimctl controller connection list --node-id=my-node
-```
-
-### `node` - Node Management
-
-Manage and view SLIM nodes via the Control Plane.
-
-**List registered nodes:**
+List nodes registered with the control plane:
 
 ```bash
 slimctl controller node list
 ```
 
-### `node` - Direct Node Management
+### `controller connection`
 
-Connect directly to a SLIM node's control endpoint, bypassing the central Control Plane.
-
-**List routes directly on a node:**
+List active connections on a node:
 
 ```bash
-slimctl node route list --server=<node_control_endpoint>
+slimctl controller connection list -n slim/0
 ```
 
-**Add route directly to a node:**
+`-n` / `--node-id` is required.
+
+### `controller route`
+
+List routes. Without `-n`, lists all routes at the controller; with `-n`, shows
+routes on a specific node:
 
 ```bash
-slimctl node route add org/namespace/service/0 via config.json --server=<node_control_endpoint>
+# All applied routes at the controller
+slimctl controller route list
+
+# Routes on a specific node
+slimctl controller route list -n slim/0
+
+# Filter by origin or target node
+slimctl controller route list -o slim/a -t slim/b
+
+# Include pending, failed, and deleted routes
+slimctl controller route list -a
 ```
 
-### `version` - Version Information
+| Flag | Description |
+|------|-------------|
+| `-n`, `--node-id` | Per-node view (conflicts with `-o`/`-t`/`-a`) |
+| `-o`, `--origin-node-id` | Filter by source node (controller-wide view) |
+| `-t`, `--target-node-id` | Filter by destination node (controller-wide view) |
+| `-a`, `--all` | Show all statuses (default: applied only) |
+
+### `controller link`
+
+Manage topology links between groups (API-managed mode only):
+
+```bash
+slimctl controller link list
+slimctl controller link list -o group-a -t group-b
+slimctl controller link list -a
+
+slimctl controller link add group-a group-b
+slimctl controller link add group-a group-b -s my-segment
+
+slimctl controller link remove group-a group-b
+slimctl controller link remove group-a group-b -s my-segment
+```
+
+| Flag | Description |
+|------|-------------|
+| `-s`, `--segment` | Segment name (default: `default`) |
+| `-o`, `-t`, `-a` | Same as `route list` |
+
+### `controller segment`
+
+Manage routing segments (API-managed mode only):
+
+```bash
+slimctl controller segment list
+slimctl controller segment add my-segment
+slimctl controller segment remove my-segment
+```
+
+### `controller group`
+
+List groups and their member nodes:
+
+```bash
+slimctl controller group list
+```
+
+## `node` — Direct node management
+
+Connect directly to a SLIM node's control endpoint, bypassing the central control
+plane. Uses the node default endpoint (`127.0.0.1:46358`) unless overridden with
+`--server`.
+
+```bash
+slimctl --server 127.0.0.1:46358 node route list
+slimctl --server 127.0.0.1:46358 node connection list
+```
+
+## `channel-manager` — Group channel management {#channel-manager-group-channel-management}
+
+Manage SLIM group channels and participants via the channel manager service
+(default `127.0.0.1:10356`). Requires a running
+[channel manager](./slim-channel-manager.md) instance.
+
+```bash
+slimctl channel-manager create-channel org/ns/my-channel
+slimctl channel-manager create-channel org/ns/my-channel --disable-mls
+
+slimctl channel-manager add-participant org/ns/my-channel org/ns/client-1
+slimctl channel-manager delete-participant org/ns/my-channel org/ns/client-1
+
+slimctl channel-manager list-channels
+slimctl channel-manager list-participants org/ns/my-channel
+
+slimctl channel-manager delete-channel org/ns/my-channel
+```
+
+Aliases: `cc`, `ap`, `dp`, `dc`, `lc`, `lp`. The subcommand itself can be
+abbreviated as `cm`.
+
+## `bench` — Performance benchmarks
+
+Benchmark messaging performance against a running SLIM server.
+
+```bash
+# Terminal 1 — start subscribers
+slimctl bench sub --count 4 --msgs 100000 --size 512
+
+# Terminal 2 — run publishers
+slimctl bench pub --count 4 --msgs 100000 --size 512
+
+# Request-reply latency
+slimctl bench sub --reply
+slimctl bench pub --request -n 10000
+
+# Group (channel) benchmark
+slimctl bench channel sub --count 2
+slimctl bench channel pub --count 1 --reliable
+```
+
+Common flags for `sub` and `pub`:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--count` | `1` | Number of concurrent apps |
+| `-n`, `--msgs` | `100000` | Total messages |
+| `--size` | `128` | Payload size (supports `kb`, `mb`, `kib`, etc.) |
+| `--server` | `http://localhost:46357` | SLIM server URL |
+| `--secret` | (built-in test secret) | Shared secret (min 32 chars) |
+| `--prefix` | `bench/test` | Name prefix (`org/namespace` format) |
+| `--csv` | — | Optional CSV output path |
+| `--start-index` | `0` | Starting index for app names |
+
+`bench sub` only: `--reply` (echo mode). `bench pub` only: `--request`, `--reliable`.
+
+## `version`
 
 Display version and build information:
 
@@ -127,60 +273,31 @@ Display version and build information:
 slimctl version
 ```
 
-### Getting Help
-
-Get detailed help for any command:
+## Getting help
 
 ```bash
 slimctl --help
-slimctl slim --help
-slimctl slim start --help
-slimctl route --help
+slimctl controller --help
+slimctl controller route --help
+slimctl channel-manager --help
+slimctl bench --help
 ```
 
-## Usage Examples
-
-### Example 1: Create, Delete Route using node-id
-
-Add route for node `slim/a` to forward messages for `org/default/alice/0` to node `slim/b`.
+## Usage example: inspect topology and routes
 
 ```bash
-# List available nodes
+# List registered nodes
 slimctl controller node list
-2 node(s) found
-Node ID: slim/b status: CONNECTED
-  Connection details:
-  - Endpoint: 127.0.0.1:46457
-    MtlsRequired: false
-    ExternalEndpoint: test-slim.default.svc.cluster.local:46457
-Node ID: slim/a status: CONNECTED
-  Connection details:
-  - Endpoint: 127.0.0.1:46357
-    MtlsRequired: false
-    ExternalEndpoint: test-slim.default.svc.cluster.local:46357
 
-# Add route to node slim/a
-slimctl controller route add org/default/alice/0 via slim/b --node-id slim/a
+# List groups and their members
+slimctl controller group list
 
-# Delete an existing route
-slimctl controller route del org/default/alice/0 via slim/b --node-id slim/a
+# List topology links
+slimctl controller link list
+
+# List reconciled routes for a node
+slimctl controller route list -n slim/a
 ```
 
-### Example 2: Create, Delete Route Using `connection_config.json`
-
-```bash
-# Create connection configuration
-cat > connection_config.json <<EOF
-{
-  "endpoint": "http://127.0.0.1:46357"
-}
-EOF
-
-# Add a new route
-slimctl controller route add org/default/alice/0 via connection_config.json --node-id=my-node
-
-# Delete an existing route
-slimctl controller route del org/default/alice/0 via http://localhost:46357 --node-id=my-node
-```
-
-For full reference of connection_config.json, see the [client-config-schema.json](https://github.com/agntcy/slim/blob/slim-v1.1.0/data-plane/core/config/src/grpc/schema/client-config.schema.json).
+For client connection configuration used in SLIM node YAML, see the
+[client-config schema](https://github.com/agntcy/slim/blob/main/crates/config/src/schema/client-config.schema.json).
