@@ -74,8 +74,8 @@ plugins:
       slim/slim-architecture.md: slim/architecture/index.md
       slim/slim-naming.md: slim/architecture/naming.md
       slim/slim-routing.md: slim/architecture/routing.md
-      slim/slim-session.md: slim/architecture/session.md
-      slim/slim-group.md: slim/architecture/group.md
+      slim/slim-session.md: slim/architecture/sessions/index.md
+      slim/slim-group.md: slim/architecture/sessions/group.md
       slim/slim-authentication.md: slim/architecture/authentication.md
       slim/slim-data-plane.md: slim/components/data-plane/index.md
       slim/slim-data-plane-install.md: slim/components/data-plane/install.md

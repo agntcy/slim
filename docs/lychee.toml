@@ -4,7 +4,7 @@ timeout = 10
 # MkDocs/Material pretty URLs in raw HTML omit .md; resolve against source files.
 fallback_extensions = ["md"]
 # Validate in-page anchors (e.g. slim/slim-howto/#slim-node).
-include_fragments = true
+include_fragments = "full"
 # Include transient gateway / origin errors so flaky GitHub (502) does not fail the docs job.
 accept = [200, 201, 204, 403, 429, 502, 503, 504]
 
