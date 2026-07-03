@@ -199,6 +199,34 @@ pub struct RemoveTopologyLinkRequest {
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RemoveTopologyLinkResponse {}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ListGroupsRequest {}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListGroupsResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub groups: ::prost::alloc::vec::Vec<GroupEntry>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct GroupEntry {
+    #[prost(string, tag = "1")]
+    pub group_name: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AddGroupRequest {
+    #[prost(string, tag = "1")]
+    pub group_name: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub secret: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct AddGroupResponse {}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RemoveGroupRequest {
+    #[prost(string, tag = "1")]
+    pub group_name: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RemoveGroupResponse {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum NodeStatus {
@@ -694,6 +722,102 @@ pub mod control_plane_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        /// List registered auth groups. Works in both config and API mode.
+        /// In shared_secret mode: returns groups with configured/stored secrets.
+        /// In SPIRE mode: returns groups of currently connected nodes.
+        /// When auth is disabled: returns empty list.
+        pub async fn list_groups(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ListGroupsRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ListGroupsResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/controlplane.proto.v1.ControlPlaneService/ListGroups",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "controlplane.proto.v1.ControlPlaneService",
+                        "ListGroups",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        /// Add a group with a shared secret (API mode + shared_secret only).
+        /// Returns FAILED_PRECONDITION if in config mode.
+        /// Returns UNIMPLEMENTED if auth mode is SPIRE or disabled.
+        pub async fn add_group(
+            &mut self,
+            request: impl tonic::IntoRequest<super::AddGroupRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::AddGroupResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/controlplane.proto.v1.ControlPlaneService/AddGroup",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "controlplane.proto.v1.ControlPlaneService",
+                        "AddGroup",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        /// Remove a group. Disconnects all nodes in that group (API mode only).
+        /// Returns FAILED_PRECONDITION if in config mode.
+        pub async fn remove_group(
+            &mut self,
+            request: impl tonic::IntoRequest<super::RemoveGroupRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::RemoveGroupResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/controlplane.proto.v1.ControlPlaneService/RemoveGroup",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "controlplane.proto.v1.ControlPlaneService",
+                        "RemoveGroup",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -802,6 +926,36 @@ pub mod control_plane_service_server {
             request: tonic::Request<super::RemoveTopologyLinkRequest>,
         ) -> std::result::Result<
             tonic::Response<super::RemoveTopologyLinkResponse>,
+            tonic::Status,
+        >;
+        /// List registered auth groups. Works in both config and API mode.
+        /// In shared_secret mode: returns groups with configured/stored secrets.
+        /// In SPIRE mode: returns groups of currently connected nodes.
+        /// When auth is disabled: returns empty list.
+        async fn list_groups(
+            &self,
+            request: tonic::Request<super::ListGroupsRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ListGroupsResponse>,
+            tonic::Status,
+        >;
+        /// Add a group with a shared secret (API mode + shared_secret only).
+        /// Returns FAILED_PRECONDITION if in config mode.
+        /// Returns UNIMPLEMENTED if auth mode is SPIRE or disabled.
+        async fn add_group(
+            &self,
+            request: tonic::Request<super::AddGroupRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::AddGroupResponse>,
+            tonic::Status,
+        >;
+        /// Remove a group. Disconnects all nodes in that group (API mode only).
+        /// Returns FAILED_PRECONDITION if in config mode.
+        async fn remove_group(
+            &self,
+            request: tonic::Request<super::RemoveGroupRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::RemoveGroupResponse>,
             tonic::Status,
         >;
     }
@@ -1337,6 +1491,143 @@ pub mod control_plane_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = RemoveTopologyLinkSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/controlplane.proto.v1.ControlPlaneService/ListGroups" => {
+                    #[allow(non_camel_case_types)]
+                    struct ListGroupsSvc<T: ControlPlaneService>(pub Arc<T>);
+                    impl<
+                        T: ControlPlaneService,
+                    > tonic::server::UnaryService<super::ListGroupsRequest>
+                    for ListGroupsSvc<T> {
+                        type Response = super::ListGroupsResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ListGroupsRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ControlPlaneService>::list_groups(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ListGroupsSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/controlplane.proto.v1.ControlPlaneService/AddGroup" => {
+                    #[allow(non_camel_case_types)]
+                    struct AddGroupSvc<T: ControlPlaneService>(pub Arc<T>);
+                    impl<
+                        T: ControlPlaneService,
+                    > tonic::server::UnaryService<super::AddGroupRequest>
+                    for AddGroupSvc<T> {
+                        type Response = super::AddGroupResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::AddGroupRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ControlPlaneService>::add_group(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = AddGroupSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/controlplane.proto.v1.ControlPlaneService/RemoveGroup" => {
+                    #[allow(non_camel_case_types)]
+                    struct RemoveGroupSvc<T: ControlPlaneService>(pub Arc<T>);
+                    impl<
+                        T: ControlPlaneService,
+                    > tonic::server::UnaryService<super::RemoveGroupRequest>
+                    for RemoveGroupSvc<T> {
+                        type Response = super::RemoveGroupResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::RemoveGroupRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ControlPlaneService>::remove_group(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = RemoveGroupSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

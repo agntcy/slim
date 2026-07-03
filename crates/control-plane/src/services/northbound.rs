@@ -10,12 +10,15 @@ use crate::api::proto::controller::proto::v1::{
     connection_details::SpireMtls,
 };
 use crate::api::proto::controlplane::proto::v1::{
-    AddSegmentRequest, AddSegmentResponse, AddTopologyLinkRequest, AddTopologyLinkResponse,
-    LinkEntry, LinkListRequest, LinkStatus, NodeEntry, NodeListRequest, RemoveSegmentRequest,
-    RemoveSegmentResponse, RemoveTopologyLinkRequest, RemoveTopologyLinkResponse, RouteEntry,
-    RouteListRequest, RouteStatus, SegmentEdge, SegmentEntry, SegmentListRequest,
-    SegmentListResponse, control_plane_service_server::ControlPlaneService,
+    AddGroupRequest, AddGroupResponse, AddSegmentRequest, AddSegmentResponse,
+    AddTopologyLinkRequest, AddTopologyLinkResponse, GroupEntry, LinkEntry, LinkListRequest,
+    LinkStatus, ListGroupsRequest, ListGroupsResponse, NodeEntry, NodeListRequest,
+    RemoveGroupRequest, RemoveGroupResponse, RemoveSegmentRequest, RemoveSegmentResponse,
+    RemoveTopologyLinkRequest, RemoveTopologyLinkResponse, RouteEntry, RouteListRequest,
+    RouteStatus, SegmentEdge, SegmentEntry, SegmentListRequest, SegmentListResponse,
+    control_plane_service_server::ControlPlaneService,
 };
+use crate::auth::GroupAuthenticator;
 use crate::db::SharedDb;
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
 use crate::route_service::RouteService;
@@ -25,6 +28,7 @@ pub struct NorthboundApiService {
     db: SharedDb,
     cmd_handler: DefaultNodeCommandHandler,
     route_service: RouteService,
+    authenticator: GroupAuthenticator,
 }
 
 impl NorthboundApiService {
@@ -32,11 +36,13 @@ impl NorthboundApiService {
         db: SharedDb,
         cmd_handler: DefaultNodeCommandHandler,
         route_service: RouteService,
+        authenticator: GroupAuthenticator,
     ) -> Self {
         Self {
             db,
             cmd_handler,
             route_service,
+            authenticator,
         }
     }
 
@@ -540,6 +546,103 @@ impl ControlPlaneService for NorthboundApiService {
             .remove_topology_link(&req.group_a, &req.group_b, segment)
             .await?;
         Ok(Response::new(RemoveTopologyLinkResponse {}))
+    }
+
+    // ── Registration auth group management ─────────────────────────────────
+
+    async fn list_groups(
+        &self,
+        _request: Request<ListGroupsRequest>,
+    ) -> Result<Response<ListGroupsResponse>, Status> {
+        let groups = self
+            .db
+            .list_registration_secret_groups()
+            .await
+            .map_err(|e| Status::internal(format!("failed to list groups: {e}")))?;
+        let entries = groups
+            .into_iter()
+            .map(|group_name| GroupEntry { group_name })
+            .collect();
+        Ok(Response::new(ListGroupsResponse { groups: entries }))
+    }
+
+    async fn add_group(
+        &self,
+        request: Request<AddGroupRequest>,
+    ) -> Result<Response<AddGroupResponse>, Status> {
+        self.route_service.ensure_api_mode()?;
+
+        if !self.authenticator.is_shared_secret() {
+            return Err(Status::unimplemented(
+                "add_group is only supported in shared_secret auth mode",
+            ));
+        }
+
+        let req = request.get_ref();
+        if req.group_name.is_empty() {
+            return Err(Status::invalid_argument("group_name must not be empty"));
+        }
+        if req.secret.is_empty() {
+            return Err(Status::invalid_argument("secret must not be empty"));
+        }
+
+        // Persist to DB.
+        self.db
+            .upsert_registration_secret(&req.group_name, &req.secret)
+            .await
+            .map_err(|e| Status::internal(format!("failed to store secret: {e}")))?;
+
+        // Add verifier to the live authenticator.
+        self.authenticator
+            .add_verifier(&req.group_name, &req.secret)?;
+
+        tracing::info!("add_group: added group '{}'", req.group_name);
+        Ok(Response::new(AddGroupResponse {}))
+    }
+
+    async fn remove_group(
+        &self,
+        request: Request<RemoveGroupRequest>,
+    ) -> Result<Response<RemoveGroupResponse>, Status> {
+        self.route_service.ensure_api_mode()?;
+
+        let req = request.get_ref();
+        if req.group_name.is_empty() {
+            return Err(Status::invalid_argument("group_name must not be empty"));
+        }
+
+        // Find all nodes belonging to this group.
+        let nodes = self
+            .db
+            .list_nodes()
+            .await
+            .map_err(|e| Status::internal(format!("failed to list nodes: {e}")))?;
+        let group_nodes: Vec<_> = nodes
+            .iter()
+            .filter(|n| n.group_name.as_deref() == Some(&req.group_name))
+            .collect();
+
+        // Disconnect and deregister each node in the group.
+        for node in &group_nodes {
+            self.cmd_handler.force_remove_stream(&node.id).await;
+            self.route_service.node_deregistered(&node.id).await;
+        }
+
+        // Remove the verifier from the live authenticator.
+        self.authenticator.remove_verifier(&req.group_name);
+
+        // Remove the secret from DB.
+        self.db
+            .delete_registration_secret(&req.group_name)
+            .await
+            .map_err(|e| Status::internal(format!("failed to delete secret: {e}")))?;
+
+        tracing::info!(
+            "remove_group: removed group '{}' ({} node(s) disconnected)",
+            req.group_name,
+            group_nodes.len()
+        );
+        Ok(Response::new(RemoveGroupResponse {}))
     }
 }
 
