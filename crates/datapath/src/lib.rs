@@ -11,8 +11,10 @@ pub mod tables;
 // connection state, forwarding, negotiation, synchronization, and message
 // processing. wasm32 supports outgoing WebSocket connections only. The gRPC
 // transport, native fastwebsockets implementation, inbound WebSocket server
-// handling, peer discovery, OpenTelemetry integration, and native
-// peer-discovery lifecycle management are native-only.
+// handling, peer discovery, and native peer-discovery lifecycle management are
+// native-only. OpenTelemetry span export (OTLP) is native-only; with the
+// `otel_tracing` feature, wasm32 participates in distributed trace propagation
+// via SLIM message metadata (see `slim_tracing` browser init).
 pub mod connection;
 pub mod forwarder;
 // Public link-integrity primitives for external transports. Built-in clients
@@ -25,13 +27,11 @@ mod negotiation;
 pub mod sync;
 pub mod websocket;
 
-// These complete modules have no wasm32 implementation and are excluded here.
-cfg_if::cfg_if! {
-    if #[cfg(not(target_arch = "wasm32"))] {
-        #[cfg(feature = "otel_tracing")]
-        mod otel_tracing;
-        pub mod peer_discovery;
-    }
-}
+#[cfg(feature = "otel_tracing")]
+mod otel_tracing;
+
+// Peer discovery has no wasm32 implementation and is excluded here.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod peer_discovery;
 
 pub use tonic::Status;

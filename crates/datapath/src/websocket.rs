@@ -19,4 +19,4 @@ pub(crate) use stream::spawn_transport_tasks;
 #[cfg(target_arch = "wasm32")]
 mod stream_wasm;
 #[cfg(target_arch = "wasm32")]
-pub use stream_wasm::{WebSocketStreams, spawn_transport_tasks};
+pub use stream_wasm::spawn_transport_tasks;

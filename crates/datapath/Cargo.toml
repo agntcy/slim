@@ -80,9 +80,18 @@ x25519-dalek = { workspace = true }
 agntcy-slim-testing = { workspace = true }
 anyhow = { workspace = true }
 criterion = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+tracing-subscriber = { workspace = true }
 serde_yaml = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-test = { workspace = true, features = ["no-env-filter"] }
+# Pure-Rust browser crypto backends, compiled into native test builds so the
+# native coverage run exercises them (see `header_mac`/`link_ecdh` tests).
+getrandom = { workspace = true }
+hkdf = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+x25519-dalek = { workspace = true }
 
 [[bench]]
 name = "pool_benchmark"

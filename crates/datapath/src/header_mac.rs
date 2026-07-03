@@ -45,10 +45,7 @@ fn mac_sign(key: &MacKey, data: &[u8]) -> Vec<u8> {
 }
 #[cfg(target_arch = "wasm32")]
 fn mac_sign(key: &MacKey, data: &[u8]) -> Vec<u8> {
-    use hmac::{Hmac, Mac};
-    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(key).expect("HMAC accepts any key length");
-    mac.update(data);
-    mac.finalize().into_bytes().to_vec()
+    pure_hmac::sign(key, data)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -57,10 +54,32 @@ fn mac_verify(key: &MacKey, data: &[u8], tag: &[u8]) -> bool {
 }
 #[cfg(target_arch = "wasm32")]
 fn mac_verify(key: &MacKey, data: &[u8], tag: &[u8]) -> bool {
+    pure_hmac::verify(key, data, tag)
+}
+
+/// Pure-Rust HMAC-SHA256 backend (`hmac` + `sha2`).
+///
+/// This is the browser backend (`aws_lc_rs` is native-only). It is also compiled
+/// into native **test** builds so the native coverage run instruments it and can
+/// assert byte-for-byte parity with the `aws_lc_rs` backend — the property that
+/// makes a native↔browser link interoperable.
+#[cfg(any(target_arch = "wasm32", test))]
+mod pure_hmac {
     use hmac::{Hmac, Mac};
-    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(key).expect("HMAC accepts any key length");
-    mac.update(data);
-    mac.verify_slice(tag).is_ok()
+
+    pub(super) fn sign(key: &[u8], data: &[u8]) -> Vec<u8> {
+        let mut mac =
+            Hmac::<sha2::Sha256>::new_from_slice(key).expect("HMAC accepts any key length");
+        mac.update(data);
+        mac.finalize().into_bytes().to_vec()
+    }
+
+    pub(super) fn verify(key: &[u8], data: &[u8], tag: &[u8]) -> bool {
+        let mut mac =
+            Hmac::<sha2::Sha256>::new_from_slice(key).expect("HMAC accepts any key length");
+        mac.update(data);
+        mac.verify_slice(tag).is_ok()
+    }
 }
 
 thread_local! {
@@ -455,5 +474,48 @@ mod tests {
         hdr.source.as_mut().unwrap().name.as_mut().unwrap().name_id =
             Some(NameId { id_0: 99, id_1: 99 });
         assert!(mac.verify_slim_header(&hdr, &lid).is_err());
+    }
+
+    // Exercises the browser HMAC backend (`pure_hmac`) on the native coverage
+    // run and pins it byte-for-byte to the active production backend, so a
+    // header signed on one side of a native↔browser link verifies on the other.
+    #[test]
+    fn pure_hmac_backend_matches_production_backend() {
+        let secret = test_key();
+        let data = b"SLIM-DP-HDR-v1\0canonical-preimage-under-test";
+
+        let production = mac_sign(&mac_new(&secret), data);
+        let pure = pure_hmac::sign(&secret, data);
+
+        assert_eq!(
+            production.len(),
+            TAG_LEN,
+            "HMAC-SHA256 tag must be {TAG_LEN} bytes"
+        );
+        assert_eq!(
+            production, pure,
+            "pure-Rust HMAC backend must match the production backend byte-for-byte"
+        );
+    }
+
+    // The pure backend verifies its own tag and rejects a tampered one.
+    #[test]
+    fn pure_hmac_backend_verify_round_trip() {
+        let secret = test_key();
+        let data = b"some-data-to-authenticate";
+
+        let tag = pure_hmac::sign(&secret, data);
+        assert!(pure_hmac::verify(&secret, data, &tag), "valid tag verifies");
+
+        let mut bad = tag.clone();
+        bad[0] ^= 0xFF;
+        assert!(
+            !pure_hmac::verify(&secret, data, &bad),
+            "tampered tag must fail"
+        );
+        assert!(
+            !pure_hmac::verify(&secret, b"other-data", &tag),
+            "tag must not verify over different data"
+        );
     }
 }
