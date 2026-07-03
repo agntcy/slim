@@ -70,8 +70,7 @@ impl ProducerBuffer {
     pub fn clear(&mut self) {
         self.messages.clear();
         self.next = 0;
-        // Stale IDs in `ring` are harmless: they are no longer in `messages` after clear(),
-        // so messages.remove is a no-op and messages.get returns None until overwritten.
+        self.ring.fill(usize::MAX);
     }
 
     pub fn get(&self, id: usize) -> Option<Message> {
@@ -221,6 +220,53 @@ mod tests {
         assert_eq!(messages.get(2).unwrap(), p2);
         assert_eq!(messages.get(3).unwrap(), p3);
         assert_eq!(messages.get(4).unwrap(), p4);
+    }
+
+    #[test]
+    fn test_clear_then_reuse() {
+        // Regression: stale ring entries after clear() must not evict messages that were
+        // inserted in the subsequent fill, nor cause iter() to yield duplicates.
+        //
+        // capacity=2:
+        // push(id=1), push(id=2) → ring=[1,2]
+        // clear()                → ring must be reset to sentinels
+        // push(id=2), push(id=3) → both must survive; no duplicate in iter()
+        let src = Name::from_strings(["org", "ns", "type"]).with_id(0);
+        let src_id = src.to_string();
+        let name_type = Name::from_strings(["org", "ns", "type"]).with_id(1);
+        let slim_header = SlimHeader::new(src, name_type, &src_id, None);
+
+        let make_msg = |id: u32| {
+            let h = SessionHeader::new(
+                ProtoSessionType::PointToPoint.into(),
+                ProtoSessionMessageType::Msg.into(),
+                0,
+                id,
+            );
+            Message::builder()
+                .with_slim_header(slim_header.clone())
+                .with_session_header(h)
+                .application_payload("", vec![])
+                .build_publish()
+                .unwrap()
+        };
+
+        let mut buf = ProducerBuffer::with_capacity(2);
+
+        buf.push(make_msg(1));
+        buf.push(make_msg(2));
+        buf.clear();
+
+        buf.push(make_msg(2));
+        buf.push(make_msg(3));
+
+        // Both messages inserted after clear() must be present.
+        assert!(buf.get(2).is_some(), "id=2 was wrongly evicted");
+        assert!(buf.get(3).is_some(), "id=3 was wrongly evicted");
+
+        // iter() must not yield duplicates.
+        let ids: Vec<u32> = buf.iter().map(|m| m.get_id()).collect();
+        assert_eq!(ids, vec![2, 3]);
     }
 
     #[test]
