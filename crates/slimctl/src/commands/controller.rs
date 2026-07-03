@@ -35,7 +35,7 @@ pub enum ControllerCommand {
     Link(ControllerLinkArgs),
     /// List domains and their nodes
     Domain(ControllerDomainArgs),
-    /// List segments (routing domains) and their groups
+    /// List segments (routing domains) and their domains
     Segment(ControllerSegmentArgs),
 }
 
@@ -172,7 +172,7 @@ pub struct ControllerSegmentArgs {
 
 #[derive(Subcommand)]
 pub enum ControllerSegmentCommand {
-    /// List all segments (routing domains) and their groups
+    /// List all segments (routing domains) and their domains
     #[command(visible_alias = "ls")]
     List,
     /// Add a new segment (API-managed mode only)
@@ -276,7 +276,7 @@ async fn node_list(opts: &ClientConfig) -> Result<()> {
     }
 
     // Compute column widths
-    let headers = ["NODE_ID", "GROUP", "STATUS", "ENDPOINT", "PUBLIC_ENDPOINT"];
+    let headers = ["NODE_ID", "DOMAIN", "STATUS", "ENDPOINT", "PUBLIC_ENDPOINT"];
     let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
 
     let rows: Vec<_> = entries
@@ -673,7 +673,7 @@ async fn domain_list(opts: &ClientConfig) -> Result<()> {
         entries.push(entry?);
     }
 
-    // Group nodes by domain name
+    // nodes by domain name
     let mut domains: std::collections::BTreeMap<String, Vec<String>> =
         std::collections::BTreeMap::new();
     for e in &entries {
@@ -690,7 +690,7 @@ async fn domain_list(opts: &ClientConfig) -> Result<()> {
         return Ok(());
     }
 
-    let headers = ["GROUP", "NODES"];
+    let headers = ["DOMAIN", "NODES"];
     let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
 
     let rows: Vec<_> = domains
@@ -726,7 +726,7 @@ async fn segment_list(opts: &ClientConfig) -> Result<()> {
         return Ok(());
     }
 
-    let headers = ["SEGMENT", "GROUPS", "LINKS"];
+    let headers = ["SEGMENT", "DOMAINS", "LINKS"];
     let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
 
     let rows: Vec<_> = segments

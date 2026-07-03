@@ -354,8 +354,8 @@ impl TopologyConfig {
         }
     }
 
-    /// Expand `$domain` templates into concrete segments for the given groups.
-    /// Groups already explicitly named in a template segment's links are excluded
+    /// Expand `$domain` templates into concrete segments for the given domains.
+    /// Domains already explicitly named in a template segment's links are excluded
     /// from expansion. Non-template segments pass through unchanged.
     pub fn expand_segments(&self, known_domains: &[&str]) -> Vec<SegmentConfig> {
         match self {

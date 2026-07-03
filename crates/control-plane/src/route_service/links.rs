@@ -52,7 +52,7 @@ impl super::RouteService {
             .collect();
 
         // Track which destination domains already have an active inter-domain link
-        // from or to the source group (across ALL nodes in the domain, not just this one).
+        // from or to the source domain (across ALL nodes in the domain, not just this one).
         let src_domain = src_node.domain_name.as_deref().unwrap_or("");
         let mut linked_domains: HashSet<String> = all_links
             .iter()
@@ -60,11 +60,11 @@ impl super::RouteService {
             .filter_map(|l| {
                 let dg = l.dest_domain.as_str();
                 let src_dmn = l.source_domain.as_str();
-                // Outgoing link from any node in src_domain to another group.
+                // Outgoing link from any node in src_domain to another domain.
                 if src_dmn == src_domain && !dg.is_empty() && dg != src_domain {
                     Some(dg.to_string())
                 } else if dg == src_domain && !src_dmn.is_empty() && src_dmn != src_domain {
-                    // Incoming link targeting src_domain from another group.
+                    // Incoming link targeting src_domain from another domain.
                     Some(src_dmn.to_string())
                 } else {
                     None
@@ -243,7 +243,7 @@ impl super::RouteService {
             return Ok(l.link_id);
         }
 
-        // For inter-group links: find a link between the domains of source and dest.
+        // For inter-domain links: find a link between the domains of source and dest.
         if source_domain != dest_domain
             && let Some(link) = self
                 .0

@@ -34,7 +34,7 @@ struct Inner {
     /// Per-node mutex that serializes node_deregistered and node_disconnected
     /// for the same node, preventing concurrent cleanup from corrupting state.
     node_locks: tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
-    /// Per-group mutex that serializes link creation for nodes in the same domain.
+    /// Per-domain mutex that serializes link creation for nodes in the same domain.
     /// Without this, two nodes from the same domain registering concurrently can
     /// both read the link table before either writes, causing duplicate inter-domain
     /// links for the same domain pair.

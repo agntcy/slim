@@ -59,8 +59,8 @@ const NODE_CONNECTED: i32 = 1;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const SHORT_TIMEOUT: Duration = Duration::from_secs(15);
 
-/// Per-domain registration secrets (each group has its own secret for isolation).
-const TEST_GROUP_SECRETS: &[(&str, &str)] = &[
+/// Per-domain registration secrets (each domain has its own secret for isolation).
+const TEST_DOMAIN_SECRETS: &[(&str, &str)] = &[
     ("domain-a", "secret-domain-a-00112233445566778899"),
     ("domain-b", "secret-domain-b-00112233445566778899"),
     ("domain-c", "secret-domain-c-00112233445566778899"),
@@ -72,9 +72,9 @@ const TEST_GROUP_SECRETS: &[(&str, &str)] = &[
 
 /// Look up the test secret for a domain.
 fn domain_secret(domain: &str) -> &'static str {
-    TEST_GROUP_SECRETS
+    TEST_DOMAIN_SECRETS
         .iter()
-        .find(|(g, _)| *g == domain)
+        .find(|(d, _)| *d == domain)
         .unwrap_or_else(|| panic!("no test secret for domain '{domain}'"))
         .1
 }
@@ -82,9 +82,9 @@ fn domain_secret(domain: &str) -> &'static str {
 /// Build the registration auth config with per-domain shared secrets.
 fn test_registration_auth() -> RegistrationAuthConfig {
     RegistrationAuthConfig::SharedSecret {
-        secrets: TEST_GROUP_SECRETS
+        secrets: TEST_DOMAIN_SECRETS
             .iter()
-            .map(|(g, s)| (g.to_string(), s.to_string()))
+            .map(|(d, s)| (d.to_string(), s.to_string()))
             .collect(),
     }
 }
@@ -555,7 +555,7 @@ fn init_tracing() {
 /// Scenario:
 ///   - Start a control plane with full-mesh topology (default).
 ///   - Start one node in each of 3 domains: domain-a, domain-b, domain-c.
-///   - Verify that inter-domain links are automatically created between all group
+///   - Verify that inter-domain links are automatically created between all domain
 ///     pairs and reach Applied status (meaning both sides have negotiated).
 ///
 /// Validates: topology graph -> link creation -> link claim via negotiation -> Applied.

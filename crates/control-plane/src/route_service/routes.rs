@@ -555,7 +555,7 @@ impl super::RouteService {
     }
 
     /// Expand every wildcard route template via SPT.
-    /// Called when the domain topology changes (group added/removed) or when a
+    /// Called when the domain topology changes (domain added/removed) or when a
     /// node registers and needs its routes populated.
     /// `add_single_route` rejects duplicates so this is idempotent.
     pub(super) async fn expand_all_wildcard_routes(
@@ -571,7 +571,7 @@ impl super::RouteService {
             }
         };
 
-        // Group wildcard routes by name. The first (oldest by created_at)
+        // Domain wildcard routes by name. The first (oldest by created_at)
         // route for each name owns the SPT; subsequent ones get downward paths.
         // Only consider non-deleted routes for expansion.
         let mut by_name: HashMap<(String, String, String, Option<String>), Vec<&Route>> =
@@ -920,7 +920,7 @@ mod tests {
         let svc = make_route_service(db.clone());
         let all_nodes = db.list_nodes().await.unwrap();
 
-        // First call: groups change (empty → {domain-a, domain-b}).
+        // First call: domains change (empty → {domain-a, domain-b}).
         assert!(svc.rebuild_link_graph(&all_nodes).await);
 
         // Second call with same nodes: no change.

@@ -221,7 +221,7 @@ mod tests {
             .with_servers(vec![server_config.clone()])
             .with_clients(vec![client_config]);
 
-        let domain_name = Some("test-group".to_string());
+        let domain_name = Some("test-domain".to_string());
         let message_processor = MessageProcessor::new();
 
         let _control_plane = config.into_service(
