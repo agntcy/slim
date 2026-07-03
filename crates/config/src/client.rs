@@ -942,4 +942,52 @@ mod tests {
         };
         assert!(client.merge_server_requirements(&server).is_err());
     }
+
+    #[test]
+    fn test_from_client_config_none_auth() {
+        let client = ClientConfig::with_endpoint("http://host:1234")
+            .with_tls_setting(TLSSetting::insecure());
+        let server = ServerConnectionConfig::from_client_config(&client);
+        assert_eq!(server.endpoint, "http://host:1234");
+        assert!(!server.tls_required);
+        assert_eq!(server.auth_method, RequiredAuthMethod::None);
+        assert!(server.timeout.is_none());
+        assert!(server.backoff.is_none());
+    }
+
+    #[test]
+    fn test_from_client_config_basic_auth() {
+        let client = ClientConfig::with_endpoint("http://host:1234")
+            .with_auth(AuthenticationConfig::Basic(Default::default()));
+        let server = ServerConnectionConfig::from_client_config(&client);
+        assert_eq!(server.auth_method, RequiredAuthMethod::Basic);
+    }
+
+    #[test]
+    fn test_from_client_config_jwt_auth() {
+        let client = ClientConfig::with_endpoint("http://host:1234")
+            .with_auth(AuthenticationConfig::StaticJwt(Default::default()));
+        let server = ServerConnectionConfig::from_client_config(&client);
+        assert_eq!(server.auth_method, RequiredAuthMethod::Jwt);
+    }
+
+    #[cfg(not(target_family = "windows"))]
+    #[test]
+    fn test_from_client_config_spire_auth() {
+        use crate::auth::spire::SpireConfig;
+        let spire = SpireConfig {
+            trust_domains: vec!["example.org".to_string()],
+            ..Default::default()
+        };
+        let client = ClientConfig::with_endpoint("https://host:1234")
+            .with_auth(AuthenticationConfig::Spire(spire));
+        let server = ServerConnectionConfig::from_client_config(&client);
+        assert_eq!(
+            server.auth_method,
+            RequiredAuthMethod::Spire {
+                trust_domain: Some("example.org".to_string())
+            }
+        );
+        assert!(server.tls_required);
+    }
 }

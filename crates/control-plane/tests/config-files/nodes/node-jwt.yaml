@@ -1,0 +1,27 @@
+# SLIM node with static JWT auth on the controller client connection.
+# Registers with tls_required=false, auth_method=jwt (derived from the client auth type).
+tracing:
+  log_level: debug
+
+services:
+  slim/node-jwt:
+    group_name: deployment-jwt
+    dataplane:
+      servers:
+        - endpoint: "127.0.0.1:46202"
+          tls:
+            insecure: true
+          metadata:
+            external_endpoint: "127.0.0.1:46202"
+    controller:
+      servers:
+        - endpoint: "127.0.0.1:47202"
+          tls:
+            insecure: true
+      clients:
+        - endpoint: "http://127.0.0.1:50052"
+          tls:
+            insecure: true
+          auth:
+            type: static_jwt
+            token_file: "/var/run/slim/token"

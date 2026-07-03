@@ -204,6 +204,8 @@ mod tests {
     use super::super::test_utils::{make_conn_details, make_node, make_route_service};
     use super::*;
     use crate::db::inmemory::InMemoryDb;
+    use crate::db::model::AuthMethod;
+    use slim_config::client::RequiredAuthMethod;
 
     #[test]
     fn select_connection_same_group_returns_first() {
@@ -402,5 +404,87 @@ mod tests {
     fn endpoint_matches_no_false_positive() {
         assert!(!endpoint_matches("https://host:8080", "https://other:8080"));
         assert!(!endpoint_matches("host:9090", "host:8080"));
+    }
+
+    #[test]
+    fn generate_config_data_tls_spire_returns_https_and_spire_auth() {
+        let cd = crate::db::ConnectionDetails {
+            endpoint: "host:8080".to_string(),
+            external_endpoint: Some("ext:9090".to_string()),
+            tls_required: true,
+            auth_method: AuthMethod::Spire,
+            spire_trust_domain: Some("mygroup".to_string()),
+        };
+        let dest = make_node("dst", Some("mygroup"), vec![cd.clone()]);
+        let (ep, config) = generate_config_data(&cd, false, &dest).unwrap();
+        assert!(ep.starts_with("https://"), "expected https, got {ep}");
+        assert!(config.tls_required);
+        assert_eq!(
+            config.auth_method,
+            RequiredAuthMethod::Spire {
+                trust_domain: Some("mygroup".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn generate_config_data_tls_spire_falls_back_to_group_trust_domain() {
+        let cd = crate::db::ConnectionDetails {
+            endpoint: "host:8080".to_string(),
+            external_endpoint: Some("ext:9090".to_string()),
+            tls_required: true,
+            auth_method: AuthMethod::Spire,
+            spire_trust_domain: None, // no explicit trust domain
+        };
+        let dest = make_node("dst", Some("fallback-group"), vec![cd.clone()]);
+        let (_, config) = generate_config_data(&cd, false, &dest).unwrap();
+        assert_eq!(
+            config.auth_method,
+            RequiredAuthMethod::Spire {
+                trust_domain: Some("fallback-group".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn find_reported_connection_matches_by_endpoint() {
+        use slim_config::client::ServerConnectionConfig;
+        let reported = vec![
+            ReportedConnection {
+                endpoint: "https://host:8080".to_string(),
+                link_id: "link-1".to_string(),
+                config_data: ServerConnectionConfig::default(),
+            },
+            ReportedConnection {
+                endpoint: "https://other:9090".to_string(),
+                link_id: "link-2".to_string(),
+                config_data: ServerConnectionConfig::default(),
+            },
+        ];
+        let found = find_reported_connection(&reported, "host:8080");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().link_id, "link-1");
+        assert!(find_reported_connection(&reported, "missing:1234").is_none());
+    }
+
+    #[test]
+    fn find_reported_connection_for_dest_matches_internal_or_external() {
+        use slim_config::client::ServerConnectionConfig;
+        let reported = vec![ReportedConnection {
+            endpoint: "https://ext:9090".to_string(),
+            link_id: "link-ext".to_string(),
+            config_data: ServerConnectionConfig::default(),
+        }];
+        let dst = make_node(
+            "dst",
+            None,
+            vec![make_conn_details("host:8080", Some("ext:9090"))],
+        );
+        let found = find_reported_connection_for_dest(&reported, &dst);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().link_id, "link-ext");
+
+        let unrelated = make_node("other", None, vec![make_conn_details("other:1111", None)]);
+        assert!(find_reported_connection_for_dest(&reported, &unrelated).is_none());
     }
 }

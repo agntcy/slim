@@ -1,0 +1,32 @@
+# SLIM node with SPIRE mTLS.
+# metadata.spire_socket_path → auth_method=spire; metadata.trust_domain → spire_trust_domain.
+# Requires a running SPIRE agent at the configured socket path.
+tracing:
+  log_level: debug
+
+services:
+  slim/node-spire:
+    group_name: deployment-spire
+    dataplane:
+      servers:
+        - endpoint: "127.0.0.1:46201"
+          tls:
+            insecure: false
+          metadata:
+            external_endpoint: "127.0.0.1:46201"
+            spire_socket_path: "/run/spire/agent.sock"
+            trust_domain: "example.org"
+    controller:
+      servers:
+        - endpoint: "127.0.0.1:47201"
+          tls:
+            insecure: false
+      clients:
+        - endpoint: "https://127.0.0.1:50052"
+          tls:
+            insecure: false
+          auth:
+            type: spire
+            socket_path: "/run/spire/agent.sock"
+            trust_domains:
+              - "spire.example.org"

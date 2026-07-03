@@ -1,0 +1,29 @@
+# SLIM node with TLS + basic auth.
+# Registers with tls_required=true, auth_method=basic.
+# Requires TLS certificates — not usable in local insecure testing.
+tracing:
+  log_level: debug
+
+services:
+  slim/node-tls:
+    group_name: deployment-tls
+    dataplane:
+      servers:
+        - endpoint: "127.0.0.1:46200"
+          tls:
+            insecure: false
+          metadata:
+            external_endpoint: "127.0.0.1:46200"
+    controller:
+      servers:
+        - endpoint: "127.0.0.1:47200"
+          tls:
+            insecure: false
+      clients:
+        - endpoint: "https://127.0.0.1:50052"
+          tls:
+            insecure: false
+          auth:
+            type: basic
+            username: "slim-node"
+            password: "password"
