@@ -139,6 +139,6 @@ channel-manager:
 
 ## Next Steps
 
-- [SDK Tutorials](../components/sdk/tutorial-connect.md) — Connect your application to the running node
+- [SDK Tutorials](../components/sdk/tutorials/tutorial-connect.md) — Connect your application to the running node
 - [Data Plane Configuration Reference](../components/data-plane/config.md) — All available config options
 - [Docker Deployment](./docker.md) — Run SLIM in containers

@@ -173,9 +173,9 @@ Connected — app id: myorg/default/my-app/<client-id>
 
 You have a running SLIM node and a connected application. Continue with the SDK tutorials to start exchanging messages:
 
-- [Creating an App](./components/sdk/tutorial-app.md) — register application identities for both sides of a conversation
-- [Creating a Session](./components/sdk/tutorial-session.md) — open a point-to-point or group session and send your first message
-- [Receiving a Session](./components/sdk/tutorial-receive.md) — listen for incoming sessions, receive messages, and reply
+- [Creating an App](./components/sdk/tutorials/tutorial-app.md) — register application identities for both sides of a conversation
+- [Creating a Session](./components/sdk/tutorials/tutorial-session.md) — open a point-to-point or group session and send your first message
+- [Receiving a Session](./components/sdk/tutorials/tutorial-receive.md) — listen for incoming sessions, receive messages, and reply
 
 Or explore further:
 

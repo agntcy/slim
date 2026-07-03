@@ -133,7 +133,7 @@ Each language generates:
 - **Server interface** — the interface you implement to handle incoming calls
 - **Registration function** — registers your implementation with a `Server` instance
 
-See the [Serving](./tutorial-serve.md) and [Using](./tutorial-client.md) tutorials for how to use the generated code.
+See the [Serving](../tutorials/slimrpc/tutorial-serve.md) and [Using](../tutorials/slimrpc/tutorial-client.md) tutorials for how to use the generated code.
 
 ## Full Reference
 

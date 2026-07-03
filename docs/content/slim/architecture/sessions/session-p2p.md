@@ -59,5 +59,5 @@ sequenceDiagram
 ## Related
 
 - [Sessions](./index.md) — Session types overview, properties, and choosing between P2P and Group
-- [Creating a Session](../../components/sdk/tutorial-session.md) — SDK tutorial with P2P code examples in Python and Go
+- [Creating a Session](../../components/sdk/tutorials/tutorial-session.md) — SDK tutorial with P2P code examples in Python and Go
 - [Naming](../naming.md) — Anycast vs. unicast addressing
