@@ -461,7 +461,7 @@ html [data-md-color-primary=black] .md-nav--primary .md-nav__source {
 /* Landing and community pages */
 
 .md-grid {
-  max-width: 80%;
+  max-width: 1920px;
 }
 
 h1#agent-directory-service {
