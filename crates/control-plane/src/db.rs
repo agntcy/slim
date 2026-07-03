@@ -91,7 +91,11 @@ pub trait DataAccess: Send + Sync {
         dest_node_id: &str,
     ) -> Result<Option<Link>>;
     /// Find a non-deleted link between two domains (in either direction).
-    async fn find_link_between_domains(&self, domain_a: &str, domain_b: &str) -> Result<Option<Link>>;
+    async fn find_link_between_domains(
+        &self,
+        domain_a: &str,
+        domain_b: &str,
+    ) -> Result<Option<Link>>;
 
     /// Atomically check for an existing non-deleted link between the two nodes
     /// (in either direction) and insert `link` only if none exists.

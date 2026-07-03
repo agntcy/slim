@@ -735,7 +735,11 @@ impl DataAccess for SqliteDb {
             })
     }
 
-    async fn find_link_between_domains(&self, domain_a: &str, domain_b: &str) -> Result<Option<Link>> {
+    async fn find_link_between_domains(
+        &self,
+        domain_a: &str,
+        domain_b: &str,
+    ) -> Result<Option<Link>> {
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
             context: "find_link_between_domains pool",
             msg: e.to_string(),

@@ -247,7 +247,12 @@ async fn start_domain_node(
 }
 
 /// Start a single node in a domain (no peers).
-async fn start_single_node(name: &str, domain: &str, southbound_port: u16, dp_port: u16) -> Service {
+async fn start_single_node(
+    name: &str,
+    domain: &str,
+    southbound_port: u16,
+    dp_port: u16,
+) -> Service {
     start_domain_node(name, domain, southbound_port, dp_port, &[(name, dp_port)]).await
 }
 
@@ -1487,7 +1492,8 @@ async fn test_reconnect_different_endpoint() {
     // Verify the link involves node-b's new endpoint. The link direction may
     // vary, so check that the link is between the domains and active.
     let link =
-        wait_for_link_between_domains_entry(&mut client, "domain-a", "domain-b", SHORT_TIMEOUT).await;
+        wait_for_link_between_domains_entry(&mut client, "domain-a", "domain-b", SHORT_TIMEOUT)
+            .await;
     // The link should be fully established (both source and dest populated).
     assert!(
         !link.source_node_id.is_empty() && !link.dest_node_id.is_empty(),
@@ -1967,8 +1973,14 @@ async fn auth_rejects_no_credentials() {
 
     let dp_port = reserve_port();
     // No auth config → empty credentials in registration request.
-    let _no_auth_node =
-        start_node_with_auth("no-auth-node", "domain-a", cp.southbound_port, dp_port, None).await;
+    let _no_auth_node = start_node_with_auth(
+        "no-auth-node",
+        "domain-a",
+        cp.southbound_port,
+        dp_port,
+        None,
+    )
+    .await;
 
     // Give it time to attempt registration.
     tokio::time::sleep(Duration::from_secs(3)).await;

@@ -790,7 +790,12 @@ async fn segment_remove(name: &str, opts: &ClientConfig) -> Result<()> {
     Ok(())
 }
 
-async fn link_add(domain_a: &str, domain_b: &str, segment: &str, opts: &ClientConfig) -> Result<()> {
+async fn link_add(
+    domain_a: &str,
+    domain_b: &str,
+    segment: &str,
+    opts: &ClientConfig,
+) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
     let resp = rpc!(
         client,

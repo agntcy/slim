@@ -637,7 +637,11 @@ impl DataAccess for InMemoryDb {
         ))
     }
 
-    async fn find_link_between_domains(&self, domain_a: &str, domain_b: &str) -> Result<Option<Link>> {
+    async fn find_link_between_domains(
+        &self,
+        domain_a: &str,
+        domain_b: &str,
+    ) -> Result<Option<Link>> {
         let store = self.links.read();
         Ok(store
             .primary

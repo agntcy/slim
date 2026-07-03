@@ -409,9 +409,9 @@ impl SegmentConfig {
         if self.name.contains("$domain") {
             return true;
         }
-        self.links
-            .iter()
-            .any(|e| e.domain.contains("$domain") || e.neighbors.iter().any(|n| n.contains("$domain")))
+        self.links.iter().any(|e| {
+            e.domain.contains("$domain") || e.neighbors.iter().any(|n| n.contains("$domain"))
+        })
     }
 
     /// Expand this template segment for a specific domain value.

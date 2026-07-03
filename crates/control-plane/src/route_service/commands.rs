@@ -74,7 +74,8 @@ impl super::RouteService {
             .and_then(|n| n.domain_name)
             .unwrap_or_default();
 
-        let db_route = route.to_db_route(source_node_id, &source_domain, dest_node_id, &dest_domain);
+        let db_route =
+            route.to_db_route(source_node_id, &source_domain, dest_node_id, &dest_domain);
         let route_id = self.add_single_route(db_route).await?;
 
         if source_node_id == ALL_NODES_ID {
