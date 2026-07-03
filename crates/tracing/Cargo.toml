@@ -37,7 +37,7 @@ getrandom = { workspace = true }
 opentelemetry = { workspace = true, optional = true }
 # `rt-tokio` from the workspace preset is native-only; trace-only is enough here.
 opentelemetry_sdk = { version = "0.31.0", default-features = false, features = [
-  "trace",
+    "trace",
 ], optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }

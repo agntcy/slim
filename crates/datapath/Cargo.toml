@@ -52,46 +52,53 @@ tonic-prost = { workspace = true }
 
 # rand / uuid transitively need getrandom; on wasm32 the `wasm_js` backend must be enabled.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+display-error-chain = { workspace = true }
+# Graceful-shutdown coordination (drain::Signal/Watch) used by message_processing.
+drain = { workspace = true }
 getrandom = { workspace = true }
 # Browser WebSocket transport: gloo-net wraps the JS `WebSocket` in a
 # futures `Stream`/`Sink`, driven by `wasm_bindgen_futures::spawn_local`.
 gloo-net = { workspace = true }
-# `tonic` (transport disabled) only for `tonic::Status`, matching the native
-# transport task's inbound item type so `message_processing` stays uniform.
-tonic = { version = "0.14", default-features = false }
-tokio = { package = "tokio_with_wasm", version = "0.9", features = ["sync", "macros", "rt", "time"] }
-tokio-stream = { workspace = true }
-tokio-util = { workspace = true }
-uuid = { workspace = true, features = ["v4", "js"] }
-wasm-bindgen-futures = { workspace = true }
-display-error-chain = { workspace = true }
-# Graceful-shutdown coordination (drain::Signal/Watch) used by message_processing.
-drain = { workspace = true }
-semver = { workspace = true }
 
 # Pure-Rust crypto for the browser: HMAC-SHA256 header integrity + X25519/HKDF
 # inter-node link key agreement (aws-lc-rs is native-only).
 hkdf = { workspace = true }
 hmac = { workspace = true }
+semver = { workspace = true }
 sha2 = { workspace = true }
+tokio = { package = "tokio_with_wasm", version = "0.9", features = ["sync", "macros", "rt", "time"] }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+# `tonic` (transport disabled) only for `tonic::Status`, matching the native
+# transport task's inbound item type so `message_processing` stays uniform.
+tonic = { version = "0.14", default-features = false }
+uuid = { workspace = true, features = ["v4", "js"] }
+wasm-bindgen-futures = { workspace = true }
 x25519-dalek = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim-testing = { workspace = true }
 anyhow = { workspace = true }
 criterion = { workspace = true }
-opentelemetry_sdk = { workspace = true }
-tracing-subscriber = { workspace = true }
-serde_yaml = { workspace = true }
-tokio = { workspace = true, features = ["test-util"] }
-tracing-test = { workspace = true, features = ["no-env-filter"] }
 # Pure-Rust browser crypto backends, compiled into native test builds so the
 # native coverage run exercises them (see `header_mac`/`link_ecdh` tests).
 getrandom = { workspace = true }
 hkdf = { workspace = true }
 hmac = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+serde_yaml = { workspace = true }
 sha2 = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+tracing-subscriber = { workspace = true }
+tracing-test = { workspace = true, features = ["no-env-filter"] }
 x25519-dalek = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+# Executes the browser-only unit tests (runtime spawn, wasm_js getrandom + pure
+# crypto) under wasm-bindgen-test-runner. Does not affect native coverage; run
+# via `task test:wasm`. Requires wasm-bindgen-cli to match the locked
+# wasm-bindgen version.
+wasm-bindgen-test = "0.3"
 
 [[bench]]
 name = "pool_benchmark"

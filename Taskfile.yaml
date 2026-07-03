@@ -304,6 +304,20 @@ tasks:
     vars:
       ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
+  test:wasm:
+    desc: "Run the wasm32 browser unit tests (needs wasm-bindgen-cli matching the locked wasm-bindgen version)"
+    deps:
+      - task: install-target
+        vars:
+          TARGET: wasm32-unknown-unknown
+    env:
+      CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+    cmds:
+      - cargo test --target wasm32-unknown-unknown -p agntcy-slim-datapath --test wasm_browser_test {{.ARGS}}
+      - cargo test --target wasm32-unknown-unknown -p agntcy-slim-config --test wasm_client_test {{.ARGS}}
+    vars:
+      ARGS: '{{.ARGS | default "--locked"}}'
+
   test:coverage:
     desc: "Run tests coverage"
     deps:

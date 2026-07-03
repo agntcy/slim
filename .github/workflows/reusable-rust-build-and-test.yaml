@@ -42,6 +42,11 @@ on:
         required: false
         type: boolean
         default: true
+      rust-test-wasm:
+        description: Whether to run "task test:wasm" (wasm32 browser unit tests)
+        required: false
+        type: boolean
+        default: true
       rust-cross-build:
         description: Whether to run "task build"
         required: false
@@ -155,6 +160,54 @@ jobs:
             echo "One or more matrix jobs failed."
             false
           fi
+
+  wasm-test:
+    runs-on: ${{ inputs.runner }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+
+    if: ${{ inputs.rust-test-wasm }}
+    needs: [lint]
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: ${{ inputs.working-directory }}
+
+      - name: Add wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Install pinned wasm-bindgen-cli
+        # The wasm-bindgen-test runner must exactly match the wasm-bindgen crate
+        # version pinned in Cargo.lock, otherwise it aborts with a schema-version
+        # error. Derive the version from the lockfile so this stays in sync.
+        run: |
+          version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock \
+            | grep '^version' | head -n1 | cut -d'"' -f2)
+          if [[ -z "${version}" ]]; then
+            echo "::error::could not determine wasm-bindgen version from Cargo.lock"
+            exit 1
+          fi
+          echo "Locked wasm-bindgen version: ${version}"
+          if wasm-bindgen --version 2>/dev/null | grep -qx "wasm-bindgen ${version}"; then
+            echo "wasm-bindgen-cli ${version} already installed"
+          else
+            cargo install -f wasm-bindgen-cli --version "${version}"
+          fi
+
+      - name: Run wasm unit tests
+        env:
+          TASK_PREFIX: ${{ inputs.task-prefix }}
+        run: |
+          task "${TASK_PREFIX:+${TASK_PREFIX}:}test:wasm"
 
   cross-build:
     runs-on: ${{ inputs.runner }}

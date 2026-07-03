@@ -18,17 +18,6 @@ cfg-if = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 
-# Browser build: a minimal client config + gloo-net WebSocket connect. Auth,
-# TLS, proxy and gRPC are intentionally excluded (the browser handles wss://
-# TLS, and header/query-token auth is layered above).
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-duration-string = { workspace = true }
-gloo-net = { workspace = true }
-http = { workspace = true }
-percent-encoding = { workspace = true }
-thiserror = { workspace = true }
-uuid = { workspace = true, features = ["v4", "js"] }
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim-auth = { workspace = true }
 async-trait = { workspace = true }
@@ -72,6 +61,17 @@ tracing = { workspace = true }
 tracing-test = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
+# Browser build: a minimal client config + gloo-net WebSocket connect. Auth,
+# TLS, proxy and gRPC are intentionally excluded (the browser handles wss://
+# TLS, and header/query-token auth is layered above).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+duration-string = { workspace = true }
+gloo-net = { workspace = true }
+http = { workspace = true }
+percent-encoding = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true, features = ["v4", "js"] }
+
 [build-dependencies]
 protoc-bin-vendored = { workspace = true }
 tonic-prost-build = { workspace = true }
@@ -81,3 +81,8 @@ agntcy-slim-testing = { workspace = true }
 rand = { workspace = true }
 serde_json = { workspace = true }
 tracing-test = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+# Executes the browser WebSocket client-config unit tests under
+# wasm-bindgen-test-runner (see `task test:wasm`).
+wasm-bindgen-test = "0.3"

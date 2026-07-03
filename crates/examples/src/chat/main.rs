@@ -115,12 +115,11 @@ fn source_label(msg: &ProtoMessage) -> String {
 }
 
 fn publish_text(msg: &ProtoMessage) -> Option<String> {
-    if let MessageType::Publish(p) = msg.get_type() {
-        if let Some(content) = p.msg.as_ref() {
-            if let Some(ContentType::AppPayload(app)) = content.content_type.as_ref() {
-                return Some(String::from_utf8_lossy(&app.blob).into_owned());
-            }
-        }
+    if let MessageType::Publish(p) = msg.get_type()
+        && let Some(content) = p.msg.as_ref()
+        && let Some(ContentType::AppPayload(app)) = content.content_type.as_ref()
+    {
+        return Some(String::from_utf8_lossy(&app.blob).into_owned());
     }
     None
 }
