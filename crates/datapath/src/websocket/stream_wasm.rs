@@ -61,7 +61,8 @@ pub fn spawn_transport_tasks(
                         Err(err) => {
                             let _ = tx_inbound
                                 .send(Err(Status::invalid_argument(format!(
-                                    "invalid protobuf payload in websocket frame: {err}",
+                                    "invalid protobuf payload in websocket frame: {}",
+                                    err
                                 ))))
                                 .await;
                         }
@@ -73,7 +74,8 @@ pub fn spawn_transport_tasks(
                 Some(Err(err)) => {
                     let _ = tx_inbound
                         .send(Err(Status::unavailable(format!(
-                            "websocket read error: {err}",
+                            "websocket read error: {}",
+                            err
                         ))))
                         .await;
                     break;
@@ -103,7 +105,7 @@ pub fn spawn_transport_tasks(
                 .send(gloo_net::websocket::Message::Bytes(payload))
                 .await
             {
-                warn!(error = %err, "websocket write error");
+                warn!("websocket write error: {}", err);
                 break;
             }
         }
