@@ -72,6 +72,6 @@ SLIMRPC code generation is supported for Python, Go, Java, Kotlin, and .NET (C#)
 
 ## Tutorials
 
-- [Serving a SLIMRPC Server](./tutorial-serve.md) — define a proto, generate stubs, implement handlers, and serve
-- [Using a SLIMRPC Server](./tutorial-client.md) — create a channel and call all four streaming patterns
-- [Multicast SLIMRPC](./tutorial-multicast.md) — fan out a single call to multiple servers and collect their responses
+- [Serving a SLIMRPC Server](../tutorials/slimrpc/tutorial-serve.md) — define a proto, generate stubs, implement handlers, and serve
+- [Using a SLIMRPC Server](../tutorials/slimrpc/tutorial-client.md) — create a channel and call all four streaming patterns
+- [Multicast SLIMRPC](../tutorials/slimrpc/tutorial-multicast.md) — fan out a single call to multiple servers and collect their responses

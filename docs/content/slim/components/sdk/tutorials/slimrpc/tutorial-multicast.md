@@ -197,5 +197,5 @@ Each response item carries both the response payload and the context identifying
 
 ## Next Steps
 
-- [SLIMRPC](./index.md) — How multicast channels use SLIM group sessions under the hood
+- [SLIMRPC](../../slimrpc/index.md) — How multicast channels use SLIM group sessions under the hood
 - [Using a SLIMRPC Server](./tutorial-client.md) — Point-to-point calls with all four streaming patterns

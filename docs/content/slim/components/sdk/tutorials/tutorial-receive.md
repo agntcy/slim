@@ -298,5 +298,5 @@ There are two ways to reply:
 
 ## Next Steps
 
-- [Sessions](../../architecture/sessions/index.md) — Deep dive into session types, sequence diagrams, and the full API
-- [Groups](../../architecture/sessions/group.md) — Group creation and membership management via the SLIM Controller
+- [Sessions](../../../architecture/sessions/index.md) — Deep dive into session types, sequence diagrams, and the full API
+- [Groups](../../../architecture/sessions/group.md) — Group creation and membership management via the SLIM Controller

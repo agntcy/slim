@@ -35,9 +35,9 @@ Applications never connect to each other directly. They connect to a nearby SLIM
 
 Work through the tutorials to learn the fundamentals step by step:
 
-1. [Connecting to SLIM](./tutorial-connect.md) — Configure and connect your application to a SLIM node
-2. [Creating an App](./tutorial-app.md) — Register an application identity and set up message handlers
-3. [Creating a Session](./tutorial-session.md) — Establish point-to-point and group sessions
+1. [Connecting to SLIM](./tutorials/tutorial-connect.md) — Configure and connect your application to a SLIM node
+2. [Creating an App](./tutorials/tutorial-app.md) — Register an application identity and set up message handlers
+3. [Creating a Session](./tutorials/tutorial-session.md) — Establish point-to-point and group sessions
 
 ## What to Read Next
 

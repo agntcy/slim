@@ -424,4 +424,4 @@ Complete client examples for each language:
 ## Next Steps
 
 - [Multicast SLIMRPC](./tutorial-multicast.md) — Fan out a single call to multiple servers simultaneously
-- [SLIMRPC](./index.md) — Naming scheme, under-the-hood details, and multicast RPC
+- [SLIMRPC](../../slimrpc/index.md) — Naming scheme, under-the-hood details, and multicast RPC

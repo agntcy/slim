@@ -57,5 +57,5 @@ For the full membership lifecycle — how participants are added and removed, th
 
 - [Point-to-Point Session](./session-p2p.md) — Establishment sequence, phases, and protocol detail
 - [Group Session](./group.md) — The group communication model, moderation, and use cases
-- [Creating a Session](../../components/sdk/tutorial-session.md) — SDK tutorial with code examples for both session types
+- [Creating a Session](../../components/sdk/tutorials/tutorial-session.md) — SDK tutorial with code examples for both session types
 - [Naming](../naming.md) — How channel and client names work

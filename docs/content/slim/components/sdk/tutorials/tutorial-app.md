@@ -16,7 +16,7 @@ org/namespace/service/clientId
 
 The first three components (`org/namespace/service`) are chosen by you and describe your organisation, deployment context, and service. The fourth component (`clientId`) is assigned by SLIM based on the client's cryptographic identity.
 
-See [Naming](../../architecture/naming.md) for full details on the naming scheme.
+See [Naming](../../../architecture/naming.md) for full details on the naming scheme.
 
 ## Step 1: Create the App
 
@@ -430,4 +430,4 @@ Before establishing a session to a remote application, your local SLIM node must
 ## Next Steps
 
 - [Creating a Session](./tutorial-session.md) — Establish point-to-point and group sessions using the `local_app` and `conn_id` from this tutorial
-- [Naming](../../architecture/naming.md) — Understand the full naming scheme including anycast vs. unicast
+- [Naming](../../../architecture/naming.md) — Understand the full naming scheme including anycast vs. unicast

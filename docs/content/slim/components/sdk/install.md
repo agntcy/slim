@@ -121,5 +121,5 @@ See the README in each binding directory for language-specific build instruction
 
 ## Next Steps
 
-- [Connecting to SLIM](./tutorial-connect.md) — Your first connection to a SLIM node
+- [Connecting to SLIM](./tutorials/tutorial-connect.md) — Your first connection to a SLIM node
 - [SLIM SDK Overview](./index.md) — Learn what the SDK provides
