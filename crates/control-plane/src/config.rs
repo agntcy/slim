@@ -173,7 +173,6 @@ impl Default for ReconcilerConfig {
 ///         - group: platform
 ///           neighbors: [$group]
 /// ```
-
 /// Combined topology and registration auth settings.
 #[derive(Debug, Clone, Default)]
 pub struct TopologySettings {
