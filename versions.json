@@ -7,9 +7,7 @@
   {
     "version": "slimctl-v2.0.0-alpha.1",
     "title": "slimctl-v2.0.0-alpha.1",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-version-v2.0.0-alpha.2",
@@ -95,6 +93,13 @@
     "version": "slim-auth-v0.10.0",
     "title": "slim-auth-v0.10.0",
     "aliases": []
+  },
+  {
+    "version": "helm-slim-v1.5.0",
+    "title": "helm-slim-v1.5.0",
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "dev",
