@@ -44,7 +44,7 @@ impl ControlPlane {
             db.clone(),
             cmd_handler.clone(),
             cfg.reconciler,
-            cfg.topology,
+            cfg.topology.config,
         );
 
         // In API mode, ensure "default" segment exists, then load segment graphs from DB.
@@ -63,9 +63,9 @@ impl ControlPlane {
             NorthboundApiService::new(db.clone(), cmd_handler.clone(), route_service.clone());
 
         // Build group authenticator from config (Noop when no auth configured).
-        let authenticator = match cfg.registration_auth {
+        let authenticator = match cfg.topology.auth {
             None => GroupAuthenticator::Noop,
-            Some(auth_cfg) => Self::build_authenticator(auth_cfg).await?,
+            Some(auth_cfg) => Self::build_authenticator(auth_cfg, is_api_managed).await?,
         };
 
         let (drain_tx, drain_rx) = drain::channel();
@@ -109,15 +109,16 @@ impl ControlPlane {
 
     async fn build_authenticator(
         cfg: crate::config::RegistrationAuthConfig,
+        is_api_managed: bool,
     ) -> Result<GroupAuthenticator> {
         use crate::config::RegistrationAuthConfig;
         use std::collections::HashMap;
 
         match cfg {
             RegistrationAuthConfig::SharedSecret { secrets } => {
-                if secrets.is_empty() {
+                if secrets.is_empty() && !is_api_managed {
                     return Err(anyhow::anyhow!(
-                        "registration_auth.shared_secret.secrets cannot be empty"
+                        "topology.auth.shared_secret.secrets cannot be empty in config mode"
                     ));
                 }
                 let mut verifiers = HashMap::with_capacity(secrets.len());

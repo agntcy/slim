@@ -26,12 +26,9 @@ pub struct Config {
     pub database: DatabaseConfig,
     /// Tracing / logging configuration.
     pub tracing: TracingConfiguration,
-    /// Topology configuration: controls link creation and route visibility
-    /// between node groups.
-    pub topology: TopologyConfig,
-    /// Optional authentication for node group membership on registration.
-    /// When absent, all registrations are accepted.
-    pub registration_auth: Option<RegistrationAuthConfig>,
+    /// Topology and auth configuration: controls link creation, route visibility
+    /// between node groups, and optional node registration authentication.
+    pub topology: TopologySettings,
 }
 
 impl Default for Config {
@@ -50,8 +47,7 @@ impl Default for Config {
             reconciler: ReconcilerConfig::default(),
             database: DatabaseConfig::default(),
             tracing: TracingConfiguration::default(),
-            topology: TopologyConfig::default(),
-            registration_auth: None,
+            topology: TopologySettings::default(),
         }
     }
 }
@@ -112,14 +108,20 @@ impl Default for ReconcilerConfig {
     }
 }
 
-/// Topology configuration: controls link creation and route visibility
-/// between node groups.
+/// Topology and authentication configuration.
+///
+/// Controls link creation, route visibility between node groups, and optional
+/// node registration authentication.
 ///
 /// The topology mode is determined by which field is present in YAML:
 /// - Neither `links` nor `segments` → **API-managed mode** (DB owns topology)
 /// - `links` → config-managed, single routing domain with custom link graph
 /// - `segments` → config-managed, multiple independent routing domains
 /// - Both → deserialization error
+///
+/// The optional `auth` field configures registration authentication.
+/// In API mode, shared secret groups are managed via gRPC (persisted in DB).
+/// In config mode, secrets come from the file and CRUD APIs are rejected.
 ///
 /// # Examples
 ///
@@ -130,13 +132,26 @@ impl Default for ReconcilerConfig {
 /// topology: {}
 /// ```
 ///
-/// **Full mesh (config-managed):** use wildcard link entry.
+/// **API-managed with SPIRE auth:**
+///
+/// ```yaml
+/// topology:
+///   auth:
+///     type: spire
+///     socket_path: "/run/spire/agent-sockets/api.sock"
+/// ```
+///
+/// **Config-managed with shared secret auth:**
 ///
 /// ```yaml
 /// topology:
 ///   links:
 ///     - group: "*"
 ///       neighbors: ["*"]
+///   auth:
+///     type: shared_secret
+///     secrets:
+///       cluster-a: "secret-for-cluster-a"
 /// ```
 ///
 /// **Single segment with star topology:**
@@ -158,6 +173,29 @@ impl Default for ReconcilerConfig {
 ///         - group: platform
 ///           neighbors: [$group]
 /// ```
+
+/// Combined topology and registration auth settings.
+#[derive(Debug, Clone, Default)]
+pub struct TopologySettings {
+    /// The topology link configuration (config vs API-managed).
+    pub config: TopologyConfig,
+    /// Optional registration auth configuration.
+    pub auth: Option<RegistrationAuthConfig>,
+}
+
+impl TopologySettings {
+    /// Returns `true` if topology is API-managed (no links/segments in config).
+    pub fn is_api_managed(&self) -> bool {
+        self.config.is_api_managed()
+    }
+
+    /// Returns `true` if topology is config-managed (links or segments defined).
+    pub fn is_config_managed(&self) -> bool {
+        self.config.is_config_managed()
+    }
+}
+
+/// Topology link graph mode.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum TopologyConfig {
     /// No topology configured: API-managed mode. The DB owns topology state
@@ -194,18 +232,20 @@ pub struct AdjacencyEntry {
     pub neighbors: Vec<String>,
 }
 
+/// Custom deserializer for `TopologyConfig`: parses `links` or `segments` keys.
+/// Unknown keys are silently ignored.
 impl<'de> Deserialize<'de> for TopologyConfig {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        struct TopologyVisitor;
+        struct TopologyConfigVisitor;
 
-        impl<'de> Visitor<'de> for TopologyVisitor {
+        impl<'de> Visitor<'de> for TopologyConfigVisitor {
             type Value = TopologyConfig;
 
             fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                f.write_str("a topology config with either 'links' or 'segments' (not both)")
+                f.write_str("a map with optional 'links' or 'segments' (not both)")
             }
 
             fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
@@ -258,7 +298,90 @@ impl<'de> Deserialize<'de> for TopologyConfig {
             }
         }
 
-        deserializer.deserialize_map(TopologyVisitor)
+        deserializer.deserialize_map(TopologyConfigVisitor)
+    }
+}
+
+/// Custom deserializer for `TopologySettings`: combines `TopologyConfig`
+/// (from `links`/`segments` keys) with optional `auth` key.
+impl<'de> Deserialize<'de> for TopologySettings {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct TopologySettingsVisitor;
+
+        impl<'de> Visitor<'de> for TopologySettingsVisitor {
+            type Value = TopologySettings;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str(
+                    "a topology settings map with optional 'links'/'segments' and 'auth' keys",
+                )
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let mut links: Option<Vec<AdjacencyEntry>> = None;
+                let mut segments: Option<Vec<SegmentConfig>> = None;
+                let mut auth: Option<RegistrationAuthConfig> = None;
+
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "links" => {
+                            if links.is_some() {
+                                return Err(de::Error::duplicate_field("links"));
+                            }
+                            links = Some(map.next_value()?);
+                        }
+                        "segments" => {
+                            if segments.is_some() {
+                                return Err(de::Error::duplicate_field("segments"));
+                            }
+                            segments = Some(map.next_value()?);
+                        }
+                        "auth" => {
+                            if auth.is_some() {
+                                return Err(de::Error::duplicate_field("auth"));
+                            }
+                            auth = Some(map.next_value()?);
+                        }
+                        _ => {
+                            map.next_value::<de::IgnoredAny>()?;
+                        }
+                    }
+                }
+
+                let config = match (links, segments) {
+                    (Some(_), Some(_)) => {
+                        return Err(de::Error::custom(
+                            "'links' and 'segments' are mutually exclusive in topology config",
+                        ));
+                    }
+                    (Some(l), None) => {
+                        if l.is_empty() {
+                            TopologyConfig::ApiManaged
+                        } else {
+                            TopologyConfig::Links(l)
+                        }
+                    }
+                    (None, Some(s)) => {
+                        if s.is_empty() {
+                            TopologyConfig::ApiManaged
+                        } else {
+                            TopologyConfig::Segments(s)
+                        }
+                    }
+                    (None, None) => TopologyConfig::ApiManaged,
+                };
+
+                Ok(TopologySettings { config, auth })
+            }
+        }
+
+        deserializer.deserialize_map(TopologySettingsVisitor)
     }
 }
 
@@ -437,27 +560,32 @@ impl SegmentConfig {
 
 /// Configuration for authenticating node group membership on registration.
 ///
+/// Nested under the `topology.auth` key:
 /// ```yaml
-/// registration_auth:
-///   type: shared_secret
-///   secrets:
-///     cluster-a: "secret-for-cluster-a-abcdefghi-1234567890"
-///     cluster-b: "secret-for-cluster-b-abcdefghi-1234567890"
+/// topology:
+///   auth:
+///     type: shared_secret
+///     secrets:
+///       cluster-a: "secret-for-cluster-a-abcdefghi-1234567890"
+///       cluster-b: "secret-for-cluster-b-abcdefghi-1234567890"
 /// ```
 ///
 /// Or for SPIRE (trust domain = group name):
 /// ```yaml
-/// registration_auth:
-///   type: spire
-///   socket_path: "/run/spire/agent-sockets/api.sock"
+/// topology:
+///   auth:
+///     type: spire
+///     socket_path: "/run/spire/agent-sockets/api.sock"
 /// ```
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum RegistrationAuthConfig {
     /// Per-group shared secret authentication.
-    /// Map of group name → secret string.
+    /// In config mode, secrets are read from this map.
+    /// In API mode, this map may be empty — secrets are managed via gRPC.
     SharedSecret {
         /// Map of group name → shared secret value.
+        #[serde(default)]
         secrets: HashMap<String, String>,
     },
     /// SPIRE-based authentication. Trust domain = group name by convention.
@@ -517,7 +645,7 @@ mod tests {
         let c = Config::default();
         assert_eq!(c.northbound.endpoint, "0.0.0.0:50051");
         assert_eq!(c.southbound.endpoint, "0.0.0.0:50052");
-        assert_eq!(c.topology, TopologyConfig::default());
+        assert_eq!(c.topology.config, TopologyConfig::default());
     }
 
     #[test]

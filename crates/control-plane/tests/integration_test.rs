@@ -28,7 +28,7 @@ use slim_control_plane::api::proto::controlplane::proto::v1::{
 };
 use slim_control_plane::config::{
     AdjacencyEntry, Config, DatabaseConfig, ReconcilerConfig, RegistrationAuthConfig,
-    SegmentConfig, TopologyConfig,
+    SegmentConfig, TopologyConfig, TopologySettings,
 };
 use slim_control_plane::server::ControlPlane;
 use slim_datapath::api::ProtoName as Name;
@@ -138,8 +138,10 @@ async fn start_control_plane(topology: TopologyConfig) -> TestControlPlane {
             .with_tls_settings(TlsServerConfig::insecure()),
         database: DatabaseConfig::InMemory,
         reconciler: test_reconciler_config(),
-        topology,
-        registration_auth: Some(test_registration_auth()),
+        topology: TopologySettings {
+            config: topology,
+            auth: Some(test_registration_auth()),
+        },
         ..Default::default()
     };
 
