@@ -97,6 +97,11 @@
   {
     "version": "helm-slim-v1.5.0",
     "title": "helm-slim-v1.5.0",
+    "aliases": []
+  },
+  {
+    "version": "helm-slim-control-plane-v1.5.0",
+    "title": "helm-slim-control-plane-v1.5.0",
     "aliases": [
       "latest"
     ]
