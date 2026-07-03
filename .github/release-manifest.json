@@ -1,6 +1,6 @@
 {
   "charts/slim": "1.4.0",
   "crates/testing": "0.7.1",
-  "charts/slim-control-plane": "1.4.0",
+  "charts/slim-control-plane": "1.5.0",
   "charts/slim-spire": "1.4.0"
 }
