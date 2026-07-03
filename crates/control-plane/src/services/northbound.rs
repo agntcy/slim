@@ -554,14 +554,34 @@ impl ControlPlaneService for NorthboundApiService {
         &self,
         _request: Request<ListGroupsRequest>,
     ) -> Result<Response<ListGroupsResponse>, Status> {
-        let groups = self
+        // Start with auth groups (from DB secrets).
+        let auth_groups = self
             .db
             .list_registration_secret_groups()
             .await
             .map_err(|e| Status::internal(format!("failed to list groups: {e}")))?;
+
+        let mut groups: std::collections::BTreeMap<String, Vec<String>> =
+            std::collections::BTreeMap::new();
+        for g in auth_groups {
+            groups.entry(g).or_default();
+        }
+
+        // Add connected nodes grouped by group_name.
+        let nodes = self
+            .db
+            .list_nodes()
+            .await
+            .map_err(|e| Status::internal(format!("failed to list nodes: {e}")))?;
+        for node in nodes {
+            if let Some(group_name) = node.group_name {
+                groups.entry(group_name).or_default().push(node.id);
+            }
+        }
+
         let entries = groups
             .into_iter()
-            .map(|group_name| GroupEntry { group_name })
+            .map(|(group_name, nodes)| GroupEntry { group_name, nodes })
             .collect();
         Ok(Response::new(ListGroupsResponse { groups: entries }))
     }

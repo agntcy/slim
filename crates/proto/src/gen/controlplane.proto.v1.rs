@@ -210,6 +210,9 @@ pub struct ListGroupsResponse {
 pub struct GroupEntry {
     #[prost(string, tag = "1")]
     pub group_name: ::prost::alloc::string::String,
+    /// Node IDs currently connected in this group (empty if no nodes connected yet).
+    #[prost(string, repeated, tag = "2")]
+    pub nodes: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AddGroupRequest {

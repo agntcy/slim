@@ -8,9 +8,10 @@ use tokio_stream::StreamExt;
 use crate::client::get_control_plane_client;
 use crate::proto::controller::proto::v1::{ConnectionDirection, ConnectionType};
 use crate::proto::controlplane::proto::v1::{
-    AddSegmentRequest, AddTopologyLinkRequest, LinkEntry, LinkListRequest, LinkStatus, Node,
-    NodeListRequest, NodeStatus, RemoveSegmentRequest, RemoveTopologyLinkRequest, RouteEntry,
-    RouteListRequest, RouteStatus, SegmentListRequest,
+    AddGroupRequest, AddSegmentRequest, AddTopologyLinkRequest, LinkEntry, LinkListRequest,
+    LinkStatus, ListGroupsRequest, Node, NodeListRequest, NodeStatus, RemoveGroupRequest,
+    RemoveSegmentRequest, RemoveTopologyLinkRequest, RouteEntry, RouteListRequest, RouteStatus,
+    SegmentListRequest,
 };
 use crate::rpc;
 use slim_config::grpc::client::ClientConfig;
@@ -160,6 +161,19 @@ pub enum ControllerGroupCommand {
     /// List all groups and their nodes
     #[command(visible_alias = "ls")]
     List,
+    /// Add a registration auth group with a shared secret (API-managed mode only)
+    Add {
+        /// Group name
+        group_name: String,
+        /// Shared secret for this group
+        secret: String,
+    },
+    /// Remove a group, disconnecting all its nodes (API-managed mode only)
+    #[command(visible_alias = "rm")]
+    Remove {
+        /// Group name
+        group_name: String,
+    },
 }
 
 // ── Segment ───────────────────────────────────────────────────────────────────
@@ -250,6 +264,10 @@ async fn run_link(args: &ControllerLinkArgs, opts: &ClientConfig) -> Result<()> 
 async fn run_group(args: &ControllerGroupArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
         ControllerGroupCommand::List => group_list(opts).await,
+        ControllerGroupCommand::Add { group_name, secret } => {
+            group_add(group_name, secret, opts).await
+        }
+        ControllerGroupCommand::Remove { group_name } => group_remove(group_name, opts).await,
     }
 }
 
@@ -533,17 +551,9 @@ async fn link_list_all(
     Ok(())
 }
 
-const ROUTE_HEADERS: [&str; 7] = [
-    "SOURCE",
-    "DEST_NODE",
-    "ROUTE",
-    "STATUS",
-    "STATUS_MSG",
-    "LAST_UPDATED",
-    "LINK_ID",
-];
+const ROUTE_HEADERS: [&str; 5] = ["SOURCE", "DEST_NODE", "ROUTE", "STATUS", "LINK_ID"];
 
-fn route_cells(r: &RouteEntry) -> [String; 7] {
+fn route_cells(r: &RouteEntry) -> [String; 5] {
     [
         r.source_node_id.clone(),
         if r.dest_node_id.is_empty() {
@@ -554,12 +564,6 @@ fn route_cells(r: &RouteEntry) -> [String; 7] {
         .to_string(),
         build_subscription_str(r),
         route_status_str(r.status),
-        if r.status_msg.is_empty() {
-            "-".to_string()
-        } else {
-            r.status_msg.clone()
-        },
-        format_unix_timestamp(r.last_updated),
         if r.link_id.is_empty() {
             "-".to_string()
         } else {
@@ -583,7 +587,7 @@ fn print_table_header(headers: &[&str], widths: &[usize]) {
     println!("  {}", "-".repeat(total));
 }
 
-fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 7] {
+fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 5] {
     let mut widths = ROUTE_HEADERS.map(|h| h.len());
     for r in routes {
         for (w, cell) in widths.iter_mut().zip(route_cells(r).iter()) {
@@ -593,11 +597,11 @@ fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 7] {
     widths
 }
 
-fn print_route_header(widths: &[usize; 7]) {
+fn print_route_header(widths: &[usize; 5]) {
     print_table_header(&ROUTE_HEADERS, widths);
 }
 
-fn print_route_row(route: &RouteEntry, widths: &[usize; 7]) {
+fn print_route_row(route: &RouteEntry, widths: &[usize; 5]) {
     print_row(&route_cells(route), widths);
 }
 
@@ -657,34 +661,13 @@ fn link_status_str(status: i32) -> String {
     }
 }
 
-fn format_unix_timestamp(ts: i64) -> String {
-    chrono::DateTime::from_timestamp(ts, 0)
-        .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
-        .unwrap_or_else(|| ts.to_string())
-}
-
 // ── Group commands ────────────────────────────────────────────────────────────
 
 async fn group_list(opts: &ClientConfig) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
-    let mut stream = rpc!(client, list_nodes, NodeListRequest {});
-    let mut entries = Vec::new();
-    while let Some(entry) = stream.next().await {
-        entries.push(entry?);
-    }
+    let resp = rpc!(client, list_groups, ListGroupsRequest {});
 
-    // Group nodes by group name
-    let mut groups: std::collections::BTreeMap<String, Vec<String>> =
-        std::collections::BTreeMap::new();
-    for e in &entries {
-        let group = if e.group.is_empty() {
-            "(none)".to_string()
-        } else {
-            e.group.clone()
-        };
-        groups.entry(group).or_default().push(e.id.clone());
-    }
-
+    let groups = resp.groups;
     println!("{} group(s)\n", groups.len());
     if groups.is_empty() {
         return Ok(());
@@ -695,9 +678,13 @@ async fn group_list(opts: &ClientConfig) -> Result<()> {
 
     let rows: Vec<_> = groups
         .iter()
-        .map(|(group, nodes)| {
-            let node_list = nodes.join(", ");
-            (group.as_str(), node_list)
+        .map(|g| {
+            let node_list = if g.nodes.is_empty() {
+                "(no nodes connected)".to_string()
+            } else {
+                g.nodes.join(", ")
+            };
+            (g.group_name.as_str(), node_list)
         })
         .collect();
 
@@ -711,6 +698,33 @@ async fn group_list(opts: &ClientConfig) -> Result<()> {
     for (group, nodes) in &rows {
         print_row(&[*group, nodes.as_str()], &widths);
     }
+    Ok(())
+}
+
+async fn group_add(group_name: &str, secret: &str, opts: &ClientConfig) -> Result<()> {
+    let mut client = get_control_plane_client(opts).await?;
+    rpc!(
+        client,
+        add_group,
+        AddGroupRequest {
+            group_name: group_name.to_string(),
+            secret: secret.to_string(),
+        }
+    );
+    println!("Group '{}' added", group_name);
+    Ok(())
+}
+
+async fn group_remove(group_name: &str, opts: &ClientConfig) -> Result<()> {
+    let mut client = get_control_plane_client(opts).await?;
+    rpc!(
+        client,
+        remove_group,
+        RemoveGroupRequest {
+            group_name: group_name.to_string(),
+        }
+    );
+    println!("Group '{}' removed (all nodes disconnected)", group_name);
     Ok(())
 }
 
@@ -893,29 +907,6 @@ mod tests {
         assert_eq!(route_status_str(999), "UNKNOWN");
     }
 
-    // ── format_unix_timestamp ───────────────────────────────────────────────
-
-    #[test]
-    fn format_unix_timestamp_epoch() {
-        assert_eq!(format_unix_timestamp(0), "1970-01-01T00:00:00Z");
-    }
-
-    #[test]
-    fn format_unix_timestamp_known_value() {
-        // 2024-02-01T00:00:00Z
-        assert_eq!(format_unix_timestamp(1706745600), "2024-02-01T00:00:00Z");
-    }
-
-    #[test]
-    fn format_unix_timestamp_negative_falls_back_to_raw() {
-        // Sufficiently-out-of-range negative value returns the raw number
-        let ts = -99_999_999_999_i64;
-        let result = format_unix_timestamp(ts);
-        assert!(!result.is_empty());
-        // Either a valid formatted date or the raw number as string
-        assert!(result == ts.to_string() || result.contains('-'));
-    }
-
     // ── build_subscription_str ──────────────────────────────────────────────
 
     #[test]
@@ -956,7 +947,7 @@ mod tests {
             RouteStatus::Applied as i32,
             0,
         );
-        r.status_msg = "apply succeeded".to_string();
+        r.link_id = "link-1".to_string();
         let cells = route_cells(&r);
         assert_eq!(cells[0], "src-node"); // source
         assert_eq!(cells[1], "dst-node"); // dest node
@@ -965,7 +956,7 @@ mod tests {
             "org/ns/agent/00000000-0000-0000-0000-000000000007"
         ); // route
         assert_eq!(cells[3], "APPLIED"); // status
-        assert_eq!(cells[4], "apply succeeded"); // status msg
+        assert_eq!(cells[4], "link-1"); // link_id
     }
 
     #[test]
@@ -1049,11 +1040,12 @@ mod tests {
 
         use crate::proto::controller::proto::v1::{ConnectionListResponse, RouteListResponse};
         use crate::proto::controlplane::proto::v1::{
-            AddSegmentRequest, AddSegmentResponse, AddTopologyLinkRequest, AddTopologyLinkResponse,
-            LinkEntry, LinkListRequest, Node as CpNode, NodeEntry, NodeListRequest,
-            RemoveSegmentRequest, RemoveSegmentResponse, RemoveTopologyLinkRequest,
-            RemoveTopologyLinkResponse, RouteEntry, RouteListRequest, SegmentListRequest,
-            SegmentListResponse,
+            AddGroupRequest, AddGroupResponse, AddSegmentRequest, AddSegmentResponse,
+            AddTopologyLinkRequest, AddTopologyLinkResponse, LinkEntry, LinkListRequest,
+            ListGroupsRequest, ListGroupsResponse, Node as CpNode, NodeEntry, NodeListRequest,
+            RemoveGroupRequest, RemoveGroupResponse, RemoveSegmentRequest, RemoveSegmentResponse,
+            RemoveTopologyLinkRequest, RemoveTopologyLinkResponse, RouteEntry, RouteListRequest,
+            SegmentListRequest, SegmentListResponse,
             control_plane_service_server::{ControlPlaneService, ControlPlaneServiceServer},
         };
         use slim_config::grpc::client::ClientConfig;
@@ -1160,6 +1152,27 @@ mod tests {
                 _req: tonic::Request<RemoveTopologyLinkRequest>,
             ) -> Result<tonic::Response<RemoveTopologyLinkResponse>, tonic::Status> {
                 Ok(tonic::Response::new(RemoveTopologyLinkResponse {}))
+            }
+
+            async fn list_groups(
+                &self,
+                _req: tonic::Request<ListGroupsRequest>,
+            ) -> Result<tonic::Response<ListGroupsResponse>, tonic::Status> {
+                Ok(tonic::Response::new(ListGroupsResponse { groups: vec![] }))
+            }
+
+            async fn add_group(
+                &self,
+                _req: tonic::Request<AddGroupRequest>,
+            ) -> Result<tonic::Response<AddGroupResponse>, tonic::Status> {
+                Ok(tonic::Response::new(AddGroupResponse {}))
+            }
+
+            async fn remove_group(
+                &self,
+                _req: tonic::Request<RemoveGroupRequest>,
+            ) -> Result<tonic::Response<RemoveGroupResponse>, tonic::Status> {
+                Ok(tonic::Response::new(RemoveGroupResponse {}))
             }
         }
 
@@ -1305,6 +1318,27 @@ mod tests {
                 &self,
                 _: tonic::Request<RemoveTopologyLinkRequest>,
             ) -> Result<tonic::Response<RemoveTopologyLinkResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+
+            async fn list_groups(
+                &self,
+                _: tonic::Request<ListGroupsRequest>,
+            ) -> Result<tonic::Response<ListGroupsResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+
+            async fn add_group(
+                &self,
+                _: tonic::Request<AddGroupRequest>,
+            ) -> Result<tonic::Response<AddGroupResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+
+            async fn remove_group(
+                &self,
+                _: tonic::Request<RemoveGroupRequest>,
+            ) -> Result<tonic::Response<RemoveGroupResponse>, tonic::Status> {
                 Err(tonic::Status::internal("error"))
             }
         }
