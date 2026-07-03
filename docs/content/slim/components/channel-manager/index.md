@@ -77,5 +77,5 @@ slimctl channel-manager --endpoint http://192.168.1.100:10356 list-channels
 - [Groups](../../architecture/sessions/group.md) — The group communication model and the moderator role
 - [Installation Guide](./install.md) — Build and run the Channel Manager
 - [Configuration Reference](./config.md) — All configuration options
-- [Creating a Session](../sdk/tutorial-session.md) — Create a group session and invite participants via the Channel Manager
-- [Receiving a Session](../sdk/tutorial-receive.md) — Listen for session invitations and receive messages
+- [Creating a Session](../sdk/tutorials/tutorial-session.md) — Create a group session and invite participants via the Channel Manager
+- [Receiving a Session](../sdk/tutorials/tutorial-receive.md) — Listen for session invitations and receive messages

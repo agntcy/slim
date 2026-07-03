@@ -4,8 +4,8 @@ This tutorial walks through the two steps required before your application can s
 
 ## Prerequisites
 
-- A running SLIM node (see [SLIM Data Plane Installation](../data-plane/install.md))
-- The SLIM SDK installed for your language (see [SLIM SDK Installation](./install.md))
+- A running SLIM node (see [SLIM Data Plane Installation](../../data-plane/install.md))
+- The SLIM SDK installed for your language (see [SLIM SDK Installation](../install.md))
 
 ## Step 1: Initialise the Service
 
@@ -225,7 +225,7 @@ With the service initialised, connect to a SLIM node. The connection returns a `
     ```
 
 !!! note "TLS in Production"
-    `new_insecure_client_config` skips TLS verification and is for development only. See [Authentication](../../architecture/authentication.md) for production TLS, mTLS, and JWT options.
+    `new_insecure_client_config` skips TLS verification and is for development only. See [Authentication](../../../architecture/authentication.md) for production TLS, mTLS, and JWT options.
 
 ## Putting It Together
 
@@ -364,4 +364,4 @@ With the service initialised, connect to a SLIM node. The connection returns a `
 ## Next Steps
 
 - [Creating an App](./tutorial-app.md) — Register an application identity using the `service` and `conn_id` from this tutorial
-- [Authentication](../../architecture/authentication.md) — Secure connections with mTLS, JWT, or SPIRE
+- [Authentication](../../../architecture/authentication.md) — Secure connections with mTLS, JWT, or SPIRE

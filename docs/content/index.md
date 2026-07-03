@@ -174,7 +174,7 @@ hide:
           <p class="slimctl-terminal-intro" data-intro-level="message" hidden>
             Use the SLIM SDK to connect your app and exchange messages.
             See the <a href="slim/components/sdk/index.html">SLIM SDK overview</a>
-            and the <a href="slim/components/sdk/tutorial-connect.html">Tutorials</a>
+            and the <a href="slim/components/sdk/tutorials/tutorial-connect.html">Tutorials</a>
             to get up and running in Python, Go, Java, Kotlin, .NET, or Node.js.
           </p>
         </div>

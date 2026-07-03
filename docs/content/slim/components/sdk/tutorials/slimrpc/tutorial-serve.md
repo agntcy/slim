@@ -5,7 +5,7 @@ This tutorial shows how to define a protobuf service, generate SLIMRPC bindings,
 ## Prerequisites
 
 - Completed [Connecting to SLIM](../tutorial-connect.md) and [Creating an App](../tutorial-app.md) — you need the `app` and `conn_id` objects
-- SLIMRPC compiler installed — see [Compiler](./compiler.md)
+- SLIMRPC compiler installed — see [Compiler](../../slimrpc/compiler.md)
 - [`buf`](https://buf.build/docs/installation) installed (or `protoc`)
 
 ## Step 1: Define a Proto
@@ -35,7 +35,7 @@ message ExampleResponse {
 }
 ```
 
-The server subscribes to a single SLIM base name. The service (`{package}.{Service}`) and method name are carried as metadata on each message, so a single subscription handles all methods. See [SLIMRPC](./index.md) for details.
+The server subscribes to a single SLIM base name. The service (`{package}.{Service}`) and method name are carried as metadata on each message, so a single subscription handles all methods. See [SLIMRPC](../../slimrpc/index.md) for details.
 
 ## Step 2: Generate Code Using the Compiler
 
@@ -533,4 +533,4 @@ Complete server examples for each language:
 ## Next Steps
 
 - [Using a SLIMRPC Server](./tutorial-client.md) — Create a channel and call your server from a client
-- [SLIMRPC](./index.md) — Naming scheme, under-the-hood details, and multicast RPC
+- [SLIMRPC](../../slimrpc/index.md) — Naming scheme, under-the-hood details, and multicast RPC
