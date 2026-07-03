@@ -724,6 +724,21 @@ topology:
   #     links:
   #       - group: cloud
   #         neighbors: [$group]
+  # Registration authentication (optional).
+  # When configured, nodes must prove group membership to register.
+  # Omit entirely to accept all nodes (default).
+  #
+  # Shared secret example (one secret per group):
+  # registration_auth:
+  #   type: shared_secret
+  #   secrets:
+  #     cluster-a: "secret-for-cluster-a-min-32-bytes-long"
+  #     cluster-b: "secret-for-cluster-b-min-32-bytes-long"
+  #
+  # SPIRE example (trust domain = group name):
+  # registration_auth:
+  #   type: spire
+  #   socket_path: "/run/spire/agent-sockets/api.sock"
 
 # API mode example:
 # topology: {}
@@ -744,22 +759,6 @@ reconciler:
 
   # Parallel reconciler workers per queue (link and route).
   workers: 4
-
-  # Registration authentication (optional).
-  # When configured, nodes must prove group membership to register.
-  # Omit entirely to accept all nodes (default).
-  #
-  # Shared secret example (one secret per group):
-  # registration_auth:
-  #   type: shared_secret
-  #   secrets:
-  #     cluster-a: "secret-for-cluster-a-min-32-bytes-long"
-  #     cluster-b: "secret-for-cluster-b-min-32-bytes-long"
-  #
-  # SPIRE example (trust domain = group name):
-  # registration_auth:
-  #   type: spire
-  #   socket_path: "/run/spire/agent-sockets/api.sock"
 ```
 
 The CP exposes two gRPC endpoints:

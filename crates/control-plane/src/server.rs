@@ -118,7 +118,7 @@ impl ControlPlane {
             RegistrationAuthConfig::SharedSecret { secrets } => {
                 if secrets.is_empty() && !is_api_managed {
                     return Err(anyhow::anyhow!(
-                        "topology.auth.shared_secret.secrets cannot be empty in config mode"
+                        "topology.registration_auth.shared_secret.secrets cannot be empty in config mode"
                     ));
                 }
                 let mut verifiers = HashMap::with_capacity(secrets.len());

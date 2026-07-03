@@ -119,7 +119,7 @@ impl Default for ReconcilerConfig {
 /// - `segments` → config-managed, multiple independent routing domains
 /// - Both → deserialization error
 ///
-/// The optional `auth` field configures registration authentication.
+/// The optional `registration_auth` field configures registration authentication.
 /// In API mode, shared secret groups are managed via gRPC (persisted in DB).
 /// In config mode, secrets come from the file and CRUD APIs are rejected.
 ///
@@ -136,7 +136,7 @@ impl Default for ReconcilerConfig {
 ///
 /// ```yaml
 /// topology:
-///   auth:
+///   registration_auth:
 ///     type: spire
 ///     socket_path: "/run/spire/agent-sockets/api.sock"
 /// ```
@@ -148,7 +148,7 @@ impl Default for ReconcilerConfig {
 ///   links:
 ///     - group: "*"
 ///       neighbors: ["*"]
-///   auth:
+///   registration_auth:
 ///     type: shared_secret
 ///     secrets:
 ///       cluster-a: "secret-for-cluster-a"
@@ -303,7 +303,7 @@ impl<'de> Deserialize<'de> for TopologyConfig {
 }
 
 /// Custom deserializer for `TopologySettings`: combines `TopologyConfig`
-/// (from `links`/`segments` keys) with optional `auth` key.
+/// (from `links`/`segments` keys) with optional `registration_auth` key.
 impl<'de> Deserialize<'de> for TopologySettings {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -316,7 +316,7 @@ impl<'de> Deserialize<'de> for TopologySettings {
 
             fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 f.write_str(
-                    "a topology settings map with optional 'links'/'segments' and 'auth' keys",
+                    "a topology settings map with optional 'links'/'segments' and 'registration_auth' keys",
                 )
             }
 
@@ -342,9 +342,9 @@ impl<'de> Deserialize<'de> for TopologySettings {
                             }
                             segments = Some(map.next_value()?);
                         }
-                        "auth" => {
+                        "registration_auth" => {
                             if auth.is_some() {
-                                return Err(de::Error::duplicate_field("auth"));
+                                return Err(de::Error::duplicate_field("registration_auth"));
                             }
                             auth = Some(map.next_value()?);
                         }
@@ -560,10 +560,10 @@ impl SegmentConfig {
 
 /// Configuration for authenticating node group membership on registration.
 ///
-/// Nested under the `topology.auth` key:
+/// Nested under the `topology.registration_auth` key:
 /// ```yaml
 /// topology:
-///   auth:
+///   registration_auth:
 ///     type: shared_secret
 ///     secrets:
 ///       cluster-a: "secret-for-cluster-a-abcdefghi-1234567890"
@@ -573,7 +573,7 @@ impl SegmentConfig {
 /// Or for SPIRE (trust domain = group name):
 /// ```yaml
 /// topology:
-///   auth:
+///   registration_auth:
 ///     type: spire
 ///     socket_path: "/run/spire/agent-sockets/api.sock"
 /// ```
