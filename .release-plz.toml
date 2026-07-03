@@ -90,3 +90,9 @@ name = "agntcy-slim-control-plane"
 publish = false
 release = true
 changelog_update = true
+
+[[package]]
+name = "agntcy-slim-channel-manager"
+publish = false
+release = true
+changelog_update = true

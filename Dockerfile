@@ -71,7 +71,7 @@ esac
 task -v fetch TARGET=${RUSTARCH}
 
 # Build application
-task -v build:strip TARGET=${RUSTARCH} PROFILE=release ARGS="--locked --bin slim --bin slim-control-plane"
+task -v build:strip TARGET=${RUSTARCH} PROFILE=release ARGS="--locked --bin slim --bin slim-control-plane --bin channel-manager"
 mv target/${RUSTARCH}/release/slim /slim
 mv target/${RUSTARCH}/release/slim.dbg /slim.dbg
 
@@ -79,6 +79,11 @@ mv target/${RUSTARCH}/release/slim.dbg /slim.dbg
 task -v strip TARGET_BIN=target/${RUSTARCH}/release/slim-control-plane
 mv target/${RUSTARCH}/release/slim-control-plane /slim-control-plane
 mv target/${RUSTARCH}/release/slim-control-plane.dbg /slim-control-plane.dbg
+
+# Strip and export channel manager binary
+task -v strip TARGET_BIN=target/${RUSTARCH}/release/channel-manager
+mv target/${RUSTARCH}/release/channel-manager /channel-manager
+mv target/${RUSTARCH}/release/channel-manager.dbg /channel-manager.dbg
 EOF
 
 # Grab libgcc from the CC image
@@ -125,3 +130,26 @@ COPY --from=libgcc-provider /lib/*-linux-gnu/libgcc_s.so.1 /lib/
 COPY --from=rust /slim-control-plane /slim-control-plane
 
 ENTRYPOINT ["/slim-control-plane"]
+
+
+# Runtime image - channel manager debug executable, debug symbols and a shell
+FROM debian:bookworm-slim AS channel-manager-debug
+
+ARG TARGETARCH
+
+# copy the build artifacts from the build stage
+COPY --from=rust /channel-manager /channel-manager
+COPY --from=rust /channel-manager.dbg /channel-manager.dbg
+
+# Runtime image - channel manager release executable
+FROM gcr.io/distroless/base-nossl-debian12:nonroot AS channel-manager-release
+
+ARG TARGETARCH
+
+# Copy libgcc from the libgcc-provider image
+COPY --from=libgcc-provider /lib/*-linux-gnu/libgcc_s.so.1 /lib/
+
+# copy the artifacts from the build stage
+COPY --from=rust /channel-manager /channel-manager
+
+ENTRYPOINT ["/channel-manager"]
