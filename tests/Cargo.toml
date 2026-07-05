@@ -1,0 +1,12 @@
+[package]
+name = "slim-integration-tests"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+regex = { workspace = true }

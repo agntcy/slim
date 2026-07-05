@@ -4787,6 +4787,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "slim-integration-tests"
+version = "2.0.0-alpha.2"
+dependencies = [
+ "regex",
+]
+
+[[package]]
 name = "smallvec"
 version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
