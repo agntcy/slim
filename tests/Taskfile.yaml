@@ -50,7 +50,7 @@ tasks:
         trap 'git worktree remove --force "$WORKTREE" 2>/dev/null || rm -rf "$WORKTREE"' EXIT
         git worktree add "$WORKTREE" "$LEGACY_BRANCH"
 
-        # Build slim, sdk-mock, and the test apps from the legacy branch layout.
+        # Build slim, sdk-mock, and the test apps
         cargo build --manifest-path "$WORKTREE/data-plane/Cargo.toml" \
           --config "$WORKTREE/data-plane/.cargo/config.toml" \
           --bins \
