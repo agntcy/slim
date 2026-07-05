@@ -2,7 +2,7 @@
 //!
 //! Covers bidirectional negotiation (request on the server, reply on the client),
 //! remote version advertisement in logs, and legacy-binary compatibility scenarios
-//! (ignored until `.dist/bin/slim-legacy` exists).
+//! (`#[ignore]` locally; CI legacy job runs `task tests:integration-legacy`).
 
 use slim_integration_tests::{
     binaries::{require_legacy_slim_binary, require_slim_binary, workspace_root},

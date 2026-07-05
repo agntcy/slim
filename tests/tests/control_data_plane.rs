@@ -2,9 +2,10 @@
 //!
 //! These scenarios depend on the removed `slimctl n route add` command and stay
 //! `#[ignore]` until topology-based routing replaces manual route wiring.
-
 use slim_integration_tests::{
-    binaries::{require_sdk_mock_binary, require_slim_binary, require_slimctl_binary, workspace_root},
+    binaries::{
+        require_sdk_mock_binary, require_slim_binary, require_slimctl_binary, workspace_root,
+    },
     constants::{MSG_CONTROLPLANE_SERVER_STARTED, MSG_HELLO_FROM_A},
     helpers::*,
 };
@@ -345,11 +346,8 @@ fn lists_routes_and_connections() {
         Duration::from_secs(10),
     );
 
-    let route_list = run_slimctl_node_output(
-        &slimctl,
-        &setup.controller_a_endpoint,
-        &["route", "list"],
-    );
+    let route_list =
+        run_slimctl_node_output(&slimctl, &setup.controller_a_endpoint, &["route", "list"]);
     assert!(
         route_list.contains("org/default/b"),
         "route list on node A should include org/default/b:\n{route_list}"
