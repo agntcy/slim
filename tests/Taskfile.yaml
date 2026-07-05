@@ -58,9 +58,23 @@ tasks:
         # Create marker file with branch name
         echo "{{.LEGACY_BRANCH}}" > .dist/bin/.legacy-branch
 
-  tests:integration:
-    desc: "Run integration tests"
-    deps:
-      - root:build
+  tests:build-binaries:
+    desc: "Build SLIM binaries required by integration tests"
+    dir: ".."
     cmds:
-      - go -C ./integration test -v -failfast -test.paniconexit0 -ginkgo.timeout 5m -timeout 5m .
+      - cargo build --bin slim -p agntcy-slim
+      - cargo build --bin sdk-mock -p slim-examples
+      - cargo build --bin client -p slim-examples
+      - cargo build --bin channel-manager -p agntcy-slim-channel-manager
+      - cargo build --bin slimctl -p agntcy-slimctl
+      - cargo build --bin sender-app -p agntcy-slim-testing
+      - cargo build --bin receiver-app -p agntcy-slim-testing
+      - cargo build --bin slim-control-plane -p agntcy-slim-control-plane
+
+  tests:integration:
+    desc: "Run Rust integration tests"
+    dir: "."
+    deps:
+      - tests:build-binaries
+    cmds:
+      - cargo test -p slim-integration-tests -- --nocapture

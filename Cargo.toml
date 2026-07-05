@@ -21,6 +21,7 @@ members = [
     "crates/testing",
     "crates/tracing",
     "crates/version",
+    "tests",
 ]
 default-members = [
     "crates/control-plane",
