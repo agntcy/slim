@@ -2,7 +2,8 @@
 //!
 //! Verifies that sdk-mock applications subscribe, receive ACKs on the remote or
 //! default path, and exchange messages end-to-end through a central relay node.
-//! Legacy-binary scenarios stay `#[ignore]` until `.dist/bin/*-legacy` exists.
+//! Legacy-binary scenarios are `#[ignore]` for default runs; CI legacy job runs
+//! `task tests:integration-legacy` after building `.dist/bin/*-legacy`.
 
 use slim_integration_tests::{
     binaries::{

@@ -1,7 +1,8 @@
 //! P2P and group session compatibility across current and legacy SLIM binaries.
 //!
 //! Exercises sender-app/receiver-app combinations against current or legacy `slim`
-//! nodes. All scenarios stay `#[ignore]` until `.dist/bin/*-legacy` exists.
+//! nodes. Marked `#[ignore]` for default `cargo test`; CI runs them in the
+//! `integration-tests-legacy` job via `task tests:integration-legacy`.
 
 use slim_integration_tests::{
     binaries::{

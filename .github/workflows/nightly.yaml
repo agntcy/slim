@@ -37,6 +37,7 @@ jobs:
     uses: ./.github/workflows/benchmark.yaml
 
   integration-tests:
+    name: Active integration tests
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -49,17 +50,37 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Go
-        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+
+      - name: Run active integration tests
+        working-directory: ./tests
+        run: task tests:integration
+
+  integration-tests-legacy:
+    name: Legacy backward-compat tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          go-version-file: tests/go.mod
+          persist-credentials: false
+          # Required to git worktree checkout v2-main for legacy binary builds.
+          fetch-depth: 0
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
-      - name: Run integration test suite
+      - name: Run legacy integration tests
         working-directory: ./tests
-        run: task tests:integration
+        run: task tests:integration-legacy
 
   sessions-test:
     runs-on: ubuntu-latest
