@@ -17,6 +17,8 @@ shopt: [globstar]
 
 vars:
   GLOBAL_ARGS: '{{.GLOBAL_ARGS | default "--workspace"}}'
+  # E2E integration tests spawn pre-built binaries; run via `task -d tests tests:integration`.
+  WORKSPACE_TEST_ARGS: '--all-targets --locked --all-features --exclude slim-integration-tests'
   CARGO_COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete cargo-deny typos-cli"
 
   PROFILE: '{{.PROFILE | default "debug"}}'
@@ -292,7 +294,7 @@ tasks:
     cmds:
       - ulimit -n 4096 2>/dev/null || true; cargo test {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
     vars:
-      ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
+      ARGS: '{{.ARGS | default .WORKSPACE_TEST_ARGS}}'
 
   test:build:
     desc: "Build the tests"
@@ -301,7 +303,7 @@ tasks:
     cmds:
       - ulimit -n 4096 2>/dev/null || true; cargo test --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
     vars:
-      ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
+      ARGS: '{{.ARGS | default .WORKSPACE_TEST_ARGS}}'
 
   test:wasm:
     desc: "Run the wasm32 browser unit tests (needs wasm-bindgen-cli matching the locked wasm-bindgen version)"
@@ -340,7 +342,7 @@ tasks:
     cmds:
       - ulimit -n 4096 2>/dev/null || true; cargo llvm-cov --lcov --output-path lcov.info {{.GLOBAL_ARGS}} {{.ARGS}}
     vars:
-      ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
+      ARGS: '{{.ARGS | default .WORKSPACE_TEST_ARGS}}'
 
   coverage-full:
     desc: "Run full tests coverage"
@@ -348,6 +350,7 @@ tasks:
       - task: test:coverage
         vars:
           ARGS: "--all-targets --locked --all-features"
+      - task: core:test
 
   core:test:
     desc: "Run core end to end tests"
