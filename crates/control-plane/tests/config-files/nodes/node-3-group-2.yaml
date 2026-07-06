@@ -6,6 +6,9 @@ services:
   slim/node-3:
     group_name: group-2
     node_id: node-3
+    auth:
+      type: shared_secret
+      secret: "secret-for-group-2-abcdefghi-1234567890"
     dataplane:
       servers:
         - endpoint: "127.0.0.1:46103"

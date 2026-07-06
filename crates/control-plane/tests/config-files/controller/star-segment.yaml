@@ -15,14 +15,25 @@ southbound:
   tls:
     insecure: true
 
-#database:
-#  type: in_memory
-
 database:
-  type: sqlite
-  path: /tmp/slim-test.db
+  type: in_memory
+
+# database:
+#   type: sqlite
+#   path: /tmp/slim-test.db
 
 topology:
+  registration_auth:
+    type: shared_secret
+    secrets:
+      group-1: "secret-for-group-1-abcdefghi-1234567890"
+      group-2: "secret-for-group-2-abcdefghi-1234567890"
+      group-3: "secret-for-group-3-abcdefghi-1234567890"
+      deployment-a: "secret-for-deployment-a-abcdefghi-1234567890"
+  # registration_auth:
+  #   type: spire
+  #   socket_path: "/run/spire/agent-sockets/api.sock"
+
   segments:
     - name: segment-$group
       links:

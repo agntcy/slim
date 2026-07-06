@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use slim_auth::metadata::{MetadataMap, MetadataValue};
 use slim_auth::shared_secret::SharedSecret;
+use slim_config::auth::AuthConfig;
 use slim_config::component::Component;
 use slim_config::component::id::ID;
 use slim_config::grpc::client::{ClientConfig, KeepaliveConfig};
@@ -26,7 +27,8 @@ use slim_control_plane::api::proto::controlplane::proto::v1::{
     SegmentListRequest,
 };
 use slim_control_plane::config::{
-    AdjacencyEntry, Config, DatabaseConfig, ReconcilerConfig, SegmentConfig, TopologyConfig,
+    AdjacencyEntry, Config, DatabaseConfig, ReconcilerConfig, RegistrationAuthConfig,
+    SegmentConfig, TopologyConfig, TopologySettings,
 };
 use slim_control_plane::server::ControlPlane;
 use slim_datapath::api::ProtoName as Name;
@@ -56,6 +58,36 @@ const NODE_CONNECTED: i32 = 1;
 /// Default timeout for waiting on async conditions.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const SHORT_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Per-group registration secrets (each group has its own secret for isolation).
+const TEST_GROUP_SECRETS: &[(&str, &str)] = &[
+    ("group-a", "secret-group-a-00112233445566778899"),
+    ("group-b", "secret-group-b-00112233445566778899"),
+    ("group-c", "secret-group-c-00112233445566778899"),
+    ("group-d", "secret-group-d-00112233445566778899"),
+    ("platform", "secret-platform-001122334455667788"),
+    ("customer-a", "secret-customer-a-0011223344556677"),
+    ("customer-b", "secret-customer-b-0011223344556677"),
+];
+
+/// Look up the test secret for a group.
+fn group_secret(group: &str) -> &'static str {
+    TEST_GROUP_SECRETS
+        .iter()
+        .find(|(g, _)| *g == group)
+        .unwrap_or_else(|| panic!("no test secret for group '{group}'"))
+        .1
+}
+
+/// Build the registration auth config with per-group shared secrets.
+fn test_registration_auth() -> RegistrationAuthConfig {
+    RegistrationAuthConfig::SharedSecret {
+        secrets: TEST_GROUP_SECRETS
+            .iter()
+            .map(|(g, s)| (g.to_string(), s.to_string()))
+            .collect(),
+    }
+}
 
 fn raise_fd_limit() {
     static INIT_FD_LIMIT: std::sync::Once = std::sync::Once::new();
@@ -106,7 +138,10 @@ async fn start_control_plane(topology: TopologyConfig) -> TestControlPlane {
             .with_tls_settings(TlsServerConfig::insecure()),
         database: DatabaseConfig::InMemory,
         reconciler: test_reconciler_config(),
-        topology,
+        topology: TopologySettings {
+            config: topology,
+            auth: Some(test_registration_auth()),
+        },
         ..Default::default()
     };
 
@@ -197,6 +232,10 @@ async fn start_grouped_node(
         .with_controlplane_client(vec![cp_client])
         .with_node_id(name);
     service_config.group_name = Some(group.to_string());
+    service_config.auth = Some(AuthConfig::SharedSecret {
+        id: Some(format!("{group}/{name}")),
+        secret: group_secret(group).to_string(),
+    });
     if let Some(pc) = peer_config {
         service_config = service_config.with_peers(pc);
     }
@@ -1836,6 +1875,113 @@ async fn test_config_mode_rejects_topology_mutations() {
         .expect_err("add_topology_link should fail in config mode");
 
     assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+
+    stop_control_plane(cp).await;
+}
+
+// =============================================================================
+// Auth rejection tests
+// =============================================================================
+
+/// Start a node with a specific (potentially wrong) auth config, or None for no auth.
+async fn start_node_with_auth(
+    name: &str,
+    group: &str,
+    southbound_port: u16,
+    dp_port: u16,
+    auth: Option<AuthConfig>,
+) -> Service {
+    let dataplane_server = {
+        let mut md = MetadataMap::new();
+        md.insert(
+            "external_endpoint",
+            MetadataValue::String(format!("127.0.0.1:{dp_port}")),
+        );
+        let mut s = ServerConfig::with_endpoint(&format!("127.0.0.1:{dp_port}"))
+            .with_tls_settings(TlsServerConfig::insecure());
+        s.metadata = Some(md);
+        s
+    };
+
+    let cp_client = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{southbound_port}"))
+        .with_tls_setting(TlsClientConfig::insecure())
+        .with_keepalive(KeepaliveConfig {
+            http2_keepalive: Duration::from_secs(1).into(),
+            timeout: Duration::from_secs(1).into(),
+            keep_alive_while_idle: true,
+            ..Default::default()
+        });
+
+    let mut service_config = ServiceConfiguration::new()
+        .with_dataplane_server(vec![dataplane_server])
+        .with_controlplane_client(vec![cp_client])
+        .with_node_id(name);
+    service_config.group_name = Some(group.to_string());
+    service_config.auth = auth;
+
+    let svc_id = ID::new_with_str(&format!("slim/{name}")).unwrap();
+    let mut svc = service_config.build_server(svc_id).unwrap();
+    svc.start().await.unwrap();
+    svc
+}
+
+/// Verify that a node with the wrong secret is rejected and never appears in the node list.
+#[tokio::test]
+async fn auth_rejects_wrong_secret() {
+    init_tracing();
+    let cp = start_control_plane(full_mesh_topology()).await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+
+    let dp_port = reserve_port();
+    let wrong_secret_auth = Some(AuthConfig::SharedSecret {
+        id: Some("group-a/bad-node".to_string()),
+        secret: "wrong-secret-00112233445566778899aa".to_string(),
+    });
+    let _bad_node = start_node_with_auth(
+        "bad-node",
+        "group-a",
+        cp.southbound_port,
+        dp_port,
+        wrong_secret_auth,
+    )
+    .await;
+
+    // Give it time to attempt registration (multiple retries).
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // Node should NOT appear in the node list.
+    let nodes = collect_nodes(&mut client).await;
+    assert!(
+        !nodes.iter().any(|n| n.id.contains("bad-node")),
+        "node with wrong secret should not be registered, but found: {:?}",
+        nodes.iter().map(|n| &n.id).collect::<Vec<_>>()
+    );
+
+    stop_control_plane(cp).await;
+}
+
+/// Verify that a node with no credentials is rejected when auth is required.
+#[tokio::test]
+async fn auth_rejects_no_credentials() {
+    init_tracing();
+    let cp = start_control_plane(full_mesh_topology()).await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+
+    let dp_port = reserve_port();
+    // No auth config → empty credentials in registration request.
+    let _no_auth_node =
+        start_node_with_auth("no-auth-node", "group-a", cp.southbound_port, dp_port, None).await;
+
+    // Give it time to attempt registration.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // Node should NOT appear in the node list.
+    let nodes = collect_nodes(&mut client).await;
+    assert!(
+        !nodes.iter().any(|n| n.id.contains("no-auth-node")),
+        "node with no credentials should not be registered, but found: {:?}",
+        nodes.iter().map(|n| &n.id).collect::<Vec<_>>()
+    );
 
     stop_control_plane(cp).await;
 }
