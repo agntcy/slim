@@ -12,10 +12,10 @@ use your help.
 This guide will help you get started. **Do not let this guide intimidate you**.
 It should be considered a map to help you navigate the process.
 
-The [dev channel][dev] is available for any concerns not covered in this guide,
+The [Discord community][dev] is available for any concerns not covered in this guide,
 please join us!
 
-[dev]: https://agntcy.slack.com
+[dev]: https://discord.gg/nbeEENusy
 
 ## Contributing in Issues
 
