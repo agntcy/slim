@@ -165,9 +165,15 @@ impl GroupAuthenticator {
     }
 
     /// Remove the verifier for a group (shared secret mode only).
-    pub fn remove_verifier(&self, group_name: &str) {
-        if let Self::SharedSecret { verifiers } = self {
-            verifiers.write().remove(group_name);
+    pub fn remove_verifier(&self, group_name: &str) -> Result<(), Status> {
+        match self {
+            Self::SharedSecret { verifiers } => {
+                verifiers.write().remove(group_name);
+                Ok(())
+            }
+            _ => Err(Status::unimplemented(
+                "remove_verifier is only supported for shared_secret auth",
+            )),
         }
     }
 }

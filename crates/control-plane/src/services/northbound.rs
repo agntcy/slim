@@ -643,7 +643,7 @@ impl ControlPlaneService for NorthboundApiService {
             .collect();
 
         // Remove the verifier first to prevent new registrations.
-        self.authenticator.remove_verifier(&req.group_name);
+        self.authenticator.remove_verifier(&req.group_name)?;
 
         // Remove the secret from DB (won't survive restart).
         self.db

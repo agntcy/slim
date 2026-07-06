@@ -79,10 +79,7 @@ impl ControlPlane {
                 })?;
             }
             if !groups.is_empty() {
-                tracing::info!(
-                    "restored {} group secret(s) from DB",
-                    groups.len()
-                );
+                tracing::info!("restored {} group secret(s) from DB", groups.len());
             }
         }
 

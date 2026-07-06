@@ -90,6 +90,17 @@ impl ControllerService for SouthboundApiService {
                 Ok(r) => r,
                 Err(e) => {
                     tracing::error!("southbound: registration failed: {e}");
+                    // Send an explicit rejection so the node knows to stop retrying.
+                    let rejection = ControlMessage {
+                        message_id: Uuid::new_v4().to_string(),
+                        payload: Some(Payload::RegisterNodeResponse(RegisterNodeResponse {
+                            original_message_id: String::new(),
+                            success: false,
+                            connections: vec![],
+                            routes: vec![],
+                        })),
+                    };
+                    let _ = tx.send(Ok(rejection));
                     return;
                 }
             };
