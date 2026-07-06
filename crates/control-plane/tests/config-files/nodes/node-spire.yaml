@@ -1,17 +1,20 @@
-# SLIM node with SPIRE mTLS.
-# metadata.spire_socket_path → auth_method=spire; metadata.trust_domain → spire_trust_domain.
-# Requires a running SPIRE agent at the configured socket path.
+# SPIRE node: dataplane metadata registers auth_method=spire with the CP.
+# metadata.spire_socket_path → tls_required; metadata.trust_domain → spire_trust_domain.
 tracing:
   log_level: debug
 
 services:
   slim/node-spire:
+    node_id: node-spire
     group_name: deployment-spire
+    auth:
+      type: shared_secret
+      secret: "secret-for-deployment-spire-abcdefghi-1234567890"
     dataplane:
       servers:
         - endpoint: "127.0.0.1:46201"
           tls:
-            insecure: false
+            insecure: true
           metadata:
             external_endpoint: "127.0.0.1:46201"
             spire_socket_path: "/run/spire/agent.sock"
@@ -20,13 +23,23 @@ services:
       servers:
         - endpoint: "127.0.0.1:47201"
           tls:
-            insecure: false
+            insecure: true
       clients:
-        - endpoint: "https://127.0.0.1:50052"
+        - endpoint: "http://127.0.0.1:50052"
+          tls:
+            insecure: true
+      # outbound_clients: local credential table for control plane-driven inter-node links.
+      # Not sent to the CP. When this node is the link source, the reconciler
+      # dials the destination URL from the control plane link config and looks up auth here
+      # by exact endpoint match (scheme + host + port). Add one entry per
+      # protected peer you may connect to; omit for auth_method=none destinations.
+      # Configure on the connector node, keyed to the peer's link endpoint.
+      outbound_clients:
+        - endpoint: "https://127.0.0.1:46201"
           tls:
             insecure: false
           auth:
             type: spire
             socket_path: "/run/spire/agent.sock"
             trust_domains:
-              - "spire.example.org"
+              - "example.org"

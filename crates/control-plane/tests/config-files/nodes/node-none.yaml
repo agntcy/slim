@@ -1,12 +1,14 @@
-# SLIM node with no auth (insecure).
-# Registers with tls_required=false, auth_method=none.
-# Equivalent to the default setup used by node-a through node-d.
+# SLIM node with no dataplane auth (auth_method=none, tls_required=false).
 tracing:
   log_level: debug
 
 services:
   slim/node-none:
+    node_id: node-none
     group_name: deployment-none
+    auth:
+      type: shared_secret
+      secret: "secret-for-deployment-none-abcdefghi-1234567890"
     dataplane:
       servers:
         - endpoint: "127.0.0.1:46203"
@@ -23,3 +25,5 @@ services:
         - endpoint: "http://127.0.0.1:50052"
           tls:
             insecure: true
+      # outbound_clients: not used — when destinations advertise auth_method=none,
+      # the reconciler dials without looking up local credentials.

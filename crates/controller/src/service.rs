@@ -2841,6 +2841,7 @@ mod tests {
             outbound_clients,
             message_processor: MessageProcessor::new(),
             connection_details: vec![],
+            auth_provider: None,
         })
         .controller
         .clone()

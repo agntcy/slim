@@ -68,6 +68,8 @@ const TEST_GROUP_SECRETS: &[(&str, &str)] = &[
     ("platform", "secret-platform-001122334455667788"),
     ("customer-a", "secret-customer-a-0011223344556677"),
     ("customer-b", "secret-customer-b-0011223344556677"),
+    ("group-auth-a", "secret-group-auth-a-0011223344556677"),
+    ("group-auth-b", "secret-group-auth-b-0011223344556677"),
 ];
 
 /// Look up the test secret for a group.
@@ -1879,144 +1881,127 @@ async fn test_config_mode_rejects_topology_mutations() {
     stop_control_plane(cp).await;
 }
 
-// =============================================================================
-// Auth method integration tests
-//
-// These tests verify that the controller's reconcile path correctly handles
-// each auth method when the control plane instructs node_1 to connect to node_2.
-//
-// Topology for all tests:
-//   node_1 (group-auth-a)  <-- outbound connector (reconciler source)
-//   node_2 (group-auth-b)  <-- protected server (auth requirement source)
-//   control_plane          <-- full-mesh topology, mediates the link
-//
-// Startup order matters: the *second* node to register becomes the inter-group
-// link source. Always start node_2 (protected) before node_1 (connector) so
-// node_1 receives ServerConnectionConfig and performs the authenticated dial.
-//
-// The control plane learns node_2's auth requirement from its registered
-// ConnectionDetails (derived from node_2's dataplane ServerConfig.auth).
-// It then sends a ServerConnectionConfig to node_1's reconciler with the
-// appropriate RequiredAuthMethod. node_1 looks up credentials from its local
-// outbound_clients config (keyed by endpoint) and connects — or fails if no
-// matching entry exists.
-// =============================================================================
+// Auth link tests: protected node (group-auth-b) starts before connector (group-auth-a)
+// so the connector is the link source and dials using outbound_clients when required.
 
 const LINK_FAILED: i32 = 3;
-
 const AUTH_GROUP_CONNECTOR: &str = "group-auth-a";
 const AUTH_GROUP_PROTECTED: &str = "group-auth-b";
-const AUTH_NODE_CONNECTOR: &str = "node-1";
-const AUTH_NODE_PROTECTED: &str = "node-2";
+const AUTH_CONNECTOR_ID: &str = "group-auth-a/node-1";
+const AUTH_PROTECTED_ID: &str = "group-auth-b/node-2";
 
-fn auth_connector_id() -> String {
-    grouped_node_id(AUTH_GROUP_CONNECTOR, AUTH_NODE_CONNECTOR)
-}
-
-fn auth_protected_id() -> String {
-    grouped_node_id(AUTH_GROUP_PROTECTED, AUTH_NODE_PROTECTED)
-}
-
-fn protected_endpoint(port: u16) -> String {
+fn peer_endpoint(port: u16) -> String {
     format!("http://127.0.0.1:{port}")
 }
 
-async fn find_link_between_auth_groups(client: &mut NbClient) -> Option<LinkEntry> {
-    let links = collect_links(client, "", "").await;
-    links.into_iter().find(|l| {
-        if l.deleted {
-            return false;
-        }
-        let src_group = l.source_node_id.split('/').next().unwrap_or("");
-        let dst_group = l.dest_node_id.split('/').next().unwrap_or("");
-        let dst_unknown = dst_group.is_empty();
-        (src_group == AUTH_GROUP_CONNECTOR
-            && (dst_group == AUTH_GROUP_PROTECTED || dst_unknown))
-            || (src_group == AUTH_GROUP_PROTECTED
-                && (dst_group == AUTH_GROUP_CONNECTOR || dst_unknown))
+struct AuthLinkNodes {
+    cp: TestControlPlane,
+    client: NbClient,
+    connector: Service,
+    protected: Service,
+    protected_port: u16,
+}
+
+async fn auth_link(client: &mut NbClient) -> Option<LinkEntry> {
+    collect_links(client, "", "").await.into_iter().find(|l| {
+        !l.deleted
+            && matches!(
+                l.source_node_id.split('/').next(),
+                Some(AUTH_GROUP_CONNECTOR) | Some(AUTH_GROUP_PROTECTED)
+            )
     })
 }
 
-/// Wait until the auth link is Applied with node_1 as the reconciler source.
-async fn wait_for_auth_link_applied(client: &mut NbClient, timeout: Duration) -> LinkEntry {
+async fn wait_auth_link(client: &mut NbClient, timeout: Duration, status: i32, msg: Option<&str>) {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        if let Some(link) = find_link_between_auth_groups(client).await {
-            if link.status == LINK_APPLIED && link.source_node_id == auth_connector_id() {
-                assert!(
-                    !link.dest_node_id.is_empty(),
-                    "expected link dest_node_id to be claimed, got empty"
-                );
-                return link;
-            }
-        }
-        if tokio::time::Instant::now() >= deadline {
-            let info = find_link_between_auth_groups(client)
-                .await
-                .map(|l| {
-                    format!(
-                        "{}->{}[status={},msg={}]",
-                        l.source_node_id, l.dest_node_id, l.status, l.status_msg
-                    )
-                })
-                .unwrap_or_else(|| "no link".to_string());
-            panic!(
-                "timeout waiting for Applied auth link from {}. Current: {info}",
-                auth_connector_id()
-            );
-        }
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
-}
-
-/// Wait until the auth link is Failed and optionally assert on status_msg.
-async fn wait_for_auth_link_failed(
-    client: &mut NbClient,
-    timeout: Duration,
-    msg_contains: Option<&str>,
-) -> LinkEntry {
-    let deadline = tokio::time::Instant::now() + timeout;
-    loop {
-        if let Some(link) = find_link_between_auth_groups(client).await {
-            if link.status == LINK_FAILED {
-                if let Some(needle) = msg_contains {
-                    assert!(
-                        link.status_msg.contains(needle),
-                        "expected status_msg containing '{needle}', got: {}",
-                        link.status_msg
-                    );
+        if let Some(link) = auth_link(client).await
+            && link.status == status
+        {
+            if status == LINK_APPLIED {
+                assert_eq!(link.source_node_id, AUTH_CONNECTOR_ID);
+                assert!(!link.dest_node_id.is_empty());
+            } else {
+                assert_eq!(link.source_node_id, AUTH_CONNECTOR_ID);
+                if let Some(needle) = msg {
+                    assert!(link.status_msg.contains(needle), "{}", link.status_msg);
                 }
-                assert_eq!(
-                    link.source_node_id,
-                    auth_connector_id(),
-                    "expected connector node as link source, got {}",
-                    link.source_node_id
-                );
-                return link;
             }
+            return;
         }
         if tokio::time::Instant::now() >= deadline {
-            let info = find_link_between_auth_groups(client)
+            let info = auth_link(client)
                 .await
                 .map(|l| {
                     format!(
-                        "{}->{}[status={},msg={}]",
+                        "{}->{} status={} msg={}",
                         l.source_node_id, l.dest_node_id, l.status, l.status_msg
                     )
                 })
-                .unwrap_or_else(|| "no link".to_string());
-            panic!("timeout waiting for Failed auth link. Current: {info}");
+                .unwrap_or_else(|| "no link".into());
+            panic!("timeout waiting for link status {status}: {info}");
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 }
 
-/// Start a node whose dataplane server requires the given auth and whose
-/// controller is pre-loaded with outbound credentials for connecting to other nodes.
-// Auth rejection tests
-// =============================================================================
+async fn start_auth_link_nodes(
+    protected_auth: slim_config::grpc::server::AuthenticationConfig,
+    make_outbound: impl FnOnce(u16) -> Vec<ClientConfig>,
+    protected_metadata: Option<MetadataMap>,
+) -> AuthLinkNodes {
+    use slim_config::grpc::server::AuthenticationConfig as ServerAuth;
 
-/// Start a node with a specific (potentially wrong) auth config, or None for no auth.
+    init_tracing();
+    let cp = start_control_plane(full_mesh_topology()).await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+    let connector_port = reserve_port();
+    let protected_port = reserve_port();
+    let outbound = make_outbound(protected_port);
+
+    let protected = start_node_with_auth(
+        "node-2",
+        AUTH_GROUP_PROTECTED,
+        cp.southbound_port,
+        protected_port,
+        protected_auth,
+        vec![],
+        protected_metadata,
+    )
+    .await;
+    let connector = start_node_with_auth(
+        "node-1",
+        AUTH_GROUP_CONNECTOR,
+        cp.southbound_port,
+        connector_port,
+        ServerAuth::None,
+        outbound,
+        None,
+    )
+    .await;
+
+    wait_for_nodes_connected(
+        &mut client,
+        &[AUTH_CONNECTOR_ID, AUTH_PROTECTED_ID],
+        SHORT_TIMEOUT,
+    )
+    .await;
+
+    AuthLinkNodes {
+        cp,
+        client,
+        connector,
+        protected,
+        protected_port,
+    }
+}
+
+async fn stop_auth_link_nodes(nodes: AuthLinkNodes) {
+    nodes.connector.shutdown().await.ok();
+    nodes.protected.shutdown().await.ok();
+    stop_control_plane(nodes.cp).await;
+}
+
 async fn start_node_with_auth(
     name: &str,
     group: &str,
@@ -2036,11 +2021,10 @@ async fn start_node_with_auth(
             md.insert(key.clone(), value.clone());
         }
     }
-    let mut dataplane_server = slim_config::grpc::server::ServerConfig::with_endpoint(
-        &format!("127.0.0.1:{dp_port}"),
-    )
-    .with_tls_settings(TlsServerConfig::insecure())
-    .with_auth(server_auth);
+    let mut dataplane_server =
+        slim_config::grpc::server::ServerConfig::with_endpoint(&format!("127.0.0.1:{dp_port}"))
+            .with_tls_settings(TlsServerConfig::insecure())
+            .with_auth(server_auth);
     dataplane_server.metadata = Some(md);
 
     let cp_client = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{southbound_port}"))
@@ -2059,443 +2043,171 @@ async fn start_node_with_auth(
         .with_node_id(name);
     service_config.group_name = Some(group.to_string());
     service_config.controller.outbound_clients = outbound_clients;
+    service_config.auth = Some(AuthConfig::SharedSecret {
+        id: Some(format!("{group}/{name}")),
+        secret: group_secret(group).to_string(),
+    });
 
     let mut svc = service_config.build_server(svc_id).unwrap();
     svc.start().await.unwrap();
     svc
 }
 
-/// Test: none auth — no auth required on node_2 → link reaches Applied.
-///
-/// node_2 is registered with AuthMethod::None. The control plane sends
-/// RequiredAuthMethod::None to node_1's reconciler. The reconciler skips
-/// the credential lookup and connects directly. The link should become Applied.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_link_none_auth() {
     use slim_config::grpc::server::AuthenticationConfig as ServerAuth;
 
-    init_tracing();
-    let cp = start_control_plane(full_mesh_topology()).await;
-    let mut client = create_nb_client(cp.northbound_port).await;
-
-    let node1_port = reserve_port();
-    let node2_port = reserve_port();
-
-    // node_2: no auth required on its server.
-    let node_2 = start_node_with_auth(
-        AUTH_NODE_PROTECTED,
-        AUTH_GROUP_PROTECTED,
-        cp.southbound_port,
-        node2_port,
-        ServerAuth::None,
-        vec![],
-        None,
-    )
-    .await;
-
-    // node_1: no outbound_clients needed for None auth.
-    let node_1 = start_node_with_auth(
-        AUTH_NODE_CONNECTOR,
-        AUTH_GROUP_CONNECTOR,
-        cp.southbound_port,
-        node1_port,
-        ServerAuth::None,
-        vec![],
-        None,
-    )
-    .await;
-
-    wait_for_nodes_connected(
-        &mut client,
-        &[&auth_connector_id(), &auth_protected_id()],
-        SHORT_TIMEOUT,
-    )
-    .await;
-
-    wait_for_auth_link_applied(&mut client, DEFAULT_TIMEOUT).await;
-
-    node_1.shutdown().await.ok();
-    node_2.shutdown().await.ok();
-    stop_control_plane(cp).await;
+    let mut nodes = start_auth_link_nodes(ServerAuth::None, |_| vec![], None).await;
+    wait_auth_link(&mut nodes.client, DEFAULT_TIMEOUT, LINK_APPLIED, None).await;
+    stop_auth_link_nodes(nodes).await;
 }
 
-/// Test: basic auth with matching credentials → link reaches Applied.
-///
-/// node_2's server requires Basic auth (username: "user", password: "pass").
-/// node_1 has an outbound_clients entry for node_2's endpoint with the same
-/// credentials. The reconciler finds the entry, sets client_config.auth, and
-/// connects. node_2 accepts the credentials. The link becomes Applied.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_link_basic_auth_with_credentials() {
     use slim_config::auth::basic::Config as BasicConfig;
     use slim_config::grpc::client::AuthenticationConfig as ClientAuth;
     use slim_config::grpc::server::AuthenticationConfig as ServerAuth;
 
-    init_tracing();
-    let cp = start_control_plane(full_mesh_topology()).await;
-    let mut client = create_nb_client(cp.northbound_port).await;
-
-    let node1_port = reserve_port();
-    let node2_port = reserve_port();
-
-    // node_2: server validates Basic auth with fixed credentials.
-    let node_2 = start_node_with_auth(
-        AUTH_NODE_PROTECTED,
-        AUTH_GROUP_PROTECTED,
-        cp.southbound_port,
-        node2_port,
+    let mut nodes = start_auth_link_nodes(
         ServerAuth::Basic(BasicConfig::new("user", "pass")),
-        vec![],
+        |port| {
+            vec![
+                ClientConfig::with_endpoint(&peer_endpoint(port))
+                    .with_auth(ClientAuth::Basic(BasicConfig::new("user", "pass"))),
+            ]
+        },
         None,
     )
     .await;
-
-    let outbound = ClientConfig::with_endpoint(&protected_endpoint(node2_port))
-        .with_auth(ClientAuth::Basic(BasicConfig::new("user", "pass")));
-
-    let node_1 = start_node_with_auth(
-        AUTH_NODE_CONNECTOR,
-        AUTH_GROUP_CONNECTOR,
-        cp.southbound_port,
-        node1_port,
-        ServerAuth::None,
-        vec![outbound],
-        None,
-    )
-    .await;
-
-    wait_for_nodes_connected(
-        &mut client,
-        &[&auth_connector_id(), &auth_protected_id()],
-        SHORT_TIMEOUT,
-    )
-    .await;
-
-    wait_for_auth_link_applied(&mut client, DEFAULT_TIMEOUT).await;
-
-    node_1.shutdown().await.ok();
-    node_2.shutdown().await.ok();
-    stop_control_plane(cp).await;
+    wait_auth_link(&mut nodes.client, DEFAULT_TIMEOUT, LINK_APPLIED, None).await;
+    stop_auth_link_nodes(nodes).await;
 }
 
-/// Test: basic auth with no credentials configured → link reaches Failed.
-///
-/// node_2's server requires Basic auth. node_1's outbound_clients is empty.
-/// The reconciler finds no matching entry for node_2's endpoint, sets
-/// success=false with "no local credentials", and reports the failure back to
-/// the CP. The link is never Applied and instead reaches Failed status.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_link_basic_auth_without_credentials() {
+async fn test_link_protected_auth_without_outbound_fails() {
     use slim_config::auth::basic::Config as BasicConfig;
-    use slim_config::grpc::server::AuthenticationConfig as ServerAuth;
-
-    init_tracing();
-    let cp = start_control_plane(full_mesh_topology()).await;
-    let mut client = create_nb_client(cp.northbound_port).await;
-
-    let node1_port = reserve_port();
-    let node2_port = reserve_port();
-
-    // node_2: server requires Basic auth.
-    let node_2 = start_node_with_auth(
-        AUTH_NODE_PROTECTED,
-        AUTH_GROUP_PROTECTED,
-        cp.southbound_port,
-        node2_port,
-        ServerAuth::Basic(BasicConfig::new("user", "pass")),
-        vec![],
-        None,
-    )
-    .await;
-
-    let node_1 = start_node_with_auth(
-        AUTH_NODE_CONNECTOR,
-        AUTH_GROUP_CONNECTOR,
-        cp.southbound_port,
-        node1_port,
-        ServerAuth::None,
-        vec![],
-        None,
-    )
-    .await;
-
-    wait_for_nodes_connected(
-        &mut client,
-        &[&auth_connector_id(), &auth_protected_id()],
-        SHORT_TIMEOUT,
-    )
-    .await;
-
-    wait_for_auth_link_failed(
-        &mut client,
-        DEFAULT_TIMEOUT,
-        Some("no local credentials configured"),
-    )
-    .await;
-
-    node_1.shutdown().await.ok();
-    node_2.shutdown().await.ok();
-    stop_control_plane(cp).await;
-}
-
-/// Test: JWT auth with no credentials configured → link reaches Failed.
-///
-/// node_2's server is registered with JWT auth. node_1's outbound_clients is empty.
-/// The reconciler receives RequiredAuthMethod::Jwt, finds no matching outbound_clients
-/// entry, and immediately reports failure.
-#[tokio::test(flavor = "multi_thread")]
-async fn test_link_jwt_auth_without_credentials() {
     use slim_config::auth::jwt::{Claims, Config as JwtConfig, JwtKey};
     use slim_config::grpc::server::AuthenticationConfig as ServerAuth;
 
-    init_tracing();
-    let cp = start_control_plane(full_mesh_topology()).await;
-    let mut client = create_nb_client(cp.northbound_port).await;
-
-    let node1_port = reserve_port();
-    let node2_port = reserve_port();
-
-    // node_2: server is configured with JWT auth (autoresolve key — claims validation
-    // irrelevant since we never reach the actual connection in this test).
-    let jwt_cfg = JwtConfig::new(
-        Claims::default(),
-        Duration::from_secs(3600),
-        JwtKey::Autoresolve,
-    );
-    let node_2 = start_node_with_auth(
-        AUTH_NODE_PROTECTED,
-        AUTH_GROUP_PROTECTED,
-        cp.southbound_port,
-        node2_port,
-        ServerAuth::Jwt(jwt_cfg),
-        vec![],
-        None,
-    )
-    .await;
-
-    let node_1 = start_node_with_auth(
-        AUTH_NODE_CONNECTOR,
-        AUTH_GROUP_CONNECTOR,
-        cp.southbound_port,
-        node1_port,
-        ServerAuth::None,
-        vec![],
-        None,
-    )
-    .await;
-
-    wait_for_nodes_connected(
-        &mut client,
-        &[&auth_connector_id(), &auth_protected_id()],
-        SHORT_TIMEOUT,
-    )
-    .await;
-
-    wait_for_auth_link_failed(
-        &mut client,
-        DEFAULT_TIMEOUT,
-        Some("no local credentials configured"),
-    )
-    .await;
-
-    node_1.shutdown().await.ok();
-    node_2.shutdown().await.ok();
-    stop_control_plane(cp).await;
+    let cases = [
+        ServerAuth::Basic(BasicConfig::new("user", "pass")),
+        ServerAuth::Jwt(JwtConfig::new(
+            Claims::default(),
+            Duration::from_secs(3600),
+            JwtKey::Autoresolve,
+        )),
+    ];
+    for protected in cases {
+        let mut nodes = start_auth_link_nodes(protected, |_| vec![], None).await;
+        wait_auth_link(
+            &mut nodes.client,
+            DEFAULT_TIMEOUT,
+            LINK_FAILED,
+            Some("no local credentials configured"),
+        )
+        .await;
+        stop_auth_link_nodes(nodes).await;
+    }
 }
 
-/// Test: basic auth with wrong password → link reaches Failed at connect time.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_link_basic_auth_wrong_credentials() {
     use slim_config::auth::basic::Config as BasicConfig;
     use slim_config::grpc::client::AuthenticationConfig as ClientAuth;
     use slim_config::grpc::server::AuthenticationConfig as ServerAuth;
 
-    init_tracing();
-    let cp = start_control_plane(full_mesh_topology()).await;
-    let mut client = create_nb_client(cp.northbound_port).await;
-
-    let node1_port = reserve_port();
-    let node2_port = reserve_port();
-
-    let node_2 = start_node_with_auth(
-        AUTH_NODE_PROTECTED,
-        AUTH_GROUP_PROTECTED,
-        cp.southbound_port,
-        node2_port,
+    let mut nodes = start_auth_link_nodes(
         ServerAuth::Basic(BasicConfig::new("user", "pass")),
-        vec![],
+        |port| {
+            vec![
+                ClientConfig::with_endpoint(&peer_endpoint(port))
+                    .with_auth(ClientAuth::Basic(BasicConfig::new("user", "wrong"))),
+            ]
+        },
         None,
     )
     .await;
-
-    let outbound = ClientConfig::with_endpoint(&protected_endpoint(node2_port))
-        .with_auth(ClientAuth::Basic(BasicConfig::new("user", "wrong")));
-
-    let node_1 = start_node_with_auth(
-        AUTH_NODE_CONNECTOR,
-        AUTH_GROUP_CONNECTOR,
-        cp.southbound_port,
-        node1_port,
-        ServerAuth::None,
-        vec![outbound],
-        None,
+    wait_auth_link(
+        &mut nodes.client,
+        DEFAULT_TIMEOUT,
+        LINK_FAILED,
+        Some("Connection failed"),
     )
     .await;
-
-    wait_for_nodes_connected(
-        &mut client,
-        &[&auth_connector_id(), &auth_protected_id()],
-        SHORT_TIMEOUT,
-    )
-    .await;
-
-    wait_for_auth_link_failed(&mut client, DEFAULT_TIMEOUT, Some("Connection failed")).await;
-
-    node_1.shutdown().await.ok();
-    node_2.shutdown().await.ok();
-    stop_control_plane(cp).await;
+    stop_auth_link_nodes(nodes).await;
 }
 
-/// Test: outbound_clients entry keyed to the wrong endpoint → credential lookup fails.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_link_basic_auth_endpoint_mismatch() {
     use slim_config::auth::basic::Config as BasicConfig;
     use slim_config::grpc::client::AuthenticationConfig as ClientAuth;
     use slim_config::grpc::server::AuthenticationConfig as ServerAuth;
 
-    init_tracing();
-    let cp = start_control_plane(full_mesh_topology()).await;
-    let mut client = create_nb_client(cp.northbound_port).await;
-
-    let node1_port = reserve_port();
-    let node2_port = reserve_port();
-
-    let node_2 = start_node_with_auth(
-        AUTH_NODE_PROTECTED,
-        AUTH_GROUP_PROTECTED,
-        cp.southbound_port,
-        node2_port,
+    let mut nodes = start_auth_link_nodes(
         ServerAuth::Basic(BasicConfig::new("user", "pass")),
-        vec![],
+        |port| {
+            let wrong = if port == u16::MAX { port - 1 } else { port + 1 };
+            vec![
+                ClientConfig::with_endpoint(&peer_endpoint(wrong))
+                    .with_auth(ClientAuth::Basic(BasicConfig::new("user", "pass"))),
+            ]
+        },
         None,
     )
     .await;
-
-    let wrong_port = if node2_port == u16::MAX {
-        node2_port - 1
-    } else {
-        node2_port + 1
-    };
-    let outbound = ClientConfig::with_endpoint(&protected_endpoint(wrong_port))
-        .with_auth(ClientAuth::Basic(BasicConfig::new("user", "pass")));
-
-    let node_1 = start_node_with_auth(
-        AUTH_NODE_CONNECTOR,
-        AUTH_GROUP_CONNECTOR,
-        cp.southbound_port,
-        node1_port,
-        ServerAuth::None,
-        vec![outbound],
-        None,
-    )
-    .await;
-
-    wait_for_nodes_connected(
-        &mut client,
-        &[&auth_connector_id(), &auth_protected_id()],
-        SHORT_TIMEOUT,
-    )
-    .await;
-
-    wait_for_auth_link_failed(
-        &mut client,
+    wait_auth_link(
+        &mut nodes.client,
         DEFAULT_TIMEOUT,
-        Some(&protected_endpoint(node2_port)),
+        LINK_FAILED,
+        Some(&peer_endpoint(nodes.protected_port)),
     )
     .await;
-
-    node_1.shutdown().await.ok();
-    node_2.shutdown().await.ok();
-    stop_control_plane(cp).await;
+    stop_auth_link_nodes(nodes).await;
 }
 
-/// Test: connector restarts with credentials after an initial Failed link → Applied.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_link_basic_auth_credentials_after_initial_failure() {
     use slim_config::auth::basic::Config as BasicConfig;
     use slim_config::grpc::client::AuthenticationConfig as ClientAuth;
     use slim_config::grpc::server::AuthenticationConfig as ServerAuth;
 
-    init_tracing();
-    let cp = start_control_plane(full_mesh_topology()).await;
-    let mut client = create_nb_client(cp.northbound_port).await;
-
-    let node1_port = reserve_port();
-    let node2_port = reserve_port();
-
-    let node_2 = start_node_with_auth(
-        AUTH_NODE_PROTECTED,
-        AUTH_GROUP_PROTECTED,
-        cp.southbound_port,
-        node2_port,
+    let mut nodes = start_auth_link_nodes(
         ServerAuth::Basic(BasicConfig::new("user", "pass")),
-        vec![],
+        |_| vec![],
         None,
     )
     .await;
-
-    let node_1 = start_node_with_auth(
-        AUTH_NODE_CONNECTOR,
-        AUTH_GROUP_CONNECTOR,
-        cp.southbound_port,
-        node1_port,
-        ServerAuth::None,
-        vec![],
-        None,
-    )
-    .await;
-
-    wait_for_nodes_connected(
-        &mut client,
-        &[&auth_connector_id(), &auth_protected_id()],
-        SHORT_TIMEOUT,
-    )
-    .await;
-
-    wait_for_auth_link_failed(
-        &mut client,
+    wait_auth_link(
+        &mut nodes.client,
         DEFAULT_TIMEOUT,
+        LINK_FAILED,
         Some("no local credentials configured"),
     )
     .await;
 
-    node_1.deregister().await.ok();
-    node_1.shutdown().await.ok();
+    let port = nodes.protected_port;
+    let sb = nodes.cp.southbound_port;
+    nodes.connector.deregister().await.ok();
+    nodes.connector.shutdown().await.ok();
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let outbound = ClientConfig::with_endpoint(&protected_endpoint(node2_port))
+    let outbound = ClientConfig::with_endpoint(&peer_endpoint(port))
         .with_auth(ClientAuth::Basic(BasicConfig::new("user", "pass")));
-
-    let node_1 = start_node_with_auth(
-        AUTH_NODE_CONNECTOR,
+    nodes.connector = start_node_with_auth(
+        "node-1",
         AUTH_GROUP_CONNECTOR,
-        cp.southbound_port,
-        node1_port,
+        sb,
+        reserve_port(),
         ServerAuth::None,
         vec![outbound],
         None,
     )
     .await;
-
-    wait_for_nodes_connected(&mut client, &[&auth_connector_id()], SHORT_TIMEOUT).await;
-    wait_for_auth_link_applied(&mut client, DEFAULT_TIMEOUT).await;
-
-    node_1.shutdown().await.ok();
-    node_2.shutdown().await.ok();
-    stop_control_plane(cp).await;
+    wait_for_nodes_connected(&mut nodes.client, &[AUTH_CONNECTOR_ID], SHORT_TIMEOUT).await;
+    wait_auth_link(&mut nodes.client, DEFAULT_TIMEOUT, LINK_APPLIED, None).await;
+    stop_auth_link_nodes(nodes).await;
 }
 
-/// JWT auth with a wiremock JWKS validator → link reaches Applied.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_link_jwt_auth_with_mock_validator() {
     use slim_auth::jwt::{Algorithm, Key, KeyData, KeyFormat};
@@ -2504,15 +2216,11 @@ async fn test_link_jwt_auth_with_mock_validator() {
     use slim_config::grpc::server::AuthenticationConfig as ServerAuth;
     use slim_testing::utils::setup_test_jwt_resolver;
 
-    init_tracing();
-    let (signing_key, mock_validator, _alg) =
-        setup_test_jwt_resolver(Algorithm::RS256).await;
-
+    let (signing_key, mock_validator, _) = setup_test_jwt_resolver(Algorithm::RS256).await;
     let claims = Claims::default()
         .with_issuer(mock_validator.uri())
         .with_subject("slim-auth-link-test")
         .with_audience(&["slim-auth-test"]);
-
     let client_jwt = JwtConfig::new(
         claims.clone(),
         Duration::from_secs(3600),
@@ -2524,52 +2232,21 @@ async fn test_link_jwt_auth_with_mock_validator() {
     );
     let server_jwt = JwtConfig::new(claims, Duration::from_secs(3600), JwtKey::Autoresolve);
 
-    let cp = start_control_plane(full_mesh_topology()).await;
-    let mut client = create_nb_client(cp.northbound_port).await;
-
-    let node1_port = reserve_port();
-    let node2_port = reserve_port();
-
-    let node_2 = start_node_with_auth(
-        AUTH_NODE_PROTECTED,
-        AUTH_GROUP_PROTECTED,
-        cp.southbound_port,
-        node2_port,
+    let mut nodes = start_auth_link_nodes(
         ServerAuth::Jwt(server_jwt),
-        vec![],
+        move |port| {
+            vec![
+                ClientConfig::with_endpoint(&peer_endpoint(port))
+                    .with_auth(ClientAuth::Jwt(client_jwt.clone())),
+            ]
+        },
         None,
     )
     .await;
-
-    let outbound = ClientConfig::with_endpoint(&protected_endpoint(node2_port))
-        .with_auth(ClientAuth::Jwt(client_jwt));
-
-    let node_1 = start_node_with_auth(
-        AUTH_NODE_CONNECTOR,
-        AUTH_GROUP_CONNECTOR,
-        cp.southbound_port,
-        node1_port,
-        ServerAuth::None,
-        vec![outbound],
-        None,
-    )
-    .await;
-
-    wait_for_nodes_connected(
-        &mut client,
-        &[&auth_connector_id(), &auth_protected_id()],
-        SHORT_TIMEOUT,
-    )
-    .await;
-
-    wait_for_auth_link_applied(&mut client, DEFAULT_TIMEOUT).await;
-
-    node_1.shutdown().await.ok();
-    node_2.shutdown().await.ok();
-    stop_control_plane(cp).await;
+    wait_auth_link(&mut nodes.client, DEFAULT_TIMEOUT, LINK_APPLIED, None).await;
+    stop_auth_link_nodes(nodes).await;
 }
 
-/// JWT auth with a mismatched signing key → link reaches Failed at connect time.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_link_jwt_auth_wrong_credentials() {
     use slim_auth::jwt::{Algorithm, Key, KeyData, KeyFormat};
@@ -2578,17 +2255,12 @@ async fn test_link_jwt_auth_wrong_credentials() {
     use slim_config::grpc::server::AuthenticationConfig as ServerAuth;
     use slim_testing::utils::setup_test_jwt_resolver;
 
-    init_tracing();
-    let (_server_key, mock_validator, _alg) =
-        setup_test_jwt_resolver(Algorithm::RS256).await;
-    let (wrong_key, _wrong_mock, _wrong_alg) =
-        setup_test_jwt_resolver(Algorithm::RS256).await;
-
+    let (_server_key, mock_validator, _) = setup_test_jwt_resolver(Algorithm::RS256).await;
+    let (wrong_key, _, _) = setup_test_jwt_resolver(Algorithm::RS256).await;
     let claims = Claims::default()
         .with_issuer(mock_validator.uri())
         .with_subject("slim-auth-link-test")
         .with_audience(&["slim-auth-test"]);
-
     let client_jwt = JwtConfig::new(
         claims.clone(),
         Duration::from_secs(3600),
@@ -2600,199 +2272,151 @@ async fn test_link_jwt_auth_wrong_credentials() {
     );
     let server_jwt = JwtConfig::new(claims, Duration::from_secs(3600), JwtKey::Autoresolve);
 
-    let cp = start_control_plane(full_mesh_topology()).await;
-    let mut client = create_nb_client(cp.northbound_port).await;
-
-    let node1_port = reserve_port();
-    let node2_port = reserve_port();
-
-    let node_2 = start_node_with_auth(
-        AUTH_NODE_PROTECTED,
-        AUTH_GROUP_PROTECTED,
-        cp.southbound_port,
-        node2_port,
+    let mut nodes = start_auth_link_nodes(
         ServerAuth::Jwt(server_jwt),
-        vec![],
+        move |port| {
+            vec![
+                ClientConfig::with_endpoint(&peer_endpoint(port))
+                    .with_auth(ClientAuth::Jwt(client_jwt.clone())),
+            ]
+        },
         None,
     )
     .await;
-
-    let outbound = ClientConfig::with_endpoint(&protected_endpoint(node2_port))
-        .with_auth(ClientAuth::Jwt(client_jwt));
-
-    let node_1 = start_node_with_auth(
-        AUTH_NODE_CONNECTOR,
-        AUTH_GROUP_CONNECTOR,
-        cp.southbound_port,
-        node1_port,
-        ServerAuth::None,
-        vec![outbound],
-        None,
+    wait_auth_link(
+        &mut nodes.client,
+        DEFAULT_TIMEOUT,
+        LINK_FAILED,
+        Some("Connection failed"),
     )
     .await;
-
-    wait_for_nodes_connected(
-        &mut client,
-        &[&auth_connector_id(), &auth_protected_id()],
-        SHORT_TIMEOUT,
-    )
-    .await;
-
-    wait_for_auth_link_failed(&mut client, DEFAULT_TIMEOUT, Some("Connection failed")).await;
-
-    node_1.shutdown().await.ok();
-    node_2.shutdown().await.ok();
-    stop_control_plane(cp).await;
+    stop_auth_link_nodes(nodes).await;
 }
 
-/// Protected node registered as SPIRE (metadata) with a JWT mock JWKS validator on the server.
-/// ponytail: avoids needing a real Workload API socket at node startup; CP still records Spire.
-async fn start_spire_registered_jwt_protected_node(
-    southbound_port: u16,
-    node2_port: u16,
-    mock_validator_uri: &str,
-) -> Service {
+async fn spire_protected_node(southbound_port: u16, port: u16, mock_uri: &str) -> Service {
     use slim_config::auth::jwt::{Claims, Config as JwtConfig, JwtKey};
     use slim_config::grpc::server::AuthenticationConfig as ServerAuth;
 
-    let mock_socket = std::env::temp_dir().join(format!(
-        "slim-spire-mock-{}",
-        uuid::Uuid::new_v4()
-    ));
-    let socket_path = mock_socket.to_string_lossy().into_owned();
-
-    let mut extra_md = MetadataMap::new();
-    extra_md.insert(
+    let mut md = MetadataMap::new();
+    md.insert(
         "spire_socket_path",
-        MetadataValue::String(socket_path),
+        MetadataValue::String(
+            std::env::temp_dir()
+                .join(format!("slim-spire-mock-{}", uuid::Uuid::new_v4()))
+                .to_string_lossy()
+                .into_owned(),
+        ),
     );
-    extra_md.insert(
+    md.insert(
         "trust_domain",
         MetadataValue::String("auth-test.example".to_string()),
     );
-
-    let server_jwt = JwtConfig::new(
-        Claims::default()
-            .with_issuer(mock_validator_uri)
-            .with_subject("slim-spire-link-test")
-            .with_audience(&["slim-spire-test"]),
-        Duration::from_secs(3600),
-        JwtKey::Autoresolve,
-    );
-
     start_node_with_auth(
-        AUTH_NODE_PROTECTED,
+        "node-2",
         AUTH_GROUP_PROTECTED,
         southbound_port,
-        node2_port,
-        ServerAuth::Jwt(server_jwt),
+        port,
+        ServerAuth::Jwt(JwtConfig::new(
+            Claims::default()
+                .with_issuer(mock_uri)
+                .with_subject("slim-spire-link-test")
+                .with_audience(&["slim-spire-test"]),
+            Duration::from_secs(3600),
+            JwtKey::Autoresolve,
+        )),
         vec![],
-        Some(extra_md),
+        Some(md),
     )
     .await
 }
 
-/// SPIRE auth (CP-side) with JWT mock validator on server → connector fails without workload API.
 #[cfg(not(target_family = "windows"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_link_spire_auth_fails_without_mock_workload_api() {
-    use slim_testing::utils::setup_test_jwt_resolver;
     use slim_auth::jwt::Algorithm;
+    use slim_testing::utils::setup_test_jwt_resolver;
 
     init_tracing();
-    let (_key, mock_validator, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
-
+    let (_, mock_validator, _) = setup_test_jwt_resolver(Algorithm::RS256).await;
     let cp = start_control_plane(full_mesh_topology()).await;
     let mut client = create_nb_client(cp.northbound_port).await;
-
-    let node1_port = reserve_port();
-    let node2_port = reserve_port();
-
-    let node_2 =
-        start_spire_registered_jwt_protected_node(cp.southbound_port, node2_port, &mock_validator.uri())
-            .await;
-
-    let node_1 = start_node_with_auth(
-        AUTH_NODE_CONNECTOR,
+    let protected =
+        spire_protected_node(cp.southbound_port, reserve_port(), &mock_validator.uri()).await;
+    let connector = start_node_with_auth(
+        "node-1",
         AUTH_GROUP_CONNECTOR,
         cp.southbound_port,
-        node1_port,
+        reserve_port(),
         slim_config::grpc::server::AuthenticationConfig::None,
         vec![],
         None,
     )
     .await;
-
     wait_for_nodes_connected(
         &mut client,
-        &[&auth_connector_id(), &auth_protected_id()],
+        &[AUTH_CONNECTOR_ID, AUTH_PROTECTED_ID],
         SHORT_TIMEOUT,
     )
     .await;
-
-    wait_for_auth_link_failed(&mut client, DEFAULT_TIMEOUT, Some("Connection failed")).await;
-
-    node_1.shutdown().await.ok();
-    node_2.shutdown().await.ok();
+    wait_auth_link(
+        &mut client,
+        DEFAULT_TIMEOUT,
+        LINK_FAILED,
+        Some("Connection failed"),
+    )
+    .await;
+    connector.shutdown().await.ok();
+    protected.shutdown().await.ok();
     stop_control_plane(cp).await;
 }
 
-/// SPIRE outbound client with unavailable mock workload socket → link reaches Failed.
 #[cfg(not(target_family = "windows"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn test_link_spire_auth_outbound_without_mock_workload_api() {
+    use slim_auth::jwt::Algorithm;
     use slim_config::auth::spire::SpireConfig;
     use slim_config::grpc::client::AuthenticationConfig as ClientAuth;
     use slim_testing::utils::setup_test_jwt_resolver;
-    use slim_auth::jwt::Algorithm;
 
     init_tracing();
-    let (_key, mock_validator, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
-
+    let (_, mock_validator, _) = setup_test_jwt_resolver(Algorithm::RS256).await;
     let cp = start_control_plane(full_mesh_topology()).await;
     let mut client = create_nb_client(cp.northbound_port).await;
-
-    let node1_port = reserve_port();
-    let node2_port = reserve_port();
-
-    let node_2 =
-        start_spire_registered_jwt_protected_node(cp.southbound_port, node2_port, &mock_validator.uri())
-            .await;
-
-    let mock_socket = std::env::temp_dir().join(format!(
-        "slim-spire-mock-{}",
-        uuid::Uuid::new_v4()
-    ));
-    let socket_path = mock_socket.to_string_lossy().into_owned();
-    let spire_cfg = SpireConfig::new()
-        .with_socket_path(&socket_path)
-        .with_trust_domain("auth-test.example");
-
-    let outbound = ClientConfig::with_endpoint(&protected_endpoint(node2_port))
+    let protected_port = reserve_port();
+    let protected =
+        spire_protected_node(cp.southbound_port, protected_port, &mock_validator.uri()).await;
+    let socket = std::env::temp_dir().join(format!("slim-spire-mock-{}", uuid::Uuid::new_v4()));
+    let outbound = ClientConfig::with_endpoint(&peer_endpoint(protected_port))
         .with_tls_setting(TlsClientConfig::insecure())
-        .with_auth(ClientAuth::Spire(spire_cfg));
-
-    let node_1 = start_node_with_auth(
-        AUTH_NODE_CONNECTOR,
+        .with_auth(ClientAuth::Spire(
+            SpireConfig::new()
+                .with_socket_path(socket.to_string_lossy())
+                .with_trust_domain("auth-test.example"),
+        ));
+    let connector = start_node_with_auth(
+        "node-1",
         AUTH_GROUP_CONNECTOR,
         cp.southbound_port,
-        node1_port,
+        reserve_port(),
         slim_config::grpc::server::AuthenticationConfig::None,
         vec![outbound],
         None,
     )
     .await;
-
     wait_for_nodes_connected(
         &mut client,
-        &[&auth_connector_id(), &auth_protected_id()],
+        &[AUTH_CONNECTOR_ID, AUTH_PROTECTED_ID],
         SHORT_TIMEOUT,
     )
     .await;
-
-    wait_for_auth_link_failed(&mut client, DEFAULT_TIMEOUT, Some("Connection failed")).await;
-
-    node_1.shutdown().await.ok();
-    node_2.shutdown().await.ok();
+    wait_auth_link(
+        &mut client,
+        DEFAULT_TIMEOUT,
+        LINK_FAILED,
+        Some("Connection failed"),
+    )
+    .await;
+    connector.shutdown().await.ok();
+    protected.shutdown().await.ok();
     stop_control_plane(cp).await;
 }

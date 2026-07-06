@@ -17,8 +17,8 @@ use crate::api::proto::controller::proto::v1::{
     Route as ProtoRoute, control_message::Payload, controller_service_server::ControllerService,
 };
 
-use crate::db::{ConnectionDetails, LinkStatus, Node, RouteStatus, SharedDb, model::AuthMethod};
 use crate::auth::GroupAuthenticator;
+use crate::db::{ConnectionDetails, LinkStatus, Node, RouteStatus, SharedDb, model::AuthMethod};
 use crate::error::{Error, Result};
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
 use crate::route_service::{ALL_NODES_ID, RouteService};
