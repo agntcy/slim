@@ -114,29 +114,29 @@ pub(super) fn generate_config_data(
             })?
     };
 
-    let (effective_endpoint, tls_required, auth_method) =
-        if detail.tls_required && detail.auth_method == model::AuthMethod::Spire {
+    let effective_endpoint = if detail.tls_required {
+        format!("https://{endpoint}")
+    } else {
+        format!("http://{endpoint}")
+    };
+
+    let auth_method = match detail.auth_method {
+        model::AuthMethod::Spire => {
             let trust_domain = detail
                 .spire_trust_domain
                 .as_deref()
                 .or(dest_node.group_name.as_deref())
                 .map(|s| s.to_string());
-            (
-                format!("https://{endpoint}"),
-                true,
-                RequiredAuthMethod::Spire { trust_domain },
-            )
-        } else {
-            (
-                format!("http://{endpoint}"),
-                false,
-                RequiredAuthMethod::None,
-            )
-        };
+            RequiredAuthMethod::Spire { trust_domain }
+        }
+        model::AuthMethod::None => RequiredAuthMethod::None,
+        model::AuthMethod::Basic => RequiredAuthMethod::Basic,
+        model::AuthMethod::Jwt => RequiredAuthMethod::Jwt,
+    };
 
     let server_config = ServerConnectionConfig {
         endpoint: effective_endpoint.clone(),
-        tls_required,
+        tls_required: detail.tls_required,
         auth_method,
         backoff: Some(2000),
         timeout: None,
@@ -444,6 +444,70 @@ mod tests {
                 trust_domain: Some("fallback-group".to_string())
             }
         );
+    }
+
+    #[test]
+    fn generate_config_data_basic_no_tls() {
+        let cd = crate::db::ConnectionDetails {
+            endpoint: "host:8080".to_string(),
+            external_endpoint: None,
+            tls_required: false,
+            auth_method: AuthMethod::Basic,
+            spire_trust_domain: None,
+        };
+        let dest = make_node("dst", None, vec![cd.clone()]);
+        let (ep, config) = generate_config_data(&cd, true, &dest).unwrap();
+        assert!(ep.starts_with("http://"));
+        assert!(!config.tls_required);
+        assert_eq!(config.auth_method, RequiredAuthMethod::Basic);
+    }
+
+    #[test]
+    fn generate_config_data_basic_with_tls() {
+        let cd = crate::db::ConnectionDetails {
+            endpoint: "host:8080".to_string(),
+            external_endpoint: None,
+            tls_required: true,
+            auth_method: AuthMethod::Basic,
+            spire_trust_domain: None,
+        };
+        let dest = make_node("dst", None, vec![cd.clone()]);
+        let (ep, config) = generate_config_data(&cd, true, &dest).unwrap();
+        assert!(ep.starts_with("https://"));
+        assert!(config.tls_required);
+        assert_eq!(config.auth_method, RequiredAuthMethod::Basic);
+    }
+
+    #[test]
+    fn generate_config_data_jwt_no_tls() {
+        let cd = crate::db::ConnectionDetails {
+            endpoint: "host:8080".to_string(),
+            external_endpoint: None,
+            tls_required: false,
+            auth_method: AuthMethod::Jwt,
+            spire_trust_domain: None,
+        };
+        let dest = make_node("dst", None, vec![cd.clone()]);
+        let (ep, config) = generate_config_data(&cd, true, &dest).unwrap();
+        assert!(ep.starts_with("http://"));
+        assert!(!config.tls_required);
+        assert_eq!(config.auth_method, RequiredAuthMethod::Jwt);
+    }
+
+    #[test]
+    fn generate_config_data_jwt_with_tls() {
+        let cd = crate::db::ConnectionDetails {
+            endpoint: "host:8080".to_string(),
+            external_endpoint: None,
+            tls_required: true,
+            auth_method: AuthMethod::Jwt,
+            spire_trust_domain: None,
+        };
+        let dest = make_node("dst", None, vec![cd.clone()]);
+        let (ep, config) = generate_config_data(&cd, true, &dest).unwrap();
+        assert!(ep.starts_with("https://"));
+        assert!(config.tls_required);
+        assert_eq!(config.auth_method, RequiredAuthMethod::Jwt);
     }
 
     #[test]

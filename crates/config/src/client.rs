@@ -555,7 +555,8 @@ impl ClientConfig {
                     ));
                 }
             }
-            _ => {} // Basic and JWT local credentials/tokens remain preserved
+            RequiredAuthMethod::Basic => {}
+            RequiredAuthMethod::Jwt => {}
         }
         if let Some(ms) = server.timeout {
             self.connect_timeout = Duration::from_millis(ms as u64).into();
