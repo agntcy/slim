@@ -6,10 +6,6 @@ name: ci-release-rust
 
 on:
   push:
-    paths:
-      - 'crates/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
     branches:
       - main
 

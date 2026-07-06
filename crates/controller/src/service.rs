@@ -1798,16 +1798,31 @@ impl ControllerService {
                     .collect::<Vec<_>>()
             };
 
-            let credentials = match &this.inner.auth_provider {
-                Some(provider) => match provider.get_token() {
-                    Ok(token) => token,
-                    Err(e) => {
-                        error!(error = %e, "failed to get auth credentials for registration, aborting");
-                        return;
-                    }
-                },
-                None => String::new(),
-            };
+            let max_attempts = 10;
+            let mut credentials = None;
+            let mut i = 0;
+            while i < max_attempts && credentials.is_none() {
+                credentials = match &this.inner.auth_provider {
+                    Some(provider) => match provider.get_token() {
+                        Ok(token) => Some(token),
+                        Err(e) => {
+                            info!(error = %e, attempt = i + 1, max_attempts, "failed to get auth credentials, will retry");
+                            tokio::time::sleep(Duration::from_secs(2)).await;
+                            None
+                        }
+                    },
+                    None => Some(String::new()),
+                };
+                i += 1;
+            }
+
+            if credentials.is_none() {
+                error!(
+                    attempts = max_attempts,
+                    "failed to obtain auth credentials, aborting registration"
+                );
+                return;
+            }
 
             let register_request = ControlMessage {
                 message_id: uuid::Uuid::new_v4().to_string(),
@@ -1817,7 +1832,7 @@ impl ControllerService {
                     connection_details: this.inner.connection_details.clone(),
                     connections: active_connections,
                     routes: active_routes,
-                    credentials,
+                    credentials: credentials.unwrap(),
                 })),
             };
 
