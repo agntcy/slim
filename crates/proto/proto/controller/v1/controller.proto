@@ -150,6 +150,9 @@ message RegisterNodeRequest {
   repeated ConnectionEntry connections = 4;
   // Active routes on the data plane at the time of registration.
   repeated Route routes = 5;
+  // Credentials proving authorization to join the claimed group.
+  // Empty string when no auth is configured.
+  string credentials = 6;
 }
 
 message RegisterNodeResponse {

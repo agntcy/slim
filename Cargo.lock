@@ -79,7 +79,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-channel-manager"
-version = "0.1.0"
+version = "2.0.0-alpha.2"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
@@ -207,6 +207,7 @@ dependencies = [
 name = "agntcy-slim-controller"
 version = "0.9.0"
 dependencies = [
+ "agntcy-slim-auth",
  "agntcy-slim-config",
  "agntcy-slim-datapath",
  "agntcy-slim-proto",

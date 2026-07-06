@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use slim_auth::metadata::{MetadataMap, MetadataValue};
 use slim_auth::shared_secret::SharedSecret;
+use slim_config::auth::AuthConfig;
 use slim_config::component::Component;
 use slim_config::component::id::ID;
 use slim_config::grpc::client::{ClientConfig, KeepaliveConfig};
@@ -26,7 +27,8 @@ use slim_control_plane::api::proto::controlplane::proto::v1::{
     SegmentListRequest,
 };
 use slim_control_plane::config::{
-    AdjacencyEntry, Config, DatabaseConfig, ReconcilerConfig, SegmentConfig, TopologyConfig,
+    AdjacencyEntry, Config, DatabaseConfig, ReconcilerConfig, RegistrationAuthConfig,
+    SegmentConfig, TopologyConfig, TopologySettings,
 };
 use slim_control_plane::server::ControlPlane;
 use slim_datapath::api::ProtoName as Name;
@@ -56,6 +58,36 @@ const NODE_CONNECTED: i32 = 1;
 /// Default timeout for waiting on async conditions.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const SHORT_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Per-group registration secrets (each group has its own secret for isolation).
+const TEST_GROUP_SECRETS: &[(&str, &str)] = &[
+    ("group-a", "secret-group-a-00112233445566778899"),
+    ("group-b", "secret-group-b-00112233445566778899"),
+    ("group-c", "secret-group-c-00112233445566778899"),
+    ("group-d", "secret-group-d-00112233445566778899"),
+    ("platform", "secret-platform-001122334455667788"),
+    ("customer-a", "secret-customer-a-0011223344556677"),
+    ("customer-b", "secret-customer-b-0011223344556677"),
+];
+
+/// Look up the test secret for a group.
+fn group_secret(group: &str) -> &'static str {
+    TEST_GROUP_SECRETS
+        .iter()
+        .find(|(g, _)| *g == group)
+        .unwrap_or_else(|| panic!("no test secret for group '{group}'"))
+        .1
+}
+
+/// Build the registration auth config with per-group shared secrets.
+fn test_registration_auth() -> RegistrationAuthConfig {
+    RegistrationAuthConfig::SharedSecret {
+        secrets: TEST_GROUP_SECRETS
+            .iter()
+            .map(|(g, s)| (g.to_string(), s.to_string()))
+            .collect(),
+    }
+}
 
 fn raise_fd_limit() {
     static INIT_FD_LIMIT: std::sync::Once = std::sync::Once::new();
@@ -106,7 +138,10 @@ async fn start_control_plane(topology: TopologyConfig) -> TestControlPlane {
             .with_tls_settings(TlsServerConfig::insecure()),
         database: DatabaseConfig::InMemory,
         reconciler: test_reconciler_config(),
-        topology,
+        topology: TopologySettings {
+            config: topology,
+            auth: Some(test_registration_auth()),
+        },
         ..Default::default()
     };
 
@@ -197,6 +232,10 @@ async fn start_grouped_node(
         .with_controlplane_client(vec![cp_client])
         .with_node_id(name);
     service_config.group_name = Some(group.to_string());
+    service_config.auth = Some(AuthConfig::SharedSecret {
+        id: Some(format!("{group}/{name}")),
+        secret: group_secret(group).to_string(),
+    });
     if let Some(pc) = peer_config {
         service_config = service_config.with_peers(pc);
     }
@@ -1974,6 +2013,10 @@ async fn wait_for_auth_link_failed(
 
 /// Start a node whose dataplane server requires the given auth and whose
 /// controller is pre-loaded with outbound credentials for connecting to other nodes.
+// Auth rejection tests
+// =============================================================================
+
+/// Start a node with a specific (potentially wrong) auth config, or None for no auth.
 async fn start_node_with_auth(
     name: &str,
     group: &str,

@@ -186,6 +186,10 @@ pub struct RegisterNodeRequest {
     /// Active routes on the data plane at the time of registration.
     #[prost(message, repeated, tag = "5")]
     pub routes: ::prost::alloc::vec::Vec<Route>,
+    /// Credentials proving authorization to join the claimed group.
+    /// Empty string when no auth is configured.
+    #[prost(string, tag = "6")]
+    pub credentials: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterNodeResponse {
