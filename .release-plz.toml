@@ -87,12 +87,12 @@ changelog_update = true
 
 [[package]]
 name = "agntcy-slim-control-plane"
-publish = false
+publish = true
 release = true
 changelog_update = true
 
 [[package]]
 name = "agntcy-slim-channel-manager"
-publish = false
+publish = true
 release = true
 changelog_update = true
