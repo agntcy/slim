@@ -87,7 +87,9 @@
   {
     "version": "slim-control-plane-v2.0.0-alpha.2",
     "title": "slim-control-plane-v2.0.0-alpha.2",
-    "aliases": []
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "slim-config-v0.12.0",
@@ -107,9 +109,7 @@
   {
     "version": "slim-channel-manager-v2.0.0-alpha.2",
     "title": "slim-channel-manager-v2.0.0-alpha.2",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-auth-v0.11.0",
