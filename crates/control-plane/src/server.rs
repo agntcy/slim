@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 
 use crate::api::proto::controller::proto::v1::controller_service_server::ControllerServiceServer;
 use crate::api::proto::controlplane::proto::v1::control_plane_service_server::ControlPlaneServiceServer;
+use crate::auth::GroupAuthenticator;
 use crate::config::Config;
 use crate::node_transport::DefaultNodeCommandHandler;
 use crate::route_service::RouteService;
@@ -43,7 +44,7 @@ impl ControlPlane {
             db.clone(),
             cmd_handler.clone(),
             cfg.reconciler,
-            cfg.topology,
+            cfg.topology.config,
         );
 
         // In API mode, ensure "default" segment exists, then load segment graphs from DB.
@@ -61,12 +62,23 @@ impl ControlPlane {
         let nb_svc =
             NorthboundApiService::new(db.clone(), cmd_handler.clone(), route_service.clone());
 
+        // Build group authenticator from config (Noop when no auth configured).
+        let authenticator = match cfg.topology.auth {
+            None => GroupAuthenticator::Noop,
+            Some(auth_cfg) => Self::build_authenticator(auth_cfg, is_api_managed).await?,
+        };
+
         let (drain_tx, drain_rx) = drain::channel();
 
         let shared_drain: SharedDrain =
             std::sync::Arc::new(parking_lot::Mutex::new(Some(drain_rx.clone())));
-        let sb_svc =
-            SouthboundApiService::new(db, cmd_handler, route_service.clone(), shared_drain.clone());
+        let sb_svc = SouthboundApiService::new(
+            db,
+            cmd_handler,
+            route_service.clone(),
+            authenticator,
+            shared_drain.clone(),
+        );
 
         cfg.northbound
             .run_grpc_server(&[ControlPlaneServiceServer::new(nb_svc)], drain_rx.clone())
@@ -93,5 +105,61 @@ impl ControlPlane {
         self.shared_drain.lock().take();
         self.drain_tx.drain().await;
         self.route_service.shutdown().await;
+    }
+
+    async fn build_authenticator(
+        cfg: crate::config::RegistrationAuthConfig,
+        is_api_managed: bool,
+    ) -> Result<GroupAuthenticator> {
+        use crate::config::RegistrationAuthConfig;
+        use std::collections::HashMap;
+
+        match cfg {
+            RegistrationAuthConfig::SharedSecret { secrets } => {
+                if secrets.is_empty() && !is_api_managed {
+                    return Err(anyhow::anyhow!(
+                        "topology.registration_auth.shared_secret.secrets cannot be empty in config mode"
+                    ));
+                }
+                let mut verifiers = HashMap::with_capacity(secrets.len());
+                for (group_name, secret) in secrets {
+                    // id is not used on the verifier side — it only matters for
+                    // token generation (provider). The verifier validates the HMAC
+                    // using the secret alone.
+                    let auth_config =
+                        slim_config::auth::AuthConfig::SharedSecret { id: None, secret };
+                    let (_, verifier_cfg) = auth_config.to_identity_configs(&group_name);
+                    let verifier = verifier_cfg.build_auth_verifier().map_err(|e| {
+                        anyhow::anyhow!(
+                            "failed to build auth verifier for group '{group_name}': {e}"
+                        )
+                    })?;
+                    verifiers.insert(group_name, verifier);
+                }
+                tracing::info!(
+                    "registration auth: shared_secret for {} group(s)",
+                    verifiers.len()
+                );
+                Ok(GroupAuthenticator::SharedSecret { verifiers })
+            }
+            #[cfg(not(target_family = "windows"))]
+            RegistrationAuthConfig::Spire { socket_path } => {
+                use slim_config::auth::spire::SpireConfig;
+
+                let spire_cfg = SpireConfig::new().with_socket_path(socket_path);
+                let mut verifier = spire_cfg
+                    .create_verifier()
+                    .map_err(|e| anyhow::anyhow!("failed to build SPIRE verifier: {e}"))?;
+                verifier
+                    .initialize()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("failed to initialize SPIRE verifier: {e}"))?;
+                let auth_verifier = slim_auth::auth_provider::AuthVerifier::Spire(verifier);
+                tracing::info!("registration auth: spire (trust domain = group name)");
+                Ok(GroupAuthenticator::Spire {
+                    verifier: Box::new(auth_verifier),
+                })
+            }
+        }
     }
 }
