@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.1](https://github.com/agntcy/slim/compare/slim-datapath-v0.16.0...slim-datapath-v0.16.1) - 2026-07-06
+
+### Other
+
+- updated the following local packages: agntcy-slim-config, agntcy-slim-proto, agntcy-slim-tracing
+
 ## [0.16.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.15.0...slim-datapath-v0.16.0) - 2026-07-01
 
 ### Added
