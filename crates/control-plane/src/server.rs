@@ -66,6 +66,26 @@ impl ControlPlane {
             Some(auth_cfg) => Self::build_authenticator(auth_cfg, is_api_managed).await?,
         };
 
+        // In API mode, restore DB-persisted secrets into the live authenticator.
+        if is_api_managed && authenticator.is_shared_secret() {
+            let groups = db.list_registration_secret_groups().await?;
+            for group in &groups {
+                let secret = db
+                    .get_registration_secret(group)
+                    .await?
+                    .expect("group listed but secret missing from DB");
+                authenticator.add_verifier(group, &secret).map_err(|e| {
+                    anyhow::anyhow!("failed to restore verifier for group '{group}': {e}")
+                })?;
+            }
+            if !groups.is_empty() {
+                tracing::info!(
+                    "restored {} group secret(s) from DB",
+                    groups.len()
+                );
+            }
+        }
+
         let nb_svc = NorthboundApiService::new(
             db.clone(),
             cmd_handler.clone(),

@@ -606,15 +606,15 @@ impl ControlPlaneService for NorthboundApiService {
             return Err(Status::invalid_argument("secret must not be empty"));
         }
 
-        // Persist to DB.
+        // Build the verifier first (validates the secret is usable).
+        self.authenticator
+            .add_verifier(&req.group_name, &req.secret)?;
+
+        // Persist to DB only after the verifier was successfully built.
         self.db
             .upsert_registration_secret(&req.group_name, &req.secret)
             .await
             .map_err(|e| Status::internal(format!("failed to store secret: {e}")))?;
-
-        // Add verifier to the live authenticator.
-        self.authenticator
-            .add_verifier(&req.group_name, &req.secret)?;
 
         tracing::info!("add_group: added group '{}'", req.group_name);
         Ok(Response::new(AddGroupResponse {}))
@@ -642,20 +642,20 @@ impl ControlPlaneService for NorthboundApiService {
             .filter(|n| n.group_name.as_deref() == Some(&req.group_name))
             .collect();
 
-        // Disconnect and deregister each node in the group.
-        for node in &group_nodes {
-            self.cmd_handler.force_remove_stream(&node.id).await;
-            self.route_service.node_deregistered(&node.id).await;
-        }
-
-        // Remove the verifier from the live authenticator.
+        // Remove the verifier first to prevent new registrations.
         self.authenticator.remove_verifier(&req.group_name);
 
-        // Remove the secret from DB.
+        // Remove the secret from DB (won't survive restart).
         self.db
             .delete_registration_secret(&req.group_name)
             .await
             .map_err(|e| Status::internal(format!("failed to delete secret: {e}")))?;
+
+        // Disconnect and deregister each existing node in the group.
+        for node in &group_nodes {
+            self.cmd_handler.force_remove_stream(&node.id).await;
+            self.route_service.node_deregistered(&node.id).await;
+        }
 
         tracing::info!(
             "remove_group: removed group '{}' ({} node(s) disconnected)",
