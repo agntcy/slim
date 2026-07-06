@@ -1243,6 +1243,20 @@ mod tests {
             segment_list(&make_opts(&addr)).await.unwrap();
         }
 
+        #[tokio::test]
+        async fn group_add_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            group_add("my-group", "my-secret-01234567890", &make_opts(&addr))
+                .await
+                .unwrap();
+        }
+
+        #[tokio::test]
+        async fn group_remove_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            group_remove("my-group", &make_opts(&addr)).await.unwrap();
+        }
+
         // ── error server ─────────────────────────────────────────────────────
 
         /// All methods return a gRPC status error.
