@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/agntcy/slim/compare/slim-session-v0.4.0...slim-session-v0.5.0) - 2026-07-06
+
+### Other
+
+- *(session)* optimise ProducerBuffer — swap field roles ([#1674](https://github.com/agntcy/slim/pull/1674))
+
 ## [0.4.0](https://github.com/agntcy/slim/compare/slim-session-v0.3.0...slim-session-v0.4.0) - 2026-07-01
 
 ### Added
