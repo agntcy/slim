@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use slim_config::grpc::client::ClientConfig;
-use slim_datapath::api::NameId;
+use slim_datapath::api::NULL_COMPONENT;
 
 use crate::api::proto::controller::proto::v1::ConnectionDirection;
 use crate::db::{LinkStatus, RouteStatus};
@@ -153,7 +153,7 @@ impl super::RouteService {
                         return false;
                     };
                     let (c0, c1, c2) = dp_name.str_components();
-                    let comp_id = if dp_name.id() == NameId::NULL_COMPONENT {
+                    let comp_id = if dp_name.id() == NULL_COMPONENT {
                         None
                     } else {
                         Some(dp_name.string_id())

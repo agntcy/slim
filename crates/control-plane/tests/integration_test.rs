@@ -671,8 +671,7 @@ async fn test_subscription_routing() {
             && r.status == ROUTE_APPLIED
             && r.name
                 .as_ref()
-                .and_then(|n| n.str_name.as_ref())
-                .map(|sn| sn.str_component_2 == "no-propagate")
+                .map(|n| n.str_components().2 == "no-propagate")
                 .unwrap_or(false)
     });
     assert!(
@@ -1396,12 +1395,7 @@ async fn test_multiple_wildcard_routes_different_names() {
     let wildcard_names: std::collections::HashSet<_> = routes
         .iter()
         .filter(|r| r.status == ROUTE_APPLIED)
-        .filter_map(|r| {
-            r.name
-                .as_ref()
-                .and_then(|n| n.str_name.as_ref())
-                .map(|sn| sn.str_component_2.clone())
-        })
+        .filter_map(|r| r.name.as_ref().map(|n| n.str_components().2.to_string()))
         .collect();
     assert!(
         wildcard_names.contains("svc-alpha"),
@@ -1422,8 +1416,7 @@ async fn test_multiple_wildcard_routes_different_names() {
         r.status == ROUTE_APPLIED
             && r.name
                 .as_ref()
-                .and_then(|n| n.str_name.as_ref())
-                .map(|sn| sn.str_component_2 == "svc-beta")
+                .map(|n| n.str_components().2 == "svc-beta")
                 .unwrap_or(false)
     });
     assert!(

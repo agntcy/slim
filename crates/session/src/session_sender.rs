@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use rand::Rng;
-use slim_datapath::api::{EncodedName, Participant, ProtoSessionType};
+use slim_datapath::api::{Participant, ProtoSessionType};
 use slim_datapath::messages::utils::{MAX_PUBLISH_ID, PUBLISH_TO};
 use slim_datapath::{api::ProtoMessage as Message, api::ProtoName};
 use tokio::sync::mpsc::Sender;
@@ -29,7 +29,7 @@ enum SenderDrainStatus {
 
 struct GroupTimer {
     /// list of encoded names for which we did not get an ack yet
-    missing_timers: HashSet<EncodedName>,
+    missing_timers: HashSet<[u64; 3]>,
 
     /// the timer
     timer: Timer,
@@ -50,12 +50,12 @@ pub struct SessionSender {
     pending_acks: HashMap<u32, (GroupTimer, Option<Message>)>,
 
     /// list of timer ids associated for each endpoint
-    pending_acks_per_endpoint: HashMap<EncodedName, HashSet<u32>>,
+    pending_acks_per_endpoint: HashMap<[u64; 3], HashSet<u32>>,
 
-    /// list of the endpoints in the conversation, keyed by encoded name for
+    /// list of the endpoints in the conversation, keyed by [u64; 3] components for
     /// zero-alloc hot-path lookups; ProtoName value retained for retransmit
     /// set_destination calls (group retransmit must rewrite the destination).
-    endpoints_list: HashMap<EncodedName, ProtoName>,
+    endpoints_list: HashMap<[u64; 3], ProtoName>,
 
     /// message id, used to send sequential messages
     /// it goes from 0 to 2^16. higher ids are used for messages
@@ -177,7 +177,11 @@ impl SessionSender {
     ) -> Result<SessionOutput, SessionError> {
         let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
 
-        if is_publish_to && !self.endpoints_list.contains_key(&message.get_encoded_dst()) {
+        if is_publish_to
+            && !self
+                .endpoints_list
+                .contains_key(&message.get_encoded_dst().0)
+        {
             let dst = message.get_dst();
             debug!(
                 %dst,
@@ -249,8 +253,8 @@ impl SessionSender {
 
         if let Some(timer_factory) = &self.timer_factory {
             debug!("reliable sender, set all timers");
-            let missing_timers: HashSet<EncodedName> = if is_publish_to {
-                HashSet::from([message.get_encoded_dst()])
+            let missing_timers: HashSet<[u64; 3]> = if is_publish_to {
+                HashSet::from([message.get_encoded_dst().0])
             } else {
                 self.endpoints_list.keys().copied().collect()
             };
@@ -264,10 +268,10 @@ impl SessionSender {
                 ),
             };
 
-            let endpoints_to_track: Vec<EncodedName> = if is_publish_to {
+            let endpoints_to_track: Vec<[u64; 3]> = if is_publish_to {
                 self.pending_acks
                     .insert(message_id, (gt, Some(message.clone())));
-                vec![message.get_encoded_dst()]
+                vec![message.get_encoded_dst().0]
             } else {
                 self.pending_acks.insert(message_id, (gt, None));
                 self.endpoints_list.keys().copied().collect()
@@ -292,7 +296,7 @@ impl SessionSender {
     }
 
     fn on_ack_message(&mut self, message: &Message) {
-        let encoded_source = message.get_encoded_source();
+        let encoded_source = message.get_encoded_source().0;
         let message_id = message.get_id();
         debug!(%message_id, source = %message.get_source(), "received ack message");
 
@@ -339,7 +343,7 @@ impl SessionSender {
     }
 
     fn on_rtx_message(&mut self, message: Message) -> Result<SessionOutput, SessionError> {
-        let source_proto = message.get_slim_header().source.clone();
+        let source_proto = message.get_slim_header().get_source();
         let message_id = message.get_id();
         let incoming_conn = message.get_incoming_conn();
 
@@ -352,7 +356,8 @@ impl SessionSender {
         let mut output = SessionOutput::new();
         if let Some(mut msg) = self.buffer.get(message_id as usize) {
             debug!("the message is still exists, send it as rtx reply");
-            msg.get_slim_header_mut().destination = source_proto;
+            msg.get_slim_header_mut()
+                .set_destination(source_proto.clone());
             msg.get_slim_header_mut()
                 .set_forward_to(Some(incoming_conn));
             msg.get_session_header_mut()
@@ -361,10 +366,10 @@ impl SessionSender {
             output.push_slim(msg);
         } else {
             debug!("the message does not exists anymore, send and error");
-            let dest_proto = message.get_slim_header().destination.clone().unwrap();
+            let dest_proto = message.get_slim_header().get_dst();
             let msg = Message::builder()
                 .source(dest_proto)
-                .destination(source_proto.unwrap())
+                .destination(source_proto)
                 .identity("")
                 .forward_to(incoming_conn)
                 .session_type(message.get_session_type())
@@ -397,7 +402,7 @@ impl SessionSender {
             debug!("the message is still in the buffer, try to send it again to all the remotes");
             let mut output = SessionOutput::new();
             if let Some((gt, _)) = self.pending_acks.get(&id) {
-                let missing: Vec<EncodedName> = gt.missing_timers.iter().copied().collect();
+                let missing: Vec<[u64; 3]> = gt.missing_timers.iter().copied().collect();
                 for enc in &missing {
                     if let Some(name) = self.endpoints_list.get(enc) {
                         debug!(%id, dst = %name, "resend message");
@@ -474,7 +479,7 @@ impl SessionSender {
             return Ok(SessionOutput::new());
         }
 
-        self.endpoints_list.insert(name.name.unwrap(), name.clone());
+        self.endpoints_list.insert(name.components(), name.clone());
 
         debug!(
             %name,
@@ -502,7 +507,7 @@ impl SessionSender {
             list_len = %self.endpoints_list.len(),
             "remove endpoint",
         );
-        let key = endpoint.name.unwrap();
+        let key = endpoint.components();
         // remove endpoint from the list and remove all the ack state
         // notice that no ack state may be associated to the endpoint
         // (e.g. endpoint added but no message sent)

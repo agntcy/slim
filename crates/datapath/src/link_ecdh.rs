@@ -68,18 +68,20 @@ mod tests {
         let b = derive_header_mac_from_ecdh(resp_sk, init_pk.as_slice(), &link_id).unwrap();
         let lid = link_id.clone();
         let mut h = crate::api::proto::dataplane::v1::SlimHeader {
-            source: None,
-            destination: None,
+            source: Default::default(),
+            destination: Default::default(),
+            source_str: Default::default(),
+            destination_str: Default::default(),
             identity: "i".into(),
             fanout: 0,
-            version: String::new(),
+            version: Default::default(),
             recv_from: None,
             forward_to: None,
             incoming_conn: None,
             error: None,
             header_mac: None,
-            ttl: DEFAULT_TTL,
             e2e_header_sig: None,
+            ttl: DEFAULT_TTL,
         };
         a.sign_slim_header(&mut h, &lid).unwrap();
         b.verify_slim_header(&h, &lid).unwrap();

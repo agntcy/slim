@@ -16,7 +16,7 @@ use serde_json::Value;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, Content, NameId, ProtoMessage as Message, ProtoName,
+        CommandPayload, Content, NULL_COMPONENT, ProtoMessage as Message, ProtoName,
         ProtoSessionMessageType, ProtoSessionType, SlimHeader,
     },
     messages::utils::SlimHeaderFlags,
@@ -43,8 +43,8 @@ where
     V: Verifier + Send + Sync,
 {
     let identity = msg.get_slim_header().get_identity();
-    if verifier.try_verify(&identity).is_err() {
-        verifier.verify(&identity).await?;
+    if verifier.try_verify(identity).is_err() {
+        verifier.verify(identity).await?;
     }
 
     if e2e_integrity_required && msg.get_session_message_type().is_command_message() {
@@ -136,7 +136,7 @@ where
     };
     let aad = crate::mls_state::build_aad(msg);
     let signature = slim_auth::utils::sign_header_aad(&aad, &private_key, &public_key)?;
-    msg.get_slim_header_mut().e2e_header_sig = Some(signature);
+    msg.get_slim_header_mut().e2e_header_sig = Some(signature.into());
     Ok(())
 }
 
@@ -725,7 +725,7 @@ impl SessionController {
                 }
                 let msg = Message::builder()
                     .source(self.source().clone())
-                    .destination(destination.clone().with_id(NameId::NULL_COMPONENT))
+                    .destination(destination.clone().with_id(NULL_COMPONENT))
                     .identity("")
                     .session_type(ProtoSessionType::Multicast)
                     .session_message_type(ProtoSessionMessageType::LeaveRequest)
@@ -752,13 +752,13 @@ pub fn handle_channel_discovery_message(
     session_id: u32,
     session_type: ProtoSessionType,
 ) -> Result<Message, SessionError> {
-    let destination = message.get_slim_header().source.clone().unwrap();
+    let destination = message.get_slim_header().get_source();
 
     // the destination of the discovery message may be different from the name of
     // application itself. This can happen if the application subscribes to multiple
     // service names. So we can reply using as a source the destination name of
     // the discovery message but setting the application id
-    let mut source = message.get_slim_header().destination.clone().unwrap();
+    let mut source = message.get_slim_header().get_dst();
     source.set_id(app_name.id());
     let msg_id = message.get_id();
 
@@ -1043,6 +1043,7 @@ mod tests {
     use crate::session_config::MlsSettings;
     use crate::subscription_manager::{SpySubscriptionManager, SubscriptionCall};
     use slim_auth::shared_secret::SharedSecret;
+    use slim_datapath::api::DATA_CHANNEL_ID;
 
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
@@ -1195,7 +1196,7 @@ mod tests {
         // For multicast sessions, destination uses DATA_CHANNEL_ID
         assert_eq!(
             controller.dst(),
-            &ProtoName::from_strings(["org", "ns", "dest"]).with_id(NameId::DATA_CHANNEL_ID)
+            &ProtoName::from_strings(["org", "ns", "dest"]).with_id(DATA_CHANNEL_ID)
         );
         assert_eq!(controller.session_type(), ProtoSessionType::Multicast);
         assert!(controller.is_initiator());

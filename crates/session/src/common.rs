@@ -7,9 +7,7 @@ use std::time::Duration;
 use smallvec::SmallVec;
 use tonic::Status;
 
-use slim_datapath::api::{
-    EncodedName, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
-};
+use slim_datapath::api::{ProtoMessage as Message, ProtoName, ProtoSessionMessageType};
 
 // Local crate
 use crate::SessionError;
@@ -118,7 +116,7 @@ pub enum SessionMessage {
     TimerTimeout {
         message_id: u32,
         message_type: ProtoSessionMessageType,
-        name: Option<EncodedName>,
+        name: Option<[u64; 3]>,
         timeouts: u32,
     },
     /// timer failure, signal to the owner of the packet that
@@ -126,7 +124,7 @@ pub enum SessionMessage {
     TimerFailure {
         message_id: u32,
         message_type: ProtoSessionMessageType,
-        name: Option<EncodedName>,
+        name: Option<[u64; 3]>,
         timeouts: u32,
     },
     /// sent by the controller sender when a disconnection is detected

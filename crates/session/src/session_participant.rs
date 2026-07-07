@@ -448,13 +448,13 @@ where
 
         self.join(&msg).await?;
 
-        let list = &msg
+        let list = msg
             .get_payload()
             .unwrap()
-            .as_command_payload()?
-            .as_welcome_payload()?
+            .into_command_payload()?
+            .into_welcome_payload()?
             .participants;
-        for p in list {
+        for p in &list {
             let name = p.get_name()?;
             self.group_list.insert(name.clone(), *p.get_settings()?);
 
@@ -511,8 +511,8 @@ where
             let p = msg
                 .get_payload()
                 .unwrap()
-                .as_command_payload()?
-                .as_group_add_payload()?;
+                .into_command_payload()?
+                .into_group_add_payload()?;
             if let Some(ref new_participant) = p.new_participant {
                 let name = new_participant.get_name()?;
                 self.group_list
@@ -527,8 +527,8 @@ where
             let p = msg
                 .get_payload()
                 .unwrap()
-                .as_command_payload()?
-                .as_group_remove_payload()?;
+                .into_command_payload()?
+                .into_group_remove_payload()?;
             if let Some(ref removed_participant) = p.removed_participant {
                 let name = removed_participant.clone();
                 self.group_list.remove(&name);
@@ -722,7 +722,9 @@ mod tests {
     use crate::session_settings::SessionSettings;
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
     use slim_datapath::Status;
-    use slim_datapath::api::{CommandPayload, NameId, ProtoSessionType};
+    use slim_datapath::api::{
+        CONTROL_CHANNEL_ID, CommandPayload, DATA_CHANNEL_ID, ProtoSessionType,
+    };
     use tokio::sync::mpsc;
 
     // --- Test Helpers -----------------------------------------------------------------------
@@ -770,8 +772,8 @@ mod tests {
         let source = make_name(&["local", "participant", "v1"]);
         let (destination, control) = match session_type {
             ProtoSessionType::Multicast => (
-                make_name(&["channel", "name", "v1"]).with_id(NameId::DATA_CHANNEL_ID),
-                make_name(&["channel", "name", "v1"]).with_id(NameId::CONTROL_CHANNEL_ID),
+                make_name(&["channel", "name", "v1"]).with_id(DATA_CHANNEL_ID),
+                make_name(&["channel", "name", "v1"]).with_id(CONTROL_CHANNEL_ID),
             ),
             ProtoSessionType::PointToPoint => (
                 make_name(&["remote", "participant", "v1"]).with_id(100),

@@ -12,7 +12,7 @@ use tracing::{debug, warn};
 
 use super::SubscriptionTable;
 use super::{ConnType, MatchFilter};
-use crate::api::{EncodedName, NameId, ProtoName};
+use crate::api::{self, ProtoName};
 use crate::errors::DataPathError;
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -321,7 +321,7 @@ impl PrefixEntry {
             self.strings[1].as_str(),
             self.strings[2].as_str(),
         ]);
-        if id != NameId::NULL_COMPONENT {
+        if id != api::NULL_COMPONENT {
             base.with_id(id)
         } else {
             base
@@ -347,7 +347,8 @@ impl Clone for PrefixEntry {
 
 #[derive(Debug, Clone, Copy)]
 struct SubRecord {
-    encoded: EncodedName,
+    prefix: [u64; 3],
+    id: u128,
     conn_id: u64,
     category: ConnType,
 }
@@ -392,13 +393,13 @@ impl SubscriptionState {
         Some(record)
     }
 
-    /// True when `conn` still has at least one subscription for `encoded`.
-    fn conn_still_subscribed(&self, conn: u64, encoded: EncodedName) -> bool {
+    /// True when `conn` still has at least one subscription for `(prefix, id)`.
+    fn conn_still_subscribed(&self, conn: u64, prefix: [u64; 3], id: u128) -> bool {
         self.conn_subs.get(&conn).is_some_and(|subs| {
             subs.iter().any(|&s| {
                 self.subscriptions
                     .get(&s)
-                    .is_some_and(|r| r.encoded == encoded)
+                    .is_some_and(|r| r.prefix == prefix && r.id == id)
             })
         })
     }
@@ -503,10 +504,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         category: ConnType,
         subscription_id: u64,
     ) -> Result<bool, Self::Error> {
-        let enc = name.name.as_ref().unwrap();
-        let prefix = [enc.component_0, enc.component_1, enc.component_2];
-        let id = enc.id();
-        let encoded = *enc;
+        let (prefix, id) = name.components_and_id();
 
         // subscription_state locked first; routing updated via clone-modify-store.
         let mut ss = self.subscription_state.lock();
@@ -531,7 +529,8 @@ impl SubscriptionTable for SubscriptionTableImpl {
         ss.add(
             subscription_id,
             SubRecord {
-                encoded,
+                prefix,
+                id,
                 conn_id: conn,
                 category,
             },
@@ -548,10 +547,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
         category: ConnType,
         subscription_id: u64,
     ) -> Result<bool, Self::Error> {
-        let enc = name.name.as_ref().unwrap();
-        let prefix = [enc.component_0, enc.component_1, enc.component_2];
-        let id = enc.id();
-        let encoded = *enc;
+        let (prefix, id) = name.components_and_id();
 
         // subscription_state locked first; routing validated then updated via clone-modify-store.
         let mut ss = self.subscription_state.lock();
@@ -565,9 +561,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             }
             if !current[&prefix].has_id(id) {
                 warn!(%id, "not found");
-                let nid: NameId = id.into();
-                let str_nid: String = nid.into();
-                return Err(DataPathError::IdNotFound(str_nid));
+                return Err(DataPathError::IdNotFound(api::id_to_string(id)));
             }
         }
 
@@ -581,16 +575,16 @@ impl SubscriptionTable for SubscriptionTableImpl {
         if record.conn_id != conn {
             return Err(DataPathError::ConnectionIdNotFound(conn));
         }
-        if record.encoded != encoded {
+        if record.prefix != prefix || record.id != id {
             return Err(DataPathError::SubscriptionIdNotFound(subscription_id));
         }
 
         // Remove sub_id from both maps (conn_subs is cleaned up when empty).
         ss.remove(subscription_id);
 
-        // Check whether the connection is still subscribed to the same encoded name via another
+        // Check whether the connection is still subscribed to the same (prefix, id) via another
         // subscription_id.
-        let conn_still_subscribed = ss.conn_still_subscribed(conn, encoded);
+        let conn_still_subscribed = ss.conn_still_subscribed(conn, prefix, id);
 
         let last = if !conn_still_subscribed {
             let mut rs = (**self.routing.load()).clone();
@@ -631,27 +625,19 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
         // Pass 1: remove each subscription record and build the result map.
         // Use a read snapshot (no clone yet) for proto_name lookups.
-        let mut encoded_names: Vec<EncodedName> = Vec::new();
+        let mut encoded_names: Vec<([u64; 3], u128)> = Vec::new();
 
         let current = self.routing.load();
         for sub_id in sub_ids {
             if let Some(record) = ss.subscriptions.remove(&sub_id) {
-                let prefix = [
-                    record.encoded.component_0,
-                    record.encoded.component_1,
-                    record.encoded.component_2,
-                ];
                 let proto_name = current
-                    .get(&prefix)
-                    .map(|pe| pe.to_proto_name(record.encoded.id()))
-                    .unwrap_or(ProtoName {
-                        name: Some(record.encoded),
-                        str_name: None,
-                    });
+                    .get(&record.prefix)
+                    .map(|pe| pe.to_proto_name(record.id))
+                    .unwrap_or_else(|| ProtoName::from_components(record.prefix, record.id));
                 result.entry(proto_name).or_default().insert(sub_id);
 
-                if !encoded_names.contains(&record.encoded) {
-                    encoded_names.push(record.encoded);
+                if !encoded_names.contains(&(record.prefix, record.id)) {
+                    encoded_names.push((record.prefix, record.id));
                 }
             }
         }
@@ -659,14 +645,8 @@ impl SubscriptionTable for SubscriptionTableImpl {
         // Pass 2: clone snapshot, remove conn from routing for every affected encoded name.
         let mut rs = (**current).clone();
         drop(current);
-        for encoded in &encoded_names {
-            debug!(%conn, ?encoded, "remove subscription");
-            let prefix = [
-                encoded.component_0,
-                encoded.component_1,
-                encoded.component_2,
-            ];
-            let id = encoded.id();
+        for &(prefix, id) in &encoded_names {
+            debug!(%conn, ?prefix, id, "remove subscription");
 
             let should_remove_prefix = if let Some(entry) = rs.get_mut(&prefix) {
                 let pe = Arc::make_mut(entry);
@@ -688,50 +668,35 @@ impl SubscriptionTable for SubscriptionTableImpl {
 
     fn match_one(
         &self,
-        encoded: &EncodedName,
+        components: [u64; 3],
+        id: u128,
         incoming_conn: u64,
         filter: MatchFilter,
     ) -> Result<u64, Self::Error> {
-        let prefix = [
-            encoded.component_0,
-            encoded.component_1,
-            encoded.component_2,
-        ];
-        let id = encoded.id();
         let rs = self.routing.load();
 
-        // ONE HashMap lookup — the same for any c3 value.
-        let prefix_entry = match rs.get(&prefix) {
+        // ONE HashMap lookup — the same for any id value.
+        let prefix_entry = match rs.get(&components) {
             None => {
                 debug!(
-                    component_0 = encoded.component_0,
-                    component_1 = encoded.component_1,
-                    component_2 = encoded.component_2,
+                    component_0 = components[0],
+                    component_1 = components[1],
+                    component_2 = components[2],
                     component_3 = id,
                     "match not found for name"
                 );
-                return Err(DataPathError::NoMatchEncoded(
-                    encoded.component_0,
-                    encoded.component_1,
-                    encoded.component_2,
-                    encoded.string_id(),
-                ));
+                return Err(no_match_err(components, id));
             }
             Some(pe) => pe,
         };
 
-        if id != NameId::NULL_COMPONENT {
+        if id != api::NULL_COMPONENT {
             // Specific ID: linear scan over ids (8 per cache line).
             prefix_entry
                 .get_one(id, incoming_conn, filter)
                 .ok_or_else(|| {
                     debug!(component_3 = id, "match not found for name");
-                    DataPathError::NoMatchEncoded(
-                        encoded.component_0,
-                        encoded.component_1,
-                        encoded.component_2,
-                        encoded.string_id(),
-                    )
+                    no_match_err(components, id)
                 })
         } else {
             // NULL_COMPONENT: pick one connection across all registered IDs,
@@ -740,70 +705,45 @@ impl SubscriptionTable for SubscriptionTableImpl {
                 .pick_one_any(incoming_conn, filter)
                 .ok_or_else(|| {
                     debug!("no output connection available");
-                    DataPathError::NoMatchEncoded(
-                        encoded.component_0,
-                        encoded.component_1,
-                        encoded.component_2,
-                        encoded.string_id(),
-                    )
+                    no_match_err(components, id)
                 })
         }
     }
 
     fn match_all(
         &self,
-        encoded: &EncodedName,
+        components: [u64; 3],
+        id: u128,
         incoming_conn: u64,
         filter: MatchFilter,
     ) -> Result<Vec<u64>, Self::Error> {
-        let prefix = [
-            encoded.component_0,
-            encoded.component_1,
-            encoded.component_2,
-        ];
-        let id = encoded.id();
         let rs = self.routing.load();
 
-        // ONE HashMap lookup — the same for any c3 value.
-        let prefix_entry = match rs.get(&prefix) {
+        // ONE HashMap lookup — the same for any id value.
+        let prefix_entry = match rs.get(&components) {
             None => {
                 debug!(
-                    component_0 = encoded.component_0,
-                    component_1 = encoded.component_1,
-                    component_2 = encoded.component_2,
+                    component_0 = components[0],
+                    component_1 = components[1],
+                    component_2 = components[2],
                     component_3 = id,
                     "match not found for name"
                 );
-                return Err(DataPathError::NoMatchEncoded(
-                    encoded.component_0,
-                    encoded.component_1,
-                    encoded.component_2,
-                    encoded.string_id(),
-                ));
+                return Err(no_match_err(components, id));
             }
             Some(pe) => pe,
         };
 
-        if id != NameId::NULL_COMPONENT {
+        if id != api::NULL_COMPONENT {
             // Specific ID: linear scan over ids (8 per cache line).
             match prefix_entry.get_all(id, incoming_conn, filter) {
                 None => {
                     debug!(component_3 = id, "match not found for name");
-                    Err(DataPathError::NoMatchEncoded(
-                        encoded.component_0,
-                        encoded.component_1,
-                        encoded.component_2,
-                        encoded.string_id(),
-                    ))
+                    Err(no_match_err(components, id))
                 }
                 Some(out) if out.is_empty() => {
                     debug!("no connection available (local/remote/peer)");
-                    Err(DataPathError::NoMatchEncoded(
-                        encoded.component_0,
-                        encoded.component_1,
-                        encoded.component_2,
-                        encoded.string_id(),
-                    ))
+                    Err(no_match_err(components, id))
                 }
                 Some(out) => {
                     debug!(?out, "found connections");
@@ -816,18 +756,24 @@ impl SubscriptionTable for SubscriptionTableImpl {
             let out = prefix_entry.get_all_any(incoming_conn, filter);
             if out.is_empty() {
                 debug!("no connection available");
-                Err(DataPathError::NoMatchEncoded(
-                    encoded.component_0,
-                    encoded.component_1,
-                    encoded.component_2,
-                    encoded.string_id(),
-                ))
+                Err(no_match_err(components, id))
             } else {
                 debug!(?out, "found connections");
                 Ok(out)
             }
         }
     }
+}
+
+/// Build the standard "no route found" error from raw components.
+#[inline]
+fn no_match_err(components: [u64; 3], id: u128) -> DataPathError {
+    DataPathError::NoMatchEncoded(
+        components[0],
+        components[1],
+        components[2],
+        api::id_to_string(id),
+    )
 }
 
 impl SubscriptionTableImpl {
@@ -842,18 +788,10 @@ impl SubscriptionTableImpl {
         let ss = self.subscription_state.lock();
         let rs = self.routing.load();
         for (&sub_id, record) in &ss.subscriptions {
-            let prefix = [
-                record.encoded.component_0,
-                record.encoded.component_1,
-                record.encoded.component_2,
-            ];
             let proto_name = rs
-                .get(&prefix)
-                .map(|pe| pe.to_proto_name(record.encoded.id()))
-                .unwrap_or(ProtoName {
-                    name: Some(record.encoded),
-                    str_name: None,
-                });
+                .get(&record.prefix)
+                .map(|pe| pe.to_proto_name(record.id))
+                .unwrap_or_else(|| ProtoName::from_components(record.prefix, record.id));
             f(proto_name, sub_id, record.conn_id, record.category);
         }
     }
@@ -864,10 +802,6 @@ mod tests {
     use super::*;
 
     use tracing_test::traced_test;
-
-    fn enc(name: &ProtoName) -> EncodedName {
-        name.name.unwrap()
-    }
 
     #[test]
     #[traced_test]
@@ -899,14 +833,18 @@ mod tests {
         );
 
         // returns three matches on connection 1,2,3
-        let out = t.match_all(&enc(&name1), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_all(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out.len(), 3);
         assert!(out.contains(&1));
         assert!(out.contains(&2));
         assert!(out.contains(&3));
 
         // return two matches on connection 2,3
-        let out = t.match_all(&enc(&name1), 1, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_all(name1.components(), name1.id(), 1, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.contains(&2));
         assert!(out.contains(&3));
@@ -917,7 +855,9 @@ mod tests {
         );
 
         // return two matches on connection 1,3
-        let out = t.match_all(&enc(&name1), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_all(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.contains(&1));
         assert!(out.contains(&3));
@@ -928,12 +868,14 @@ mod tests {
         );
 
         // return one matches on connection 1
-        let out = t.match_all(&enc(&name1), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_all(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out.len(), 1);
         assert!(out.contains(&1));
 
         // return no match
-        let err = t.match_all(&enc(&name1), 1, MatchFilter::ALL);
+        let err = t.match_all(name1.components(), name1.id(), 1, MatchFilter::ALL);
         assert!(matches!(err, Err(DataPathError::NoMatchEncoded(..))));
 
         // add subscription again
@@ -943,14 +885,18 @@ mod tests {
         );
 
         // returns two matches on connection 1 and 2
-        let out = t.match_all(&enc(&name1), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_all(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.contains(&1));
         assert!(out.contains(&2));
 
         // run multiple times for randomness
         for _ in 0..20 {
-            let out = t.match_one(&enc(&name1), 100, MatchFilter::ALL).unwrap();
+            let out = t
+                .match_one(name1.components(), name1.id(), 100, MatchFilter::ALL)
+                .unwrap();
             if out != 1 && out != 2 {
                 // the output must be 1 or 2
                 panic!("the output must be 1 or 2");
@@ -958,18 +904,24 @@ mod tests {
         }
 
         // return connection 2
-        let out = t.match_one(&enc(&name1_1), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_one(name1_1.components(), name1_1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out, 2);
 
         // return connection 3
-        let out = t.match_one(&enc(&name2_2), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_one(name2_2.components(), name2_2.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out, 3);
         let removed_subs = t.remove_connection(2, ConnType::Remote).unwrap();
         assert_eq!(removed_subs.len(), 1);
         assert!(removed_subs.contains_key(&name1_1));
 
         // returns one match on connection 1
-        let out = t.match_all(&enc(&name1), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_all(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out.len(), 1);
         assert!(out.contains(&1));
 
@@ -980,7 +932,9 @@ mod tests {
 
         // run multiple times for randomness
         for _ in 0..20 {
-            let out = t.match_one(&enc(&name2_2), 100, MatchFilter::ALL).unwrap();
+            let out = t
+                .match_one(name2_2.components(), name2_2.id(), 100, MatchFilter::ALL)
+                .unwrap();
             if out != 3 && out != 4 {
                 // the output must be 3 or 4
                 panic!("the output must be 3 or 4");
@@ -988,7 +942,9 @@ mod tests {
         }
 
         for _ in 0..20 {
-            let out = t.match_one(&enc(&name2_2), 4, MatchFilter::ALL).unwrap();
+            let out = t
+                .match_one(name2_2.components(), name2_2.id(), 4, MatchFilter::ALL)
+                .unwrap();
             if out != 3 {
                 // the output must be 3
                 panic!("the output must be 3");
@@ -1007,22 +963,30 @@ mod tests {
         );
 
         // returns both local (2) and remote (1) connections
-        let out = t.match_all(&enc(&name1), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_all(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.contains(&2));
         assert!(out.contains(&1));
 
         // returns one match on connection 2
-        let out = t.match_one(&enc(&name1), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_one(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out, 2);
 
         // returns both local (2) and remote (1) connections, excluding incoming connection (2)
-        let out = t.match_all(&enc(&name1), 2, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_all(name1.components(), name1.id(), 2, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out.len(), 1);
         assert!(out.contains(&1));
 
         // same here
-        let out = t.match_one(&enc(&name1), 2, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_one(name1.components(), name1.id(), 2, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out, 1);
 
         // test errors
@@ -1031,7 +995,7 @@ mod tests {
 
         // Test that specific ID (name1_1) does NOT match NULL_COMPONENT subscriptions
         // At this point only name1 (NULL_COMPONENT) subscriptions exist on conn 1 and 2
-        let err = t.match_one(&enc(&name1_1), 100, MatchFilter::ALL);
+        let err = t.match_one(name1_1.components(), name1_1.id(), 100, MatchFilter::ALL);
         assert!(matches!(err, Err(DataPathError::NoMatchEncoded(..))));
 
         assert!(
@@ -1116,7 +1080,9 @@ mod tests {
         );
 
         // Test match_all returns both local and remote connections
-        let result = t.match_all(&enc(&name), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name.components(), name.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(
             result.len(),
             4,
@@ -1128,7 +1094,9 @@ mod tests {
         assert!(result.contains(&4), "Should contain remote connection 4");
 
         // Test excluding incoming connection works for local
-        let result = t.match_all(&enc(&name), 1, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name.components(), name.id(), 1, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(
             result.len(),
             3,
@@ -1143,7 +1111,9 @@ mod tests {
         assert!(result.contains(&4), "Should contain remote connection 4");
 
         // Test excluding incoming connection works for remote
-        let result = t.match_all(&enc(&name), 3, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name.components(), name.id(), 3, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(
             result.len(),
             3,
@@ -1159,7 +1129,9 @@ mod tests {
 
         // Test match_one prefers local over remote
         for _ in 0..20 {
-            let result = t.match_one(&enc(&name), 100, MatchFilter::ALL).unwrap();
+            let result = t
+                .match_one(name.components(), name.id(), 100, MatchFilter::ALL)
+                .unwrap();
             assert!(
                 result == 1 || result == 2,
                 "match_one should always prefer local connections"
@@ -1171,14 +1143,18 @@ mod tests {
         assert!(t.remove_subscription(&name, 2, ConnType::Local, 2).is_ok());
 
         // Now match_all should only return remote connections
-        let result = t.match_all(&enc(&name), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name.components(), name.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result.len(), 2, "Should return only 2 remote connections");
         assert!(result.contains(&3), "Should contain remote connection 3");
         assert!(result.contains(&4), "Should contain remote connection 4");
 
         // And match_one should fall back to remote
         for _ in 0..20 {
-            let result = t.match_one(&enc(&name), 100, MatchFilter::ALL).unwrap();
+            let result = t
+                .match_one(name.components(), name.id(), 100, MatchFilter::ALL)
+                .unwrap();
             assert!(
                 result == 3 || result == 4,
                 "Should return remote connections"
@@ -1207,7 +1183,7 @@ mod tests {
         );
 
         let result = t
-            .match_one(&enc(&name1), 100_u64, MatchFilter::ALL)
+            .match_one(name1.components(), name1.id(), 100_u64, MatchFilter::ALL)
             .unwrap();
         assert_eq!(result, 1, "Should match to connection 1");
 
@@ -1216,7 +1192,7 @@ mod tests {
             t.remove_subscription(&name1, 1, ConnType::Remote, 100)
                 .is_ok()
         );
-        let err = t.match_one(&enc(&name1), 100_u64, MatchFilter::ALL);
+        let err = t.match_one(name1.components(), name1.id(), 100_u64, MatchFilter::ALL);
         assert!(
             matches!(err, Err(DataPathError::NoMatchEncoded(..))),
             "Subscription should be fully removed after removing its subscription_id"
@@ -1257,7 +1233,7 @@ mod tests {
 
         // All three connections should be available
         let result = t
-            .match_all(&enc(&name2), 100_u64, MatchFilter::ALL)
+            .match_all(name2.components(), name2.id(), 100_u64, MatchFilter::ALL)
             .unwrap();
         assert_eq!(result.len(), 3, "Should have 3 connections");
         assert!(result.contains(&1));
@@ -1270,7 +1246,7 @@ mod tests {
                 .is_ok()
         );
         let result = t
-            .match_all(&enc(&name2), 100_u64, MatchFilter::ALL)
+            .match_all(name2.components(), name2.id(), 100_u64, MatchFilter::ALL)
             .unwrap();
         assert_eq!(
             result.len(),
@@ -1286,7 +1262,7 @@ mod tests {
         );
         // Connection 1 still has 2 more subscription_ids
         let result = t
-            .match_all(&enc(&name2), 100_u64, MatchFilter::ALL)
+            .match_all(name2.components(), name2.id(), 100_u64, MatchFilter::ALL)
             .unwrap();
         assert_eq!(result.len(), 2, "Should still have 2 connections");
         assert!(result.contains(&1));
@@ -1301,7 +1277,7 @@ mod tests {
                 .is_ok()
         );
         let result = t
-            .match_all(&enc(&name2), 100_u64, MatchFilter::ALL)
+            .match_all(name2.components(), name2.id(), 100_u64, MatchFilter::ALL)
             .unwrap();
         assert_eq!(result.len(), 1, "Should have 1 connection");
         assert!(result.contains(&3));
@@ -1315,7 +1291,7 @@ mod tests {
             t.remove_subscription(&name2, 3, ConnType::Remote, 206)
                 .is_ok()
         );
-        let err = t.match_one(&enc(&name2), 100_u64, MatchFilter::ALL);
+        let err = t.match_one(name2.components(), name2.id(), 100_u64, MatchFilter::ALL);
         assert!(
             matches!(err, Err(DataPathError::NoMatchEncoded(..))),
             "No connections should remain"
@@ -1349,7 +1325,9 @@ mod tests {
         );
 
         // Both connections should be available
-        let result = t.match_all(&enc(&name1), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result.len(), 2, "Should have 2 connections");
 
         // Connection 1 dies - should be force-removed regardless of ref count
@@ -1360,13 +1338,17 @@ mod tests {
         assert_eq!(removed[&name1], HashSet::from([301u64, 302, 303]));
 
         // Now only connection 2 should be available
-        let result = t.match_one(&enc(&name1), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_one(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(
             result, 2,
             "Should only match to connection 2 after conn 1 dies"
         );
 
-        let result = t.match_all(&enc(&name1), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result.len(), 1, "Should only have 1 connection remaining");
         assert!(result.contains(&2));
     }
@@ -1403,7 +1385,9 @@ mod tests {
 
         // Should prefer local connection
         for _ in 0..10 {
-            let result = t.match_one(&enc(&name1), 100, MatchFilter::ALL).unwrap();
+            let result = t
+                .match_one(name1.components(), name1.id(), 100, MatchFilter::ALL)
+                .unwrap();
             assert_eq!(result, 1, "Should prefer local connection");
         }
 
@@ -1412,7 +1396,9 @@ mod tests {
             t.remove_subscription(&name1, 1, ConnType::Local, 401)
                 .is_ok()
         );
-        let result = t.match_one(&enc(&name1), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_one(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result, 1, "Local connection should still exist");
 
         // Remove last local subscription_id - should be gone, fall back to remote
@@ -1421,7 +1407,9 @@ mod tests {
                 .is_ok()
         );
         for _ in 0..10 {
-            let result = t.match_one(&enc(&name1), 100, MatchFilter::ALL).unwrap();
+            let result = t
+                .match_one(name1.components(), name1.id(), 100, MatchFilter::ALL)
+                .unwrap();
             assert_eq!(result, 2, "Should fall back to remote connection");
         }
 
@@ -1435,14 +1423,16 @@ mod tests {
                 .is_ok()
         );
         // Still has one remaining
-        let result = t.match_one(&enc(&name1), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_one(name1.components(), name1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result, 2, "Remote should still exist with one sub");
 
         assert!(
             t.remove_subscription(&name1, 2, ConnType::Remote, 405)
                 .is_ok()
         );
-        let err = t.match_one(&enc(&name1), 100, MatchFilter::ALL);
+        let err = t.match_one(name1.components(), name1.id(), 100, MatchFilter::ALL);
         assert!(
             matches!(err, Err(DataPathError::NoMatchEncoded(..))),
             "No connections should remain"
@@ -1486,7 +1476,9 @@ mod tests {
 
         // Test 1: Message with NULL_COMPONENT should match ALL subscriptions
         // (both NULL_COMPONENT and specific IDs)
-        let result = t.match_all(&enc(&name), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name.components(), name.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(
             result.len(),
             4,
@@ -1499,7 +1491,9 @@ mod tests {
 
         // Test 2: Message with specific ID 1 should match ONLY ID 1 subscription
         // (excluding NULL_COMPONENT subscriptions)
-        let result = t.match_all(&enc(&name_id1), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name_id1.components(), name_id1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(
             result.len(),
             1,
@@ -1508,12 +1502,16 @@ mod tests {
         assert!(result.contains(&3), "Should match only conn 3 (ID 1)");
 
         // Test 3: Message with specific ID 2 should match ONLY ID 2 subscription
-        let result = t.match_all(&enc(&name_id2), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name_id2.components(), name_id2.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result.len(), 1);
         assert!(result.contains(&4), "Should match only conn 4 (ID 2)");
 
         // Test 4: match_one should also respect these rules
-        let result = t.match_one(&enc(&name_id1), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_one(name_id1.components(), name_id1.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result, 3, "Should return only the specific ID connection");
 
         // Test 5: Remove specific ID subscription, the match for message with that ID should fail
@@ -1521,14 +1519,16 @@ mod tests {
             t.remove_subscription(&name_id1, 3, ConnType::Remote, 3)
                 .is_ok()
         );
-        let err = t.match_one(&enc(&name_id1), 100, MatchFilter::ALL);
+        let err = t.match_one(name_id1.components(), name_id1.id(), 100, MatchFilter::ALL);
         assert!(
             matches!(err, Err(DataPathError::NoMatchEncoded(..))),
             "Specific ID message should NOT match NULL_COMPONENT subscriptions"
         );
 
         // Test 6: But NULL_COMPONENT message should still match remaining subscriptions
-        let result = t.match_all(&enc(&name), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name.components(), name.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result.len(), 3, "Should match remaining subscriptions");
         assert!(result.contains(&1));
         assert!(result.contains(&2));
@@ -1539,16 +1539,20 @@ mod tests {
         assert!(t.remove_subscription(&name, 2, ConnType::Remote, 2).is_ok());
 
         // NULL_COMPONENT message should still match the specific ID subscription
-        let result = t.match_all(&enc(&name), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_all(name.components(), name.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result.len(), 1);
         assert!(result.contains(&4), "Should match ID 2 subscription");
 
         // Specific ID 2 message should still work
-        let result = t.match_one(&enc(&name_id2), 100, MatchFilter::ALL).unwrap();
+        let result = t
+            .match_one(name_id2.components(), name_id2.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(result, 4);
 
         // But specific ID 1 should still fail (was removed earlier)
-        let err = t.match_one(&enc(&name_id1), 100, MatchFilter::ALL);
+        let err = t.match_one(name_id1.components(), name_id1.id(), 100, MatchFilter::ALL);
         assert!(matches!(err, Err(DataPathError::NoMatchEncoded(..))));
     }
 
@@ -1574,7 +1578,9 @@ mod tests {
         );
 
         // MatchFilter::ALL returns all three connections
-        let out = t.match_all(&enc(&name), 100, MatchFilter::ALL).unwrap();
+        let out = t
+            .match_all(name.components(), name.id(), 100, MatchFilter::ALL)
+            .unwrap();
         assert_eq!(out.len(), 3);
         assert!(out.contains(&10));
         assert!(out.contains(&20));
@@ -1582,7 +1588,7 @@ mod tests {
 
         // MatchFilter::EXCLUDE_PEER excludes the peer connection
         let out = t
-            .match_all(&enc(&name), 100, MatchFilter::EXCLUDE_PEER)
+            .match_all(name.components(), name.id(), 100, MatchFilter::EXCLUDE_PEER)
             .unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.contains(&10));
@@ -1591,13 +1597,13 @@ mod tests {
 
         // match_one with EXCLUDE_PEER should never return the peer connection
         let result = t
-            .match_one(&enc(&name), 100, MatchFilter::EXCLUDE_PEER)
+            .match_one(name.components(), name.id(), 100, MatchFilter::EXCLUDE_PEER)
             .unwrap();
         assert!(result == 10 || result == 20);
 
         // match_one with EXCLUDE_PEER skipping the local conn should return remote
         let result = t
-            .match_one(&enc(&name), 10, MatchFilter::EXCLUDE_PEER)
+            .match_one(name.components(), name.id(), 10, MatchFilter::EXCLUDE_PEER)
             .unwrap();
         assert_eq!(result, 20);
     }

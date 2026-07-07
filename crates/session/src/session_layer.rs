@@ -16,8 +16,8 @@ use tracing::{Instrument, debug, error, warn};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{
-    EncodedName, NameId, ParticipantSettings, ProtoMessage as Message, ProtoName,
-    ProtoSessionMessageType, ProtoSessionType,
+    ParticipantSettings, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
+    ProtoSessionType,
 };
 
 use crate::common::SessionMessage;
@@ -87,8 +87,8 @@ where
     /// Default name of the local app
     app_id: u128,
 
-    /// Names registered by local app, keyed by encoded name (null id) → subscription_id
-    app_names: SyncRwLock<HashMap<EncodedName, u64>>,
+    /// Names registered by local app, keyed by hash components (null id) → subscription_id
+    app_names: SyncRwLock<HashMap<[u64; 3], u64>>,
 
     /// Identity provider for the local app
     identity_provider: P,
@@ -192,15 +192,9 @@ where
         self.app_id
     }
 
-    /// Build the HashMap key (EncodedName with null component_3) from a ProtoName.
-    fn name_to_key(name: &ProtoName) -> EncodedName {
-        let enc = name.name.as_ref().unwrap();
-        EncodedName {
-            component_0: enc.component_0,
-            component_1: enc.component_1,
-            component_2: enc.component_2,
-            name_id: Some(NameId::from(NameId::NULL_COMPONENT)),
-        }
+    /// Build the HashMap key ([u64; 3] hash components, ignoring id) from a ProtoName.
+    fn name_to_key(name: &ProtoName) -> [u64; 3] {
+        name.components()
     }
 
     pub fn add_app_name(&self, name: ProtoName, subscription_id: u64) {
@@ -470,7 +464,6 @@ where
 
     /// Handle a message from the message processor, and pass it to the
     /// corresponding session
-    #[tracing::instrument(skip_all, fields(service_id = %self.service_id))]
     pub async fn handle_message_from_slim(
         self: &Arc<Self>,
         message: Message,
@@ -607,9 +600,10 @@ where
 
         let new_session = match session_type {
             ProtoSessionType::PointToPoint => {
+                let cp = message.extract_command_payload()?;
                 let conf = crate::SessionConfig::from_join_request(
                     ProtoSessionType::PointToPoint,
-                    message.extract_command_payload()?,
+                    &cp,
                     message.get_metadata_map(),
                     false,
                 )?;
@@ -626,9 +620,10 @@ where
                     .channel
                     .clone()
                     .ok_or(SessionError::MissingChannelName)?;
+                let cp = message.extract_command_payload()?;
                 let conf = crate::SessionConfig::from_join_request(
                     ProtoSessionType::Multicast,
-                    message.extract_command_payload()?,
+                    &cp,
                     message.get_metadata_map(),
                     false,
                 )?;
@@ -679,7 +674,7 @@ mod tests {
     use crate::test_utils::{MockTokenProvider, MockVerifier};
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::Status;
-    use slim_datapath::api::{NameId, ProtoName, ProtoSessionType};
+    use slim_datapath::api::{NULL_COMPONENT, ProtoName, ProtoSessionType};
     use tokio::sync::mpsc;
 
     // --- Test Mocks -----------------------------------------------------------------------
@@ -1129,7 +1124,7 @@ mod tests {
         session_layer.remove_app_name(&name);
 
         // The name with NULL_COMPONENT should be removed
-        let name_null = name.with_id(NameId::NULL_COMPONENT);
+        let name_null = name.with_id(NULL_COMPONENT);
         assert!(
             !session_layer
                 .app_names

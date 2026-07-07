@@ -161,12 +161,11 @@ async fn run_receiver(args: Args) -> Result<()> {
                     Ok(Some(Ok(msg))) => {
                         let payload = match msg.message_type.as_ref() {
                             Some(ProtoPublishType(publish)) => publish
-                                .msg
-                                .as_ref()
-                                .and_then(|content| content.as_application_payload().ok())
+                                .get_payload()
+                                .and_then(|content| content.into_application_payload().ok())
                                 .map(|p| p.blob.clone())
                                 .unwrap_or_default(),
-                            _ => Vec::new(),
+                            _ => bytes::Bytes::new(),
                         };
                         let source = msg.get_source();
                         let input_conn = msg.get_incoming_conn();

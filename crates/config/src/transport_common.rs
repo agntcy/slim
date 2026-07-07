@@ -74,7 +74,7 @@ impl ClientConfig {
 
         // NOTE(msardara): we might want to make these configurable as well.
         http.enforce_http(false);
-        http.set_nodelay(false);
+        http.set_nodelay(true); // disable Nagle for low-latency RPC
 
         match self.connect_timeout.as_secs() {
             0 => http.set_connect_timeout(None),
