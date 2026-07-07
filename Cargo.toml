@@ -39,21 +39,22 @@ resolver = "2"
 
 [workspace.dependencies]
 # Local dependencies
-agntcy-slim = { path = "crates/slim", version = "2.0.0-alpha.1" }
-agntcy-slim-auth = { path = "crates/auth", version = "0.10.0" }
-agntcy-slim-config = { path = "crates/config", version = "0.11.0" }
-agntcy-slim-controller = { path = "crates/controller", version = "0.8.0" }
-agntcy-slim-datapath = { path = "crates/datapath", version = "0.15.0" }
-agntcy-slim-mls = { path = "crates/mls", version = "0.2.0" }
-agntcy-slim-proto = { path = "crates/proto", version = "0.1.0" }
-agntcy-slim-service = { path = "crates/service", version = "0.10.0", default-features = false }
-agntcy-slim-session = { path = "crates/session", version = "0.3.0" }
+agntcy-slim = { path = "crates/slim", version = "2.0.0-alpha.2" }
+agntcy-slim-auth = { path = "crates/auth", version = "0.11.0" }
+agntcy-slim-config = { path = "crates/config", version = "0.12.0" }
+agntcy-slim-control-plane = { path = "crates/control-plane", version = "2.0.0-alpha.2" }
+agntcy-slim-controller = { path = "crates/controller", version = "0.10.0" }
+agntcy-slim-datapath = { path = "crates/datapath", version = "0.16.1" }
+agntcy-slim-mls = { path = "crates/mls", version = "0.2.1" }
+agntcy-slim-proto = { path = "crates/proto", version = "0.2.0" }
+agntcy-slim-service = { path = "crates/service", version = "0.11.0", default-features = false }
+agntcy-slim-session = { path = "crates/session", version = "0.5.0" }
 agntcy-slim-signal = { path = "crates/signal", version = "0.1.10" }
 agntcy-slim-testing = { path = "crates/testing" }
-agntcy-slim-tracing = { path = "crates/tracing", version = "0.4.0" }
-agntcy-slim-version = { path = "crates/version", version = "2.0.0-alpha.1" }
-agntcy-slimctl = { path = "crates/slimctl", version = "2.0.0-alpha.1" }
-anyhow = "1.0.98"
+agntcy-slim-tracing = { path = "crates/tracing", version = "0.4.2" }
+agntcy-slim-version = { path = "crates/version", version = "2.0.0-alpha.2" }
+agntcy-slimctl = { path = "crates/slimctl", version = "2.0.0-alpha.2" }
+anyhow = "1.0.103"
 
 arc-swap = "1.9.1"
 
@@ -205,7 +206,7 @@ web-time = "1"
 wiremock = "0.6"
 
 [workspace.package]
-version = "2.0.0-alpha.1"
+version = "2.0.0-alpha.2"
 license = "Apache-2.0"
 edition = "2024"
 repository = "https://github.com/agntcy/slim"

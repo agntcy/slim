@@ -86,3 +86,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_links_unique_active_pair
 CREATE UNIQUE INDEX IF NOT EXISTS idx_links_unique_unclaimed
     ON links (source_node_id, dest_group)
     WHERE status != 4 AND dest_node_id = '';
+
+-- ─── Topology tables (API-managed mode) ──────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS topology_segments (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    created_at BIGINT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS topology_segment_links (
+    segment_id TEXT NOT NULL REFERENCES topology_segments(id) ON DELETE CASCADE,
+    source_group TEXT NOT NULL,
+    dest_group TEXT NOT NULL,
+    PRIMARY KEY (segment_id, source_group, dest_group)
+);

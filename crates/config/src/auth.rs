@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod app_auth;
 pub mod basic;
 pub mod identity;
 pub mod jwt;
@@ -8,6 +9,8 @@ pub mod oidc;
 #[cfg(not(target_family = "windows"))]
 pub mod spire;
 pub mod static_jwt;
+
+pub use app_auth::AuthConfig;
 
 use slim_auth::errors::AuthError as SlimAuthError;
 
@@ -25,6 +28,12 @@ pub enum ConfigAuthError {
     AuthOidcEmptyClientId,
     #[error("client secret cannot be empty")]
     AuthOidcEmptyClientSecret,
+
+    // App auth validation
+    #[error("auth.secret cannot be empty for shared_secret")]
+    AuthSecretEmpty,
+    #[error("auth.socket_path must be set for spire")]
+    AuthSpireSocketPathMissing,
 
     // Propagated auth library errors
     #[error("internal auth error")]

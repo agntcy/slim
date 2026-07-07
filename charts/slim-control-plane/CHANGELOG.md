@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.5.0](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v1.4.0...helm-slim-control-plane-v1.5.0) (2026-07-03)
+
+
+### Features
+
+* update control plane and slim chart ([#1784](https://github.com/agntcy/slim/issues/1784)) ([979bb4f](https://github.com/agntcy/slim/commit/979bb4fa213acae69985755d17dcadef8e9b8461))
+
+
+### Bug Fixes
+
+* update controller helm chart ([#1691](https://github.com/agntcy/slim/issues/1691)) ([3e4853c](https://github.com/agntcy/slim/commit/3e4853cf72a36340098a456ede7eab3cc54a2676))
+
 ## [1.4.0](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v1.0.0...helm-slim-control-plane-v1.4.0) (2026-04-21)
 
 

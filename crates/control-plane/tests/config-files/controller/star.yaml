@@ -20,5 +20,5 @@ database:
 
 topology:
   links:
-    - name: group-1
+    - group: group-1
       neighbors: ["*"]

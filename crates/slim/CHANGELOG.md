@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.3](https://github.com/agntcy/slim/compare/slim-v2.0.0-alpha.2...slim-v2.0.0-alpha.3) - 2026-07-06
+
+### Other
+
+- updated the following local packages: agntcy-slim-config, agntcy-slim-service, agntcy-slim-tracing
+
+## [2.0.0-alpha.2](https://github.com/agntcy/slim/compare/slim-v2.0.0-alpha.1...slim-v2.0.0-alpha.2) - 2026-07-01
+
+### Other
+
+- restructure repo as pure Rust workspace ([#1693](https://github.com/agntcy/slim/pull/1693))
+
 ## [2.0.0-alpha.1](https://github.com/agntcy/slim/compare/slim-v2.0.0-alpha.0...slim-v2.0.0-alpha.1) - 2026-06-17
 
 ### Added

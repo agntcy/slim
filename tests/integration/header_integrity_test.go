@@ -114,7 +114,7 @@ var _ = Describe("Header integrity across federated dataplane nodes", func() {
 				out, err := exec.Command(
 					slimctlPath, "n",
 					"route", "list",
-					"-s", fmt.Sprintf("127.0.0.1:%d", controllerPort),
+					"--server", fmt.Sprintf("127.0.0.1:%d", controllerPort),
 				).CombinedOutput()
 				if err != nil {
 					return ""
@@ -148,7 +148,7 @@ var _ = Describe("Header integrity across federated dataplane nodes", func() {
 			return exec.Command(slimctlPath, "n",
 				"route", "add", routeB,
 				"via", clientAVia,
-				"-s", fmt.Sprintf("127.0.0.1:%d", controllerAPort),
+				"--server", fmt.Sprintf("127.0.0.1:%d", controllerAPort),
 			)
 		})
 
@@ -169,7 +169,7 @@ var _ = Describe("Header integrity across federated dataplane nodes", func() {
 			return exec.Command(slimctlPath, "n",
 				"route", "add", routeA,
 				"via", clientBVia,
-				"-s", fmt.Sprintf("127.0.0.1:%d", controllerBPort),
+				"--server", fmt.Sprintf("127.0.0.1:%d", controllerBPort),
 			)
 		})
 
@@ -235,7 +235,7 @@ var _ = Describe("Header integrity across federated dataplane nodes", func() {
 				out, err := exec.Command(
 					slimctlPath, "n",
 					"route", "list",
-					"-s", fmt.Sprintf("127.0.0.1:%d", controllerPort),
+					"--server", fmt.Sprintf("127.0.0.1:%d", controllerPort),
 				).CombinedOutput()
 				if err != nil {
 					return ""
@@ -269,7 +269,7 @@ var _ = Describe("Header integrity across federated dataplane nodes", func() {
 			return exec.Command(slimctlPath, "n",
 				"route", "add", routeB,
 				"via", clientAVia,
-				"-s", fmt.Sprintf("127.0.0.1:%d", controllerAPort),
+				"--server", fmt.Sprintf("127.0.0.1:%d", controllerAPort),
 			)
 		})
 
@@ -290,7 +290,7 @@ var _ = Describe("Header integrity across federated dataplane nodes", func() {
 			return exec.Command(slimctlPath, "n",
 				"route", "add", routeA,
 				"via", clientBVia,
-				"-s", fmt.Sprintf("127.0.0.1:%d", controllerBPort),
+				"--server", fmt.Sprintf("127.0.0.1:%d", controllerBPort),
 			)
 		})
 

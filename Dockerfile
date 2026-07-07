@@ -131,6 +131,7 @@ COPY --from=rust /slim-control-plane /slim-control-plane
 
 ENTRYPOINT ["/slim-control-plane"]
 
+
 # Runtime image - channel manager debug executable, debug symbols and a shell
 FROM debian:bookworm-slim AS channel-manager-debug
 

@@ -4,6 +4,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 pub mod api;
+pub mod auth;
 pub mod backoff;
 pub mod config;
 pub mod db;

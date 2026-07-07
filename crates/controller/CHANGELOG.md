@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0](https://github.com/agntcy/slim/compare/slim-controller-v0.9.0...slim-controller-v0.10.0) - 2026-07-06
+
+### Added
+
+- authenticate node group membership on registration ([#1782](https://github.com/agntcy/slim/pull/1782))
+
+## [0.9.0](https://github.com/agntcy/slim/compare/slim-controller-v0.8.0...slim-controller-v0.9.0) - 2026-07-01
+
+### Added
+
+- config mode vs api mode for topology management ([#1772](https://github.com/agntcy/slim/pull/1772))
+- network segmentation ([#1761](https://github.com/agntcy/slim/pull/1761))
+- add header integrity check and replay protection to control messages ([#1740](https://github.com/agntcy/slim/pull/1740))
+
+### Other
+
+- `slimctl` CLI commands for group-based routing ([#1769](https://github.com/agntcy/slim/pull/1769))
+- restructure repo as pure Rust workspace ([#1693](https://github.com/agntcy/slim/pull/1693))
+
 ## [0.8.0](https://github.com/agntcy/slim/compare/slim-controller-v0.7.0...slim-controller-v0.8.0) - 2026-06-17
 
 ### Added

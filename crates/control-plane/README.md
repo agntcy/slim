@@ -10,6 +10,10 @@ information is propagated to data-plane instances, and how failures are handled.
 1. [System Overview](#system-overview)
    - [Group-Based Routing](#group-based-routing)
    - [Topology](#topology)
+     - [Config mode](#config-mode-topology-section-present)
+     - [API mode](#api-mode-topology-section-absent-or-empty)
+     - [Examples (config mode)](#examples-config-mode)
+     - [Segments](#segments-route-isolation)
    - [Architecture](#architecture)
 2. [Components](#components)
 3. [Node Lifecycle](#node-lifecycle)
@@ -62,23 +66,48 @@ chosen sibling node in the same group (see [Gateway Failover](#gateway-failover)
 
 ### Topology
 
-The CP supports configurable topology that controls which groups are
-allowed to form inter-group links. The topology is expressed as an
-**adjacency list**: each entry declares a group name and the neighbors it
+The CP supports two mutually exclusive topology management modes,
+determined by whether the config file contains a `topology` section:
+
+#### Config mode (topology section present)
+
+The config file is the **single source of truth**. The topology is expressed
+as an **adjacency list**: each entry declares a group and the neighbors it
 connects to. All links are **bidirectional** (if A lists B, then B↔A).
 
 The wildcard `"*"` matches all registered groups and is resolved dynamically
 at node registration time.
 
-If no topology is configured (empty `links` or `topology: {}`), the
-controller defaults to **full mesh**: every group links to every other group.
+On restart, all state is wiped and rebuilt from the config file.
+Topology mutation APIs are rejected with an error.
 
-#### Examples
+#### API mode (topology section absent or empty)
 
-**Full mesh** (default — all groups interconnect):
+The DB is the **single source of truth**. Topology is managed at runtime
+via `slimctl` commands or gRPC APIs:
+
+```
+slimctl controller segment add <NAME>
+slimctl controller segment remove <NAME>
+slimctl controller link add --segment <S> <GROUP_A> <GROUP_B>
+slimctl controller link remove --segment <S> <GROUP_A> <GROUP_B>
+```
+
+On restart, runtime state (nodes, links, routes) is cleared — nodes
+re-register and links/routes are rebuilt automatically. Topology config
+(segments, segment links) is preserved in the DB.
+
+Use `topology: {}` in the config file to enable API mode.
+
+#### Examples (config mode)
+
+**Full mesh** (all groups interconnect):
 
 ```yaml
-topology: {}
+topology:
+  links:
+    - group: "*"
+      neighbors: ["*"]
 ```
 
 **Star** (hub connects to all, spokes only reach each other via hub):
@@ -86,7 +115,7 @@ topology: {}
 ```yaml
 topology:
   links:
-    - name: cloud
+    - group: cloud
       neighbors: ["*"]
 ```
 
@@ -95,7 +124,7 @@ topology:
 ```yaml
 topology:
   links:
-    - name: cloud
+    - group: cloud
       neighbors: [customer-a, customer-b]
 ```
 
@@ -104,14 +133,12 @@ topology:
 ```yaml
 topology:
   links:
-    - name: group-a
+    - group: group-a
       neighbors: [group-b]
-    - name: group-b
-      neighbors: [group-a, group-c]
-    - name: group-c
-      neighbors: [group-b, group-d]
-    - name: group-d
+    - group: group-b
       neighbors: [group-c]
+    - group: group-c
+      neighbors: [group-d]
 ```
 
 The topology is enforced during link creation.
@@ -137,7 +164,7 @@ topology:
   segments:
     - name: segment-$group
       links:
-        - name: cloud
+        - group: cloud
           neighbors: [$group]
 ```
 
@@ -154,11 +181,11 @@ topology:
   segments:
     - name: customer-1
       links:
-        - name: cloud
+        - group: cloud
           neighbors: [cluster-a]
     - name: customer-2
       links:
-        - name: cloud
+        - group: cloud
           neighbors: [cluster-b, cluster-c]
 ```
 
@@ -220,7 +247,8 @@ sequenceDiagram
     DP->>CP: OpenControlChannel
     CP-->>DP: Initial ACK
 
-    DP->>CP: RegisterNodeRequest {node_id, group_name, connection_details[], connections[]}
+    DP->>CP: RegisterNodeRequest {node_id, group_name, credentials, connection_details[], connections[]}
+    Note right of CP: verify_group_membership(credentials, group_name, node_id)
     Note right of CP: 15 s timeout
     Note right of CP: save_node(Node)<br/>add_stream(node_id, tx)
     CP-->>DP: Registration ACK
@@ -277,6 +305,34 @@ the stream, the route service performs several operations:
 
 4. **Enqueue reconciliation.** All affected nodes are enqueued for link and
    route reconciliation.
+
+### Registration Authentication
+
+The CP can optionally verify that a node is authorized to join its claimed
+group. This prevents rogue nodes from declaring arbitrary group membership.
+
+**How it works:**
+
+1. Node loads auth config (shared secret or SPIRE) and builds an `AuthProvider`
+2. On registration, the node calls `provider.get_token()` and sends the result
+   in the `credentials` field of `RegisterNodeRequest`
+3. The CP's `GroupAuthenticator` verifies the credentials before allowing
+   registration:
+   - `Noop` (default): accepts all nodes (backward compatible)
+   - `SharedSecret`: per-group HMAC verification — each group has its own
+     secret, and the token's identity must match `{group_name}/{node_id}`
+   - `Spire`: validates the JWT SVID signature via trust bundles and asserts
+     the trust domain in the SPIFFE ID equals the claimed `group_name`
+
+**Identity derivation:** The node always uses `{group_name}/{node_id}` as its
+token identity, regardless of any `id` field in the config. This prevents
+typo-based authentication failures.
+
+**Failure modes:**
+- If auth is configured but the node sends empty credentials → `PERMISSION_DENIED`
+- If the node has no `group_name` but auth is required → rejected
+- If `get_token()` fails on the node side → registration attempt is aborted
+  (not sent with empty credentials)
 
 ### Deregistration
 
@@ -653,17 +709,39 @@ southbound:
 database:
   type: in_memory  # or: type: sqlite, path: "/var/lib/slim/cp.db"
 
+# Topology section controls how groups are connected.
+# Present = config mode (config is source of truth, mutation APIs disabled).
+# Absent or empty = API mode (DB is source of truth, use slimctl to manage).
+
+# Config mode example (star topology):
 topology:
   links:
-    - name: cloud
-      neighbors: ["*"]  # star: cloud connects to all groups
-    # Omit topology section or use `topology: {}` for full mesh.
+    - group: cloud
+      neighbors: ["*"]  # cloud connects to all groups
   # Optional: segments for route isolation (see Topology section above)
   # segments:
   #   - name: segment-$group
   #     links:
-  #       - name: cloud
+  #       - group: cloud
   #         neighbors: [$group]
+  # Registration authentication (optional).
+  # When configured, nodes must prove group membership to register.
+  # Omit entirely to accept all nodes (default).
+  #
+  # Shared secret example (one secret per group):
+  # registration_auth:
+  #   type: shared_secret
+  #   secrets:
+  #     cluster-a: "secret-for-cluster-a-min-32-bytes-long"
+  #     cluster-b: "secret-for-cluster-b-min-32-bytes-long"
+  #
+  # SPIRE example (trust domain = group name):
+  # registration_auth:
+  #   type: spire
+  #   socket_path: "/run/spire/agent-sockets/api.sock"
+
+# API mode example:
+# topology: {}
 
 reconciler:
   # Max retry attempts per item before dropping (re-enqueued on next sweep).
@@ -691,4 +769,5 @@ The CP exposes two gRPC endpoints:
 | Southbound | `0.0.0.0:50052` | DP node registration and control |
 
 Database backend is configurable: `in_memory` (default, all state lost on
-restart) or `sqlite` (persistent).
+restart) or `sqlite` (persistent). SQLite is required for API mode to
+preserve topology across restarts.

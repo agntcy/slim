@@ -17,6 +17,22 @@ service ControlPlaneService {
   rpc ListLinks(LinkListRequest) returns (stream LinkEntry) {}
   // List segments (expanded routing domains) with the groups in each segment
   rpc ListSegments(SegmentListRequest) returns (SegmentListResponse) {}
+
+  // Topology mutation APIs (API-managed mode only).
+  // These RPCs fail with FAILED_PRECONDITION if the controller is running in config-managed mode.
+
+  // Add a new segment (routing domain). If a segment with the given name already exists,
+  // returns ALREADY_EXISTS.
+  rpc AddSegment(AddSegmentRequest) returns (AddSegmentResponse) {}
+  // Remove a segment by name. Deletes all associated group memberships and links.
+  // Returns NOT_FOUND if the segment does not exist.
+  rpc RemoveSegment(RemoveSegmentRequest) returns (RemoveSegmentResponse) {}
+  // Add a bidirectional link between two groups within a segment.
+  // The segment must already exist. Idempotent — succeeds if the link already exists.
+  rpc AddTopologyLink(AddTopologyLinkRequest) returns (AddTopologyLinkResponse) {}
+  // Remove a bidirectional link between two groups within a segment.
+  // Returns NOT_FOUND if the segment or link does not exist.
+  rpc RemoveTopologyLink(RemoveTopologyLinkRequest) returns (RemoveTopologyLinkResponse) {}
 }
 
 message ConfigurationCommand {
@@ -143,3 +159,42 @@ message SegmentEdge {
 message SegmentListResponse {
   repeated SegmentEntry segments = 1;
 }
+
+// --- Topology mutation messages (API-managed mode only) ---
+
+// Add a new segment (routing domain)
+message AddSegmentRequest {
+  string name = 1;
+}
+
+message AddSegmentResponse {}
+
+// Remove a segment by name, cascading deletion of groups and links
+message RemoveSegmentRequest {
+  string name = 1;
+}
+
+message RemoveSegmentResponse {}
+
+// Add a bidirectional link between two groups within a segment.
+// The segment must already exist. If segment is empty, defaults to "default".
+message AddTopologyLinkRequest {
+  string group_a = 1;
+  string group_b = 2;
+  string segment = 3; // optional, defaults to "default"
+}
+
+message AddTopologyLinkResponse {
+  // Warnings about missing groups (link stored but no physical link created yet).
+  repeated string warnings = 1;
+}
+
+// Remove a bidirectional link between two groups within a segment.
+// If segment is empty, defaults to "default".
+message RemoveTopologyLinkRequest {
+  string group_a = 1;
+  string group_b = 2;
+  string segment = 3; // optional, defaults to "default"
+}
+
+message RemoveTopologyLinkResponse {}

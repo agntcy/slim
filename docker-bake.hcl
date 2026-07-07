@@ -39,7 +39,6 @@ group "channel-manager" {
   ]
 }
 
-
 target "_common" {
   output = [
     "type=image",
