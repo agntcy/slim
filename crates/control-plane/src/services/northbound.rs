@@ -554,15 +554,20 @@ impl ControlPlaneService for NorthboundApiService {
         &self,
         _request: Request<ListGroupsRequest>,
     ) -> Result<Response<ListGroupsResponse>, Status> {
-        // Start with auth groups (from DB secrets).
+        // Start with groups from the live authenticator (covers both config and API mode).
+        let mut groups: std::collections::BTreeMap<String, Vec<String>> =
+            std::collections::BTreeMap::new();
+        for g in self.authenticator.configured_groups() {
+            groups.entry(g).or_default();
+        }
+
+        // Also include groups from DB secrets (API mode — may have groups not yet
+        // loaded into the authenticator on error, or for consistency).
         let auth_groups = self
             .db
             .list_registration_secret_groups()
             .await
             .map_err(|e| Status::internal(format!("failed to list groups: {e}")))?;
-
-        let mut groups: std::collections::BTreeMap<String, Vec<String>> =
-            std::collections::BTreeMap::new();
         for g in auth_groups {
             groups.entry(g).or_default();
         }
@@ -611,10 +616,15 @@ impl ControlPlaneService for NorthboundApiService {
             .add_verifier(&req.group_name, &req.secret)?;
 
         // Persist to DB only after the verifier was successfully built.
-        self.db
+        if let Err(e) = self
+            .db
             .upsert_registration_secret(&req.group_name, &req.secret)
             .await
-            .map_err(|e| Status::internal(format!("failed to store secret: {e}")))?;
+        {
+            // Roll back the in-memory verifier so the caller's error is consistent.
+            let _ = self.authenticator.remove_verifier(&req.group_name);
+            return Err(Status::internal(format!("failed to store secret: {e}")));
+        }
 
         tracing::info!("add_group: added group '{}'", req.group_name);
         Ok(Response::new(AddGroupResponse {}))
@@ -631,16 +641,11 @@ impl ControlPlaneService for NorthboundApiService {
             return Err(Status::invalid_argument("group_name must not be empty"));
         }
 
-        // Find all nodes belonging to this group.
-        let nodes = self
-            .db
-            .list_nodes()
-            .await
-            .map_err(|e| Status::internal(format!("failed to list nodes: {e}")))?;
-        let group_nodes: Vec<_> = nodes
-            .iter()
-            .filter(|n| n.group_name.as_deref() == Some(&req.group_name))
-            .collect();
+        if !self.authenticator.is_shared_secret() {
+            return Err(Status::unimplemented(
+                "remove_group is only supported in shared_secret auth mode",
+            ));
+        }
 
         // Remove the verifier first to prevent new registrations.
         self.authenticator.remove_verifier(&req.group_name)?;
@@ -650,6 +655,18 @@ impl ControlPlaneService for NorthboundApiService {
             .delete_registration_secret(&req.group_name)
             .await
             .map_err(|e| Status::internal(format!("failed to delete secret: {e}")))?;
+
+        // Now list nodes — no new nodes can register for this group since the
+        // verifier is already removed.
+        let nodes = self
+            .db
+            .list_nodes()
+            .await
+            .map_err(|e| Status::internal(format!("failed to list nodes: {e}")))?;
+        let group_nodes: Vec<_> = nodes
+            .iter()
+            .filter(|n| n.group_name.as_deref() == Some(&req.group_name))
+            .collect();
 
         // Disconnect and deregister each existing node in the group.
         for node in &group_nodes {

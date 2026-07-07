@@ -69,17 +69,25 @@ impl ControlPlane {
         // In API mode, restore DB-persisted secrets into the live authenticator.
         if is_api_managed && authenticator.is_shared_secret() {
             let groups = db.list_registration_secret_groups().await?;
+            let mut restored = 0;
             for group in &groups {
-                let secret = db
-                    .get_registration_secret(group)
-                    .await?
-                    .expect("group listed but secret missing from DB");
-                authenticator.add_verifier(group, &secret).map_err(|e| {
-                    anyhow::anyhow!("failed to restore verifier for group '{group}': {e}")
-                })?;
+                let secret = match db.get_registration_secret(group).await? {
+                    Some(s) => s,
+                    None => {
+                        tracing::warn!(
+                            "skipping group '{group}': listed but secret missing from DB"
+                        );
+                        continue;
+                    }
+                };
+                if let Err(e) = authenticator.add_verifier(group, &secret) {
+                    tracing::warn!("skipping group '{group}': failed to build verifier: {e}");
+                    continue;
+                }
+                restored += 1;
             }
-            if !groups.is_empty() {
-                tracing::info!("restored {} group secret(s) from DB", groups.len());
+            if restored > 0 {
+                tracing::info!("restored {restored} group secret(s) from DB");
             }
         }
 

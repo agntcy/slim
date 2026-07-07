@@ -176,6 +176,15 @@ impl GroupAuthenticator {
             )),
         }
     }
+
+    /// Return the list of configured group names from the live verifiers map.
+    /// For `Noop` and `Spire`, returns an empty list.
+    pub fn configured_groups(&self) -> Vec<String> {
+        match self {
+            Self::SharedSecret { verifiers } => verifiers.read().keys().cloned().collect(),
+            _ => Vec::new(),
+        }
+    }
 }
 
 /// Extract the trust domain from a SPIFFE ID string.
