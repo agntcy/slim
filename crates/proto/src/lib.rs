@@ -8,6 +8,7 @@ pub use impls::*;
 
 pub mod dataplane {
     pub mod proto {
+        #[allow(clippy::large_enum_variant)]
         pub mod v1 {
             include!("gen/dataplane.proto.v1.rs");
         }

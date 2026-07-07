@@ -666,12 +666,16 @@ where
         // send a join message
         let msg_id = rand::random::<u32>();
 
-        let channel = if self.common.settings.config.session_type == ProtoSessionType::Multicast {
-            // using the destination as channel name, the control name can be recreated by the participants
-            Some(self.common.settings.destination.clone())
-        } else {
-            None
-        };
+        let (channel, control) =
+            if self.common.settings.config.session_type == ProtoSessionType::Multicast {
+                // using the destination as channel name, the control name can be recreated by the participants
+                (
+                    Some(self.common.settings.destination.clone()),
+                    Some(self.common.settings.control.clone()),
+                )
+            } else {
+                (None, None)
+            };
 
         let mls_settings =
             self.common
@@ -688,6 +692,7 @@ where
                 self.common.settings.config.max_retries,
                 self.common.settings.config.interval,
                 channel,
+                control,
                 mls_settings,
             )
             .as_content();
@@ -1310,8 +1315,8 @@ mod tests {
         mpsc::Receiver<Result<SessionMessage, SessionError>>,
     ) {
         let source = make_name(&["local", "moderator", "v1"]).with_id(100);
-        let destination = make_name(&["channel", "name", "v1"]).with_id(NameId::DATA_CHANNEL_ID);
-        let control = make_name(&["channel", "name", "v1"]).with_id(NameId::CONTROL_CHANNEL_ID);
+        let destination = make_name(&["channel", "name", "v1"]).with_id(1);
+        let control = make_name(&["channel", "name", "v1"]).with_id(2);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -1476,7 +1481,13 @@ mod tests {
             .message_id(100)
             .payload(
                 CommandPayload::builder()
-                    .join_request(Some(3), Some(std::time::Duration::from_secs(1)), None, None)
+                    .join_request(
+                        Some(3),
+                        Some(std::time::Duration::from_secs(1)),
+                        None,
+                        None,
+                        None,
+                    )
                     .as_content(),
             )
             .build_publish()
@@ -1756,9 +1767,8 @@ mod tests {
 
         // Create moderator with agntcy/ns/moderator naming
         let source = ProtoName::from_strings(["agntcy", "ns", "moderator"]).with_id(100);
-        let destination = ProtoName::from_strings(["agntcy", "ns", "chat"]);
-        let control =
-            ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(NameId::CONTROL_CHANNEL_ID);
+        let destination = ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(1);
+        let control = ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(2);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;
@@ -1906,10 +1916,8 @@ mod tests {
 
         // Create moderator with agntcy/ns/moderator naming
         let source = ProtoName::from_strings(["agntcy", "ns", "moderator"]).with_id(100);
-        let destination =
-            ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(NameId::DATA_CHANNEL_ID);
-        let control =
-            ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(NameId::CONTROL_CHANNEL_ID);
+        let destination = ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(1);
+        let control = ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(2);
 
         let identity_provider = MockTokenProvider;
         let identity_verifier = MockVerifier;

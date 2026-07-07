@@ -213,8 +213,6 @@ impl SlimHeaderFlags {
 
 impl NameId {
     pub const NULL_COMPONENT: u128 = u128::MAX;
-    pub const DATA_CHANNEL_ID: u128 = u128::MAX - 2;
-    pub const CONTROL_CHANNEL_ID: u128 = u128::MAX - 3;
     pub const RESERVED_IDS: u128 = 50;
 
     pub const fn is_reserved_id(id: u128) -> bool {
@@ -250,8 +248,6 @@ impl TryFrom<String> for NameId {
     fn try_from(s: String) -> Result<Self, Self::Error> {
         match s.as_str() {
             "NULL_COMPONENT" => Ok(Self::from(Self::NULL_COMPONENT)),
-            "DATA_CHANNEL_ID" => Ok(Self::from(Self::DATA_CHANNEL_ID)),
-            "CONTROL_CHANNEL_ID" => Ok(Self::from(Self::CONTROL_CHANNEL_ID)),
             _ => {
                 if let Ok(uuid) = uuid::Uuid::parse_str(&s) {
                     return Ok(Self::from(uuid.as_u128()));
@@ -267,8 +263,6 @@ impl From<NameId> for String {
         let val: u128 = name_id.into();
         match val {
             NameId::NULL_COMPONENT => "NULL_COMPONENT".to_string(),
-            NameId::DATA_CHANNEL_ID => "DATA_CHANNEL_ID".to_string(),
-            NameId::CONTROL_CHANNEL_ID => "CONTROL_CHANNEL_ID".to_string(),
             id => uuid::Uuid::from_u128(id).to_string(),
         }
     }
@@ -1349,7 +1343,8 @@ impl CommandPayloadBuilder {
         self,
         max_retries: Option<u32>,
         timer_duration: Option<Duration>,
-        channel: Option<ProtoName>,
+        data_channel: Option<ProtoName>,
+        control_channel: Option<ProtoName>,
         mls_settings: Option<ProtoMlsSettings>,
     ) -> CommandPayload {
         let timer_settings = match (timer_duration, max_retries) {
@@ -1362,7 +1357,8 @@ impl CommandPayloadBuilder {
 
         let payload = JoinRequestPayload {
             timer_settings,
-            channel,
+            channel: data_channel,
+            control: control_channel,
             mls_settings,
         };
         CommandPayload {
@@ -1857,19 +1853,13 @@ mod name_tests {
 
     #[test]
     fn test_name_id_display_reserved() {
-        let mut str_nid: String = NameId::from(NameId::NULL_COMPONENT).into();
+        let str_nid: String = NameId::from(NameId::NULL_COMPONENT).into();
         assert_eq!(str_nid, "NULL_COMPONENT");
-        str_nid = NameId::from(NameId::DATA_CHANNEL_ID).into();
-        assert_eq!(str_nid, "DATA_CHANNEL_ID");
-        str_nid = NameId::from(NameId::CONTROL_CHANNEL_ID).into();
-        assert_eq!(str_nid, "CONTROL_CHANNEL_ID");
     }
 
     #[test]
     fn test_name_id_is_reserved() {
         assert!(NameId::is_reserved_id(NameId::NULL_COMPONENT));
-        assert!(NameId::is_reserved_id(NameId::DATA_CHANNEL_ID));
-        assert!(NameId::is_reserved_id(NameId::CONTROL_CHANNEL_ID));
         assert!(!NameId::is_reserved_id(0));
         assert!(!NameId::is_reserved_id(42));
     }
@@ -2325,6 +2315,7 @@ mod message_tests {
             Some(5),
             Some(Duration::from_secs(10)),
             Some(dest.clone()),
+            None,
             Some(ProtoMlsSettings::default()),
         );
         let extracted = payload.as_join_request_payload().unwrap();

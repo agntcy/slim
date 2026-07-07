@@ -451,8 +451,8 @@ mod tests {
     use crate::SubscriptionAckError;
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::api::{
-        CommandPayload, NameId, Participant, ParticipantSettings, ProtoMessage,
-        ProtoSessionMessageType, ProtoSessionType,
+        CommandPayload, Participant, ParticipantSettings, ProtoMessage, ProtoSessionMessageType,
+        ProtoSessionType,
     };
     use slim_datapath::messages::utils::SlimHeaderFlags;
     use slim_session::session_config::MlsSettings;
@@ -807,7 +807,7 @@ mod tests {
 
         // send join_request message to create the session
         let payload = CommandPayload::builder()
-            .join_request(None, None, None, None)
+            .join_request(None, None, None, None, None)
             .as_content();
 
         let mut join_request = Message::builder()
@@ -1224,10 +1224,10 @@ mod tests {
             // Verify it's a multicast session
             assert_eq!(session_arc.session_type(), ProtoSessionType::Multicast);
 
-            // For multicast sessions, the destination is the channel name with DATA_CHANNEL_ID
+            // For multicast sessions, the destination is the channel name
             let dst = session_arc.dst();
-            let expected_dst = channel_name.clone().with_id(NameId::DATA_CHANNEL_ID);
-            assert_eq!(dst, &expected_dst);
+            let expected_dst = channel_name.clone();
+            assert!(dst.match_prefix(&expected_dst));
 
             total_received_sessions += 1;
         }

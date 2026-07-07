@@ -29,6 +29,7 @@ thiserror = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 trait-variant = { workspace = true }
+twox-hash = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 maybe-async = { workspace = true, features = ["is_sync"] }
