@@ -1,3 +1,6 @@
+// Copyright AGNTCY Contributors (https://github.com/agntcy)
+// SPDX-License-Identifier: Apache-2.0
+
 // The schema generator depends on the native-only `ServerConfig` and filesystem
 // access; it is meaningless in a browser, so on wasm32 it compiles to a no-op.
 cfg_if::cfg_if! {
