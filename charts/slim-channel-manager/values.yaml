@@ -56,7 +56,7 @@ config:
     #   trust_domains: []
 
     # Channels to create on startup
-    # This requires that all the participants are already up and running 
+    # This requires that all the participants are already up and running
     # in reachable in the slim network. If not, the channel creation will fail.
     channels: []
     # - name: "org/namespace/channel"
