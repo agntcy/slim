@@ -4,7 +4,11 @@ tracing:
 
 services:
   slim/node-b:
+    node_id: node-b
     group_name: deployment-b
+    auth:
+      type: shared_secret
+      secret: "secret-for-deployment-b-abcdefghi-1234567890"
     dataplane:
       servers:
         - endpoint: "127.0.0.1:46101"
