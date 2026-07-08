@@ -156,17 +156,12 @@
 }
 
 .md-header .md-tabs {
-  max-height: var(--slim-tabs-row-height);
+  height: var(--slim-tabs-row-height);
   overflow: hidden;
-  transition:
-    max-height 0.25s ease,
-    opacity 0.2s ease,
-    visibility 0.2s ease;
 }
 
 html.slim-tabs-collapsed .md-header .md-tabs {
-  max-height: 0;
-  opacity: 0;
+  height: 0;
   visibility: hidden;
   pointer-events: none;
 }
@@ -177,12 +172,6 @@ html.slim-tabs-collapsed .md-header--lifted ~ .md-container .md-sidebar {
 
 html.slim-tabs-collapsed .md-header--lifted ~ .md-container .md-typeset :target {
   --md-scroll-margin: calc(var(--md-header-height, 2.4rem) + 1.2rem);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .md-header .md-tabs {
-    transition: none;
-  }
 }
 
 /* Search inset pill — matches header (form on desktop, overlay on mobile) */
