@@ -59,14 +59,44 @@ impl ControlPlane {
                 .await
                 .context("failed to load topology from DB")?;
         }
-        let nb_svc =
-            NorthboundApiService::new(db.clone(), cmd_handler.clone(), route_service.clone());
 
         // Build group authenticator from config (Noop when no auth configured).
         let authenticator = match cfg.topology.auth {
             None => GroupAuthenticator::Noop,
             Some(auth_cfg) => Self::build_authenticator(auth_cfg, is_api_managed).await?,
         };
+
+        // In API mode, restore DB-persisted secrets into the live authenticator.
+        if is_api_managed && authenticator.is_shared_secret() {
+            let groups = db.list_registration_secret_groups().await?;
+            let mut restored = 0;
+            for group in &groups {
+                let secret = match db.get_registration_secret(group).await? {
+                    Some(s) => s,
+                    None => {
+                        tracing::warn!(
+                            "skipping group '{group}': listed but secret missing from DB"
+                        );
+                        continue;
+                    }
+                };
+                if let Err(e) = authenticator.add_verifier(group, &secret) {
+                    tracing::warn!("skipping group '{group}': failed to build verifier: {e}");
+                    continue;
+                }
+                restored += 1;
+            }
+            if restored > 0 {
+                tracing::info!("restored {restored} group secret(s) from DB");
+            }
+        }
+
+        let nb_svc = NorthboundApiService::new(
+            db.clone(),
+            cmd_handler.clone(),
+            route_service.clone(),
+            authenticator.clone(),
+        );
 
         let (drain_tx, drain_rx) = drain::channel();
 
@@ -111,6 +141,7 @@ impl ControlPlane {
         cfg: crate::config::RegistrationAuthConfig,
         is_api_managed: bool,
     ) -> Result<GroupAuthenticator> {
+        use crate::auth::SharedVerifiers;
         use crate::config::RegistrationAuthConfig;
         use std::collections::HashMap;
 
@@ -140,7 +171,9 @@ impl ControlPlane {
                     "registration auth: shared_secret for {} group(s)",
                     verifiers.len()
                 );
-                Ok(GroupAuthenticator::SharedSecret { verifiers })
+                let shared: SharedVerifiers =
+                    std::sync::Arc::new(parking_lot::RwLock::new(verifiers));
+                Ok(GroupAuthenticator::SharedSecret { verifiers: shared })
             }
             #[cfg(not(target_family = "windows"))]
             RegistrationAuthConfig::Spire { socket_path } => {

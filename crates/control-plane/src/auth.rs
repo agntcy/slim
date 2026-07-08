@@ -9,10 +9,16 @@
 //! (backward-compatible behavior when no auth is configured).
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use parking_lot::RwLock;
 use slim_auth::auth_provider::AuthVerifier;
 use slim_auth::traits::Verifier;
 use tonic::Status;
+
+/// Shared map of group name → verifier. Used by both southbound (read) and
+/// northbound (write) services concurrently.
+pub type SharedVerifiers = Arc<RwLock<HashMap<String, AuthVerifier>>>;
 
 /// Verifies that a node's credentials authorize it to join a group.
 #[derive(Clone, Default)]
@@ -22,8 +28,8 @@ pub enum GroupAuthenticator {
     Noop,
     /// Per-group shared secret verification.
     SharedSecret {
-        /// Map of group name → verifier (built from the per-group secret).
-        verifiers: HashMap<String, AuthVerifier>,
+        /// Shared map of group name → verifier (built from the per-group secret).
+        verifiers: SharedVerifiers,
     },
     /// SPIRE JWT SVID verification.
     /// Validates the JWT SVID against trust bundles provided by the local SPIRE agent
@@ -44,7 +50,7 @@ impl std::fmt::Debug for GroupAuthenticator {
             Self::Noop => write!(f, "GroupAuthenticator::Noop"),
             Self::SharedSecret { verifiers } => f
                 .debug_struct("GroupAuthenticator::SharedSecret")
-                .field("groups", &verifiers.keys().collect::<Vec<_>>())
+                .field("groups", &verifiers.read().keys().collect::<Vec<_>>())
                 .finish(),
             #[cfg(not(target_family = "windows"))]
             Self::Spire { .. } => write!(f, "GroupAuthenticator::Spire"),
@@ -71,7 +77,11 @@ impl GroupAuthenticator {
                 "credentials required but not provided",
             )),
             GroupAuthenticator::SharedSecret { verifiers } => {
-                let verifier = verifiers.get(claimed_group).ok_or_else(|| {
+                let verifier_clone = {
+                    let map = verifiers.read();
+                    map.get(claimed_group).cloned()
+                };
+                let verifier = verifier_clone.ok_or_else(|| {
                     Status::permission_denied(format!(
                         "no auth configured for group '{claimed_group}'"
                     ))
@@ -127,6 +137,54 @@ impl GroupAuthenticator {
             }
         }
     }
+
+    /// Returns `true` if this is the `SharedSecret` variant.
+    pub fn is_shared_secret(&self) -> bool {
+        matches!(self, Self::SharedSecret { .. })
+    }
+
+    /// Add a verifier for a group (shared secret mode only).
+    /// Builds the verifier from the raw secret string and inserts it.
+    /// Returns an error if this is not the `SharedSecret` variant.
+    pub fn add_verifier(&self, group_name: &str, secret: &str) -> Result<(), Status> {
+        match self {
+            Self::SharedSecret { verifiers } => {
+                let verifier =
+                    AuthVerifier::shared_secret_from_str(group_name, secret).map_err(|e| {
+                        Status::internal(format!(
+                            "failed to build verifier for group '{group_name}': {e}"
+                        ))
+                    })?;
+                verifiers.write().insert(group_name.to_string(), verifier);
+                Ok(())
+            }
+            _ => Err(Status::unimplemented(
+                "add_verifier is only supported for shared_secret auth",
+            )),
+        }
+    }
+
+    /// Remove the verifier for a group (shared secret mode only).
+    pub fn remove_verifier(&self, group_name: &str) -> Result<(), Status> {
+        match self {
+            Self::SharedSecret { verifiers } => {
+                verifiers.write().remove(group_name);
+                Ok(())
+            }
+            _ => Err(Status::unimplemented(
+                "remove_verifier is only supported for shared_secret auth",
+            )),
+        }
+    }
+
+    /// Return the list of configured group names from the live verifiers map.
+    /// For `Noop` and `Spire`, returns an empty list.
+    pub fn configured_groups(&self) -> Vec<String> {
+        match self {
+            Self::SharedSecret { verifiers } => verifiers.read().keys().cloned().collect(),
+            _ => Vec::new(),
+        }
+    }
 }
 
 /// Extract the trust domain from a SPIFFE ID string.
@@ -172,7 +230,9 @@ mod tests {
         let verifier = AuthVerifier::shared_secret_from_str(group, secret).unwrap();
         let mut verifiers = HashMap::new();
         verifiers.insert(group.to_string(), verifier);
-        GroupAuthenticator::SharedSecret { verifiers }
+        GroupAuthenticator::SharedSecret {
+            verifiers: Arc::new(RwLock::new(verifiers)),
+        }
     }
 
     #[tokio::test]
