@@ -35,7 +35,7 @@ pub enum ControllerCommand {
     /// List links from the controller DB
     Link(ControllerLinkArgs),
     /// List groups and their nodes
-    Group(ControllerGroupArgs),
+    Domain(ControllerDomainArgs),
     /// List segments (routing domains) and their groups
     Segment(ControllerSegmentArgs),
 }
@@ -128,9 +128,9 @@ pub enum ControllerLinkCommand {
     /// Add a topology link between two groups (API-managed mode only)
     Add {
         /// First group name
-        group_a: String,
+        domain_a: String,
         /// Second group name
-        group_b: String,
+        domain_b: String,
         /// Segment name (defaults to "default")
         #[arg(short, long, default_value = "default")]
         segment: String,
@@ -139,9 +139,9 @@ pub enum ControllerLinkCommand {
     #[command(visible_alias = "rm")]
     Remove {
         /// First group name
-        group_a: String,
+        domain_a: String,
         /// Second group name
-        group_b: String,
+        domain_b: String,
         /// Segment name (defaults to "default")
         #[arg(short, long, default_value = "default")]
         segment: String,
@@ -151,13 +151,13 @@ pub enum ControllerLinkCommand {
 // ── Group ─────────────────────────────────────────────────────────────────────
 
 #[derive(Args)]
-pub struct ControllerGroupArgs {
+pub struct ControllerDomainArgs {
     #[command(subcommand)]
-    pub command: ControllerGroupCommand,
+    pub command: ControllerDomainCommand,
 }
 
 #[derive(Subcommand)]
-pub enum ControllerGroupCommand {
+pub enum ControllerDomainCommand {
     /// List all groups and their nodes
     #[command(visible_alias = "ls")]
     List,
@@ -210,7 +210,7 @@ pub async fn run(args: &ControllerArgs, opts: &ClientConfig) -> Result<()> {
         ControllerCommand::Connection(a) => run_connection(a, opts).await,
         ControllerCommand::Route(a) => run_route(a, opts).await,
         ControllerCommand::Link(a) => run_link(a, opts).await,
-        ControllerCommand::Group(a) => run_group(a, opts).await,
+        ControllerCommand::Domain(a) => run_domain(a, opts).await,
         ControllerCommand::Segment(a) => run_segment(a, opts).await,
     }
 }
@@ -249,25 +249,21 @@ async fn run_link(args: &ControllerLinkArgs, opts: &ClientConfig) -> Result<()> 
             all,
         } => link_list_all(origin_node_id, target_node_id, *all, opts).await,
         ControllerLinkCommand::Add {
-            group_a,
-            group_b,
-            segment,
-        } => link_add(group_a, group_b, segment, opts).await,
+            domain_a,            domain_b,            segment,
+        } => link_add(domain_a, domain_b, segment, opts).await,
         ControllerLinkCommand::Remove {
-            group_a,
-            group_b,
-            segment,
-        } => link_remove(group_a, group_b, segment, opts).await,
+            domain_a,            domain_b,            segment,
+        } => link_remove(domain_a, domain_b, segment, opts).await,
     }
 }
 
-async fn run_group(args: &ControllerGroupArgs, opts: &ClientConfig) -> Result<()> {
+async fn run_domain(args: &ControllerDomainArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
-        ControllerGroupCommand::List => group_list(opts).await,
-        ControllerGroupCommand::Add { group_name, secret } => {
+        ControllerDomainCommand::List => group_list(opts).await,
+        ControllerDomainCommand::Add { group_name, secret } => {
             group_add(group_name, secret, opts).await
         }
-        ControllerGroupCommand::Remove { group_name } => group_remove(group_name, opts).await,
+        ControllerDomainCommand::Remove { group_name } => group_remove(group_name, opts).await,
     }
 }
 
@@ -317,7 +313,7 @@ async fn node_list(opts: &ClientConfig) -> Result<()> {
                 .unwrap_or("-");
             (
                 e.id.as_str(),
-                e.group.as_str(),
+                e.domain.as_str(),
                 status,
                 endpoint,
                 public_endpoint,
@@ -746,17 +742,17 @@ async fn segment_list(opts: &ClientConfig) -> Result<()> {
     let rows: Vec<_> = segments
         .iter()
         .map(|s| {
-            let groups = if s.groups.is_empty() {
+            let groups = if s.domains.is_empty() {
                 "-".to_string()
             } else {
-                s.groups.join(", ")
+                s.domains.join(", ")
             };
             let links: String = if s.edges.is_empty() {
                 "-".to_string()
             } else {
                 s.edges
                     .iter()
-                    .map(|e| format!("{}↔{}", e.group_a, e.group_b))
+                    .map(|e| format!("{}↔{}", e.domain_a, e.domain_b))
                     .collect::<Vec<_>>()
                     .join(", ")
             };
@@ -804,23 +800,23 @@ async fn segment_remove(name: &str, opts: &ClientConfig) -> Result<()> {
     Ok(())
 }
 
-async fn link_add(group_a: &str, group_b: &str, segment: &str, opts: &ClientConfig) -> Result<()> {
+async fn link_add(domain_a: &str, domain_b: &str, segment: &str, opts: &ClientConfig) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
     let resp = rpc!(
         client,
         add_topology_link,
         AddTopologyLinkRequest {
-            group_a: group_a.to_string(),
-            group_b: group_b.to_string(),
+            domain_a: domain_a.to_string(),
+            domain_b: domain_b.to_string(),
             segment: segment.to_string(),
         }
     );
     if segment == "default" {
-        println!("Link {}↔{} added", group_a, group_b);
+        println!("Link {}↔{} added", domain_a, domain_b);
     } else {
         println!(
             "Link {}↔{} added in segment '{}'",
-            group_a, group_b, segment
+            domain_a, domain_b, segment
         );
     }
     for warning in &resp.warnings {
@@ -830,8 +826,8 @@ async fn link_add(group_a: &str, group_b: &str, segment: &str, opts: &ClientConf
 }
 
 async fn link_remove(
-    group_a: &str,
-    group_b: &str,
+    domain_a: &str,
+    domain_b: &str,
     segment: &str,
     opts: &ClientConfig,
 ) -> Result<()> {
@@ -840,17 +836,17 @@ async fn link_remove(
         client,
         remove_topology_link,
         RemoveTopologyLinkRequest {
-            group_a: group_a.to_string(),
-            group_b: group_b.to_string(),
+            domain_a: domain_a.to_string(),
+            domain_b: domain_b.to_string(),
             segment: segment.to_string(),
         }
     );
     if segment == "default" {
-        println!("Link {}↔{} removed", group_a, group_b);
+        println!("Link {}↔{} removed", domain_a, domain_b);
     } else {
         println!(
             "Link {}↔{} removed from segment '{}'",
-            group_a, group_b, segment
+            domain_a, domain_b, segment
         );
     }
     Ok(())

@@ -373,8 +373,8 @@ async fn wait_for_nodes_connected(client: &mut NbClient, node_ids: &[&str], time
 
 async fn wait_for_link_between_groups(
     client: &mut NbClient,
-    group_a: &str,
-    group_b: &str,
+    domain_a: &str,
+    domain_b: &str,
     timeout: Duration,
 ) {
     let deadline = tokio::time::Instant::now() + timeout;
@@ -386,8 +386,8 @@ async fn wait_for_link_between_groups(
             }
             let src_group = l.source_node_id.split('/').next().unwrap_or("");
             let dst_group = l.dest_node_id.split('/').next().unwrap_or("");
-            (src_group == group_a && dst_group == group_b)
-                || (src_group == group_b && dst_group == group_a)
+            (src_group == domain_a && dst_group == domain_b)
+                || (src_group == domain_b && dst_group == domain_a)
         });
         if found {
             return;
@@ -403,7 +403,7 @@ async fn wait_for_link_between_groups(
                 })
                 .collect();
             panic!(
-                "timeout waiting for Applied link between groups {group_a} and {group_b}. Links: [{}]",
+                "timeout waiting for Applied link between groups {domain_a} and {domain_b}. Links: [{}]",
                 link_info.join(", ")
             );
         }
@@ -505,8 +505,8 @@ async fn wait_for_no_active_routes_with_name(
 /// Wait for an Applied link between two groups (in either direction) and return it.
 async fn wait_for_link_between_groups_entry(
     client: &mut NbClient,
-    group_a: &str,
-    group_b: &str,
+    domain_a: &str,
+    domain_b: &str,
     timeout: Duration,
 ) -> LinkEntry {
     let deadline = tokio::time::Instant::now() + timeout;
@@ -519,7 +519,7 @@ async fn wait_for_link_between_groups_entry(
             }
             let sg = l.source_node_id.split('/').next().unwrap_or("");
             let dg = l.dest_node_id.split('/').next().unwrap_or("");
-            (sg == group_a && dg == group_b) || (sg == group_b && dg == group_a)
+            (sg == domain_a && dg == domain_b) || (sg == domain_b && dg == domain_a)
         }) {
             return link.clone();
         }
@@ -534,7 +534,7 @@ async fn wait_for_link_between_groups_entry(
                 })
                 .collect();
             panic!(
-                "timeout waiting for link between {group_a} and {group_b}. Links: [{}]",
+                "timeout waiting for link between {domain_a} and {domain_b}. Links: [{}]",
                 link_info.join(", ")
             );
         }
@@ -1727,8 +1727,8 @@ async fn test_api_mode_topology_lifecycle() {
 
     let resp = client
         .add_topology_link(AddTopologyLinkRequest {
-            group_a: "domain-a".to_string(),
-            group_b: "domain-b".to_string(),
+            domain_a: "domain-a".to_string(),
+            domain_b: "domain-b".to_string(),
             segment: "test-seg".to_string(),
         })
         .await
@@ -1743,8 +1743,8 @@ async fn test_api_mode_topology_lifecycle() {
     // Verify idempotency: adding the same link again should succeed.
     client
         .add_topology_link(AddTopologyLinkRequest {
-            group_a: "domain-a".to_string(),
-            group_b: "domain-b".to_string(),
+            domain_a: "domain-a".to_string(),
+            domain_b: "domain-b".to_string(),
             segment: "test-seg".to_string(),
         })
         .await
@@ -1772,8 +1772,8 @@ async fn test_api_mode_topology_lifecycle() {
     // Remove link via API → routes through that link should be cleaned up.
     client
         .remove_topology_link(RemoveTopologyLinkRequest {
-            group_a: "domain-a".to_string(),
-            group_b: "domain-b".to_string(),
+            domain_a: "domain-a".to_string(),
+            domain_b: "domain-b".to_string(),
             segment: "test-seg".to_string(),
         })
         .await
@@ -1802,8 +1802,8 @@ async fn test_api_mode_topology_lifecycle() {
     // Re-add the link → route should be re-created via expand_all_wildcard_routes.
     client
         .add_topology_link(AddTopologyLinkRequest {
-            group_a: "domain-a".to_string(),
-            group_b: "domain-b".to_string(),
+            domain_a: "domain-a".to_string(),
+            domain_b: "domain-b".to_string(),
             segment: "test-seg".to_string(),
         })
         .await
@@ -1868,8 +1868,8 @@ async fn test_config_mode_rejects_topology_mutations() {
 
     let err = client
         .add_topology_link(AddTopologyLinkRequest {
-            group_a: "a".to_string(),
-            group_b: "b".to_string(),
+            domain_a: "a".to_string(),
+            domain_b: "b".to_string(),
             segment: "default".to_string(),
         })
         .await
@@ -2054,7 +2054,7 @@ async fn test_add_group_then_node_registers() {
     // Add the group via northbound API.
     client
         .add_group(AddGroupRequest {
-            domain_name: domain_name.to_string(),
+            group_name: domain_name.to_string(),
             secret: secret.to_string(),
         })
         .await
@@ -2110,7 +2110,7 @@ async fn test_remove_group_kicks_connected_node() {
     // Add group and connect a node.
     client
         .add_group(AddGroupRequest {
-            domain_name: domain_name.to_string(),
+            group_name: domain_name.to_string(),
             secret: secret.to_string(),
         })
         .await
@@ -2130,7 +2130,7 @@ async fn test_remove_group_kicks_connected_node() {
     // Remove the group.
     client
         .remove_group(RemoveGroupRequest {
-            domain_name: domain_name.to_string(),
+            group_name: domain_name.to_string(),
         })
         .await
         .expect("remove_group failed");
