@@ -3,10 +3,6 @@
 /// Remote subscription ACK received after link negotiation completes.
 pub const MSG_SUBSCRIPTION_REMOTE_ACK: &str = "subscription: remote ack received";
 
-/// Default subscription path when remote ACK is unavailable.
-pub const MSG_SUBSCRIPTION_DEFAULT_PATH: &str =
-    "subscription: remote ack not available, link negotiation may not have completed yet";
-
 /// sdk-mock auto-reply queued for an inbound message.
 pub const MSG_QUEUEING_REPLY: &str = "Queueing reply";
 
@@ -24,12 +20,6 @@ pub const MSG_SESSION_CLOSED: &str = "session closed";
 
 /// Test payload sent by client C in channel-manager tests.
 pub const MSG_TEST_CLIENT_C_MESSAGE: &str = "hey there, I am c!";
-
-/// Receiver app waiting for a session.
-pub const MSG_WAITING_INCOMING_SESSION: &str = "Waiting for incoming session";
-
-/// Sender app finished with all expected replies.
-pub const MSG_ALL_PARTICIPANTS_REPLIED: &str = "All participants replied correctly";
 
 /// Embedded controller gRPC server is listening.
 pub const MSG_CONTROLPLANE_SERVER_STARTED: &str = "started controlplane server";

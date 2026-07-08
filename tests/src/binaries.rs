@@ -131,24 +131,6 @@ pub fn slimctl_path() -> PathBuf {
     )
 }
 
-/// Path to the `sender-app` binary.
-pub fn sender_app_path() -> PathBuf {
-    resolve_binary(
-        "SENDER_APP_BINARY",
-        "sender-app",
-        binary_in_profile_dir(&workspace_root().join("target/debug"), "sender-app"),
-    )
-}
-
-/// Path to the `receiver-app` binary.
-pub fn receiver_app_path() -> PathBuf {
-    resolve_binary(
-        "RECEIVER_APP_BINARY",
-        "receiver-app",
-        binary_in_profile_dir(&workspace_root().join("target/debug"), "receiver-app"),
-    )
-}
-
 /// Path to the `slim-control-plane` binary.
 pub fn control_plane_path() -> PathBuf {
     resolve_binary(
@@ -156,54 +138,6 @@ pub fn control_plane_path() -> PathBuf {
         "slim-control-plane",
         binary_in_profile_dir(&workspace_root().join("target/debug"), "slim-control-plane"),
     )
-}
-
-fn legacy_dist_bin(name: &str) -> PathBuf {
-    abs_path(&workspace_root().join(".dist/bin").join(name))
-}
-
-/// Path to the legacy `slim` binary built from an older release branch.
-pub fn legacy_slim_path() -> PathBuf {
-    if let Ok(path) = std::env::var("SLIM_LEGACY_BINARY") {
-        let path = PathBuf::from(path);
-        if path.is_file() {
-            return abs_path(&path);
-        }
-    }
-    legacy_dist_bin("slim-legacy")
-}
-
-/// Path to the legacy `sdk-mock` binary built from an older release branch.
-pub fn legacy_sdk_mock_path() -> PathBuf {
-    if let Ok(path) = std::env::var("SDK_MOCK_LEGACY_BINARY") {
-        let path = PathBuf::from(path);
-        if path.is_file() {
-            return abs_path(&path);
-        }
-    }
-    legacy_dist_bin("sdk-mock-legacy")
-}
-
-/// Path to the legacy `sender-app` binary built from an older release branch.
-pub fn legacy_sender_app_path() -> PathBuf {
-    if let Ok(path) = std::env::var("SENDER_APP_LEGACY_BINARY") {
-        let path = PathBuf::from(path);
-        if path.is_file() {
-            return abs_path(&path);
-        }
-    }
-    legacy_dist_bin("sender-legacy")
-}
-
-/// Path to the legacy `receiver-app` binary built from an older release branch.
-pub fn legacy_receiver_app_path() -> PathBuf {
-    if let Ok(path) = std::env::var("RECEIVER_APP_LEGACY_BINARY") {
-        let path = PathBuf::from(path);
-        if path.is_file() {
-            return abs_path(&path);
-        }
-    }
-    legacy_dist_bin("receiver-legacy")
 }
 
 /// Return the path to the built `slim` binary, panicking with build instructions if missing.
@@ -247,66 +181,12 @@ pub fn require_slimctl_binary() -> PathBuf {
     )
 }
 
-/// Return the path to the built `sender-app` binary, panicking with build instructions if missing.
-pub fn require_sender_app_binary() -> PathBuf {
-    require_binary(
-        sender_app_path(),
-        "sender-app",
-        "cargo build --bin sender-app -p agntcy-slim-testing",
-    )
-}
-
-/// Return the path to the built `receiver-app` binary, panicking with build instructions if missing.
-pub fn require_receiver_app_binary() -> PathBuf {
-    require_binary(
-        receiver_app_path(),
-        "receiver-app",
-        "cargo build --bin receiver-app -p agntcy-slim-testing",
-    )
-}
-
 /// Return the path to the built `slim-control-plane` binary, panicking with build instructions if missing.
 pub fn require_control_plane_binary() -> PathBuf {
     require_binary(
         control_plane_path(),
         "slim-control-plane",
         "cargo build --bin slim-control-plane -p agntcy-slim-control-plane",
-    )
-}
-
-/// Return the path to the legacy `slim` binary, panicking with build instructions if missing.
-pub fn require_legacy_slim_binary() -> PathBuf {
-    require_binary(
-        legacy_slim_path(),
-        "slim-legacy",
-        "task -d tests tests:build-legacy-binaries",
-    )
-}
-
-/// Return the path to the legacy `sdk-mock` binary, panicking with build instructions if missing.
-pub fn require_legacy_sdk_mock_binary() -> PathBuf {
-    require_binary(
-        legacy_sdk_mock_path(),
-        "sdk-mock-legacy",
-        "task -d tests tests:build-legacy-binaries",
-    )
-}
-
-/// Return the path to the legacy `sender-app` binary, panicking with build instructions if missing.
-pub fn require_legacy_sender_app_binary() -> PathBuf {
-    require_binary(
-        legacy_sender_app_path(),
-        "sender-legacy",
-        "task -d tests tests:build-legacy-binaries",
-    )
-}
-
-/// Return the path to the legacy `receiver-app` binary, panicking with build instructions if missing.
-pub fn require_legacy_receiver_app_binary() -> PathBuf {
-    require_binary(
-        legacy_receiver_app_path(),
-        "receiver-legacy",
-        "task -d tests tests:build-legacy-binaries",
     )
 }
 

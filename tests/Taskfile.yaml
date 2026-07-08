@@ -16,56 +16,6 @@ tasks:
     cmds:
       - task -l
 
-  tests:build-legacy-binaries:
-    desc: "Build all legacy binaries (slim, receiver, sender, sdk-mock) for backward-compat testing"
-    dir: ".."
-    vars:
-      LEGACY_BRANCH: "v2-main"
-    status:
-      - test -f .dist/bin/slim-legacy
-      - test -f .dist/bin/receiver-legacy
-      - test -f .dist/bin/sender-legacy
-      - test -f .dist/bin/sdk-mock-legacy
-      # Verify the binaries are from the correct branch by checking a marker file
-      - test -f .dist/bin/.legacy-branch && grep -q "^{{.LEGACY_BRANCH}}$" .dist/bin/.legacy-branch
-    cmds:
-      - |
-        set -euo pipefail
-
-        LEGACY_BRANCH="{{.LEGACY_BRANCH}}"
-
-        # Ensure the legacy branch ref exists locally (CI checkout may be shallow).
-        if ! git rev-parse --verify "$LEGACY_BRANCH" >/dev/null 2>&1; then
-          echo "Fetching legacy branch ${LEGACY_BRANCH}..."
-          git fetch origin "refs/heads/${LEGACY_BRANCH}:refs/heads/${LEGACY_BRANCH}" || \
-          git fetch origin "${LEGACY_BRANCH}:refs/heads/${LEGACY_BRANCH}" || \
-          git fetch upstream "refs/heads/${LEGACY_BRANCH}:refs/heads/${LEGACY_BRANCH}" || \
-          git fetch upstream "${LEGACY_BRANCH}:refs/heads/${LEGACY_BRANCH}" || {
-            echo "Failed to fetch ${LEGACY_BRANCH} from origin or upstream."
-            exit 1
-          }
-        fi
-
-        WORKTREE=$(mktemp -d)
-        trap 'git worktree remove --force "$WORKTREE" 2>/dev/null || rm -rf "$WORKTREE"' EXIT
-        git worktree add "$WORKTREE" "$LEGACY_BRANCH"
-
-        # Build slim, sdk-mock, and the test apps
-        cargo build --manifest-path "$WORKTREE/data-plane/Cargo.toml" \
-          --config "$WORKTREE/data-plane/.cargo/config.toml" \
-          --bins \
-          -p agntcy-slim \
-          -p slim-examples \
-          --examples
-
-        mkdir -p .dist/bin
-        cp "$WORKTREE/data-plane/target/debug/slim" .dist/bin/slim-legacy
-        cp "$WORKTREE/data-plane/target/debug/sdk-mock" .dist/bin/sdk-mock-legacy
-        cp "$WORKTREE/data-plane/target/debug/examples/receiver" .dist/bin/receiver-legacy
-        cp "$WORKTREE/data-plane/target/debug/examples/sender" .dist/bin/sender-legacy
-
-        echo "$LEGACY_BRANCH" > .dist/bin/.legacy-branch
-
   tests:build-binaries:
     desc: "Build SLIM binaries required by integration tests"
     dir: ".."
@@ -75,8 +25,6 @@ tasks:
       - cargo build --bin client -p slim-examples
       - cargo build --bin channel-manager -p agntcy-slim-channel-manager
       - cargo build --bin slimctl -p agntcy-slimctl
-      - cargo build --bin sender-app -p agntcy-slim-testing
-      - cargo build --bin receiver-app -p agntcy-slim-testing
       - cargo build --bin slim-control-plane -p agntcy-slim-control-plane
 
   tests:integration:
@@ -86,17 +34,3 @@ tasks:
       - tests:build-binaries
     cmds:
       - cargo test -p slim-integration-tests -- --nocapture
-
-  tests:integration-legacy:
-    desc: "Run backward-compat integration tests (requires legacy binaries from v2-main)"
-    dir: "."
-    deps:
-      - tests:build-binaries
-      - tests:build-legacy-binaries
-    cmds:
-      - |
-        cargo test -p slim-integration-tests \
-          --test backward_compatibility \
-          --test link_negotiation \
-          --test subscription_ack \
-          -- --ignored --nocapture
