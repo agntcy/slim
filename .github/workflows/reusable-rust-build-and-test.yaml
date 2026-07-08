@@ -49,7 +49,7 @@ on:
         default: true
       rust-test-wasm-browser:
         description: Whether to run "task test:wasm:browser" (headless-browser WebSocket transport tests)
-        required: false\
+        required: false
         type: boolean
         default: true
       rust-cross-build:
@@ -294,7 +294,8 @@ jobs:
           done
 
           export WS_ECHO_SERVER_URL="ws://127.0.0.1:9001"
-          export CHROMEDRIVER="$(command -v chromedriver)"
+          CHROMEDRIVER="$(command -v chromedriver)"
+          export CHROMEDRIVER
           task "${TASK_PREFIX:+${TASK_PREFIX}:}test:wasm:browser"
 
   cross-build:
