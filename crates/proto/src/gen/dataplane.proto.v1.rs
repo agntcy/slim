@@ -173,7 +173,7 @@ pub struct ApplicationPayload {
 pub struct CommandPayload {
     #[prost(
         oneof = "command_payload::CommandPayloadType",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17"
     )]
     pub command_payload_type: ::core::option::Option<
         command_payload::CommandPayloadType,
@@ -211,6 +211,12 @@ pub mod command_payload {
         GroupNack(super::GroupNackPayload),
         #[prost(message, tag = "14")]
         Ping(super::PingPayload),
+        #[prost(message, tag = "15")]
+        UpdateParticipantState(super::UpdateParticipantStatePayload),
+        #[prost(message, tag = "16")]
+        RejoinRequest(super::RejoinRequestPayload),
+        #[prost(message, tag = "17")]
+        RejoinReply(super::RejoinReplyPayload),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -397,6 +403,32 @@ pub struct SubscriptionAck {
     #[prost(string, tag = "3")]
     pub error: ::prost::alloc::string::String,
 }
+/// message to send to set the state to online or offline
+/// the message is broadcasted to the channel and expects group_ack
+/// as reply by all the receivers
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct UpdateParticipantStatePayload {
+    #[prost(message, optional, tag = "1")]
+    pub participant: ::core::option::Option<Name>,
+    #[prost(enumeration = "ParticipantState", tag = "2")]
+    pub new_state: i32,
+}
+/// Message to send to the moderator to rejoin a session
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RejoinRequestPayload {
+    #[prost(message, optional, tag = "1")]
+    pub participant: ::core::option::Option<Name>,
+    #[prost(uint32, tag = "2")]
+    pub session_id: u32,
+    #[prost(uint32, tag = "3")]
+    pub mls_epoch: u32,
+}
+/// Message sent by the moderator as reply
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RejoinReplyPayload {
+    #[prost(bool, tag = "1")]
+    pub success: bool,
+}
 /// Link Negotiation
 /// Sent upon connection establishment to negotiate a common link identifier
 /// and exchange SLIM version information. Not routed; handled locally by
@@ -482,6 +514,9 @@ pub enum SessionMessageType {
     GroupAck = 16,
     GroupNack = 17,
     Ping = 18,
+    UpdateParticipantState = 19,
+    RejoinRequest = 20,
+    RejoinReply = 21,
 }
 impl SessionMessageType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -509,6 +544,11 @@ impl SessionMessageType {
             Self::GroupAck => "SESSION_MESSAGE_TYPE_GROUP_ACK",
             Self::GroupNack => "SESSION_MESSAGE_TYPE_GROUP_NACK",
             Self::Ping => "SESSION_MESSAGE_TYPE_PING",
+            Self::UpdateParticipantState => {
+                "SESSION_MESSAGE_TYPE_UPDATE_PARTICIPANT_STATE"
+            }
+            Self::RejoinRequest => "SESSION_MESSAGE_TYPE_REJOIN_REQUEST",
+            Self::RejoinReply => "SESSION_MESSAGE_TYPE_REJOIN_REPLY",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -533,6 +573,38 @@ impl SessionMessageType {
             "SESSION_MESSAGE_TYPE_GROUP_ACK" => Some(Self::GroupAck),
             "SESSION_MESSAGE_TYPE_GROUP_NACK" => Some(Self::GroupNack),
             "SESSION_MESSAGE_TYPE_PING" => Some(Self::Ping),
+            "SESSION_MESSAGE_TYPE_UPDATE_PARTICIPANT_STATE" => {
+                Some(Self::UpdateParticipantState)
+            }
+            "SESSION_MESSAGE_TYPE_REJOIN_REQUEST" => Some(Self::RejoinRequest),
+            "SESSION_MESSAGE_TYPE_REJOIN_REPLY" => Some(Self::RejoinReply),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ParticipantState {
+    OnLine = 0,
+    /// other states may be added here in the future
+    OffLine = 1,
+}
+impl ParticipantState {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::OnLine => "PARTICIPANT_STATE_ON_LINE",
+            Self::OffLine => "PARTICIPANT_STATE_OFF_LINE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "PARTICIPANT_STATE_ON_LINE" => Some(Self::OnLine),
+            "PARTICIPANT_STATE_OFF_LINE" => Some(Self::OffLine),
             _ => None,
         }
     }

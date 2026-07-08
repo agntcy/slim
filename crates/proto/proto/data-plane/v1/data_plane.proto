@@ -127,6 +127,9 @@ enum SessionMessageType {
   SESSION_MESSAGE_TYPE_GROUP_ACK = 16;
   SESSION_MESSAGE_TYPE_GROUP_NACK = 17;
   SESSION_MESSAGE_TYPE_PING = 18;
+  SESSION_MESSAGE_TYPE_UPDATE_PARTICIPANT_STATE = 19;
+  SESSION_MESSAGE_TYPE_REJOIN_REQUEST = 20;
+  SESSION_MESSAGE_TYPE_REJOIN_REPLY = 21;
 }
 
 // SLIM message content
@@ -158,6 +161,9 @@ message CommandPayload {
     GroupAckPayload group_ack = 12;
     GroupNackPayload group_nack = 13;
     PingPayload ping = 14;
+    UpdateParticipantStatePayload update_participant_state = 15;
+    RejoinRequestPayload rejoin_request = 16;
+    RejoinReplyPayload rejoin_reply = 17;
   }
 }
 
@@ -306,6 +312,33 @@ message SubscriptionAck {
   bool success = 2;
   // Non-empty only when success == false.
   string error = 3;
+}
+
+
+enum ParticipantState {
+  PARTICIPANT_STATE_ON_LINE = 0;
+  PARTICIPANT_STATE_OFF_LINE = 1;
+  // other states may be added here in the future
+}
+
+// message to send to set the state to online or offline
+// the message is broadcasted to the channel and expects group_ack
+// as reply by all the receivers
+message UpdateParticipantStatePayload {
+  Name participant = 1;
+  ParticipantState new_state = 2;
+}
+
+// Message to send to the moderator to rejoin a session
+message RejoinRequestPayload {
+  Name participant = 1;
+  uint32 session_id = 2;
+  uint32 mls_epoch = 3;
+}
+
+// Message sent by the moderator as reply
+message RejoinReplyPayload {
+  bool success = 1;
 }
 
 // Link Negotiation
