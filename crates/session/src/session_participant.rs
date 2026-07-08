@@ -125,7 +125,7 @@ where
                         source = %message.get_source(),
                         "received message",
                     );
-                    output.extend(self.process_control_message(message).await?);
+                    output.extend(self.process_control_message(direction, message).await?);
                 } else {
                     if direction == MessageDirection::North
                         && let Some(mls_state) = &mut self.mls_state
@@ -349,6 +349,7 @@ where
 
     async fn process_control_message(
         &mut self,
+        direction: MessageDirection,
         message: Message,
     ) -> Result<SessionOutput, SessionError> {
         match message.get_session_message_type() {
@@ -369,6 +370,59 @@ where
                 if self.common.processing_state == ProcessingState::Draining {
                     return self.common.sender.on_message(&message);
                 }
+                Ok(SessionOutput::new())
+            }
+            ProtoSessionMessageType::UpdateParticipantState => {
+                debug!(
+                    name = %self.common.settings.source,
+                    id = %message.get_id(),
+                    "received update participant state message",
+                );
+                match direction {
+                    MessageDirection::North => {
+                        // The message is coming from SLIM, some one in the group has changed its state
+                        // TODO: update the particioant list
+                        Ok(SessionOutput::new())
+                    }
+                    MessageDirection::South => {
+                        // The message is coming from the application. We need to send the message to the group
+                        // TODO: update message with the rigth destionation, create a task and send the message
+                        Ok(SessionOutput::new())
+                    }
+                }
+            }
+            ProtoSessionMessageType::RejoinRequest => {
+                debug!(
+                    name = %self.common.settings.source,
+                    id = %message.get_id(),
+                    "received rejoin request message",
+                );
+                // The message direction must be south as the message can only come from the application
+                if matches!(direction, MessageDirection::North) {
+                    debug!(
+                        message_type = ?message.get_session_message_type(),
+                        "Unexpected message coming from slim",
+                    );
+                    return Ok(SessionOutput::new());
+                }
+                // TODO: send the message to the moderator
+                Ok(SessionOutput::new())
+            }
+            ProtoSessionMessageType::RejoinReply => {
+                debug!(
+                    name = %self.common.settings.source,
+                    id = %message.get_id(),
+                    "received rejoin reply message",
+                );
+                // The message direction must be north as the message can only come from the moderator
+                if matches!(direction, MessageDirection::South) {
+                    debug!(
+                        message_type = ?message.get_session_message_type(),
+                        "Unexpected message coming from application",
+                    );
+                    return Ok(SessionOutput::new());
+                }
+                // TODO: set the state if needed
                 Ok(SessionOutput::new())
             }
             ProtoSessionMessageType::GroupProposal
@@ -1375,7 +1429,7 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = participant.process_control_message(discovery_msg).await;
+        let result: Result<SessionOutput, SessionError> = participant.process_control_message(MessageDirection::South, discovery_msg).await;
         assert!(result.is_ok()); // Should handle gracefully
     }
 

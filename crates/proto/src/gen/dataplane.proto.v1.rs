@@ -420,8 +420,8 @@ pub struct RejoinRequestPayload {
     pub participant: ::core::option::Option<Name>,
     #[prost(uint32, tag = "2")]
     pub session_id: u32,
-    #[prost(uint32, tag = "3")]
-    pub mls_epoch: u32,
+    #[prost(uint64, tag = "3")]
+    pub mls_epoch: u64,
 }
 /// Message sent by the moderator as reply
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]

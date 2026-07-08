@@ -22,17 +22,9 @@ use tokio::sync::oneshot;
 use tracing::debug;
 
 use crate::{
-    common::{MessageDirection, SessionMessage, SessionOutput},
-    errors::SessionError,
-    mls_state::{MlsModeratorState, MlsState},
-    moderator_task::{
+    Direction, common::{MessageDirection, SessionMessage, SessionOutput}, errors::SessionError, mls_state::{MlsModeratorState, MlsState}, moderator_task::{
         AddParticipant, ModeratorTask, NotifyParticipants, RemoveParticipant, TaskUpdate,
-    },
-    runtime::maybe_await,
-    session_controller::{SessionControllerCommon, sign_control_messages},
-    session_settings::SessionSettings,
-    subscription_manager::{SubscriptionManager, SubscriptionOps},
-    traits::{MessageHandler, ProcessingState},
+    }, runtime::maybe_await, session_controller::{SessionControllerCommon, sign_control_messages}, session_settings::SessionSettings, subscription_manager::{SubscriptionManager, SubscriptionOps}, traits::{MessageHandler, ProcessingState},
 };
 
 pub struct SessionModerator<P, V, I, M = SubscriptionManager>
@@ -141,7 +133,7 @@ where
                         source = %message.get_source(),
                         "received  message",
                     );
-                    output.extend(self.process_control_message(message, ack_tx).await?);
+                    output.extend(self.process_control_message(direction, message, ack_tx).await?);
                 } else {
                     if direction == MessageDirection::South
                         && self.common.settings.config.session_type
@@ -530,6 +522,7 @@ where
 
     async fn process_control_message(
         &mut self,
+        direction: MessageDirection,
         message: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<SessionOutput, SessionError> {
@@ -555,8 +548,56 @@ where
             ProtoSessionMessageType::LeaveReply => self.on_leave_reply(message).await,
             ProtoSessionMessageType::GroupAck => self.on_group_ack(message).await,
             ProtoSessionMessageType::Ping => self.common.sender.on_message(&message),
+            ProtoSessionMessageType::UpdateParticipantState => {
+                debug!(
+                    name = %self.common.settings.source,
+                    id = %message.get_id(),
+                    "received update participant state message",
+                );
+                match direction {
+                    MessageDirection::North => {
+                        // The message is coming from SLIM, some one in the group has changed its state
+                        // TODO: update the particioant list
+                        Ok(SessionOutput::new())
+                    }
+                    MessageDirection::South => {
+                        // The message is coming from the application. We need to send the message to the group
+                        // TODO: update message with the rigth destionation, create a task and send the message
+                        Ok(SessionOutput::new())
+                    }
+                }
+            }
+            ProtoSessionMessageType::RejoinRequest => {
+                debug!(
+                    name = %self.common.settings.source,
+                    id = %message.get_id(),
+                    "received rejoin request message",
+                );
+                // if the message is coming from the application, restore the moderator
+                // if the message is coming from slim check if the partcipant can rejoin
+                // TODO
+                Ok(SessionOutput::new())
+            }
+            ProtoSessionMessageType::RejoinReply => {
+                debug!(
+                    name = %self.common.settings.source,
+                    id = %message.get_id(),
+                    "received rejoin reply message",
+                );
+                // The message direction must be north as the message can only come from the network
+                // The moderator doesn't need to send the reply to itself
+                if matches!(direction, MessageDirection::South) {
+                    debug!(
+                        message_type = ?message.get_session_message_type(),
+                        "Unexpected message coming from application",
+                    );
+                    return Ok(SessionOutput::new());
+                }
+                // TODO
+                Ok(SessionOutput::new())
+            }
             ProtoSessionMessageType::GroupProposal => todo!(),
-            ProtoSessionMessageType::JoinRequest
+            ProtoSessionMessageType::JoinRequest   
             | ProtoSessionMessageType::GroupAdd
             | ProtoSessionMessageType::GroupRemove
             | ProtoSessionMessageType::GroupWelcome
@@ -1483,7 +1524,7 @@ mod tests {
             .unwrap();
         // JoinRequest is no longer handled by the moderator (moved to channel-manager).
         // It should return an error.
-        let result = moderator.process_control_message(join_msg, None).await;
+        let result = moderator.process_control_message(MessageDirection::South,join_msg, None).await;
         assert!(result.is_err());
     }
 
@@ -2122,7 +2163,7 @@ mod tests {
             .unwrap();
 
         // Must not panic; the stale ACK is discarded and Ok(()) is returned.
-        let result = moderator.process_control_message(group_ack, None).await;
+        let result = moderator.process_control_message(MessageDirection::South, group_ack, None).await;
         assert!(result.is_ok());
 
         // State is unchanged.

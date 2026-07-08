@@ -657,6 +657,9 @@ impl SessionMessageType {
                 | SessionMessageType::GroupAck
                 | SessionMessageType::GroupNack
                 | SessionMessageType::Ping
+                | SessionMessageType::UpdateParticipantState
+                | SessionMessageType::RejoinRequest
+                | SessionMessageType::RejoinReply
         )
     }
 
@@ -672,6 +675,9 @@ impl SessionMessageType {
                 | SessionMessageType::GroupAck
                 | SessionMessageType::GroupNack
                 | SessionMessageType::Ping
+                | SessionMessageType::UpdateParticipantState
+                | SessionMessageType::RejoinRequest
+                | SessionMessageType::RejoinReply
         )
     }
 }
@@ -1508,7 +1514,7 @@ impl CommandPayloadBuilder {
         self,
         participant: ProtoName,
         session_id: u32,
-        mls_epoch: u32,
+        mls_epoch: u64,
     ) -> CommandPayload {
         let payload = RejoinRequestPayload {
             participant: Some(participant),

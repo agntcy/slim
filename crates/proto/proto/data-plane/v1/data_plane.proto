@@ -333,7 +333,7 @@ message UpdateParticipantStatePayload {
 message RejoinRequestPayload {
   Name participant = 1;
   uint32 session_id = 2;
-  uint32 mls_epoch = 3;
+  uint64 mls_epoch = 3;
 }
 
 // Message sent by the moderator as reply

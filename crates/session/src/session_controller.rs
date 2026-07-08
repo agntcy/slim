@@ -16,7 +16,7 @@ use serde_json::Value;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, Content, NameId, ProtoMessage as Message, ProtoName,
+        CommandPayload, Content, NameId, ParticipantState, ProtoMessage as Message, ProtoName,
         ProtoSessionMessageType, ProtoSessionType, SlimHeader,
     },
     messages::utils::SlimHeaderFlags,
@@ -584,6 +584,56 @@ impl SessionController {
             .send(SessionMessage::MessageError { error })
             .await
             .map_err(|_e| SessionError::SessionControllerSendFailed)
+    }
+
+    /// Pause the session: notifies the group that this participant is going offline.
+    /// The returned CompletionHandle resolves when ACKs are collected.
+    /// After completion, the caller should persist the session state and close.
+    pub async fn pause(&self) -> Result<CompletionHandle, SessionError> {
+        let msg = Message::builder()
+            .source(self.source().clone())
+            .destination(self.dst().clone())// this needs to be updated with cotrol channel destination
+            .identity("")
+            .session_type(self.session_type())
+            .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
+            .session_id(self.id())
+            .message_id(rand::random::<u32>())
+            .payload(
+                CommandPayload::builder()
+                    .update_participant_state(
+                        self.source().clone(),
+                        ParticipantState::OffLine,
+                    )
+                    .as_content(),
+            )
+            .build_publish()?;
+        
+        self.publish_message(msg).await
+    }
+
+    /// Resume the session: sends a RejoinRequest to the moderator.
+    /// The MLS epoch is filled in by the session handler before sending.
+    /// The returned CompletionHandle resolves when the moderator replies.
+    pub async fn resume(&self) -> Result<CompletionHandle, SessionError> {
+        let msg = Message::builder()
+            .source(self.source().clone())
+            .destination(self.dst().clone().with_id(NameId::NULL_COMPONENT))
+            .identity("")
+            .session_type(self.session_type())
+            .session_message_type(ProtoSessionMessageType::RejoinRequest)
+            .session_id(self.id())
+            .message_id(rand::random::<u32>())
+            .payload(
+                CommandPayload::builder()
+                    .rejoin_request(
+                        self.source().clone(),
+                        self.id(),
+                        0, // filled by session handler before sending
+                    )
+                    .as_content(),
+            )
+            .build_publish()?;
+        self.publish_message(msg).await
     }
 
     pub fn close(&self) -> Result<tokio::task::JoinHandle<()>, SessionError> {
