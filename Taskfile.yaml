@@ -318,6 +318,20 @@ tasks:
     vars:
       ARGS: '{{.ARGS | default "--locked"}}'
 
+  test:wasm:browser:
+    desc: "Run the wasm32 WebSocket transport tests in a headless browser (needs a WS echo server via WS_ECHO_SERVER_URL and a browser driver, e.g. chromedriver)"
+    deps:
+      - task: install-target
+        vars:
+          TARGET: wasm32-unknown-unknown
+    env:
+      CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+    cmds:
+      - cargo test --target wasm32-unknown-unknown -p agntcy-slim-datapath --test wasm_websocket_test {{.ARGS}}
+      - cargo test --target wasm32-unknown-unknown -p agntcy-slim-config --test wasm_client_browser_test {{.ARGS}}
+    vars:
+      ARGS: '{{.ARGS | default "--locked"}}'
+
   test:coverage:
     desc: "Run tests coverage"
     deps:

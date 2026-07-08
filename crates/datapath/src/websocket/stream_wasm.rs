@@ -100,6 +100,13 @@ pub fn spawn_transport_tasks(
                 None => break,
             };
 
+            // No send-before-open race here: `WebSocket::open` returns while the
+            // socket is still `CONNECTING`, but `SinkExt::send` awaits
+            // `Sink::poll_ready` first, and `gloo_net`'s implementation returns
+            // `Poll::Pending` (parking on a waker fired by the JS `open`/`error`
+            // event) while `ready_state == CONNECTING`. So the first negotiation
+            // frame is held here until the socket is open — the JS `send()` in
+            // `start_send` never runs against a CONNECTING socket.
             let payload = msg.encode_to_vec();
             if let Err(err) = sink
                 .send(gloo_net::websocket::Message::Bytes(payload))

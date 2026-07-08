@@ -319,58 +319,16 @@ fn default_request_timeout() -> DurationString {
     Duration::from_secs(0).into()
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(not(target_arch = "wasm32"))] {
-        impl std::fmt::Display for ClientConfig {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(
-                    f,
-                    "ClientConfig {{ endpoint: {}, transport: {:?}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, backoff: {:?}, metadata: {:?}, link_id: {:?}, connection_type: {:?} }}",
-                    self.endpoint,
-                    self.resolved_transport(),
-                    self.origin,
-                    self.server_name,
-                    self.compression,
-                    self.rate_limit,
-                    self.tls_setting,
-                    self.keepalive,
-                    self.proxy,
-                    self.connect_timeout,
-                    self.request_timeout,
-                    self.buffer_size,
-                    self.headers,
-                    self.auth,
-                    self.backoff,
-                    self.metadata,
-                    self.link_id,
-                    self.connection_type
-                )
-            }
-        }
-    } else {
-        // Browser build: no auth/TLS/proxy/compression fields.
-        impl std::fmt::Display for ClientConfig {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(
-                    f,
-                    "ClientConfig {{ endpoint: {}, transport: {:?}, origin: {:?}, server_name: {:?}, rate_limit: {:?}, keepalive: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, link_id: {:?}, connection_type: {:?} }}",
-                    self.endpoint,
-                    self.resolved_transport(),
-                    self.origin,
-                    self.server_name,
-                    self.rate_limit,
-                    self.keepalive,
-                    self.connect_timeout,
-                    self.request_timeout,
-                    self.buffer_size,
-                    self.headers,
-                    self.link_id,
-                    self.connection_type
-                )
-            }
-        }
-    }
-}
+// `Display` prints the target's field set (the browser build has no
+// auth/TLS/proxy/compression fields), so each impl lives in its own file and is
+// selected here — file-split rather than an in-line `cfg_if!` so "what exists on
+// wasm" is answerable by `ls`.
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "client_display_native.rs"]
+mod client_display;
+#[cfg(target_arch = "wasm32")]
+#[path = "client_display_wasm.rs"]
+mod client_display;
 
 impl Configuration for ClientConfig {
     type Error = ConfigError;
@@ -389,6 +347,10 @@ impl Configuration for ClientConfig {
     }
 }
 
+// Transport-agnostic surface: the builder methods and helpers that exist on
+// every target. Native-only builders (TLS/auth/proxy/compression/backoff/
+// metadata) and the native `to_channel` live in the `#[cfg(not(wasm32))]` impl
+// below; the browser `to_channel` lives in the `#[cfg(wasm32)]` impl.
 impl ClientConfig {
     /// Creates a new client configuration with the given endpoint.
     /// This function will return a ClientConfig with the endpoint set
@@ -414,25 +376,9 @@ impl ClientConfig {
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn with_compression(self, compression: CompressionType) -> Self {
-        Self {
-            compression: Some(compression),
-            ..self
-        }
-    }
-
     pub fn with_rate_limit(self, rate_limit: &str) -> Self {
         Self {
             rate_limit: Some(rate_limit.to_string()),
-            ..self
-        }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn with_tls_setting(self, tls_setting: TLSSetting) -> Self {
-        Self {
-            tls_setting,
             ..self
         }
     }
@@ -442,11 +388,6 @@ impl ClientConfig {
             keepalive: Some(keepalive),
             ..self
         }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn with_proxy(self, proxy: ProxyConfig) -> Self {
-        Self { proxy, ..self }
     }
 
     pub fn with_connect_timeout(self, connect_timeout: Duration) -> Self {
@@ -474,14 +415,57 @@ impl ClientConfig {
         Self { headers, ..self }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_connection_type(self, connection_type: ConnType) -> Self {
+        Self {
+            connection_type,
+            ..self
+        }
+    }
+
+    /// Resolve the transport protocol for this configuration by inspecting
+    /// the endpoint URI scheme. See [`TransportProtocol::from_endpoint`].
+    pub fn resolved_transport(&self) -> TransportProtocol {
+        TransportProtocol::from_endpoint(&self.endpoint)
+    }
+}
+
+// Native surface. The browser build connects out over `wss://` (TLS handled by
+// the browser) without auth/TLS/proxy/compression/backoff layers, so these
+// builders, the shared connect-retry helper, and the gRPC-capable `to_channel`
+// only exist off wasm32.
+#[cfg(not(target_arch = "wasm32"))]
+impl ClientConfig {
+    pub fn with_compression(self, compression: CompressionType) -> Self {
+        Self {
+            compression: Some(compression),
+            ..self
+        }
+    }
+
+    pub fn with_tls_setting(self, tls_setting: TLSSetting) -> Self {
+        Self {
+            tls_setting,
+            ..self
+        }
+    }
+
+    pub fn with_proxy(self, proxy: ProxyConfig) -> Self {
+        Self { proxy, ..self }
+    }
+
     pub fn with_auth(self, auth: AuthenticationConfig) -> Self {
         Self { auth, ..self }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub fn with_backoff(self, backoff: BackoffConfig) -> Self {
         Self { backoff, ..self }
+    }
+
+    pub fn with_metadata(self, metadata: MetadataMap) -> Self {
+        Self {
+            metadata: Some(metadata),
+            ..self
+        }
     }
 
     /// Run a single connect attempt under this config's backoff/retry policy.
@@ -491,7 +475,6 @@ impl ClientConfig {
     /// same retryable-error classification ([`ConfigError::is_retryable_connect_error`]).
     /// Each transport-specific builder only needs to expose a one-shot attempt
     /// and call this helper.
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) async fn retry_connect<T, F, Fut>(&self, attempt: F) -> Result<T, ConfigError>
     where
         F: FnMut() -> Fut,
@@ -513,28 +496,12 @@ impl ClientConfig {
         .await
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn with_metadata(self, metadata: MetadataMap) -> Self {
-        Self {
-            metadata: Some(metadata),
-            ..self
-        }
-    }
-
-    pub fn with_connection_type(self, connection_type: ConnType) -> Self {
-        Self {
-            connection_type,
-            ..self
-        }
-    }
-
     /// Build a transport channel from this configuration. The returned
     /// [`TransportChannel`] variant matches `self.transport`.
     ///
     /// This is the single public entry point callers should use; the
     /// transport-specific builders (`to_grpc_channel` / `to_websocket_channel`)
     /// are crate-private.
-    #[cfg(not(target_arch = "wasm32"))]
     pub async fn to_channel(
         &self,
     ) -> Result<
@@ -561,12 +528,16 @@ impl ClientConfig {
             )),
         }
     }
+}
 
+// Browser surface: gRPC is unavailable on wasm, so only the WebSocket transport
+// is supported.
+#[cfg(target_arch = "wasm32")]
+impl ClientConfig {
     /// Build a transport channel (browser build). gRPC is unavailable on wasm,
     /// so only the WebSocket transport is supported; a `ws://`/`wss://` endpoint
     /// is required. The `Grpc` generic is filled with [`std::convert::Infallible`]
     /// so callers can still pattern-match the (uninhabited) gRPC arm.
-    #[cfg(target_arch = "wasm32")]
     pub async fn to_channel(
         &self,
     ) -> Result<TransportChannel<std::convert::Infallible>, ConfigError> {
@@ -576,12 +547,6 @@ impl ClientConfig {
             )),
             TransportProtocol::Grpc => Err(ConfigError::WebSocketClientUnsupportedTransport),
         }
-    }
-
-    /// Resolve the transport protocol for this configuration by inspecting
-    /// the endpoint URI scheme. See [`TransportProtocol::from_endpoint`].
-    pub fn resolved_transport(&self) -> TransportProtocol {
-        TransportProtocol::from_endpoint(&self.endpoint)
     }
 }
 
