@@ -153,17 +153,45 @@
 /* Collapse Home / Documentation / Community tabs on scroll; keep header row. */
 :root {
   --slim-tabs-row-height: 3rem;
+  --slim-tabs-collapse-duration: 0.22s;
 }
 
 .md-header .md-tabs {
-  height: var(--slim-tabs-row-height);
+  display: grid;
+  grid-template-rows: 1fr;
   overflow: hidden;
+  transition: grid-template-rows var(--slim-tabs-collapse-duration) ease;
+}
+
+.md-header .md-tabs > .md-grid {
+  min-height: 0;
+  overflow: hidden;
+  opacity: 1;
+  width: 100%;
+  max-width: 80%;
+  margin-inline: auto;
+  transition: opacity var(--slim-tabs-collapse-duration) ease;
 }
 
 html.slim-tabs-collapsed .md-header .md-tabs {
-  height: 0;
-  visibility: hidden;
+  grid-template-rows: 0fr;
   pointer-events: none;
+}
+
+html.slim-tabs-collapsed .md-header .md-tabs > .md-grid {
+  opacity: 0;
+}
+
+.md-header--lifted ~ .md-container .md-sidebar {
+  transition: top var(--slim-tabs-collapse-duration) ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-header .md-tabs,
+  .md-header .md-tabs > .md-grid,
+  .md-header--lifted ~ .md-container .md-sidebar {
+    transition: none;
+  }
 }
 
 html.slim-tabs-collapsed .md-header--lifted ~ .md-container .md-sidebar {
