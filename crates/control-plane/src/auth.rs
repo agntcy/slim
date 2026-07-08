@@ -93,7 +93,7 @@ impl DomainAuthenticator {
                         Status::permission_denied(format!("token verification failed: {e}"))
                     })?;
 
-                // The "sub" field contains "domain/node-id" or "group/node-id_RANDOM_SUFFIX".
+                // The "sub" field contains "domain/node-id" or "domain/node-id_RANDOM_SUFFIX".
                 // Use exact match or "_" separator to prevent prefix impersonation
                 // (e.g., node-10 impersonating node-1).
                 let sub = claims.get("sub").and_then(|v| v.as_str()).unwrap_or("");

@@ -554,37 +554,37 @@ impl ControlPlaneService for NorthboundApiService {
         &self,
         _request: Request<ListGroupsRequest>,
     ) -> Result<Response<ListGroupsResponse>, Status> {
-        // Start with groups from the live authenticator (covers both config and API mode).
-        let mut groups: std::collections::BTreeMap<String, Vec<String>> =
+        // Start with domains from the live authenticator (covers both config and API mode).
+        let mut domains: std::collections::BTreeMap<String, Vec<String>> =
             std::collections::BTreeMap::new();
-        for g in self.authenticator.configured_domains() {
-            groups.entry(g).or_default();
+        for d in self.authenticator.configured_domains() {
+            domains.entry(d).or_default();
         }
 
-        // Also include groups from DB secrets (API mode — may have groups not yet
+        // Also include domains from DB secrets (API mode — may have domains not yet
         // loaded into the authenticator on error, or for consistency).
-        let auth_groups = self
+        let db_domains = self
             .db
-            .list_registration_secret_groups()
+            .list_registration_secret_domains()
             .await
-            .map_err(|e| Status::internal(format!("failed to list groups: {e}")))?;
-        for g in auth_groups {
-            groups.entry(g).or_default();
+            .map_err(|e| Status::internal(format!("failed to list domains: {e}")))?;
+        for d in db_domains {
+            domains.entry(d).or_default();
         }
 
-        // Add connected nodes grouped by group_name.
+        // Add connected nodes grouped by domain_name.
         let nodes = self
             .db
             .list_nodes()
             .await
             .map_err(|e| Status::internal(format!("failed to list nodes: {e}")))?;
         for node in nodes {
-            if let Some(group_name) = node.domain_name {
-                groups.entry(group_name).or_default().push(node.id);
+            if let Some(domain_name) = node.domain_name {
+                domains.entry(domain_name).or_default().push(node.id);
             }
         }
 
-        let entries = groups
+        let entries = domains
             .into_iter()
             .map(|(group_name, nodes)| GroupEntry { group_name, nodes })
             .collect();
@@ -663,13 +663,13 @@ impl ControlPlaneService for NorthboundApiService {
             .list_nodes()
             .await
             .map_err(|e| Status::internal(format!("failed to list nodes: {e}")))?;
-        let group_nodes: Vec<_> = nodes
+        let domain_nodes: Vec<_> = nodes
             .iter()
             .filter(|n| n.domain_name.as_deref() == Some(&req.group_name))
             .collect();
 
         // Disconnect and deregister each existing node in the group.
-        for node in &group_nodes {
+        for node in &domain_nodes {
             self.cmd_handler.force_remove_stream(&node.id).await;
             self.route_service.node_deregistered(&node.id).await;
         }
@@ -677,7 +677,7 @@ impl ControlPlaneService for NorthboundApiService {
         tracing::info!(
             "remove_group: removed group '{}' ({} node(s) disconnected)",
             req.group_name,
-            group_nodes.len()
+            domain_nodes.len()
         );
         Ok(Response::new(RemoveGroupResponse {}))
     }
@@ -811,7 +811,7 @@ mod tests {
                 secret: "secret-0123456789abcdefghijk".to_string(),
             }))
             .await
-            .expect_err("should reject empty group name");
+            .expect_err("should reject empty group_name");
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
         assert!(err.message().contains("group_name"));
     }
@@ -837,20 +837,20 @@ mod tests {
 
         // Add the group.
         svc.add_group(Request::new(AddGroupRequest {
-            group_name: "new-group".to_string(),
+            group_name: "new-domain".to_string(),
             secret: secret.to_string(),
         }))
         .await
         .expect("add_group should succeed");
 
         // Verify it persisted in DB.
-        let groups = svc.db.list_registration_secret_groups().await.unwrap();
-        assert!(groups.contains(&"new-group".to_string()));
+        let domains = svc.db.list_registration_secret_domains().await.unwrap();
+        assert!(domains.contains(&"new-domain".to_string()));
 
         // Verify the verifier was added (the authenticator can verify for this group).
         assert!(svc.authenticator.is_shared_secret());
         if let DomainAuthenticator::SharedSecret { verifiers } = &svc.authenticator {
-            assert!(verifiers.read().contains_key("new-group"));
+            assert!(verifiers.read().contains_key("new-domain"));
         }
     }
 
@@ -883,7 +883,7 @@ mod tests {
 
         // Register a node in the group via the DB directly.
         let node = crate::db::Node {
-            id: "my-group/node-1".to_string(),
+            id: "my-domain/node-1".to_string(),
             domain_name: Some("my-domain".to_string()),
             conn_details: vec![],
             created_at: SystemTime::now(),
@@ -893,16 +893,16 @@ mod tests {
 
         // Add a secret so remove_group can clean up the verifier.
         svc.db
-            .upsert_registration_secret("my-group", "secret-0123456789abcdefghijklmnopqrstuv")
+            .upsert_registration_secret("my-domain", "secret-0123456789abcdefghijklmnopqrstuv")
             .await
             .unwrap();
         svc.authenticator
-            .add_verifier("my-group", "secret-0123456789abcdefghijklmnopqrstuv")
+            .add_verifier("my-domain", "secret-0123456789abcdefghijklmnopqrstuv")
             .unwrap();
 
         // Remove the group.
         svc.remove_group(Request::new(RemoveGroupRequest {
-            group_name: "my-group".to_string(),
+            group_name: "my-domain".to_string(),
         }))
         .await
         .expect("remove_group should succeed");
@@ -910,18 +910,18 @@ mod tests {
         // Node should be deregistered (removed from DB).
         let nodes = svc.db.list_nodes().await.unwrap();
         assert!(
-            !nodes.iter().any(|n| n.id == "my-group/node-1"),
+            !nodes.iter().any(|n| n.id == "my-domain/node-1"),
             "node should have been deregistered"
         );
 
         // Verifier should be removed.
         if let DomainAuthenticator::SharedSecret { verifiers } = &svc.authenticator {
-            assert!(!verifiers.read().contains_key("my-group"));
+            assert!(!verifiers.read().contains_key("my-domain"));
         }
 
         // Secret should be removed from DB.
-        let groups = svc.db.list_registration_secret_groups().await.unwrap();
-        assert!(!groups.contains(&"my-group".to_string()));
+        let domains = svc.db.list_registration_secret_domains().await.unwrap();
+        assert!(!domains.contains(&"my-domain".to_string()));
     }
 
     #[tokio::test]
@@ -930,17 +930,17 @@ mod tests {
 
         // Add a group secret (no nodes connected yet).
         svc.db
-            .upsert_registration_secret("empty-group", "secret-0123456789abcdefgh")
+            .upsert_registration_secret("empty-domain", "secret-0123456789abcdefgh")
             .await
             .unwrap();
 
         // Add a node belonging to a different group (that also has a secret).
         svc.db
-            .upsert_registration_secret("active-group", "secret-0123456789xyzxyzxyz")
+            .upsert_registration_secret("active-domain", "secret-0123456789xyzxyzxyz")
             .await
             .unwrap();
         let node = crate::db::Node {
-            id: "active-group/node-a".to_string(),
+            id: "active-domain/node-a".to_string(),
             domain_name: Some("active-domain".to_string()),
             conn_details: vec![],
             created_at: SystemTime::now(),
@@ -961,16 +961,16 @@ mod tests {
         let empty = resp
             .groups
             .iter()
-            .find(|g| g.group_name == "empty-group")
+            .find(|g| g.group_name == "empty-domain")
             .unwrap();
-        assert!(empty.nodes.is_empty(), "empty-group should have no nodes");
+        assert!(empty.nodes.is_empty(), "empty-domain should have no nodes");
 
         let active = resp
             .groups
             .iter()
-            .find(|g| g.group_name == "active-group")
+            .find(|g| g.group_name == "active-domain")
             .unwrap();
-        assert_eq!(active.nodes, vec!["active-group/node-a"]);
+        assert_eq!(active.nodes, vec!["active-domain/node-a"]);
     }
 
     #[tokio::test]

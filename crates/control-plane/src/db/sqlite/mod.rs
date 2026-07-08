@@ -1239,9 +1239,9 @@ impl DataAccess for SqliteDb {
 
     // ── Registration Secrets ───────────────────────────────────────────────
 
-    async fn list_registration_secret_groups(&self) -> Result<Vec<String>> {
+    async fn list_registration_secret_domains(&self) -> Result<Vec<String>> {
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
-            context: "list_registration_secret_groups pool",
+            context: "list_registration_secret_domains pool",
             msg: e.to_string(),
         })?;
         registration_secrets::table
@@ -1249,18 +1249,18 @@ impl DataAccess for SqliteDb {
             .load::<String>(&mut conn)
             .await
             .map_err(|e| Error::DbError {
-                context: "list_registration_secret_groups",
+                context: "list_registration_secret_domains",
                 msg: e.to_string(),
             })
     }
 
-    async fn get_registration_secret(&self, group_name: &str) -> Result<Option<String>> {
+    async fn get_registration_secret(&self, domain_name: &str) -> Result<Option<String>> {
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
             context: "get_registration_secret pool",
             msg: e.to_string(),
         })?;
         registration_secrets::table
-            .find(group_name)
+            .find(domain_name)
             .select(registration_secrets::secret)
             .first::<String>(&mut conn)
             .await
@@ -1271,7 +1271,7 @@ impl DataAccess for SqliteDb {
             })
     }
 
-    async fn upsert_registration_secret(&self, group_name: &str, secret: &str) -> Result<()> {
+    async fn upsert_registration_secret(&self, domain_name: &str, secret: &str) -> Result<()> {
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
             context: "upsert_registration_secret pool",
             msg: e.to_string(),
@@ -1282,7 +1282,7 @@ impl DataAccess for SqliteDb {
             .as_secs() as i64;
         diesel::insert_into(registration_secrets::table)
             .values((
-                registration_secrets::group_name.eq(group_name),
+                registration_secrets::group_name.eq(domain_name),
                 registration_secrets::secret.eq(secret),
                 registration_secrets::created_at.eq(now),
             ))
@@ -1298,12 +1298,12 @@ impl DataAccess for SqliteDb {
         Ok(())
     }
 
-    async fn delete_registration_secret(&self, group_name: &str) -> Result<()> {
+    async fn delete_registration_secret(&self, domain_name: &str) -> Result<()> {
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
             context: "delete_registration_secret pool",
             msg: e.to_string(),
         })?;
-        diesel::delete(registration_secrets::table.find(group_name))
+        diesel::delete(registration_secrets::table.find(domain_name))
             .execute(&mut conn)
             .await
             .map_err(|e| Error::DbError {

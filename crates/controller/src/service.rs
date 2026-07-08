@@ -58,7 +58,7 @@ use slim_auth::traits::TokenProvider;
 pub struct ControlPlaneSettings {
     /// Node ID of this SLIM instance
     pub id: String,
-    /// Optional group name
+    /// Optional domain name
     pub domain_name: Option<String>,
     /// Server configurations
     pub servers: Vec<ServerConfig>,
@@ -81,7 +81,7 @@ struct ControllerServiceInternal {
     /// Node ID of this SLIM instance
     id: String,
 
-    /// optional group name
+    /// optional domain name
     domain_name: Option<String>,
 
     /// underlying message processor
@@ -629,7 +629,7 @@ impl ControllerService {
             .message_processor
             .connection_table()
             .for_each(|_id, conn| {
-                // Only manage Remote connections (CP-managed inter-group links).
+                // Only manage Remote connections (CP-managed inter-domain links).
                 // Peer connections are managed by the peer sync system and must not
                 // be deleted by the reconciler.
                 if conn.is_outgoing()

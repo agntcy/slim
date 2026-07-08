@@ -946,23 +946,23 @@ impl DataAccess for InMemoryDb {
 
     // ── Registration Secrets ───────────────────────────────────────────────
 
-    async fn list_registration_secret_groups(&self) -> Result<Vec<String>> {
+    async fn list_registration_secret_domains(&self) -> Result<Vec<String>> {
         Ok(self.registration_secrets.read().keys().cloned().collect())
     }
 
-    async fn get_registration_secret(&self, group_name: &str) -> Result<Option<String>> {
-        Ok(self.registration_secrets.read().get(group_name).cloned())
+    async fn get_registration_secret(&self, domain_name: &str) -> Result<Option<String>> {
+        Ok(self.registration_secrets.read().get(domain_name).cloned())
     }
 
-    async fn upsert_registration_secret(&self, group_name: &str, secret: &str) -> Result<()> {
+    async fn upsert_registration_secret(&self, domain_name: &str, secret: &str) -> Result<()> {
         self.registration_secrets
             .write()
-            .insert(group_name.to_string(), secret.to_string());
+            .insert(domain_name.to_string(), secret.to_string());
         Ok(())
     }
 
-    async fn delete_registration_secret(&self, group_name: &str) -> Result<()> {
-        self.registration_secrets.write().remove(group_name);
+    async fn delete_registration_secret(&self, domain_name: &str) -> Result<()> {
+        self.registration_secrets.write().remove(domain_name);
         Ok(())
     }
 

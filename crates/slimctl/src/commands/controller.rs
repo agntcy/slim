@@ -34,9 +34,9 @@ pub enum ControllerCommand {
     Route(ControllerRouteArgs),
     /// List links from the controller DB
     Link(ControllerLinkArgs),
-    /// List groups and their nodes
+    /// List domains and their nodes
     Domain(ControllerDomainArgs),
-    /// List segments (routing domains) and their groups
+    /// List segments (routing domains) and their member domains
     Segment(ControllerSegmentArgs),
 }
 
@@ -125,22 +125,22 @@ pub enum ControllerLinkCommand {
         #[arg(short = 'a', long, default_value_t = false)]
         all: bool,
     },
-    /// Add a topology link between two groups (API-managed mode only)
+    /// Add a topology link between two domains (API-managed mode only)
     Add {
-        /// First group name
+        /// First domain name
         domain_a: String,
-        /// Second group name
+        /// Second domain name
         domain_b: String,
         /// Segment name (defaults to "default")
         #[arg(short, long, default_value = "default")]
         segment: String,
     },
-    /// Remove a topology link between two groups (API-managed mode only)
+    /// Remove a topology link between two domains (API-managed mode only)
     #[command(visible_alias = "rm")]
     Remove {
-        /// First group name
+        /// First domain name
         domain_a: String,
-        /// Second group name
+        /// Second domain name
         domain_b: String,
         /// Segment name (defaults to "default")
         #[arg(short, long, default_value = "default")]
@@ -158,7 +158,7 @@ pub struct ControllerDomainArgs {
 
 #[derive(Subcommand)]
 pub enum ControllerDomainCommand {
-    /// List all groups and their nodes
+    /// List all domains and their nodes
     #[command(visible_alias = "ls")]
     List,
     /// Add a registration auth group with a shared secret (API-managed mode only)
@@ -186,7 +186,7 @@ pub struct ControllerSegmentArgs {
 
 #[derive(Subcommand)]
 pub enum ControllerSegmentCommand {
-    /// List all segments (routing domains) and their groups
+    /// List all segments (routing domains) and their domains
     #[command(visible_alias = "ls")]
     List,
     /// Add a new segment (API-managed mode only)
@@ -290,7 +290,7 @@ async fn node_list(opts: &ClientConfig) -> Result<()> {
     }
 
     // Compute column widths
-    let headers = ["NODE_ID", "GROUP", "STATUS", "ENDPOINT", "PUBLIC_ENDPOINT"];
+    let headers = ["NODE_ID", "DOMAIN", "STATUS", "ENDPOINT", "PUBLIC_ENDPOINT"];
     let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
 
     let rows: Vec<_> = entries
@@ -321,9 +321,9 @@ async fn node_list(opts: &ClientConfig) -> Result<()> {
         })
         .collect();
 
-    for (id, group, status, ep, pub_ep) in &rows {
+    for (id, domain, status, ep, pub_ep) in &rows {
         widths[0] = widths[0].max(id.len());
-        widths[1] = widths[1].max(group.len());
+        widths[1] = widths[1].max(domain.len());
         widths[2] = widths[2].max(status.len());
         widths[3] = widths[3].max(ep.len());
         widths[4] = widths[4].max(pub_ep.len());
@@ -333,8 +333,8 @@ async fn node_list(opts: &ClientConfig) -> Result<()> {
     print_table_header(&headers, &widths);
 
     // Print rows
-    for (id, group, status, ep, pub_ep) in &rows {
-        print_row(&[*id, *group, *status, *ep, *pub_ep], &widths);
+    for (id, domain, status, ep, pub_ep) in &rows {
+        print_row(&[*id, *domain, *status, *ep, *pub_ep], &widths);
     }
     Ok(())
 }

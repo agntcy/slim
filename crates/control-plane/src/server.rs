@@ -60,7 +60,7 @@ impl ControlPlane {
                 .context("failed to load topology from DB")?;
         }
 
-        // Build group authenticator from config (Noop when no auth configured).
+        // Build domain authenticator from config (Noop when no auth configured).
         let authenticator = match cfg.topology.auth {
             None => DomainAuthenticator::Noop,
             Some(auth_cfg) => Self::build_authenticator(auth_cfg, is_api_managed).await?,
@@ -68,20 +68,20 @@ impl ControlPlane {
 
         // In API mode, restore DB-persisted secrets into the live authenticator.
         if is_api_managed && authenticator.is_shared_secret() {
-            let groups = db.list_registration_secret_groups().await?;
+            let domains = db.list_registration_secret_domains().await?;
             let mut restored = 0;
-            for group in &groups {
-                let secret = match db.get_registration_secret(group).await? {
+            for domain in &domains {
+                let secret = match db.get_registration_secret(domain).await? {
                     Some(s) => s,
                     None => {
                         tracing::warn!(
-                            "skipping group '{group}': listed but secret missing from DB"
+                            "skipping domain '{domain}': listed but secret missing from DB"
                         );
                         continue;
                     }
                 };
-                if let Err(e) = authenticator.add_verifier(group, &secret) {
-                    tracing::warn!("skipping group '{group}': failed to build verifier: {e}");
+                if let Err(e) = authenticator.add_verifier(domain, &secret) {
+                    tracing::warn!("skipping domain '{domain}': failed to build verifier: {e}");
                     continue;
                 }
                 restored += 1;
@@ -162,13 +162,13 @@ impl ControlPlane {
                     let (_, verifier_cfg) = auth_config.to_identity_configs(&domain_name);
                     let verifier = verifier_cfg.build_auth_verifier().map_err(|e| {
                         anyhow::anyhow!(
-                            "failed to build auth verifier for group '{domain_name}': {e}"
+                            "failed to build auth verifier for domain '{domain_name}': {e}"
                         )
                     })?;
                     verifiers.insert(domain_name, verifier);
                 }
                 tracing::info!(
-                    "registration auth: shared_secret for {} group(s)",
+                    "registration auth: shared_secret for {} domain(s)",
                     verifiers.len()
                 );
                 let shared: SharedVerifiers =

@@ -59,8 +59,8 @@ The CP is responsible only for **inter-domain** connectivity:
 creating links between domains and expanding routes across domain boundaries.
 
 Within a domain, one node is randomly selected as the **gateway** — the node
-that holds the inter-domain link and forwards traffic between its group and
-other domains. Gateway selection is randomized to distribute load across group
+that holds the inter-domain link and forwards traffic between its domain and
+other domains. Gateway selection is randomized to distribute load across domain
 members. If the gateway crashes, the CP reassigns the link to a randomly
 chosen sibling node in the same domain (see [Gateway Failover](#gateway-failover)).
 
@@ -137,7 +137,7 @@ topology:
       neighbors: [domain-b]
     - domain: domain-b
       neighbors: [domain-c]
-    - domain: group-c
+    - domain: domain-c
       neighbors: [domain-d]
 ```
 
@@ -153,7 +153,7 @@ segments — routes are only expanded within the segment's topology graph.
 
 Each segment has its own `links` adjacency list. The special token
 `$domain` is a **template variable** that causes the segment definition
-to be **instantiated once per registered group**. For each domain, `$domain`
+to be **instantiated once per registered domain**. For each domain, `$domain`
 is replaced with that domain's name — it does not expand to a list of
 all domains simultaneously.
 
@@ -170,7 +170,7 @@ topology:
 
 Because `$domain` is a template, this produces one segment per domain
 (e.g. `segment-customer-a`, `segment-customer-b`). In each generated
-segment the `cloud` domain links only to that single customer group.
+segment the `cloud` domain links only to that single customer domain.
 Agents in `customer-a` can communicate with agents in `cloud`
 and vice versa, but `customer-a` cannot see `customer-b`.
 
@@ -309,7 +309,7 @@ the stream, the route service performs several operations:
 ### Registration Authentication
 
 The CP can optionally verify that a node is authorized to join its claimed
-group. This prevents rogue nodes from declaring arbitrary domain membership.
+domain. This prevents rogue nodes from declaring arbitrary domain membership.
 
 **How it works:**
 
@@ -319,7 +319,7 @@ group. This prevents rogue nodes from declaring arbitrary domain membership.
 3. The CP's `GroupAuthenticator` verifies the credentials before allowing
    registration:
    - `Noop` (default): accepts all nodes (backward compatible)
-   - `SharedSecret`: per-group HMAC verification — each domain has its own
+   - `SharedSecret`: per-domain HMAC verification — each domain has its own
      secret, and the token's identity must match `{domain_name}/{node_id}`
    - `Spire`: validates the JWT SVID signature via trust bundles and asserts
      the trust domain in the SPIFFE ID equals the claimed `domain_name`
@@ -486,7 +486,7 @@ join the existing tree rather than creating new ones.
 **Expansion logic:**
 
 - **First announcer** (no existing wildcard for this name): computes the SPT
-  rooted at the announcer's domain. For each non-root group in the tree,
+  rooted at the announcer's domain. For each non-root domain in the tree,
   installs an *upward* route on that domain's gateway node pointing toward
   the parent domain (toward root).
 - **Subsequent announcers** (wildcard already exists for this name): walks
@@ -756,7 +756,7 @@ reconciler:
   #     cluster-a: "secret-for-cluster-a-min-32-bytes-long"
   #     cluster-b: "secret-for-cluster-b-min-32-bytes-long"
   #
-  # SPIRE example (trust domain = group name):
+  # SPIRE example (trust domain = domain name):
   # registration_auth:
   #   type: spire
   #   socket_path: "/run/spire/agent-sockets/api.sock"

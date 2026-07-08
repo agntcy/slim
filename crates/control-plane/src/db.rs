@@ -164,14 +164,14 @@ pub trait DataAccess: Send + Sync {
 
     // ── Registration Secrets ───────────────────────────────────────────────
 
-    /// List all group names that have a stored registration secret.
-    async fn list_registration_secret_groups(&self) -> Result<Vec<String>>;
-    /// Get the secret for a specific group, if stored.
-    async fn get_registration_secret(&self, group_name: &str) -> Result<Option<String>>;
-    /// Upsert a registration secret for a group.
-    async fn upsert_registration_secret(&self, group_name: &str, secret: &str) -> Result<()>;
-    /// Delete the registration secret for a group.
-    async fn delete_registration_secret(&self, group_name: &str) -> Result<()>;
+    /// List all domain names that have a stored registration secret.
+    async fn list_registration_secret_domains(&self) -> Result<Vec<String>>;
+    /// Get the secret for a specific domain, if stored.
+    async fn get_registration_secret(&self, domain_name: &str) -> Result<Option<String>>;
+    /// Upsert a registration secret for a domain.
+    async fn upsert_registration_secret(&self, domain_name: &str, secret: &str) -> Result<()>;
+    /// Delete the registration secret for a domain.
+    async fn delete_registration_secret(&self, domain_name: &str) -> Result<()>;
     /// Delete all registration secrets.
     async fn delete_all_registration_secrets(&self) -> Result<()>;
 }

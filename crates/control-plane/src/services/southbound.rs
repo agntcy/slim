@@ -161,7 +161,7 @@ async fn receive_register(
         }
     };
 
-    // Verify group membership before proceeding with registration.
+    // Verify domain membership before proceeding with registration.
     let claimed_domain = reg_req.domain_name.as_deref().unwrap_or("");
     if claimed_domain.is_empty() && !matches!(authenticator, DomainAuthenticator::Noop) {
         return Err(Error::InvalidInput(format!(

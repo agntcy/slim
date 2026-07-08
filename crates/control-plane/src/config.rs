@@ -120,7 +120,7 @@ impl Default for ReconcilerConfig {
 /// - Both → deserialization error
 ///
 /// The optional `registration_auth` field configures registration authentication.
-/// In API mode, shared secret groups are managed via gRPC (persisted in DB).
+/// In API mode, shared secret domains are managed via gRPC (persisted in DB).
 /// In config mode, secrets come from the file and CRUD APIs are rejected.
 ///
 /// # Examples
@@ -212,7 +212,7 @@ pub enum TopologyConfig {
 ///
 /// The `name` and link entries can use `$domain` as a template variable.
 /// When present, the segment is expanded at runtime into one concrete
-/// segment per registered group (excluding groups already named explicitly).
+/// segment per registered domain (excluding domains already named explicitly).
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct SegmentConfig {
     /// Segment name. May contain `$domain` for template expansion.
@@ -221,13 +221,13 @@ pub struct SegmentConfig {
     pub links: Vec<AdjacencyEntry>,
 }
 
-/// An adjacency list entry: nodes in the specified `group` connect to nodes
-/// in any of the groups listed in `neighbors`. Links are bidirectional.
+/// An adjacency list entry: nodes in the specified `domain` connect to nodes
+/// in any of the domains listed in `neighbors`. Links are bidirectional.
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct AdjacencyEntry {
-    /// Source group name (or `"*"` to match any group, or `$domain` for template expansion).
+    /// Source domain name (or `"*"` to match any domain, or `$domain` for template expansion).
     pub domain: String,
-    /// Groups this group connects to. `"*"` matches any, `$domain` for template.
+    /// Domains this domain connects to. `"*"` matches any, `$domain` for template.
     pub neighbors: Vec<String>,
 }
 
@@ -387,7 +387,7 @@ impl<'de> Deserialize<'de> for TopologySettings {
 impl TopologyConfig {
     /// Build one graph per segment. For Links returns a single "default" entry.
     /// For ApiManaged, returns an empty vec (topology is loaded from DB, not config).
-    /// Wildcard `"*"` is expanded to all groups in `known_domains`.
+    /// Wildcard `"*"` is expanded to all domains in `known_domains`.
     pub fn build_graph(
         &self,
         known_domains: &[&str],
@@ -476,8 +476,8 @@ impl TopologyConfig {
         }
     }
 
-    /// Expand `$domain` templates into concrete segments for the given groups.
-    /// Groups already explicitly named in a template segment's links are excluded
+    /// Expand `$domain` templates into concrete segments for the given domains.
+    /// Domains already explicitly named in a template segment's links are excluded
     /// from expansion. Non-template segments pass through unchanged.
     pub fn expand_segments(&self, known_domains: &[&str]) -> Vec<SegmentConfig> {
         match self {
@@ -490,7 +490,7 @@ impl TopologyConfig {
                 let mut result = Vec::new();
                 for seg in segments {
                     if seg.has_domain_template() {
-                        // Find groups explicitly named (not templates/wildcards)
+                        // Find domains explicitly named (not templates/wildcards)
                         let explicit: Vec<&str> = seg
                             .links
                             .iter()
@@ -508,7 +508,7 @@ impl TopologyConfig {
                             })
                             .collect();
 
-                        // Expand for each group NOT explicitly named
+                        // Expand for each domain NOT explicitly named
                         for &domain in known_domains {
                             if explicit.contains(&domain) {
                                 continue;
@@ -536,8 +536,8 @@ impl SegmentConfig {
             .any(|e| e.domain.contains("$domain") || e.neighbors.iter().any(|n| n.contains("$domain")))
     }
 
-    /// Expand this template segment for a specific group value.
-    /// Replaces all `$domain` occurrences with the concrete group name.
+    /// Expand this template segment for a specific domain value.
+    /// Replaces all `$domain` occurrences with the concrete domain name.
     pub fn expand_for_domain(&self, domain: &str) -> SegmentConfig {
         SegmentConfig {
             name: self.name.replace("$domain", domain),
@@ -557,7 +557,7 @@ impl SegmentConfig {
     }
 }
 
-/// Configuration for authenticating node group membership on registration.
+/// Configuration for authenticating node domain membership on registration.
 ///
 /// Nested under the `topology.registration_auth` key:
 /// ```yaml
@@ -569,7 +569,7 @@ impl SegmentConfig {
 ///       cluster-b: "secret-for-cluster-b-abcdefghi-1234567890"
 /// ```
 ///
-/// Or for SPIRE (trust domain = group name):
+/// Or for SPIRE (trust domain = domain name):
 /// ```yaml
 /// topology:
 ///   registration_auth:
@@ -583,11 +583,11 @@ pub enum RegistrationAuthConfig {
     /// In config mode, secrets are read from this map.
     /// In API mode, this map may be empty — secrets are managed via gRPC.
     SharedSecret {
-        /// Map of group name → shared secret value.
+        /// Map of domain name → shared secret value.
         #[serde(default)]
         secrets: HashMap<String, String>,
     },
-    /// SPIRE-based authentication. Trust domain = group name by convention.
+    /// SPIRE-based authentication. Trust domain = domain name by convention.
     #[cfg(not(target_family = "windows"))]
     Spire {
         /// Path to the SPIRE agent socket for JWT SVID validation.
@@ -599,13 +599,13 @@ pub enum RegistrationAuthConfig {
 mod tests {
     use super::*;
 
-    /// Returns true if `pattern` matches `group`. `"*"` matches any group.
+    /// Returns true if `pattern` matches `domain`. `"*"` matches any domain.
     fn matches_domain(pattern: &str, domain: &str) -> bool {
         pattern == "*" || pattern == domain
     }
 
     impl TopologyConfig {
-        /// Test helper: check if group `a` is allowed to link to group `b`.
+        /// Test helper: check if domain `a` is allowed to link to domain `b`.
         fn can_link(&self, a: &str, b: &str) -> bool {
             match self {
                 // In API mode, config allows no links. Allowed pairs come from DB.
@@ -693,8 +693,8 @@ mod tests {
             domain: "*".to_string(),
             neighbors: vec!["*".to_string()],
         }]);
-        let groups = vec!["a", "b", "c", "d"];
-        let segments = t.build_graph(&groups);
+        let domains = vec!["a", "b", "c", "d"];
+        let segments = t.build_graph(&domains);
 
         assert_eq!(segments.len(), 1);
         assert_eq!(segments[0].0, "default");
@@ -710,8 +710,8 @@ mod tests {
             domain: "hub".to_string(),
             neighbors: vec!["*".to_string()],
         }]);
-        let groups = vec!["hub", "a", "b", "c"];
-        let segments = t.build_graph(&groups);
+        let domains = vec!["hub", "a", "b", "c"];
+        let segments = t.build_graph(&domains);
 
         let graph = &segments[0].1;
         assert_eq!(graph.node_count(), 4);
@@ -735,8 +735,8 @@ mod tests {
                 neighbors: vec!["d".to_string()],
             },
         ]);
-        let groups = vec!["a", "b", "c", "d"];
-        let segments = t.build_graph(&groups);
+        let domains = vec!["a", "b", "c", "d"];
+        let segments = t.build_graph(&domains);
 
         let graph = &segments[0].1;
         assert_eq!(graph.node_count(), 4);
@@ -750,8 +750,8 @@ mod tests {
             domain: "*".to_string(),
             neighbors: vec!["*".to_string()],
         }]);
-        let groups = vec!["a", "b"];
-        let segments = t.build_graph(&groups);
+        let domains = vec!["a", "b"];
+        let segments = t.build_graph(&domains);
 
         let graph = &segments[0].1;
         // 2 nodes, 1 edge (no self-links)
@@ -772,8 +772,8 @@ mod tests {
                 neighbors: vec!["a".to_string()],
             },
         ]);
-        let groups = vec!["a", "b"];
-        let segments = t.build_graph(&groups);
+        let domains = vec!["a", "b"];
+        let segments = t.build_graph(&domains);
 
         assert_eq!(segments[0].1.edge_count(), 1);
     }
@@ -784,8 +784,8 @@ mod tests {
             domain: "a".to_string(),
             neighbors: vec!["unknown".to_string()],
         }]);
-        let groups = vec!["a", "b"];
-        let segments = t.build_graph(&groups);
+        let domains = vec!["a", "b"];
+        let segments = t.build_graph(&domains);
 
         let graph = &segments[0].1;
         // "unknown" not in known_domains, so no edge created
@@ -895,8 +895,8 @@ segments:
             }],
         }]);
 
-        let groups = vec!["hub", "customer-a", "customer-b"];
-        let expanded = t.expand_segments(&groups);
+        let domains = vec!["hub", "customer-a", "customer-b"];
+        let expanded = t.expand_segments(&domains);
 
         // hub is explicitly named in links, so only customer-a and customer-b expand
         assert_eq!(expanded.len(), 2);
@@ -914,8 +914,8 @@ segments:
             }],
         }]);
 
-        let groups = vec!["a", "b", "c"];
-        let expanded = t.expand_segments(&groups);
+        let domains = vec!["a", "b", "c"];
+        let expanded = t.expand_segments(&domains);
 
         assert_eq!(expanded.len(), 1);
         assert_eq!(expanded[0].name, "static");
@@ -940,8 +940,8 @@ segments:
             },
         ]);
 
-        let groups = vec!["hub", "customer-a", "monitoring"];
-        let expanded = t.expand_segments(&groups);
+        let domains = vec!["hub", "customer-a", "monitoring"];
+        let expanded = t.expand_segments(&domains);
 
         // Template expands for customer-a and monitoring (only hub is explicit in template)
         // Plus the static segment
@@ -972,8 +972,8 @@ segments:
             },
         ]);
 
-        let groups = vec!["hub", "a", "b"];
-        let segment_graphs = t.build_graph(&groups);
+        let domains = vec!["hub", "a", "b"];
+        let segment_graphs = t.build_graph(&domains);
 
         assert_eq!(segment_graphs.len(), 2);
         assert_eq!(segment_graphs[0].0, "seg-a");
