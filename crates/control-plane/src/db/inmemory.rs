@@ -150,6 +150,7 @@ pub struct InMemoryDb {
     links: RwLock<LinkStore>,
     topology_segments: RwLock<HashMap<String, TopologySegment>>,
     topology_segment_links: RwLock<Vec<TopologySegmentLink>>,
+    registration_secrets: RwLock<HashMap<String, String>>,
 }
 
 impl InMemoryDb {
@@ -160,6 +161,7 @@ impl InMemoryDb {
             links: RwLock::new(LinkStore::new()),
             topology_segments: RwLock::new(HashMap::new()),
             topology_segment_links: RwLock::new(Vec::new()),
+            registration_secrets: RwLock::new(HashMap::new()),
         }
     }
 
@@ -938,6 +940,34 @@ impl DataAccess for InMemoryDb {
         self.clear_runtime_state().await?;
         self.topology_segment_links.write().clear();
         self.topology_segments.write().clear();
+        self.registration_secrets.write().clear();
+        Ok(())
+    }
+
+    // ── Registration Secrets ───────────────────────────────────────────────
+
+    async fn list_registration_secret_groups(&self) -> Result<Vec<String>> {
+        Ok(self.registration_secrets.read().keys().cloned().collect())
+    }
+
+    async fn get_registration_secret(&self, group_name: &str) -> Result<Option<String>> {
+        Ok(self.registration_secrets.read().get(group_name).cloned())
+    }
+
+    async fn upsert_registration_secret(&self, group_name: &str, secret: &str) -> Result<()> {
+        self.registration_secrets
+            .write()
+            .insert(group_name.to_string(), secret.to_string());
+        Ok(())
+    }
+
+    async fn delete_registration_secret(&self, group_name: &str) -> Result<()> {
+        self.registration_secrets.write().remove(group_name);
+        Ok(())
+    }
+
+    async fn delete_all_registration_secrets(&self) -> Result<()> {
+        self.registration_secrets.write().clear();
         Ok(())
     }
 }

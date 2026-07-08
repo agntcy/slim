@@ -156,6 +156,25 @@ impl DefaultNodeCommandHandler {
         Ok(())
     }
 
+    /// Forcibly remove the stream for a node regardless of epoch.
+    /// Used when administratively removing a group — all nodes in the group
+    /// must be disconnected.
+    pub async fn force_remove_stream(&self, node_id: &str) {
+        let removed = {
+            let mut streams = self.0.streams.write().await;
+            streams.remove(node_id).is_some()
+        };
+        if removed {
+            self.update_connection_status(node_id, NodeStatus::NotConnected)
+                .await;
+            {
+                let mut pending = self.0.pending.lock().await;
+                pending.retain(|k, _| k.0 != node_id);
+            }
+            self.0.statuses.write().await.remove(node_id);
+        }
+    }
+
     pub async fn get_connection_status(&self, node_id: &str) -> NodeStatus {
         self.0
             .statuses

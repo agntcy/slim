@@ -22,19 +22,18 @@ database:
 #   type: sqlite
 #   path: /tmp/slim-test.db
 
-registration_auth:
-  type: shared_secret
-  secrets:
-    domain-1: "secret-for-domain-1-abcdefghi-1234567890"
-    domain-2: "secret-for-domain-2-abcdefghi-1234567890"
-    domain-3: "secret-for-domain-3-abcdefghi-1234567890"
-    deployment-a: "secret-for-deployment-a-abcdefghi-1234567890"
-
-# registration_auth:
-#   type: spire
-#   socket_path: "/run/spire/agent-sockets/api.sock"
-
 topology:
+  registration_auth:
+    type: shared_secret
+    secrets:
+      domain-1: "secret-for-domain-1-abcdefghi-1234567890"
+      domain-2: "secret-for-domain-2-abcdefghi-1234567890"
+      domain-3: "secret-for-domain-3-abcdefghi-1234567890"
+      deployment-a: "secret-for-deployment-a-abcdefghi-1234567890"
+  # registration_auth:
+  #   type: spire
+  #   socket_path: "/run/spire/agent-sockets/api.sock"
+
   segments:
     - name: segment-$domain
       links:

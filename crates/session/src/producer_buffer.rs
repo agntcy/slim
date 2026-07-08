@@ -10,8 +10,8 @@ use slim_datapath::{api::ProtoMessage as Message, api::ProtoName};
 pub struct ProducerBuffer {
     capacity: usize,
     next: usize,
-    buffer: Vec<Option<Message>>,
-    map: HashMap<usize, usize>,
+    messages: HashMap<usize, Message>, // message_id → Message
+    ring: Vec<usize>,                  // ring of IDs in insertion order; usize::MAX = empty slot
     destination_name: ProtoName,
     destination_id: Option<u64>,
 }
@@ -22,8 +22,8 @@ impl ProducerBuffer {
         ProducerBuffer {
             capacity,
             next: 0,
-            buffer: vec![None; capacity],
-            map: HashMap::new(),
+            messages: HashMap::with_capacity(capacity),
+            ring: vec![usize::MAX; capacity],
             destination_name: ProtoName::from_strings(["unknown", "unknown", "unknown"]),
             destination_id: None,
         }
@@ -42,58 +42,47 @@ impl ProducerBuffer {
     }
 
     /// Add message to the buffer.
-    /// return true if the insertion completes
-    pub fn push(&mut self, msg: Message) -> bool {
-        // if map is empty init the destination name
-        if self.map.is_empty() {
+    pub fn push(&mut self, msg: Message) {
+        // if messages is empty init the destination name
+        if self.messages.is_empty() {
             self.destination_name = msg.get_dst();
         }
 
-        // get message id
         let id = msg.get_id() as usize;
 
-        // check if the message is already there
-        // if yes return
-        if self.map.contains_key(&id) {
-            return true;
+        // check if the message is already there; if yes return
+        if self.messages.contains_key(&id) {
+            return;
         }
 
-        // remove the message at position next from the map
-        // the same message will be overwritten in the buffer
-        if let Some(message) = &self.buffer[self.next] {
-            let to_remove = message.get_id() as usize;
-            self.map.remove(&to_remove);
-        }
+        // Evict the oldest entry: read its ID from the compact ring Vec (no Message access).
+        // messages.remove is a no-op when the slot holds the sentinel or an already-evicted ID.
+        let evicted_id = self.ring[self.next];
+        self.messages.remove(&evicted_id);
 
-        // store the new message
-        self.buffer[self.next] = Some(msg);
-        // store the position of the message in the buffer
-        self.map.insert(id, self.next);
-        // increase the index to the next element in the buffer
+        // Store new message and record its ID in the ring.
+        self.messages.insert(id, msg);
+        self.ring[self.next] = id;
         self.next = (self.next + 1) % self.capacity;
-        true
     }
 
     /// Remove all the elements in the buffer
     pub fn clear(&mut self) {
-        self.buffer = vec![None; self.capacity];
+        self.messages.clear();
         self.next = 0;
-        self.map.clear();
+        self.ring.fill(usize::MAX);
     }
 
     pub fn get(&self, id: usize) -> Option<Message> {
-        match self.map.get(&id) {
-            None => None,
-            Some(index) => self.buffer[*index].clone(),
-        }
+        self.messages.get(&id).cloned()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &Message> {
-        self.buffer.iter().filter_map(|msg| {
-            // If message is Some(msg), it unwraps and return &msg.
-            // Skip it otherwise
-            msg.as_ref()
-        })
+    /// Iterate messages in insertion order (oldest → newest).
+    pub fn iter(&self) -> impl Iterator<Item = &Message> + '_ {
+        let start = self.next;
+        (0..self.capacity)
+            .map(move |i| (start + i) % self.capacity)
+            .filter_map(move |pos| self.messages.get(&self.ring[pos]))
     }
 }
 
@@ -107,10 +96,10 @@ mod tests {
     };
 
     #[test]
-    fn test_producer_buffer() {
-        let mut buffer = ProducerBuffer::with_capacity(3);
+    fn test_producer_messages() {
+        let mut messages = ProducerBuffer::with_capacity(3);
 
-        assert_eq!(buffer.get_capacity(), 3);
+        assert_eq!(messages.get_capacity(), 3);
 
         let src = Name::from_strings(["org", "ns", "type"]).with_id(0);
         let src_id = src.to_string();
@@ -180,61 +169,108 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        assert!(buffer.push(p0.clone()));
+        messages.push(p0.clone());
 
-        assert_eq!(buffer.get(0).unwrap(), p0);
-        assert_eq!(buffer.get(0).unwrap(), p0);
-        assert_eq!(buffer.get(0).unwrap(), p0);
-        assert_eq!(buffer.get(1), None);
+        assert_eq!(messages.get(0).unwrap(), p0);
+        assert_eq!(messages.get(0).unwrap(), p0);
+        assert_eq!(messages.get(0).unwrap(), p0);
+        assert_eq!(messages.get(1), None);
 
-        assert!(buffer.push(p0.clone()));
-        assert!(buffer.push(p1.clone()));
-        assert!(buffer.push(p2.clone()));
+        messages.push(p0.clone());
+        messages.push(p1.clone());
+        messages.push(p2.clone());
 
-        assert_eq!(buffer.get(0).unwrap(), p0);
-        assert_eq!(buffer.get(1).unwrap(), p1);
-        assert_eq!(buffer.get(2).unwrap(), p2);
-        assert_eq!(buffer.get(3), None);
+        assert_eq!(messages.get(0).unwrap(), p0);
+        assert_eq!(messages.get(1).unwrap(), p1);
+        assert_eq!(messages.get(2).unwrap(), p2);
+        assert_eq!(messages.get(3), None);
 
-        // now the buffer is full, add a new element will remote the elem 0
-        assert!(buffer.push(p3.clone()));
-        assert_eq!(buffer.get(0), None);
-        assert_eq!(buffer.get(1).unwrap(), p1);
-        assert_eq!(buffer.get(2).unwrap(), p2);
-        assert_eq!(buffer.get(3).unwrap(), p3);
-        assert_eq!(buffer.get(4), None);
+        // now the messages is full, add a new element will remote the elem 0
+        messages.push(p3.clone());
+        assert_eq!(messages.get(0), None);
+        assert_eq!(messages.get(1).unwrap(), p1);
+        assert_eq!(messages.get(2).unwrap(), p2);
+        assert_eq!(messages.get(3).unwrap(), p3);
+        assert_eq!(messages.get(4), None);
 
-        // now the buffer is full, add a new element will remote the elem 1
-        assert!(buffer.push(p4.clone()));
-        assert_eq!(buffer.get(0), None);
-        assert_eq!(buffer.get(1), None);
-        assert_eq!(buffer.get(2).unwrap(), p2);
-        assert_eq!(buffer.get(3).unwrap(), p3);
-        assert_eq!(buffer.get(4).unwrap(), p4);
+        // now the messages is full, add a new element will remote the elem 1
+        messages.push(p4.clone());
+        assert_eq!(messages.get(0), None);
+        assert_eq!(messages.get(1), None);
+        assert_eq!(messages.get(2).unwrap(), p2);
+        assert_eq!(messages.get(3).unwrap(), p3);
+        assert_eq!(messages.get(4).unwrap(), p4);
 
         // remove all elements
-        buffer.clear();
-        assert_eq!(buffer.get(0), None);
-        assert_eq!(buffer.get(1), None);
-        assert_eq!(buffer.get(2), None);
-        assert_eq!(buffer.get(3), None);
-        assert_eq!(buffer.get(4), None);
+        messages.clear();
+        assert_eq!(messages.get(0), None);
+        assert_eq!(messages.get(1), None);
+        assert_eq!(messages.get(2), None);
+        assert_eq!(messages.get(3), None);
+        assert_eq!(messages.get(4), None);
 
         // add all msgs and check again
-        assert!(buffer.push(p0.clone()));
-        assert!(buffer.push(p1.clone()));
-        assert!(buffer.push(p2.clone()));
-        assert!(buffer.push(p3.clone()));
-        assert!(buffer.push(p4.clone()));
-        assert_eq!(buffer.get(0), None);
-        assert_eq!(buffer.get(1), None);
-        assert_eq!(buffer.get(2).unwrap(), p2);
-        assert_eq!(buffer.get(3).unwrap(), p3);
-        assert_eq!(buffer.get(4).unwrap(), p4);
+        messages.push(p0.clone());
+        messages.push(p1.clone());
+        messages.push(p2.clone());
+        messages.push(p3.clone());
+        messages.push(p4.clone());
+        assert_eq!(messages.get(0), None);
+        assert_eq!(messages.get(1), None);
+        assert_eq!(messages.get(2).unwrap(), p2);
+        assert_eq!(messages.get(3).unwrap(), p3);
+        assert_eq!(messages.get(4).unwrap(), p4);
     }
 
     #[test]
-    fn test_iter_producer_buffer() {
+    fn test_clear_then_reuse() {
+        // Regression: stale ring entries after clear() must not evict messages that were
+        // inserted in the subsequent fill, nor cause iter() to yield duplicates.
+        //
+        // capacity=2:
+        // push(id=1), push(id=2) → ring=[1,2]
+        // clear()                → ring must be reset to sentinels
+        // push(id=2), push(id=3) → both must survive; no duplicate in iter()
+        let src = Name::from_strings(["org", "ns", "type"]).with_id(0);
+        let src_id = src.to_string();
+        let name_type = Name::from_strings(["org", "ns", "type"]).with_id(1);
+        let slim_header = SlimHeader::new(src, name_type, &src_id, None);
+
+        let make_msg = |id: u32| {
+            let h = SessionHeader::new(
+                ProtoSessionType::PointToPoint.into(),
+                ProtoSessionMessageType::Msg.into(),
+                0,
+                id,
+            );
+            Message::builder()
+                .with_slim_header(slim_header.clone())
+                .with_session_header(h)
+                .application_payload("", vec![])
+                .build_publish()
+                .unwrap()
+        };
+
+        let mut buf = ProducerBuffer::with_capacity(2);
+
+        buf.push(make_msg(1));
+        buf.push(make_msg(2));
+        buf.clear();
+
+        buf.push(make_msg(2));
+        buf.push(make_msg(3));
+
+        // Both messages inserted after clear() must be present.
+        assert!(buf.get(2).is_some(), "id=2 was wrongly evicted");
+        assert!(buf.get(3).is_some(), "id=3 was wrongly evicted");
+
+        // iter() must not yield duplicates.
+        let ids: Vec<u32> = buf.iter().map(|m| m.get_id()).collect();
+        assert_eq!(ids, vec![2, 3]);
+    }
+
+    #[test]
+    fn test_iter_producer_messages() {
         let src = Name::from_strings(["org", "ns", "type"]).with_id(0);
         let src_id = src.to_string();
         let name_type = Name::from_strings(["org", "ns", "type"]).with_id(1);

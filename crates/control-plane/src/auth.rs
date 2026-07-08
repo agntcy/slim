@@ -9,10 +9,16 @@
 //! (backward-compatible behavior when no auth is configured).
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use parking_lot::RwLock;
 use slim_auth::auth_provider::AuthVerifier;
 use slim_auth::traits::Verifier;
 use tonic::Status;
+
+/// Shared map of domain name → verifier. Used by both southbound (read) and
+/// northbound (write) services concurrently.
+pub type SharedVerifiers = Arc<RwLock<HashMap<String, AuthVerifier>>>;
 
 /// Verifies that a node's credentials authorize it to join a domain.
 #[derive(Clone, Default)]
@@ -22,8 +28,8 @@ pub enum DomainAuthenticator {
     Noop,
     /// Per-domain shared secret verification.
     SharedSecret {
-        /// Map of domain name → verifier (built from the per-domain secret).
-        verifiers: HashMap<String, AuthVerifier>,
+        /// Shared map of domain name → verifier (built from the per-domain secret).
+        verifiers: SharedVerifiers,
     },
     /// SPIRE JWT SVID verification.
     /// Validates the JWT SVID against trust bundles provided by the local SPIRE agent
@@ -44,7 +50,7 @@ impl std::fmt::Debug for DomainAuthenticator {
             Self::Noop => write!(f, "DomainAuthenticator::Noop"),
             Self::SharedSecret { verifiers } => f
                 .debug_struct("DomainAuthenticator::SharedSecret")
-                .field("domains", &verifiers.keys().collect::<Vec<_>>())
+                .field("domains", &verifiers.read().keys().collect::<Vec<_>>())
                 .finish(),
             #[cfg(not(target_family = "windows"))]
             Self::Spire { .. } => write!(f, "DomainAuthenticator::Spire"),
@@ -71,7 +77,11 @@ impl DomainAuthenticator {
                 "credentials required but not provided",
             )),
             DomainAuthenticator::SharedSecret { verifiers } => {
-                let verifier = verifiers.get(claimed_domain).ok_or_else(|| {
+                let verifier_clone = {
+                    let map = verifiers.read();
+                    map.get(claimed_domain).cloned()
+                };
+                let verifier = verifier_clone.ok_or_else(|| {
                     Status::permission_denied(format!(
                         "no auth configured for domain '{claimed_domain}'"
                     ))
@@ -83,7 +93,7 @@ impl DomainAuthenticator {
                         Status::permission_denied(format!("token verification failed: {e}"))
                     })?;
 
-                // The "sub" field contains "domain/node-id" or "domain/node-id_RANDOM_SUFFIX".
+                // The "sub" field contains "domain/node-id" or "group/node-id_RANDOM_SUFFIX".
                 // Use exact match or "_" separator to prevent prefix impersonation
                 // (e.g., node-10 impersonating node-1).
                 let sub = claims.get("sub").and_then(|v| v.as_str()).unwrap_or("");
@@ -125,6 +135,54 @@ impl DomainAuthenticator {
 
                 Ok(())
             }
+        }
+    }
+
+    /// Returns `true` if this is the `SharedSecret` variant.
+    pub fn is_shared_secret(&self) -> bool {
+        matches!(self, Self::SharedSecret { .. })
+    }
+
+    /// Add a verifier for a domain (shared secret mode only).
+    /// Builds the verifier from the raw secret string and inserts it.
+    /// Returns an error if this is not the `SharedSecret` variant.
+    pub fn add_verifier(&self, domain_name: &str, secret: &str) -> Result<(), Status> {
+        match self {
+            Self::SharedSecret { verifiers } => {
+                let verifier =
+                    AuthVerifier::shared_secret_from_str(domain_name, secret).map_err(|e| {
+                        Status::internal(format!(
+                            "failed to build verifier for domain '{domain_name}': {e}"
+                        ))
+                    })?;
+                verifiers.write().insert(domain_name.to_string(), verifier);
+                Ok(())
+            }
+            _ => Err(Status::unimplemented(
+                "add_verifier is only supported for shared_secret auth",
+            )),
+        }
+    }
+
+    /// Remove the verifier for a domain (shared secret mode only).
+    pub fn remove_verifier(&self, domain_name: &str) -> Result<(), Status> {
+        match self {
+            Self::SharedSecret { verifiers } => {
+                verifiers.write().remove(domain_name);
+                Ok(())
+            }
+            _ => Err(Status::unimplemented(
+                "remove_verifier is only supported for shared_secret auth",
+            )),
+        }
+    }
+
+    /// Return the list of configured domain names from the live verifiers map.
+    /// For `Noop` and `Spire`, returns an empty list.
+    pub fn configured_domains(&self) -> Vec<String> {
+        match self {
+            Self::SharedSecret { verifiers } => verifiers.read().keys().cloned().collect(),
+            _ => Vec::new(),
         }
     }
 }
@@ -172,7 +230,9 @@ mod tests {
         let verifier = AuthVerifier::shared_secret_from_str(domain, secret).unwrap();
         let mut verifiers = HashMap::new();
         verifiers.insert(domain.to_string(), verifier);
-        DomainAuthenticator::SharedSecret { verifiers }
+        DomainAuthenticator::SharedSecret {
+            verifiers: Arc::new(RwLock::new(verifiers)),
+        }
     }
 
     #[tokio::test]

@@ -8,9 +8,10 @@ use tokio_stream::StreamExt;
 use crate::client::get_control_plane_client;
 use crate::proto::controller::proto::v1::{ConnectionDirection, ConnectionType};
 use crate::proto::controlplane::proto::v1::{
-    AddSegmentRequest, AddTopologyLinkRequest, LinkEntry, LinkListRequest, LinkStatus, Node,
-    NodeListRequest, NodeStatus, RemoveSegmentRequest, RemoveTopologyLinkRequest, RouteEntry,
-    RouteListRequest, RouteStatus, SegmentListRequest,
+    AddGroupRequest, AddSegmentRequest, AddTopologyLinkRequest, LinkEntry, LinkListRequest,
+    LinkStatus, ListGroupsRequest, Node, NodeListRequest, NodeStatus, RemoveGroupRequest,
+    RemoveSegmentRequest, RemoveTopologyLinkRequest, RouteEntry, RouteListRequest, RouteStatus,
+    SegmentListRequest,
 };
 use crate::rpc;
 use slim_config::grpc::client::ClientConfig;
@@ -33,9 +34,9 @@ pub enum ControllerCommand {
     Route(ControllerRouteArgs),
     /// List links from the controller DB
     Link(ControllerLinkArgs),
-    /// List domains and their nodes
-    Domain(ControllerDomainArgs),
-    /// List segments (routing domains) and their domains
+    /// List groups and their nodes
+    Group(ControllerGroupArgs),
+    /// List segments (routing domains) and their groups
     Segment(ControllerSegmentArgs),
 }
 
@@ -124,42 +125,55 @@ pub enum ControllerLinkCommand {
         #[arg(short = 'a', long, default_value_t = false)]
         all: bool,
     },
-    /// Add a topology link between two domains (API-managed mode only)
+    /// Add a topology link between two groups (API-managed mode only)
     Add {
-        /// First domain name
-        domain_a: String,
-        /// Second domain name
-        domain_b: String,
+        /// First group name
+        group_a: String,
+        /// Second group name
+        group_b: String,
         /// Segment name (defaults to "default")
         #[arg(short, long, default_value = "default")]
         segment: String,
     },
-    /// Remove a topology link between two domains (API-managed mode only)
+    /// Remove a topology link between two groups (API-managed mode only)
     #[command(visible_alias = "rm")]
     Remove {
-        /// First domain name
-        domain_a: String,
-        /// Second domain name
-        domain_b: String,
+        /// First group name
+        group_a: String,
+        /// Second group name
+        group_b: String,
         /// Segment name (defaults to "default")
         #[arg(short, long, default_value = "default")]
         segment: String,
     },
 }
 
-// ── Domain ─────────────────────────────────────────────────────────────────────
+// ── Group ─────────────────────────────────────────────────────────────────────
 
 #[derive(Args)]
-pub struct ControllerDomainArgs {
+pub struct ControllerGroupArgs {
     #[command(subcommand)]
-    pub command: ControllerDomainCommand,
+    pub command: ControllerGroupCommand,
 }
 
 #[derive(Subcommand)]
-pub enum ControllerDomainCommand {
-    /// List all domains and their nodes
+pub enum ControllerGroupCommand {
+    /// List all groups and their nodes
     #[command(visible_alias = "ls")]
     List,
+    /// Add a registration auth group with a shared secret (API-managed mode only)
+    Add {
+        /// Group name
+        group_name: String,
+        /// Shared secret for this group
+        secret: String,
+    },
+    /// Remove a group, disconnecting all its nodes (API-managed mode only)
+    #[command(visible_alias = "rm")]
+    Remove {
+        /// Group name
+        group_name: String,
+    },
 }
 
 // ── Segment ───────────────────────────────────────────────────────────────────
@@ -172,7 +186,7 @@ pub struct ControllerSegmentArgs {
 
 #[derive(Subcommand)]
 pub enum ControllerSegmentCommand {
-    /// List all segments (routing domains) and their domains
+    /// List all segments (routing domains) and their groups
     #[command(visible_alias = "ls")]
     List,
     /// Add a new segment (API-managed mode only)
@@ -196,7 +210,7 @@ pub async fn run(args: &ControllerArgs, opts: &ClientConfig) -> Result<()> {
         ControllerCommand::Connection(a) => run_connection(a, opts).await,
         ControllerCommand::Route(a) => run_route(a, opts).await,
         ControllerCommand::Link(a) => run_link(a, opts).await,
-        ControllerCommand::Domain(a) => run_domain(a, opts).await,
+        ControllerCommand::Group(a) => run_group(a, opts).await,
         ControllerCommand::Segment(a) => run_segment(a, opts).await,
     }
 }
@@ -235,21 +249,25 @@ async fn run_link(args: &ControllerLinkArgs, opts: &ClientConfig) -> Result<()> 
             all,
         } => link_list_all(origin_node_id, target_node_id, *all, opts).await,
         ControllerLinkCommand::Add {
-            domain_a,
-            domain_b,
+            group_a,
+            group_b,
             segment,
-        } => link_add(domain_a, domain_b, segment, opts).await,
+        } => link_add(group_a, group_b, segment, opts).await,
         ControllerLinkCommand::Remove {
-            domain_a,
-            domain_b,
+            group_a,
+            group_b,
             segment,
-        } => link_remove(domain_a, domain_b, segment, opts).await,
+        } => link_remove(group_a, group_b, segment, opts).await,
     }
 }
 
-async fn run_domain(args: &ControllerDomainArgs, opts: &ClientConfig) -> Result<()> {
+async fn run_group(args: &ControllerGroupArgs, opts: &ClientConfig) -> Result<()> {
     match &args.command {
-        ControllerDomainCommand::List => domain_list(opts).await,
+        ControllerGroupCommand::List => group_list(opts).await,
+        ControllerGroupCommand::Add { group_name, secret } => {
+            group_add(group_name, secret, opts).await
+        }
+        ControllerGroupCommand::Remove { group_name } => group_remove(group_name, opts).await,
     }
 }
 
@@ -276,7 +294,7 @@ async fn node_list(opts: &ClientConfig) -> Result<()> {
     }
 
     // Compute column widths
-    let headers = ["NODE_ID", "DOMAIN", "STATUS", "ENDPOINT", "PUBLIC_ENDPOINT"];
+    let headers = ["NODE_ID", "GROUP", "STATUS", "ENDPOINT", "PUBLIC_ENDPOINT"];
     let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
 
     let rows: Vec<_> = entries
@@ -299,7 +317,7 @@ async fn node_list(opts: &ClientConfig) -> Result<()> {
                 .unwrap_or("-");
             (
                 e.id.as_str(),
-                e.domain.as_str(),
+                e.group.as_str(),
                 status,
                 endpoint,
                 public_endpoint,
@@ -307,9 +325,9 @@ async fn node_list(opts: &ClientConfig) -> Result<()> {
         })
         .collect();
 
-    for (id, domain, status, ep, pub_ep) in &rows {
+    for (id, group, status, ep, pub_ep) in &rows {
         widths[0] = widths[0].max(id.len());
-        widths[1] = widths[1].max(domain.len());
+        widths[1] = widths[1].max(group.len());
         widths[2] = widths[2].max(status.len());
         widths[3] = widths[3].max(ep.len());
         widths[4] = widths[4].max(pub_ep.len());
@@ -319,8 +337,8 @@ async fn node_list(opts: &ClientConfig) -> Result<()> {
     print_table_header(&headers, &widths);
 
     // Print rows
-    for (id, domain, status, ep, pub_ep) in &rows {
-        print_row(&[*id, *domain, *status, *ep, *pub_ep], &widths);
+    for (id, group, status, ep, pub_ep) in &rows {
+        print_row(&[*id, *group, *status, *ep, *pub_ep], &widths);
     }
     Ok(())
 }
@@ -533,17 +551,9 @@ async fn link_list_all(
     Ok(())
 }
 
-const ROUTE_HEADERS: [&str; 7] = [
-    "SOURCE",
-    "DEST_NODE",
-    "ROUTE",
-    "STATUS",
-    "STATUS_MSG",
-    "LAST_UPDATED",
-    "LINK_ID",
-];
+const ROUTE_HEADERS: [&str; 5] = ["SOURCE", "DEST_NODE", "ROUTE", "STATUS", "LINK_ID"];
 
-fn route_cells(r: &RouteEntry) -> [String; 7] {
+fn route_cells(r: &RouteEntry) -> [String; 5] {
     [
         r.source_node_id.clone(),
         if r.dest_node_id.is_empty() {
@@ -554,12 +564,6 @@ fn route_cells(r: &RouteEntry) -> [String; 7] {
         .to_string(),
         build_subscription_str(r),
         route_status_str(r.status),
-        if r.status_msg.is_empty() {
-            "-".to_string()
-        } else {
-            r.status_msg.clone()
-        },
-        format_unix_timestamp(r.last_updated),
         if r.link_id.is_empty() {
             "-".to_string()
         } else {
@@ -583,7 +587,7 @@ fn print_table_header(headers: &[&str], widths: &[usize]) {
     println!("  {}", "-".repeat(total));
 }
 
-fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 7] {
+fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 5] {
     let mut widths = ROUTE_HEADERS.map(|h| h.len());
     for r in routes {
         for (w, cell) in widths.iter_mut().zip(route_cells(r).iter()) {
@@ -593,11 +597,11 @@ fn compute_route_col_widths(routes: &[RouteEntry]) -> [usize; 7] {
     widths
 }
 
-fn print_route_header(widths: &[usize; 7]) {
+fn print_route_header(widths: &[usize; 5]) {
     print_table_header(&ROUTE_HEADERS, widths);
 }
 
-fn print_route_row(route: &RouteEntry, widths: &[usize; 7]) {
+fn print_route_row(route: &RouteEntry, widths: &[usize; 5]) {
     print_row(&route_cells(route), widths);
 }
 
@@ -657,60 +661,70 @@ fn link_status_str(status: i32) -> String {
     }
 }
 
-fn format_unix_timestamp(ts: i64) -> String {
-    chrono::DateTime::from_timestamp(ts, 0)
-        .map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
-        .unwrap_or_else(|| ts.to_string())
-}
+// ── Group commands ────────────────────────────────────────────────────────────
 
-// ── Domain commands ────────────────────────────────────────────────────────────
-
-async fn domain_list(opts: &ClientConfig) -> Result<()> {
+async fn group_list(opts: &ClientConfig) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
-    let mut stream = rpc!(client, list_nodes, NodeListRequest {});
-    let mut entries = Vec::new();
-    while let Some(entry) = stream.next().await {
-        entries.push(entry?);
-    }
+    let resp = rpc!(client, list_groups, ListGroupsRequest {});
 
-    // nodes by domain name
-    let mut domains: std::collections::BTreeMap<String, Vec<String>> =
-        std::collections::BTreeMap::new();
-    for e in &entries {
-        let domain = if e.domain.is_empty() {
-            "(none)".to_string()
-        } else {
-            e.domain.clone()
-        };
-        domains.entry(domain).or_default().push(e.id.clone());
-    }
-
-    println!("{} domain(s)\n", domains.len());
-    if domains.is_empty() {
+    let groups = resp.groups;
+    println!("{} group(s)\n", groups.len());
+    if groups.is_empty() {
         return Ok(());
     }
 
-    let headers = ["DOMAIN", "NODES"];
+    let headers = ["GROUP", "NODES"];
     let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
 
-    let rows: Vec<_> = domains
+    let rows: Vec<_> = groups
         .iter()
-        .map(|(domain, nodes)| {
-            let node_list = nodes.join(", ");
-            (domain.as_str(), node_list)
+        .map(|g| {
+            let node_list = if g.nodes.is_empty() {
+                "(no nodes connected)".to_string()
+            } else {
+                g.nodes.join(", ")
+            };
+            (g.group_name.as_str(), node_list)
         })
         .collect();
 
-    for (domain, node_list) in &rows {
-        widths[0] = widths[0].max(domain.len());
+    for (group, node_list) in &rows {
+        widths[0] = widths[0].max(group.len());
         widths[1] = widths[1].max(node_list.len());
     }
 
     print_table_header(&headers, &widths);
 
-    for (domain, nodes) in &rows {
-        print_row(&[*domain, nodes.as_str()], &widths);
+    for (group, nodes) in &rows {
+        print_row(&[*group, nodes.as_str()], &widths);
     }
+    Ok(())
+}
+
+async fn group_add(group_name: &str, secret: &str, opts: &ClientConfig) -> Result<()> {
+    let mut client = get_control_plane_client(opts).await?;
+    rpc!(
+        client,
+        add_group,
+        AddGroupRequest {
+            group_name: group_name.to_string(),
+            secret: secret.to_string(),
+        }
+    );
+    println!("Group '{}' added", group_name);
+    Ok(())
+}
+
+async fn group_remove(group_name: &str, opts: &ClientConfig) -> Result<()> {
+    let mut client = get_control_plane_client(opts).await?;
+    rpc!(
+        client,
+        remove_group,
+        RemoveGroupRequest {
+            group_name: group_name.to_string(),
+        }
+    );
+    println!("Group '{}' removed (all nodes disconnected)", group_name);
     Ok(())
 }
 
@@ -726,40 +740,40 @@ async fn segment_list(opts: &ClientConfig) -> Result<()> {
         return Ok(());
     }
 
-    let headers = ["SEGMENT", "DOMAINS", "LINKS"];
+    let headers = ["SEGMENT", "GROUPS", "LINKS"];
     let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
 
     let rows: Vec<_> = segments
         .iter()
         .map(|s| {
-            let domains = if s.domains.is_empty() {
+            let groups = if s.groups.is_empty() {
                 "-".to_string()
             } else {
-                s.domains.join(", ")
+                s.groups.join(", ")
             };
             let links: String = if s.edges.is_empty() {
                 "-".to_string()
             } else {
                 s.edges
                     .iter()
-                    .map(|e| format!("{}↔{}", e.domain_a, e.domain_b))
+                    .map(|e| format!("{}↔{}", e.group_a, e.group_b))
                     .collect::<Vec<_>>()
                     .join(", ")
             };
-            (s.name.as_str(), domains, links)
+            (s.name.as_str(), groups, links)
         })
         .collect();
 
-    for (name, domains, links) in &rows {
+    for (name, groups, links) in &rows {
         widths[0] = widths[0].max(name.len());
-        widths[1] = widths[1].max(domains.len());
+        widths[1] = widths[1].max(groups.len());
         widths[2] = widths[2].max(links.len());
     }
 
     print_table_header(&headers, &widths);
 
-    for (name, domains, links) in &rows {
-        print_row(&[*name, domains.as_str(), links.as_str()], &widths);
+    for (name, groups, links) in &rows {
+        print_row(&[*name, groups.as_str(), links.as_str()], &widths);
     }
     Ok(())
 }
@@ -790,28 +804,23 @@ async fn segment_remove(name: &str, opts: &ClientConfig) -> Result<()> {
     Ok(())
 }
 
-async fn link_add(
-    domain_a: &str,
-    domain_b: &str,
-    segment: &str,
-    opts: &ClientConfig,
-) -> Result<()> {
+async fn link_add(group_a: &str, group_b: &str, segment: &str, opts: &ClientConfig) -> Result<()> {
     let mut client = get_control_plane_client(opts).await?;
     let resp = rpc!(
         client,
         add_topology_link,
         AddTopologyLinkRequest {
-            domain_a: domain_a.to_string(),
-            domain_b: domain_b.to_string(),
+            group_a: group_a.to_string(),
+            group_b: group_b.to_string(),
             segment: segment.to_string(),
         }
     );
     if segment == "default" {
-        println!("Link {}↔{} added", domain_a, domain_b);
+        println!("Link {}↔{} added", group_a, group_b);
     } else {
         println!(
             "Link {}↔{} added in segment '{}'",
-            domain_a, domain_b, segment
+            group_a, group_b, segment
         );
     }
     for warning in &resp.warnings {
@@ -821,8 +830,8 @@ async fn link_add(
 }
 
 async fn link_remove(
-    domain_a: &str,
-    domain_b: &str,
+    group_a: &str,
+    group_b: &str,
     segment: &str,
     opts: &ClientConfig,
 ) -> Result<()> {
@@ -831,17 +840,17 @@ async fn link_remove(
         client,
         remove_topology_link,
         RemoveTopologyLinkRequest {
-            domain_a: domain_a.to_string(),
-            domain_b: domain_b.to_string(),
+            group_a: group_a.to_string(),
+            group_b: group_b.to_string(),
             segment: segment.to_string(),
         }
     );
     if segment == "default" {
-        println!("Link {}↔{} removed", domain_a, domain_b);
+        println!("Link {}↔{} removed", group_a, group_b);
     } else {
         println!(
             "Link {}↔{} removed from segment '{}'",
-            domain_a, domain_b, segment
+            group_a, group_b, segment
         );
     }
     Ok(())
@@ -898,29 +907,6 @@ mod tests {
         assert_eq!(route_status_str(999), "UNKNOWN");
     }
 
-    // ── format_unix_timestamp ───────────────────────────────────────────────
-
-    #[test]
-    fn format_unix_timestamp_epoch() {
-        assert_eq!(format_unix_timestamp(0), "1970-01-01T00:00:00Z");
-    }
-
-    #[test]
-    fn format_unix_timestamp_known_value() {
-        // 2024-02-01T00:00:00Z
-        assert_eq!(format_unix_timestamp(1706745600), "2024-02-01T00:00:00Z");
-    }
-
-    #[test]
-    fn format_unix_timestamp_negative_falls_back_to_raw() {
-        // Sufficiently-out-of-range negative value returns the raw number
-        let ts = -99_999_999_999_i64;
-        let result = format_unix_timestamp(ts);
-        assert!(!result.is_empty());
-        // Either a valid formatted date or the raw number as string
-        assert!(result == ts.to_string() || result.contains('-'));
-    }
-
     // ── build_subscription_str ──────────────────────────────────────────────
 
     #[test]
@@ -961,7 +947,7 @@ mod tests {
             RouteStatus::Applied as i32,
             0,
         );
-        r.status_msg = "apply succeeded".to_string();
+        r.link_id = "link-1".to_string();
         let cells = route_cells(&r);
         assert_eq!(cells[0], "src-node"); // source
         assert_eq!(cells[1], "dst-node"); // dest node
@@ -970,7 +956,7 @@ mod tests {
             "org/ns/agent/00000000-0000-0000-0000-000000000007"
         ); // route
         assert_eq!(cells[3], "APPLIED"); // status
-        assert_eq!(cells[4], "apply succeeded"); // status msg
+        assert_eq!(cells[4], "link-1"); // link_id
     }
 
     #[test]
@@ -1054,11 +1040,12 @@ mod tests {
 
         use crate::proto::controller::proto::v1::{ConnectionListResponse, RouteListResponse};
         use crate::proto::controlplane::proto::v1::{
-            AddSegmentRequest, AddSegmentResponse, AddTopologyLinkRequest, AddTopologyLinkResponse,
-            LinkEntry, LinkListRequest, Node as CpNode, NodeEntry, NodeListRequest,
-            RemoveSegmentRequest, RemoveSegmentResponse, RemoveTopologyLinkRequest,
-            RemoveTopologyLinkResponse, RouteEntry, RouteListRequest, SegmentListRequest,
-            SegmentListResponse,
+            AddGroupRequest, AddGroupResponse, AddSegmentRequest, AddSegmentResponse,
+            AddTopologyLinkRequest, AddTopologyLinkResponse, LinkEntry, LinkListRequest,
+            ListGroupsRequest, ListGroupsResponse, Node as CpNode, NodeEntry, NodeListRequest,
+            RemoveGroupRequest, RemoveGroupResponse, RemoveSegmentRequest, RemoveSegmentResponse,
+            RemoveTopologyLinkRequest, RemoveTopologyLinkResponse, RouteEntry, RouteListRequest,
+            SegmentListRequest, SegmentListResponse,
             control_plane_service_server::{ControlPlaneService, ControlPlaneServiceServer},
         };
         use slim_config::grpc::client::ClientConfig;
@@ -1166,6 +1153,27 @@ mod tests {
             ) -> Result<tonic::Response<RemoveTopologyLinkResponse>, tonic::Status> {
                 Ok(tonic::Response::new(RemoveTopologyLinkResponse {}))
             }
+
+            async fn list_groups(
+                &self,
+                _req: tonic::Request<ListGroupsRequest>,
+            ) -> Result<tonic::Response<ListGroupsResponse>, tonic::Status> {
+                Ok(tonic::Response::new(ListGroupsResponse { groups: vec![] }))
+            }
+
+            async fn add_group(
+                &self,
+                _req: tonic::Request<AddGroupRequest>,
+            ) -> Result<tonic::Response<AddGroupResponse>, tonic::Status> {
+                Ok(tonic::Response::new(AddGroupResponse {}))
+            }
+
+            async fn remove_group(
+                &self,
+                _req: tonic::Request<RemoveGroupRequest>,
+            ) -> Result<tonic::Response<RemoveGroupResponse>, tonic::Status> {
+                Ok(tonic::Response::new(RemoveGroupResponse {}))
+            }
         }
 
         async fn spawn_mock_cp_server() -> String {
@@ -1224,15 +1232,29 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn domain_list_succeeds() {
+        async fn group_list_succeeds() {
             let addr = spawn_mock_cp_server().await;
-            domain_list(&make_opts(&addr)).await.unwrap();
+            group_list(&make_opts(&addr)).await.unwrap();
         }
 
         #[tokio::test]
         async fn segment_list_succeeds() {
             let addr = spawn_mock_cp_server().await;
             segment_list(&make_opts(&addr)).await.unwrap();
+        }
+
+        #[tokio::test]
+        async fn group_add_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            group_add("my-group", "my-secret-01234567890", &make_opts(&addr))
+                .await
+                .unwrap();
+        }
+
+        #[tokio::test]
+        async fn group_remove_succeeds() {
+            let addr = spawn_mock_cp_server().await;
+            group_remove("my-group", &make_opts(&addr)).await.unwrap();
         }
 
         // ── error server ─────────────────────────────────────────────────────
@@ -1312,6 +1334,27 @@ mod tests {
             ) -> Result<tonic::Response<RemoveTopologyLinkResponse>, tonic::Status> {
                 Err(tonic::Status::internal("error"))
             }
+
+            async fn list_groups(
+                &self,
+                _: tonic::Request<ListGroupsRequest>,
+            ) -> Result<tonic::Response<ListGroupsResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+
+            async fn add_group(
+                &self,
+                _: tonic::Request<AddGroupRequest>,
+            ) -> Result<tonic::Response<AddGroupResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
+
+            async fn remove_group(
+                &self,
+                _: tonic::Request<RemoveGroupRequest>,
+            ) -> Result<tonic::Response<RemoveGroupResponse>, tonic::Status> {
+                Err(tonic::Status::internal("error"))
+            }
         }
 
         async fn spawn_cp_svc<S>(svc: S) -> String
@@ -1373,9 +1416,9 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn domain_list_grpc_error_propagates() {
+        async fn group_list_grpc_error_propagates() {
             let addr = spawn_cp_svc(ErrorControlPlaneSvc).await;
-            assert!(domain_list(&make_opts(&addr)).await.is_err());
+            assert!(group_list(&make_opts(&addr)).await.is_err());
         }
 
         #[tokio::test]

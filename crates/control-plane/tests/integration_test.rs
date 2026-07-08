@@ -1,11 +1,11 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-//! Integration tests for the SLIM control plane's inter-domain routing and lifecycle.
+//! Integration tests for the SLIM control plane's inter-group routing and lifecycle.
 //!
 //! These tests exercise the full stack: control plane, data plane nodes, and client apps.
 //! They cover link creation, route propagation, gateway failover, and cleanup scenarios
-//! in a segmented (multi-domain) topology.
+//! in a segmented (multi-group) topology.
 
 use rlimit::increase_nofile_limit;
 use std::time::Duration;
@@ -22,13 +22,14 @@ use slim_config::tls::provider::initialize_crypto_provider;
 use slim_config::tls::server::TlsServerConfig;
 use slim_control_plane::api::proto::controlplane::proto::v1::control_plane_service_client::ControlPlaneServiceClient;
 use slim_control_plane::api::proto::controlplane::proto::v1::{
-    AddSegmentRequest, AddTopologyLinkRequest, LinkEntry, LinkListRequest, NodeEntry,
-    NodeListRequest, RemoveSegmentRequest, RemoveTopologyLinkRequest, RouteEntry, RouteListRequest,
+    AddGroupRequest, AddSegmentRequest, AddTopologyLinkRequest, GroupEntry, LinkEntry,
+    LinkListRequest, ListGroupsRequest, NodeEntry, NodeListRequest, RemoveGroupRequest,
+    RemoveSegmentRequest, RemoveTopologyLinkRequest, RouteEntry, RouteListRequest,
     SegmentListRequest,
 };
 use slim_control_plane::config::{
     AdjacencyEntry, Config, DatabaseConfig, ReconcilerConfig, RegistrationAuthConfig,
-    SegmentConfig, TopologyConfig,
+    SegmentConfig, TopologyConfig, TopologySettings,
 };
 use slim_control_plane::server::ControlPlane;
 use slim_datapath::api::ProtoName as Name;
@@ -84,7 +85,7 @@ fn test_registration_auth() -> RegistrationAuthConfig {
     RegistrationAuthConfig::SharedSecret {
         secrets: TEST_DOMAIN_SECRETS
             .iter()
-            .map(|(d, s)| (d.to_string(), s.to_string()))
+            .map(|(g, s)| (g.to_string(), s.to_string()))
             .collect(),
     }
 }
@@ -138,8 +139,10 @@ async fn start_control_plane(topology: TopologyConfig) -> TestControlPlane {
             .with_tls_settings(TlsServerConfig::insecure()),
         database: DatabaseConfig::InMemory,
         reconciler: test_reconciler_config(),
-        topology,
-        registration_auth: Some(test_registration_auth()),
+        topology: TopologySettings {
+            config: topology,
+            auth: Some(test_registration_auth()),
+        },
         ..Default::default()
     };
 
@@ -239,7 +242,7 @@ async fn start_domain_node(
     }
 
     // The ID kind must be a valid kind (alphanumeric, no hyphens).
-    // The actual node registration uses config.node_id and config.domain_name.
+    // The actual node registration uses config.node_id and config.group_name.
     let svc_id = ID::new_with_str(&format!("slim/{name}")).unwrap();
     let mut svc = service_config.build_server(svc_id).unwrap();
     svc.start().await.unwrap();
@@ -247,12 +250,7 @@ async fn start_domain_node(
 }
 
 /// Start a single node in a domain (no peers).
-async fn start_single_node(
-    name: &str,
-    domain: &str,
-    southbound_port: u16,
-    dp_port: u16,
-) -> Service {
+async fn start_single_node(name: &str, domain: &str, southbound_port: u16, dp_port: u16) -> Service {
     start_domain_node(name, domain, southbound_port, dp_port, &[(name, dp_port)]).await
 }
 
@@ -373,10 +371,10 @@ async fn wait_for_nodes_connected(client: &mut NbClient, node_ids: &[&str], time
     }
 }
 
-async fn wait_for_link_between_domains(
+async fn wait_for_link_between_groups(
     client: &mut NbClient,
-    domain_a: &str,
-    domain_b: &str,
+    group_a: &str,
+    group_b: &str,
     timeout: Duration,
 ) {
     let deadline = tokio::time::Instant::now() + timeout;
@@ -386,10 +384,10 @@ async fn wait_for_link_between_domains(
             if l.deleted || l.status != LINK_APPLIED {
                 return false;
             }
-            let src_domain = l.source_node_id.split('/').next().unwrap_or("");
-            let dst_domain = l.dest_node_id.split('/').next().unwrap_or("");
-            (src_domain == domain_a && dst_domain == domain_b)
-                || (src_domain == domain_b && dst_domain == domain_a)
+            let src_group = l.source_node_id.split('/').next().unwrap_or("");
+            let dst_group = l.dest_node_id.split('/').next().unwrap_or("");
+            (src_group == group_a && dst_group == group_b)
+                || (src_group == group_b && dst_group == group_a)
         });
         if found {
             return;
@@ -405,7 +403,7 @@ async fn wait_for_link_between_domains(
                 })
                 .collect();
             panic!(
-                "timeout waiting for Applied link between domains {domain_a} and {domain_b}. Links: [{}]",
+                "timeout waiting for Applied link between groups {group_a} and {group_b}. Links: [{}]",
                 link_info.join(", ")
             );
         }
@@ -504,11 +502,11 @@ async fn wait_for_no_active_routes_with_name(
     }
 }
 
-/// Wait for an Applied link between two domains (in either direction) and return it.
-async fn wait_for_link_between_domains_entry(
+/// Wait for an Applied link between two groups (in either direction) and return it.
+async fn wait_for_link_between_groups_entry(
     client: &mut NbClient,
-    domain_a: &str,
-    domain_b: &str,
+    group_a: &str,
+    group_b: &str,
     timeout: Duration,
 ) -> LinkEntry {
     let deadline = tokio::time::Instant::now() + timeout;
@@ -521,7 +519,7 @@ async fn wait_for_link_between_domains_entry(
             }
             let sg = l.source_node_id.split('/').next().unwrap_or("");
             let dg = l.dest_node_id.split('/').next().unwrap_or("");
-            (sg == domain_a && dg == domain_b) || (sg == domain_b && dg == domain_a)
+            (sg == group_a && dg == group_b) || (sg == group_b && dg == group_a)
         }) {
             return link.clone();
         }
@@ -536,7 +534,7 @@ async fn wait_for_link_between_domains_entry(
                 })
                 .collect();
             panic!(
-                "timeout waiting for link between {domain_a} and {domain_b}. Links: [{}]",
+                "timeout waiting for link between {group_a} and {group_b}. Links: [{}]",
                 link_info.join(", ")
             );
         }
@@ -555,17 +553,17 @@ fn init_tracing() {
 // Tests
 // =============================================================================
 
-/// Test 1: Inter-domain links created and claimed
+/// Test 1: Inter-group links created and claimed
 ///
 /// Scenario:
 ///   - Start a control plane with full-mesh topology (default).
 ///   - Start one node in each of 3 domains: domain-a, domain-b, domain-c.
-///   - Verify that inter-domain links are automatically created between all domain
+///   - Verify that inter-group links are automatically created between all group
 ///     pairs and reach Applied status (meaning both sides have negotiated).
 ///
 /// Validates: topology graph -> link creation -> link claim via negotiation -> Applied.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_inter_domain_links_created_and_claimed() {
+async fn test_inter_group_links_created_and_claimed() {
     init_tracing();
 
     let cp = start_control_plane(full_mesh_topology()).await;
@@ -586,9 +584,9 @@ async fn test_inter_domain_links_created_and_claimed() {
     wait_for_nodes_connected(&mut client, &[&id_a, &id_b, &id_c], SHORT_TIMEOUT).await;
 
     // Full mesh of 3 domains = links between all 3 pairs.
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-c", DEFAULT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "domain-b", "domain-c", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-c", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-b", "domain-c", DEFAULT_TIMEOUT).await;
 
     // Verify all links are Applied and non-deleted.
     let links = collect_links(&mut client, "", "").await;
@@ -617,7 +615,7 @@ async fn test_inter_domain_links_created_and_claimed() {
 ///   - A second app subscribes on node-b:
 ///     - Verify wildcard route *->node-b and remote route node-a->node-b are created.
 ///     - Verify NO spurious wildcard *->node-a is created from propagation over
-///       the Remote inter-domain link.
+///       the Remote inter-group link.
 ///
 /// Validates: subscribe → CP notified → SPT expansion + no cross-link propagation.
 #[tokio::test(flavor = "multi_thread")]
@@ -637,7 +635,7 @@ async fn test_subscription_routing() {
     let id_b = domain_node_id("domain-b", "node-b");
 
     wait_for_nodes_connected(&mut client, &[&id_a, &id_b], SHORT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
 
     // App subscribes on node-a → creates wildcard + expanded route.
     let app_a = start_subscribing_app(a_port, "org", "ns", "local-sub").await;
@@ -690,7 +688,7 @@ async fn test_subscription_routing() {
     stop_control_plane(cp).await;
 }
 
-/// Test 4: Bidirectional inter-domain routes
+/// Test 4: Bidirectional inter-group routes
 ///
 /// Scenario:
 ///   - Start CP + 2 nodes in different domains.
@@ -699,9 +697,9 @@ async fn test_subscription_routing() {
 ///     - node-a->node-b for the service on node-b
 ///     - node-b->node-a for the service on node-a
 ///
-/// Validates: bidirectional traffic over a single inter-domain link pair.
+/// Validates: bidirectional traffic over a single inter-group link pair.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_bidirectional_inter_domain_routes() {
+async fn test_bidirectional_inter_group_routes() {
     init_tracing();
 
     let cp = start_control_plane(full_mesh_topology()).await;
@@ -717,7 +715,7 @@ async fn test_bidirectional_inter_domain_routes() {
     let id_b = domain_node_id("domain-b", "node-b");
 
     wait_for_nodes_connected(&mut client, &[&id_a, &id_b], SHORT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
 
     // App on node-a subscribes to svc-a.
     let app_a = start_subscribing_app(a_port, "org", "ns", "svc-a").await;
@@ -775,8 +773,8 @@ async fn test_spt_route_via_hub() {
     .await;
 
     // Spoke-to-hub links.
-    wait_for_link_between_domains(&mut client, "customer-a", "platform", DEFAULT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "customer-b", "platform", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "customer-a", "platform", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "customer-b", "platform", DEFAULT_TIMEOUT).await;
 
     // Verify NO spoke-to-spoke link.
     let links = collect_links(&mut client, "", "").await;
@@ -836,9 +834,9 @@ async fn test_multicast_no_duplicate_routes() {
     let id_c = domain_node_id("domain-c", "node-c");
 
     wait_for_nodes_connected(&mut client, &[&id_a, &id_b, &id_c], SHORT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-c", DEFAULT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "domain-b", "domain-c", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-c", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-b", "domain-c", DEFAULT_TIMEOUT).await;
 
     // First subscriber on node-a.
     let app_a = start_subscribing_app(a_port, "org", "ns", "multicast").await;
@@ -911,11 +909,11 @@ async fn test_source_gateway_failover() {
     let id_b = domain_node_id("domain-b", "node-b");
 
     wait_for_nodes_connected(&mut client, &[&id_a1, &id_a2, &id_b], SHORT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
 
     // Find which node in domain-a is the gateway.
     let link =
-        wait_for_link_between_domains_entry(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT)
+        wait_for_link_between_groups_entry(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT)
             .await;
 
     let gateway_id = if link.source_node_id.starts_with("domain-a") {
@@ -950,9 +948,9 @@ async fn test_source_gateway_failover() {
         let links = collect_links(&mut client, "", "").await;
         let new_link = links.iter().any(|l| {
             let involves_sibling = l.source_node_id == sibling_id || l.dest_node_id == sibling_id;
-            let involves_domain_b =
+            let involves_group_b =
                 l.source_node_id.starts_with("domain-b") || l.dest_node_id.starts_with("domain-b");
-            involves_sibling && involves_domain_b && l.status == LINK_APPLIED && !l.deleted
+            involves_sibling && involves_group_b && l.status == LINK_APPLIED && !l.deleted
         });
         if new_link {
             break;
@@ -981,7 +979,7 @@ async fn test_source_gateway_failover() {
 ///
 /// Scenario:
 ///   - Start CP + 1 node in domain-a + 2 nodes in domain-b (node-b1, node-b2).
-///   - Wait for inter-domain link targeting one of domain-b's nodes.
+///   - Wait for inter-group link targeting one of domain-b's nodes.
 ///   - Kill the dest gateway in domain-b.
 ///   - Verify: a new link is created targeting the sibling in domain-b.
 ///
@@ -1009,13 +1007,13 @@ async fn test_dest_gateway_failover() {
     let id_b2 = domain_node_id("domain-b", "node-b2");
 
     wait_for_nodes_connected(&mut client, &[&id_a, &id_b1, &id_b2], SHORT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
 
     tracing::info!("Initial link established between domain-a and domain-b");
 
     // Find which node in domain-b is involved in the link (as source or dest).
     let link =
-        wait_for_link_between_domains_entry(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT)
+        wait_for_link_between_groups_entry(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT)
             .await;
 
     // Determine which domain-b node is the gateway (could be source or dest side).
@@ -1050,9 +1048,9 @@ async fn test_dest_gateway_failover() {
         let links = collect_links(&mut client, "", "").await;
         let new_link = links.iter().any(|l| {
             let involves_sibling = l.source_node_id == b_sibling || l.dest_node_id == b_sibling;
-            let involves_domain_a =
+            let involves_group_a =
                 l.source_node_id.starts_with("domain-a") || l.dest_node_id.starts_with("domain-a");
-            involves_sibling && involves_domain_a && l.status == LINK_APPLIED && !l.deleted
+            involves_sibling && involves_group_a && l.status == LINK_APPLIED && !l.deleted
         });
         if new_link {
             break;
@@ -1098,7 +1096,7 @@ async fn test_wildcard_route_deleted_on_node_crash() {
     let id_b = domain_node_id("domain-b", "node-b");
 
     wait_for_nodes_connected(&mut client, &[&id_a, &id_b], SHORT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
 
     // App subscribes on node-a.
     let _app = start_subscribing_app(a_port, "org", "ns", "crash-svc").await;
@@ -1144,7 +1142,7 @@ async fn test_route_restored_after_reconnect() {
     let id_b = domain_node_id("domain-b", "node-b");
 
     wait_for_nodes_connected(&mut client, &[&id_a, &id_b], SHORT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
 
     // App subscribes.
     let app = start_subscribing_app(a_port, "org", "ns", "reconnect-svc").await;
@@ -1163,7 +1161,7 @@ async fn test_route_restored_after_reconnect() {
     // Restart node-a on same port.
     let node_a2 = start_single_node("node-a", "domain-a", cp.southbound_port, a_port).await;
     wait_for_nodes_connected(&mut client, &[&id_a], SHORT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
 
     // New app subscribes.
     let app2 = start_subscribing_app(a_port, "org", "ns", "reconnect-svc").await;
@@ -1204,7 +1202,7 @@ async fn test_app_disconnect_removes_routes() {
     let id_b = domain_node_id("domain-b", "node-b");
 
     wait_for_nodes_connected(&mut client, &[&id_a, &id_b], SHORT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
 
     // App subscribes.
     let app = start_subscribing_app(a_port, "org", "ns", "disconnect-svc").await;
@@ -1228,18 +1226,18 @@ async fn test_app_disconnect_removes_routes() {
     stop_control_plane(cp).await;
 }
 
-/// Test 12: Last node in domain removes domain from topology
+/// Test 12: Last node in group removes group from topology
 ///
 /// Scenario:
-///   - Start CP + 3 nodes in 3 different domains.
-///   - Verify links between all domains.
-///   - Shut down the node in one domain (removing the domain entirely).
-///   - Verify links involving that domain are cleaned up.
-///   - Verify remaining domains still have their link.
+///   - Start CP + 3 nodes in 3 different groups.
+///   - Verify links between all groups.
+///   - Shut down the node in one group (removing the group entirely).
+///   - Verify links involving that group are cleaned up.
+///   - Verify remaining groups still have their link.
 ///
-/// Validates: domain removal from link graph when all nodes depart.
+/// Validates: group removal from link graph when all nodes depart.
 #[tokio::test(flavor = "multi_thread")]
-async fn test_last_node_removes_domain_links() {
+async fn test_last_node_removes_group_links() {
     init_tracing();
 
     let cp = start_control_plane(full_mesh_topology()).await;
@@ -1258,9 +1256,9 @@ async fn test_last_node_removes_domain_links() {
     let id_c = domain_node_id("domain-c", "node-c");
 
     wait_for_nodes_connected(&mut client, &[&id_a, &id_b, &id_c], SHORT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-c", DEFAULT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "domain-b", "domain-c", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-c", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-b", "domain-c", DEFAULT_TIMEOUT).await;
 
     // Kill the only node in domain-a.
     // Use deregister() to explicitly notify the CP (shutdown alone doesn't
@@ -1271,7 +1269,7 @@ async fn test_last_node_removes_domain_links() {
 
     // Links involving domain-a should be deleted or gone.
     let links = collect_links(&mut client, "", "").await;
-    let active_domain_a_links: Vec<_> = links
+    let active_group_a_links: Vec<_> = links
         .iter()
         .filter(|l| {
             !l.deleted
@@ -1281,16 +1279,16 @@ async fn test_last_node_removes_domain_links() {
         })
         .collect();
     assert!(
-        active_domain_a_links.is_empty(),
+        active_group_a_links.is_empty(),
         "expected no active links for domain-a after node departed, found: {:?}",
-        active_domain_a_links
+        active_group_a_links
             .iter()
             .map(|l| format!("{}->{}", l.source_node_id, l.dest_node_id))
             .collect::<Vec<_>>()
     );
 
     // Link between domain-b and domain-c should still exist.
-    wait_for_link_between_domains(&mut client, "domain-b", "domain-c", SHORT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-b", "domain-c", SHORT_TIMEOUT).await;
 
     node_b.shutdown().await.ok();
     node_c.shutdown().await.ok();
@@ -1306,7 +1304,7 @@ async fn test_last_node_removes_domain_links() {
 ///   - Restart node-b on the same port.
 ///   - Verify the link is re-established and expanded route becomes Applied again.
 ///
-/// Validates: full crash->recovery cycle for a single-node domain with subscription-based routes.
+/// Validates: full crash->recovery cycle for a single-node group with subscription-based routes.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_node_crash_and_link_recovery() {
     init_tracing();
@@ -1324,7 +1322,7 @@ async fn test_node_crash_and_link_recovery() {
     let id_b = domain_node_id("domain-b", "node-b");
 
     wait_for_nodes_connected(&mut client, &[&id_a, &id_b], SHORT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
 
     // App subscribes on node-a — creates wildcard template + expanded route via SPT.
     let app = start_subscribing_app(a_port, "org", "ns", "recovery-svc").await;
@@ -1341,7 +1339,7 @@ async fn test_node_crash_and_link_recovery() {
     wait_for_nodes_connected(&mut client, &[&id_b], SHORT_TIMEOUT).await;
 
     // Link should be re-established and expanded route re-applied.
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
     wait_for_route_applied(&mut client, &id_b, &id_a, DEFAULT_TIMEOUT).await;
 
     app.shutdown().await.ok();
@@ -1377,7 +1375,7 @@ async fn test_multiple_wildcard_routes_different_names() {
     let id_b = domain_node_id("domain-b", "node-b");
 
     wait_for_nodes_connected(&mut client, &[&id_a, &id_b], SHORT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
 
     // Two different services subscribe on node-a.
     let app_svc1 = start_subscribing_app(a_port, "org", "ns", "svc-alpha").await;
@@ -1467,7 +1465,7 @@ async fn test_reconnect_different_endpoint() {
     let id_b = domain_node_id("domain-b", "node-b");
 
     wait_for_nodes_connected(&mut client, &[&id_a, &id_b], SHORT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
 
     // App subscribes.
     let app = start_subscribing_app(a_port, "org", "ns", "endpoint-svc").await;
@@ -1484,16 +1482,15 @@ async fn test_reconnect_different_endpoint() {
     wait_for_nodes_connected(&mut client, &[&id_b], SHORT_TIMEOUT).await;
 
     // Link should be re-established (with new endpoint).
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
 
     // Route should recover.
     wait_for_route_applied(&mut client, &id_b, &id_a, DEFAULT_TIMEOUT).await;
 
     // Verify the link involves node-b's new endpoint. The link direction may
-    // vary, so check that the link is between the domains and active.
+    // vary, so check that the link is between the groups and active.
     let link =
-        wait_for_link_between_domains_entry(&mut client, "domain-a", "domain-b", SHORT_TIMEOUT)
-            .await;
+        wait_for_link_between_groups_entry(&mut client, "domain-a", "domain-b", SHORT_TIMEOUT).await;
     // The link should be fully established (both source and dest populated).
     assert!(
         !link.source_node_id.is_empty() && !link.dest_node_id.is_empty(),
@@ -1543,8 +1540,8 @@ async fn test_star_topology_hub_crash_and_recovery() {
         SHORT_TIMEOUT,
     )
     .await;
-    wait_for_link_between_domains(&mut client, "customer-a", "platform", DEFAULT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "customer-b", "platform", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "customer-a", "platform", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "customer-b", "platform", DEFAULT_TIMEOUT).await;
 
     // App subscribes on spoke-a → spoke-b gets route via hub.
     let app = start_subscribing_app(spoke_a_port, "org", "ns", "hub-crash-svc").await;
@@ -1580,8 +1577,8 @@ async fn test_star_topology_hub_crash_and_recovery() {
     wait_for_nodes_connected(&mut client, &[&id_hub], SHORT_TIMEOUT).await;
 
     // Links should be re-established.
-    wait_for_link_between_domains(&mut client, "customer-a", "platform", DEFAULT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "customer-b", "platform", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "customer-a", "platform", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "customer-b", "platform", DEFAULT_TIMEOUT).await;
 
     // The original app's subscription on spoke-a is still active. After the
     // links recover, the subscription should propagate over the new link to
@@ -1599,8 +1596,8 @@ async fn test_star_topology_hub_crash_and_recovery() {
     stop_control_plane(cp).await;
 }
 
-/// Helper: build a segmented star topology with `$domain` template.
-/// Hub domain connects to each spoke domain in a separate segment.
+/// Helper: build a segmented star topology with `$group` template.
+/// Hub group connects to each spoke group in a separate segment.
 fn segmented_star_topology(hub_domain: &str) -> TopologyConfig {
     TopologyConfig::Segments(vec![SegmentConfig {
         name: "seg-$domain".to_string(),
@@ -1614,13 +1611,13 @@ fn segmented_star_topology(hub_domain: &str) -> TopologyConfig {
 /// Test: Segmented star topology isolates spokes but hub bridges all segments.
 ///
 /// Scenario:
-///   - CP with segmented star topology ($domain template): platform↔$domain.
+///   - CP with segmented star topology ($group template): platform↔$group.
 ///   - 3 nodes: hub (platform), spoke-a (customer-a), spoke-b (customer-b).
 ///   - App subscribes on spoke-a → hub gets a route, spoke-b does NOT.
 ///   - App subscribes on hub → both spokes get a route.
 ///   - No spoke-to-spoke links.
 ///
-/// Validates: segment isolation, hub bridging, $domain template expansion.
+/// Validates: segment isolation, hub bridging, $group template expansion.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_segmented_star_isolates_spokes() {
     init_tracing();
@@ -1650,8 +1647,8 @@ async fn test_segmented_star_isolates_spokes() {
     .await;
 
     // Hub should have links to both spokes.
-    wait_for_link_between_domains(&mut client, "customer-a", "platform", DEFAULT_TIMEOUT).await;
-    wait_for_link_between_domains(&mut client, "customer-b", "platform", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "customer-a", "platform", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "customer-b", "platform", DEFAULT_TIMEOUT).await;
 
     // Verify NO spoke-to-spoke link.
     let links = collect_links(&mut client, "", "").await;
@@ -1708,7 +1705,7 @@ async fn test_segmented_star_isolates_spokes() {
 /// Scenario:
 ///   - Start CP in API-managed mode (no topology config).
 ///   - Pre-configure segment + link before nodes exist (returns warnings).
-///   - Start two nodes in different domains → link becomes Applied.
+///   - Start two nodes in different groups → link becomes Applied.
 ///   - Verify idempotent add_topology_link (SQLite ON CONFLICT DO NOTHING).
 ///   - Remove the link → link is torn down, route cleaned up.
 ///   - Re-add link → route restored.
@@ -1730,8 +1727,8 @@ async fn test_api_mode_topology_lifecycle() {
 
     let resp = client
         .add_topology_link(AddTopologyLinkRequest {
-            domain_a: "domain-a".to_string(),
-            domain_b: "domain-b".to_string(),
+            group_a: "domain-a".to_string(),
+            group_b: "domain-b".to_string(),
             segment: "test-seg".to_string(),
         })
         .await
@@ -1746,8 +1743,8 @@ async fn test_api_mode_topology_lifecycle() {
     // Verify idempotency: adding the same link again should succeed.
     client
         .add_topology_link(AddTopologyLinkRequest {
-            domain_a: "domain-a".to_string(),
-            domain_b: "domain-b".to_string(),
+            group_a: "domain-a".to_string(),
+            group_b: "domain-b".to_string(),
             segment: "test-seg".to_string(),
         })
         .await
@@ -1766,7 +1763,7 @@ async fn test_api_mode_topology_lifecycle() {
     wait_for_nodes_connected(&mut client, &[&id_a, &id_b], SHORT_TIMEOUT).await;
 
     // Wait for link to be created and reach Applied status.
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
 
     // Start a subscribing app on node-a → should create a route from node-b to node-a.
     let app_a = start_subscribing_app(a_port, "org", "ns", "api-svc").await;
@@ -1775,8 +1772,8 @@ async fn test_api_mode_topology_lifecycle() {
     // Remove link via API → routes through that link should be cleaned up.
     client
         .remove_topology_link(RemoveTopologyLinkRequest {
-            domain_a: "domain-a".to_string(),
-            domain_b: "domain-b".to_string(),
+            group_a: "domain-a".to_string(),
+            group_b: "domain-b".to_string(),
             segment: "test-seg".to_string(),
         })
         .await
@@ -1805,14 +1802,14 @@ async fn test_api_mode_topology_lifecycle() {
     // Re-add the link → route should be re-created via expand_all_wildcard_routes.
     client
         .add_topology_link(AddTopologyLinkRequest {
-            domain_a: "domain-a".to_string(),
-            domain_b: "domain-b".to_string(),
+            group_a: "domain-a".to_string(),
+            group_b: "domain-b".to_string(),
             segment: "test-seg".to_string(),
         })
         .await
         .expect("re-add topology link failed");
 
-    wait_for_link_between_domains(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
+    wait_for_link_between_groups(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
     wait_for_route_applied(&mut client, &id_b, &id_a, DEFAULT_TIMEOUT).await;
 
     // Remove segment (cascades link deletion) → route should be cleaned up again.
@@ -1871,8 +1868,8 @@ async fn test_config_mode_rejects_topology_mutations() {
 
     let err = client
         .add_topology_link(AddTopologyLinkRequest {
-            domain_a: "a".to_string(),
-            domain_b: "b".to_string(),
+            group_a: "a".to_string(),
+            group_b: "b".to_string(),
             segment: "default".to_string(),
         })
         .await
@@ -1973,14 +1970,8 @@ async fn auth_rejects_no_credentials() {
 
     let dp_port = reserve_port();
     // No auth config → empty credentials in registration request.
-    let _no_auth_node = start_node_with_auth(
-        "no-auth-node",
-        "domain-a",
-        cp.southbound_port,
-        dp_port,
-        None,
-    )
-    .await;
+    let _no_auth_node =
+        start_node_with_auth("no-auth-node", "domain-a", cp.southbound_port, dp_port, None).await;
 
     // Give it time to attempt registration.
     tokio::time::sleep(Duration::from_secs(3)).await;
@@ -1991,6 +1982,177 @@ async fn auth_rejects_no_credentials() {
         !nodes.iter().any(|n| n.id.contains("no-auth-node")),
         "node with no credentials should not be registered, but found: {:?}",
         nodes.iter().map(|n| &n.id).collect::<Vec<_>>()
+    );
+
+    stop_control_plane(cp).await;
+}
+
+// =============================================================================
+// Group management API integration tests
+// =============================================================================
+
+/// Start a control plane in API mode with shared_secret auth (empty initial secrets).
+async fn start_control_plane_api_mode() -> TestControlPlane {
+    initialize_crypto_provider();
+
+    let northbound_port = reserve_port();
+    let southbound_port = reserve_port();
+
+    let cfg = Config {
+        northbound: ServerConfig::with_endpoint(&format!("127.0.0.1:{northbound_port}"))
+            .with_tls_settings(TlsServerConfig::insecure()),
+        southbound: ServerConfig::with_endpoint(&format!("127.0.0.1:{southbound_port}"))
+            .with_tls_settings(TlsServerConfig::insecure()),
+        database: DatabaseConfig::InMemory,
+        reconciler: test_reconciler_config(),
+        topology: TopologySettings {
+            config: TopologyConfig::ApiManaged,
+            auth: Some(RegistrationAuthConfig::SharedSecret {
+                secrets: std::collections::HashMap::new(),
+            }),
+        },
+        ..Default::default()
+    };
+
+    let cp = ControlPlane::start(cfg)
+        .await
+        .expect("failed to start control plane");
+
+    TestControlPlane {
+        northbound_port,
+        southbound_port,
+        cp,
+    }
+}
+
+/// Helper to collect groups via the ListGroups API.
+async fn collect_groups(client: &mut NbClient) -> Vec<GroupEntry> {
+    client
+        .list_groups(ListGroupsRequest {})
+        .await
+        .expect("list_groups failed")
+        .into_inner()
+        .groups
+}
+
+/// Test: Add a group via API, then a node registers with that secret.
+///
+/// Scenario:
+///   - Start CP in API mode with shared_secret auth (empty initial secrets).
+///   - Add a group via AddGroup API.
+///   - Start a node using the same secret → it should register successfully.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_add_group_then_node_registers() {
+    init_tracing();
+
+    let cp = start_control_plane_api_mode().await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+
+    let domain_name = "dynamic-group";
+    let secret = "dynamic-secret-01234567890abcdef";
+
+    // Add the group via northbound API.
+    client
+        .add_group(AddGroupRequest {
+            domain_name: domain_name.to_string(),
+            secret: secret.to_string(),
+        })
+        .await
+        .expect("add_group failed");
+
+    // Verify the group appears in list_groups with no nodes.
+    let groups = collect_groups(&mut client).await;
+    let entry = groups
+        .iter()
+        .find(|g| g.group_name == domain_name)
+        .expect("group should appear in list_groups");
+    assert!(entry.nodes.is_empty());
+
+    // Start a node using the dynamically-added secret.
+    let dp_port = reserve_port();
+    let node_auth = Some(AuthConfig::SharedSecret {
+        id: Some(format!("{domain_name}/node-1")),
+        secret: secret.to_string(),
+    });
+    let node =
+        start_node_with_auth("node-1", domain_name, cp.southbound_port, dp_port, node_auth).await;
+
+    let node_id = domain_node_id(domain_name, "node-1");
+    wait_for_nodes_connected(&mut client, &[&node_id], DEFAULT_TIMEOUT).await;
+
+    // Verify list_groups now shows the node.
+    let groups = collect_groups(&mut client).await;
+    let entry = groups
+        .iter()
+        .find(|g| g.group_name == domain_name)
+        .expect("group should still be in list");
+    assert_eq!(entry.nodes, vec![node_id.clone()]);
+
+    node.shutdown().await.ok();
+    stop_control_plane(cp).await;
+}
+
+/// Test: Remove a group disconnects connected nodes.
+///
+/// Scenario:
+///   - Start CP in API mode, add a group, connect a node.
+///   - Call RemoveGroup → node should be disconnected and deregistered.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remove_group_kicks_connected_node() {
+    init_tracing();
+
+    let cp = start_control_plane_api_mode().await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+
+    let domain_name = "evict-group";
+    let secret = "evict-secret-01234567890abcdefghijklmnop";
+
+    // Add group and connect a node.
+    client
+        .add_group(AddGroupRequest {
+            domain_name: domain_name.to_string(),
+            secret: secret.to_string(),
+        })
+        .await
+        .expect("add_group failed");
+
+    let dp_port = reserve_port();
+    let node_auth = Some(AuthConfig::SharedSecret {
+        id: Some(format!("{domain_name}/node-x")),
+        secret: secret.to_string(),
+    });
+    let _node =
+        start_node_with_auth("node-x", domain_name, cp.southbound_port, dp_port, node_auth).await;
+
+    let node_id = domain_node_id(domain_name, "node-x");
+    wait_for_nodes_connected(&mut client, &[&node_id], DEFAULT_TIMEOUT).await;
+
+    // Remove the group.
+    client
+        .remove_group(RemoveGroupRequest {
+            domain_name: domain_name.to_string(),
+        })
+        .await
+        .expect("remove_group failed");
+
+    // Wait for the node to disappear from the node list.
+    let deadline = tokio::time::Instant::now() + DEFAULT_TIMEOUT;
+    loop {
+        let nodes = collect_nodes(&mut client).await;
+        if !nodes.iter().any(|n| n.id == node_id) {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!("timeout waiting for node to be deregistered after remove_group");
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    // Verify the group is gone from list_groups.
+    let groups = collect_groups(&mut client).await;
+    assert!(
+        !groups.iter().any(|g| g.group_name == domain_name),
+        "group should have been removed"
     );
 
     stop_control_plane(cp).await;

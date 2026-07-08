@@ -90,6 +90,17 @@ impl ControllerService for SouthboundApiService {
                 Ok(r) => r,
                 Err(e) => {
                     tracing::error!("southbound: registration failed: {e}");
+                    // Send an explicit rejection so the node knows to stop retrying.
+                    let rejection = ControlMessage {
+                        message_id: Uuid::new_v4().to_string(),
+                        payload: Some(Payload::RegisterNodeResponse(RegisterNodeResponse {
+                            original_message_id: String::new(),
+                            success: false,
+                            connections: vec![],
+                            routes: vec![],
+                        })),
+                    };
+                    let _ = tx.send(Ok(rejection));
                     return;
                 }
             };
@@ -150,7 +161,7 @@ async fn receive_register(
         }
     };
 
-    // Verify domain membership before proceeding with registration.
+    // Verify group membership before proceeding with registration.
     let claimed_domain = reg_req.domain_name.as_deref().unwrap_or("");
     if claimed_domain.is_empty() && !matches!(authenticator, DomainAuthenticator::Noop) {
         return Err(Error::InvalidInput(format!(
