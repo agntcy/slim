@@ -60,10 +60,10 @@ mod tests {
 
     // The pure backend under its native-test name, or the production backend on
     // wasm (where it already is the pure one). Used by the parity tests below.
-    #[cfg(not(target_arch = "wasm32"))]
-    use super::backend_pure;
     #[cfg(target_arch = "wasm32")]
     use super::backend as backend_pure;
+    #[cfg(not(target_arch = "wasm32"))]
+    use super::backend_pure;
 
     fn empty_header() -> crate::api::proto::dataplane::v1::SlimHeader {
         crate::api::proto::dataplane::v1::SlimHeader {

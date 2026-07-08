@@ -305,10 +305,10 @@ mod tests {
 
     // The pure backend under its native-test name, or the production backend on
     // wasm (where it already is the pure one). Used by the parity tests below.
-    #[cfg(not(target_arch = "wasm32"))]
-    use super::backend_pure;
     #[cfg(target_arch = "wasm32")]
     use super::backend as backend_pure;
+    #[cfg(not(target_arch = "wasm32"))]
+    use super::backend_pure;
 
     fn test_key() -> Vec<u8> {
         b"01234567890123456789012345678901".to_vec()
