@@ -592,7 +592,7 @@ impl SessionController {
     pub async fn pause(&self) -> Result<CompletionHandle, SessionError> {
         let msg = Message::builder()
             .source(self.source().clone())
-            .destination(self.dst().clone())// this needs to be updated with cotrol channel destination
+            .destination(self.dst().clone()) // this needs to be updated with cotrol channel destination
             .identity("")
             .session_type(self.session_type())
             .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
@@ -600,14 +600,11 @@ impl SessionController {
             .message_id(rand::random::<u32>())
             .payload(
                 CommandPayload::builder()
-                    .update_participant_state(
-                        self.source().clone(),
-                        ParticipantState::OffLine,
-                    )
+                    .update_participant_state(self.source().clone(), ParticipantState::OffLine)
                     .as_content(),
             )
             .build_publish()?;
-        
+
         self.publish_message(msg).await
     }
 

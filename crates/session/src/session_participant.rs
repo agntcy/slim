@@ -6,8 +6,8 @@ use std::{collections::HashMap, time::Duration};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, Participant, ParticipantSettings, ProtoMessage as Message, ProtoName,
-        ProtoSessionMessageType, ProtoSessionType,
+        CommandPayload, Participant, ParticipantSettings, ParticipantState,
+        ProtoMessage as Message, ProtoName, ProtoSessionMessageType, ProtoSessionType,
     },
     messages::utils::{LEAVING_SESSION, TRUE_VAL},
 };
@@ -26,6 +26,11 @@ use crate::{
     traits::{MessageHandler, ProcessingState},
 };
 
+struct State {
+    settings: ParticipantSettings,
+    state: ParticipantState,
+}
+
 pub struct SessionParticipant<P, V, I, M = SubscriptionManager>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -37,7 +42,7 @@ where
     moderator_name: Option<ProtoName>,
 
     /// list of participants
-    group_list: HashMap<ProtoName, ParticipantSettings>,
+    group_list: HashMap<ProtoName, State>,
 
     /// mls state
     mls_state: Option<MlsState<P, V>>,
@@ -380,14 +385,10 @@ where
                 );
                 match direction {
                     MessageDirection::North => {
-                        // The message is coming from SLIM, some one in the group has changed its state
-                        // TODO: update the particioant list
-                        Ok(SessionOutput::new())
+                        self.on_update_participant_state_from_slim(message).await
                     }
                     MessageDirection::South => {
-                        // The message is coming from the application. We need to send the message to the group
-                        // TODO: update message with the rigth destionation, create a task and send the message
-                        Ok(SessionOutput::new())
+                        self.on_update_participant_state_from_app(message).await
                     }
                 }
             }
@@ -510,7 +511,11 @@ where
             .participants;
         for p in list {
             let name = p.get_name()?;
-            self.group_list.insert(name.clone(), *p.get_settings()?);
+            let state = State {
+                settings: *p.get_settings()?,
+                state: ParticipantState::OnLine,
+            };
+            self.group_list.insert(name.clone(), state);
 
             if name != self.common.settings.source.clone() {
                 debug!(name = %msg.get_source(), "add endpoint to the session");
@@ -569,8 +574,11 @@ where
                 .as_group_add_payload()?;
             if let Some(ref new_participant) = p.new_participant {
                 let name = new_participant.get_name()?;
-                self.group_list
-                    .insert(name.clone(), *new_participant.get_settings()?);
+                let state = State {
+                    settings: *new_participant.get_settings()?,
+                    state: ParticipantState::OnLine,
+                };
+                self.group_list.insert(name.clone(), state);
 
                 debug!(name  = %msg.get_source(), "add endpoint to session");
                 // add a route to the new endpoint, this is needed in case of message retransmission
@@ -609,6 +617,113 @@ where
             false,
         )?;
         Ok(SessionOutput::to_slim(msg))
+    }
+
+    async fn on_update_participant_state_from_slim(
+        &mut self,
+        message: Message,
+    ) -> Result<SessionOutput, SessionError> {
+        let payload = message
+            .get_payload()
+            .ok_or(SessionError::MissingPayload {
+                context: "update_participant_state",
+            })?
+            .as_command_payload()?
+            .as_update_participant_state_payload()?;
+
+        let participant_name = payload
+            .participant
+            .as_ref()
+            .ok_or(SessionError::MissingPayload {
+                context: "update_participant_state: missing participant name",
+            })?
+            .clone();
+
+        let new_state = ParticipantState::try_from(payload.new_state).map_err(|_| {
+            SessionError::MissingPayload {
+                context: "update_participant_state: invalid participant state",
+            }
+        })?;
+
+        match new_state {
+            ParticipantState::OffLine => {
+                // Participant went offline: update state, remove route
+                if let Some(state) = self.group_list.get_mut(&participant_name) {
+                    if state.state == ParticipantState::OffLine {
+                        debug!(
+                            name = %participant_name,
+                            "received offline state for participant already offline",
+                        );
+                        return Ok(SessionOutput::new());
+                    }
+                    state.state = ParticipantState::OffLine;
+                } else {
+                    debug!(
+                        name = %participant_name,
+                        "received offline state for unknown participant",
+                    );
+                    return Ok(SessionOutput::new());
+                }
+                self.common
+                    .delete_route(participant_name.clone(), message.get_incoming_conn())
+                    .await?;
+                self.remove_endpoint(&participant_name);
+            }
+            ParticipantState::OnLine => {
+                // Participant came back online: update state, add route
+                let settings;
+                if let Some(state) = self.group_list.get_mut(&participant_name) {
+                    state.state = ParticipantState::OnLine;
+                    settings = state.settings.clone();
+                } else {
+                    debug!(
+                        name = %participant_name,
+                        "received online state for unknown participant",
+                    );
+                    return Ok(SessionOutput::new());
+                }
+
+                self.common
+                    .add_route(participant_name.clone(), message.get_incoming_conn())
+                    .await?;
+                let participant = Participant::new(participant_name, settings);
+                self.add_endpoint(&participant).await?;
+            }
+        }
+
+        // Send ACK back to the source
+        let ack = self.common.create_control_message(
+            &message.get_source(),
+            ProtoSessionMessageType::GroupAck,
+            message.get_id(),
+            CommandPayload::builder().group_ack().as_content(),
+            false,
+        )?;
+
+        Ok(SessionOutput::to_slim(ack))
+    }
+
+    async fn on_update_participant_state_from_app(
+        &mut self,
+        message: Message,
+    ) -> Result<SessionOutput, SessionError> {
+        let destination = self.common.settings.control.clone();
+        let msg_id = message.get_id();
+        let payload = message
+            .get_payload()
+            .ok_or(SessionError::MissingPayload {
+                context: "update_participant_state_from_app",
+            })?
+            .clone();
+
+        self.common.send_control_message(
+            &destination,
+            ProtoSessionMessageType::UpdateParticipantState,
+            msg_id,
+            payload,
+            None,
+            true,
+        )
     }
 
     async fn on_leave_request(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {
@@ -1064,10 +1179,13 @@ mod tests {
         participant.moderator_name = Some(moderator.clone());
 
         let removed_participant_name = make_name(&["removed", "app", "v1"]).with_id(500);
-        participant.group_list.insert(
-            removed_participant_name.clone(),
-            ParticipantSettings::bidirectional(),
-        );
+        let state = State {
+            settings: ParticipantSettings::bidirectional(),
+            state: ParticipantState::OnLine,
+        };
+        participant
+            .group_list
+            .insert(removed_participant_name.clone(), state);
 
         let remove_msg = Message::builder()
             .source(moderator.clone())
@@ -1429,7 +1547,9 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result: Result<SessionOutput, SessionError> = participant.process_control_message(MessageDirection::South, discovery_msg).await;
+        let result: Result<SessionOutput, SessionError> = participant
+            .process_control_message(MessageDirection::South, discovery_msg)
+            .await;
         assert!(result.is_ok()); // Should handle gracefully
     }
 

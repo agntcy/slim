@@ -2449,8 +2449,7 @@ mod message_tests {
         assert_eq!(extracted.new_state, ParticipantState::OffLine as i32);
 
         // RejoinRequest
-        let payload = CommandPayload::builder()
-            .rejoin_request(dest.clone(), 42, 7);
+        let payload = CommandPayload::builder().rejoin_request(dest.clone(), 42, 7);
         let extracted = payload.as_rejoin_request_payload().unwrap();
         assert_eq!(extracted.participant, Some(dest.clone()));
         assert_eq!(extracted.session_id, 42);
@@ -2519,8 +2518,7 @@ mod message_tests {
     fn test_builder_with_rejoin_request_payload() {
         let source = ProtoName::from_strings(["org", "ns", "participant1"]).with_id(1);
         let dest = ProtoName::from_strings(["org", "ns", "moderator"]).with_id(2);
-        let cmd_payload = CommandPayload::builder()
-            .rejoin_request(source.clone(), 100, 5);
+        let cmd_payload = CommandPayload::builder().rejoin_request(source.clone(), 100, 5);
 
         let msg = ProtoMessage::builder()
             .source(source)

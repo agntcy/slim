@@ -22,9 +22,17 @@ use tokio::sync::oneshot;
 use tracing::debug;
 
 use crate::{
-    Direction, common::{MessageDirection, SessionMessage, SessionOutput}, errors::SessionError, mls_state::{MlsModeratorState, MlsState}, moderator_task::{
+    common::{MessageDirection, SessionMessage, SessionOutput},
+    errors::SessionError,
+    mls_state::{MlsModeratorState, MlsState},
+    moderator_task::{
         AddParticipant, ModeratorTask, NotifyParticipants, RemoveParticipant, TaskUpdate,
-    }, runtime::maybe_await, session_controller::{SessionControllerCommon, sign_control_messages}, session_settings::SessionSettings, subscription_manager::{SubscriptionManager, SubscriptionOps}, traits::{MessageHandler, ProcessingState},
+    },
+    runtime::maybe_await,
+    session_controller::{SessionControllerCommon, sign_control_messages},
+    session_settings::SessionSettings,
+    subscription_manager::{SubscriptionManager, SubscriptionOps},
+    traits::{MessageHandler, ProcessingState},
 };
 
 pub struct SessionModerator<P, V, I, M = SubscriptionManager>
@@ -133,7 +141,10 @@ where
                         source = %message.get_source(),
                         "received  message",
                     );
-                    output.extend(self.process_control_message(direction, message, ack_tx).await?);
+                    output.extend(
+                        self.process_control_message(direction, message, ack_tx)
+                            .await?,
+                    );
                 } else {
                     if direction == MessageDirection::South
                         && self.common.settings.config.session_type
@@ -597,7 +608,7 @@ where
                 Ok(SessionOutput::new())
             }
             ProtoSessionMessageType::GroupProposal => todo!(),
-            ProtoSessionMessageType::JoinRequest   
+            ProtoSessionMessageType::JoinRequest
             | ProtoSessionMessageType::GroupAdd
             | ProtoSessionMessageType::GroupRemove
             | ProtoSessionMessageType::GroupWelcome
@@ -1524,7 +1535,9 @@ mod tests {
             .unwrap();
         // JoinRequest is no longer handled by the moderator (moved to channel-manager).
         // It should return an error.
-        let result = moderator.process_control_message(MessageDirection::South,join_msg, None).await;
+        let result = moderator
+            .process_control_message(MessageDirection::South, join_msg, None)
+            .await;
         assert!(result.is_err());
     }
 
@@ -2163,7 +2176,9 @@ mod tests {
             .unwrap();
 
         // Must not panic; the stale ACK is discarded and Ok(()) is returned.
-        let result = moderator.process_control_message(MessageDirection::South, group_ack, None).await;
+        let result = moderator
+            .process_control_message(MessageDirection::South, group_ack, None)
+            .await;
         assert!(result.is_ok());
 
         // State is unchanged.
