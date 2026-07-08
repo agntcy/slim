@@ -17,7 +17,6 @@ use slim_datapath::{
     },
     messages::utils::{DELETE_GROUP, LEAVE_REPLY_SENT, LEAVING_SESSION, TRUE_VAL},
 };
-use slim_mls::mls::Mls;
 use tokio::sync::oneshot;
 
 use tracing::debug;
@@ -30,6 +29,7 @@ use crate::{
         AddParticipant, ModeratorTask, NotifyParticipants, RejoinParticipant, RemoveParticipant,
         TaskUpdate,
     },
+    persistence,
     runtime::maybe_await,
     session_controller::{PendingStatusUpdate, SessionControllerCommon, sign_control_messages},
     session_settings::SessionSettings,
@@ -97,6 +97,30 @@ where
             inner,
         }
     }
+
+    /// Construct a moderator from restored state (already-loaded MLS group and
+    /// roster). `init()` will not overwrite the provided `mls_state`. Call
+    /// [`Self::restore_reconnect`] afterwards to re-establish routing.
+    pub(crate) fn restore(
+        inner: I,
+        settings: SessionSettings<P, V, M>,
+        mls_state: Option<MlsModeratorState<P, V>>,
+        group_list: HashMap<ProtoName, Participant>,
+    ) -> Self {
+        let common = SessionControllerCommon::new(settings);
+
+        SessionModerator {
+            tasks_todo: vec![].into(),
+            current_task: None,
+            mls_state,
+            group_list,
+            common,
+            postponed_message: None,
+            subscribed: false,
+            conn_id: None,
+            inner,
+        }
+    }
 }
 
 /// Implementation of MessageHandler trait for SessionModerator
@@ -109,21 +133,25 @@ where
     M: SubscriptionOps,
 {
     async fn init(&mut self) -> Result<(), SessionError> {
-        // Initialize MLS
-        self.mls_state = if let Some(mls_settings) = &self.common.settings.config.mls_settings {
-            let mls_state = MlsState::new(
-                Mls::new(
+        // Initialize MLS. Skip when already populated: a restored moderator
+        // carries a loaded MLS group (see `restore`), which must not be
+        // overwritten by a fresh, empty state.
+        if self.mls_state.is_none() {
+            self.mls_state = if let Some(mls_settings) = &self.common.settings.config.mls_settings {
+                let mls = crate::mls_state::build_mls(
                     self.common.settings.identity_provider.clone(),
                     self.common.settings.identity_verifier.clone(),
-                ),
-                mls_settings.header_integrity_validation_percent,
-            )
-            .await
-            .expect("failed to create MLS state");
-            Some(MlsModeratorState::new(mls_state))
-        } else {
-            None
-        };
+                    self.common.settings.group_storage.clone(),
+                );
+                let mls_state =
+                    MlsState::new(mls, mls_settings.header_integrity_validation_percent)
+                        .await
+                        .expect("failed to create MLS state");
+                Some(MlsModeratorState::new(mls_state))
+            } else {
+                None
+            };
+        }
 
         Ok(())
     }
@@ -388,6 +416,60 @@ where
     I: MessageHandler + Send + Sync + 'static,
     M: SubscriptionOps,
 {
+    /// Snapshot the moderator's session + MLS state to the persistence store so
+    /// it can be restored after a restart. No-op when persistence is disabled.
+    /// Failures are logged, never propagated — persistence must not break the
+    /// live session.
+    fn persist_state(&self) {
+        let Some(kv) = self.common.settings.kv_store.as_ref() else {
+            return;
+        };
+
+        let (group_id, last_mls_msg_id, mls_participants, next_msg_id) =
+            match self.mls_state.as_ref() {
+                Some(m) => (
+                    m.common.mls.get_group_id(),
+                    m.common.last_mls_msg_id,
+                    m.participants
+                        .iter()
+                        .map(|(n, id)| (persistence::encode_name(n), id.clone()))
+                        .collect(),
+                    m.next_msg_id,
+                ),
+                None => (None, 0, Vec::new(), 0),
+            };
+
+        let group_list = self
+            .group_list
+            .values()
+            .map(persistence::encode_participant)
+            .collect();
+
+        let record = persistence::new_record(
+            self.common.settings.id,
+            &self.common.settings.source,
+            &self.common.settings.destination,
+            &self.common.settings.control,
+            self.common.settings.direction,
+            &self.common.settings.config,
+            group_id,
+            last_mls_msg_id,
+            self.conn_id,
+            persistence::PersistedRole::Moderator {
+                group_list,
+                mls_participants,
+                next_msg_id,
+            },
+        );
+
+        if let Err(e) = record
+            .to_bytes()
+            .and_then(|bytes| Ok(kv.put(&persistence::session_key(record.session_id), &bytes)?))
+        {
+            tracing::error!(error = %e, session_id = self.common.settings.id, "failed to persist moderator session state");
+        }
+    }
+
     #[maybe_async::maybe_async]
     async fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
         let mut identity_provider = self.common.settings.identity_provider.clone();
@@ -578,6 +660,9 @@ where
             }
             None => None,
         };
+
+        // Roster + MLS state advanced: persist so the session can be restored.
+        self.persist_state();
 
         Ok((removed_participant, participants_vec, mls_payload))
     }
@@ -941,6 +1026,9 @@ where
             .as_mut()
             .unwrap()
             .welcome_start(welcome_msg_id)?;
+
+        // Roster + MLS state advanced: persist so the session can be restored.
+        self.persist_state();
 
         Ok(output)
     }
@@ -1736,6 +1824,40 @@ where
         Ok(())
     }
 
+    /// Re-establish routing for a restored moderator over the current
+    /// connection `conn`, mirroring the subscriptions/routes that `join` and
+    /// `on_discovery_reply` set up during a live session. Does not touch MLS or
+    /// the roster (already restored).
+    pub(crate) async fn restore_reconnect(&mut self, conn: u64) -> Result<(), SessionError> {
+        self.subscribed = true;
+        self.conn_id = Some(conn);
+
+        if self.common.settings.config.session_type == ProtoSessionType::Multicast {
+            let destination = self.common.settings.destination.clone();
+            let control = self.common.settings.control.clone();
+            self.common
+                .add_subscription(destination.clone(), conn)
+                .await?;
+            self.common.add_route(destination, conn).await?;
+            self.common.add_route(control, conn).await?;
+
+            // Routes to each participant (addressable name), skipping ourselves.
+            let mut local_no_id = self.common.settings.source.clone();
+            local_no_id.reset_id();
+            let routes: Vec<ProtoName> = self
+                .group_list
+                .iter()
+                .filter(|(name, _)| **name != local_no_id)
+                .filter_map(|(_, p)| p.get_name().ok())
+                .collect();
+            for pname in routes {
+                self.common.add_route(pname, conn).await?;
+            }
+        }
+
+        Ok(())
+    }
+
     async fn join(&mut self, remote: ProtoName, conn: u64) -> Result<(), SessionError> {
         if self.subscribed {
             return Ok(());
@@ -1772,6 +1894,8 @@ where
         let participant = Participant::new(local_name.clone(), settings);
         local_name.reset_id();
         self.group_list.insert(local_name, participant);
+
+        self.persist_state();
 
         Ok(())
     }
@@ -1893,6 +2017,8 @@ mod tests {
             subscription_manager,
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            kv_store: None,
+            group_storage: None,
         };
 
         let inner = MockInnerHandler::new();
@@ -2133,6 +2259,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_moderator_persists_state_on_join() {
+        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+
+        // Attach an encrypted persistence store, then drive the moderator to
+        // establish its group.
+        let dir = tempfile::tempdir().unwrap();
+        let kv = slim_persistence::SlimKvStore::open_sqlite(dir.path(), "moderator", None).unwrap();
+        moderator.common.settings.kv_store = Some(kv.clone());
+        moderator.init().await.unwrap();
+
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        let remote = make_name(&["remote", "app", "v1"]).with_id(200);
+        run_with_acks(moderator.join(remote, 12345), &mut rx_slim, &sub_mgr)
+            .await
+            .unwrap();
+
+        // A session record must now exist, decoding as a moderator whose roster
+        // includes itself.
+        let records = kv.list_prefix(persistence::SESSION_KEY_PREFIX).unwrap();
+        assert_eq!(records.len(), 1);
+
+        let record = persistence::PersistedSession::from_bytes(&records[0].1).unwrap();
+        assert_eq!(record.session_id, moderator.common.settings.id);
+        match record.role {
+            persistence::PersistedRole::Moderator { group_list, .. } => {
+                assert_eq!(group_list.len(), 1, "moderator should be in its own roster");
+            }
+            _ => panic!("expected a moderator record"),
+        }
+    }
+
+    #[tokio::test]
     async fn test_moderator_on_shutdown() {
         let (mut moderator, _rx_slim, mut _rx_session_layer) = setup_moderator();
         moderator.init().await.unwrap();
@@ -2266,6 +2424,8 @@ mod tests {
             subscription_manager,
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            kv_store: None,
+            group_storage: None,
         };
 
         let inner = MockInnerHandler::new();
@@ -2347,6 +2507,8 @@ mod tests {
             subscription_manager,
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            kv_store: None,
+            group_storage: None,
         };
 
         let inner = MockInnerHandler::new();
@@ -2496,6 +2658,8 @@ mod tests {
             subscription_manager,
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            kv_store: None,
+            group_storage: None,
         };
 
         let inner = MockInnerHandler::new();

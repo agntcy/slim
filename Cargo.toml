@@ -9,6 +9,7 @@ members = [
     "crates/datapath",
     "crates/examples",
     "crates/mls",
+    "crates/persistence",
     "crates/proto",
     "crates/rpc",
     "crates/service",
@@ -48,6 +49,7 @@ agntcy-slim-control-plane = { path = "crates/control-plane", version = "2.0.0-al
 agntcy-slim-controller = { path = "crates/controller", version = "0.11.5" }
 agntcy-slim-datapath = { path = "crates/datapath", version = "0.16.7" }
 agntcy-slim-mls = { path = "crates/mls", version = "0.2.6" }
+agntcy-slim-persistence = { path = "crates/persistence", version = "0.1.0" }
 agntcy-slim-proto = { path = "crates/proto", version = "0.4.0" }
 agntcy-slim-rpc = { path = "crates/rpc", version = "2.0.0-alpha.7" }
 agntcy-slim-service = { path = "crates/service", version = "0.11.6", default-features = false }
@@ -232,6 +234,7 @@ ignored = [
     "agntcy-slim-controller",
     "agntcy-slim-datapath",
     "agntcy-slim-mls",
+    "agntcy-slim-persistence",
     "agntcy-slim-rpc",
     "agntcy-slim-service",
     "agntcy-slim-session",

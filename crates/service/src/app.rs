@@ -112,6 +112,36 @@ where
         direction: Direction,
         service_id: String,
     ) -> Self {
+        Self::new_with_direction_and_persistence(
+            app_name,
+            identity_provider,
+            identity_verifier,
+            conn_id,
+            tx_slim,
+            tx_app,
+            direction,
+            service_id,
+            None,
+        )
+    }
+
+    /// Create new App instance with direction and optional session persistence.
+    ///
+    /// When `persistence` is set, the app's sessions persist their MLS group and
+    /// session state (encrypted at rest under the given directory), enabling
+    /// [`Self::restore_sessions`] to bring them back after a restart.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_with_direction_and_persistence(
+        app_name: &ProtoName,
+        identity_provider: P,
+        identity_verifier: V,
+        conn_id: u64,
+        tx_slim: SlimChannelSender,
+        tx_app: mpsc::Sender<Result<Notification, SessionError>>,
+        direction: Direction,
+        service_id: String,
+        persistence: Option<slim_persistence::PersistenceConfig>,
+    ) -> Self {
         // Always generate the ID from identity token, ignoring any ID in the provided name
         let app_name_with_id = match identity_provider.get_id() {
             Ok(token_id) => {
@@ -135,7 +165,7 @@ where
 
         // Create the session layer
         let service_id_clone = service_id.clone();
-        let session_layer = Arc::new(SessionLayer::new(
+        let session_layer = Arc::new(SessionLayer::new_with_persistence(
             app_name_with_id.clone(),
             identity_provider,
             identity_verifier,
@@ -144,6 +174,7 @@ where
             tx_app,
             direction,
             service_id,
+            persistence,
         ));
 
         // Create a new cancellation token for the app receiver loop
@@ -170,6 +201,16 @@ where
         self.session_layer
             .create_session(session_config, self.app_name.clone(), destination, id)
             .await
+    }
+
+    /// Restore persisted sessions from disk (if persistence is enabled).
+    ///
+    /// Rebuilds each previously-persisted session — reloading its MLS group and
+    /// roster and re-establishing routing — without repeating the invite/welcome
+    /// handshake, and returns the restored [`SessionContext`]s for the app to
+    /// resume using. Empty when persistence is disabled.
+    pub async fn restore_sessions(&self) -> Result<Vec<SessionContext>, SessionError> {
+        self.session_layer.restore_sessions().await
     }
 
     /// Delete a session and return a completion handle to await on

@@ -11,7 +11,6 @@ use slim_datapath::{
     },
     messages::utils::{LEAVING_SESSION, TRUE_VAL},
 };
-use slim_mls::mls::Mls;
 
 use tracing::debug;
 
@@ -19,6 +18,7 @@ use crate::{
     common::{MessageDirection, SessionMessage, SessionOutput},
     errors::SessionError,
     mls_state::MlsState,
+    persistence,
     runtime::maybe_await,
     session_controller::{PendingStatusUpdate, SessionControllerCommon, sign_control_messages},
     session_settings::SessionSettings,
@@ -79,6 +79,30 @@ where
             inner,
         }
     }
+
+    /// Construct a participant from restored state (already-loaded MLS group,
+    /// moderator name and roster). `init()` will not overwrite `mls_state`. Call
+    /// [`Self::restore_reconnect`] afterwards to re-establish routing.
+    pub(crate) fn restore(
+        inner: I,
+        settings: SessionSettings<P, V, M>,
+        mls_state: Option<MlsState<P, V>>,
+        moderator_name: Option<ProtoName>,
+        group_list: HashMap<ProtoName, ParticipantSettings>,
+    ) -> Self {
+        let common = SessionControllerCommon::new(settings);
+
+        SessionParticipant {
+            moderator_name,
+            group_list,
+            mls_state,
+            common,
+            conn_id: None,
+            subscribed: false,
+            pending_leave_cleanup: false,
+            inner,
+        }
+    }
 }
 
 /// Implementation of MessageHandler trait for SessionParticipant
@@ -92,20 +116,24 @@ where
 {
     async fn init(&mut self) -> Result<(), SessionError> {
         // Initialize MLS
-        self.mls_state = if let Some(mls_settings) = &self.common.settings.config.mls_settings {
-            let mls_state = MlsState::new(
-                Mls::new(
+        // Skip when already populated: a restored participant carries a loaded
+        // MLS group (see `restore`) that must not be overwritten.
+        if self.mls_state.is_none() {
+            self.mls_state = if let Some(mls_settings) = &self.common.settings.config.mls_settings {
+                let mls = crate::mls_state::build_mls(
                     self.common.settings.identity_provider.clone(),
                     self.common.settings.identity_verifier.clone(),
-                ),
-                mls_settings.header_integrity_validation_percent,
-            )
-            .await
-            .expect("failed to create MLS state");
-            Some(mls_state)
-        } else {
-            None
-        };
+                    self.common.settings.group_storage.clone(),
+                );
+                let mls_state =
+                    MlsState::new(mls, mls_settings.header_integrity_validation_percent)
+                        .await
+                        .expect("failed to create MLS state");
+                Some(mls_state)
+            } else {
+                None
+            };
+        }
 
         Ok(())
     }
@@ -381,6 +409,57 @@ where
     I: MessageHandler + Send + Sync + 'static,
     M: SubscriptionOps,
 {
+    /// Snapshot the participant's session + MLS state to the persistence store
+    /// so it can be restored after a restart. No-op when persistence is
+    /// disabled; failures are logged, never propagated.
+    fn persist_state(&self) {
+        let Some(kv) = self.common.settings.kv_store.as_ref() else {
+            return;
+        };
+
+        let (group_id, last_mls_msg_id) = match self.mls_state.as_ref() {
+            Some(m) => (m.mls.get_group_id(), m.last_mls_msg_id),
+            None => (None, 0),
+        };
+
+        let group_list = self
+            .group_list
+            .iter()
+            .map(|(name, settings)| {
+                (
+                    persistence::encode_name(name),
+                    settings.sends_data,
+                    settings.receives_data,
+                )
+            })
+            .collect();
+
+        let moderator_name = self.moderator_name.as_ref().map(persistence::encode_name);
+
+        let record = persistence::new_record(
+            self.common.settings.id,
+            &self.common.settings.source,
+            &self.common.settings.destination,
+            &self.common.settings.control,
+            self.common.settings.direction,
+            &self.common.settings.config,
+            group_id,
+            last_mls_msg_id,
+            self.conn_id,
+            persistence::PersistedRole::Participant {
+                moderator_name,
+                group_list,
+            },
+        );
+
+        if let Err(e) = record
+            .to_bytes()
+            .and_then(|bytes| Ok(kv.put(&persistence::session_key(record.session_id), &bytes)?))
+        {
+            tracing::error!(error = %e, session_id = self.common.settings.id, "failed to persist participant session state");
+        }
+    }
+
     #[maybe_async::maybe_async]
     async fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
         let mut identity_provider = self.common.settings.identity_provider.clone();
@@ -597,6 +676,9 @@ where
             false,
         )?;
 
+        // Joined the group (roster + MLS established): persist for restore.
+        self.persist_state();
+
         Ok(SessionOutput::to_slim(ack))
     }
 
@@ -718,6 +800,10 @@ where
             CommandPayload::builder().group_ack().as_content(),
             false,
         )?;
+
+        // Roster + MLS state advanced: persist so the session can be restored.
+        self.persist_state();
+
         Ok(SessionOutput::to_slim(msg))
     }
 
@@ -1249,6 +1335,39 @@ where
         Ok(SessionOutput::new())
     }
 
+    /// Re-establish routing for a restored participant over the current
+    /// connection `conn`, mirroring the routes/subscriptions that `join` and
+    /// `on_welcome` set up. Does not touch MLS or the roster (already restored).
+    pub(crate) async fn restore_reconnect(&mut self, conn: u64) -> Result<(), SessionError> {
+        self.subscribed = true;
+        self.conn_id = Some(conn);
+
+        if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
+            return Ok(());
+        }
+
+        let destination = self.common.settings.destination.clone();
+        let control = self.common.settings.control.clone();
+        self.common.add_route(destination.clone(), conn).await?;
+        self.common.add_subscription(destination, conn).await?;
+        self.common.add_route(control.clone(), conn).await?;
+        self.common.add_subscription(control, conn).await?;
+
+        // Routes to each other group member (moderator included), skipping self.
+        let local = self.common.settings.source.clone();
+        let names: Vec<ProtoName> = self
+            .group_list
+            .keys()
+            .filter(|n| **n != local)
+            .cloned()
+            .collect();
+        for name in names {
+            self.common.add_route(name, conn).await?;
+        }
+
+        Ok(())
+    }
+
     async fn join(&mut self, msg: &Message) -> Result<(), SessionError> {
         if self.subscribed {
             return Ok(());
@@ -1435,6 +1554,8 @@ mod tests {
             service_id: String::new(),
             max_seen_control_message_ids_size:
                 crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            kv_store: None,
+            group_storage: None,
         };
 
         let inner = MockInnerHandler::new();

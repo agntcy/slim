@@ -17,6 +17,7 @@ curve25519 = ["agntcy-slim-auth/curve25519"]
 
 [dependencies]
 agntcy-slim-auth = { workspace = true }
+agntcy-slim-persistence = { workspace = true }
 agntcy-slim-version = { workspace = true }
 base64 = { workspace = true }
 hex = "0.4"
