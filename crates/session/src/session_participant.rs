@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, io::ErrorKind::DirectoryNotEmpty, time::Duration};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
@@ -139,6 +139,12 @@ where
                         && direction == MessageDirection::South
                     {
                         self.pending_rejoin_ack = ack_tx;
+                    } else if message.get_session_message_type() == ProtoSessionMessageType::UpdateParticipantState && direction == MessageDirection::South {
+
+                        // TO BE FIXED
+                        if let Some(tx) = ack_tx {
+                            let _ = tx.send(Ok(()));
+                        }
                     }
                     output.extend(self.process_control_message(direction, message).await?);
                 } else {
@@ -275,10 +281,12 @@ where
         &mut self,
         endpoint: &Participant,
     ) -> Result<SessionOutput, SessionError> {
+        self.common.sender.add_participant(&endpoint.name.as_ref().unwrap());
         self.inner.add_endpoint(endpoint).await
     }
 
     fn remove_endpoint(&mut self, endpoint: &ProtoName) {
+        self.common.sender.remove_participant(&endpoint);
         self.inner.remove_endpoint(endpoint);
     }
 
@@ -388,9 +396,10 @@ where
                 Ok(SessionOutput::new())
             }
             ProtoSessionMessageType::UpdateParticipantState => {
-                debug!(
-                    name = %self.common.settings.source,
+                tracing::info!(
+                    name = %message.get_source(),
                     id = %message.get_id(),
+                    direction = ?direction,
                     "received update participant state message",
                 );
                 match direction {
@@ -435,8 +444,19 @@ where
                 }
                 self.on_rejoin_reply(message)
             }
+            ProtoSessionMessageType::GroupAck => {
+                tracing::info!(
+                    name = %message.get_source(),
+                    id = %message.get_id(),
+                    "received group ack message",
+                );
+                self.common
+                    .sender
+                    .on_message(&message)?;
+
+                Ok(SessionOutput::new())
+            }
             ProtoSessionMessageType::GroupProposal
-            | ProtoSessionMessageType::GroupAck
             | ProtoSessionMessageType::GroupNack => todo!(),
             ProtoSessionMessageType::DiscoveryRequest
             | ProtoSessionMessageType::DiscoveryReply
@@ -688,6 +708,7 @@ where
         &mut self,
         message: Message,
     ) -> Result<SessionOutput, SessionError> {
+        println!("GOT AN UPDATE MESSAGE!!!!");
         let payload = message
             .get_payload()
             .ok_or(SessionError::MissingPayload {
@@ -710,9 +731,19 @@ where
             }
         })?;
 
+        // Skip if the update is about ourselves
+        if participant_name == self.common.settings.source {
+            debug!(
+                name = %participant_name,
+                "ignoring our own participant state update",
+            );
+            return Ok(SessionOutput::new());
+        }
+
         match new_state {
             ParticipantState::OffLine => {
                 // Participant went offline: update state, remove route
+                tracing::info!("new state is off linef or participant {}", participant_name);
                 if let Some(state) = self.group_list.get_mut(&participant_name) {
                     if state.state == ParticipantState::OffLine {
                         debug!(
@@ -721,6 +752,7 @@ where
                         );
                         return Ok(SessionOutput::new());
                     }
+                    tracing::info!("SET TO OFFLINE");
                     state.state = ParticipantState::OffLine;
                 } else {
                     debug!(
@@ -729,9 +761,7 @@ where
                     );
                     return Ok(SessionOutput::new());
                 }
-                self.common
-                    .delete_route(participant_name.clone(), message.get_incoming_conn())
-                    .await?;
+
                 self.remove_endpoint(&participant_name);
             }
             ParticipantState::OnLine => {
@@ -757,14 +787,12 @@ where
                     return Ok(SessionOutput::new());
                 }
 
-                self.common
-                    .add_route(participant_name.clone(), message.get_incoming_conn())
-                    .await?;
                 let participant = Participant::new(participant_name, settings);
                 self.add_endpoint(&participant).await?;
             }
         }
 
+        tracing::info!("all done send ack");
         // Send ACK back to the source
         let ack = self.common.create_control_message(
             &message.get_source(),
@@ -789,6 +817,8 @@ where
                 context: "update_participant_state_from_app",
             })?
             .clone();
+
+        println!("SEND MESSAGE");
 
         self.common.send_control_message(
             &destination,
@@ -893,6 +923,7 @@ where
 
         let destination = self.common.settings.destination.clone();
         let control = self.common.settings.control.clone();
+        tracing::info!("subscribe to channel {} and control {}", destination, control);
         self.common
             .add_route(destination.clone(), msg.get_incoming_conn())
             .await?;

@@ -330,7 +330,7 @@ impl SessionSender {
 
         // all acks received for this timer, remove it
         if delete {
-            debug!(
+            tracing::info!(
                 id = %message_id,
                 "all acks received, remove timer",
             );
@@ -381,7 +381,7 @@ impl SessionSender {
     }
 
     pub fn on_timer_timeout(&mut self, id: u32) -> Result<SessionOutput, SessionError> {
-        debug!(%id, "message timeout");
+        tracing::info!(%id, "message timeout");
 
         if id > MAX_PUBLISH_ID {
             if let Some((_gt, Some(msg))) = self.pending_acks.get_mut(&id) {
@@ -443,7 +443,7 @@ impl SessionSender {
     }
 
     pub fn on_timer_failure(&mut self, id: u32) -> Result<SessionOutput, SessionError> {
-        debug!(%id, "timer failure, clear state");
+        tracing::info!(%id, "timer failure, clear state");
         self.on_failure(id, SessionError::MessageSendRetryFailed { id })
     }
 
@@ -497,7 +497,7 @@ impl SessionSender {
     }
 
     pub fn remove_endpoint(&mut self, endpoint: &ProtoName) {
-        debug!(
+        tracing::info!(
             %endpoint,
             list_len = %self.endpoints_list.len(),
             "remove endpoint",

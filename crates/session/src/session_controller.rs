@@ -593,6 +593,8 @@ impl SessionController {
         if self.session_type() == ProtoSessionType::PointToPoint {
             return Err(SessionError::CannotPauseP2P);
         }
+
+        tracing::info!("START PAUSE");
         let msg = Message::builder()
             .source(self.source().clone())
             .destination(self.dst().clone()) // this needs to be updated with control channel destination
@@ -608,6 +610,7 @@ impl SessionController {
             )
             .build_publish()?;
 
+        tracing::info!("MESSAGE CREATED, SENDING");
         self.publish_message(msg).await
     }
 
@@ -652,6 +655,7 @@ impl SessionController {
         &self,
         message: Message,
     ) -> Result<CompletionHandle, SessionError> {
+        tracing::info!("SEND MESSAGE FROM APP");
         self.on_message_from_app(message).await
     }
 

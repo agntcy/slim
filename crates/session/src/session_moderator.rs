@@ -286,10 +286,14 @@ where
         &mut self,
         endpoint: &Participant,
     ) -> Result<SessionOutput, SessionError> {
+        self.common
+            .sender
+            .add_participant(&endpoint.name.as_ref().unwrap());
         self.inner.add_endpoint(endpoint).await
     }
 
     fn remove_endpoint(&mut self, endpoint: &ProtoName) {
+        self.common.sender.remove_participant(&endpoint);
         self.inner.remove_endpoint(endpoint);
     }
 
@@ -335,7 +339,9 @@ where
             self.common
                 .delete_route(self.common.settings.control.clone(), conn)
                 .await?;
-            // Note: No subscription to control channel - moderator only sends to it
+            self.common
+                .delete_subscription(self.common.settings.control.clone(), conn)
+                .await?;
         }
 
         // Shutdown inner layer
@@ -571,9 +577,10 @@ where
             ProtoSessionMessageType::GroupAck => self.on_group_ack(message).await,
             ProtoSessionMessageType::Ping => self.common.sender.on_message(&message),
             ProtoSessionMessageType::UpdateParticipantState => {
-                debug!(
-                    name = %self.common.settings.source,
+                tracing::info!(
+                    name = %&message.get_source(),
                     id = %message.get_id(),
+                    direction = ?direction,
                     "received update participant state message",
                 );
                 match direction {
@@ -627,6 +634,7 @@ where
         &mut self,
         message: Message,
     ) -> Result<SessionOutput, SessionError> {
+        tracing::info!("GOT AN UPDATE MESSAGE!!!!");
         let payload = message
             .get_payload()
             .ok_or(SessionError::MissingPayload {
@@ -652,7 +660,7 @@ where
         // Only offline state updates are accepted from participants.
         // Online updates can only be sent by the moderator itself.
         if new_state == ParticipantState::OnLine {
-            debug!(
+            tracing::info!(
                 name = %participant_name,
                 "received online state update from participant, only moderator can send online updates",
             );
@@ -685,13 +693,13 @@ where
         // Set the participant state to offline
         entry.state = ParticipantState::OffLine;
 
-        // Remove participant from session: remove route, endpoint, and control sender
-        self.common
-            .delete_route(participant_name.clone(), message.get_incoming_conn())
-            .await?;
-        self.remove_endpoint(&participant_name);
-        self.common.sender.remove_participant(&participant_name);
+        tracing::info!("set participant {} state to offline", participant_name);
 
+        // Remove participant from session: remove route, endpoint, and control sender
+        self.remove_endpoint(&participant_name);
+        //self.common.sender.remove_participant(&participant_name);
+
+        tracing::info!("send ack back");
         // Send ACK back to the participant
         let ack = self.common.create_control_message(
             &message.get_source(),
@@ -1532,7 +1540,15 @@ where
         } else {
             // if this is a multicast session we need to subscribe for the channel name
             let destination = self.common.settings.destination.clone();
+            tracing::info!(
+                "subscribe to channel {} and control {}",
+                destination,
+                self.common.settings.control
+            );
             self.common.add_subscription(destination, conn).await?;
+            self.common
+                .add_subscription(self.common.settings.control.clone(), conn)
+                .await?;
         }
 
         // create mls group if needed

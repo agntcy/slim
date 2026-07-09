@@ -29,6 +29,8 @@ pub enum SessionError {
     MessageError(#[from] MessageError),
     #[error("missing removed participant in GroupRemove message")]
     MissingRemovedParticipantInGroupRemove,
+    #[error("missing new participant in GroupAdd message")]
+    MissingNewParticipantInGroupAdd,
     #[error("missing group name in JoinRequest message")]
     MissingGroupNameInJoinRequest,
     #[error("ping state not initialized")]
