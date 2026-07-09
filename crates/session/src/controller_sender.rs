@@ -256,14 +256,15 @@ impl ControllerSender {
         if self.draining_state == ControllerSenderDrainStatus::Completed {
             return Err(SessionError::SessionDrainingDrop);
         }
-        tracing::info!("SEND CONTROLL MESSAEG");
+        tracing::info!("SEND CONTROL MESSAGE");
         let mut output = SessionOutput::new();
 
         match message.get_session_message_type() {
             slim_datapath::api::ProtoSessionMessageType::DiscoveryRequest
             | slim_datapath::api::ProtoSessionMessageType::JoinRequest
             | slim_datapath::api::ProtoSessionMessageType::LeaveRequest
-            | slim_datapath::api::ProtoSessionMessageType::GroupWelcome => {
+            | slim_datapath::api::ProtoSessionMessageType::GroupWelcome
+            | slim_datapath::api::ProtoSessionMessageType::RejoinRequest => {
                 if self.draining_state == ControllerSenderDrainStatus::Initiated {
                     // draining period started; reject new messages
                     return Err(SessionError::SessionDrainingDrop);
@@ -291,6 +292,7 @@ impl ControllerSender {
             slim_datapath::api::ProtoSessionMessageType::DiscoveryReply
             | slim_datapath::api::ProtoSessionMessageType::JoinReply
             | slim_datapath::api::ProtoSessionMessageType::LeaveReply
+            | slim_datapath::api::ProtoSessionMessageType::RejoinReply
             | slim_datapath::api::ProtoSessionMessageType::GroupAck => {
                 self.on_reply_message(message);
             }

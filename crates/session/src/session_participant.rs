@@ -31,7 +31,7 @@ struct ParticipantEntry {
     state: ParticipantState,
 }
 
-// keep track of pending tasks that are waiting for a reply from the other partcipants
+// keep track of pending tasks that are waiting for a reply from the other participants
 struct PendingTask {
     message_id: u32,
     message_type: ProtoSessionMessageType,
@@ -147,7 +147,11 @@ where
                             || message.get_session_message_type()
                                 == ProtoSessionMessageType::UpdateParticipantState)
                     {
-                        tracing::info!("Store pending task for message id={} and type={:?}", message.get_id(), message.get_session_message_type());
+                        tracing::info!(
+                            "Store pending task for message id={} and type={:?}",
+                            message.get_id(),
+                            message.get_session_message_type()
+                        );
                         self.pending_task = Some(PendingTask {
                             message_id: message.get_id(),
                             message_type: message.get_session_message_type(),
@@ -439,8 +443,7 @@ where
                 self.on_rejoin_request(message)
             }
             ProtoSessionMessageType::RejoinReply => {
-                debug!(
-                    name = %self.common.settings.source,
+                tracing::info!(
                     id = %message.get_id(),
                     "received rejoin reply message",
                 );
@@ -469,10 +472,15 @@ where
                 if !self.common.sender.is_still_pending(id) && self.pending_task.is_some() {
                     let pending_task = self.pending_task.take().unwrap();
                     if pending_task.message_id == id
-                        && pending_task.message_type == ProtoSessionMessageType::UpdateParticipantState
+                        && pending_task.message_type
+                            == ProtoSessionMessageType::UpdateParticipantState
                         && let Some(tx) = pending_task.tx_ack
                     {
-                        tracing::info!("send ack to the application for message id={} and type={:?}", id, msg_type);
+                        tracing::info!(
+                            "send ack to the application for message id={} and type={:?}",
+                            id,
+                            msg_type
+                        );
                         let _ = tx.send(Ok(()));
                     }
                 }
@@ -713,7 +721,7 @@ where
             debug!("rejoin successful, participant is back online");
             if let Some(pending_task) = self.pending_task.take()
                 && pending_task.message_id == message.get_id()
-                && pending_task.message_type == message.get_session_message_type()
+                && pending_task.message_type == ProtoSessionMessageType::RejoinRequest
                 && let Some(tx) = pending_task.tx_ack
             {
                 let _ = tx.send(Ok(()));
@@ -723,7 +731,7 @@ where
             debug!("rejoin failed, closing session");
             if let Some(pending_task) = self.pending_task.take()
                 && pending_task.message_id == message.get_id()
-                && pending_task.message_type == message.get_session_message_type()
+                && pending_task.message_type == ProtoSessionMessageType::RejoinRequest
                 && let Some(tx) = pending_task.tx_ack
             {
                 let _ = tx.send(Err(SessionError::RejoinFailed));
@@ -754,6 +762,15 @@ where
                 context: "update_participant_state: missing participant name",
             })?
             .clone();
+
+        // filter all the messages where participant name is equal to self.common.settings.source
+        if participant_name == self.common.settings.source {
+            tracing::info!(
+                name = %participant_name,
+                "ignoring our own participant state update",
+            );
+            return Ok(SessionOutput::new());
+        }
 
         let new_state = ParticipantState::try_from(payload.new_state).map_err(|_| {
             SessionError::MissingPayload {

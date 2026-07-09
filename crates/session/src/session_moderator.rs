@@ -742,7 +742,6 @@ where
     async fn send_on_line_update_for_participant(
         &mut self,
         participant_name: ProtoName,
-        conn: u64,
     ) -> Result<SessionOutput, SessionError> {
         // Update group_list: set participant state to OnLine
         let mut name_no_id = participant_name.clone();
@@ -755,7 +754,6 @@ where
         };
         entry.state = ParticipantState::OnLine;
 
-
         // Re-add endpoint to the local session
         let participant = entry.participant.clone();
         self.add_endpoint(&participant).await?;
@@ -767,6 +765,11 @@ where
 
         let destination = self.common.settings.control.clone();
         let msg_id = rand::random::<u32>();
+
+        tracing::info!(
+            name = %participant_name,
+            "broadcasting UpdateParticipantState(ON_LINE) for participant",
+        );
 
         self.common.send_control_message(
             &destination,
@@ -789,7 +792,10 @@ where
         let payload = message.extract_rejoin_request()?;
         let participant_name = message.get_source();
         let msg_id = message.get_id();
-        let conn = message.get_incoming_conn();
+        tracing::info!(
+            name = %participant_name,
+            "received rejoin request from participant",
+        );
 
         let mut name_no_id = participant_name.clone();
         name_no_id.reset_id();
@@ -854,7 +860,7 @@ where
 
             // Broadcast ON_LINE state update on behalf of the participant
             output.extend(
-                self.send_on_line_update_for_participant(participant_name, conn)
+                self.send_on_line_update_for_participant(participant_name)
                     .await?,
             );
 
