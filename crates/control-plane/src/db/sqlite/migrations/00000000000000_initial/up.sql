@@ -101,3 +101,9 @@ CREATE TABLE IF NOT EXISTS topology_segment_links (
     dest_group TEXT NOT NULL,
     PRIMARY KEY (segment_id, source_group, dest_group)
 );
+
+CREATE TABLE IF NOT EXISTS registration_secrets (
+    group_name TEXT NOT NULL PRIMARY KEY,
+    secret TEXT NOT NULL,
+    created_at BIGINT NOT NULL
+);

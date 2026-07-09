@@ -33,6 +33,21 @@ service ControlPlaneService {
   // Remove a bidirectional link between two groups within a segment.
   // Returns NOT_FOUND if the segment or link does not exist.
   rpc RemoveTopologyLink(RemoveTopologyLinkRequest) returns (RemoveTopologyLinkResponse) {}
+
+  // --- Registration auth group management APIs ---
+
+  // List registered auth groups. Works in both config and API mode.
+  // In shared_secret mode: returns groups with configured/stored secrets.
+  // In SPIRE mode: returns groups of currently connected nodes.
+  // When auth is disabled: returns empty list.
+  rpc ListGroups(ListGroupsRequest) returns (ListGroupsResponse) {}
+  // Add a group with a shared secret (API mode + shared_secret only).
+  // Returns FAILED_PRECONDITION if in config mode.
+  // Returns UNIMPLEMENTED if auth mode is SPIRE or disabled.
+  rpc AddGroup(AddGroupRequest) returns (AddGroupResponse) {}
+  // Remove a group. Disconnects all nodes in that group (API mode only).
+  // Returns FAILED_PRECONDITION if in config mode.
+  rpc RemoveGroup(RemoveGroupRequest) returns (RemoveGroupResponse) {}
 }
 
 message ConfigurationCommand {
@@ -198,3 +213,30 @@ message RemoveTopologyLinkRequest {
 }
 
 message RemoveTopologyLinkResponse {}
+
+// --- Registration auth group management messages ---
+
+message ListGroupsRequest {}
+
+message ListGroupsResponse {
+  repeated GroupEntry groups = 1;
+}
+
+message GroupEntry {
+  string group_name = 1;
+  // Node IDs currently connected in this group (empty if no nodes connected yet).
+  repeated string nodes = 2;
+}
+
+message AddGroupRequest {
+  string group_name = 1;
+  string secret = 2;
+}
+
+message AddGroupResponse {}
+
+message RemoveGroupRequest {
+  string group_name = 1;
+}
+
+message RemoveGroupResponse {}

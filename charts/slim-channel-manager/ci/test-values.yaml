@@ -1,0 +1,9 @@
+# CI test values for slim-channel-manager.
+# Provides required fields so the container can start in the CI cluster.
+
+config:
+  channel-manager:
+    local-name: "ci/test/channel-manager"
+    auth:
+      type: shared_secret
+      secret: "ci-test-secret-0123456789-abcdef"

@@ -22,4 +22,8 @@ database:
   path: /tmp/slim-test.db
 
 # Empty topology = API-managed mode.
-topology: {}
+topology:
+  registration_auth:
+    type: shared_secret
+    secrets: {}
+

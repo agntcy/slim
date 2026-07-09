@@ -25,7 +25,9 @@ use super::model::{
     LinkStatus, Node, Route, RouteName, RouteStatus, TopologySegment, TopologySegmentLink,
     has_connection_details_changed,
 };
-use super::schema::{links, nodes, routes, topology_segment_links, topology_segments};
+use super::schema::{
+    links, nodes, registration_secrets, routes, topology_segment_links, topology_segments,
+};
 use super::{DataAccess, SharedDb};
 use crate::error::{Error, Result};
 
@@ -1225,6 +1227,104 @@ impl DataAccess for SqliteDb {
             .await
             .map_err(|e| Error::DbError {
                 context: "clear_all_state segments",
+                msg: e.to_string(),
+            })?;
+        diesel::delete(registration_secrets::table)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "clear_all_state registration_secrets",
+                msg: e.to_string(),
+            })?;
+        Ok(())
+    }
+
+    // ── Registration Secrets ───────────────────────────────────────────────
+
+    async fn list_registration_secret_groups(&self) -> Result<Vec<String>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "list_registration_secret_groups pool",
+            msg: e.to_string(),
+        })?;
+        registration_secrets::table
+            .select(registration_secrets::group_name)
+            .load::<String>(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "list_registration_secret_groups",
+                msg: e.to_string(),
+            })
+    }
+
+    async fn get_registration_secret(&self, group_name: &str) -> Result<Option<String>> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "get_registration_secret pool",
+            msg: e.to_string(),
+        })?;
+        registration_secrets::table
+            .find(group_name)
+            .select(registration_secrets::secret)
+            .first::<String>(&mut conn)
+            .await
+            .optional()
+            .map_err(|e| Error::DbError {
+                context: "get_registration_secret",
+                msg: e.to_string(),
+            })
+    }
+
+    async fn upsert_registration_secret(&self, group_name: &str, secret: &str) -> Result<()> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "upsert_registration_secret pool",
+            msg: e.to_string(),
+        })?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        diesel::insert_into(registration_secrets::table)
+            .values((
+                registration_secrets::group_name.eq(group_name),
+                registration_secrets::secret.eq(secret),
+                registration_secrets::created_at.eq(now),
+            ))
+            .on_conflict(registration_secrets::group_name)
+            .do_update()
+            .set(registration_secrets::secret.eq(secret))
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "upsert_registration_secret",
+                msg: e.to_string(),
+            })?;
+        Ok(())
+    }
+
+    async fn delete_registration_secret(&self, group_name: &str) -> Result<()> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "delete_registration_secret pool",
+            msg: e.to_string(),
+        })?;
+        diesel::delete(registration_secrets::table.find(group_name))
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "delete_registration_secret",
+                msg: e.to_string(),
+            })?;
+        Ok(())
+    }
+
+    async fn delete_all_registration_secrets(&self) -> Result<()> {
+        let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
+            context: "delete_all_registration_secrets pool",
+            msg: e.to_string(),
+        })?;
+        diesel::delete(registration_secrets::table)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| Error::DbError {
+                context: "delete_all_registration_secrets",
                 msg: e.to_string(),
             })?;
         Ok(())

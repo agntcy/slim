@@ -10,13 +10,16 @@ use crate::api::proto::controller::proto::v1::{
     RouteListResponse as NodeRouteListResponse,
 };
 use crate::api::proto::controlplane::proto::v1::{
-    AddSegmentRequest, AddSegmentResponse, AddTopologyLinkRequest, AddTopologyLinkResponse,
-    LinkEntry, LinkListRequest, LinkStatus, NodeEntry, NodeListRequest, RemoveSegmentRequest,
-    RemoveSegmentResponse, RemoveTopologyLinkRequest, RemoveTopologyLinkResponse, RouteEntry,
-    RouteListRequest, RouteStatus, SegmentEdge, SegmentEntry, SegmentListRequest,
-    SegmentListResponse, control_plane_service_server::ControlPlaneService,
+    AddGroupRequest, AddGroupResponse, AddSegmentRequest, AddSegmentResponse,
+    AddTopologyLinkRequest, AddTopologyLinkResponse, GroupEntry, LinkEntry, LinkListRequest,
+    LinkStatus, ListGroupsRequest, ListGroupsResponse, NodeEntry, NodeListRequest,
+    RemoveGroupRequest, RemoveGroupResponse, RemoveSegmentRequest, RemoveSegmentResponse,
+    RemoveTopologyLinkRequest, RemoveTopologyLinkResponse, RouteEntry, RouteListRequest,
+    RouteStatus, SegmentEdge, SegmentEntry, SegmentListRequest, SegmentListResponse,
+    control_plane_service_server::ControlPlaneService,
 };
 use crate::db::{SharedDb, model};
+use crate::auth::GroupAuthenticator;
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
 use crate::route_service::RouteService;
 use crate::types::DEFAULT_SEGMENT;
@@ -25,6 +28,7 @@ pub struct NorthboundApiService {
     db: SharedDb,
     cmd_handler: DefaultNodeCommandHandler,
     route_service: RouteService,
+    authenticator: GroupAuthenticator,
 }
 
 impl NorthboundApiService {
@@ -32,11 +36,13 @@ impl NorthboundApiService {
         db: SharedDb,
         cmd_handler: DefaultNodeCommandHandler,
         route_service: RouteService,
+        authenticator: GroupAuthenticator,
     ) -> Self {
         Self {
             db,
             cmd_handler,
             route_service,
+            authenticator,
         }
     }
 
@@ -542,12 +548,151 @@ impl ControlPlaneService for NorthboundApiService {
             .await?;
         Ok(Response::new(RemoveTopologyLinkResponse {}))
     }
+
+    // ── Registration auth group management ─────────────────────────────────
+
+    async fn list_groups(
+        &self,
+        _request: Request<ListGroupsRequest>,
+    ) -> Result<Response<ListGroupsResponse>, Status> {
+        // Start with groups from the live authenticator (covers both config and API mode).
+        let mut groups: std::collections::BTreeMap<String, Vec<String>> =
+            std::collections::BTreeMap::new();
+        for g in self.authenticator.configured_groups() {
+            groups.entry(g).or_default();
+        }
+
+        // Also include groups from DB secrets (API mode — may have groups not yet
+        // loaded into the authenticator on error, or for consistency).
+        let auth_groups = self
+            .db
+            .list_registration_secret_groups()
+            .await
+            .map_err(|e| Status::internal(format!("failed to list groups: {e}")))?;
+        for g in auth_groups {
+            groups.entry(g).or_default();
+        }
+
+        // Add connected nodes grouped by group_name.
+        let nodes = self
+            .db
+            .list_nodes()
+            .await
+            .map_err(|e| Status::internal(format!("failed to list nodes: {e}")))?;
+        for node in nodes {
+            if let Some(group_name) = node.group_name {
+                groups.entry(group_name).or_default().push(node.id);
+            }
+        }
+
+        let entries = groups
+            .into_iter()
+            .map(|(group_name, nodes)| GroupEntry { group_name, nodes })
+            .collect();
+        Ok(Response::new(ListGroupsResponse { groups: entries }))
+    }
+
+    async fn add_group(
+        &self,
+        request: Request<AddGroupRequest>,
+    ) -> Result<Response<AddGroupResponse>, Status> {
+        self.route_service.ensure_api_mode()?;
+
+        if !self.authenticator.is_shared_secret() {
+            return Err(Status::unimplemented(
+                "add_group is only supported in shared_secret auth mode",
+            ));
+        }
+
+        let req = request.get_ref();
+        if req.group_name.is_empty() {
+            return Err(Status::invalid_argument("group_name must not be empty"));
+        }
+        if req.secret.is_empty() {
+            return Err(Status::invalid_argument("secret must not be empty"));
+        }
+
+        // Build the verifier first (validates the secret is usable).
+        self.authenticator
+            .add_verifier(&req.group_name, &req.secret)?;
+
+        // Persist to DB only after the verifier was successfully built.
+        if let Err(e) = self
+            .db
+            .upsert_registration_secret(&req.group_name, &req.secret)
+            .await
+        {
+            // Roll back the in-memory verifier so the caller's error is consistent.
+            let _ = self.authenticator.remove_verifier(&req.group_name);
+            return Err(Status::internal(format!("failed to store secret: {e}")));
+        }
+
+        tracing::info!("add_group: added group '{}'", req.group_name);
+        Ok(Response::new(AddGroupResponse {}))
+    }
+
+    async fn remove_group(
+        &self,
+        request: Request<RemoveGroupRequest>,
+    ) -> Result<Response<RemoveGroupResponse>, Status> {
+        self.route_service.ensure_api_mode()?;
+
+        let req = request.get_ref();
+        if req.group_name.is_empty() {
+            return Err(Status::invalid_argument("group_name must not be empty"));
+        }
+
+        if !self.authenticator.is_shared_secret() {
+            return Err(Status::unimplemented(
+                "remove_group is only supported in shared_secret auth mode",
+            ));
+        }
+
+        // Remove the verifier first to prevent new registrations.
+        self.authenticator.remove_verifier(&req.group_name)?;
+
+        // Remove the secret from DB (won't survive restart).
+        self.db
+            .delete_registration_secret(&req.group_name)
+            .await
+            .map_err(|e| Status::internal(format!("failed to delete secret: {e}")))?;
+
+        // Now list nodes — no new nodes can register for this group since the
+        // verifier is already removed.
+        let nodes = self
+            .db
+            .list_nodes()
+            .await
+            .map_err(|e| Status::internal(format!("failed to list nodes: {e}")))?;
+        let group_nodes: Vec<_> = nodes
+            .iter()
+            .filter(|n| n.group_name.as_deref() == Some(&req.group_name))
+            .collect();
+
+        // Disconnect and deregister each existing node in the group.
+        for node in &group_nodes {
+            self.cmd_handler.force_remove_stream(&node.id).await;
+            self.route_service.node_deregistered(&node.id).await;
+        }
+
+        tracing::info!(
+            "remove_group: removed group '{}' ({} node(s) disconnected)",
+            req.group_name,
+            group_nodes.len()
+        );
+        Ok(Response::new(RemoveGroupResponse {}))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{AdjacencyEntry, ReconcilerConfig, TopologyConfig};
+    use crate::db::inmemory::InMemoryDb;
     use crate::db::{Link, LinkStatus};
+    use crate::node_transport::DefaultNodeCommandHandler;
+    use std::collections::HashMap;
+    use std::sync::Arc;
     use std::time::SystemTime;
 
     fn make_link(
@@ -570,6 +715,38 @@ mod tests {
             created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         }
+    }
+
+    /// Create a NorthboundApiService with an in-memory DB and the given topology.
+    fn make_nb_service(
+        topology: TopologyConfig,
+        authenticator: GroupAuthenticator,
+    ) -> NorthboundApiService {
+        let db = InMemoryDb::shared();
+        let cmd_handler = DefaultNodeCommandHandler::new();
+        let route_service = RouteService::new(
+            db.clone(),
+            cmd_handler.clone(),
+            ReconcilerConfig {
+                max_requeues: 3,
+                ..Default::default()
+            },
+            topology,
+        );
+        NorthboundApiService::new(db, cmd_handler, route_service, authenticator)
+    }
+
+    fn shared_secret_authenticator() -> GroupAuthenticator {
+        GroupAuthenticator::SharedSecret {
+            verifiers: Arc::new(parking_lot::RwLock::new(HashMap::new())),
+        }
+    }
+
+    fn config_managed_topology() -> TopologyConfig {
+        TopologyConfig::Links(vec![AdjacencyEntry {
+            group: "*".to_string(),
+            neighbors: vec!["*".to_string()],
+        }])
     }
 
     #[test]
@@ -608,5 +785,205 @@ mod tests {
         let links = vec![make_link("l1", "node-a", "group-a", "node-b", "group-b")];
         let map = NorthboundApiService::build_link_peer_map("node-b", &links);
         assert_eq!(map.get("l1").unwrap(), "group-a/node-a");
+    }
+
+    // ── Group management unit tests ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn add_group_rejects_in_config_mode() {
+        let svc = make_nb_service(config_managed_topology(), shared_secret_authenticator());
+        let err = svc
+            .add_group(Request::new(AddGroupRequest {
+                group_name: "test-group".to_string(),
+                secret: "secret-0123456789abcdefghijk".to_string(),
+            }))
+            .await
+            .expect_err("should reject in config mode");
+        assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+    }
+
+    #[tokio::test]
+    async fn add_group_rejects_empty_group_name() {
+        let svc = make_nb_service(TopologyConfig::ApiManaged, shared_secret_authenticator());
+        let err = svc
+            .add_group(Request::new(AddGroupRequest {
+                group_name: "".to_string(),
+                secret: "secret-0123456789abcdefghijk".to_string(),
+            }))
+            .await
+            .expect_err("should reject empty group name");
+        assert_eq!(err.code(), tonic::Code::InvalidArgument);
+        assert!(err.message().contains("group_name"));
+    }
+
+    #[tokio::test]
+    async fn add_group_rejects_empty_secret() {
+        let svc = make_nb_service(TopologyConfig::ApiManaged, shared_secret_authenticator());
+        let err = svc
+            .add_group(Request::new(AddGroupRequest {
+                group_name: "test-group".to_string(),
+                secret: "".to_string(),
+            }))
+            .await
+            .expect_err("should reject empty secret");
+        assert_eq!(err.code(), tonic::Code::InvalidArgument);
+        assert!(err.message().contains("secret"));
+    }
+
+    #[tokio::test]
+    async fn add_group_succeeds_and_persists() {
+        let svc = make_nb_service(TopologyConfig::ApiManaged, shared_secret_authenticator());
+        let secret = "my-secret-0123456789abcdefghijklmnopqrstuv";
+
+        // Add the group.
+        svc.add_group(Request::new(AddGroupRequest {
+            group_name: "new-group".to_string(),
+            secret: secret.to_string(),
+        }))
+        .await
+        .expect("add_group should succeed");
+
+        // Verify it persisted in DB.
+        let groups = svc.db.list_registration_secret_groups().await.unwrap();
+        assert!(groups.contains(&"new-group".to_string()));
+
+        // Verify the verifier was added (the authenticator can verify for this group).
+        assert!(svc.authenticator.is_shared_secret());
+        if let GroupAuthenticator::SharedSecret { verifiers } = &svc.authenticator {
+            assert!(verifiers.read().contains_key("new-group"));
+        }
+    }
+
+    #[tokio::test]
+    async fn remove_group_rejects_in_config_mode() {
+        let svc = make_nb_service(config_managed_topology(), shared_secret_authenticator());
+        let err = svc
+            .remove_group(Request::new(RemoveGroupRequest {
+                group_name: "test-group".to_string(),
+            }))
+            .await
+            .expect_err("should reject in config mode");
+        assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+    }
+
+    #[tokio::test]
+    async fn remove_group_nonexistent_succeeds() {
+        // Removing a group that doesn't exist should still succeed (idempotent).
+        let svc = make_nb_service(TopologyConfig::ApiManaged, shared_secret_authenticator());
+        svc.remove_group(Request::new(RemoveGroupRequest {
+            group_name: "nonexistent".to_string(),
+        }))
+        .await
+        .expect("remove_group for nonexistent group should succeed");
+    }
+
+    #[tokio::test]
+    async fn remove_group_disconnects_nodes() {
+        let svc = make_nb_service(TopologyConfig::ApiManaged, shared_secret_authenticator());
+
+        // Register a node in the group via the DB directly.
+        let node = crate::db::Node {
+            id: "my-group/node-1".to_string(),
+            group_name: Some("my-group".to_string()),
+            conn_details: vec![],
+            created_at: SystemTime::now(),
+            last_updated: SystemTime::now(),
+        };
+        svc.db.save_node(node).await.unwrap();
+
+        // Add a secret so remove_group can clean up the verifier.
+        svc.db
+            .upsert_registration_secret("my-group", "secret-0123456789abcdefghijklmnopqrstuv")
+            .await
+            .unwrap();
+        svc.authenticator
+            .add_verifier("my-group", "secret-0123456789abcdefghijklmnopqrstuv")
+            .unwrap();
+
+        // Remove the group.
+        svc.remove_group(Request::new(RemoveGroupRequest {
+            group_name: "my-group".to_string(),
+        }))
+        .await
+        .expect("remove_group should succeed");
+
+        // Node should be deregistered (removed from DB).
+        let nodes = svc.db.list_nodes().await.unwrap();
+        assert!(
+            !nodes.iter().any(|n| n.id == "my-group/node-1"),
+            "node should have been deregistered"
+        );
+
+        // Verifier should be removed.
+        if let GroupAuthenticator::SharedSecret { verifiers } = &svc.authenticator {
+            assert!(!verifiers.read().contains_key("my-group"));
+        }
+
+        // Secret should be removed from DB.
+        let groups = svc.db.list_registration_secret_groups().await.unwrap();
+        assert!(!groups.contains(&"my-group".to_string()));
+    }
+
+    #[tokio::test]
+    async fn list_groups_merges_auth_and_connected() {
+        let svc = make_nb_service(TopologyConfig::ApiManaged, shared_secret_authenticator());
+
+        // Add a group secret (no nodes connected yet).
+        svc.db
+            .upsert_registration_secret("empty-group", "secret-0123456789abcdefgh")
+            .await
+            .unwrap();
+
+        // Add a node belonging to a different group (that also has a secret).
+        svc.db
+            .upsert_registration_secret("active-group", "secret-0123456789xyzxyzxyz")
+            .await
+            .unwrap();
+        let node = crate::db::Node {
+            id: "active-group/node-a".to_string(),
+            group_name: Some("active-group".to_string()),
+            conn_details: vec![],
+            created_at: SystemTime::now(),
+            last_updated: SystemTime::now(),
+        };
+        svc.db.save_node(node).await.unwrap();
+
+        // Call list_groups.
+        let resp = svc
+            .list_groups(Request::new(ListGroupsRequest {}))
+            .await
+            .expect("list_groups should succeed")
+            .into_inner();
+
+        // Should have both groups.
+        assert_eq!(resp.groups.len(), 2);
+
+        let empty = resp
+            .groups
+            .iter()
+            .find(|g| g.group_name == "empty-group")
+            .unwrap();
+        assert!(empty.nodes.is_empty(), "empty-group should have no nodes");
+
+        let active = resp
+            .groups
+            .iter()
+            .find(|g| g.group_name == "active-group")
+            .unwrap();
+        assert_eq!(active.nodes, vec!["active-group/node-a"]);
+    }
+
+    #[tokio::test]
+    async fn add_group_rejects_noop_authenticator() {
+        // When auth is Noop (no auth configured), add_group should fail.
+        let svc = make_nb_service(TopologyConfig::ApiManaged, GroupAuthenticator::Noop);
+        let err = svc
+            .add_group(Request::new(AddGroupRequest {
+                group_name: "test".to_string(),
+                secret: "secret-0123456789abcdefghijk".to_string(),
+            }))
+            .await
+            .expect_err("should reject when auth is Noop");
+        assert_eq!(err.code(), tonic::Code::Unimplemented);
     }
 }

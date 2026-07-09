@@ -22,8 +22,9 @@ use slim_config::tls::provider::initialize_crypto_provider;
 use slim_config::tls::server::TlsServerConfig;
 use slim_control_plane::api::proto::controlplane::proto::v1::control_plane_service_client::ControlPlaneServiceClient;
 use slim_control_plane::api::proto::controlplane::proto::v1::{
-    AddSegmentRequest, AddTopologyLinkRequest, LinkEntry, LinkListRequest, NodeEntry,
-    NodeListRequest, RemoveSegmentRequest, RemoveTopologyLinkRequest, RouteEntry, RouteListRequest,
+    AddGroupRequest, AddSegmentRequest, AddTopologyLinkRequest, GroupEntry, LinkEntry,
+    LinkListRequest, ListGroupsRequest, NodeEntry, NodeListRequest, RemoveGroupRequest,
+    RemoveSegmentRequest, RemoveTopologyLinkRequest, RouteEntry, RouteListRequest,
     SegmentListRequest,
 };
 use slim_control_plane::config::{
@@ -2418,5 +2419,176 @@ async fn test_link_spire_auth_outbound_without_mock_workload_api() {
     .await;
     connector.shutdown().await.ok();
     protected.shutdown().await.ok();
+    stop_control_plane(cp).await;
+}
+
+// =============================================================================
+// Group management API integration tests
+// =============================================================================
+
+/// Start a control plane in API mode with shared_secret auth (empty initial secrets).
+async fn start_control_plane_api_mode() -> TestControlPlane {
+    initialize_crypto_provider();
+
+    let northbound_port = reserve_port();
+    let southbound_port = reserve_port();
+
+    let cfg = Config {
+        northbound: ServerConfig::with_endpoint(&format!("127.0.0.1:{northbound_port}"))
+            .with_tls_settings(TlsServerConfig::insecure()),
+        southbound: ServerConfig::with_endpoint(&format!("127.0.0.1:{southbound_port}"))
+            .with_tls_settings(TlsServerConfig::insecure()),
+        database: DatabaseConfig::InMemory,
+        reconciler: test_reconciler_config(),
+        topology: TopologySettings {
+            config: TopologyConfig::ApiManaged,
+            auth: Some(RegistrationAuthConfig::SharedSecret {
+                secrets: std::collections::HashMap::new(),
+            }),
+        },
+        ..Default::default()
+    };
+
+    let cp = ControlPlane::start(cfg)
+        .await
+        .expect("failed to start control plane");
+
+    TestControlPlane {
+        northbound_port,
+        southbound_port,
+        cp,
+    }
+}
+
+/// Helper to collect groups via the ListGroups API.
+async fn collect_groups(client: &mut NbClient) -> Vec<GroupEntry> {
+    client
+        .list_groups(ListGroupsRequest {})
+        .await
+        .expect("list_groups failed")
+        .into_inner()
+        .groups
+}
+
+/// Test: Add a group via API, then a node registers with that secret.
+///
+/// Scenario:
+///   - Start CP in API mode with shared_secret auth (empty initial secrets).
+///   - Add a group via AddGroup API.
+///   - Start a node using the same secret → it should register successfully.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_add_group_then_node_registers() {
+    init_tracing();
+
+    let cp = start_control_plane_api_mode().await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+
+    let group_name = "dynamic-group";
+    let secret = "dynamic-secret-01234567890abcdef";
+
+    // Add the group via northbound API.
+    client
+        .add_group(AddGroupRequest {
+            group_name: group_name.to_string(),
+            secret: secret.to_string(),
+        })
+        .await
+        .expect("add_group failed");
+
+    // Verify the group appears in list_groups with no nodes.
+    let groups = collect_groups(&mut client).await;
+    let entry = groups
+        .iter()
+        .find(|g| g.group_name == group_name)
+        .expect("group should appear in list_groups");
+    assert!(entry.nodes.is_empty());
+
+    // Start a node using the dynamically-added secret.
+    let dp_port = reserve_port();
+    let node_auth = Some(AuthConfig::SharedSecret {
+        id: Some(format!("{group_name}/node-1")),
+        secret: secret.to_string(),
+    });
+    let node =
+        start_node_with_auth("node-1", group_name, cp.southbound_port, dp_port, node_auth).await;
+
+    let node_id = grouped_node_id(group_name, "node-1");
+    wait_for_nodes_connected(&mut client, &[&node_id], DEFAULT_TIMEOUT).await;
+
+    // Verify list_groups now shows the node.
+    let groups = collect_groups(&mut client).await;
+    let entry = groups
+        .iter()
+        .find(|g| g.group_name == group_name)
+        .expect("group should still be in list");
+    assert_eq!(entry.nodes, vec![node_id.clone()]);
+
+    node.shutdown().await.ok();
+    stop_control_plane(cp).await;
+}
+
+/// Test: Remove a group disconnects connected nodes.
+///
+/// Scenario:
+///   - Start CP in API mode, add a group, connect a node.
+///   - Call RemoveGroup → node should be disconnected and deregistered.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remove_group_kicks_connected_node() {
+    init_tracing();
+
+    let cp = start_control_plane_api_mode().await;
+    let mut client = create_nb_client(cp.northbound_port).await;
+
+    let group_name = "evict-group";
+    let secret = "evict-secret-01234567890abcdefghijklmnop";
+
+    // Add group and connect a node.
+    client
+        .add_group(AddGroupRequest {
+            group_name: group_name.to_string(),
+            secret: secret.to_string(),
+        })
+        .await
+        .expect("add_group failed");
+
+    let dp_port = reserve_port();
+    let node_auth = Some(AuthConfig::SharedSecret {
+        id: Some(format!("{group_name}/node-x")),
+        secret: secret.to_string(),
+    });
+    let _node =
+        start_node_with_auth("node-x", group_name, cp.southbound_port, dp_port, node_auth).await;
+
+    let node_id = grouped_node_id(group_name, "node-x");
+    wait_for_nodes_connected(&mut client, &[&node_id], DEFAULT_TIMEOUT).await;
+
+    // Remove the group.
+    client
+        .remove_group(RemoveGroupRequest {
+            group_name: group_name.to_string(),
+        })
+        .await
+        .expect("remove_group failed");
+
+    // Wait for the node to disappear from the node list.
+    let deadline = tokio::time::Instant::now() + DEFAULT_TIMEOUT;
+    loop {
+        let nodes = collect_nodes(&mut client).await;
+        if !nodes.iter().any(|n| n.id == node_id) {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!("timeout waiting for node to be deregistered after remove_group");
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    // Verify the group is gone from list_groups.
+    let groups = collect_groups(&mut client).await;
+    assert!(
+        !groups.iter().any(|g| g.group_name == group_name),
+        "group should have been removed"
+    );
+
     stop_control_plane(cp).await;
 }
