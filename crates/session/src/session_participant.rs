@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, io::ErrorKind::DirectoryNotEmpty, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
@@ -26,9 +26,16 @@ use crate::{
     traits::{MessageHandler, ProcessingState},
 };
 
-struct State {
+struct ParticipantEntry {
     settings: ParticipantSettings,
     state: ParticipantState,
+}
+
+// keep track of pending tasks that are waiting for a reply from the other partcipants
+struct PendingTask {
+    message_id: u32,
+    message_type: ProtoSessionMessageType,
+    tx_ack: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
 }
 
 pub struct SessionParticipant<P, V, I, M = SubscriptionManager>
@@ -42,7 +49,7 @@ where
     moderator_name: Option<ProtoName>,
 
     /// list of participants
-    group_list: HashMap<ProtoName, State>,
+    group_list: HashMap<ProtoName, ParticipantEntry>,
 
     /// mls state
     mls_state: Option<MlsState<P, V>>,
@@ -59,8 +66,7 @@ where
     /// Prevents the processing loop from exiting before cleanup completes.
     pending_leave_cleanup: bool,
 
-    /// Stored ack_tx from the application's rejoin request, resolved when RejoinReply arrives.
-    pending_rejoin_ack: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
+    pending_task: Option<PendingTask>,
 
     /// inner layer
     inner: I,
@@ -84,7 +90,7 @@ where
             conn_id: None,
             subscribed: false,
             pending_leave_cleanup: false,
-            pending_rejoin_ack: None,
+            pending_task: None,
             inner,
         }
     }
@@ -135,16 +141,18 @@ where
                         "received message",
                     );
                     // Store ack_tx for RejoinRequest from app so we can resolve it on RejoinReply
-                    if message.get_session_message_type() == ProtoSessionMessageType::RejoinRequest
-                        && direction == MessageDirection::South
+                    if direction == MessageDirection::South
+                        && (message.get_session_message_type()
+                            == ProtoSessionMessageType::RejoinRequest
+                            || message.get_session_message_type()
+                                == ProtoSessionMessageType::UpdateParticipantState)
                     {
-                        self.pending_rejoin_ack = ack_tx;
-                    } else if message.get_session_message_type() == ProtoSessionMessageType::UpdateParticipantState && direction == MessageDirection::South {
-
-                        // TO BE FIXED
-                        if let Some(tx) = ack_tx {
-                            let _ = tx.send(Ok(()));
-                        }
+                        tracing::info!("Store pending task for message id={} and type={:?}", message.get_id(), message.get_session_message_type());
+                        self.pending_task = Some(PendingTask {
+                            message_id: message.get_id(),
+                            message_type: message.get_session_message_type(),
+                            tx_ack: ack_tx,
+                        });
                     }
                     output.extend(self.process_control_message(direction, message).await?);
                 } else {
@@ -281,12 +289,14 @@ where
         &mut self,
         endpoint: &Participant,
     ) -> Result<SessionOutput, SessionError> {
-        self.common.sender.add_participant(&endpoint.name.as_ref().unwrap());
+        self.common
+            .sender
+            .add_participant(endpoint.name.as_ref().unwrap());
         self.inner.add_endpoint(endpoint).await
     }
 
     fn remove_endpoint(&mut self, endpoint: &ProtoName) {
-        self.common.sender.remove_participant(&endpoint);
+        self.common.sender.remove_participant(endpoint);
         self.inner.remove_endpoint(endpoint);
     }
 
@@ -445,19 +455,31 @@ where
                 self.on_rejoin_reply(message)
             }
             ProtoSessionMessageType::GroupAck => {
+                let id = message.get_id();
+                let msg_type = message.get_session_message_type();
                 tracing::info!(
                     name = %message.get_source(),
                     id = %message.get_id(),
                     "received group ack message",
                 );
-                self.common
-                    .sender
-                    .on_message(&message)?;
+                self.common.sender.on_message(&message)?;
+
+                // check if the task is still pending and if the message id and type match the pending task
+                // the pending message in this case must be an UpdateParticipantState
+                if !self.common.sender.is_still_pending(id) && self.pending_task.is_some() {
+                    let pending_task = self.pending_task.take().unwrap();
+                    if pending_task.message_id == id
+                        && pending_task.message_type == ProtoSessionMessageType::UpdateParticipantState
+                        && let Some(tx) = pending_task.tx_ack
+                    {
+                        tracing::info!("send ack to the application for message id={} and type={:?}", id, msg_type);
+                        let _ = tx.send(Ok(()));
+                    }
+                }
 
                 Ok(SessionOutput::new())
             }
-            ProtoSessionMessageType::GroupProposal
-            | ProtoSessionMessageType::GroupNack => todo!(),
+            ProtoSessionMessageType::GroupProposal | ProtoSessionMessageType::GroupNack => todo!(),
             ProtoSessionMessageType::DiscoveryRequest
             | ProtoSessionMessageType::DiscoveryReply
             | ProtoSessionMessageType::JoinReply => {
@@ -540,11 +562,11 @@ where
             .participants;
         for p in list {
             let name = p.get_name()?;
-            let state = State {
+            let entry = ParticipantEntry {
                 settings: *p.get_settings()?,
                 state: ParticipantState::OnLine,
             };
-            self.group_list.insert(name.clone(), state);
+            self.group_list.insert(name.clone(), entry);
 
             if name != self.common.settings.source.clone() {
                 debug!(name = %msg.get_source(), "add endpoint to the session");
@@ -603,11 +625,11 @@ where
                 .as_group_add_payload()?;
             if let Some(ref new_participant) = p.new_participant {
                 let name = new_participant.get_name()?;
-                let state = State {
+                let entry = ParticipantEntry {
                     settings: *new_participant.get_settings()?,
                     state: ParticipantState::OnLine,
                 };
-                self.group_list.insert(name.clone(), state);
+                self.group_list.insert(name.clone(), entry);
 
                 debug!(name  = %msg.get_source(), "add endpoint to session");
                 // add a route to the new endpoint, this is needed in case of message retransmission
@@ -649,7 +671,7 @@ where
     }
 
     fn on_rejoin_request(&mut self, message: Message) -> Result<SessionOutput, SessionError> {
-        let destination = self.common.settings.control.clone();
+        let destination = self.moderator_name.as_ref().unwrap().clone();
         let msg_id = message.get_id();
 
         // Get MLS epoch: if MLS is enabled use the current epoch, otherwise use u64::MAX
@@ -689,13 +711,21 @@ where
         if payload.success {
             // Rejoin succeeded: notify the application
             debug!("rejoin successful, participant is back online");
-            if let Some(tx) = self.pending_rejoin_ack.take() {
+            if let Some(pending_task) = self.pending_task.take()
+                && pending_task.message_id == message.get_id()
+                && pending_task.message_type == message.get_session_message_type()
+                && let Some(tx) = pending_task.tx_ack
+            {
                 let _ = tx.send(Ok(()));
             }
         } else {
             // Rejoin failed: notify the application with error and close
             debug!("rejoin failed, closing session");
-            if let Some(tx) = self.pending_rejoin_ack.take() {
+            if let Some(pending_task) = self.pending_task.take()
+                && pending_task.message_id == message.get_id()
+                && pending_task.message_type == message.get_session_message_type()
+                && let Some(tx) = pending_task.tx_ack
+            {
                 let _ = tx.send(Err(SessionError::RejoinFailed));
             }
             self.common.processing_state = ProcessingState::Draining;
@@ -923,7 +953,11 @@ where
 
         let destination = self.common.settings.destination.clone();
         let control = self.common.settings.control.clone();
-        tracing::info!("subscribe to channel {} and control {}", destination, control);
+        tracing::info!(
+            "subscribe to channel {} and control {}",
+            destination,
+            control
+        );
         self.common
             .add_route(destination.clone(), msg.get_incoming_conn())
             .await?;
@@ -1284,7 +1318,7 @@ mod tests {
         participant.moderator_name = Some(moderator.clone());
 
         let removed_participant_name = make_name(&["removed", "app", "v1"]).with_id(500);
-        let state = State {
+        let state = ParticipantEntry {
             settings: ParticipantSettings::bidirectional(),
             state: ParticipantState::OnLine,
         };

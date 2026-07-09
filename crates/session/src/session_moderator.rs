@@ -288,12 +288,12 @@ where
     ) -> Result<SessionOutput, SessionError> {
         self.common
             .sender
-            .add_participant(&endpoint.name.as_ref().unwrap());
+            .add_participant(endpoint.name.as_ref().unwrap());
         self.inner.add_endpoint(endpoint).await
     }
 
     fn remove_endpoint(&mut self, endpoint: &ProtoName) {
-        self.common.sender.remove_participant(&endpoint);
+        self.common.sender.remove_participant(endpoint);
         self.inner.remove_endpoint(endpoint);
     }
 
@@ -755,17 +755,10 @@ where
         };
         entry.state = ParticipantState::OnLine;
 
-        // Re-add route for the participant
-        self.common
-            .add_route(participant_name.clone(), conn)
-            .await?;
 
         // Re-add endpoint to the local session
         let participant = entry.participant.clone();
         self.add_endpoint(&participant).await?;
-
-        // Re-add participant to the control sender
-        // TODO: check if the sender needs an explicit add_participant call
 
         // Build and broadcast the UpdateParticipantState(ON_LINE) message
         let payload = CommandPayload::builder()

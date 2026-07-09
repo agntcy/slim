@@ -183,11 +183,11 @@ impl ControllerSender {
             participant = %name,
             "removing participant from group on controller sender"
         );
-        self.group_list.remove(&name);
+        self.group_list.remove(name);
 
         // remove also the missing_pings state if present
         if let Some(ps) = self.ping_state.as_mut() {
-            ps.missing_pings.remove(&name);
+            ps.missing_pings.remove(name);
         }
     }
 
