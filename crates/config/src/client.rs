@@ -20,9 +20,13 @@ use serde::{Deserialize, Serialize};
 use crate::component::configuration::Configuration;
 use crate::conn_type::ConnType;
 use crate::errors::ConfigError;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::grpc::compression::CompressionType;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::grpc::proxy::ProxyConfig;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::tls::client::TlsClientConfig as TLSSetting;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::tls::errors::ConfigError as TlsConfigError;
 use crate::transport::{TransportProtocol, validate_endpoint_scheme};
 use crate::websocket::client::WebSocketClientChannel;
@@ -428,7 +432,14 @@ impl ClientConfig {
     pub fn resolved_transport(&self) -> TransportProtocol {
         TransportProtocol::from_endpoint(&self.endpoint)
     }
+}
 
+// Native surface. The browser build connects out over `wss://` (TLS handled by
+// the browser) without auth/TLS/proxy/compression/backoff layers, so these
+// builders, the shared connect-retry helper, and the gRPC-capable `to_channel`
+// only exist off wasm32.
+#[cfg(not(target_arch = "wasm32"))]
+impl ClientConfig {
     pub fn merge_server_requirements(
         &mut self,
         server: &ServerConnectionConfig,
@@ -485,14 +496,7 @@ impl ClientConfig {
         }
         Ok(())
     }
-}
 
-// Native surface. The browser build connects out over `wss://` (TLS handled by
-// the browser) without auth/TLS/proxy/compression/backoff layers, so these
-// builders, the shared connect-retry helper, and the gRPC-capable `to_channel`
-// only exist off wasm32.
-#[cfg(not(target_arch = "wasm32"))]
-impl ClientConfig {
     pub fn with_compression(self, compression: CompressionType) -> Self {
         Self {
             compression: Some(compression),
@@ -630,6 +634,7 @@ pub struct ServerConnectionConfig {
 }
 
 impl ServerConnectionConfig {
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn from_client_config(client: &ClientConfig) -> Self {
         let tls_required = !client.tls_setting.insecure;
         let auth_method = match &client.auth {
@@ -647,6 +652,17 @@ impl ServerConnectionConfig {
             endpoint: client.endpoint.clone(),
             tls_required,
             auth_method,
+            timeout: None,
+            backoff: None,
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn from_client_config(client: &ClientConfig) -> Self {
+        Self {
+            endpoint: client.endpoint.clone(),
+            tls_required: false,
+            auth_method: RequiredAuthMethod::None,
             timeout: None,
             backoff: None,
         }
