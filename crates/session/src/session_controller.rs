@@ -592,7 +592,7 @@ impl SessionController {
     pub async fn pause(&self) -> Result<CompletionHandle, SessionError> {
         let msg = Message::builder()
             .source(self.source().clone())
-            .destination(self.dst().clone()) // this needs to be updated with cotrol channel destination
+            .destination(self.dst().clone()) // this needs to be updated with control channel destination
             .identity("")
             .session_type(self.session_type())
             .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
@@ -614,7 +614,7 @@ impl SessionController {
     pub async fn resume(&self) -> Result<CompletionHandle, SessionError> {
         let msg = Message::builder()
             .source(self.source().clone())
-            .destination(self.dst().clone().with_id(NameId::NULL_COMPONENT))
+            .destination(self.dst().clone()) // this will be updated with control channel destination
             .identity("")
             .session_type(self.session_type())
             .session_message_type(ProtoSessionMessageType::RejoinRequest)
@@ -625,7 +625,7 @@ impl SessionController {
                     .rejoin_request(
                         self.source().clone(),
                         self.id(),
-                        0, // filled by session handler before sending
+                        u64::MAX, // filled by session handler before sending
                     )
                     .as_content(),
             )

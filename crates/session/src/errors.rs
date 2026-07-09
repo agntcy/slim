@@ -127,6 +127,8 @@ pub enum SessionError {
     SessionDrainingDrop,
     #[error("session already closed")]
     SessionAlreadyClosed,
+    #[error("rejoin request was rejected")]
+    RejoinFailed,
     #[error("session cleanup failed: {details}")]
     SessionCleanupFailed { details: String },
     #[error("message send retries exhausted for id={id}")]

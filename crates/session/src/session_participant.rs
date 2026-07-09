@@ -59,6 +59,9 @@ where
     /// Prevents the processing loop from exiting before cleanup completes.
     pending_leave_cleanup: bool,
 
+    /// Stored ack_tx from the application's rejoin request, resolved when RejoinReply arrives.
+    pending_rejoin_ack: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
+
     /// inner layer
     inner: I,
 }
@@ -81,6 +84,7 @@ where
             conn_id: None,
             subscribed: false,
             pending_leave_cleanup: false,
+            pending_rejoin_ack: None,
             inner,
         }
     }
@@ -130,6 +134,12 @@ where
                         source = %message.get_source(),
                         "received message",
                     );
+                    // Store ack_tx for RejoinRequest from app so we can resolve it on RejoinReply
+                    if message.get_session_message_type() == ProtoSessionMessageType::RejoinRequest
+                        && direction == MessageDirection::South
+                    {
+                        self.pending_rejoin_ack = ack_tx;
+                    }
                     output.extend(self.process_control_message(direction, message).await?);
                 } else {
                     if direction == MessageDirection::North
@@ -406,8 +416,8 @@ where
                     );
                     return Ok(SessionOutput::new());
                 }
-                // TODO: send the message to the moderator
-                Ok(SessionOutput::new())
+
+                self.on_rejoin_request(message)
             }
             ProtoSessionMessageType::RejoinReply => {
                 debug!(
@@ -423,8 +433,7 @@ where
                     );
                     return Ok(SessionOutput::new());
                 }
-                // TODO: set the state if needed
-                Ok(SessionOutput::new())
+                self.on_rejoin_reply(message)
             }
             ProtoSessionMessageType::GroupProposal
             | ProtoSessionMessageType::GroupAck
@@ -619,6 +628,62 @@ where
         Ok(SessionOutput::to_slim(msg))
     }
 
+    fn on_rejoin_request(&mut self, message: Message) -> Result<SessionOutput, SessionError> {
+        let destination = self.common.settings.control.clone();
+        let msg_id = message.get_id();
+
+        // Get MLS epoch: if MLS is enabled use the current epoch, otherwise use u64::MAX
+        let mls_epoch = self
+            .mls_state
+            .as_ref()
+            .and_then(|s| s.mls.get_epoch())
+            .unwrap_or(u64::MAX);
+
+        let payload = CommandPayload::builder()
+            .rejoin_request(
+                self.common.settings.source.clone(),
+                self.common.settings.id,
+                mls_epoch,
+            )
+            .as_content();
+
+        self.common.send_control_message(
+            &destination,
+            ProtoSessionMessageType::RejoinRequest,
+            msg_id,
+            payload,
+            None,
+            false,
+        )
+    }
+
+    fn on_rejoin_reply(&mut self, message: Message) -> Result<SessionOutput, SessionError> {
+        let payload = message
+            .get_payload()
+            .ok_or(SessionError::MissingPayload {
+                context: "rejoin_reply",
+            })?
+            .as_command_payload()?
+            .as_rejoin_reply_payload()?;
+
+        if payload.success {
+            // Rejoin succeeded: notify the application
+            debug!("rejoin successful, participant is back online");
+            if let Some(tx) = self.pending_rejoin_ack.take() {
+                let _ = tx.send(Ok(()));
+            }
+        } else {
+            // Rejoin failed: notify the application with error and close
+            debug!("rejoin failed, closing session");
+            if let Some(tx) = self.pending_rejoin_ack.take() {
+                let _ = tx.send(Err(SessionError::RejoinFailed));
+            }
+            self.common.processing_state = ProcessingState::Draining;
+        }
+
+        Ok(SessionOutput::new())
+    }
+
     async fn on_update_participant_state_from_slim(
         &mut self,
         message: Message,
@@ -674,7 +739,7 @@ where
                 let settings;
                 if let Some(state) = self.group_list.get_mut(&participant_name) {
                     state.state = ParticipantState::OnLine;
-                    settings = state.settings.clone();
+                    settings = state.settings;
                 } else {
                     debug!(
                         name = %participant_name,

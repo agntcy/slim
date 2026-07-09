@@ -573,7 +573,7 @@ where
                     }
                     MessageDirection::South => {
                         // The message is coming from the application. We need to send the message to the group
-                        // TODO: update message with the rigth destionation, create a task and send the message
+                        // TODO: update message with the right destination, create a task and send the message
                         Ok(SessionOutput::new())
                     }
                 }
@@ -585,7 +585,7 @@ where
                     "received rejoin request message",
                 );
                 // if the message is coming from the application, restore the moderator
-                // if the message is coming from slim check if the partcipant can rejoin
+                // if the message is coming from slim check if the participant can rejoin
                 // TODO
                 Ok(SessionOutput::new())
             }
