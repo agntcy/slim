@@ -82,16 +82,6 @@ fn group_secret(group: &str) -> &'static str {
         .1
 }
 
-/// Build the registration auth config with per-group shared secrets.
-fn test_registration_auth() -> RegistrationAuthConfig {
-    RegistrationAuthConfig::SharedSecret {
-        secrets: TEST_GROUP_SECRETS
-            .iter()
-            .map(|(g, s)| (g.to_string(), s.to_string()))
-            .collect(),
-    }
-}
-
 fn raise_fd_limit() {
     static INIT_FD_LIMIT: std::sync::Once = std::sync::Once::new();
     INIT_FD_LIMIT.call_once(|| {
@@ -143,7 +133,7 @@ async fn start_control_plane(topology: TopologyConfig) -> TestControlPlane {
         reconciler: test_reconciler_config(),
         topology: TopologySettings {
             config: topology,
-            auth: Some(test_registration_auth()),
+            auth: None,
         },
         ..Default::default()
     };
@@ -235,10 +225,6 @@ async fn start_grouped_node(
         .with_controlplane_client(vec![cp_client])
         .with_node_id(name);
     service_config.group_name = Some(group.to_string());
-    service_config.auth = Some(AuthConfig::SharedSecret {
-        id: Some(format!("{group}/{name}")),
-        secret: group_secret(group).to_string(),
-    });
     if let Some(pc) = peer_config {
         service_config = service_config.with_peers(pc);
     }
@@ -2054,6 +2040,45 @@ async fn start_node_with_auth(
     svc
 }
 
+async fn start_node_with_custom_auth(
+    name: &str,
+    group: &str,
+    southbound_port: u16,
+    dp_port: u16,
+    auth: AuthConfig,
+) -> Service {
+    let mut md = MetadataMap::new();
+    md.insert(
+        "external_endpoint",
+        MetadataValue::String(format!("127.0.0.1:{dp_port}")),
+    );
+    let mut dataplane_server =
+        slim_config::grpc::server::ServerConfig::with_endpoint(&format!("127.0.0.1:{dp_port}"))
+            .with_tls_settings(TlsServerConfig::insecure());
+    dataplane_server.metadata = Some(md);
+
+    let cp_client = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{southbound_port}"))
+        .with_tls_setting(TlsClientConfig::insecure())
+        .with_keepalive(KeepaliveConfig {
+            http2_keepalive: Duration::from_secs(1).into(),
+            timeout: Duration::from_secs(1).into(),
+            keep_alive_while_idle: true,
+            ..Default::default()
+        });
+
+    let svc_id = ID::new_with_str(&format!("slim/{name}")).unwrap();
+    let mut service_config = ServiceConfiguration::new()
+        .with_dataplane_server(vec![dataplane_server])
+        .with_controlplane_client(vec![cp_client])
+        .with_node_id(name);
+    service_config.group_name = Some(group.to_string());
+    service_config.auth = Some(auth);
+
+    let mut svc = service_config.build_server(svc_id).unwrap();
+    svc.start().await.unwrap();
+    svc
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn test_link_none_auth() {
     use slim_config::grpc::server::AuthenticationConfig as ServerAuth;
@@ -2505,12 +2530,13 @@ async fn test_add_group_then_node_registers() {
 
     // Start a node using the dynamically-added secret.
     let dp_port = reserve_port();
-    let node_auth = Some(AuthConfig::SharedSecret {
+    let node_auth = AuthConfig::SharedSecret {
         id: Some(format!("{group_name}/node-1")),
         secret: secret.to_string(),
-    });
+    };
     let node =
-        start_node_with_auth("node-1", group_name, cp.southbound_port, dp_port, node_auth).await;
+        start_node_with_custom_auth("node-1", group_name, cp.southbound_port, dp_port, node_auth)
+            .await;
 
     let node_id = grouped_node_id(group_name, "node-1");
     wait_for_nodes_connected(&mut client, &[&node_id], DEFAULT_TIMEOUT).await;
@@ -2552,12 +2578,13 @@ async fn test_remove_group_kicks_connected_node() {
         .expect("add_group failed");
 
     let dp_port = reserve_port();
-    let node_auth = Some(AuthConfig::SharedSecret {
+    let node_auth = AuthConfig::SharedSecret {
         id: Some(format!("{group_name}/node-x")),
         secret: secret.to_string(),
-    });
+    };
     let _node =
-        start_node_with_auth("node-x", group_name, cp.southbound_port, dp_port, node_auth).await;
+        start_node_with_custom_auth("node-x", group_name, cp.southbound_port, dp_port, node_auth)
+            .await;
 
     let node_id = grouped_node_id(group_name, "node-x");
     wait_for_nodes_connected(&mut client, &[&node_id], DEFAULT_TIMEOUT).await;

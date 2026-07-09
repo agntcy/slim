@@ -18,8 +18,8 @@ use crate::api::proto::controlplane::proto::v1::{
     RouteStatus, SegmentEdge, SegmentEntry, SegmentListRequest, SegmentListResponse,
     control_plane_service_server::ControlPlaneService,
 };
-use crate::db::{SharedDb, model};
 use crate::auth::GroupAuthenticator;
+use crate::db::{SharedDb, model};
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
 use crate::route_service::RouteService;
 use crate::types::DEFAULT_SEGMENT;

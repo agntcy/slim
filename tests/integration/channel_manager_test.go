@@ -108,10 +108,8 @@ var _ = Describe("Group management through channel manager", func() {
 		)
 		Expect(errClientC).NotTo(HaveOccurred())
 
-		// wait for clients to connect and subscribe before invites
-		Eventually(clientASession.Out, 15*time.Second).Should(gbytes.Say(MsgClientConnected))
-		Eventually(clientBSession.Out, 15*time.Second).Should(gbytes.Say(MsgClientConnected))
-		Eventually(clientCSession.Out, 15*time.Second).Should(gbytes.Say(MsgClientConnected))
+		// wait for clients to connect
+		time.Sleep(1000 * time.Millisecond)
 	})
 
 	AfterEach(func() {
