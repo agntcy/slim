@@ -7,7 +7,9 @@
 //! pipeline (logs, distributed traces, metrics).
 //!
 //! On **wasm32** targets a lightweight subscriber pipes tracing events to the
-//! browser console (`console.log` / `console.warn` / `console.error`).
+//! browser console (`console.log` / `console.warn` / `console.error`). With the
+//! `otel_tracing` feature, W3C trace-context propagation is enabled for
+//! cross-service continuity (no OTLP export).
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native;

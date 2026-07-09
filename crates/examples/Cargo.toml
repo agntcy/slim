@@ -12,6 +12,10 @@ path = "src/sdk-mock/main.rs"
 name = "client"
 path = "src/client/main.rs"
 
+[[bin]]
+name = "chat"
+path = "src/chat/main.rs"
+
 [dependencies]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -29,5 +33,5 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 display-error-chain = { workspace = true }
 prost = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["io-std", "io-util"] }
 tracing = { workspace = true }

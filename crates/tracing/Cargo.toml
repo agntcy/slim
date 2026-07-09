@@ -8,6 +8,11 @@ description = "Observability for SLIM data plane: logs, traces and metrics infra
 [lib]
 name = "slim_tracing"
 
+[features]
+default = []
+# W3C trace-context propagation for browser clients (no OTLP export).
+otel_tracing = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:tracing-opentelemetry"]
+
 [dependencies]
 agntcy-slim-version = { workspace = true }
 serde = { workspace = true }
@@ -28,5 +33,12 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { workspace = true }
+opentelemetry = { workspace = true, optional = true }
+# `rt-tokio` from the workspace preset is native-only; trace-only is enough here.
+opentelemetry_sdk = { version = "0.31.0", default-features = false, features = [
+    "trace",
+], optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tracing-web = "0.1"
