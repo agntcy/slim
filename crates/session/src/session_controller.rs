@@ -590,6 +590,9 @@ impl SessionController {
     /// The returned CompletionHandle resolves when ACKs are collected.
     /// After completion, the caller should persist the session state and close.
     pub async fn pause(&self) -> Result<CompletionHandle, SessionError> {
+        if self.session_type() == ProtoSessionType::PointToPoint {
+            return Err(SessionError::CannotPauseP2P);
+        }
         let msg = Message::builder()
             .source(self.source().clone())
             .destination(self.dst().clone()) // this needs to be updated with control channel destination
@@ -612,6 +615,9 @@ impl SessionController {
     /// The MLS epoch is filled in by the session handler before sending.
     /// The returned CompletionHandle resolves when the moderator replies.
     pub async fn resume(&self) -> Result<CompletionHandle, SessionError> {
+        if self.session_type() == ProtoSessionType::PointToPoint {
+            return Err(SessionError::CannotResumeP2P);
+        }
         let msg = Message::builder()
             .source(self.source().clone())
             .destination(self.dst().clone()) // this will be updated with control channel destination

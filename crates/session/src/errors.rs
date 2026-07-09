@@ -105,6 +105,10 @@ pub enum SessionError {
     CannotInviteToP2P,
     #[error("cannot remove participant from point-to-point session")]
     CannotRemoveFromP2P,
+    #[error("cannot pause point-to-point session")]
+    CannotPauseP2P,
+    #[error("cannot resume point-to-point session")]
+    CannotResumeP2P,
     #[error("only initiator can modify participants")]
     NotInitiator,
 
