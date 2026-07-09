@@ -248,32 +248,49 @@ where
         let is_p2p = session_config.session_type == ProtoSessionType::PointToPoint;
         let destination_proto = destination.clone();
 
-        let (dest_with_id, control_with_id) =
-            if session_config.session_type == ProtoSessionType::Multicast {
-                let token_id = self
-                    .identity_provider
-                    .get_id()
-                    .map_err(|_| SessionError::SessionBuilderIncomplete)?;
+        let (dest_with_id, control_with_id) = if session_config.session_type
+            == ProtoSessionType::Multicast
+        {
+            let token_id = self.identity_provider.get_id()?;
 
-                let data_input = format!("{}/{}/data", token_id, destination);
-                let mut data_id = twox_hash::XxHash3_128::oneshot(data_input.as_bytes());
+            let (c0, c1, c2) = destination.str_components();
+            let data_input = format!("{}/{}/{}/{}/data", token_id, c0, c1, c2);
+            let ctrl_input = format!("{}/{}/{}/{}/control", token_id, c0, c1, c2);
+
+            let mut data_id;
+            let mut ctrl_id;
+            let mut salt = 0u64;
+            loop {
+                data_id = twox_hash::XxHash3_128::oneshot_with_seed(salt, data_input.as_bytes());
                 if NameId::is_reserved_id(data_id) {
-                    data_id %= u128::MAX - NameId::RESERVED_IDS;
+                    data_id = (data_id % (u128::MAX - NameId::RESERVED_IDS - 1)) + 1;
                 }
 
-                let ctrl_input = format!("{}/{}/control", token_id, destination);
-                let mut ctrl_id = twox_hash::XxHash3_128::oneshot(ctrl_input.as_bytes());
+                ctrl_id = twox_hash::XxHash3_128::oneshot_with_seed(salt, ctrl_input.as_bytes());
                 if NameId::is_reserved_id(ctrl_id) {
-                    ctrl_id %= u128::MAX - NameId::RESERVED_IDS;
+                    ctrl_id = (ctrl_id % (u128::MAX - NameId::RESERVED_IDS - 1)) + 1;
                 }
 
-                (
-                    destination.clone().with_id(data_id),
-                    destination.clone().with_id(ctrl_id),
-                )
-            } else {
-                (destination.clone(), destination.clone())
-            };
+                if data_id != ctrl_id {
+                    break;
+                }
+                warn!(
+                    salt,
+                    "data_id == ctrl_id hash collision, retrying with new salt"
+                );
+                salt += 1;
+                if salt > 10 {
+                    return Err(SessionError::SessionBuilderIncomplete);
+                }
+            }
+
+            (
+                destination.clone().with_id(data_id),
+                destination.clone().with_id(ctrl_id),
+            )
+        } else {
+            (destination.clone(), destination.clone())
+        };
 
         let session = self.create_session_internal(
             session_config,

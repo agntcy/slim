@@ -1228,6 +1228,10 @@ mod tests {
             let dst = session_arc.dst();
             let expected_dst = channel_name.clone();
             assert!(dst.match_prefix(&expected_dst));
+            assert!(
+                dst.has_id(),
+                "destination should have a derived ID, not NULL_COMPONENT"
+            );
 
             total_received_sessions += 1;
         }
