@@ -44,9 +44,6 @@ cfg_if::cfg_if! {
         use crate::backoff::exponential::Config as ExponentialBackoff;
         use crate::backoff::fixedinterval::Config as FixedIntervalBackoff;
         use crate::backoff::Strategy;
-        use crate::grpc::compression::CompressionType;
-        use crate::grpc::proxy::ProxyConfig;
-        use crate::tls::client::TlsClientConfig as TLSSetting;
     }
 }
 
@@ -431,6 +428,63 @@ impl ClientConfig {
     pub fn resolved_transport(&self) -> TransportProtocol {
         TransportProtocol::from_endpoint(&self.endpoint)
     }
+
+    pub fn merge_server_requirements(
+        &mut self,
+        server: &ServerConnectionConfig,
+    ) -> Result<(), TlsConfigError> {
+        self.endpoint = server.endpoint.clone();
+        self.tls_setting.insecure = !server.tls_required;
+
+        match &server.auth_method {
+            RequiredAuthMethod::None => {
+                self.auth = AuthenticationConfig::None;
+            }
+            RequiredAuthMethod::Spire { trust_domain } => {
+                use crate::auth::spire::SpireConfig;
+                use crate::tls::common::{CaSource, TlsSource};
+
+                let trust_domains = trust_domain
+                    .as_ref()
+                    .map(|td| vec![td.clone()])
+                    .unwrap_or_default();
+
+                if server.tls_required {
+                    let tls_socket_path = match &self.tls_setting.config.source {
+                        TlsSource::Spire { config: tls_config } => tls_config.socket_path.clone(),
+                        _ => None,
+                    };
+                    self.tls_setting.config.source = TlsSource::Spire {
+                        config: SpireConfig {
+                            socket_path: tls_socket_path.clone(),
+                            ..Default::default()
+                        },
+                    };
+                    self.tls_setting.config.ca_source = CaSource::Spire {
+                        config: SpireConfig {
+                            socket_path: tls_socket_path,
+                            trust_domains,
+                            ..Default::default()
+                        },
+                    };
+                } else {
+                    return Err(TlsConfigError::Spire(
+                        "TLS needs to be enabled to use Spire".to_string(),
+                    ));
+                }
+            }
+            RequiredAuthMethod::Basic => {}
+            RequiredAuthMethod::Jwt => {}
+        }
+        if let Some(ms) = server.timeout {
+            self.connect_timeout = Duration::from_millis(ms as u64).into();
+        }
+        if let Some(ms) = server.backoff {
+            self.backoff =
+                BackoffConfig::new_fixed_interval(Duration::from_millis(ms as u64), usize::MAX);
+        }
+        Ok(())
+    }
 }
 
 // Native surface. The browser build connects out over `wss://` (TLS handled by
@@ -551,63 +605,6 @@ impl ClientConfig {
             )),
             TransportProtocol::Grpc => Err(ConfigError::WebSocketClientUnsupportedTransport),
         }
-    }
-
-    pub fn merge_server_requirements(
-        &mut self,
-        server: &ServerConnectionConfig,
-    ) -> Result<(), TlsConfigError> {
-        self.endpoint = server.endpoint.clone();
-        self.tls_setting.insecure = !server.tls_required;
-
-        match &server.auth_method {
-            RequiredAuthMethod::None => {
-                self.auth = AuthenticationConfig::None;
-            }
-            RequiredAuthMethod::Spire { trust_domain } => {
-                use crate::auth::spire::SpireConfig;
-                use crate::tls::common::{CaSource, TlsSource};
-
-                let trust_domains = trust_domain
-                    .as_ref()
-                    .map(|td| vec![td.clone()])
-                    .unwrap_or_default();
-
-                if server.tls_required {
-                    let tls_socket_path = match &self.tls_setting.config.source {
-                        TlsSource::Spire { config: tls_config } => tls_config.socket_path.clone(),
-                        _ => None,
-                    };
-                    self.tls_setting.config.source = TlsSource::Spire {
-                        config: SpireConfig {
-                            socket_path: tls_socket_path.clone(),
-                            ..Default::default()
-                        },
-                    };
-                    self.tls_setting.config.ca_source = CaSource::Spire {
-                        config: SpireConfig {
-                            socket_path: tls_socket_path,
-                            trust_domains,
-                            ..Default::default()
-                        },
-                    };
-                } else {
-                    return Err(TlsConfigError::Spire(
-                        "TLS needs to be enabled to use Spire".to_string(),
-                    ));
-                }
-            }
-            RequiredAuthMethod::Basic => {}
-            RequiredAuthMethod::Jwt => {}
-        }
-        if let Some(ms) = server.timeout {
-            self.connect_timeout = Duration::from_millis(ms as u64).into();
-        }
-        if let Some(ms) = server.backoff {
-            self.backoff =
-                BackoffConfig::new_fixed_interval(Duration::from_millis(ms as u64), usize::MAX);
-        }
-        Ok(())
     }
 }
 
