@@ -3,19 +3,13 @@
 
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::pin::Pin;
 use std::sync::Arc;
 
-use crate::api::DataPlaneServiceServer;
 use display_error_chain::ErrorChainExt;
 use parking_lot::RwLock;
 use slim_config::client::ClientConfig;
 use slim_config::client::TransportChannel;
 use slim_config::component::configuration::Configuration;
-use slim_config::server::ServerConfig;
-use slim_config::server_handler::ServerHandler;
-use slim_config::websocket::server as websocket_server;
-use slim_config::websocket::server::AcceptedWebSocketConnection;
 use tokio::sync::mpsc::{self, Sender};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -23,8 +17,26 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
 
-use tonic::{Request, Response, Status};
+use tonic::Status;
 use tracing::{Instrument, debug, error, info, warn};
+
+// The gRPC server/client stubs, the server-side config + WebSocket-accept path,
+// and h2 error inspection are native-only. The browser build is a client that
+// dials out over `wss://` and never runs the gRPC service.
+cfg_if::cfg_if! {
+    if #[cfg(not(target_arch = "wasm32"))] {
+        use std::pin::Pin;
+
+        use crate::api::DataPlaneServiceServer;
+        use crate::api::proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
+        use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneService;
+        use slim_config::server::ServerConfig;
+        use slim_config::server_handler::ServerHandler;
+        use slim_config::websocket::server as websocket_server;
+        use slim_config::websocket::server::AcceptedWebSocketConnection;
+        use tonic::{Request, Response};
+    }
+}
 
 #[cfg(feature = "otel_tracing")]
 use crate::otel_tracing;
@@ -35,8 +47,6 @@ use crate::api::ProtoSubscriptionAckType as SubscriptionAckType;
 use crate::api::ProtoUnsubscribeType as UnsubscribeType;
 use crate::api::proto::dataplane::v1::Message;
 
-use crate::api::proto::dataplane::v1::data_plane_service_client::DataPlaneServiceClient;
-use crate::api::proto::dataplane::v1::data_plane_service_server::DataPlaneService;
 use crate::api::{
     LinkNegotiationPayload, ProtoLink, ProtoLinkMessageType as LinkType, ProtoLinkType,
     ProtoMessage, ProtoName,
@@ -92,6 +102,8 @@ struct MessageProcessorInternal {
     deployment_name: String,
 
     /// Default strict header MAC policy for server-accepted inter-node connections (see [`ServerConfig::require_header_mac`]).
+    // Only read by the native gRPC/WebSocket-accept server paths.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     server_require_header_mac: bool,
 
     /// Timeout for link negotiation to complete.
@@ -144,6 +156,7 @@ impl MessageProcessor {
     }
 
     /// Create a processor with the server strict header MAC policy from `server_config`.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new_with_server_config(
         service_id: String,
         deployment_name: String,
@@ -193,6 +206,7 @@ impl MessageProcessor {
     /// Dispatch on the configured transport happens inside slim-config via the
     /// [`ServerHandler`] trait below. Returns a cancellation token that can be
     /// used to stop the server task.
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn run_server(
         &self,
         config: &ServerConfig,
@@ -214,6 +228,7 @@ impl MessageProcessor {
             .map_err(Into::into)
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     async fn handle_websocket_accepted(&self, accepted: AcceptedWebSocketConnection) {
         let cancellation_token = CancellationToken::new();
         let streams =
@@ -392,6 +407,11 @@ impl MessageProcessor {
         let link_id = client_config.link_id.clone();
 
         match channel {
+            // On wasm the gRPC arm is uninhabited (`to_channel` returns
+            // `TransportChannel<Infallible>`); only the WebSocket arm runs.
+            #[cfg(target_arch = "wasm32")]
+            TransportChannel::Grpc(never) => match never {},
+            #[cfg(not(target_arch = "wasm32"))]
             TransportChannel::Grpc(grpc_channel) => {
                 let mut client = DataPlaneServiceClient::new(grpc_channel);
                 let (tx, rx) = mpsc::channel(128);
@@ -1617,7 +1637,7 @@ impl MessageProcessor {
             is_local,
         );
 
-        let handle = tokio::spawn(async move {
+        let handle = crate::runtime::spawn(async move {
             let mut try_to_reconnect = true;
 
             // Resolve the conn_index: either already registered (local) or
@@ -1829,6 +1849,8 @@ impl MessageProcessor {
 
             // h2::Error do not expose std::io::Error with `source()`
             // https://github.com/hyperium/h2/pull/462
+            // h2 is part of the native gRPC stack only.
+            #[cfg(not(target_arch = "wasm32"))]
             if let Some(h2_err) = err.downcast_ref::<h2::Error>()
                 && let Some(io_err) = h2_err.get_io()
             {
@@ -1868,6 +1890,7 @@ impl MessageProcessor {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl ServerHandler for MessageProcessor {
     fn grpc_routes(&self) -> Option<tonic::service::Routes> {
         let svc = DataPlaneServiceServer::from_arc(Arc::new(self.clone()));
@@ -1883,6 +1906,7 @@ impl ServerHandler for MessageProcessor {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[tonic::async_trait]
 impl DataPlaneService for MessageProcessor {
     type OpenChannelStream = Pin<Box<dyn Stream<Item = Result<Message, Status>> + Send + 'static>>;

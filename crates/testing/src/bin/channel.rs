@@ -36,7 +36,7 @@ pub struct Args {
 
     /// Runs the endpoint with MLS disabled.
     #[arg(
-        short,
+        short = 'd',
         long,
         value_name = "MSL_DISABLED",
         required = false,
@@ -50,7 +50,7 @@ pub struct Args {
 
     // Moderator name in the for org/ns/type/id. used only in participant mode
     #[arg(
-        short,
+        short = 'o',
         long,
         value_name = "MODERATOR_NAME",
         required = false,
@@ -69,7 +69,7 @@ pub struct Args {
     frequency: u32,
 
     /// Maximum number of packets to send. used only by the moderator
-    #[arg(short, long, value_name = "MAX_PACKETS", required = false)]
+    #[arg(short = 'm', long, value_name = "MAX_PACKETS", required = false)]
     max_packets: Option<u64>,
 }
 

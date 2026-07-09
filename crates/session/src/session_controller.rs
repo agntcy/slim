@@ -232,9 +232,7 @@ impl SessionController {
         let shutdown_timeout = settings
             .graceful_shutdown_timeout
             .unwrap_or(Duration::from_secs(60));
-        shutdown_deadline
-            .as_mut()
-            .reset(tokio::time::Instant::now() + shutdown_timeout);
+        crate::runtime::reset_shutdown_deadline(shutdown_deadline, shutdown_timeout);
     }
 
     /// Apply the identity token to all outbound ToSlim messages.
@@ -337,8 +335,9 @@ impl SessionController {
         V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
         M: crate::subscription_manager::SubscriptionOps,
     {
-        // Start with an infinite timeout (will be updated on graceful shutdown)
-        let mut shutdown_deadline = std::pin::pin!(tokio::time::sleep(Duration::MAX));
+        // Start with an effectively-infinite timeout (updated on graceful shutdown).
+        let mut shutdown_deadline = std::pin::pin!(crate::runtime::infinite_sleep());
+
         // Init the inner components
         if let Err(e) = inner.init().await {
             tracing::error!(error = %e.chain(), "error during initialization of session");

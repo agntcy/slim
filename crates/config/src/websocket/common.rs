@@ -3,13 +3,17 @@
 
 use std::str::FromStr;
 
-use fastwebsockets::WebSocket;
-use hyper::upgrade::Upgraded;
-use hyper_util::rt::TokioIo;
-
 use crate::errors::ConfigError;
 
-pub type UpgradedWebSocket = WebSocket<TokioIo<Upgraded>>;
+cfg_if::cfg_if! {
+    if #[cfg(not(target_arch = "wasm32"))] {
+        use fastwebsockets::WebSocket;
+        use hyper::upgrade::Upgraded;
+        use hyper_util::rt::TokioIo;
+
+        pub type UpgradedWebSocket = WebSocket<TokioIo<Upgraded>>;
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct WebSocketEndpoint {
@@ -92,6 +96,7 @@ impl WebSocketEndpoint {
 /// percent-decoding both key and value. Used by the server-side
 /// `QueryTokenToAuthHeaderLayer` to accept tokens from clients that cannot
 /// set HTTP headers on the WebSocket upgrade (browsers).
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn extract_query_param(query: Option<&str>, name: &str) -> Option<String> {
     let query = query?;
 
