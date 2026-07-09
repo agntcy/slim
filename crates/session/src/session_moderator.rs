@@ -11,8 +11,8 @@ use display_error_chain::ErrorChainExt;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, MlsPayload, NameId, Participant, ProtoMessage as Message, ProtoMlsSettings,
-        ProtoName, ProtoSessionMessageType, ProtoSessionType,
+        CommandPayload, MlsPayload, NameId, Participant, ParticipantState, ProtoMessage as Message,
+        ProtoMlsSettings, ProtoName, ProtoSessionMessageType, ProtoSessionType,
     },
     messages::utils::{DELETE_GROUP, DISCONNECTION_DETECTED, LEAVING_SESSION, TRUE_VAL},
 };
@@ -35,6 +35,11 @@ use crate::{
     traits::{MessageHandler, ProcessingState},
 };
 
+struct ParticipantEntry {
+    participant: Participant,
+    state: ParticipantState,
+}
+
 pub struct SessionModerator<P, V, I, M = SubscriptionManager>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -54,8 +59,8 @@ where
 
     /// List of group participants
     /// The key is the participant name without ID
-    /// The value contains the full and name and the participant settings
-    group_list: HashMap<ProtoName, Participant>,
+    /// The value contains the full name, participant settings, and online/offline state
+    group_list: HashMap<ProtoName, ParticipantEntry>,
 
     /// Common settings
     common: SessionControllerCommon<P, V, M>,
@@ -300,8 +305,9 @@ where
     fn participants_list(&self) -> Vec<ProtoName> {
         self.group_list
             .iter()
-            .map(|(name, p)| {
-                let id = p
+            .map(|(name, entry)| {
+                let id = entry
+                    .participant
                     .name
                     .as_ref()
                     .map(|n| n.id())
@@ -478,7 +484,12 @@ where
         let participants_vec: Vec<ProtoName> = self
             .group_list
             .iter()
-            .map(|(n, p)| p.get_name().map(|name| n.clone().with_id(name.id())))
+            .map(|(n, entry)| {
+                entry
+                    .participant
+                    .get_name()
+                    .map(|name| n.clone().with_id(name.id()))
+            })
             .collect::<Result<Vec<ProtoName>, _>>()?;
 
         // Remove participant from group list
@@ -567,14 +578,11 @@ where
                 );
                 match direction {
                     MessageDirection::North => {
-                        // The message is coming from SLIM, some one in the group has changed its state
-                        // TODO: update the particioant list
-                        Ok(SessionOutput::new())
+                        self.on_update_participant_state_from_slim(message).await
                     }
                     MessageDirection::South => {
-                        // The message is coming from the application. We need to send the message to the group
-                        // TODO: update message with the right destination, create a task and send the message
-                        Ok(SessionOutput::new())
+                        // The message is coming from the application. Broadcast to the group.
+                        self.on_update_participant_state_from_app(message).await
                     }
                 }
             }
@@ -584,28 +592,20 @@ where
                     id = %message.get_id(),
                     "received rejoin request message",
                 );
-                // if the message is coming from the application, restore the moderator
-                // if the message is coming from slim check if the participant can rejoin
-                // TODO
-                Ok(SessionOutput::new())
-            }
-            ProtoSessionMessageType::RejoinReply => {
-                debug!(
-                    name = %self.common.settings.source,
-                    id = %message.get_id(),
-                    "received rejoin reply message",
-                );
-                // The message direction must be north as the message can only come from the network
-                // The moderator doesn't need to send the reply to itself
-                if matches!(direction, MessageDirection::South) {
-                    debug!(
-                        message_type = ?message.get_session_message_type(),
-                        "Unexpected message coming from application",
-                    );
-                    return Ok(SessionOutput::new());
+                match direction {
+                    MessageDirection::North => {
+                        // The message is coming from a participant wanting to rejoin
+                        self.on_rejoin_request_from_slim(message).await
+                    }
+                    MessageDirection::South => {
+                        // TODO
+                        debug!(
+                            message_type = ?message.get_session_message_type(),
+                            "Unexpected rejoin request from app on moderator side",
+                        );
+                        Ok(SessionOutput::new())
+                    }
                 }
-                // TODO
-                Ok(SessionOutput::new())
             }
             ProtoSessionMessageType::GroupProposal => todo!(),
             ProtoSessionMessageType::JoinRequest
@@ -613,12 +613,262 @@ where
             | ProtoSessionMessageType::GroupRemove
             | ProtoSessionMessageType::GroupWelcome
             | ProtoSessionMessageType::GroupClose
-            | ProtoSessionMessageType::GroupNack => Err(
+            | ProtoSessionMessageType::GroupNack
+            | ProtoSessionMessageType::RejoinReply => Err(
                 SessionError::SessionMessageTypeUnexpected(message.get_session_message_type()),
             ),
             _ => Err(SessionError::SessionMessageTypeUnknown(
                 message.get_session_message_type(),
             )),
+        }
+    }
+
+    async fn on_update_participant_state_from_slim(
+        &mut self,
+        message: Message,
+    ) -> Result<SessionOutput, SessionError> {
+        let payload = message
+            .get_payload()
+            .ok_or(SessionError::MissingPayload {
+                context: "update_participant_state",
+            })?
+            .as_command_payload()?
+            .as_update_participant_state_payload()?;
+
+        let participant_name = payload
+            .participant
+            .as_ref()
+            .ok_or(SessionError::MissingPayload {
+                context: "update_participant_state: missing participant name",
+            })?
+            .clone();
+
+        let new_state = ParticipantState::try_from(payload.new_state).map_err(|_| {
+            SessionError::MissingPayload {
+                context: "update_participant_state: invalid participant state",
+            }
+        })?;
+
+        // Only offline state updates are accepted from participants.
+        // Online updates can only be sent by the moderator itself.
+        if new_state == ParticipantState::OnLine {
+            debug!(
+                name = %participant_name,
+                "received online state update from participant, only moderator can send online updates",
+            );
+            return Ok(SessionOutput::new());
+        }
+
+        // Check participant is known and currently online
+        let mut participant_no_id = participant_name.clone();
+        participant_no_id.reset_id();
+        let entry = match self.group_list.get_mut(&participant_no_id) {
+            Some(entry) => entry,
+            None => {
+                debug!(
+                    name = %participant_name,
+                    "received offline state for unknown participant, ignoring",
+                );
+                return Ok(SessionOutput::new());
+            }
+        };
+
+        // If already offline, ignore
+        if entry.state != ParticipantState::OnLine {
+            debug!(
+                name = %participant_name,
+                "participant is already offline, ignoring",
+            );
+            return Ok(SessionOutput::new());
+        }
+
+        // Set the participant state to offline
+        entry.state = ParticipantState::OffLine;
+
+        // Remove participant from session: remove route, endpoint, and control sender
+        self.common
+            .delete_route(participant_name.clone(), message.get_incoming_conn())
+            .await?;
+        self.remove_endpoint(&participant_name);
+        self.common.sender.remove_participant(&participant_name);
+
+        // Send ACK back to the participant
+        let ack = self.common.create_control_message(
+            &message.get_source(),
+            ProtoSessionMessageType::GroupAck,
+            message.get_id(),
+            CommandPayload::builder().group_ack().as_content(),
+            false,
+        )?;
+
+        Ok(SessionOutput::to_slim(ack))
+    }
+
+    async fn on_update_participant_state_from_app(
+        &mut self,
+        message: Message,
+    ) -> Result<SessionOutput, SessionError> {
+        let destination = self.common.settings.control.clone();
+        let msg_id = message.get_id();
+        let payload = message
+            .get_payload()
+            .ok_or(SessionError::MissingPayload {
+                context: "update_participant_state_from_app",
+            })?
+            .clone();
+
+        self.common.send_control_message(
+            &destination,
+            ProtoSessionMessageType::UpdateParticipantState,
+            msg_id,
+            payload,
+            None,
+            true,
+        )
+    }
+
+    /// Sends an UpdateParticipantState(ON_LINE) message on behalf of a participant
+    /// that has successfully rejoined. This restores the participant in the group:
+    /// sets its state to OnLine, re-adds the route and endpoint, and broadcasts
+    /// the state update to all participants.
+    async fn send_on_line_update_for_participant(
+        &mut self,
+        participant_name: ProtoName,
+        conn: u64,
+    ) -> Result<SessionOutput, SessionError> {
+        // Update group_list: set participant state to OnLine
+        let mut name_no_id = participant_name.clone();
+        name_no_id.reset_id();
+        let entry = match self.group_list.get_mut(&name_no_id) {
+            Some(entry) => entry,
+            None => {
+                return Err(SessionError::ParticipantNotFound(participant_name));
+            }
+        };
+        entry.state = ParticipantState::OnLine;
+
+        // Re-add route for the participant
+        self.common
+            .add_route(participant_name.clone(), conn)
+            .await?;
+
+        // Re-add endpoint to the local session
+        let participant = entry.participant.clone();
+        self.add_endpoint(&participant).await?;
+
+        // Re-add participant to the control sender
+        // TODO: check if the sender needs an explicit add_participant call
+
+        // Build and broadcast the UpdateParticipantState(ON_LINE) message
+        let payload = CommandPayload::builder()
+            .update_participant_state(participant_name.clone(), ParticipantState::OnLine)
+            .as_content();
+
+        let destination = self.common.settings.control.clone();
+        let msg_id = rand::random::<u32>();
+
+        self.common.send_control_message(
+            &destination,
+            ProtoSessionMessageType::UpdateParticipantState,
+            msg_id,
+            payload,
+            None,
+            true,
+        )
+    }
+
+    /// Handles a RejoinRequest from a participant that was previously offline.
+    /// Validates: participant is known and offline, session_id matches, MLS epoch matches.
+    /// On success: sends RejoinReply(success=true) and broadcasts ON_LINE update.
+    /// On failure: sends RejoinReply(success=false).
+    async fn on_rejoin_request_from_slim(
+        &mut self,
+        message: Message,
+    ) -> Result<SessionOutput, SessionError> {
+        let payload = message.extract_rejoin_request()?;
+        let participant_name = message.get_source();
+        let msg_id = message.get_id();
+        let conn = message.get_incoming_conn();
+
+        let mut name_no_id = participant_name.clone();
+        name_no_id.reset_id();
+
+        // Check that the participant is in the group list as offline
+        let is_valid = match self.group_list.get(&name_no_id) {
+            Some(entry) if entry.state == ParticipantState::OffLine => {
+                // Check session_id matches
+                if payload.session_id != self.common.settings.id {
+                    debug!(
+                        expected = self.common.settings.id,
+                        got = payload.session_id,
+                        "rejoin request session_id mismatch",
+                    );
+                    false
+                } else {
+                    // Check MLS epoch if MLS is enabled
+                    match &self.mls_state {
+                        Some(mls_state) => {
+                            let current_epoch = mls_state.common.mls.get_epoch().unwrap_or(0);
+                            if payload.mls_epoch != current_epoch {
+                                debug!(
+                                    expected = current_epoch,
+                                    got = payload.mls_epoch,
+                                    "rejoin request MLS epoch mismatch",
+                                );
+                                false
+                            } else {
+                                true
+                            }
+                        }
+                        None => true, // MLS not enabled, no epoch check needed
+                    }
+                }
+            }
+            Some(_) => {
+                debug!(
+                    name = %participant_name,
+                    "rejoin request from participant that is not offline, ignoring",
+                );
+                false
+            }
+            None => {
+                debug!(
+                    name = %participant_name,
+                    "rejoin request from unknown participant",
+                );
+                false
+            }
+        };
+
+        if is_valid {
+            // Send RejoinReply success
+            let reply = self.common.create_control_message(
+                &participant_name,
+                ProtoSessionMessageType::RejoinReply,
+                msg_id,
+                CommandPayload::builder().rejoin_reply(true).as_content(),
+                false,
+            )?;
+            let mut output = SessionOutput::to_slim(reply);
+
+            // Broadcast ON_LINE state update on behalf of the participant
+            output.extend(
+                self.send_on_line_update_for_participant(participant_name, conn)
+                    .await?,
+            );
+
+            Ok(output)
+        } else {
+            // Send RejoinReply failure
+            let reply = self.common.create_control_message(
+                &participant_name,
+                ProtoSessionMessageType::RejoinReply,
+                msg_id,
+                CommandPayload::builder().rejoin_reply(false).as_content(),
+                false,
+            )?;
+
+            Ok(SessionOutput::to_slim(reply))
         }
     }
 
@@ -793,7 +1043,13 @@ where
         self.add_endpoint(&new_participant).await?;
 
         new_name.reset_id();
-        self.group_list.insert(new_name, new_participant.clone());
+        self.group_list.insert(
+            new_name,
+            ParticipantEntry {
+                participant: new_participant.clone(),
+                state: ParticipantState::OnLine,
+            },
+        );
 
         // get mls data if MLS is enabled
         let (commit, welcome) = if let Some(mls_state) = &mut self.mls_state {
@@ -817,7 +1073,11 @@ where
         };
 
         // Create participants list for the messages to send
-        let participants_vec = self.group_list.values().cloned().collect::<Vec<_>>();
+        let participants_vec = self
+            .group_list
+            .values()
+            .map(|entry| entry.participant.clone())
+            .collect::<Vec<_>>();
 
         // send the group update
         if participants_vec.len() > 2 {
@@ -897,7 +1157,7 @@ where
         let dst_without_id = msg.get_dst();
         // Look up participant ID in group list
         let id = match self.group_list.get(&dst_without_id) {
-            Some(p) => p.get_name()?.id(),
+            Some(entry) => entry.participant.get_name()?.id(),
             None => {
                 let err = SessionError::ParticipantNotFound(dst_without_id);
                 return Err(self.handle_task_error(err));
@@ -1079,7 +1339,12 @@ where
         let participants: Vec<ProtoName> = self
             .group_list
             .iter()
-            .map(|(n, p)| p.get_name().map(|name| n.clone().with_id(name.id())))
+            .map(|(n, entry)| {
+                entry
+                    .participant
+                    .get_name()
+                    .map(|name| n.clone().with_id(name.id()))
+            })
             .collect::<Result<Vec<ProtoName>, _>>()?;
 
         if participants.len() == 1 {
@@ -1280,7 +1545,13 @@ where
         let settings = self.common.settings.direction.to_participant_settings();
         let participant = Participant::new(local_name.clone(), settings);
         local_name.reset_id();
-        self.group_list.insert(local_name, participant);
+        self.group_list.insert(
+            local_name,
+            ParticipantEntry {
+                participant,
+                state: ParticipantState::OnLine,
+            },
+        );
 
         Ok(())
     }
@@ -1662,24 +1933,33 @@ mod tests {
         // Add some participants to group list
         moderator.group_list.insert(
             make_name(&["participant1", "app", "v1"]),
-            Participant::new(
-                make_name(&["participant1", "app", "v1"]).with_id(401),
-                ParticipantSettings::bidirectional(),
-            ),
+            ParticipantEntry {
+                participant: Participant::new(
+                    make_name(&["participant1", "app", "v1"]).with_id(401),
+                    ParticipantSettings::bidirectional(),
+                ),
+                state: ParticipantState::OnLine,
+            },
         );
         moderator.group_list.insert(
             make_name(&["participant2", "app", "v1"]),
-            Participant::new(
-                make_name(&["participant2", "app", "v1"]).with_id(402),
-                ParticipantSettings::bidirectional(),
-            ),
+            ParticipantEntry {
+                participant: Participant::new(
+                    make_name(&["participant2", "app", "v1"]).with_id(402),
+                    ParticipantSettings::bidirectional(),
+                ),
+                state: ParticipantState::OnLine,
+            },
         );
         moderator.group_list.insert(
             make_name(&["participant3", "app", "v1"]),
-            Participant::new(
-                make_name(&["participant3", "app", "v1"]).with_id(403),
-                ParticipantSettings::bidirectional(),
-            ),
+            ParticipantEntry {
+                participant: Participant::new(
+                    make_name(&["participant3", "app", "v1"]).with_id(403),
+                    ParticipantSettings::bidirectional(),
+                ),
+                state: ParticipantState::OnLine,
+            },
         );
 
         let result = moderator.delete_all(None).await;
@@ -1878,9 +2158,13 @@ mod tests {
         // Fill in participant settings as needed
         let participant_id = 401u128;
         participant_name.reset_id(); // Remove ID before inserting into group_list
-        moderator
-            .group_list
-            .insert(participant_name.clone(), participant);
+        moderator.group_list.insert(
+            participant_name.clone(),
+            ParticipantEntry {
+                participant,
+                state: ParticipantState::OnLine,
+            },
+        );
 
         // Verify we have exactly 2 participants (moderator + participant)
         assert_eq!(
@@ -2040,15 +2324,27 @@ mod tests {
         participant2_name.reset_id();
         participant3_name.reset_id();
 
-        moderator
-            .group_list
-            .insert(participant1_name.clone(), participant1);
-        moderator
-            .group_list
-            .insert(participant2_name.clone(), participant2);
-        moderator
-            .group_list
-            .insert(participant3_name.clone(), participant3);
+        moderator.group_list.insert(
+            participant1_name.clone(),
+            ParticipantEntry {
+                participant: participant1,
+                state: ParticipantState::OnLine,
+            },
+        );
+        moderator.group_list.insert(
+            participant2_name.clone(),
+            ParticipantEntry {
+                participant: participant2,
+                state: ParticipantState::OnLine,
+            },
+        );
+        moderator.group_list.insert(
+            participant3_name.clone(),
+            ParticipantEntry {
+                participant: participant3,
+                state: ParticipantState::OnLine,
+            },
+        );
 
         // Create first leave request coming directly from participant1 with LEAVING_SESSION metadata
         let participant1_with_id = participant1_name.clone().with_id(401);

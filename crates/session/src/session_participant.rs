@@ -735,6 +735,15 @@ where
                 self.remove_endpoint(&participant_name);
             }
             ParticipantState::OnLine => {
+                // Only the moderator can send online state updates
+                if self.moderator_name.as_ref() != Some(&message.get_source()) {
+                    debug!(
+                        source = %message.get_source(),
+                        "received online state update from non-moderator, ignoring",
+                    );
+                    return Ok(SessionOutput::new());
+                }
+
                 // Participant came back online: update state, add route
                 let settings;
                 if let Some(state) = self.group_list.get_mut(&participant_name) {
