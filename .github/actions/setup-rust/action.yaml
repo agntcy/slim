@@ -48,10 +48,25 @@ runs:
       if: runner.os == 'Linux'
       shell: bash
       run: |
+        set -euo pipefail
+        # apt.llvm.org rate-limits transiently and llvm.sh aborts on its GPG-key
+        # reachability preflight ("GPG key not reachable"). Retry with backoff.
+        retry() {
+          local n=1 max=5 delay=15
+          until "$@"; do
+            if (( n >= max )); then
+              echo "[error] '$*' failed after $n attempts" >&2
+              return 1
+            fi
+            echo "[warn] '$*' failed (attempt $n/$max); retrying in ${delay}s" >&2
+            sleep "$delay"
+            n=$((n + 1))
+          done
+        }
         sudo apt-get update
-        curl -L https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
+        retry curl -fsSL --retry 5 --retry-all-errors https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
         chmod +x /tmp/llvm.sh
-        sudo /tmp/llvm.sh 19
+        retry sudo /tmp/llvm.sh 19
         sudo apt-get install -y \
           pkg-config \
           make \
