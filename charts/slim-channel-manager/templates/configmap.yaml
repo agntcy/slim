@@ -1,0 +1,18 @@
+{{/*
+Copyright AGNTCY Contributors (https://github.com/agntcy)
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "channel-manager.fullname" . }}
+  labels:
+    {{- include "channel-manager.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    {{- if .Values.overrideConfig }}
+    {{- tpl (toYaml .Values.overrideConfig) . | nindent 4 }}
+    {{- else }}
+    {{- tpl (toYaml .Values.config) . | nindent 4 }}
+    {{- end }}

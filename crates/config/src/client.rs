@@ -11,32 +11,40 @@
 //! * `crate::grpc::client` — gRPC tonic channel building
 //! * `crate::websocket::client` — WebSocket channel building
 
-use display_error_chain::ErrorChainExt;
 use duration_string::DurationString;
 use std::{collections::HashMap, time::Duration};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tonic::codegen::{Body, Bytes, StdError};
 
-use slim_auth::metadata::MetadataMap;
-
-use crate::auth::basic::Config as BasicAuthenticationConfig;
-use crate::auth::jwt::Config as JwtAuthenticationConfig;
-#[cfg(not(target_family = "windows"))]
-use crate::auth::spire::SpireConfig as SpireAuthConfig;
-use crate::auth::static_jwt::Config as BearerAuthenticationConfig;
-use crate::backoff::Strategy;
-use crate::backoff::exponential::Config as ExponentialBackoff;
-use crate::backoff::fixedinterval::Config as FixedIntervalBackoff;
 use crate::component::configuration::Configuration;
 use crate::conn_type::ConnType;
 use crate::errors::ConfigError;
-use crate::grpc::compression::CompressionType;
-use crate::grpc::proxy::ProxyConfig;
-use crate::tls::client::TlsClientConfig as TLSSetting;
 use crate::transport::{TransportProtocol, validate_endpoint_scheme};
 use crate::websocket::client::WebSocketClientChannel;
+
+// Auth, TLS, proxy, compression, gRPC and the backoff/retry strategy are
+// native-only: the browser build connects out over `wss://` (TLS handled by the
+// browser) without these layers, so they are gated off wasm32.
+cfg_if::cfg_if! {
+    if #[cfg(not(target_arch = "wasm32"))] {
+        use display_error_chain::ErrorChainExt;
+        use slim_auth::metadata::MetadataMap;
+        use tonic::codegen::{Body, Bytes, StdError};
+
+        use crate::auth::basic::Config as BasicAuthenticationConfig;
+        use crate::auth::jwt::Config as JwtAuthenticationConfig;
+        #[cfg(not(target_family = "windows"))]
+        use crate::auth::spire::SpireConfig as SpireAuthConfig;
+        use crate::auth::static_jwt::Config as BearerAuthenticationConfig;
+        use crate::backoff::exponential::Config as ExponentialBackoff;
+        use crate::backoff::fixedinterval::Config as FixedIntervalBackoff;
+        use crate::backoff::Strategy;
+        use crate::grpc::compression::CompressionType;
+        use crate::grpc::proxy::ProxyConfig;
+        use crate::tls::client::TlsClientConfig as TLSSetting;
+    }
+}
 
 /// Result of [`ClientConfig::to_channel`]: either a gRPC channel (the generic
 /// `G` parameter) or a WebSocket channel.
@@ -103,69 +111,73 @@ fn default_keep_alive_while_idle() -> bool {
     false
 }
 
-/// Enum holding one configuration for the client.
-#[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case", tag = "type")]
-pub enum AuthenticationConfig {
-    /// Basic authentication configuration.
-    Basic(BasicAuthenticationConfig),
-    /// Bearer authentication configuration.
-    StaticJwt(BearerAuthenticationConfig),
-    /// JWT authentication configuration.
-    Jwt(JwtAuthenticationConfig),
-    /// SPIRE/SPIFFE authentication configuration.
-    #[cfg(not(target_family = "windows"))]
-    Spire(SpireAuthConfig),
-    /// None
-    #[default]
-    None,
-}
+cfg_if::cfg_if! {
+    if #[cfg(not(target_arch = "wasm32"))] {
+        /// Enum holding one authentication configuration for the client.
+        #[derive(Debug, Serialize, Default, Deserialize, Clone, PartialEq, JsonSchema)]
+        #[serde(rename_all = "snake_case", tag = "type")]
+        pub enum AuthenticationConfig {
+            /// Basic authentication configuration.
+            Basic(BasicAuthenticationConfig),
+            /// Bearer authentication configuration.
+            StaticJwt(BearerAuthenticationConfig),
+            /// JWT authentication configuration.
+            Jwt(JwtAuthenticationConfig),
+            /// SPIRE/SPIFFE authentication configuration.
+            #[cfg(not(target_family = "windows"))]
+            Spire(SpireAuthConfig),
+            /// None
+            #[default]
+            None,
+        }
 
-/// Enum holding one configuration for the client.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case", tag = "type")]
-pub enum BackoffConfig {
-    // Exponential backoff retry config.
-    Exponential(ExponentialBackoff),
-    /// FixedInterval backoff retry config.
-    FixedInterval(FixedIntervalBackoff),
-}
+        /// Enum holding one backoff configuration for the client.
+        #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+        #[serde(rename_all = "snake_case", tag = "type")]
+        pub enum BackoffConfig {
+            // Exponential backoff retry config.
+            Exponential(ExponentialBackoff),
+            /// FixedInterval backoff retry config.
+            FixedInterval(FixedIntervalBackoff),
+        }
 
-impl BackoffConfig {
-    /// Creates a new Exponential backoff configuration
-    pub fn new_exponential(
-        base: u64,
-        factor: u64,
-        max_delay: Duration,
-        max_attempts: usize,
-        jitter: bool,
-    ) -> Self {
-        BackoffConfig::Exponential(ExponentialBackoff::new(
-            base,
-            factor,
-            max_delay,
-            max_attempts,
-            jitter,
-        ))
-    }
+        impl BackoffConfig {
+            /// Creates a new Exponential backoff configuration
+            pub fn new_exponential(
+                base: u64,
+                factor: u64,
+                max_delay: Duration,
+                max_attempts: usize,
+                jitter: bool,
+            ) -> Self {
+                BackoffConfig::Exponential(ExponentialBackoff::new(
+                    base,
+                    factor,
+                    max_delay,
+                    max_attempts,
+                    jitter,
+                ))
+            }
 
-    /// Creates a new FixedInterval backoff configuration
-    pub fn new_fixed_interval(interval: Duration, max_attempts: usize) -> Self {
-        BackoffConfig::FixedInterval(FixedIntervalBackoff::new(interval, max_attempts))
-    }
-}
+            /// Creates a new FixedInterval backoff configuration
+            pub fn new_fixed_interval(interval: Duration, max_attempts: usize) -> Self {
+                BackoffConfig::FixedInterval(FixedIntervalBackoff::new(interval, max_attempts))
+            }
+        }
 
-impl Default for BackoffConfig {
-    fn default() -> Self {
-        BackoffConfig::Exponential(ExponentialBackoff::default())
-    }
-}
+        impl Default for BackoffConfig {
+            fn default() -> Self {
+                BackoffConfig::Exponential(ExponentialBackoff::default())
+            }
+        }
 
-impl Strategy for BackoffConfig {
-    fn get_strategy(&self) -> Box<dyn Iterator<Item = Duration> + Send> {
-        match self {
-            BackoffConfig::Exponential(b) => b.get_strategy(),
-            BackoffConfig::FixedInterval(b) => b.get_strategy(),
+        impl Strategy for BackoffConfig {
+            fn get_strategy(&self) -> Box<dyn Iterator<Item = Duration> + Send> {
+                match self {
+                    BackoffConfig::Exponential(b) => b.get_strategy(),
+                    BackoffConfig::FixedInterval(b) => b.get_strategy(),
+                }
+            }
         }
     }
 }
@@ -193,12 +205,14 @@ pub struct ClientConfig {
     pub server_name: Option<String>,
 
     /// Compression type - TODO(msardara): not implemented yet.
+    #[cfg(not(target_arch = "wasm32"))]
     pub compression: Option<CompressionType>,
 
     /// Rate Limits
     pub rate_limit: Option<String>,
 
     /// TLS client configuration.
+    #[cfg(not(target_arch = "wasm32"))]
     #[serde(default, rename = "tls")]
     pub tls_setting: TLSSetting,
 
@@ -206,6 +220,7 @@ pub struct ClientConfig {
     pub keepalive: Option<KeepaliveConfig>,
 
     /// HTTP Proxy configuration.
+    #[cfg(not(target_arch = "wasm32"))]
     #[serde(default)]
     pub proxy: ProxyConfig,
 
@@ -227,14 +242,17 @@ pub struct ClientConfig {
     pub headers: HashMap<String, String>,
 
     /// Auth configuration for outgoing RPCs.
+    #[cfg(not(target_arch = "wasm32"))]
     #[serde(default)]
     pub auth: AuthenticationConfig,
 
     /// Backoff retry configuration.
+    #[cfg(not(target_arch = "wasm32"))]
     #[serde(default)]
     pub backoff: BackoffConfig,
 
     /// Arbitrary user-provided metadata.
+    #[cfg(not(target_arch = "wasm32"))]
     pub metadata: Option<MetadataMap>,
 
     /// Link identifier for this connection, used during link negotiation.
@@ -260,17 +278,23 @@ impl Default for ClientConfig {
             endpoint: String::new(),
             origin: None,
             server_name: None,
+            #[cfg(not(target_arch = "wasm32"))]
             compression: None,
             rate_limit: None,
+            #[cfg(not(target_arch = "wasm32"))]
             tls_setting: TLSSetting::default(),
             keepalive: None,
+            #[cfg(not(target_arch = "wasm32"))]
             proxy: ProxyConfig::default(),
             connect_timeout: default_connect_timeout(),
             request_timeout: default_request_timeout(),
             buffer_size: None,
             headers: HashMap::new(),
+            #[cfg(not(target_arch = "wasm32"))]
             auth: AuthenticationConfig::None,
+            #[cfg(not(target_arch = "wasm32"))]
             backoff: BackoffConfig::default(),
+            #[cfg(not(target_arch = "wasm32"))]
             metadata: None,
             link_id: default_link_id(),
             require_header_mac: true,
@@ -295,33 +319,16 @@ fn default_request_timeout() -> DurationString {
     Duration::from_secs(0).into()
 }
 
-// Display for ClientConfig
-impl std::fmt::Display for ClientConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "ClientConfig {{ endpoint: {}, transport: {:?}, origin: {:?}, server_name: {:?}, compression: {:?}, rate_limit: {:?}, tls_setting: {:?}, keepalive: {:?}, proxy: {:?}, connect_timeout: {:?}, request_timeout: {:?}, buffer_size: {:?}, headers: {:?}, auth: {:?}, backoff: {:?}, metadata: {:?}, link_id: {:?}, connection_type: {:?} }}",
-            self.endpoint,
-            self.resolved_transport(),
-            self.origin,
-            self.server_name,
-            self.compression,
-            self.rate_limit,
-            self.tls_setting,
-            self.keepalive,
-            self.proxy,
-            self.connect_timeout,
-            self.request_timeout,
-            self.buffer_size,
-            self.headers,
-            self.auth,
-            self.backoff,
-            self.metadata,
-            self.link_id,
-            self.connection_type
-        )
-    }
-}
+// `Display` prints the target's field set (the browser build has no
+// auth/TLS/proxy/compression fields), so each impl lives in its own file and is
+// selected here — file-split rather than an in-line `cfg_if!` so "what exists on
+// wasm" is answerable by `ls`.
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "client_display_native.rs"]
+mod client_display;
+#[cfg(target_arch = "wasm32")]
+#[path = "client_display_wasm.rs"]
+mod client_display;
 
 impl Configuration for ClientConfig {
     type Error = ConfigError;
@@ -332,6 +339,7 @@ impl Configuration for ClientConfig {
         }
 
         // Validate the client configuration
+        #[cfg(not(target_arch = "wasm32"))]
         self.tls_setting.validate()?;
         validate_endpoint_scheme(&self.endpoint)?;
 
@@ -339,6 +347,10 @@ impl Configuration for ClientConfig {
     }
 }
 
+// Transport-agnostic surface: the builder methods and helpers that exist on
+// every target. Native-only builders (TLS/auth/proxy/compression/backoff/
+// metadata) and the native `to_channel` live in the `#[cfg(not(wasm32))]` impl
+// below; the browser `to_channel` lives in the `#[cfg(wasm32)]` impl.
 impl ClientConfig {
     /// Creates a new client configuration with the given endpoint.
     /// This function will return a ClientConfig with the endpoint set
@@ -364,23 +376,9 @@ impl ClientConfig {
         }
     }
 
-    pub fn with_compression(self, compression: CompressionType) -> Self {
-        Self {
-            compression: Some(compression),
-            ..self
-        }
-    }
-
     pub fn with_rate_limit(self, rate_limit: &str) -> Self {
         Self {
             rate_limit: Some(rate_limit.to_string()),
-            ..self
-        }
-    }
-
-    pub fn with_tls_setting(self, tls_setting: TLSSetting) -> Self {
-        Self {
-            tls_setting,
             ..self
         }
     }
@@ -390,10 +388,6 @@ impl ClientConfig {
             keepalive: Some(keepalive),
             ..self
         }
-    }
-
-    pub fn with_proxy(self, proxy: ProxyConfig) -> Self {
-        Self { proxy, ..self }
     }
 
     pub fn with_connect_timeout(self, connect_timeout: Duration) -> Self {
@@ -421,12 +415,57 @@ impl ClientConfig {
         Self { headers, ..self }
     }
 
+    pub fn with_connection_type(self, connection_type: ConnType) -> Self {
+        Self {
+            connection_type,
+            ..self
+        }
+    }
+
+    /// Resolve the transport protocol for this configuration by inspecting
+    /// the endpoint URI scheme. See [`TransportProtocol::from_endpoint`].
+    pub fn resolved_transport(&self) -> TransportProtocol {
+        TransportProtocol::from_endpoint(&self.endpoint)
+    }
+}
+
+// Native surface. The browser build connects out over `wss://` (TLS handled by
+// the browser) without auth/TLS/proxy/compression/backoff layers, so these
+// builders, the shared connect-retry helper, and the gRPC-capable `to_channel`
+// only exist off wasm32.
+#[cfg(not(target_arch = "wasm32"))]
+impl ClientConfig {
+    pub fn with_compression(self, compression: CompressionType) -> Self {
+        Self {
+            compression: Some(compression),
+            ..self
+        }
+    }
+
+    pub fn with_tls_setting(self, tls_setting: TLSSetting) -> Self {
+        Self {
+            tls_setting,
+            ..self
+        }
+    }
+
+    pub fn with_proxy(self, proxy: ProxyConfig) -> Self {
+        Self { proxy, ..self }
+    }
+
     pub fn with_auth(self, auth: AuthenticationConfig) -> Self {
         Self { auth, ..self }
     }
 
     pub fn with_backoff(self, backoff: BackoffConfig) -> Self {
         Self { backoff, ..self }
+    }
+
+    pub fn with_metadata(self, metadata: MetadataMap) -> Self {
+        Self {
+            metadata: Some(metadata),
+            ..self
+        }
     }
 
     /// Run a single connect attempt under this config's backoff/retry policy.
@@ -455,20 +494,6 @@ impl ClientConfig {
             retry
         })
         .await
-    }
-
-    pub fn with_metadata(self, metadata: MetadataMap) -> Self {
-        Self {
-            metadata: Some(metadata),
-            ..self
-        }
-    }
-
-    pub fn with_connection_type(self, connection_type: ConnType) -> Self {
-        Self {
-            connection_type,
-            ..self
-        }
     }
 
     /// Build a transport channel from this configuration. The returned
@@ -503,11 +528,25 @@ impl ClientConfig {
             )),
         }
     }
+}
 
-    /// Resolve the transport protocol for this configuration by inspecting
-    /// the endpoint URI scheme. See [`TransportProtocol::from_endpoint`].
-    pub fn resolved_transport(&self) -> TransportProtocol {
-        TransportProtocol::from_endpoint(&self.endpoint)
+// Browser surface: gRPC is unavailable on wasm, so only the WebSocket transport
+// is supported.
+#[cfg(target_arch = "wasm32")]
+impl ClientConfig {
+    /// Build a transport channel (browser build). gRPC is unavailable on wasm,
+    /// so only the WebSocket transport is supported; a `ws://`/`wss://` endpoint
+    /// is required. The `Grpc` generic is filled with [`std::convert::Infallible`]
+    /// so callers can still pattern-match the (uninhabited) gRPC arm.
+    pub async fn to_channel(
+        &self,
+    ) -> Result<TransportChannel<std::convert::Infallible>, ConfigError> {
+        match self.resolved_transport() {
+            TransportProtocol::Websocket => Ok(TransportChannel::Websocket(
+                self.to_websocket_channel().await?,
+            )),
+            TransportProtocol::Grpc => Err(ConfigError::WebSocketClientUnsupportedTransport),
+        }
     }
 }
 

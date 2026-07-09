@@ -2,29 +2,28 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-
 name: Setup Task with Cache
 description: Setup Task (go-task/task) via arduino/setup-task
 inputs:
   version:
     description: 'Task version to install (e.g., "3.39.2", "latest")'
     required: false
-    default: '3.48.0'
+    default: "3.48.0"
   github-token:
-    description: 'GitHub token for API requests'
+    description: "GitHub token for API requests"
     required: false
     default: ${{ github.token }}
 
 outputs:
   version:
-    description: 'The actual version of Task that was installed'
+    description: "The actual version of Task that was installed"
     value: ${{ inputs.version }}
 
 runs:
   using: "composite"
   steps:
     - name: Setup Task
-      uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2.0.0
+      uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2.1.0
       with:
         version: ${{ inputs.version }}
         repo-token: ${{ inputs.github-token }}

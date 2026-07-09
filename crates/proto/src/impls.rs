@@ -586,7 +586,6 @@ impl SlimHeader {
         self.ttl
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub fn get_connections(&self) -> (u64, Option<u64>, Option<u64>) {
         let incoming = self
             .get_incoming_conn()

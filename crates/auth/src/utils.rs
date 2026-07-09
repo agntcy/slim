@@ -4,31 +4,53 @@
 //! General utility helpers for the authentication crate.
 
 use base64::Engine;
+#[cfg(not(target_arch = "wasm32"))]
 use mls_rs_core::crypto::CipherSuiteProvider;
+#[cfg(not(target_arch = "wasm32"))]
 use mls_rs_core::crypto::CryptoProvider;
+#[cfg(not(target_arch = "wasm32"))]
 use mls_rs_crypto_awslc::AwsLcCryptoProvider;
 
+#[cfg(not(target_arch = "wasm32"))]
 const CIPHERSUITE: mls_rs_core::crypto::CipherSuite =
     mls_rs_core::crypto::CipherSuite::CURVE25519_AES128;
 
-/// Generate an Ed25519 key pair for MLS use via the same crypto provider used by the MLS stack.
+/// Generate an Ed25519 key pair for MLS use.
 ///
-/// Returns `(secret_key_bytes, public_key_bytes)` in the format expected by
-/// `mls_rs_crypto_awslc` for `CURVE25519_AES128`.
+/// Returns provider-compatible `(secret_key_bytes, public_key_bytes)` for
+/// `CURVE25519_AES128`: AWS-LC bytes on native targets and an Ed25519 seed plus
+/// public key in browsers.
 pub fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), crate::errors::AuthError> {
-    let crypto_provider = AwsLcCryptoProvider::default();
-    let cipher_suite_provider = crypto_provider
-        .cipher_suite_provider(CIPHERSUITE)
-        .ok_or(crate::errors::AuthError::MlsKeyGenerationFailed)?;
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let crypto_provider = AwsLcCryptoProvider::default();
+        let cipher_suite_provider = crypto_provider
+            .cipher_suite_provider(CIPHERSUITE)
+            .ok_or(crate::errors::AuthError::MlsKeyGenerationFailed)?;
 
-    let (secret_key, public_key) = cipher_suite_provider
-        .signature_key_generate()
-        .map_err(|_| crate::errors::AuthError::MlsKeyGenerationFailed)?;
+        let (secret_key, public_key) = cipher_suite_provider
+            .signature_key_generate()
+            .map_err(|_| crate::errors::AuthError::MlsKeyGenerationFailed)?;
 
-    Ok((
-        secret_key.as_bytes().to_vec(),
-        public_key.as_bytes().to_vec(),
-    ))
+        Ok((
+            secret_key.as_bytes().to_vec(),
+            public_key.as_bytes().to_vec(),
+        ))
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        // AWS-LC cannot target the browser. Generate the same Ed25519 seed and
+        // public-key representation with the pure-Rust provider already used
+        // by header signing and verification.
+        let mut seed = [0_u8; 32];
+        getrandom::fill(&mut seed).map_err(|_| crate::errors::AuthError::MlsKeyGenerationFailed)?;
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
+        Ok((
+            seed.to_vec(),
+            signing_key.verifying_key().to_bytes().to_vec(),
+        ))
+    }
 }
 
 /// Sign the header AAD bytes using the MLS signature key pair.

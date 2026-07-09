@@ -167,3 +167,119 @@ pub(crate) fn prepare_inbound_msg(
     );
     attach_trace(msg, span, parent);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::api::ProtoName;
+    use opentelemetry::trace::TracerProvider as _;
+    use opentelemetry_sdk::propagation::TraceContextPropagator;
+    use opentelemetry_sdk::trace::{Sampler, SdkTracerProvider};
+    use tracing_subscriber::Registry;
+    use tracing_subscriber::layer::SubscriberExt;
+
+    const ZERO_TRACE_ID: &str = "00000000000000000000000000000000";
+
+    fn build_publish() -> Message {
+        let source = ProtoName::from_strings(["org", "ns", "src"]).with_id(1);
+        let destination = ProtoName::from_strings(["org", "ns", "dst"]).with_id(2);
+        Message::builder()
+            .source(source)
+            .destination(destination)
+            .build_publish()
+            .expect("failed to build publish message")
+    }
+
+    /// Build a scoped subscriber wired to an always-sampling OpenTelemetry
+    /// tracer so spans created under it carry a valid trace context.
+    fn otel_subscriber() -> (impl tracing::Subscriber + Send + Sync, SdkTracerProvider) {
+        let provider = SdkTracerProvider::builder()
+            .with_sampler(Sampler::AlwaysOn)
+            .build();
+        let tracer = provider.tracer("otel-tracing-test");
+        let subscriber =
+            Registry::default().with(tracing_opentelemetry::OpenTelemetryLayer::new(tracer));
+        (subscriber, provider)
+    }
+
+    fn trace_id_from_traceparent(traceparent: &str) -> String {
+        // W3C traceparent: "<version>-<trace-id>-<parent-id>-<flags>".
+        traceparent
+            .split('-')
+            .nth(1)
+            .expect("traceparent missing trace-id field")
+            .to_string()
+    }
+
+    #[test]
+    fn outbound_injects_traceparent_that_inbound_extracts() {
+        opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
+        let (subscriber, _provider) = otel_subscriber();
+
+        let mut msg = build_publish();
+        assert!(
+            !msg.metadata.contains_key("traceparent"),
+            "fresh message should not carry a traceparent"
+        );
+
+        tracing::subscriber::with_default(subscriber, || {
+            let root = tracing::info_span!("root");
+            let _guard = root.enter();
+            prepare_outbound_msg(&mut msg, "send", "svc", SpanTarget::Connection(1));
+        });
+
+        let traceparent = msg
+            .metadata
+            .get("traceparent")
+            .expect("outbound path should inject a traceparent");
+        let injected_trace_id = trace_id_from_traceparent(traceparent);
+        assert_ne!(
+            injected_trace_id, ZERO_TRACE_ID,
+            "injected trace id should be valid"
+        );
+
+        // Receive side: the parent context is recovered from the metadata.
+        let parent = extract_parent_context(&msg).expect("inbound path should recover a parent");
+        let extracted_trace_id = parent.span().span_context().trace_id().to_string();
+        assert_eq!(
+            extracted_trace_id, injected_trace_id,
+            "round-tripped trace id must match the injected one"
+        );
+    }
+
+    #[test]
+    fn non_traceable_message_is_not_annotated() {
+        opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
+        let (subscriber, _provider) = otel_subscriber();
+
+        let source = ProtoName::from_strings(["org", "ns", "src"]).with_id(1);
+        let destination = ProtoName::from_strings(["org", "ns", "dst"]).with_id(2);
+        let mut ack = Message::builder()
+            .source(source)
+            .destination(destination)
+            .build_subscription_ack(1, true, "");
+        assert!(!ack.is_traceable());
+
+        tracing::subscriber::with_default(subscriber, || {
+            let root = tracing::info_span!("root");
+            let _guard = root.enter();
+            prepare_outbound_msg(&mut ack, "send", "svc", SpanTarget::Connection(1));
+        });
+
+        assert!(
+            !ack.metadata.contains_key("traceparent"),
+            "non-traceable messages must not be annotated with trace context"
+        );
+    }
+
+    #[test]
+    fn extract_returns_none_without_context() {
+        opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
+        let msg = build_publish();
+        assert!(
+            extract_parent_context(&msg).is_none(),
+            "a message with no trace metadata has no parent context"
+        );
+    }
+}
