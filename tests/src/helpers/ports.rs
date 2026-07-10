@@ -16,10 +16,14 @@ fn port_base() -> u16 {
     let pid_offset = (process::id() % 100) as u16;
     let exe_seed = std::env::current_exe()
         .ok()
-        .and_then(|path| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()))
+        .and_then(|path| {
+            path.file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+        })
         .map(|stem| {
-            stem.bytes()
-                .fold(0u32, |hash, byte| hash.wrapping_mul(31).wrapping_add(u32::from(byte)))
+            stem.bytes().fold(0u32, |hash, byte| {
+                hash.wrapping_mul(31).wrapping_add(u32::from(byte))
+            })
         })
         .unwrap_or(0);
 
@@ -39,11 +43,7 @@ pub fn reserve_port() -> u16 {
 
     loop {
         let port = next.expect("initialized above");
-        *next = Some(if port >= 65000 {
-            port_base()
-        } else {
-            port + 1
-        });
+        *next = Some(if port >= 65000 { port_base() } else { port + 1 });
 
         if TcpListener::bind(("127.0.0.1", port)).is_ok() {
             return port;

@@ -90,7 +90,13 @@ pub fn run_slimctl_node_add_route_via(
     run_slimctl_node_retry(
         slimctl,
         controller_endpoint,
-        &["route", "add", route, "via", via_config.to_str().expect("utf-8 via path")],
+        &[
+            "route",
+            "add",
+            route,
+            "via",
+            via_config.to_str().expect("utf-8 via path"),
+        ],
         timeout,
     )
 }

@@ -198,8 +198,10 @@ fn slim_node_manages_channel_participants_and_messaging() {
             panic!("SLIM node did not start dataplane:\n{output}");
         });
 
-    let mut channel_manager_session =
-        Some(spawn_channel_manager(&channel_manager, &channel_manager_config));
+    let mut channel_manager_session = Some(spawn_channel_manager(
+        &channel_manager,
+        &channel_manager_config,
+    ));
     let cm_logs = ProcessLogWatcher::attach(
         channel_manager_session
             .as_mut()
@@ -256,11 +258,7 @@ fn slim_node_manages_channel_participants_and_messaging() {
             });
     }
 
-    let create_output = run_slimctl_cm(
-        &slimctl,
-        &cm_endpoint,
-        &["create-channel", CHANNEL_NAME],
-    );
+    let create_output = run_slimctl_cm(&slimctl, &cm_endpoint, &["create-channel", CHANNEL_NAME]);
     assert!(!create_output.is_empty());
     assert_output_contains(&create_output, "created successfully", "create channel");
 
@@ -361,11 +359,8 @@ fn slim_node_manages_channel_participants_and_messaging() {
             panic!("client C session was not closed:\n{output}");
         });
 
-    let delete_channel_output = run_slimctl_cm(
-        &slimctl,
-        &cm_endpoint,
-        &["delete-channel", CHANNEL_NAME],
-    );
+    let delete_channel_output =
+        run_slimctl_cm(&slimctl, &cm_endpoint, &["delete-channel", CHANNEL_NAME]);
     assert!(!delete_channel_output.is_empty());
     client_a_logs
         .wait_contains(MSG_SESSION_CLOSED, Duration::from_secs(15))

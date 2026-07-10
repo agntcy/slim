@@ -5,8 +5,7 @@
 
 use slim_integration_tests::{
     binaries::{
-        require_channel_manager_binary, require_slim_binary, require_slimctl_binary,
-        workspace_root,
+        require_channel_manager_binary, require_slim_binary, require_slimctl_binary, workspace_root,
     },
     helpers::*,
 };
@@ -136,8 +135,10 @@ fn add_nonexistent_participant_fails() {
             panic!("SLIM node did not start dataplane:\n{output}");
         });
 
-    let mut channel_manager_session =
-        Some(spawn_channel_manager(&channel_manager, &channel_manager_config));
+    let mut channel_manager_session = Some(spawn_channel_manager(
+        &channel_manager,
+        &channel_manager_config,
+    ));
     let cm_logs = ProcessLogWatcher::attach(
         channel_manager_session
             .as_mut()
@@ -151,11 +152,7 @@ fn add_nonexistent_participant_fails() {
             panic!("channel manager did not start gRPC server:\n{output}");
         });
 
-    let create_output = run_slimctl_cm(
-        &slimctl,
-        &cm_endpoint,
-        &["create-channel", CHANNEL_NAME],
-    );
+    let create_output = run_slimctl_cm(&slimctl, &cm_endpoint, &["create-channel", CHANNEL_NAME]);
     assert!(!create_output.is_empty());
 
     let add_output = Command::new(&slimctl)

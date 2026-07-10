@@ -20,10 +20,7 @@ fn testdata_dir() -> PathBuf {
 
 fn relay_port_replacements(relay_port: u16) -> HashMap<String, String> {
     HashMap::from([
-        (
-            "0.0.0.0:46357".to_string(),
-            format!("0.0.0.0:{relay_port}"),
-        ),
+        ("0.0.0.0:46357".to_string(), format!("0.0.0.0:{relay_port}")),
         (
             "http://localhost:46357".to_string(),
             format!("http://localhost:{relay_port}"),
@@ -123,10 +120,7 @@ fn terminate_all(sessions: &mut [Option<std::process::Child>]) {
     }
 }
 
-fn wait_relay_started(
-    relay: &mut Option<std::process::Child>,
-    relay_logs: &ProcessLogWatcher,
-) {
+fn wait_relay_started(relay: &mut Option<std::process::Child>, relay_logs: &ProcessLogWatcher) {
     relay_logs
         .wait_contains("dataplane server started", Duration::from_secs(15))
         .unwrap_or_else(|output| {
