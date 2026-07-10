@@ -67,18 +67,22 @@ pub struct PersistentStore;
 
 #[cfg(not(target_arch = "wasm32"))]
 impl PersistentStore {
-    /// Open the encrypted store for `identity` under `dir`, returning the MLS
-    /// group-state handle and the session-record KV handle backed by the same
-    /// database file.
+    /// Open the encrypted store identified by `store_key` under `dir`, returning
+    /// the MLS group-state handle and the session-record KV handle backed by the
+    /// same database file.
+    ///
+    /// `store_key` must be **stable across restarts** for the same logical store
+    /// (e.g. derived from the app name), since it names the file and, absent an
+    /// explicit `key`, seeds the encryption key.
     pub fn open(
         dir: &Path,
-        identity: &str,
+        store_key: &str,
         key: Option<MlsEncryptionKey>,
     ) -> Result<(SlimGroupStateStorage, SlimKvStore), PersistenceError> {
         use mls_rs_provider_sqlite::JournalMode;
 
         std::fs::create_dir_all(dir)?;
-        let db_path = dir.join(format!("slim-{}.db", hex::encode(identity.as_bytes())));
+        let db_path = dir.join(format!("slim-{}.db", hex::encode(store_key.as_bytes())));
 
         // One engine, one file. The first handle created runs the schema setup
         // (all tables at once); the second sees it and skips — no races.
@@ -92,7 +96,7 @@ impl PersistentStore {
             .map_err(|e| PersistenceError::Storage(e.to_string()))?;
 
         // One cipher shared by both handles (same key derivation).
-        let cipher = crate::cipher::ValueCipher::derive(key, identity)?;
+        let cipher = crate::cipher::ValueCipher::derive(key, store_key)?;
 
         tracing::debug!(path = %db_path.display(), "opened unified encrypted SLIM store");
         Ok((

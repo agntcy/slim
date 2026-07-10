@@ -206,11 +206,18 @@ where
     /// Restore persisted sessions from disk (if persistence is enabled).
     ///
     /// Rebuilds each previously-persisted session — reloading its MLS group and
-    /// roster and re-establishing routing — without repeating the invite/welcome
-    /// handshake, and returns the restored [`SessionContext`]s for the app to
-    /// resume using. Empty when persistence is disabled.
-    pub async fn restore_sessions(&self) -> Result<Vec<SessionContext>, SessionError> {
-        self.session_layer.restore_sessions().await
+    /// roster and re-establishing routing over `conn_id` — without repeating the
+    /// invite/welcome handshake, and returns the restored [`SessionContext`]s for
+    /// the app to resume using. Empty when persistence is disabled.
+    ///
+    /// `conn_id` must be the live upstream connection to the node (e.g. from
+    /// `Service::get_connection_id`), the same connection the app subscribes its
+    /// names over — not the app's local connection.
+    pub async fn restore_sessions(
+        &self,
+        conn_id: u64,
+    ) -> Result<Vec<SessionContext>, SessionError> {
+        self.session_layer.restore_sessions(conn_id).await
     }
 
     /// Delete a session and return a completion handle to await on

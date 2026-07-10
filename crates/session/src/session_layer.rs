@@ -14,6 +14,8 @@ use tokio::sync::Semaphore;
 use tokio::sync::mpsc::Sender;
 use tracing::{Instrument, debug, error, warn};
 
+#[cfg(not(target_arch = "wasm32"))]
+use slim_auth::traits::ExportedIdentity;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{
     EncodedName, NameId, ParticipantSettings, ProtoMessage as Message, ProtoName,
@@ -191,30 +193,19 @@ where
 
         let subscription_manager = SubscriptionManager::new(tx_slim.clone());
 
-        // Open the unified encrypted store once (both handles share one DB file).
-        // Any failure degrades to no persistence rather than blocking startup.
+        // Open the unified encrypted store once (both handles share one DB file),
+        // keyed by the app name so a restart reopens it, and restore or persist
+        // the app identity through it. Any failure degrades to no persistence
+        // rather than blocking startup.
         //
         // Native only: on wasm32 a page reload discards the WebAssembly memory,
         // so there is no durable store to restore from — persistence is a no-op.
         #[cfg(not(target_arch = "wasm32"))]
-        let (group_storage, kv_store) = match &persistence {
-            Some(p) => match identity_provider.get_id() {
-                Ok(id) => match PersistentStore::open(&p.path, &id, p.encryption_key.clone()) {
-                    Ok((group, kv)) => (Some(group), Some(kv)),
-                    Err(e) => {
-                        tracing::error!(error = %e, "failed to open persistence store; persistence disabled");
-                        (None, None)
-                    }
-                },
-                Err(e) => {
-                    tracing::error!(error = %e, "failed to resolve identity for persistence; persistence disabled");
-                    (None, None)
-                }
-            },
-            None => (None, None),
-        };
+        let (identity_provider, group_storage, kv_store) =
+            Self::open_persistent_store(&app_name, identity_provider, persistence.as_ref());
         #[cfg(target_arch = "wasm32")]
-        let (group_storage, kv_store): (
+        let (identity_provider, group_storage, kv_store): (
+            P,
             Option<SlimGroupStateStorage>,
             Option<SlimKvStore>,
         ) = {
@@ -223,7 +214,7 @@ where
                     "session persistence is not supported on wasm32 (state is lost on reload); ignoring"
                 );
             }
-            (None, None)
+            (identity_provider, None, None)
         };
 
         let initial_key = Self::name_to_key(&app_name);
@@ -270,6 +261,82 @@ where
 
     pub fn app_id(&self) -> u128 {
         self.app_id
+    }
+
+    /// Open the app's persistent store (keyed by the stable app name) and adopt
+    /// or persist the app identity through it. Returns the (possibly restored)
+    /// identity provider plus the group-state and session-record handles.
+    /// Degrades to no persistence (provider unchanged) on failure or when
+    /// persistence is disabled.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn open_persistent_store(
+        app_name: &ProtoName,
+        identity_provider: P,
+        persistence: Option<&PersistenceConfig>,
+    ) -> (P, Option<SlimGroupStateStorage>, Option<SlimKvStore>) {
+        let Some(p) = persistence else {
+            return (identity_provider, None, None);
+        };
+        let store_key = Self::app_store_key(app_name);
+        match PersistentStore::open(&p.path, &store_key, p.encryption_key.clone()) {
+            Ok((group, kv)) => {
+                let identity_provider = Self::restore_app_identity(identity_provider, &kv);
+                (identity_provider, Some(group), Some(kv))
+            }
+            Err(e) => {
+                error!(error = %e, "failed to open persistence store; persistence disabled");
+                (identity_provider, None, None)
+            }
+        }
+    }
+
+    /// Stable per-app store key derived from the app name (org/ns/type),
+    /// ignoring the per-instance id, so a restarted app reopens the same store.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn app_store_key(app_name: &ProtoName) -> String {
+        let k = Self::name_to_key(app_name);
+        format!(
+            "{:016x}{:016x}{:016x}",
+            k.component_0, k.component_1, k.component_2
+        )
+    }
+
+    /// Adopt the persisted app identity into `identity_provider`, if one is
+    /// stored. The identity is *saved* later — alongside session state, once the
+    /// MLS layer has installed its ciphersuite-correct keypair (see
+    /// `persist_app_identity`) — so we never persist the provider's initial
+    /// placeholder keys here. Providers without a persistable identity, or a
+    /// missing/corrupt record, leave the provider unchanged.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn restore_app_identity(identity_provider: P, kv: &SlimKvStore) -> P {
+        match kv.get(crate::persistence::APP_IDENTITY_KEY) {
+            Ok(Some(bytes)) => match serde_json::from_slice::<ExportedIdentity>(&bytes) {
+                Ok(identity) => {
+                    // `with_restored_identity` consumes the provider; keep a
+                    // clone to fall back to if restore fails.
+                    let fallback = identity_provider.clone();
+                    match identity_provider.with_restored_identity(identity) {
+                        Ok(restored) => {
+                            debug!("restored persisted app identity");
+                            restored
+                        }
+                        Err(e) => {
+                            error!(error = %e, "failed to restore app identity; keeping current");
+                            fallback
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!(error = %e, "failed to decode app identity; keeping current");
+                    identity_provider
+                }
+            },
+            Ok(None) => identity_provider,
+            Err(e) => {
+                error!(error = %e, "failed to read app identity; keeping current");
+                identity_provider
+            }
+        }
     }
 
     /// Build the HashMap key (EncodedName with null component_3) from a ProtoName.
@@ -511,11 +578,16 @@ where
     /// Restore all persisted sessions from the encrypted store.
     ///
     /// Rebuilds each session's controller with its loaded MLS group and roster,
-    /// re-establishes routing over the current connection, and inserts it into
-    /// the pool, returning the restored session contexts. No-op (empty) when
-    /// persistence is disabled. Individual failures are logged and skipped so
-    /// one bad record does not block the rest.
-    pub async fn restore_sessions(&self) -> Result<Vec<SessionContext>, SessionError> {
+    /// re-establishes routing over `conn_id` — which must be the **live upstream
+    /// connection** to the node (e.g. `Service::get_connection_id`), not the
+    /// app's local connection — and inserts it into the pool, returning the
+    /// restored session contexts. No-op (empty) when persistence is disabled.
+    /// Individual failures are logged and skipped so one bad record does not
+    /// block the rest.
+    pub async fn restore_sessions(
+        &self,
+        conn_id: u64,
+    ) -> Result<Vec<SessionContext>, SessionError> {
         let Some(kv) = self.kv_store.as_ref() else {
             return Ok(Vec::new());
         };
@@ -532,7 +604,7 @@ where
                 }
             };
             let session_id = record.session_id;
-            match self.restore_one(record).await {
+            match self.restore_one(record, conn_id).await {
                 Ok(ctx) => restored.push(ctx),
                 Err(e) => error!(%session_id, error = %e.chain(), "failed to restore session"),
             }
@@ -541,10 +613,12 @@ where
         Ok(restored)
     }
 
-    /// Rebuild and register a single session from its persisted record.
+    /// Rebuild and register a single session from its persisted record,
+    /// re-establishing routing over the live upstream connection `conn_id`.
     async fn restore_one(
         &self,
         record: crate::persistence::PersistedSession,
+        conn_id: u64,
     ) -> Result<SessionContext, SessionError> {
         use crate::persistence::{decode_direction, decode_name};
 
@@ -580,7 +654,7 @@ where
         }
         let builder = builder.ready()?;
 
-        let controller = Arc::new(builder.build_restored(&record, self.conn_id).await?);
+        let controller = Arc::new(builder.build_restored(&record, conn_id).await?);
 
         {
             let mut pool = self.pool.write();
@@ -1011,7 +1085,7 @@ mod tests {
 
         // A fresh handle over the same store must reload the record; the bytes
         // round-trip too.
-        let restored = layer.restore_sessions().await.unwrap();
+        let restored = layer.restore_sessions(layer.conn_id()).await.unwrap();
         assert_eq!(restored.len(), 1);
         assert!(layer.pool.read().contains_key(&4242));
 

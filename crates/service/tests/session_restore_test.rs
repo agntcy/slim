@@ -49,10 +49,10 @@ async fn create_persistent_app(
     Service,
 ) {
     let svc = build_client_service(port, name);
-    // `secret` is created once per identity and cloned into each instance, so
-    // `get_id()` (which `SharedSecret::new` randomizes) is identical across a
-    // restart — the store is keyed by identity, and real identities (JWT/SPIFFE)
-    // return a stable subject the same way.
+    // The persistence store is keyed by the app name, and the app's identity
+    // (id + secret + MLS keypair) is saved into it on first run and restored on
+    // subsequent runs. So a restart can hand in a brand-new `SharedSecret` with
+    // the same name + secret; the persisted identity is adopted from disk.
     let (app, rx) = svc
         .create_app_with_direction_and_persistence(
             name,
@@ -202,17 +202,23 @@ async fn test_multicast_mls_session_restore() {
     participant_listener.abort();
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // 7. New participant, same identity + same persistence dir, restore from disk.
-    let (participant_app2, _participant_rx2, _conn2, _participant_svc2) = create_persistent_app(
+    // 7. True restart: a brand-new identity object (same name + secret, but a
+    // fresh random id and MLS keypair — as after a real process restart),
+    // pointed at the same persistence dir. The store is keyed by the app name,
+    // so the persisted app identity is loaded from disk and adopted, and restore
+    // re-establishes routing over the live upstream connection (`conn2`) — no
+    // reliance on the pre-restart identity object surviving in memory.
+    let restarted_secret = SharedSecret::new("participant-identity", TEST_VALID_SECRET).unwrap();
+    let (participant_app2, _participant_rx2, conn2, _participant_svc2) = create_persistent_app(
         port,
         &participant_name,
-        participant_secret.clone(),
+        restarted_secret,
         participant_dir.path(),
     )
     .await;
 
     let restored = participant_app2
-        .restore_sessions()
+        .restore_sessions(conn2)
         .await
         .expect("restore_sessions failed");
     assert_eq!(restored.len(), 1, "exactly one session should be restored");

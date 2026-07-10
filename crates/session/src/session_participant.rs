@@ -458,6 +458,10 @@ where
         {
             tracing::error!(error = %e, session_id = self.common.settings.id, "failed to persist participant session state");
         }
+
+        // Save the app identity (now carrying the MLS-installed keypair) so a
+        // restart restores the exact identity this session was built with.
+        persistence::persist_app_identity(kv, &self.common.settings.identity_provider);
     }
 
     #[maybe_async::maybe_async]

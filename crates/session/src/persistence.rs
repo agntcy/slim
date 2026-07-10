@@ -32,6 +32,36 @@ const SCHEMA_VERSION: u32 = 1;
 /// Key prefix under which session records are stored in the KV store.
 pub(crate) const SESSION_KEY_PREFIX: &str = "session:";
 
+/// Key under which the app's [`slim_auth::traits::ExportedIdentity`] is stored,
+/// so the app's identity (id + secret + MLS keypair) is restored across a
+/// restart. Deliberately outside [`SESSION_KEY_PREFIX`] so it is not returned
+/// when listing session records.
+pub(crate) const APP_IDENTITY_KEY: &str = "app-identity";
+
+/// Persist the app's identity (id + secret + MLS keypair) into the store, so it
+/// can be restored verbatim after a restart.
+///
+/// Called alongside session persistence, by which point the MLS layer has
+/// installed its ciphersuite-correct keypair — persisting here (rather than at
+/// startup) ensures the saved identity matches the group's leaf. No-op for
+/// providers without a persistable identity (`export_identity` -> `None`).
+pub(crate) fn persist_app_identity<P: slim_auth::traits::TokenProvider>(
+    kv: &slim_persistence::SlimKvStore,
+    provider: &P,
+) {
+    let Some(identity) = provider.export_identity() else {
+        return;
+    };
+    match serde_json::to_vec(&identity) {
+        Ok(bytes) => {
+            if let Err(e) = kv.put(APP_IDENTITY_KEY, &bytes) {
+                tracing::error!(error = %e, "failed to persist app identity");
+            }
+        }
+        Err(e) => tracing::error!(error = %e, "failed to encode app identity"),
+    }
+}
+
 /// The storage key for a given session id.
 pub(crate) fn session_key(session_id: u32) -> String {
     format!("{SESSION_KEY_PREFIX}{session_id}")
@@ -52,7 +82,9 @@ pub(crate) struct PersistedSession {
     pub group_id: Option<Vec<u8>>,
     /// Highest applied MLS control-message id.
     pub last_mls_msg_id: u32,
-    /// Connection id the session is reachable over, if known.
+    /// Connection id the session was last reachable over, stored for
+    /// observability. Not used on restore: `restore_sessions` re-establishes
+    /// routing over the caller-provided live upstream connection instead.
     pub conn_id: Option<u64>,
     pub role: PersistedRole,
 }
