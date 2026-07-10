@@ -33,4 +33,4 @@ tasks:
     deps:
       - tests:build-binaries
     cmds:
-      - cargo test -p slim-integration-tests -- --nocapture
+      - cargo test -p slim-integration-tests -- --nocapture --test-threads=1
