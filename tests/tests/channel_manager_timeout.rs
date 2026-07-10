@@ -14,7 +14,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::thread;
 use std::time::Duration;
 
 const CHANNEL_NAME: &str = "org/default/test-channel-timeout";
@@ -129,7 +128,13 @@ fn add_nonexistent_participant_fails() {
     let cm_endpoint = format!("127.0.0.1:{channel_manager_port}");
 
     let mut slim_session = Some(spawn_slim(&slim, &server_config));
-    thread::sleep(Duration::from_secs(2));
+    let slim_logs = ProcessLogWatcher::attach(slim_session.as_mut().expect("slim session"));
+    slim_logs
+        .wait_contains("dataplane server started", Duration::from_secs(15))
+        .unwrap_or_else(|output| {
+            terminate_session(&mut slim_session, Duration::from_secs(30));
+            panic!("SLIM node did not start dataplane:\n{output}");
+        });
 
     let mut channel_manager_session =
         Some(spawn_channel_manager(&channel_manager, &channel_manager_config));
@@ -162,8 +167,6 @@ fn add_nonexistent_participant_fails() {
         .arg(&cm_endpoint)
         .output()
         .expect("failed to run slimctl add-participant");
-
-    thread::sleep(Duration::from_secs(2));
 
     assert!(
         !add_output.status.success(),
