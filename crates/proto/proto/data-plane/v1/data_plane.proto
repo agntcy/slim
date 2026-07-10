@@ -314,7 +314,6 @@ message SubscriptionAck {
   string error = 3;
 }
 
-
 enum ParticipantState {
   PARTICIPANT_STATE_ON_LINE = 0;
   PARTICIPANT_STATE_OFF_LINE = 1;

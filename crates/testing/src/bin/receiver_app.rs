@@ -151,7 +151,6 @@ async fn run_receiver(args: Args) -> Result<()> {
 
     // Track the session initiator — only reply to messages from them
     let mut initiator: Option<ProtoName> = None;
-    let mut message_count: u32 = 0;
 
     // Loop to receive messages and reply
     let recv_timeout = Duration::from_secs(5);
@@ -186,21 +185,6 @@ async fn run_receiver(args: Args) -> Result<()> {
                             );
                             continue;
                         }
-
-                        /*// if message id = 10 and local name is b/b/b do controller.pause
-                        // wait for 10 seconds and then controller.resume
-                        message_count += 1;
-                        if message_count == 10 && local_name.to_string() == "b/b/b/NULL_COMPONENT" {
-                            tprintln!("[{}] Pausing session after 10 messages...", full_name);
-                            let handle = controller.pause().await.context("pause failed")?;
-                            handle.await.context("pause completion failed")?;
-                            tprintln!("[{}] Paused. Waiting 10 seconds...", full_name);
-                            tokio::time::sleep(Duration::from_secs(10)).await;
-                            tprintln!("[{}] Resuming session...", full_name);
-                            let handle = controller.resume().await.context("resume failed")?;
-                            handle.await.context("resume completion failed")?;
-                            tprintln!("[{}] Resumed.", full_name);
-                        }*/
 
                         tprintln!(
                             "[{}] Received message from initiator {}: {}",

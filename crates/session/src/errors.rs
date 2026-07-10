@@ -137,6 +137,8 @@ pub enum SessionError {
     RejoinFailed,
     #[error("participant is offline")]
     ParticipantOffLine,
+    #[error("a status change is in progress")]
+    StatusChangeInProgress,
     #[error("moderator is busy")]
     ModeratorBusy,
     #[error("session cleanup failed: {details}")]

@@ -728,11 +728,10 @@ where
         // Set the participant state to offline
         entry.state = ParticipantState::OffLine;
 
-        debug!("set participant {} state to offline", participant_name);
+        tracing::info!("participant {} is now offline", participant_name);
 
         // Remove participant from session: remove route, endpoint, and control sender
         self.remove_endpoint(&participant_name);
-        //self.common.sender.remove_participant(&participant_name);
 
         // Send ACK back to the participant
         let ack = self.common.create_control_message(
@@ -751,20 +750,6 @@ where
         message: Message,
         ack_tx: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<SessionOutput, SessionError> {
-        // if the moderator is busy with another task we return an error to the application and let it retry later
-        if self.current_task.is_some() {
-            debug!(
-                "moderator is busy with another task, ignoring update participant state message from the application"
-            );
-            if let Some(tx) = ack_tx {
-                let _ = tx.send(Err(SessionError::ModeratorBusy));
-            }
-            return Ok(SessionOutput::new());
-        }
-
-        // we need to mark the moderator as busy to avoid to get new update to process
-        self.current_task = Some(ModeratorTask::NoOp());
-
         let payload = message
             .get_payload()
             .ok_or(SessionError::MissingPayload {
@@ -789,6 +774,20 @@ where
             debug!("ignoring update participant state message from the application");
             return Ok(SessionOutput::new());
         }
+
+        // if the moderator is busy with another task we return an error to the application and let it retry later
+        if self.current_task.is_some() {
+            debug!(
+                "moderator is busy with another task, ignoring update participant state message from the application"
+            );
+            if let Some(tx) = ack_tx {
+                let _ = tx.send(Err(SessionError::ModeratorBusy));
+            }
+            return Ok(SessionOutput::new());
+        }
+
+        // we need to mark the moderator as busy to avoid to get new update to process
+        self.current_task = Some(ModeratorTask::NoOp());
 
         let destination = self.common.settings.control.clone();
         let msg_id = message.get_id();
@@ -841,10 +840,7 @@ where
         let destination = self.common.settings.control.clone();
         let msg_id = rand::random::<u32>();
 
-        debug!(
-            name = %participant_name,
-            "broadcasting UpdateParticipantState(ON_LINE) for participant",
-        );
+        tracing::info!("participant {} is now online", participant_name);
 
         self.common.send_control_message(
             &destination,
@@ -1576,7 +1572,7 @@ where
                     // if ack_tx is some the moderato is updating its state from online to offline
                     // send the ack to the application, the moderator is now offline
                     // if ack_tx is none the moderator is coming back online. The app and the state of the
-                    // moderator where handeled already in the on_rejoin_request_from_app function
+                    // moderator were handled already in the on_rejoin_request_from_app function
                     if let Some(tx) = pending.ack_tx {
                         let _ = tx.send(Ok(()));
                         self.common.participant_state = ParticipantState::OffLine;
@@ -2647,5 +2643,505 @@ mod tests {
 
         // State is unchanged.
         assert!(moderator.current_task.is_none());
+    }
+
+    // --- Pause/Resume Tests ---
+
+    #[tokio::test]
+    async fn test_moderator_update_state_offline_sets_participant_offline() {
+        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        // Add a participant to the group
+        let mut participant_name = make_name(&["participant", "app", "v1"]);
+        let participant = Participant::new(
+            participant_name.clone().with_id(300),
+            ParticipantSettings::bidirectional(),
+        );
+        participant_name.reset_id();
+        moderator.group_list.insert(
+            participant_name.clone(),
+            ParticipantEntry {
+                participant,
+                state: ParticipantState::OnLine,
+            },
+        );
+
+        // Build UpdateParticipantState(OffLine) from the participant (North direction)
+        let source = participant_name.clone().with_id(300);
+        let destination = moderator.common.settings.source.clone();
+        let msg = Message::builder()
+            .source(source)
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
+            .session_id(1)
+            .message_id(100)
+            .payload(
+                CommandPayload::builder()
+                    .update_participant_state(
+                        participant_name.clone().with_id(300),
+                        ParticipantState::OffLine,
+                    )
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            moderator.process_control_message(MessageDirection::North, msg, None),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+
+        assert!(result.is_ok());
+
+        // Verify participant state is now OffLine
+        let entry = moderator.group_list.get(&participant_name).unwrap();
+        assert_eq!(entry.state, ParticipantState::OffLine);
+    }
+
+    #[tokio::test]
+    async fn test_moderator_update_state_rejects_already_offline() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        // Add a participant that is already offline
+        let mut participant_name = make_name(&["participant", "app", "v1"]);
+        let participant = Participant::new(
+            participant_name.clone().with_id(300),
+            ParticipantSettings::bidirectional(),
+        );
+        participant_name.reset_id();
+        moderator.group_list.insert(
+            participant_name.clone(),
+            ParticipantEntry {
+                participant,
+                state: ParticipantState::OffLine,
+            },
+        );
+
+        // Build UpdateParticipantState(OffLine) — should be ignored
+        let source = participant_name.clone().with_id(300);
+        let destination = moderator.common.settings.source.clone();
+        let msg = Message::builder()
+            .source(source)
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
+            .session_id(1)
+            .message_id(200)
+            .payload(
+                CommandPayload::builder()
+                    .update_participant_state(
+                        participant_name.clone().with_id(300),
+                        ParticipantState::OffLine,
+                    )
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let result = moderator
+            .process_control_message(MessageDirection::North, msg, None)
+            .await;
+
+        assert!(result.is_ok());
+        // State remains OffLine (no error, just ignored)
+        let entry = moderator.group_list.get(&participant_name).unwrap();
+        assert_eq!(entry.state, ParticipantState::OffLine);
+    }
+
+    #[tokio::test]
+    async fn test_moderator_rejoin_request_success() {
+        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        // Add a participant that is offline
+        let mut participant_name = make_name(&["participant", "app", "v1"]);
+        let participant = Participant::new(
+            participant_name.clone().with_id(300),
+            ParticipantSettings::bidirectional(),
+        );
+        participant_name.reset_id();
+        moderator.group_list.insert(
+            participant_name.clone(),
+            ParticipantEntry {
+                participant,
+                state: ParticipantState::OffLine,
+            },
+        );
+
+        // Build RejoinRequest from participant (North direction)
+        let source = participant_name.clone().with_id(300);
+        let destination = moderator.common.settings.source.clone();
+        let msg = Message::builder()
+            .source(source)
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::RejoinRequest)
+            .session_id(1)
+            .message_id(300)
+            .payload(
+                CommandPayload::builder()
+                    .rejoin_request(participant_name.clone().with_id(300), 1, 0)
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            moderator.process_control_message(MessageDirection::North, msg, None),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+
+        assert!(result.is_ok());
+
+        // Participant should be back online
+        let entry = moderator.group_list.get(&participant_name).unwrap();
+        assert_eq!(entry.state, ParticipantState::OnLine);
+    }
+
+    #[tokio::test]
+    async fn test_moderator_rejoin_request_unknown_participant() {
+        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        // Do NOT add the participant to group_list
+        let participant_name = make_name(&["unknown", "app", "v1"]);
+
+        // Build RejoinRequest from unknown participant
+        let source = participant_name.clone().with_id(300);
+        let destination = moderator.common.settings.source.clone();
+        let msg = Message::builder()
+            .source(source)
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::RejoinRequest)
+            .session_id(1)
+            .message_id(400)
+            .payload(
+                CommandPayload::builder()
+                    .rejoin_request(participant_name.clone().with_id(300), 1, 0)
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            moderator.process_control_message(MessageDirection::North, msg, None),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+
+        // Should succeed (sends RejoinReply with success=false)
+        assert!(result.is_ok());
+        // Participant should NOT be in the group_list
+        assert!(!moderator.group_list.contains_key(&participant_name));
+    }
+
+    #[tokio::test]
+    async fn test_moderator_rejoin_request_session_id_mismatch() {
+        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        // Add a participant that is offline
+        let mut participant_name = make_name(&["participant", "app", "v1"]);
+        let participant = Participant::new(
+            participant_name.clone().with_id(300),
+            ParticipantSettings::bidirectional(),
+        );
+        participant_name.reset_id();
+        moderator.group_list.insert(
+            participant_name.clone(),
+            ParticipantEntry {
+                participant,
+                state: ParticipantState::OffLine,
+            },
+        );
+
+        // Build RejoinRequest with wrong session_id (999 instead of 1)
+        let source = participant_name.clone().with_id(300);
+        let destination = moderator.common.settings.source.clone();
+        let msg = Message::builder()
+            .source(source)
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::RejoinRequest)
+            .session_id(1)
+            .message_id(500)
+            .payload(
+                CommandPayload::builder()
+                    .rejoin_request(participant_name.clone().with_id(300), 999, 0)
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            moderator.process_control_message(MessageDirection::North, msg, None),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+
+        assert!(result.is_ok());
+
+        // Participant should still be offline (rejoin failed)
+        let entry = moderator.group_list.get(&participant_name).unwrap();
+        assert_eq!(entry.state, ParticipantState::OffLine);
+    }
+
+    #[tokio::test]
+    async fn test_moderator_rejoin_request_from_app_when_online() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        // Moderator is already online (default state)
+        assert_eq!(moderator.common.participant_state, ParticipantState::OnLine);
+
+        // Build a RejoinRequest from app (South direction)
+        let source = moderator.common.settings.source.clone();
+        let destination = moderator.common.settings.control.clone();
+        let msg = Message::builder()
+            .source(source)
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::RejoinRequest)
+            .session_id(1)
+            .message_id(600)
+            .payload(
+                CommandPayload::builder()
+                    .rejoin_request(moderator.common.settings.source.clone(), 1, 0)
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let result = moderator
+            .process_control_message(MessageDirection::South, msg, Some(tx))
+            .await;
+
+        assert!(result.is_ok());
+        // Should get ModeratorNotOffLine error on the ack channel
+        let ack_result = rx.await.unwrap();
+        assert!(ack_result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_moderator_rejoin_request_from_app_when_offline() {
+        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        // Set moderator to offline
+        moderator.common.participant_state = ParticipantState::OffLine;
+
+        // Build a RejoinRequest from app (South direction)
+        let source = moderator.common.settings.source.clone();
+        let destination = moderator.common.settings.control.clone();
+        let msg = Message::builder()
+            .source(source.clone())
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::RejoinRequest)
+            .session_id(1)
+            .message_id(700)
+            .payload(
+                CommandPayload::builder()
+                    .rejoin_request(source.clone(), 1, 0)
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            moderator.process_control_message(MessageDirection::South, msg, Some(tx)),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        // Moderator should be back online
+        assert_eq!(moderator.common.participant_state, ParticipantState::OnLine);
+        // ack should have been sent with Ok
+        let ack_result = rx.await.unwrap();
+        assert!(ack_result.is_ok());
+        // pending_status_update should be set (for tracking broadcast acks)
+        assert!(moderator.common.pending_status_update.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_moderator_pause_from_app_sets_offline() {
+        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        // Build an UpdateParticipantState(OffLine) from app (South direction)
+        let source = moderator.common.settings.source.clone();
+        let destination = moderator.common.settings.control.clone();
+        let msg_id = 800u32;
+        let msg = Message::builder()
+            .source(source.clone())
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
+            .session_id(1)
+            .message_id(msg_id)
+            .payload(
+                CommandPayload::builder()
+                    .update_participant_state(source.clone(), ParticipantState::OffLine)
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            moderator.process_control_message(MessageDirection::South, msg, Some(tx)),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        // current_task should be set to NoOp (moderator is busy broadcasting)
+        assert!(matches!(
+            moderator.current_task,
+            Some(ModeratorTask::NoOp())
+        ));
+        // pending_status_update should be set
+        assert!(moderator.common.pending_status_update.is_some());
+        let pending = moderator.common.pending_status_update.as_ref().unwrap();
+        assert_eq!(pending.message_id, msg_id);
+    }
+
+    #[tokio::test]
+    async fn test_moderator_pause_rejected_when_busy() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        // Set moderator as busy
+        moderator.current_task = Some(ModeratorTask::NoOp());
+
+        // Build an UpdateParticipantState(OffLine) from app (South direction)
+        let source = moderator.common.settings.source.clone();
+        let destination = moderator.common.settings.control.clone();
+        let msg = Message::builder()
+            .source(source.clone())
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
+            .session_id(1)
+            .message_id(900)
+            .payload(
+                CommandPayload::builder()
+                    .update_participant_state(source.clone(), ParticipantState::OffLine)
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let result = moderator
+            .process_control_message(MessageDirection::South, msg, Some(tx))
+            .await;
+
+        assert!(result.is_ok());
+        // ack should have been sent with ModeratorBusy error
+        let ack_result = rx.await.unwrap();
+        assert!(ack_result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_moderator_rejects_online_update_from_participant() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        // Add a participant to the group (online)
+        let mut participant_name = make_name(&["participant", "app", "v1"]);
+        let participant = Participant::new(
+            participant_name.clone().with_id(300),
+            ParticipantSettings::bidirectional(),
+        );
+        participant_name.reset_id();
+        moderator.group_list.insert(
+            participant_name.clone(),
+            ParticipantEntry {
+                participant,
+                state: ParticipantState::OnLine,
+            },
+        );
+
+        // Build UpdateParticipantState(OnLine) from participant — should be rejected
+        let source = participant_name.clone().with_id(300);
+        let destination = moderator.common.settings.source.clone();
+        let msg = Message::builder()
+            .source(source)
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
+            .session_id(1)
+            .message_id(1000)
+            .payload(
+                CommandPayload::builder()
+                    .update_participant_state(
+                        participant_name.clone().with_id(300),
+                        ParticipantState::OnLine,
+                    )
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let result = moderator
+            .process_control_message(MessageDirection::North, msg, None)
+            .await;
+
+        assert!(result.is_ok());
+        // Participant should still be OnLine (online updates from participants are ignored)
+        let entry = moderator.group_list.get(&participant_name).unwrap();
+        assert_eq!(entry.state, ParticipantState::OnLine);
     }
 }

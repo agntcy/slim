@@ -667,13 +667,10 @@ impl ControllerSender {
             gt.timer.stop();
         }
 
-        let missing = self
-            .pending_replies
+        self.pending_replies
             .remove(&id)
             .map(|p| p.missing_replies.into_iter().collect::<Vec<_>>())
-            .unwrap_or_default();
-
-        missing
+            .unwrap_or_default()
     }
 
     pub fn clear_timers(&mut self) {

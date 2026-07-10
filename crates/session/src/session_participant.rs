@@ -152,6 +152,11 @@ where
                             || message.get_session_message_type()
                                 == ProtoSessionMessageType::UpdateParticipantState)
                     {
+                        if self.common.pending_status_update.is_some() {
+                            debug!("a status change is in progress, drop the new request",);
+                            return Err(SessionError::StatusChangeInProgress);
+                        }
+
                         debug!(
                             "Store pending task for message id={} and type={:?}",
                             message.get_id(),
@@ -754,7 +759,6 @@ where
         &mut self,
         message: Message,
     ) -> Result<SessionOutput, SessionError> {
-        println!("GOT AN UPDATE MESSAGE!!!!");
         let payload = message
             .get_payload()
             .ok_or(SessionError::MissingPayload {
@@ -786,19 +790,9 @@ where
             }
         })?;
 
-        // Skip if the update is about ourselves
-        if participant_name == self.common.settings.source {
-            debug!(
-                name = %participant_name,
-                "ignoring our own participant state update",
-            );
-            return Ok(SessionOutput::new());
-        }
-
         match new_state {
             ParticipantState::OffLine => {
                 // Participant went offline: update state, remove route
-                debug!("new state is off linef or participant {}", participant_name);
                 if let Some(state) = self.group_list.get_mut(&participant_name) {
                     if state.state == ParticipantState::OffLine {
                         debug!(
@@ -817,6 +811,7 @@ where
                 }
 
                 self.remove_endpoint(&participant_name);
+                tracing::info!("participant {} is now offline", participant_name);
             }
             ParticipantState::OnLine => {
                 // Only the moderator can send online state updates
@@ -841,6 +836,7 @@ where
                     return Ok(SessionOutput::new());
                 }
 
+                tracing::info!("participant {} is now online", participant_name);
                 let participant = Participant::new(participant_name, settings);
                 self.add_endpoint(&participant).await?;
             }
@@ -870,8 +866,6 @@ where
                 context: "update_participant_state_from_app",
             })?
             .clone();
-
-        println!("SEND MESSAGE");
 
         self.common.send_control_message(
             &destination,
@@ -1740,5 +1734,331 @@ mod tests {
         )
         .await;
         assert!(result.is_ok());
+    }
+
+    // --- Pause/Resume Tests ---
+
+    #[tokio::test]
+    async fn test_participant_drops_messages_when_offline() {
+        let (mut participant, _rx_slim, _rx_session_layer, _rx_session) =
+            setup_participant(ProtoSessionType::Multicast);
+        participant.init().await.unwrap();
+
+        // Set participant to offline
+        participant.common.participant_state = ParticipantState::OffLine;
+
+        // Build a Ping message (should be dropped when offline)
+        let source = make_name(&["moderator", "app", "v1"]).with_id(300);
+        let destination = participant.common.settings.source.clone();
+        let ping_msg = Message::builder()
+            .source(source)
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::Ping)
+            .session_id(1)
+            .message_id(100)
+            .payload(CommandPayload::builder().ping().as_content())
+            .build_publish()
+            .unwrap();
+
+        let result = participant
+            .on_message(SessionMessage::OnMessage {
+                message: ping_msg,
+                direction: MessageDirection::North,
+                ack_tx: None,
+            })
+            .await;
+
+        assert!(matches!(result, Err(SessionError::ParticipantOffLine)));
+    }
+
+    #[tokio::test]
+    async fn test_participant_allows_rejoin_request_when_offline() {
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
+            setup_participant(ProtoSessionType::Multicast);
+        participant.init().await.unwrap();
+
+        // Set participant to offline
+        participant.common.participant_state = ParticipantState::OffLine;
+
+        // Set a moderator name so the rejoin has somewhere to go
+        let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
+        participant.moderator_name = Some(moderator.clone());
+
+        // Build a RejoinRequest message from app (South direction)
+        let source = participant.common.settings.source.clone();
+        let destination = moderator.clone();
+        let rejoin_msg = Message::builder()
+            .source(source)
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::RejoinRequest)
+            .session_id(1)
+            .message_id(200)
+            .payload(
+                CommandPayload::builder()
+                    .rejoin_request(participant.common.settings.source.clone(), 1, 0)
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            participant.on_message(SessionMessage::OnMessage {
+                message: rejoin_msg,
+                direction: MessageDirection::South,
+                ack_tx: None,
+            }),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+
+        // Should NOT be dropped — RejoinRequest is allowed when offline
+        assert!(result.is_ok());
+        // pending_status_update should be set
+        assert!(participant.common.pending_status_update.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_participant_rejoin_reply_success_sets_online() {
+        let (mut participant, _rx_slim, _rx_session_layer, _rx_session) =
+            setup_participant(ProtoSessionType::Multicast);
+        participant.init().await.unwrap();
+
+        // Set participant to offline
+        participant.common.participant_state = ParticipantState::OffLine;
+
+        let msg_id = 300u32;
+
+        // Set up pending_status_update as if we sent a RejoinRequest
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        participant.common.pending_status_update = Some(PendingStatusUpdate {
+            message_id: msg_id,
+            message_type: ProtoSessionMessageType::RejoinRequest,
+            ack_tx: Some(tx),
+        });
+
+        // Build a RejoinReply(success=true) from moderator
+        let source = make_name(&["moderator", "app", "v1"]).with_id(300);
+        let destination = participant.common.settings.source.clone();
+        let reply_msg = Message::builder()
+            .source(source)
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::RejoinReply)
+            .session_id(1)
+            .message_id(msg_id)
+            .payload(CommandPayload::builder().rejoin_reply(true).as_content())
+            .build_publish()
+            .unwrap();
+
+        let result = participant
+            .on_message(SessionMessage::OnMessage {
+                message: reply_msg,
+                direction: MessageDirection::North,
+                ack_tx: None,
+            })
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(
+            participant.common.participant_state,
+            ParticipantState::OnLine
+        );
+        // ack_tx should have been resolved with Ok
+        assert!(rx.await.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_participant_rejoin_reply_failure_starts_drain() {
+        let (mut participant, _rx_slim, _rx_session_layer, _rx_session) =
+            setup_participant(ProtoSessionType::Multicast);
+        participant.init().await.unwrap();
+
+        // Set participant to offline
+        participant.common.participant_state = ParticipantState::OffLine;
+
+        let msg_id = 400u32;
+
+        // Set up pending_status_update
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        participant.common.pending_status_update = Some(PendingStatusUpdate {
+            message_id: msg_id,
+            message_type: ProtoSessionMessageType::RejoinRequest,
+            ack_tx: Some(tx),
+        });
+
+        // Build a RejoinReply(success=false) from moderator
+        let source = make_name(&["moderator", "app", "v1"]).with_id(300);
+        let destination = participant.common.settings.source.clone();
+        let reply_msg = Message::builder()
+            .source(source)
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::RejoinReply)
+            .session_id(1)
+            .message_id(msg_id)
+            .payload(CommandPayload::builder().rejoin_reply(false).as_content())
+            .build_publish()
+            .unwrap();
+
+        let result = participant
+            .on_message(SessionMessage::OnMessage {
+                message: reply_msg,
+                direction: MessageDirection::North,
+                ack_tx: None,
+            })
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(
+            participant.common.processing_state,
+            ProcessingState::Draining
+        );
+        // ack_tx should have been resolved with Err(RejoinFailed)
+        assert!(rx.await.unwrap().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_participant_pause_sends_update_state_offline() {
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
+            setup_participant(ProtoSessionType::Multicast);
+        participant.init().await.unwrap();
+
+        // Build an UpdateParticipantState(OffLine) message from app (South)
+        let source = participant.common.settings.source.clone();
+        let destination = participant.common.settings.control.clone();
+        let msg_id = 500u32;
+        let update_msg = Message::builder()
+            .source(source.clone())
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
+            .session_id(1)
+            .message_id(msg_id)
+            .payload(
+                CommandPayload::builder()
+                    .update_participant_state(source.clone(), ParticipantState::OffLine)
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            participant.on_message(SessionMessage::OnMessage {
+                message: update_msg,
+                direction: MessageDirection::South,
+                ack_tx: Some(tx),
+            }),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        // pending_status_update should be stored
+        assert!(participant.common.pending_status_update.is_some());
+        let pending = participant.common.pending_status_update.as_ref().unwrap();
+        assert_eq!(pending.message_id, msg_id);
+        assert_eq!(
+            pending.message_type,
+            ProtoSessionMessageType::UpdateParticipantState
+        );
+    }
+
+    #[tokio::test]
+    async fn test_participant_group_ack_resolves_pending_pause() {
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
+            setup_participant(ProtoSessionType::Multicast);
+        participant.init().await.unwrap();
+
+        // Register one peer in the sender so UpdateParticipantState expects exactly
+        // one GroupAck. This makes the ack flow fully deterministic.
+        let peer = make_name(&["other", "participant", "v1"]).with_id(200);
+        participant.common.sender.add_participant(&peer);
+
+        let source = participant.common.settings.source.clone();
+        let destination = participant.common.settings.control.clone();
+        let msg_id = 600u32;
+        let update_msg = Message::builder()
+            .source(source.clone())
+            .destination(destination.clone())
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
+            .session_id(1)
+            .message_id(msg_id)
+            .payload(
+                CommandPayload::builder()
+                    .update_participant_state(source.clone(), ParticipantState::OffLine)
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
+        run_with_acks(
+            participant.on_message(SessionMessage::OnMessage {
+                message: update_msg,
+                direction: MessageDirection::South,
+                ack_tx: Some(tx),
+            }),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await
+        .unwrap();
+
+        // Ack not yet received: pending task is stored, participant is still online.
+        assert!(participant.common.pending_status_update.is_some());
+        assert_eq!(participant.common.participant_state, ParticipantState::OnLine);
+
+        // Deliver the GroupAck from the registered peer.
+        let group_ack = Message::builder()
+            .source(peer)
+            .destination(source.clone())
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupAck)
+            .session_id(1)
+            .message_id(msg_id)
+            .payload(CommandPayload::builder().group_ack().as_content())
+            .build_publish()
+            .unwrap();
+
+        let result = participant
+            .process_control_message(MessageDirection::North, group_ack)
+            .await;
+        assert!(result.is_ok());
+
+        // All acks collected: pending task resolved, participant is now offline,
+        // and the application's completion handle resolves with Ok.
+        assert!(participant.common.pending_status_update.is_none());
+        assert_eq!(participant.common.participant_state, ParticipantState::OffLine);
+        assert!(rx.await.unwrap().is_ok());
     }
 }
