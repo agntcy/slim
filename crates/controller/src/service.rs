@@ -712,7 +712,13 @@ impl ControllerService {
                     error_msg = format!("Failed to parse config: {}", e);
                 }
                 Ok(server_config) => {
-                    let mut client_config = ClientConfig::default();
+                    let mut client_config = self
+                        .inner
+                        .outbound_clients
+                        .iter()
+                        .find(|c| c.endpoint == server_config.endpoint)
+                        .cloned()
+                        .unwrap_or_default();
                     match client_config.merge_server_requirements(&server_config) {
                         Err(err) => {
                             success = false;
@@ -722,25 +728,22 @@ impl ControllerService {
                             );
                         }
                         Ok(()) => {
-                            match server_config.auth_method {
-                                RequiredAuthMethod::Basic | RequiredAuthMethod::Jwt => {
-                                    match self
-                                        .inner
-                                        .outbound_clients
-                                        .iter()
-                                        .find(|c| c.endpoint == server_config.endpoint)
-                                    {
-                                        Some(local) => client_config.auth = local.auth.clone(),
-                                        None => {
-                                            success = false;
-                                            error_msg = format!(
-                                                "no local credentials configured for {}",
-                                                server_config.endpoint
-                                            )
-                                        }
-                                    }
-                                }
-                                _ => {}
+                            if matches!(
+                                server_config.auth_method,
+                                // Spire config it not mandatory. If not set falls back to default
+                                // socket path.
+                                RequiredAuthMethod::Basic | RequiredAuthMethod::Jwt
+                            ) && !self
+                                .inner
+                                .outbound_clients
+                                .iter()
+                                .any(|c| c.endpoint == server_config.endpoint)
+                            {
+                                success = false;
+                                error_msg = format!(
+                                    "no local credentials configured for {}",
+                                    server_config.endpoint
+                                );
                             }
                             if success {
                                 client_config.link_id = link_id.clone();

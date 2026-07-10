@@ -461,19 +461,20 @@ impl ClientConfig {
                     .unwrap_or_default();
 
                 if server.tls_required {
-                    let tls_socket_path = match &self.tls_setting.config.source {
-                        TlsSource::Spire { config: tls_config } => tls_config.socket_path.clone(),
+                    // outbound_clients: socket comes from auth.spire only (not tls.source).
+                    let socket_path = match &self.auth {
+                        AuthenticationConfig::Spire(auth_cfg) => auth_cfg.socket_path.clone(),
                         _ => None,
                     };
                     self.tls_setting.config.source = TlsSource::Spire {
                         config: SpireConfig {
-                            socket_path: tls_socket_path.clone(),
+                            socket_path: socket_path.clone(),
                             ..Default::default()
                         },
                     };
                     self.tls_setting.config.ca_source = CaSource::Spire {
                         config: SpireConfig {
-                            socket_path: tls_socket_path,
+                            socket_path,
                             trust_domains,
                             ..Default::default()
                         },
@@ -931,7 +932,47 @@ mod tests {
 
     #[cfg(not(target_family = "windows"))]
     #[test]
-    fn test_merge_server_requirements_spire_preserves_socket_path() {
+    fn test_merge_server_requirements_spire_auth_socket_path_propagates_to_tls() {
+        use crate::auth::spire::SpireConfig;
+        use crate::tls::common::{CaSource, TlsSource};
+
+        let mut client = ClientConfig::with_endpoint("https://127.0.0.1:46201").with_auth(
+            AuthenticationConfig::Spire(
+                SpireConfig::new()
+                    .with_socket_path("/run/spire/agent.sock")
+                    .with_trust_domain("example.org"),
+            ),
+        );
+        let server = ServerConnectionConfig {
+            endpoint: "https://127.0.0.1:46201".to_string(),
+            tls_required: true,
+            auth_method: RequiredAuthMethod::Spire {
+                trust_domain: Some("example.org".to_string()),
+            },
+            ..Default::default()
+        };
+        client.merge_server_requirements(&server).unwrap();
+        if let TlsSource::Spire { config } = &client.tls_setting.config.source {
+            assert_eq!(config.socket_path.as_deref(), Some("/run/spire/agent.sock"));
+        } else {
+            panic!("expected TlsSource::Spire");
+        }
+        if let CaSource::Spire { config } = &client.tls_setting.config.ca_source {
+            assert_eq!(config.socket_path.as_deref(), Some("/run/spire/agent.sock"));
+            assert_eq!(config.trust_domains, vec!["example.org"]);
+        } else {
+            panic!("expected CaSource::Spire");
+        }
+        if let AuthenticationConfig::Spire(auth) = &client.auth {
+            assert_eq!(auth.socket_path.as_deref(), Some("/run/spire/agent.sock"));
+        } else {
+            panic!("expected AuthenticationConfig::Spire");
+        }
+    }
+
+    #[cfg(not(target_family = "windows"))]
+    #[test]
+    fn test_merge_server_requirements_spire_ignores_tls_socket_path() {
         use crate::auth::spire::SpireConfig;
         use crate::tls::common::{CaSource, TlsSource};
 
@@ -952,12 +993,12 @@ mod tests {
         };
         client.merge_server_requirements(&server).unwrap();
         if let TlsSource::Spire { config } = &client.tls_setting.config.source {
-            assert_eq!(config.socket_path.as_deref(), Some("/run/spire.sock"));
+            assert_eq!(config.socket_path, None);
         } else {
             panic!("expected TlsSource::Spire");
         }
         if let CaSource::Spire { config } = &client.tls_setting.config.ca_source {
-            assert_eq!(config.socket_path.as_deref(), Some("/run/spire.sock"));
+            assert_eq!(config.socket_path, None);
             assert_eq!(config.trust_domains, vec!["example.org"]);
         } else {
             panic!("expected CaSource::Spire");
