@@ -62,7 +62,7 @@ use std::{
 use crate::mac::HmacKey;
 use crate::{
     errors::AuthError,
-    traits::{TokenProvider, Verifier},
+    traits::{ExportedIdentity, TokenProvider, Verifier},
 };
 
 /// Minimum length (in bytes) required for the shared secret (baseline 256 bits).
@@ -542,6 +542,51 @@ impl TokenProvider for SharedSecret {
         signing.mls_installed = true;
         Ok(())
     }
+
+    fn export_identity(&self) -> Option<ExportedIdentity> {
+        let signing = self.inner.signing.read();
+        Some(ExportedIdentity {
+            id: self.inner.id.clone(),
+            credential: self.inner.shared_secret.clone().into_bytes(),
+            signature_secret_key: signing.keys.0.clone(),
+            signature_public_key: signing.keys.1.clone(),
+        })
+    }
+
+    fn with_restored_identity(self, identity: ExportedIdentity) -> Result<Self, AuthError> {
+        let shared_secret =
+            String::from_utf8(identity.credential).map_err(|_| AuthError::TokenMalformed)?;
+        // Preserve the caller's runtime config (validity window, clock skew,
+        // replay-cache capacity), but adopt the persisted id and MLS keypair so
+        // the restored app presents exactly the identity its persisted sessions
+        // were built with.
+        let replay_cache_max = self.inner.replay_cache.lock().max_size;
+        let base_id = identity
+            .id
+            .rsplit_once('_')
+            .map(|(base, _)| base.to_string())
+            .unwrap_or_else(|| identity.id.clone());
+        let claims_b64 = Self::compute_claims_b64(&identity.signature_public_key);
+        let internal = SharedSecretInternal {
+            base_id,
+            id: identity.id,
+            hmac_key: HmacKey::new(shared_secret.as_bytes()),
+            shared_secret,
+            validity_window: self.inner.validity_window,
+            clock_skew: self.inner.clock_skew,
+            replay_cache_enabled: self.inner.replay_cache_enabled,
+            replay_cache: Mutex::new(ReplayCache::new(replay_cache_max)),
+            signing: RwLock::new(SigningMaterial {
+                keys: (identity.signature_secret_key, identity.signature_public_key),
+                claims_b64,
+                // Restored keys are the app's MLS-correct keypair.
+                mls_installed: true,
+            }),
+        };
+        Ok(SharedSecret {
+            inner: Arc::new(internal),
+        })
+    }
 }
 
 impl Verifier for SharedSecret {
@@ -1019,6 +1064,42 @@ mod tests {
         );
         assert_eq!(s.clock_skew(), Duration::from_secs(DEFAULT_CLOCK_SKEW));
         assert!(!s.shared_secret().is_empty());
+    }
+
+    // Export an identity (id + secret + MLS keypair) and restore it into a
+    // brand-new provider: the restored provider must present the *same* id and
+    // keys, so an app's persisted sessions/leaves still match after a restart.
+    #[tokio::test]
+    async fn test_export_and_restore_identity() {
+        let mut original = SharedSecret::new("app", &valid_secret()).unwrap();
+        // Simulate the MLS layer installing ciphersuite-correct keys.
+        let sk = vec![7u8; 32];
+        let pk = vec![9u8; 32];
+        original
+            .set_signature_keys(sk.clone(), pk.clone())
+            .await
+            .unwrap();
+
+        let exported = original
+            .export_identity()
+            .expect("SharedSecret exports its identity");
+        assert_eq!(exported.id, original.get_id().unwrap());
+
+        // A fresh provider has a different random id...
+        let fresh = SharedSecret::new("app", &valid_secret()).unwrap();
+        assert_ne!(fresh.get_id().unwrap(), original.get_id().unwrap());
+
+        // ...but restored from the export it adopts the original identity + keys.
+        let restored = fresh.with_restored_identity(exported).unwrap();
+        assert_eq!(restored.get_id().unwrap(), original.get_id().unwrap());
+        assert_eq!(restored.get_signature_secret_key().unwrap(), sk);
+        assert_eq!(restored.get_signature_public_key().unwrap(), pk);
+        assert!(restored.mls_signature_keys_installed());
+
+        // A token from the restored provider verifies against the original
+        // (same shared secret + id).
+        let token = restored.get_token().unwrap();
+        assert!(original.try_verify(token).is_ok());
     }
 
     #[tokio::test]
