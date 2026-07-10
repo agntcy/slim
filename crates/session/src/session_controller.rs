@@ -594,10 +594,10 @@ impl SessionController {
             return Err(SessionError::CannotPauseP2P);
         }
 
-        tracing::info!("START PAUSE");
         let msg = Message::builder()
             .source(self.source().clone())
-            .destination(self.dst().clone()) // this needs to be updated with control channel destination
+            // Placeholder: this needs to be updated with control channel destination
+            .destination(self.dst().clone())
             .identity("")
             .session_type(self.session_type())
             .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
@@ -610,7 +610,6 @@ impl SessionController {
             )
             .build_publish()?;
 
-        tracing::info!("MESSAGE CREATED, SENDING");
         self.publish_message(msg).await
     }
 
@@ -623,7 +622,8 @@ impl SessionController {
         }
         let msg = Message::builder()
             .source(self.source().clone())
-            .destination(self.dst().clone()) // this will be updated with control channel destination
+            // Placeholder: this needs to be updated with control channel destination
+            .destination(self.dst().clone())
             .identity("")
             .session_type(self.session_type())
             .session_message_type(ProtoSessionMessageType::RejoinRequest)
@@ -634,7 +634,8 @@ impl SessionController {
                     .rejoin_request(
                         self.source().clone(),
                         self.id(),
-                        u64::MAX, // filled by session handler before sending
+                        // placeholder:filled by session handler before sending
+                        u64::MAX,
                     )
                     .as_content(),
             )
@@ -655,7 +656,6 @@ impl SessionController {
         &self,
         message: Message,
     ) -> Result<CompletionHandle, SessionError> {
-        tracing::info!("SEND MESSAGE FROM APP");
         self.on_message_from_app(message).await
     }
 
@@ -838,6 +838,12 @@ pub fn handle_channel_discovery_message(
     Ok(msg)
 }
 
+pub(crate) struct PendingStatusUpdate {
+    pub(crate) message_id: u32,
+    pub(crate) message_type: ProtoSessionMessageType,
+    pub(crate) tx_ack: tokio::sync::oneshot::Sender<Result<(), SessionError>>,
+}
+
 pub(crate) struct SessionControllerCommon<
     P,
     V,
@@ -855,6 +861,10 @@ pub(crate) struct SessionControllerCommon<
 
     /// participant state (on-line/off-line)
     pub(crate) participant_state: ParticipantState,
+
+    /// pending status update contains the channel to notify the application when
+    /// pause or resume actions are completed
+    pub(crate) pending_status_update: Option<PendingStatusUpdate>,
 
     /// processing state
     pub(crate) processing_state: ProcessingState,
@@ -896,6 +906,7 @@ where
             sender: controller_sender,
             processing_state: ProcessingState::Active,
             participant_state: ParticipantState::OnLine,
+            pending_status_update: None,
             subscription_ids: HashMap::new(),
         }
     }

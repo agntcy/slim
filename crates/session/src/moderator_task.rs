@@ -42,6 +42,9 @@ pub enum ModeratorTask {
     // we need to notify all the participant in the
     // group and wait for the acks
     CloseOrDisconnect(NotifyParticipants),
+    // this is a no-op task that is used to mark the moderator as busy
+    // this is used for the moderator state update (on-line/offline)
+    NoOp(),
     #[allow(dead_code)]
     Update(UpdateParticipant),
 }
@@ -54,6 +57,7 @@ impl ModeratorTask {
             ModeratorTask::Remove(t) => t.ack_tx.take(),
             ModeratorTask::CloseOrDisconnect(t) => t.ack_tx.take(),
             ModeratorTask::Update(t) => t.ack_tx.take(),
+            ModeratorTask::NoOp() => None,
         }
     }
 
@@ -69,6 +73,9 @@ impl ModeratorTask {
                 source: Box::new(err),
             },
             ModeratorTask::CloseOrDisconnect(_) => SessionError::ModeratorTaskCloseFailed {
+                source: Box::new(err),
+            },
+            ModeratorTask::NoOp() => SessionError::ModeratorTaskNoOpFailed {
                 source: Box::new(err),
             },
         }
@@ -131,6 +138,7 @@ impl TaskUpdate for ModeratorTask {
             ModeratorTask::Remove(task) => task.commit_start(timer_id),
             ModeratorTask::Update(task) => task.commit_start(timer_id),
             ModeratorTask::CloseOrDisconnect(task) => task.commit_start(timer_id),
+            ModeratorTask::NoOp() => Err(unsupported_phase()),
         }
     }
 
@@ -147,6 +155,7 @@ impl TaskUpdate for ModeratorTask {
             ModeratorTask::Remove(task) => task.update_phase_completed(timer_id),
             ModeratorTask::Update(task) => task.update_phase_completed(timer_id),
             ModeratorTask::CloseOrDisconnect(task) => task.update_phase_completed(timer_id),
+            ModeratorTask::NoOp() => Err(unsupported_phase()),
         }
     }
 
@@ -156,6 +165,7 @@ impl TaskUpdate for ModeratorTask {
             ModeratorTask::Remove(task) => task.task_complete(),
             ModeratorTask::Update(task) => task.task_complete(),
             ModeratorTask::CloseOrDisconnect(task) => task.task_complete(),
+            ModeratorTask::NoOp() => false,
         }
     }
 }

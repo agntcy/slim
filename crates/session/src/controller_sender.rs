@@ -171,7 +171,7 @@ impl ControllerSender {
     }
 
     pub fn add_participant(&mut self, name: &ProtoName) {
-        tracing::info!(
+        debug!(
             participant = %name,
             "adding participant to group on controller sender"
         );
@@ -179,7 +179,7 @@ impl ControllerSender {
     }
 
     pub fn remove_participant(&mut self, name: &ProtoName) {
-        tracing::info!(
+        debug!(
             participant = %name,
             "removing participant from group on controller sender"
         );
@@ -194,29 +194,6 @@ impl ControllerSender {
     // helper function to update local state based on the message type received
     fn update_local_state(&mut self, message: &Message) -> Result<(), SessionError> {
         match message.get_session_message_type() {
-            /*slim_datapath::api::ProtoSessionMessageType::GroupWelcome => {
-                // update the group list on welcome messages
-                // adding the new participant to the list
-                debug!(
-                    participant = %message.get_dst(),
-                    "adding participant to group on welcome message"
-                );
-                self.group_list.insert(message.get_dst());
-            }
-            slim_datapath::api::ProtoSessionMessageType::LeaveRequest => {
-                // update the group list on leave requests
-                // removing the participant from the list
-                debug!(
-                    participant = %message.get_dst(),
-                    "removing participant from group on leave request"
-                );
-                self.group_list.remove(&message.get_dst());
-
-                // remove also the missing_pings state if present
-                if let Some(ps) = self.ping_state.as_mut() {
-                    ps.missing_pings.remove(&message.get_dst());
-                }
-            }*/
             slim_datapath::api::ProtoSessionMessageType::JoinRequest
                 if self.group_name.is_none() =>
             {
@@ -256,7 +233,6 @@ impl ControllerSender {
         if self.draining_state == ControllerSenderDrainStatus::Completed {
             return Err(SessionError::SessionDrainingDrop);
         }
-        tracing::info!("SEND CONTROL MESSAGE");
         let mut output = SessionOutput::new();
 
         match message.get_session_message_type() {
@@ -326,7 +302,7 @@ impl ControllerSender {
 
                 missing_replies.remove(&to_remove);
 
-                tracing::info!(
+                debug!(
                     "send group add with message id {}, expected acks from {:?}",
                     message.get_id(),
                     missing_replies
@@ -344,17 +320,6 @@ impl ControllerSender {
                     .filter(|name| *name != &self.local_name)
                     .cloned()
                     .collect::<HashSet<_>>();
-
-                /*// remove the endpoint also from the group list
-                let payload = message.extract_group_remove()?;
-
-                let to_remove = payload
-                    .removed_participant
-                    .as_ref()
-                    .ok_or(SessionError::MissingRemovedParticipantInGroupRemove)?
-                    .clone();
-
-                self.group_list.remove(&to_remove);*/
 
                 output.extend(self.on_send_message(message, missing_replies)?);
             }
@@ -378,7 +343,7 @@ impl ControllerSender {
                     .filter(|name| *name != &self.local_name)
                     .cloned()
                     .collect::<HashSet<_>>();
-                tracing::info!(
+                debug!(
                     "send update state with message id {}, expected acks from {:?}",
                     message.get_id(),
                     missing_replies
@@ -386,7 +351,7 @@ impl ControllerSender {
                 output.extend(self.on_send_message(message, missing_replies)?);
             }
             _ => {
-                tracing::info!("unexpected message type");
+                debug!("unexpected message type");
             }
         }
 
@@ -417,14 +382,13 @@ impl ControllerSender {
         self.pending_replies.insert(id, pending);
 
         let mut output = SessionOutput::new();
-        tracing::info!("ON SEND MESSAGE, SEND TO SLIM");
         output.push_slim(message.clone());
         Ok(output)
     }
 
     fn on_reply_message(&mut self, message: &Message) {
         let id = message.get_id();
-        tracing::info!(
+        debug!(
             %id,
             source = %message.get_source(),
             "receive reply for message",
@@ -718,16 +682,6 @@ impl ControllerSender {
         debug!("controller sender drain initiated");
         self.draining_state = ControllerSenderDrainStatus::Initiated;
     }
-
-    /*pub fn remove_participant(&mut self, name: &ProtoName) {
-        // this is used only by the moderator when a participant closes its
-        // session remotely. This remove is needed so that the moderator
-        // will not expect acks from the participant that is leaving the
-        // group during the group update phase
-        if self.initiator {
-            self.group_list.remove(name);
-        }
-    }*/
 
     pub fn drain_completed(&self) -> bool {
         // Drain is complete if we're draining and no pending acks remain

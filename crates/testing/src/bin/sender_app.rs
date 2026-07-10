@@ -333,6 +333,19 @@ async fn run_sender(args: Args) -> Result<()> {
             tprintln!("[{}] Error sending message: {}", full_name, e);
         }
 
+        // After 10 messages, pause and resume
+        if i + 1 == 10 {
+            tprintln!("[{}] Pausing session after 10 messages...", full_name);
+            let handle = controller.pause().await.context("pause failed")?;
+            handle.await.context("pause completion failed")?;
+            tprintln!("[{}] Paused. Waiting 10 seconds...", full_name);
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            tprintln!("[{}] Resuming session...", full_name);
+            let handle = controller.resume().await.context("resume failed")?;
+            handle.await.context("resume completion failed")?;
+            tprintln!("[{}] Resumed.", full_name);
+        }
+
         tokio::time::sleep(interval).await;
     }
 

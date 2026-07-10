@@ -137,6 +137,8 @@ pub enum SessionError {
     RejoinFailed,
     #[error("participant is offline")]
     ParticipantOffLine,
+    #[error("moderator is busy")]
+    ModeratorBusy,
     #[error("session cleanup failed: {details}")]
     SessionCleanupFailed { details: String },
     #[error("message send retries exhausted for id={id}")]
@@ -186,6 +188,10 @@ pub enum SessionError {
     ModeratorTaskUpdateFailed { source: Box<SessionError> },
     #[error("failed to close session: {source}")]
     ModeratorTaskCloseFailed { source: Box<SessionError> },
+    #[error("failed to perform no-op task: {source}")]
+    ModeratorTaskNoOpFailed { source: Box<SessionError> },
+    #[error("the moderator is not offline")]
+    ModeratorNotOffLine,
 }
 
 impl SessionError {
