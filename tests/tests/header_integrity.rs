@@ -5,10 +5,10 @@
 //! `#[ignore]` until topology-based routing replaces manual route wiring.
 
 use slim_integration_tests::{
-    binaries::{require_sdk_mock_binary, require_slim_binary, require_slimctl_binary, workspace_root},
-    constants::{
-        MSG_CONTROLPLANE_SERVER_STARTED, MSG_HEADER_INTEGRITY_FAILED, MSG_HELLO_FROM_A,
+    binaries::{
+        require_sdk_mock_binary, require_slim_binary, require_slimctl_binary, workspace_root,
     },
+    constants::{MSG_CONTROLPLANE_SERVER_STARTED, MSG_HEADER_INTEGRITY_FAILED, MSG_HELLO_FROM_A},
     helpers::*,
 };
 use std::collections::HashMap;
@@ -155,7 +155,12 @@ fn setup_header_mac_topology(tamper_destination: bool) -> HeaderMacTopology {
     let node_b_port = reserve_port();
     let controller_a_port = reserve_port();
     let controller_b_port = reserve_port();
-    let repl = header_integrity_replacements(node_a_port, node_b_port, controller_a_port, controller_b_port);
+    let repl = header_integrity_replacements(
+        node_a_port,
+        node_b_port,
+        controller_a_port,
+        controller_b_port,
+    );
 
     let testdata = testdata_dir();
     let node_a_name = if tamper_destination {
@@ -306,8 +311,12 @@ fn wire_cross_node_routes(
     slimctl: &Path,
     setup: &HeaderMacTopology,
     sdk_mock: &Path,
-) -> (Option<std::process::Child>, ProcessLogWatcher, Option<std::process::Child>, ProcessLogWatcher)
-{
+) -> (
+    Option<std::process::Child>,
+    ProcessLogWatcher,
+    Option<std::process::Child>,
+    ProcessLogWatcher,
+) {
     let mut client_b = Some(spawn_sdk_mock(
         sdk_mock,
         &setup.client_b_config,

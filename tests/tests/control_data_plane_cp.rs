@@ -10,8 +10,8 @@ use slim_integration_tests::{
         require_slimctl_binary, workspace_root,
     },
     constants::{
-        MSG_CONNECTED_TO_CONTROL_PLANE, MSG_CONTROL_PLANE_STARTED,
-        MSG_HELLO_FROM_A, MSG_NOTIFY_CONTROL_PLANE_LOST_SUBSCRIPTION,
+        MSG_CONNECTED_TO_CONTROL_PLANE, MSG_CONTROL_PLANE_STARTED, MSG_HELLO_FROM_A,
+        MSG_NOTIFY_CONTROL_PLANE_LOST_SUBSCRIPTION,
     },
     helpers::*,
 };
@@ -213,8 +213,11 @@ fn delivers_messages_and_cleans_up_routes_via_control_plane() {
     let server_b_logs = ProcessLogWatcher::attach(server_b.as_mut().expect("server b"));
     thread::sleep(Duration::from_secs(8));
 
-    let mut control_plane_session =
-        Some(spawn_control_plane(&control_plane, &control_plane_config, &db_path));
+    let mut control_plane_session = Some(spawn_control_plane(
+        &control_plane,
+        &control_plane_config,
+        &db_path,
+    ));
     let cp_logs = ProcessLogWatcher::attach(
         control_plane_session
             .as_mut()
@@ -249,22 +252,10 @@ fn delivers_messages_and_cleans_up_routes_via_control_plane() {
             panic!("server A did not connect to control plane:\n{output}");
         });
 
-    let mut client_b1 = Some(spawn_sdk_mock(
-        &sdk_mock,
-        &client_b_config,
-        "b1",
-        "a",
-        None,
-    ));
+    let mut client_b1 = Some(spawn_sdk_mock(&sdk_mock, &client_b_config, "b1", "a", None));
     let client_b1_logs = ProcessLogWatcher::attach(client_b1.as_mut().expect("client b1"));
 
-    let mut client_b2 = Some(spawn_sdk_mock(
-        &sdk_mock,
-        &client_b_config,
-        "b2",
-        "a",
-        None,
-    ));
+    let mut client_b2 = Some(spawn_sdk_mock(&sdk_mock, &client_b_config, "b2", "a", None));
     let _client_b2_logs = ProcessLogWatcher::attach(client_b2.as_mut().expect("client b2"));
 
     thread::sleep(Duration::from_secs(3));
@@ -391,7 +382,11 @@ fn delivers_messages_and_cleans_up_routes_via_control_plane() {
 
     let mut route_list_b_combined = route_list_b_after.stdout.clone();
     route_list_b_combined.extend_from_slice(&route_list_b_after.stderr);
-    assert_output_contains(&route_list_b_combined, "org/default/a", "routes on slim/b after cleanup");
+    assert_output_contains(
+        &route_list_b_combined,
+        "org/default/a",
+        "routes on slim/b after cleanup",
+    );
     assert_output_not_contains(
         &route_list_b_combined,
         "org/default/b1",

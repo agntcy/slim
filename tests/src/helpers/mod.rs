@@ -9,7 +9,7 @@ mod routing;
 
 pub use command::run_combined_output_with_retry;
 pub use config::{new_temp_dir, write_temp_config, write_temp_config_near_source};
-pub use log::{contains_semver_fragment, wait_for_log, ProcessLogWatcher};
+pub use log::{ProcessLogWatcher, contains_semver_fragment, wait_for_log};
 pub use ports::reserve_port;
 pub use process::{session_still_running, terminate_session};
 pub use routing::{

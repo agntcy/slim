@@ -24,10 +24,7 @@ where
                 if output.status.success() {
                     return last_out;
                 }
-                last_err = std::io::Error::other(format!(
-                    "process exited with {}",
-                    output.status
-                ));
+                last_err = std::io::Error::other(format!("process exited with {}", output.status));
             }
             Err(err) => {
                 last_err = err;
