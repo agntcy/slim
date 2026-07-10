@@ -841,7 +841,7 @@ pub fn handle_channel_discovery_message(
 pub(crate) struct PendingStatusUpdate {
     pub(crate) message_id: u32,
     pub(crate) message_type: ProtoSessionMessageType,
-    pub(crate) tx_ack: tokio::sync::oneshot::Sender<Result<(), SessionError>>,
+    pub(crate) ack_tx: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
 }
 
 pub(crate) struct SessionControllerCommon<

@@ -147,7 +147,6 @@ where
 
                     // Store ack_tx for RejoinRequest from app so we can resolve it on RejoinReply
                     if direction == MessageDirection::South
-                        && let Some(tx) = ack_tx
                         && (message.get_session_message_type()
                             == ProtoSessionMessageType::RejoinRequest
                             || message.get_session_message_type()
@@ -161,7 +160,7 @@ where
                         self.common.pending_status_update = Some(PendingStatusUpdate {
                             message_id: message.get_id(),
                             message_type: message.get_session_message_type(),
-                            tx_ack: tx,
+                            ack_tx,
                         });
                     }
                     output.extend(self.process_control_message(direction, message).await?);
@@ -465,7 +464,6 @@ where
             }
             ProtoSessionMessageType::GroupAck => {
                 let id = message.get_id();
-                let msg_type = message.get_session_message_type();
                 debug!(
                     name = %message.get_source(),
                     id = %message.get_id(),
@@ -484,7 +482,9 @@ where
                         && pending_task.message_type
                             == ProtoSessionMessageType::UpdateParticipantState
                     {
-                        let _ = pending_task.tx_ack.send(Ok(()));
+                        if let Some(tx) = pending_task.ack_tx {
+                            let _ = tx.send(Ok(()));
+                        }
                         // the participant is now offline, update the state
                         self.common.participant_state = ParticipantState::OffLine;
                     }
@@ -728,7 +728,9 @@ where
                 && pending_task.message_id == message.get_id()
                 && pending_task.message_type == ProtoSessionMessageType::RejoinRequest
             {
-                let _ = pending_task.tx_ack.send(Ok(()));
+                if let Some(tx) = pending_task.ack_tx {
+                    let _ = tx.send(Ok(()));
+                }
                 // the participant is now online, update the state
                 self.common.participant_state = ParticipantState::OnLine;
             }
@@ -738,8 +740,9 @@ where
             if let Some(pending_task) = self.common.pending_status_update.take()
                 && pending_task.message_id == message.get_id()
                 && pending_task.message_type == ProtoSessionMessageType::RejoinRequest
+                && let Some(tx) = pending_task.ack_tx
             {
-                let _ = pending_task.tx_ack.send(Err(SessionError::RejoinFailed));
+                let _ = tx.send(Err(SessionError::RejoinFailed));
             }
             self.common.processing_state = ProcessingState::Draining;
         }
@@ -975,8 +978,7 @@ where
         let control = self.common.settings.control.clone();
         debug!(
             "subscribe to channel {} and control {}",
-            destination,
-            control
+            destination, control
         );
         self.common
             .add_route(destination.clone(), msg.get_incoming_conn())

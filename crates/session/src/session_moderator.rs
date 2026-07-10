@@ -431,7 +431,33 @@ where
         message_type: ProtoSessionMessageType,
         error: SessionError,
     ) -> Result<(), SessionError> {
-        self.common.sender.on_failure(message_id, message_type);
+        let missing = self.common.sender.on_failure(message_id, message_type);
+
+        // check if the moderator just came back online
+        if message_type == ProtoSessionMessageType::UpdateParticipantState
+            && matches!(self.current_task, Some(ModeratorTask::NoOp()))
+            && let Some(pending) = self.common.pending_status_update.take()
+            && pending.message_id == message_id
+            && pending.message_type == ProtoSessionMessageType::UpdateParticipantState
+            && pending.ack_tx.is_none()
+        // ack_tx is None means the moderator sends the rejoin message from the app
+        {
+            // clear the current task first so the leave message will be taken into account immediately
+            self.current_task = None;
+
+            // here the moderator came back online but some participant did not reply to the update state message.
+            // the moderator will remove all of them from the channel
+            for name in missing {
+                if let Err(e) = self
+                    .common
+                    .settings
+                    .tx_session
+                    .try_send(SessionMessage::ParticipantDisconnected { name: Some(name) })
+                {
+                    debug!(error = %e, "failed to send participant disconnected message");
+                }
+            }
+        }
 
         // the task should always exist at this point
         if let Some(task) = self.current_task.as_mut()
@@ -767,13 +793,12 @@ where
         let destination = self.common.settings.control.clone();
         let msg_id = message.get_id();
 
-        if let Some(tx) = ack_tx {
-            self.common.pending_status_update = Some(PendingStatusUpdate {
-                message_id: msg_id,
-                message_type: ProtoSessionMessageType::UpdateParticipantState,
-                tx_ack: tx,
-            });
-        }
+        // store the message
+        self.common.pending_status_update = Some(PendingStatusUpdate {
+            message_id: msg_id,
+            message_type: ProtoSessionMessageType::UpdateParticipantState,
+            ack_tx,
+        });
 
         self.common.send_control_message(
             &destination,
@@ -943,8 +968,6 @@ where
         }
 
         // The moderator is always authorized to rejoin the session, so move it online and send a status update to the group
-        self.common.participant_state = ParticipantState::OnLine;
-
         let destination = self.common.settings.control.clone();
         let msg_id = rand::random::<u32>();
 
@@ -961,6 +984,20 @@ where
         if let Some(tx) = ack_tx {
             let _ = tx.send(Ok(()));
         }
+
+        // Store the status update. If some participant does not reply to the message
+        // the moderator will remove them from the group as they may have left the group
+        self.common.pending_status_update = Some(PendingStatusUpdate {
+            message_id: msg_id,
+            message_type: ProtoSessionMessageType::UpdateParticipantState,
+            ack_tx: None,
+        });
+
+        // set also the noop task
+        self.current_task = Some(ModeratorTask::NoOp());
+
+        // update moderator state
+        self.common.participant_state = ParticipantState::OnLine;
 
         self.common.send_control_message(
             &destination,
@@ -1534,10 +1571,16 @@ where
                     && pending.message_id == msg_id
                     && pending.message_type == ProtoSessionMessageType::UpdateParticipantState
                 {
-                    // send the ack to the application, the moderator is now offline
                     let pending = self.common.pending_status_update.take().unwrap();
-                    let _ = pending.tx_ack.send(Ok(()));
-                    self.common.participant_state = ParticipantState::OffLine;
+
+                    // if ack_tx is some the moderato is updating its state from online to offline
+                    // send the ack to the application, the moderator is now offline
+                    // if ack_tx is none the moderator is coming back online. The app and the state of the
+                    // moderator where handeled already in the on_rejoin_request_from_app function
+                    if let Some(tx) = pending.ack_tx {
+                        let _ = tx.send(Ok(()));
+                        self.common.participant_state = ParticipantState::OffLine;
+                    }
                     // clean the task
                     self.current_task = None;
                 }
@@ -1652,8 +1695,7 @@ where
             let destination = self.common.settings.destination.clone();
             debug!(
                 "subscribe to channel {} and control {}",
-                destination,
-                self.common.settings.control
+                destination, self.common.settings.control
             );
             self.common.add_subscription(destination, conn).await?;
             self.common

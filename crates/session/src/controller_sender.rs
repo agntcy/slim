@@ -640,7 +640,7 @@ impl ControllerSender {
         }
     }
 
-    pub fn on_failure(&mut self, id: u32, msg_type: ProtoSessionMessageType) {
+    pub fn on_failure(&mut self, id: u32, msg_type: ProtoSessionMessageType) -> Vec<ProtoName> {
         if msg_type == ProtoSessionMessageType::Ping {
             // the only timer that can fail is the one related to the ping retransmissions
             let should_handle = if let Some(ping_state) = &self.ping_state {
@@ -659,7 +659,7 @@ impl ControllerSender {
                 self.handle_ping_state();
             } else {
                 debug!("got message failure for unknown ping, ignore it");
-                return;
+                return Vec::new();
             }
         }
 
@@ -667,7 +667,13 @@ impl ControllerSender {
             gt.timer.stop();
         }
 
-        self.pending_replies.remove(&id);
+        let missing = self
+            .pending_replies
+            .remove(&id)
+            .map(|p| p.missing_replies.into_iter().collect::<Vec<_>>())
+            .unwrap_or_default();
+
+        missing
     }
 
     pub fn clear_timers(&mut self) {
