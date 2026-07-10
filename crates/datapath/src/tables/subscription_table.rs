@@ -1601,4 +1601,56 @@ mod tests {
             .unwrap();
         assert_eq!(result, 20);
     }
+
+    #[test]
+    #[traced_test]
+    fn test_same_prefix_different_id_different_connections() {
+        let name = ProtoName::from_strings(["agntcy", "default", "channel"]);
+        let name_id1 = name.clone().with_id(1);
+        let name_id2 = name.clone().with_id(2);
+
+        let t = SubscriptionTableImpl::default();
+
+        // Subscribe channel with ID 1 on connections 10 and 11
+        assert!(
+            t.add_subscription(name_id1.clone(), 10, ConnType::Local, 1)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name_id1.clone(), 11, ConnType::Remote, 2)
+                .is_ok()
+        );
+
+        // Subscribe channel with ID 2 on connections 20, 21, and 22
+        assert!(
+            t.add_subscription(name_id2.clone(), 20, ConnType::Local, 3)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name_id2.clone(), 21, ConnType::Remote, 4)
+                .is_ok()
+        );
+        assert!(
+            t.add_subscription(name_id2.clone(), 22, ConnType::Remote, 5)
+                .is_ok()
+        );
+
+        // Message for ID 1 should only match connections 10 and 11
+        let result = t.match_all(&enc(&name_id1), 100, MatchFilter::ALL).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&10));
+        assert!(result.contains(&11));
+        assert!(!result.contains(&20));
+        assert!(!result.contains(&21));
+        assert!(!result.contains(&22));
+
+        // Message for ID 2 should only match connections 20, 21, and 22
+        let result = t.match_all(&enc(&name_id2), 100, MatchFilter::ALL).unwrap();
+        assert_eq!(result.len(), 3);
+        assert!(result.contains(&20));
+        assert!(result.contains(&21));
+        assert!(result.contains(&22));
+        assert!(!result.contains(&10));
+        assert!(!result.contains(&11));
+    }
 }

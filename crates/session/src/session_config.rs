@@ -152,11 +152,13 @@ mod tests {
 
     #[test]
     fn test_from_join_request_with_timer_settings() {
-        let dest = Name::from_strings(["dest", "", ""]);
+        let dest = Name::from_strings(["org", "ns", "dst"]).with_id(1);
+        let ctrl = Name::from_strings(["org", "ns", "dst"]).with_id(2);
         let payload = CommandPayload::builder().join_request(
             Some(3),
             Some(Duration::from_millis(500)),
             Some(dest),
+            Some(ctrl),
             Some(slim_datapath::api::ProtoMlsSettings {
                 header_integrity_validation_percent: 100,
             }),
@@ -188,7 +190,7 @@ mod tests {
     #[test]
     fn test_from_join_request_without_timer_settings() {
         let dest = Name::from_strings(["dest", "", ""]);
-        let payload = CommandPayload::builder().join_request(None, None, Some(dest), None);
+        let payload = CommandPayload::builder().join_request(None, None, Some(dest), None, None);
 
         let metadata = HashMap::new();
 
@@ -210,11 +212,13 @@ mod tests {
 
     #[test]
     fn test_from_join_request_with_mls_enabled() {
-        let dest = Name::from_strings(["dest", "", ""]);
+        let dest = Name::from_strings(["ns", "org", "c"]).with_id(1);
+        let ctrl = Name::from_strings(["ns", "org", "c"]).with_id(2);
         let payload = CommandPayload::builder().join_request(
             Some(10),
             Some(Duration::from_secs(5)),
             Some(dest),
+            Some(ctrl),
             Some(slim_datapath::api::ProtoMlsSettings {
                 header_integrity_validation_percent: 100,
             }),
@@ -278,11 +282,13 @@ mod tests {
 
     #[test]
     fn test_from_join_request_with_large_timeout() {
-        let dest = Name::from_strings(["dest", "", ""]);
+        let dest = Name::from_strings(["ns", "org", "c"]).with_id(1);
+        let ctrl = Name::from_strings(["ns", "org", "c"]).with_id(2);
         let payload = CommandPayload::builder().join_request(
             Some(100),
             Some(Duration::from_secs(3600)), // 1 hour
             Some(dest),
+            Some(ctrl),
             None,
         );
 

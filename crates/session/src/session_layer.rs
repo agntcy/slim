@@ -248,7 +248,57 @@ where
         let is_p2p = session_config.session_type == ProtoSessionType::PointToPoint;
         let destination_proto = destination.clone();
 
-        let session = self.create_session_internal(session_config, local_name, destination, id)?;
+        let (dest_with_id, control_with_id) = if session_config.session_type
+            == ProtoSessionType::Multicast
+        {
+            let token_id = self.identity_provider.get_id()?;
+
+            let (c0, c1, c2) = destination.str_components();
+            let data_input = format!("{}/{}/{}/{}/data", token_id, c0, c1, c2);
+            let ctrl_input = format!("{}/{}/{}/{}/control", token_id, c0, c1, c2);
+
+            let mut data_id;
+            let mut ctrl_id;
+            let mut salt = 0u64;
+            loop {
+                data_id = twox_hash::XxHash3_128::oneshot_with_seed(salt, data_input.as_bytes());
+                if NameId::is_reserved_id(data_id) {
+                    data_id = (data_id % (u128::MAX - NameId::RESERVED_IDS - 1)) + 1;
+                }
+
+                ctrl_id = twox_hash::XxHash3_128::oneshot_with_seed(salt, ctrl_input.as_bytes());
+                if NameId::is_reserved_id(ctrl_id) {
+                    ctrl_id = (ctrl_id % (u128::MAX - NameId::RESERVED_IDS - 1)) + 1;
+                }
+
+                if data_id != ctrl_id {
+                    break;
+                }
+                warn!(
+                    salt,
+                    "data_id == ctrl_id hash collision, retrying with new salt"
+                );
+                salt += 1;
+                if salt > 10 {
+                    return Err(SessionError::SessionBuilderIncomplete);
+                }
+            }
+
+            (
+                destination.clone().with_id(data_id),
+                destination.clone().with_id(ctrl_id),
+            )
+        } else {
+            (destination.clone(), destination.clone())
+        };
+
+        let session = self.create_session_internal(
+            session_config,
+            local_name,
+            dest_with_id,
+            control_with_id,
+            id,
+        )?;
 
         // If session is p2p, initiate the discovery request now and return the ack
         // Otherwise, return an immediately resolved future
@@ -280,6 +330,7 @@ where
         session_config: SessionConfig,
         local_name: ProtoName,
         destination: ProtoName,
+        control: ProtoName,
         id: Option<u32>,
     ) -> Result<SessionContext, SessionError> {
         // Retry loop to handle race conditions when generating random IDs
@@ -318,12 +369,12 @@ where
             // Create app channel for this session
             let (app_tx, app_rx) = tokio::sync::mpsc::unbounded_channel();
 
-            // Build the session controller (this is async, so no locks are held)
-            // The builder will automatically force DATA_CHANNEL_ID for multicast destinations
+            // Build the session controller with pre-computed destination and control names
             let builder = SessionController::builder()
                 .with_id(session_id)
                 .with_source(local_name.clone())
                 .with_destination(destination.clone())
+                .with_control(control.clone())
                 .with_config(session_config.clone())
                 .with_identity_provider(self.identity_provider.clone())
                 .with_identity_verifier(self.identity_verifier.clone())
@@ -613,7 +664,8 @@ where
                     message.get_metadata_map(),
                     false,
                 )?;
-                self.create_session_internal(conf, local_name, message.get_source(), Some(id))?
+                let dest = message.get_source();
+                self.create_session_internal(conf, local_name, dest.clone(), dest, Some(id))?
             }
             ProtoSessionType::Multicast => {
                 let payload = message.extract_join_request()?;
@@ -626,13 +678,17 @@ where
                     .channel
                     .clone()
                     .ok_or(SessionError::MissingChannelName)?;
+                let control = payload
+                    .control
+                    .clone()
+                    .ok_or(SessionError::MissingChannelName)?;
                 let conf = crate::SessionConfig::from_join_request(
                     ProtoSessionType::Multicast,
                     message.extract_command_payload()?,
                     message.get_metadata_map(),
                     false,
                 )?;
-                self.create_session_internal(conf, local_name, channel, Some(id))?
+                self.create_session_internal(conf, local_name, channel, control, Some(id))?
             }
             _ => {
                 warn!(
@@ -768,7 +824,13 @@ mod tests {
             metadata: Default::default(),
         };
 
-        let result = session_layer.create_session_internal(config, local_name, destination, None);
+        let result = session_layer.create_session_internal(
+            config,
+            local_name,
+            destination.clone(),
+            destination,
+            None,
+        );
 
         assert!(result.is_ok());
         assert_eq!(session_layer.pool_size(), 1);
@@ -793,7 +855,8 @@ mod tests {
         let result = session_layer.create_session_internal(
             config,
             local_name,
-            destination,
+            destination.clone(),
+            destination.clone(),
             Some(session_id),
         );
 
@@ -824,7 +887,8 @@ mod tests {
         let result = session_layer.create_session_internal(
             config,
             local_name,
-            destination,
+            destination.clone(),
+            destination.clone(),
             Some(invalid_id),
         );
 
@@ -857,6 +921,7 @@ mod tests {
             config.clone(),
             local_name.clone(),
             destination.clone(),
+            destination.clone(),
             Some(session_id),
         );
         assert!(result1.is_ok());
@@ -865,6 +930,7 @@ mod tests {
         let result2 = session_layer.create_session_internal(
             config,
             local_name,
+            destination.clone(),
             destination,
             Some(session_id),
         );
@@ -893,7 +959,13 @@ mod tests {
 
         let session_id = 100u32;
         let _context = session_layer
-            .create_session_internal(config, local_name, destination, Some(session_id))
+            .create_session_internal(
+                config,
+                local_name,
+                destination.clone(),
+                destination,
+                Some(session_id),
+            )
             .unwrap();
 
         assert_eq!(session_layer.pool_size(), 1);
@@ -1090,6 +1162,7 @@ mod tests {
             let result = session_layer.create_session_internal(
                 config.clone(),
                 local_name.clone(),
+                destination.clone(),
                 destination,
                 None,
             );
