@@ -749,7 +749,6 @@ where
             {
                 let _ = tx.send(Err(SessionError::RejoinFailed));
             }
-            self.common.processing_state = ProcessingState::Draining;
         }
 
         Ok(SessionOutput::new())
@@ -2033,7 +2032,10 @@ mod tests {
 
         // Ack not yet received: pending task is stored, participant is still online.
         assert!(participant.common.pending_status_update.is_some());
-        assert_eq!(participant.common.participant_state, ParticipantState::OnLine);
+        assert_eq!(
+            participant.common.participant_state,
+            ParticipantState::OnLine
+        );
 
         // Deliver the GroupAck from the registered peer.
         let group_ack = Message::builder()
@@ -2058,7 +2060,10 @@ mod tests {
         // All acks collected: pending task resolved, participant is now offline,
         // and the application's completion handle resolves with Ok.
         assert!(participant.common.pending_status_update.is_none());
-        assert_eq!(participant.common.participant_state, ParticipantState::OffLine);
+        assert_eq!(
+            participant.common.participant_state,
+            ParticipantState::OffLine
+        );
         assert!(rx.await.unwrap().is_ok());
     }
 }
