@@ -56,14 +56,14 @@ pub fn parse_route(route: &str) -> Result<(String, String, String, u128)> {
 
 /// Return true if the string looks like an endpoint URL (contains ':' or starts with http/https).
 #[cfg(test)]
-pub fn is_endpoint(s: &str) -> bool {
+fn is_endpoint(s: &str) -> bool {
     s.contains(':') || s.starts_with("http://") || s.starts_with("https://")
 }
 
 /// Parse an endpoint string "http://host:port" or "https://host:port" into a Connection.
 /// Returns (Connection, link_id).
 #[cfg(test)]
-pub fn parse_endpoint(endpoint: &str) -> Result<(Connection, String)> {
+fn parse_endpoint(endpoint: &str) -> Result<(Connection, String)> {
     let url = url::Url::parse(endpoint)
         .map_err(|e| anyhow::anyhow!("failed to parse endpoint '{}': {}", endpoint, e))?;
 

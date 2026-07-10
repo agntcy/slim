@@ -8,8 +8,7 @@ use std::{
 
 use display_error_chain::ErrorChainExt;
 use slim_datapath::api::{
-    CommandPayload, NameId, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
-    ProtoSessionType,
+    CommandPayload, ProtoMessage as Message, ProtoName, ProtoSessionMessageType, ProtoSessionType,
 };
 use tokio::sync::mpsc::Sender;
 use tracing::debug;
@@ -211,14 +210,14 @@ impl ControllerSender {
                     self.group_name = Some(message.get_dst());
                 } else {
                     // in multicast session the group name is specified in the
-                    // payload of the message
-                    let mut group_name = message
+                    // payload of the message, here we use only the control
+                    // channel name that must be set
+                    let group_name = message
                         .extract_join_request()?
-                        .channel
+                        .control
                         .as_ref()
                         .ok_or(SessionError::MissingGroupNameInJoinRequest)?
                         .clone();
-                    group_name.set_id(NameId::CONTROL_CHANNEL_ID);
                     debug!(
                         destination = %group_name,
                         "update group name on join request message for multicast session",
@@ -810,7 +809,8 @@ mod tests {
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let remote = ProtoName::from_strings(["org", "ns", "remote"]);
-        let channel = ProtoName::from_strings(["org", "ns", "channel"]);
+        let channel_data = ProtoName::from_strings(["org", "ns", "channel"]).with_id(1);
+        let channel_control = ProtoName::from_strings(["org", "ns", "channel"]).with_id(2);
         let session_id = 1;
 
         let mut sender = ControllerSender::new(
@@ -833,7 +833,13 @@ mod tests {
             .message_id(1)
             .payload(
                 CommandPayload::builder()
-                    .join_request(None, None, Some(channel.clone()), None)
+                    .join_request(
+                        None,
+                        None,
+                        Some(channel_data.clone()),
+                        Some(channel_control.clone()),
+                        None,
+                    )
                     .as_content(),
             )
             .build_publish()
@@ -1642,7 +1648,7 @@ mod tests {
             .message_id(1)
             .payload(
                 CommandPayload::builder()
-                    .join_request(None, None, None, None)
+                    .join_request(None, None, None, None, None)
                     .as_content(),
             )
             .build_publish()
@@ -1703,10 +1709,8 @@ mod tests {
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
-        let data_channel_name =
-            ProtoName::from_strings(["org", "ns", "channel"]).with_id(NameId::DATA_CHANNEL_ID);
-        let control_channel_name =
-            ProtoName::from_strings(["org", "ns", "channel"]).with_id(NameId::CONTROL_CHANNEL_ID);
+        let data_channel_name = ProtoName::from_strings(["org", "ns", "channel"]).with_id(1);
+        let control_channel_name = ProtoName::from_strings(["org", "ns", "channel"]).with_id(2);
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
         let session_id = 1;
 
@@ -1731,7 +1735,13 @@ mod tests {
             .fanout(256)
             .payload(
                 CommandPayload::builder()
-                    .join_request(None, None, Some(data_channel_name.clone()), None)
+                    .join_request(
+                        None,
+                        None,
+                        Some(data_channel_name.clone()),
+                        Some(control_channel_name.clone()),
+                        None,
+                    )
                     .as_content(),
             )
             .build_publish()

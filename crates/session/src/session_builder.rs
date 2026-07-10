@@ -176,6 +176,11 @@ where
         self
     }
 
+    pub fn with_control(mut self, control: ProtoName) -> Self {
+        self.control = Some(control);
+        self
+    }
+
     pub fn with_config(mut self, config: SessionConfig) -> Self {
         self.config = Some(config);
         self
@@ -275,8 +280,13 @@ where
             return Err(SessionError::SessionBuilderIncomplete);
         }
 
-        // Infer control name from destination based on session type
         let config = self.config.as_ref().unwrap();
+        if config.session_type == slim_datapath::api::ProtoSessionType::Multicast
+            && self.control.is_none()
+        {
+            return Err(SessionError::SessionBuilderIncomplete);
+        }
+
         let destination = self.destination.as_ref().unwrap();
         let (final_destination, control) = match config.session_type {
             slim_datapath::api::ProtoSessionType::PointToPoint => {
@@ -284,9 +294,16 @@ where
                 (destination.clone(), destination.clone())
             }
             slim_datapath::api::ProtoSessionType::Multicast => {
-                // For Multicast, force the destination to use DATA_CHANNEL_ID and control to use CONTROL_CHANNEL_ID
-                let data_destination = destination.clone().with_id(NameId::DATA_CHANNEL_ID);
-                let control_destination = destination.clone().with_id(NameId::CONTROL_CHANNEL_ID);
+                // For Multicast, validate that destination and control have valid, distinct IDs
+                let data_destination = destination.clone();
+                let control_destination = self.control.as_ref().unwrap().clone();
+                if data_destination.id() == NameId::NULL_COMPONENT
+                    || control_destination.id() == NameId::NULL_COMPONENT
+                    || data_destination.id() == control_destination.id()
+                    || !data_destination.match_prefix(&control_destination)
+                {
+                    return Err(SessionError::SessionBuilderIncomplete);
+                }
                 (data_destination, control_destination)
             }
             _ => {
@@ -1224,12 +1241,14 @@ mod tests {
         config.session_type = ProtoSessionType::Multicast;
 
         let dest = create_test_name("group");
-        let data_channel = dest.with_id(NameId::DATA_CHANNEL_ID);
+        let data_channel = dest.clone().with_id(1);
+        let ctrl_channel = dest.with_id(2);
         let builder =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_id(3)
                 .with_source(create_test_name("moderator"))
-                .with_destination(data_channel) // Multicast: use DATA_CHANNEL_ID
+                .with_destination(data_channel)
+                .with_control(ctrl_channel)
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
                 .with_identity_verifier(MockVerifier)
@@ -1437,8 +1456,9 @@ mod tests {
         let mut config = create_test_config(true);
         config.session_type = ProtoSessionType::Multicast;
 
-        // Pass a destination with WRONG id (not DATA_CHANNEL_ID)
-        let dest = create_test_name("group").with_id(999);
+        // Pass destination and control with distinct IDs
+        let dest = create_test_name("group").with_id(1);
+        let ctrl = create_test_name("group").with_id(2);
 
         let ready_builder = SessionBuilder::<
             MockTokenProvider,
@@ -1449,6 +1469,7 @@ mod tests {
         .with_id(1)
         .with_source(create_test_name("source"))
         .with_destination(dest)
+        .with_control(ctrl)
         .with_config(config)
         .with_identity_provider(MockTokenProvider)
         .with_identity_verifier(MockVerifier)
@@ -1458,14 +1479,8 @@ mod tests {
         .unwrap();
 
         // Verify the builder forced the correct IDs
-        assert_eq!(
-            ready_builder.destination.unwrap().id(),
-            NameId::DATA_CHANNEL_ID
-        );
-        assert_eq!(
-            ready_builder.control.unwrap().id(),
-            NameId::CONTROL_CHANNEL_ID
-        );
+        assert_eq!(ready_builder.destination.unwrap().id(), 1);
+        assert_eq!(ready_builder.control.unwrap().id(), 2);
     }
 
     #[test]

@@ -1063,6 +1063,7 @@ mod tests {
         session_id: u32,
         source: ProtoName,
         destination: ProtoName,
+        control: ProtoName,
         session_type: ProtoSessionType,
         mls_settings: Option<MlsSettings>,
         initiator: bool,
@@ -1079,6 +1080,7 @@ mod tests {
                 session_id: 10,
                 source: ProtoName::from_strings(["org", "ns", "source"]).with_id(1),
                 destination: ProtoName::from_strings(["org", "ns", "dest"]).with_id(2),
+                control: ProtoName::from_strings(["org", "ns", "dest"]).with_id(2),
                 session_type: ProtoSessionType::PointToPoint,
                 mls_settings: None,
                 initiator: true,
@@ -1103,6 +1105,12 @@ mod tests {
         #[allow(dead_code)]
         fn with_destination(mut self, destination: ProtoName) -> Self {
             self.destination = destination;
+            self
+        }
+
+        #[allow(dead_code)]
+        fn with_control(mut self, control: ProtoName) -> Self {
+            self.control = control;
             self
         }
 
@@ -1159,6 +1167,7 @@ mod tests {
                 .with_id(self.session_id)
                 .with_source(self.source.clone())
                 .with_destination(self.destination.clone())
+                .with_control(self.control.clone())
                 .with_config(config)
                 .with_identity_provider(SharedSecret::new("test", SHARED_SECRET).unwrap())
                 .with_identity_verifier(SharedSecret::new("test", SHARED_SECRET).unwrap())
@@ -1182,6 +1191,8 @@ mod tests {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_id(42)
             .with_session_type(ProtoSessionType::Multicast)
+            .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
+            .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
             .with_mls_enabled(true)
             .with_metadata(metadata)
             .build();
@@ -1191,10 +1202,10 @@ mod tests {
             controller.source(),
             &ProtoName::from_strings(["org", "ns", "source"]).with_id(1)
         );
-        // For multicast sessions, destination uses DATA_CHANNEL_ID
+        // For multicast sessions, destination uses the provided ID
         assert_eq!(
             controller.dst(),
-            &ProtoName::from_strings(["org", "ns", "dest"]).with_id(NameId::DATA_CHANNEL_ID)
+            &ProtoName::from_strings(["org", "ns", "group"]).with_id(2)
         );
         assert_eq!(controller.session_type(), ProtoSessionType::Multicast);
         assert!(controller.is_initiator());
@@ -1232,6 +1243,8 @@ mod tests {
     async fn test_publish_to_specific_connection() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::Multicast)
+            .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
+            .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
             .build();
 
         let target_name = ProtoName::from_strings(["org", "ns", "target"]);
@@ -1256,6 +1269,8 @@ mod tests {
     async fn test_publish_with_metadata() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::Multicast)
+            .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
+            .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
             .build();
 
         let target_name = ProtoName::from_strings(["org", "ns", "target"]);
@@ -1281,6 +1296,8 @@ mod tests {
     async fn test_invite_participant_in_multicast() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::Multicast)
+            .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
+            .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
             .build();
 
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
@@ -1297,6 +1314,8 @@ mod tests {
     async fn test_invite_participant_not_initiator_error() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::Multicast)
+            .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
+            .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
             .with_initiator(false)
             .build();
 
@@ -1322,6 +1341,8 @@ mod tests {
     async fn test_remove_participant_in_multicast() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::Multicast)
+            .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
+            .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
             .build();
 
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
@@ -1338,6 +1359,8 @@ mod tests {
     async fn test_remove_participant_not_initiator_error() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::Multicast)
+            .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
+            .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
             .with_initiator(false)
             .build();
 
@@ -1498,6 +1521,8 @@ mod tests {
     async fn test_create_discovery_request() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::Multicast)
+            .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
+            .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
             .build();
 
         let target = ProtoName::from_strings(["org", "ns", "target"]);

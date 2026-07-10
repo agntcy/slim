@@ -391,6 +391,7 @@ dependencies = [
  "tracing",
  "tracing-test",
  "trait-variant",
+ "twox-hash",
 ]
 
 [[package]]
