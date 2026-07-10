@@ -853,6 +853,9 @@ pub(crate) struct SessionControllerCommon<
     /// sender for command messages
     pub(crate) sender: ControllerSender,
 
+    /// participant state (on-line/off-line)
+    pub(crate) participant_state: ParticipantState,
+
     /// processing state
     pub(crate) processing_state: ProcessingState,
 
@@ -892,6 +895,7 @@ where
             settings,
             sender: controller_sender,
             processing_state: ProcessingState::Active,
+            participant_state: ParticipantState::OnLine,
             subscription_ids: HashMap::new(),
         }
     }

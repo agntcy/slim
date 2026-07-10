@@ -135,6 +135,8 @@ pub enum SessionError {
     SessionAlreadyClosed,
     #[error("rejoin request was rejected")]
     RejoinFailed,
+    #[error("participant is offline")]
+    ParticipantOffLine,
     #[error("session cleanup failed: {details}")]
     SessionCleanupFailed { details: String },
     #[error("message send retries exhausted for id={id}")]
