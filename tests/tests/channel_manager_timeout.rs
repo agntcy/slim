@@ -85,18 +85,6 @@ fn spawn_channel_manager(channel_manager: &Path, config: &Path) -> std::process:
         })
 }
 
-fn run_slimctl_cm(slimctl: &Path, cm_endpoint: &str, args: &[&str]) -> Vec<u8> {
-    run_combined_output_with_retry(Duration::from_secs(10), || {
-        let mut cmd = Command::new(slimctl);
-        cmd.arg("cm");
-        for arg in args {
-            cmd.arg(arg);
-        }
-        cmd.arg("--server").arg(cm_endpoint);
-        cmd
-    })
-}
-
 /// Adding a participant that is not connected fails with an invite error.
 #[test]
 fn add_nonexistent_participant_fails() {

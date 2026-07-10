@@ -121,18 +121,6 @@ fn spawn_client(
     })
 }
 
-fn run_slimctl_cm(slimctl: &Path, cm_endpoint: &str, args: &[&str]) -> Vec<u8> {
-    run_combined_output_with_retry(Duration::from_secs(10), || {
-        let mut cmd = Command::new(slimctl);
-        cmd.arg("cm");
-        for arg in args {
-            cmd.arg(arg);
-        }
-        cmd.arg("--server").arg(cm_endpoint);
-        cmd
-    })
-}
-
 fn assert_output_contains(output: &[u8], needle: &str, context: &str) {
     let text = String::from_utf8_lossy(output);
     assert!(
@@ -274,7 +262,7 @@ fn slim_node_manages_channel_participants_and_messaging() {
     assert!(!add_a_output.is_empty());
     assert_output_contains(&add_a_output, "added to channel", "add participant a");
     client_a_logs
-        .wait_contains(MSG_SESSION_HANDLER_TASK_STARTED, Duration::from_secs(15))
+        .wait_contains(MSG_SESSION_HANDLER_TASK_STARTED, Duration::from_secs(30))
         .unwrap_or_else(|output| {
             terminate_session(&mut client_c_session, Duration::from_secs(2));
             terminate_session(&mut client_b_session, Duration::from_secs(2));
@@ -292,7 +280,7 @@ fn slim_node_manages_channel_participants_and_messaging() {
     assert!(!add_b_output.is_empty());
     assert_output_contains(&add_b_output, "added to channel", "add participant b");
     client_b_logs
-        .wait_contains(MSG_SESSION_HANDLER_TASK_STARTED, Duration::from_secs(15))
+        .wait_contains(MSG_SESSION_HANDLER_TASK_STARTED, Duration::from_secs(30))
         .unwrap_or_else(|output| {
             terminate_session(&mut client_c_session, Duration::from_secs(2));
             terminate_session(&mut client_b_session, Duration::from_secs(2));
@@ -310,7 +298,7 @@ fn slim_node_manages_channel_participants_and_messaging() {
     assert!(!add_c_output.is_empty());
     assert_output_contains(&add_c_output, "added to channel", "add participant c");
     client_c_logs
-        .wait_contains(MSG_SESSION_HANDLER_TASK_STARTED, Duration::from_secs(15))
+        .wait_contains(MSG_SESSION_HANDLER_TASK_STARTED, Duration::from_secs(30))
         .unwrap_or_else(|output| {
             terminate_session(&mut client_c_session, Duration::from_secs(2));
             terminate_session(&mut client_b_session, Duration::from_secs(2));

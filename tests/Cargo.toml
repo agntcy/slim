@@ -10,5 +10,5 @@ path = "src/lib.rs"
 doctest = false
 
 [dependencies]
-regex = { workspace = true }
 parking_lot = { workspace = true }
+regex = { workspace = true }
