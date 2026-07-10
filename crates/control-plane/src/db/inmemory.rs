@@ -985,7 +985,9 @@ mod tests {
             conn_details: vec![ConnectionDetails {
                 endpoint: format!("{id}:8080"),
                 external_endpoint: None,
-                spire_mtls: None,
+                spire_trust_domain: None,
+                auth_method: crate::db::model::AuthMethod::None,
+                tls_required: false,
             }],
             created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
@@ -1019,8 +1021,7 @@ mod tests {
             dest_node_id: dst.to_string(),
             dest_group: String::new(),
             dest_endpoint: ep.to_string(),
-            conn_config_data: slim_config::grpc::client::ClientConfig::default()
-                .with_connection_type(slim_config::conn_type::ConnType::Remote),
+            conn_config_data: slim_config::client::ServerConnectionConfig::default(),
             status: LinkStatus::Pending,
             status_msg: String::new(),
             created_at: SystemTime::now(),

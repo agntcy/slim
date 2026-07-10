@@ -21,9 +21,18 @@ breaking:
       - data-plane/v1/data_plane.proto
     FIELD_SAME_NAME:
       - data-plane/v1/data_plane.proto
+      - crates/proto/proto/controller/v1/controller.proto
     FIELD_SAME_TYPE:
       - data-plane/v1/data_plane.proto
+      - crates/proto/proto/controller/v1/controller.proto
     FIELD_SAME_CARDINALITY:
       - data-plane/v1/data_plane.proto
+      - crates/proto/proto/controller/v1/controller.proto
     FIELD_SAME_JSON_NAME:
       - data-plane/v1/data_plane.proto
+      - crates/proto/proto/controller/v1/controller.proto
+    MESSAGE_NO_DELETE:
+      - crates/proto/proto/controller/v1/controller.proto
+      - crates/proto/proto/controlplane/v1/controlplane.proto
+    RPC_NO_DELETE:
+      - crates/proto/proto/controlplane/v1/controlplane.proto
