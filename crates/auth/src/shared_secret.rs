@@ -23,8 +23,9 @@ SPDX-License-Identifier: Apache-2.0
 //! * `id` is randomized per construction (`<base_id>_<random_suffix>`).
 //! * Replay cache stores only (nonce, timestamp) for memory efficiency.
 //! * HMAC via `aws-lc-rs` for constant-time primitives.
-//! * `SharedSecret` is cheap to clone (Arc increment) and cloning preserves
-//!   replay cache state (when enabled).
+//! * `SharedSecret` is cheap to clone (Arc increment). Cloning preserves
+//!   replay cache state (when enabled) and shares one MLS signing identity, so
+//!   an app and every session cloned from it present the same identity.
 //!
 //! Typical usage (no replay protection):
 //! ```ignore
@@ -53,7 +54,7 @@ SPDX-License-Identifier: Apache-2.0
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as STANDARD_BASE64;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use rand::{Rng, distr::Alphanumeric};
 use std::{
     collections::{HashSet, VecDeque},
@@ -185,18 +186,34 @@ impl std::fmt::Debug for SharedSecretInternal {
     }
 }
 
+/// MLS signing material shared across every clone of a [`SharedSecret`].
+///
+/// An app and all the sessions cloned from it therefore present a single
+/// identity: one Ed25519 signature key pair and the matching claims. Held
+/// behind an `Arc<RwLock<_>>` so a key rotation or a restore is visible to
+/// every clone at once.
+struct SigningMaterial {
+    /// MLS signature key pair: (secret_key_bytes, public_key_bytes).
+    keys: (Vec<u8>, Vec<u8>),
+    /// Precomputed URL_SAFE_NO_PAD(base64) of the claims JSON embedding the MLS
+    /// public key. Only changes when the signature keys are rotated.
+    claims_b64: String,
+    /// True once the MLS layer has installed ciphersuite-correct keys via
+    /// `set_signature_keys`. The keys generated at construction are placeholder
+    /// Ed25519 keys (used for header signing) and are not necessarily valid for
+    /// the MLS ciphersuite in use, so the MLS layer must not reuse them until
+    /// this flips true.
+    mls_installed: bool,
+}
+
 /// Public wrapper holding an Arc to internal implementation.
-/// Cloning shares the replay cache and config but gives each clone
-/// its own independent MLS signature key pair.
+/// Cloning shares the replay cache, config, and MLS signing material, so all
+/// clones present the same identity.
 #[derive(Clone)]
 pub struct SharedSecret {
     inner: Arc<SharedSecretInternal>,
-    /// MLS Ed25519 signature key pair: (secret_key_bytes, public_key_bytes).
-    /// Plain field so each clone owns an independent copy.
-    signature_keys: (Vec<u8>, Vec<u8>),
-    /// Precomputed URL_SAFE_NO_PAD(base64) of the claims JSON embedding the MLS public key.
-    /// Only changes when the signature keys are rotated.
-    claims_b64: String,
+    /// MLS signing material, shared across clones (see [`SigningMaterial`]).
+    signing: Arc<RwLock<SigningMaterial>>,
 }
 
 impl std::fmt::Debug for SharedSecret {
@@ -237,8 +254,8 @@ impl SharedSecret {
             .collect();
         let full_id = format!("{}_{}", id, random_suffix);
 
-        let signature_keys = crate::utils::generate_mls_signature_keys()?;
-        let claims_b64 = Self::compute_claims_b64(&signature_keys.1);
+        let (secret_key, public_key) = crate::utils::generate_mls_signature_keys()?;
+        let claims_b64 = Self::compute_claims_b64(&public_key);
         let hmac_key = HmacKey::new(shared_secret.as_bytes());
         let internal = SharedSecretInternal {
             base_id: id.to_owned(),
@@ -252,8 +269,11 @@ impl SharedSecret {
         };
         Ok(SharedSecret {
             inner: Arc::new(internal),
-            signature_keys,
-            claims_b64,
+            signing: Arc::new(RwLock::new(SigningMaterial {
+                keys: (secret_key, public_key),
+                claims_b64,
+                mls_installed: false,
+            })),
         })
     }
 
@@ -338,19 +358,20 @@ impl SharedSecret {
         };
         SharedSecret {
             inner: Arc::new(internal),
-            signature_keys: self.signature_keys.clone(),
-            claims_b64: self.claims_b64.clone(),
+            // Share the same signing material so a rebuilt instance keeps one identity.
+            signing: self.signing.clone(),
         }
     }
 
     /// Returns the expected token byte length for this instance, suitable for
-    /// preallocating a `String` buffer.
-    fn token_capacity(&self) -> usize {
+    /// preallocating a `String` buffer. `claims_len` is the byte length of the
+    /// (already locked) claims field, passed in to avoid re-locking.
+    fn token_capacity(&self, claims_len: usize) -> usize {
         self.inner.id.len()
             + TOKEN_SEPARATOR_COUNT
             + MAX_TIMESTAMP_DIGITS
             + NONCE_B64_LEN
-            + self.claims_b64.len()
+            + claims_len
             + HMAC_TAG_B64_LEN
     }
 
@@ -370,9 +391,10 @@ impl SharedSecret {
         rand::rng().fill(&mut nonce_bytes);
 
         let id = self.id();
-        let claims_b64 = self.claims_b64.as_str();
+        let signing = self.signing.read();
+        let claims_b64 = signing.claims_b64.as_str();
 
-        let cap = self.token_capacity();
+        let cap = self.token_capacity(claims_b64.len());
         out.clear();
         out.reserve(cap.saturating_sub(out.capacity()));
         out.push_str(id);
@@ -514,7 +536,8 @@ impl TokenProvider for SharedSecret {
     }
 
     fn get_token(&self) -> Result<String, AuthError> {
-        let mut buf = String::with_capacity(self.token_capacity());
+        let cap = self.token_capacity(self.signing.read().claims_b64.len());
+        let mut buf = String::with_capacity(cap);
         self.get_token_into(&mut buf)?;
         Ok(buf)
     }
@@ -524,11 +547,15 @@ impl TokenProvider for SharedSecret {
     }
 
     fn get_signature_secret_key(&self) -> Result<Vec<u8>, AuthError> {
-        Ok(self.signature_keys.0.clone())
+        Ok(self.signing.read().keys.0.clone())
     }
 
     fn get_signature_public_key(&self) -> Result<Vec<u8>, AuthError> {
-        Ok(self.signature_keys.1.clone())
+        Ok(self.signing.read().keys.1.clone())
+    }
+
+    fn mls_signature_keys_installed(&self) -> bool {
+        self.signing.read().mls_installed
     }
 
     async fn set_signature_keys(
@@ -536,8 +563,12 @@ impl TokenProvider for SharedSecret {
         private_key: Vec<u8>,
         public_key: Vec<u8>,
     ) -> Result<(), AuthError> {
-        self.claims_b64 = Self::compute_claims_b64(&public_key);
-        self.signature_keys = (private_key, public_key);
+        // Shared across clones: a rotation is visible to the app and every
+        // session cloned from it.
+        let mut signing = self.signing.write();
+        signing.claims_b64 = Self::compute_claims_b64(&public_key);
+        signing.keys = (private_key, public_key);
+        signing.mls_installed = true;
         Ok(())
     }
 }

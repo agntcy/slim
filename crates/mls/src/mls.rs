@@ -466,10 +466,18 @@ where
 
         self.stored_identity = Some(stored_identity);
 
-        // Generate ciphersuite-correct keys via the MLS crypto provider and
-        // install them into the identity provider.
+        // Reuse the identity provider's signature keys once the MLS layer has
+        // installed ciphersuite-correct ones, so an app and every session cloned
+        // from it share a single signing identity (and a restored app keeps its
+        // persisted one). On first use the provider only holds placeholder keys
+        // (possibly of the wrong ciphersuite), so generate a fresh pair via our
+        // own crypto provider and install it.
         let (private_key, signing_identity) =
-            self.generate_and_install_signing_identity(false).await?;
+            if self.identity_provider.mls_signature_keys_installed() {
+                self.create_signing_identity(false)?
+            } else {
+                self.generate_and_install_signing_identity(false).await?
+            };
 
         let crypto_provider = crate::crypto::default_crypto_provider();
 
