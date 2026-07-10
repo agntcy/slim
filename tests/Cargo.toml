@@ -7,6 +7,8 @@ repository.workspace = true
 
 [lib]
 path = "src/lib.rs"
+doctest = false
 
 [dependencies]
 regex = { workspace = true }
+parking_lot = { workspace = true }

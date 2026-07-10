@@ -44,10 +44,10 @@ fn resolve_binary(env_var: &str, file_name: &str, default_path: PathBuf) -> Path
         }
     }
 
-    if let Some(path) = binary_from_current_exe(file_name) {
-        if path.is_file() {
-            return path;
-        }
+    if let Some(path) = binary_from_current_exe(file_name)
+        && path.is_file()
+    {
+        return path;
     }
 
     if let Ok(target_dir) = std::env::var("CARGO_TARGET_DIR") {
