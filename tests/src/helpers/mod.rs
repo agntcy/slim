@@ -7,7 +7,7 @@ mod ports;
 mod process;
 mod routing;
 
-pub use command::run_combined_output_with_retry;
+pub use command::{run_combined_output_with_retry, run_slimctl_cm};
 pub use config::{new_temp_dir, write_temp_config, write_temp_config_near_source};
 pub use log::{ProcessLogWatcher, contains_semver_fragment, wait_for_log};
 pub use ports::reserve_port;

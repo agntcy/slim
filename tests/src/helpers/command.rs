@@ -1,6 +1,9 @@
+use std::path::Path;
 use std::process::{Command, Output};
 use std::thread;
 use std::time::{Duration, Instant};
+
+const SLIMCTL_CM_RETRY_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Run a command until it succeeds or `timeout` elapses, retrying every 200 ms.
 ///
@@ -47,4 +50,18 @@ fn combined_output(output: &Output) -> Vec<u8> {
     let mut combined = output.stderr.clone();
     combined.extend_from_slice(&output.stdout);
     combined
+}
+
+/// Run `slimctl cm …` until it succeeds or the channel-manager retry budget elapses.
+pub fn run_slimctl_cm(slimctl: &Path, cm_endpoint: &str, args: &[&str]) -> Vec<u8> {
+    let endpoint = cm_endpoint.to_string();
+    run_combined_output_with_retry(SLIMCTL_CM_RETRY_TIMEOUT, || {
+        let mut cmd = Command::new(slimctl);
+        cmd.arg("cm");
+        for arg in args {
+            cmd.arg(arg);
+        }
+        cmd.arg("--server").arg(&endpoint);
+        cmd
+    })
 }
