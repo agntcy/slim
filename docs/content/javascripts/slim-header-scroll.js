@@ -9,19 +9,27 @@
     return;
   }
 
-  var threshold = 32;
+  var collapseAt = 88;
+  var expandAt = 16;
   var collapsed = null;
   var ticking = false;
 
+  function shouldCollapse(scrollY) {
+    if (collapsed) {
+      return scrollY > expandAt;
+    }
+    return scrollY > collapseAt;
+  }
+
   function update() {
     ticking = false;
-    var shouldCollapse = window.scrollY > threshold;
-    if (shouldCollapse === collapsed) {
+    var shouldCollapseNow = shouldCollapse(window.scrollY);
+    if (shouldCollapseNow === collapsed) {
       return;
     }
-    collapsed = shouldCollapse;
-    document.documentElement.classList.toggle("slim-tabs-collapsed", shouldCollapse);
-    tabs.setAttribute("aria-hidden", shouldCollapse ? "true" : "false");
+    collapsed = shouldCollapseNow;
+    document.documentElement.classList.toggle("slim-tabs-collapsed", shouldCollapseNow);
+    tabs.setAttribute("aria-hidden", shouldCollapseNow ? "true" : "false");
   }
 
   function onScroll() {

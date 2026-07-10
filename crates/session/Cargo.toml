@@ -29,6 +29,7 @@ thiserror = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 trait-variant = { workspace = true }
+twox-hash = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 maybe-async = { workspace = true, features = ["is_sync"] }
@@ -37,7 +38,7 @@ tonic = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 maybe-async = { workspace = true }
-tokio = { workspace = true, features = ["sync", "macros", "rt", "time"] }
+tokio = { package = "tokio_with_wasm", version = "0.9", features = ["sync", "macros", "rt", "time"] }
 tonic = { version = "0.14", default-features = false }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

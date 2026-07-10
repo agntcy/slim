@@ -20,8 +20,8 @@ use tracing::{debug, error, info};
 use crate::api::proto::api::v1::control_message::Payload;
 use crate::api::proto::api::v1::controller_service_server::ControllerServiceServer;
 use crate::api::proto::api::v1::{
-    self, ConnectionDetails, ConnectionDirection, ConnectionListResponse, ConnectionType,
-    RouteListResponse,
+    self, AuthMethod, ConnectionDetails, ConnectionDirection, ConnectionListResponse,
+    ConnectionType, RouteListResponse,
 };
 use crate::api::proto::api::v1::{
     ConnectionEntry, ControlMessage, RouteEntry,
@@ -30,7 +30,10 @@ use crate::api::proto::api::v1::{
 };
 use crate::errors::ControllerError;
 use prost_types::Struct;
-use slim_config::client::{ClientConfig, TransportChannel};
+use slim_config::client::{
+    ClientConfig, RequiredAuthMethod, ServerConnectionConfig, TransportChannel,
+};
+use slim_config::server::AuthenticationConfig;
 use slim_datapath::api::{
     MessageType::Link as LinkMessageType, MessageType::Subscribe,
     MessageType::SubscriptionAck as SubscriptionAckType, MessageType::Unsubscribe,
@@ -64,6 +67,8 @@ pub struct ControlPlaneSettings {
     pub servers: Vec<ServerConfig>,
     /// Client configurations
     pub clients: Vec<ClientConfig>,
+    /// Client configurations for server nodes
+    pub outbound_clients: Vec<ClientConfig>,
     /// Message processor instance
     pub message_processor: MessageProcessor,
     /// array of connection details used by the control
@@ -117,6 +122,9 @@ struct ControllerServiceInternal {
 
     /// JoinHandles for control-plane stream processing tasks, keyed by endpoint.
     stream_handles: parking_lot::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
+
+    /// connection details for CP reconciled outbound data-plane connections
+    outbound_clients: Vec<ClientConfig>,
 
     /// Optional auth provider for generating registration credentials.
     auth_provider: Option<AuthProvider>,
@@ -203,15 +211,19 @@ pub(crate) fn from_server_config(server_config: &ServerConfig) -> ConnectionDeta
         }
     }
 
-    let spire_mtls = if !server_config.tls_setting.insecure || spire_socket_path.is_some() {
-        Some(v1::connection_details::SpireMtls {
-            socket_path: spire_socket_path.unwrap_or_default(),
-            trust_domain,
-        })
+    let tls_required = !server_config.tls_setting.insecure || spire_socket_path.is_some();
+    let auth_method = if spire_socket_path.is_some()
+        || trust_domain.is_some()
+        || matches!(server_config.auth, AuthenticationConfig::Spire(_))
+    {
+        AuthMethod::Spire
     } else {
-        None
-    };
-
+        match &server_config.auth {
+            AuthenticationConfig::Basic(_) => AuthMethod::Basic,
+            AuthenticationConfig::Jwt(_) => AuthMethod::Jwt,
+            _ => AuthMethod::None,
+        }
+    } as i32;
     let metadata = if remaining_fields.is_empty() {
         None
     } else {
@@ -223,7 +235,9 @@ pub(crate) fn from_server_config(server_config: &ServerConfig) -> ConnectionDeta
     ConnectionDetails {
         endpoint,
         external_endpoint,
-        spire_mtls,
+        tls_required,
+        auth_method,
+        spire_trust_domain: trust_domain,
         metadata,
     }
 }
@@ -269,6 +283,7 @@ impl ControlPlane {
                     route_subscription_ids: parking_lot::Mutex::new(HashMap::new()),
                     link_id_to_conn_id: parking_lot::RwLock::new(HashMap::new()),
                     stream_handles: parking_lot::Mutex::new(HashMap::new()),
+                    outbound_clients: config.outbound_clients,
                     auth_provider: config.auth_provider,
                 }),
             },
@@ -691,38 +706,70 @@ impl ControllerService {
             let mut success = true;
             let mut error_msg = String::new();
 
-            match serde_json::from_str::<ClientConfig>(&conn.config_data) {
+            match serde_json::from_str::<ServerConnectionConfig>(&conn.config_data) {
                 Err(e) => {
                     success = false;
                     error_msg = format!("Failed to parse config: {}", e);
                 }
-                Ok(client_config) => {
-                    match self
+                Ok(server_config) => {
+                    let mut client_config = self
                         .inner
-                        .message_processor
-                        .connect(client_config.clone(), None, None)
-                        .await
-                    {
-                        Err(e) => {
+                        .outbound_clients
+                        .iter()
+                        .find(|c| c.endpoint == server_config.endpoint)
+                        .cloned()
+                        .unwrap_or_default();
+                    match client_config.merge_server_requirements(&server_config) {
+                        Err(err) => {
                             success = false;
-                            error_msg = format!("Connection failed: {}", e);
-                        }
-                        Ok(conn_id) => {
-                            let requested_link_id = if client_config.link_id.trim().is_empty() {
-                                String::new()
-                            } else {
-                                client_config.link_id.clone()
-                            };
-                            if !requested_link_id.is_empty() {
-                                self.inner
-                                    .link_id_to_conn_id
-                                    .write()
-                                    .insert(requested_link_id, conn_id.1);
-                            }
-                            info!(
-                                link_id = %link_id,
-                                "Successfully created connection"
+                            error_msg = format!(
+                                "Failed to merge connection config to client config: {}",
+                                err
                             );
+                        }
+                        Ok(()) => {
+                            if matches!(
+                                server_config.auth_method,
+                                // Spire config it not mandatory. If not set falls back to default
+                                // socket path.
+                                RequiredAuthMethod::Basic | RequiredAuthMethod::Jwt
+                            ) && !self
+                                .inner
+                                .outbound_clients
+                                .iter()
+                                .any(|c| c.endpoint == server_config.endpoint)
+                            {
+                                success = false;
+                                error_msg = format!(
+                                    "no local credentials configured for {}",
+                                    server_config.endpoint
+                                );
+                            }
+                            if success {
+                                client_config.link_id = link_id.clone();
+                                client_config.connection_type = ConnType::Remote;
+                                match self
+                                    .inner
+                                    .message_processor
+                                    .connect(client_config, None, None)
+                                    .await
+                                {
+                                    Err(e) => {
+                                        success = false;
+                                        error_msg = format!("Connection failed: {}", e);
+                                    }
+                                    Ok(conn_id) => {
+                                        self.inner
+                                            .link_id_to_conn_id
+                                            .write()
+                                            .insert(link_id.clone(), conn_id.1);
+                                        info!(
+                                            link_id = %link_id,
+                                            "Successfully created connection"
+                                        );
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -2188,6 +2235,7 @@ mod tests {
             group_name: None,
             servers: vec![server_config.clone()],
             clients: vec![],
+            outbound_clients: vec![],
             message_processor: message_processor_server,
             connection_details: vec![from_server_config(&server_config)],
             auth_provider: None,
@@ -2198,6 +2246,7 @@ mod tests {
             group_name: None,
             servers: vec![],
             clients: vec![client_config.clone()],
+            outbound_clients: vec![],
             message_processor: message_processor_client,
             connection_details: vec![],
             auth_provider: None,
@@ -2767,5 +2816,81 @@ mod tests {
             control_plane_server.shutdown().await.is_err(),
             "second shutdown should error due to missing drain signal"
         );
+    }
+
+    fn make_reconcile_msg(link_id: &str, server_config: &ServerConnectionConfig) -> ControlMessage {
+        ControlMessage {
+            message_id: uuid::Uuid::new_v4().to_string(),
+            payload: Some(Payload::ConfigCommand(v1::ConfigurationCommand {
+                connections_to_create: vec![v1::Connection {
+                    link_id: link_id.to_string(),
+                    config_data: serde_json::to_string(server_config).unwrap(),
+                }],
+                connections_to_delete: vec![],
+                routes_to_set: vec![],
+                routes_to_delete: vec![],
+                reconcile: true,
+                connections_received: vec![],
+            })),
+        }
+    }
+
+    fn make_controller(outbound_clients: Vec<ClientConfig>) -> ControllerService {
+        ControlPlane::new(ControlPlaneSettings {
+            id: "test-node".to_string(),
+            group_name: None,
+            servers: vec![],
+            clients: vec![],
+            outbound_clients,
+            message_processor: MessageProcessor::new(),
+            connection_details: vec![],
+            auth_provider: None,
+        })
+        .controller
+        .clone()
+    }
+
+    #[tokio::test]
+    async fn test_reconcile_basic_auth_missing_credentials_fails_ack() {
+        let controller = make_controller(vec![]);
+        let server_config = ServerConnectionConfig {
+            endpoint: "http://target:8080".to_string(),
+            tls_required: false,
+            auth_method: RequiredAuthMethod::Basic,
+            ..Default::default()
+        };
+        let (tx, mut rx) = mpsc::channel(1);
+        controller
+            .handle_new_control_message(make_reconcile_msg("link-1", &server_config), &tx)
+            .await
+            .unwrap();
+        let ack = match rx.recv().await.unwrap().unwrap().payload {
+            Some(Payload::ConfigCommandAck(a)) => a,
+            _ => panic!("expected ConfigCommandAck"),
+        };
+        assert!(!ack.connections_status[0].success);
+        assert!(ack.connections_status[0].error_msg.contains("target:8080"));
+    }
+
+    #[tokio::test]
+    async fn test_reconcile_jwt_auth_missing_credentials_fails_ack() {
+        let controller = make_controller(vec![]);
+        let server_config = ServerConnectionConfig {
+            endpoint: "http://target:9090".to_string(),
+            tls_required: false,
+            auth_method: RequiredAuthMethod::Jwt,
+            ..Default::default()
+        };
+        let (tx, mut rx) = mpsc::channel(1);
+        controller
+            .handle_new_control_message(make_reconcile_msg("link-2", &server_config), &tx)
+            .await
+            .unwrap();
+        let ack = match rx.recv().await.unwrap().unwrap().payload {
+            Some(Payload::ConfigCommandAck(a)) => a,
+            _ => panic!("expected ConfigCommandAck"),
+        };
+        assert!(!ack.connections_status[0].success);
+        assert!(ack.connections_status[0].error_msg.contains("target:9090"));
     }
 }

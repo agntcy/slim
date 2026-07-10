@@ -13,10 +13,30 @@
 
 use std::cell::RefCell;
 
-use aws_lc_rs::hmac;
 use thiserror::Error;
 
 use crate::api::proto::dataplane::v1::{Name, SlimHeader};
+
+// HMAC-SHA256 backend selection. Native uses `aws_lc_rs`; the browser build uses
+// the pure-Rust `hmac` + `sha2` crates. Both compute an identical RFC 2104
+// HMAC-SHA256, so signatures interoperate across a native↔browser link. Each
+// backend exposes the same surface (`MacKey`, `new`, `sign`, `verify`), so the
+// signing path below carries no `#[cfg]`.
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "header_mac/backend_awslc.rs"]
+mod backend;
+#[cfg(target_arch = "wasm32")]
+#[path = "header_mac/backend_pure.rs"]
+mod backend;
+
+// The pure backend is additionally compiled into native test builds (under a
+// distinct name) so the parity test can pin it byte-for-byte to the production
+// `aws_lc_rs` backend. On wasm the production backend already *is* the pure one.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "header_mac/backend_pure.rs"]
+mod backend_pure;
+
+type MacKey = backend::MacKey;
 
 thread_local! {
     static PREIMAGE_BUF: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(512));
@@ -47,7 +67,7 @@ pub enum HeaderMacError {
 /// Per-link HMAC state: only the key material. Preimage buffers are thread-local (see module docs).
 #[derive(Clone)]
 pub struct HeaderMacSession {
-    key: hmac::Key,
+    key: MacKey,
 }
 
 impl std::fmt::Debug for HeaderMacSession {
@@ -63,7 +83,7 @@ impl HeaderMacSession {
             return Err(HeaderMacError::KeyTooShort);
         }
         Ok(Self {
-            key: hmac::Key::new(hmac::HMAC_SHA256, secret),
+            key: backend::new(secret),
         })
     }
 
@@ -82,8 +102,7 @@ impl HeaderMacSession {
             buf.clear();
             reserve_preimage_upper_bound(&mut buf, header, link_id);
             write_preimage(&mut buf, header, link_id.as_bytes());
-            let tag = hmac::sign(&self.key, buf.as_slice());
-            header.header_mac = Some(Vec::from(tag.as_ref()));
+            header.header_mac = Some(backend::sign(&self.key, buf.as_slice()));
             Ok(())
         })
     }
@@ -109,8 +128,11 @@ impl HeaderMacSession {
             buf.clear();
             reserve_preimage_upper_bound(&mut buf, header, link_id);
             write_preimage(&mut buf, header, link_id.as_bytes());
-            hmac::verify(&self.key, buf.as_slice(), tag)
-                .map_err(|_| HeaderMacError::VerificationFailed)
+            if backend::verify(&self.key, buf.as_slice(), tag) {
+                Ok(())
+            } else {
+                Err(HeaderMacError::VerificationFailed)
+            }
         })
     }
 }
@@ -281,6 +303,13 @@ mod tests {
     use crate::messages::utils::DEFAULT_TTL;
     use uuid::Uuid;
 
+    // The pure backend under its native-test name, or the production backend on
+    // wasm (where it already is the pure one). Used by the parity tests below.
+    #[cfg(target_arch = "wasm32")]
+    use super::backend as backend_pure;
+    #[cfg(not(target_arch = "wasm32"))]
+    use super::backend_pure;
+
     fn test_key() -> Vec<u8> {
         b"01234567890123456789012345678901".to_vec()
     }
@@ -408,5 +437,49 @@ mod tests {
         hdr.source.as_mut().unwrap().name.as_mut().unwrap().name_id =
             Some(NameId { id_0: 99, id_1: 99 });
         assert!(mac.verify_slim_header(&hdr, &lid).is_err());
+    }
+
+    // Exercises the browser HMAC backend (`backend_pure`) on the native coverage
+    // run and pins it byte-for-byte to the active production backend, so a
+    // header signed on one side of a native↔browser link verifies on the other.
+    #[test]
+    fn pure_hmac_backend_matches_production_backend() {
+        let secret = test_key();
+        let data = b"SLIM-DP-HDR-v1\0canonical-preimage-under-test";
+
+        let production = backend::sign(&backend::new(&secret), data);
+        let pure = backend_pure::sign(&backend_pure::new(&secret), data);
+
+        assert_eq!(
+            production.len(),
+            TAG_LEN,
+            "HMAC-SHA256 tag must be {TAG_LEN} bytes"
+        );
+        assert_eq!(
+            production, pure,
+            "pure-Rust HMAC backend must match the production backend byte-for-byte"
+        );
+    }
+
+    // The pure backend verifies its own tag and rejects a tampered one.
+    #[test]
+    fn pure_hmac_backend_verify_round_trip() {
+        let secret = test_key();
+        let data = b"some-data-to-authenticate";
+
+        let key = backend_pure::new(&secret);
+        let tag = backend_pure::sign(&key, data);
+        assert!(backend_pure::verify(&key, data, &tag), "valid tag verifies");
+
+        let mut bad = tag.clone();
+        bad[0] ^= 0xFF;
+        assert!(
+            !backend_pure::verify(&key, data, &bad),
+            "tampered tag must fail"
+        );
+        assert!(
+            !backend_pure::verify(&key, b"other-data", &tag),
+            "tag must not verify over different data"
+        );
     }
 }

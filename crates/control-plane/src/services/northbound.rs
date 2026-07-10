@@ -6,8 +6,8 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use crate::api::proto::controller::proto::v1::{
-    ConnectionDetails, ConnectionListResponse, RouteListResponse as NodeRouteListResponse,
-    connection_details::SpireMtls,
+    AuthMethod as ProtoAuthMethod, ConnectionDetails, ConnectionListResponse,
+    RouteListResponse as NodeRouteListResponse,
 };
 use crate::api::proto::controlplane::proto::v1::{
     AddGroupRequest, AddGroupResponse, AddSegmentRequest, AddSegmentResponse,
@@ -19,7 +19,7 @@ use crate::api::proto::controlplane::proto::v1::{
     control_plane_service_server::ControlPlaneService,
 };
 use crate::auth::GroupAuthenticator;
-use crate::db::SharedDb;
+use crate::db::{SharedDb, model};
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
 use crate::route_service::RouteService;
 use crate::types::DEFAULT_SEGMENT;
@@ -168,17 +168,18 @@ impl ControlPlaneService for NorthboundApiService {
                 let connections = node
                     .conn_details
                     .iter()
-                    .map(|cd| {
-                        let spire_mtls = cd.spire_mtls.as_ref().map(|s| SpireMtls {
-                            socket_path: s.socket_path.clone(),
-                            trust_domain: s.trust_domain.clone(),
-                        });
-                        ConnectionDetails {
-                            endpoint: cd.endpoint.clone(),
-                            external_endpoint: cd.external_endpoint.clone(),
-                            spire_mtls,
-                            metadata: None,
-                        }
+                    .map(|cd| ConnectionDetails {
+                        endpoint: cd.endpoint.clone(),
+                        external_endpoint: cd.external_endpoint.clone(),
+                        tls_required: cd.tls_required,
+                        auth_method: match cd.auth_method {
+                            model::AuthMethod::Spire => ProtoAuthMethod::Spire as i32,
+                            model::AuthMethod::Basic => ProtoAuthMethod::Basic as i32,
+                            model::AuthMethod::Jwt => ProtoAuthMethod::Jwt as i32,
+                            model::AuthMethod::None => ProtoAuthMethod::None as i32,
+                        },
+                        spire_trust_domain: cd.spire_trust_domain.clone(),
+                        ..Default::default()
                     })
                     .collect();
 
@@ -708,8 +709,7 @@ mod tests {
             dest_node_id: dst_node.to_string(),
             dest_group: dst_group.to_string(),
             dest_endpoint: "http://127.0.0.1:9000".to_string(),
-            conn_config_data: slim_config::grpc::client::ClientConfig::default()
-                .with_connection_type(slim_config::conn_type::ConnType::Remote),
+            conn_config_data: slim_config::client::ServerConnectionConfig::default(),
             status: LinkStatus::Applied,
             status_msg: String::new(),
             created_at: SystemTime::now(),

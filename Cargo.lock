@@ -41,6 +41,7 @@ dependencies = [
  "display-error-chain",
  "ed25519-dalek",
  "futures",
+ "getrandom 0.2.17",
  "getrandom 0.3.4",
  "headers",
  "hmac",
@@ -119,6 +120,7 @@ dependencies = [
  "duration-string",
  "fastwebsockets",
  "futures",
+ "gloo-net",
  "http",
  "http-body-util",
  "hyper",
@@ -156,6 +158,7 @@ dependencies = [
  "tracing",
  "tracing-test",
  "uuid",
+ "wasm-bindgen-test",
 ]
 
 [[package]]
@@ -254,29 +257,39 @@ dependencies = [
  "fastwebsockets",
  "futures",
  "getrandom 0.3.4",
+ "gloo-net",
  "h2",
+ "hkdf",
+ "hmac",
  "http",
  "k8s-openapi",
  "kube",
  "opentelemetry",
+ "opentelemetry_sdk",
  "parking_lot",
  "prost",
  "semver",
  "serde",
  "serde_json",
  "serde_yaml",
+ "sha2",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "tokio_with_wasm",
  "tonic",
  "tonic-prost",
  "tracing",
  "tracing-opentelemetry",
+ "tracing-subscriber",
  "tracing-test",
  "trait-variant",
  "twox-hash",
  "uuid",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "x25519-dalek",
 ]
 
 [[package]]
@@ -373,10 +386,12 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
+ "tokio_with_wasm",
  "tonic",
  "tracing",
  "tracing-test",
  "trait-variant",
+ "twox-hash",
 ]
 
 [[package]]
@@ -425,6 +440,7 @@ dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
  "cfg-if",
+ "getrandom 0.3.4",
  "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -2005,6 +2021,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
+name = "gloo-net"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c06f627b1a58ca3d42b45d6104bf1e1a03799df472df00988b6ba21accc10580"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "futures-sink",
+ "gloo-utils",
+ "http",
+ "js-sys",
+ "pin-project",
+ "thiserror 1.0.69",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "gloo-timers"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2014,6 +2049,17 @@ dependencies = [
  "futures-core",
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "gloo-utils"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5555354113b18c547c1d3a98fbf7fb32a9ff4f6fa112ce823a21641a0ba3aa"
+dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
@@ -2137,6 +2183,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "hkdf"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b5f8eb2ad728638ea2c7d47a21db23b7b58a72ed6a38256b8a1849f15fbbdf7"
+dependencies = [
+ "hmac",
 ]
 
 [[package]]
@@ -2809,6 +2864,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "libm"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
+
+[[package]]
 name = "libsqlite3-sys"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2913,6 +2974,16 @@ name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
+
+[[package]]
+name = "minicov"
+version = "0.3.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4869b6a491569605d66d3952bcdf03df789e5b536e5f0cf7758a7f08a55ae24d"
+dependencies = [
+ "cc",
+ "walkdir",
+]
 
 [[package]]
 name = "minimal-lexical"
@@ -3166,6 +3237,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
+ "libm",
 ]
 
 [[package]]
@@ -4882,6 +4954,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio_with_wasm"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef3ce6a8f5b5190dfe4851db6c969e8360a262759e16a0b75dfc43af19d97a86"
+dependencies = [
+ "js-sys",
+ "tokio",
+ "tokio_with_wasm_proc",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "tokio_with_wasm_proc"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d8aa1d26c1550eef93cfb2dafadc145b3220432dae8d156b5ba485880594ffe"
+dependencies = [
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "toml"
 version = "0.9.12+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5402,6 +5498,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm-bindgen-test"
+version = "0.3.75"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d16931d57bcdd6a0dcc11254bdd1388827690c1b6807f0d2836f59a4f9eb30ac"
+dependencies = [
+ "async-trait",
+ "cast",
+ "js-sys",
+ "libm",
+ "minicov",
+ "nu-ansi-term",
+ "num-traits",
+ "oorandom",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test-macro",
+ "wasm-bindgen-test-shared",
+]
+
+[[package]]
+name = "wasm-bindgen-test-macro"
+version = "0.3.75"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fccaddcb2cd722baa7453b4c3d2cb2a3071597bb91f7a4373e8775bdb151778c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "wasm-bindgen-test-shared"
+version = "0.2.125"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3746ad029217960123cf2ebf939dda51eb931ba9f8f09c117e39c820b96aa794"
+
+[[package]]
 name = "web-sys"
 version = "0.3.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5727,6 +5862,16 @@ name = "writeable"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
+
+[[package]]
+name = "x25519-dalek"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7e468321c81fb07fa7f4c636c3972b9100f0346e5b6a9f2bd0603a52f7ed277"
+dependencies = [
+ "curve25519-dalek",
+ "rand_core 0.6.4",
+]
 
 [[package]]
 name = "x509-parser"

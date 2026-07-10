@@ -247,12 +247,16 @@ pub struct JoinRequestPayload {
     /// settings for timers for rtx and acks
     #[prost(message, optional, tag = "1")]
     pub timer_settings: ::core::option::Option<TimerSettings>,
-    /// name where to send the messages
+    /// name where to send the messages (data channel)
     /// it can be a channel or none
     #[prost(message, optional, tag = "2")]
     pub channel: ::core::option::Option<Name>,
-    /// MLS related settings
+    /// name where to send control messages (control channel)
+    /// must be set if channel is set
     #[prost(message, optional, tag = "3")]
+    pub control: ::core::option::Option<Name>,
+    /// MLS related settings
+    #[prost(message, optional, tag = "4")]
     pub mls_settings: ::core::option::Option<MlsSettings>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]

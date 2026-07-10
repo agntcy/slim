@@ -22,6 +22,10 @@ pub struct Config {
     /// Controller client config to connect to control plane
     #[serde(default)]
     pub clients: Vec<ClientConfig>,
+
+    /// Controller client config to connect to data-plane server nodes
+    #[serde(default)]
+    pub outbound_clients: Vec<ClientConfig>,
 }
 
 impl Config {
@@ -73,6 +77,7 @@ impl Config {
             group_name,
             servers: self.servers.clone(),
             clients: self.clients.clone(),
+            outbound_clients: self.outbound_clients.clone(),
             message_processor,
             connection_details,
             auth_provider,

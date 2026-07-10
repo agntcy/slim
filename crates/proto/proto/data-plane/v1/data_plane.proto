@@ -189,11 +189,14 @@ message DiscoveryReplyPayload {}
 message JoinRequestPayload {
   // settings for timers for rtx and acks
   optional TimerSettings timer_settings = 1;
-  // name where to send the messages
+  // name where to send the messages (data channel)
   // it can be a channel or none
   optional Name channel = 2;
+  // name where to send control messages (control channel)
+  // must be set if channel is set
+  optional Name control = 3;
   // MLS related settings
-  optional MlsSettings mls_settings = 3;
+  optional MlsSettings mls_settings = 4;
 }
 
 message TimerSettings {

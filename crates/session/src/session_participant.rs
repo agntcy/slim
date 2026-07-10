@@ -1045,7 +1045,7 @@ mod tests {
     use crate::session_settings::SessionSettings;
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
     use slim_datapath::Status;
-    use slim_datapath::api::{CommandPayload, NameId, ProtoSessionType};
+    use slim_datapath::api::{CommandPayload, ProtoSessionType};
     use tokio::sync::mpsc;
 
     // --- Test Helpers -----------------------------------------------------------------------
@@ -1093,8 +1093,8 @@ mod tests {
         let source = make_name(&["local", "participant", "v1"]);
         let (destination, control) = match session_type {
             ProtoSessionType::Multicast => (
-                make_name(&["channel", "name", "v1"]).with_id(NameId::DATA_CHANNEL_ID),
-                make_name(&["channel", "name", "v1"]).with_id(NameId::CONTROL_CHANNEL_ID),
+                make_name(&["channel", "name", "v1"]).with_id(1),
+                make_name(&["channel", "name", "v1"]).with_id(2),
             ),
             ProtoSessionType::PointToPoint => (
                 make_name(&["remote", "participant", "v1"]).with_id(100),
@@ -1189,7 +1189,13 @@ mod tests {
             .message_id(100)
             .payload(
                 CommandPayload::builder()
-                    .join_request(Some(3), Some(std::time::Duration::from_secs(1)), None, None)
+                    .join_request(
+                        Some(3),
+                        Some(std::time::Duration::from_secs(1)),
+                        None,
+                        None,
+                        None,
+                    )
                     .as_content(),
             )
             .build_publish()
@@ -1483,7 +1489,13 @@ mod tests {
             .message_id(100)
             .payload(
                 CommandPayload::builder()
-                    .join_request(Some(3), Some(std::time::Duration::from_secs(1)), None, None)
+                    .join_request(
+                        Some(3),
+                        Some(std::time::Duration::from_secs(1)),
+                        None,
+                        None,
+                        None,
+                    )
                     .as_content(),
             )
             .build_publish()

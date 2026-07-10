@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use slim_config::grpc::client::ClientConfig;
+use slim_config::client::ServerConnectionConfig;
 use slim_datapath::api::NameId;
 
 use crate::api::proto::controller::proto::v1::ConnectionDirection;
@@ -55,7 +55,7 @@ impl super::RouteService {
             let Some(link_id) = entry.link_id.as_deref().filter(|id| !id.is_empty()) else {
                 continue;
             };
-            if let Ok(config) = serde_json::from_str::<ClientConfig>(&entry.config_data) {
+            if let Ok(config) = serde_json::from_str::<ServerConnectionConfig>(&entry.config_data) {
                 reported.push(ReportedConnection {
                     endpoint: config.endpoint.clone(),
                     link_id: link_id.to_string(),
