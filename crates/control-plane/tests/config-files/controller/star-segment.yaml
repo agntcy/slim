@@ -30,6 +30,13 @@ topology:
       group-2: "secret-for-group-2-abcdefghi-1234567890"
       group-3: "secret-for-group-3-abcdefghi-1234567890"
       deployment-a: "secret-for-deployment-a-abcdefghi-1234567890"
+      deployment-b: "secret-for-deployment-b-abcdefghi-1234567890"
+      deployment-c: "secret-for-deployment-c-abcdefghi-1234567890"
+      deployment-d: "secret-for-deployment-d-abcdefghi-1234567890"
+      deployment-none: "secret-for-deployment-none-abcdefghi-1234567890"
+      deployment-jwt: "secret-for-deployment-jwt-abcdefghi-1234567890"
+      deployment-tls: "secret-for-deployment-tls-abcdefghi-1234567890"
+      deployment-spire: "secret-for-deployment-spire-abcdefghi-1234567890"
   # registration_auth:
   #   type: spire
   #   socket_path: "/run/spire/agent-sockets/api.sock"

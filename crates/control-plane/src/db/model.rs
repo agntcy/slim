@@ -10,7 +10,7 @@ use diesel::prelude::*;
 use diesel::serialize::{self, Output, ToSql};
 use diesel::sql_types::{BigInt, Integer, Text};
 use serde::{Deserialize, Serialize};
-use slim_config::grpc::client::ClientConfig;
+use slim_config::client::ServerConnectionConfig;
 
 use super::schema::{links, nodes, routes, topology_segment_links, topology_segments};
 
@@ -121,24 +121,24 @@ where
     }
 }
 
-/// `ClientConfig` ↔ `Text` (JSON).
+/// `ServerConnectionConfig` ↔ `Text` (JSON).
 #[derive(Debug, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Text)]
-pub struct DbClientConfig(pub ClientConfig);
+pub struct DbServerConnectionConfig(pub ServerConnectionConfig);
 
-impl From<DbClientConfig> for ClientConfig {
-    fn from(j: DbClientConfig) -> Self {
+impl From<DbServerConnectionConfig> for ServerConnectionConfig {
+    fn from(j: DbServerConnectionConfig) -> Self {
         j.0
     }
 }
 
-impl From<ClientConfig> for DbClientConfig {
-    fn from(v: ClientConfig) -> Self {
-        DbClientConfig(v)
+impl From<ServerConnectionConfig> for DbServerConnectionConfig {
+    fn from(v: ServerConnectionConfig) -> Self {
+        DbServerConnectionConfig(v)
     }
 }
 
-impl<DB: Backend> FromSql<Text, DB> for DbClientConfig
+impl<DB: Backend> FromSql<Text, DB> for DbServerConnectionConfig
 where
     String: FromSql<Text, DB>,
 {
@@ -146,11 +146,21 @@ where
         let s = String::from_sql(bytes)?;
         let parsed =
             serde_json::from_str(&s).map_err(|e| format!("invalid conn_config_data JSON: {e}"))?;
-        Ok(DbClientConfig(parsed))
+        Ok(DbServerConnectionConfig(parsed))
     }
 }
 
 // ─── Node ─────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthMethod {
+    #[default]
+    None,
+    Spire,
+    Basic,
+    Jwt,
+}
 
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable, Insertable)]
 #[diesel(table_name = nodes)]
@@ -165,31 +175,23 @@ pub struct Node {
     pub last_updated: SystemTime,
 }
 
-/// SPIRE mTLS configuration for a node's connection.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SpireMtls {
-    pub socket_path: String,
-    pub trust_domain: Option<String>,
-}
-
 /// Per-node connection detail.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ConnectionDetails {
     pub endpoint: String,
     pub external_endpoint: Option<String>,
-    pub spire_mtls: Option<SpireMtls>,
+    pub tls_required: bool,
+    pub auth_method: AuthMethod,
+    pub spire_trust_domain: Option<String>,
 }
 
 impl std::fmt::Display for ConnectionDetails {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut parts = vec![format!("endpoint: {}", self.endpoint)];
-        if let Some(ref spire) = self.spire_mtls {
-            parts.push("mtls(spire)".to_string());
-            if let Some(ref td) = spire.trust_domain
-                && !td.is_empty()
-            {
-                parts.push(format!("trustDomain: {td}"));
-            }
+        if let Some(ref td) = self.spire_trust_domain
+            && !td.is_empty()
+        {
+            parts.push(format!("spire(trustDomain: {td})"));
         }
         if let Some(ref ee) = self.external_endpoint
             && !ee.is_empty()
@@ -200,39 +202,16 @@ impl std::fmt::Display for ConnectionDetails {
     }
 }
 
-/// Returns true if two `ConnectionDetails` slices differ in any meaningful way.
+/// Returns true if two `ConnectionDetails` slices differ.
 pub fn has_connection_details_changed(
     existing: &[ConnectionDetails],
     new: &[ConnectionDetails],
 ) -> bool {
-    if existing.len() != new.len() {
-        return true;
-    }
-    let existing_map: std::collections::HashMap<&str, &ConnectionDetails> = existing
-        .iter()
-        .map(|cd| (cd.endpoint.as_str(), cd))
-        .collect();
-    let new_map: std::collections::HashMap<&str, &ConnectionDetails> =
-        new.iter().map(|cd| (cd.endpoint.as_str(), cd)).collect();
-
-    for (key, ecd) in &existing_map {
-        match new_map.get(key) {
-            None => return true,
-            Some(ncd) => {
-                if ecd.external_endpoint != ncd.external_endpoint
-                    || ecd.spire_mtls != ncd.spire_mtls
-                {
-                    return true;
-                }
-            }
-        }
-    }
-    for key in new_map.keys() {
-        if !existing_map.contains_key(key) {
-            return true;
-        }
-    }
-    false
+    let mut a = existing.to_vec();
+    let mut b = new.to_vec();
+    a.sort();
+    b.sort();
+    a != b
 }
 
 /// Groups the four route-name components used in route lookups.
@@ -391,8 +370,8 @@ pub struct Link {
     pub dest_node_id: String,
     pub dest_group: String,
     pub dest_endpoint: String,
-    #[diesel(deserialize_as = DbClientConfig, serialize_as = DbClientConfig)]
-    pub conn_config_data: ClientConfig,
+    #[diesel(deserialize_as = DbServerConnectionConfig, serialize_as = DbServerConnectionConfig)]
+    pub conn_config_data: ServerConnectionConfig,
     pub status: LinkStatus,
     pub status_msg: String,
     #[diesel(deserialize_as = DbTimestamp, serialize_as = DbTimestamp)]
@@ -447,7 +426,9 @@ mod tests {
         ConnectionDetails {
             endpoint: endpoint.to_string(),
             external_endpoint: external.map(|s| s.to_string()),
-            spire_mtls: None,
+            tls_required: false,
+            auth_method: AuthMethod::None,
+            spire_trust_domain: None,
         }
     }
 
@@ -578,8 +559,7 @@ mod tests {
             dest_node_id: "dst".to_string(),
             dest_group: "grp".to_string(),
             dest_endpoint: "ep:9000".to_string(),
-            conn_config_data: ClientConfig::default()
-                .with_connection_type(slim_config::conn_type::ConnType::Remote),
+            conn_config_data: ServerConnectionConfig::default(),
             status: LinkStatus::Pending,
             status_msg: String::new(),
             created_at: std::time::SystemTime::now(),
@@ -597,8 +577,7 @@ mod tests {
             dest_node_id: "dst".to_string(),
             dest_group: "grp".to_string(),
             dest_endpoint: "ep:9000".to_string(),
-            conn_config_data: ClientConfig::default()
-                .with_connection_type(slim_config::conn_type::ConnType::Remote),
+            conn_config_data: ServerConnectionConfig::default(),
             status: LinkStatus::Applied,
             status_msg: String::new(),
             created_at: std::time::SystemTime::now(),
@@ -644,13 +623,10 @@ mod tests {
     }
 
     #[test]
-    fn connection_details_changed_different_spire_mtls() {
+    fn connection_details_changed_different_spire_trust_domain() {
         let a = make_cd("ep:8080", None);
         let mut b = make_cd("ep:8080", None);
-        b.spire_mtls = Some(SpireMtls {
-            socket_path: "/run/spire/agent.sock".to_string(),
-            trust_domain: None,
-        });
+        b.spire_trust_domain = Some("example.org".to_string());
         assert!(has_connection_details_changed(&[a], &[b]));
     }
 
@@ -664,25 +640,16 @@ mod tests {
     #[test]
     fn connection_details_changed_different_trust_domain() {
         let mut a = make_cd("ep:8080", None);
-        a.spire_mtls = Some(SpireMtls {
-            socket_path: "/run/spire.sock".to_string(),
-            trust_domain: Some("domain-a.example".to_string()),
-        });
+        a.spire_trust_domain = Some("domain-a.example".to_string());
         let mut b = make_cd("ep:8080", None);
-        b.spire_mtls = Some(SpireMtls {
-            socket_path: "/run/spire.sock".to_string(),
-            trust_domain: Some("domain-b.example".to_string()),
-        });
+        b.spire_trust_domain = Some("domain-b.example".to_string());
         assert!(has_connection_details_changed(&[a], &[b]));
     }
 
     #[test]
     fn connection_details_unchanged_same_trust_domain() {
         let mut a = make_cd("ep:8080", None);
-        a.spire_mtls = Some(SpireMtls {
-            socket_path: "/run/spire.sock".to_string(),
-            trust_domain: Some("domain.example".to_string()),
-        });
+        a.spire_trust_domain = Some("domain.example".to_string());
         let b = a.clone();
         assert!(!has_connection_details_changed(&[a], &[b]));
     }
@@ -705,14 +672,11 @@ mod tests {
     }
 
     #[test]
-    fn connection_details_display_with_spire_mtls_and_external() {
+    fn connection_details_display_with_spire_and_external() {
         let mut cd = make_cd("ep:8080", Some("ext:9090"));
-        cd.spire_mtls = Some(SpireMtls {
-            socket_path: "/run/spire/agent.sock".to_string(),
-            trust_domain: None,
-        });
+        cd.spire_trust_domain = Some("example.org".to_string());
         let s = format!("{cd}");
-        assert!(s.contains("mtls(spire)"));
+        assert!(s.contains("spire(trustDomain:"));
         assert!(s.contains("ext:9090"));
     }
 
@@ -726,10 +690,7 @@ mod tests {
     #[test]
     fn connection_details_display_trust_domain() {
         let mut cd = make_cd("ep:8080", None);
-        cd.spire_mtls = Some(SpireMtls {
-            socket_path: "/run/spire.sock".to_string(),
-            trust_domain: Some("example.org".to_string()),
-        });
+        cd.spire_trust_domain = Some("example.org".to_string());
         let s = format!("{cd}");
         assert!(s.contains("example.org"));
     }

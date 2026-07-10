@@ -6,6 +6,7 @@ package integration
 // Test message constants for expected log outputs in integration tests
 const (
 	// Client messages
+	MsgClientConnected           = "connection established"
 	MsgSessionHandlerTaskStarted = "Session handler task started"
 	MsgSessionClosed             = "session closed"
 
