@@ -1,8 +1,10 @@
 use std::io::{BufRead, BufReader};
 use std::process::Child;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
+
+use parking_lot::Mutex;
 
 /// Follows a child process stdout/stderr and accumulates output for repeated assertions.
 pub struct ProcessLogWatcher {
@@ -41,11 +43,7 @@ impl ProcessLogWatcher {
         let deadline = Instant::now() + timeout;
 
         loop {
-            let captured = self
-                .captured
-                .lock()
-                .expect("log capture mutex poisoned")
-                .clone();
+            let captured = self.captured.lock().clone();
             if predicate(&captured) {
                 return Ok(());
             }
@@ -57,10 +55,7 @@ impl ProcessLogWatcher {
     }
 
     pub fn snapshot(&self) -> String {
-        self.captured
-            .lock()
-            .expect("log capture mutex poisoned")
-            .clone()
+        self.captured.lock().clone()
     }
 
     /// Assert `needle` does not appear in captured output for the full `duration`.
@@ -85,7 +80,7 @@ impl ProcessLogWatcher {
 fn drain_stream<R: std::io::Read>(stream: R, captured: &Arc<Mutex<String>>) {
     let reader = BufReader::new(stream);
     for line in reader.lines().map_while(Result::ok) {
-        let mut buf = captured.lock().expect("log capture mutex poisoned");
+        let mut buf = captured.lock();
         buf.push_str(&line);
         buf.push('\n');
     }

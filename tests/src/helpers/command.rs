@@ -11,12 +11,12 @@ where
 {
     let deadline = Instant::now() + timeout;
     let mut last_out = Vec::new();
-    let mut last_err = None::<std::io::Error>;
-    let mut last_cmd = None::<String>;
+    let mut last_err;
+    let mut last_cmd;
 
     loop {
         let mut command = build_cmd();
-        last_cmd = Some(format!("{command:?}"));
+        last_cmd = format!("{command:?}");
 
         match command.output() {
             Ok(output) => {
@@ -24,13 +24,13 @@ where
                 if output.status.success() {
                     return last_out;
                 }
-                last_err = Some(std::io::Error::other(format!(
+                last_err = std::io::Error::other(format!(
                     "process exited with {}",
                     output.status
-                )));
+                ));
             }
             Err(err) => {
-                last_err = Some(err);
+                last_err = err;
             }
         }
 
@@ -41,12 +41,7 @@ where
     }
 
     panic!(
-        "command failed after retry: {}\nerror: {}\noutput:\n{}",
-        last_cmd.unwrap_or_else(|| "<unknown>".to_string()),
-        last_err
-            .as_ref()
-            .map(|e| e.to_string())
-            .unwrap_or_else(|| "unknown error".to_string()),
+        "command failed after retry: {last_cmd}\nerror: {last_err}\noutput:\n{}",
         String::from_utf8_lossy(&last_out)
     );
 }

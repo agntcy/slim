@@ -5507,6 +5507,7 @@ dependencies = [
 name = "slim-integration-tests"
 version = "2.0.0"
 dependencies = [
+ "parking_lot",
  "regex",
 ]
 

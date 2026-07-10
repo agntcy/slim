@@ -37,10 +37,9 @@ fn wait_for_route_match(
     timeout: Duration,
 ) -> String {
     let deadline = Instant::now() + timeout;
-    let mut last_output = String::new();
+    let mut last_output = run_slimctl_node_output(slimctl, controller_endpoint, &["route", "list"]);
 
     loop {
-        last_output = run_slimctl_node_output(slimctl, controller_endpoint, &["route", "list"]);
         if let Some(captures) = re.captures(&last_output)
             && let Some(route) = captures.get(1)
         {
@@ -53,6 +52,7 @@ fn wait_for_route_match(
             );
         }
         thread::sleep(Duration::from_millis(500));
+        last_output = run_slimctl_node_output(slimctl, controller_endpoint, &["route", "list"]);
     }
 }
 
