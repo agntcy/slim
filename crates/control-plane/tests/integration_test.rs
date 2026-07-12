@@ -56,9 +56,11 @@ const LINK_APPLIED: i32 = 2;
 /// Node status constants.
 const NODE_CONNECTED: i32 = 1;
 
-/// Default timeout for waiting on async conditions.
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
-const SHORT_TIMEOUT: Duration = Duration::from_secs(15);
+/// Default timeout for waiting on async conditions. Generous headroom so the
+/// reconciler has time to converge under slow, heavily-parallel CI runs
+/// (e.g. `llvm-cov` instrumentation); the happy path returns immediately.
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
+const SHORT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Per-group registration secrets (each group has its own secret for isolation).
 const TEST_GROUP_SECRETS: &[(&str, &str)] = &[
@@ -1890,13 +1892,15 @@ struct AuthLinkNodes {
 }
 
 async fn auth_link(client: &mut NbClient) -> Option<LinkEntry> {
-    collect_links(client, "", "").await.into_iter().find(|l| {
-        !l.deleted
-            && matches!(
-                l.source_node_id.split('/').next(),
-                Some(AUTH_GROUP_CONNECTOR) | Some(AUTH_GROUP_PROTECTED)
-            )
-    })
+    // Select the connector-sourced link specifically. During reconciliation a
+    // transient link sourced from the protected node can briefly appear; matching
+    // it here would intermittently trip `wait_auth_link`'s
+    // `source_node_id == AUTH_CONNECTOR_ID` assertion. Every caller expects the
+    // connector link, so wait for exactly that one.
+    collect_links(client, "", "")
+        .await
+        .into_iter()
+        .find(|l| !l.deleted && l.source_node_id == AUTH_CONNECTOR_ID)
 }
 
 async fn wait_auth_link(client: &mut NbClient, timeout: Duration, status: i32, msg: Option<&str>) {
