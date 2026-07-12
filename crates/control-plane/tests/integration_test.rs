@@ -8,6 +8,7 @@
 //! in a segmented (multi-group) topology.
 
 use rlimit::increase_nofile_limit;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use slim_auth::metadata::{MetadataMap, MetadataValue};
@@ -39,6 +40,7 @@ use slim_datapath::peer_discovery::{
 use slim_service::{Service, ServiceConfiguration};
 use slim_testing::common::reserve_local_port;
 use slim_testing::utils::TEST_VALID_SECRET;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_stream::StreamExt;
 use tracing_subscriber::EnvFilter;
 
@@ -56,9 +58,11 @@ const LINK_APPLIED: i32 = 2;
 /// Node status constants.
 const NODE_CONNECTED: i32 = 1;
 
-/// Default timeout for waiting on async conditions.
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
-const SHORT_TIMEOUT: Duration = Duration::from_secs(15);
+/// Default timeout for waiting on async conditions. Generous headroom so the
+/// reconciler has time to converge under slow, heavily-parallel CI runs
+/// (e.g. `llvm-cov` instrumentation); the happy path returns immediately.
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
+const SHORT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Per-group registration secrets (each group has its own secret for isolation).
 const TEST_GROUP_SECRETS: &[(&str, &str)] = &[
@@ -96,7 +100,14 @@ fn reserve_port() -> u16 {
 
 fn test_reconciler_config() -> ReconcilerConfig {
     ReconcilerConfig {
-        max_requeues: 10,
+        // Keep this low: a persistently-failing link is only marked LINK_FAILED
+        // after requeues exhaust, and the delay grows exponentially (base × 2^n).
+        // With 10 requeues that's ~51s of cumulative backoff, which blows the
+        // `wait_auth_link` timeout under slow llvm-cov runs. 7 → ~6s to fail,
+        // still leaving retry margin for slow-to-connect links. Recovery tests
+        // are unaffected (they recover via a fresh node registration, not the
+        // requeue chain).
+        max_requeues: 7,
         base_retry_delay: Duration::from_millis(50).into(),
         reconcile_period: Duration::from_secs(0).into(),
         enable_orphan_detection: false,
@@ -112,13 +123,33 @@ fn grouped_node_id(group: &str, name: &str) -> String {
 
 // --- Control Plane ---
 
+/// Bounds how many control-plane integration tests run concurrently. Each test
+/// starts a control plane plus several data-plane nodes; run unbounded they
+/// starve each other of CPU under slow, parallel CI jobs (llvm-cov / matrix),
+/// so reconciliation stalls past the wait timeouts. Each test holds a permit for
+/// its lifetime via `TestControlPlane`.
+static CP_TEST_SLOTS: LazyLock<Arc<Semaphore>> = LazyLock::new(|| {
+    let slots = std::thread::available_parallelism()
+        .map(|p| p.get())
+        .unwrap_or(2)
+        .clamp(2, 4);
+    Arc::new(Semaphore::new(slots))
+});
+
 struct TestControlPlane {
     northbound_port: u16,
     southbound_port: u16,
     cp: ControlPlane,
+    // Concurrency permit, held for the test's lifetime; see `CP_TEST_SLOTS`.
+    _permit: OwnedSemaphorePermit,
 }
 
 async fn start_control_plane(topology: TopologyConfig) -> TestControlPlane {
+    let permit = CP_TEST_SLOTS
+        .clone()
+        .acquire_owned()
+        .await
+        .expect("CP_TEST_SLOTS semaphore closed");
     initialize_crypto_provider();
 
     let northbound_port = reserve_port();
@@ -146,6 +177,7 @@ async fn start_control_plane(topology: TopologyConfig) -> TestControlPlane {
         northbound_port,
         southbound_port,
         cp,
+        _permit: permit,
     }
 }
 
@@ -1890,13 +1922,15 @@ struct AuthLinkNodes {
 }
 
 async fn auth_link(client: &mut NbClient) -> Option<LinkEntry> {
-    collect_links(client, "", "").await.into_iter().find(|l| {
-        !l.deleted
-            && matches!(
-                l.source_node_id.split('/').next(),
-                Some(AUTH_GROUP_CONNECTOR) | Some(AUTH_GROUP_PROTECTED)
-            )
-    })
+    // Select the connector-sourced link specifically. During reconciliation a
+    // transient link sourced from the protected node can briefly appear; matching
+    // it here would intermittently trip `wait_auth_link`'s
+    // `source_node_id == AUTH_CONNECTOR_ID` assertion. Every caller expects the
+    // connector link, so wait for exactly that one.
+    collect_links(client, "", "")
+        .await
+        .into_iter()
+        .find(|l| !l.deleted && l.source_node_id == AUTH_CONNECTOR_ID)
 }
 
 async fn wait_auth_link(client: &mut NbClient, timeout: Duration, status: i32, msg: Option<&str>) {
@@ -2453,6 +2487,11 @@ async fn test_link_spire_auth_outbound_without_mock_workload_api() {
 
 /// Start a control plane in API mode with shared_secret auth (empty initial secrets).
 async fn start_control_plane_api_mode() -> TestControlPlane {
+    let permit = CP_TEST_SLOTS
+        .clone()
+        .acquire_owned()
+        .await
+        .expect("CP_TEST_SLOTS semaphore closed");
     initialize_crypto_provider();
 
     let northbound_port = reserve_port();
@@ -2482,6 +2521,7 @@ async fn start_control_plane_api_mode() -> TestControlPlane {
         northbound_port,
         southbound_port,
         cp,
+        _permit: permit,
     }
 }
 
