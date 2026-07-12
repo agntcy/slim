@@ -100,7 +100,14 @@ fn reserve_port() -> u16 {
 
 fn test_reconciler_config() -> ReconcilerConfig {
     ReconcilerConfig {
-        max_requeues: 10,
+        // Keep this low: a persistently-failing link is only marked LINK_FAILED
+        // after requeues exhaust, and the delay grows exponentially (base × 2^n).
+        // With 10 requeues that's ~51s of cumulative backoff, which blows the
+        // `wait_auth_link` timeout under slow llvm-cov runs. 7 → ~6s to fail,
+        // still leaving retry margin for slow-to-connect links. Recovery tests
+        // are unaffected (they recover via a fresh node registration, not the
+        // requeue chain).
+        max_requeues: 7,
         base_retry_delay: Duration::from_millis(50).into(),
         reconcile_period: Duration::from_secs(0).into(),
         enable_orphan_detection: false,
