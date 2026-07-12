@@ -8,6 +8,7 @@
 //! in a segmented (multi-group) topology.
 
 use rlimit::increase_nofile_limit;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use slim_auth::metadata::{MetadataMap, MetadataValue};
@@ -39,6 +40,7 @@ use slim_datapath::peer_discovery::{
 use slim_service::{Service, ServiceConfiguration};
 use slim_testing::common::reserve_local_port;
 use slim_testing::utils::TEST_VALID_SECRET;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_stream::StreamExt;
 use tracing_subscriber::EnvFilter;
 
@@ -114,13 +116,33 @@ fn grouped_node_id(group: &str, name: &str) -> String {
 
 // --- Control Plane ---
 
+/// Bounds how many control-plane integration tests run concurrently. Each test
+/// starts a control plane plus several data-plane nodes; run unbounded they
+/// starve each other of CPU under slow, parallel CI jobs (llvm-cov / matrix),
+/// so reconciliation stalls past the wait timeouts. Each test holds a permit for
+/// its lifetime via `TestControlPlane`.
+static CP_TEST_SLOTS: LazyLock<Arc<Semaphore>> = LazyLock::new(|| {
+    let slots = std::thread::available_parallelism()
+        .map(|p| p.get())
+        .unwrap_or(2)
+        .clamp(2, 4);
+    Arc::new(Semaphore::new(slots))
+});
+
 struct TestControlPlane {
     northbound_port: u16,
     southbound_port: u16,
     cp: ControlPlane,
+    // Concurrency permit, held for the test's lifetime; see `CP_TEST_SLOTS`.
+    _permit: OwnedSemaphorePermit,
 }
 
 async fn start_control_plane(topology: TopologyConfig) -> TestControlPlane {
+    let permit = CP_TEST_SLOTS
+        .clone()
+        .acquire_owned()
+        .await
+        .expect("CP_TEST_SLOTS semaphore closed");
     initialize_crypto_provider();
 
     let northbound_port = reserve_port();
@@ -148,6 +170,7 @@ async fn start_control_plane(topology: TopologyConfig) -> TestControlPlane {
         northbound_port,
         southbound_port,
         cp,
+        _permit: permit,
     }
 }
 
@@ -2457,6 +2480,11 @@ async fn test_link_spire_auth_outbound_without_mock_workload_api() {
 
 /// Start a control plane in API mode with shared_secret auth (empty initial secrets).
 async fn start_control_plane_api_mode() -> TestControlPlane {
+    let permit = CP_TEST_SLOTS
+        .clone()
+        .acquire_owned()
+        .await
+        .expect("CP_TEST_SLOTS semaphore closed");
     initialize_crypto_provider();
 
     let northbound_port = reserve_port();
@@ -2486,6 +2514,7 @@ async fn start_control_plane_api_mode() -> TestControlPlane {
         northbound_port,
         southbound_port,
         cp,
+        _permit: permit,
     }
 }
 
