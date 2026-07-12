@@ -547,7 +547,7 @@ impl ClientConfig {
         use tokio_retry::RetryIf;
 
         let strategy = self.backoff.get_strategy();
-        RetryIf::start(strategy, attempt, |e: &ConfigError| {
+        RetryIf::spawn(strategy, attempt, |e: &ConfigError| {
             let retry = e.is_retryable_connect_error();
             if retry {
                 tracing::warn!(error = %e.chain(), "transient connect error, retrying");
