@@ -24,6 +24,14 @@ inputs:
     description: 'Enable rust cache'
     required: false
     default: 'true'
+  cache-key-suffix:
+    description: >-
+      Optional suffix appended to the cache shared-key. Use it to give jobs that
+      build DIFFERENT artifacts (e.g. cross-compiled targets or a specific
+      profile) their own cache, so they do not restore/overwrite the shared
+      host cache. Leave empty for host jobs that should share one cache.
+    required: false
+    default: ''
 runs:
   using: 'composite'
   steps:
@@ -36,7 +44,14 @@ runs:
         cache: ${{ inputs.cache-enabled }}
         cache-workspaces: ${{ inputs.workspace }}
         cache-on-failure: false
-        cache-shared-key: ${{runner.os}}-rust-${{hashFiles('**/Cargo.lock')}}
+        # Keep the shared key STABLE (no Cargo.lock hash). rust-cache already
+        # appends a lockfile/toolchain hash to the full cache key and derives
+        # restore-keys from this prefix, so a stable prefix lets a Cargo.lock
+        # change warm-start from the previous cache (rebuilding only changed
+        # crates) instead of cold-starting. Embedding the lockfile hash here made
+        # the prefix change on every dependency bump, defeating the restore-key
+        # fallback and inflating "Setup Rust" from ~45s to ~30m on such PRs.
+        cache-shared-key: ${{ format('{0}-rust{1}', runner.os, inputs.cache-key-suffix) }}
         cache-all-crates: true
         cache-bin: false # cache-bin has a bug at the swatinem cache level, if it's enabled, it will cause the bin cache to be cleared
         cache-directories: ${{ inputs.cache-directories }}

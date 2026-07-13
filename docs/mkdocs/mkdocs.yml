@@ -40,6 +40,8 @@ extra_javascript:
   - javascripts/slim-graph-tooltip.js
   - javascripts/slimctl-demo-data.js
   - javascripts/slimctl-terminal.js
+  - javascripts/slim-repobeats-data.js
+  - javascripts/slim-repobeats.js
 
 markdown_extensions:
   - admonition
