@@ -448,7 +448,10 @@ async fn wait_for_route(
             return;
         }
         if tokio::time::Instant::now() >= deadline {
-            let statuses: Vec<_> = routes
+            // The filtered (src,dest) query is empty here; dump ALL routes and
+            // ALL links so a timeout shows what the reconciler actually produced.
+            let all_routes = collect_routes(client, "", "").await;
+            let routes_dump = all_routes
                 .iter()
                 .map(|e| {
                     format!(
@@ -456,10 +459,21 @@ async fn wait_for_route(
                         e.source_node_id, e.dest_node_id, e.status
                     )
                 })
-                .collect();
+                .collect::<Vec<_>>()
+                .join(", ");
+            let all_links = collect_links(client, "", "").await;
+            let links_dump = all_links
+                .iter()
+                .map(|l| {
+                    format!(
+                        "[{}->{} status={} deleted={}]",
+                        l.source_node_id, l.dest_node_id, l.status, l.deleted
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
             panic!(
-                "timeout waiting for route {src}->{dest} with status={expected_status}. Current: [{}]",
-                statuses.join(", ")
+                "timeout waiting for route {src}->{dest} status={expected_status}. all_routes=[{routes_dump}] all_links=[{links_dump}]"
             );
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1951,16 +1965,23 @@ async fn wait_auth_link(client: &mut NbClient, timeout: Duration, status: i32, m
             return;
         }
         if tokio::time::Instant::now() >= deadline {
-            let info = auth_link(client)
-                .await
+            // Dump every link (unfiltered), not just the connector-sourced one,
+            // so a timeout shows which directions actually exist.
+            let all = collect_links(client, "", "").await;
+            let info = all
+                .iter()
                 .map(|l| {
                     format!(
-                        "{}->{} status={} msg={}",
-                        l.source_node_id, l.dest_node_id, l.status, l.status_msg
+                        "[{}->{} status={} deleted={} msg={:?}]",
+                        l.source_node_id, l.dest_node_id, l.status, l.deleted, l.status_msg
                     )
                 })
-                .unwrap_or_else(|| "no link".into());
-            panic!("timeout waiting for link status {status}: {info}");
+                .collect::<Vec<_>>()
+                .join(" ");
+            panic!(
+                "timeout waiting for link status {status}: all_links(n={})=[{info}]",
+                all.len()
+            );
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
@@ -2033,10 +2054,21 @@ async fn start_node_with_auth(
     extra_server_metadata: Option<MetadataMap>,
 ) -> Service {
     let mut md = MetadataMap::new();
-    md.insert(
-        "external_endpoint",
-        MetadataValue::String(format!("127.0.0.1:{dp_port}")),
-    );
+    // Only the protected node advertises a dialable endpoint. The connector is
+    // dialer-only in these tests (it reaches the protected via outbound_clients
+    // or a CP-driven link). Advertising the connector's endpoint let the CP also
+    // establish the *reverse* protected->connector link, which — because the
+    // connector accepts ServerAuth::None — reaches Applied and satisfies the
+    // node-pair, so the reconciler never creates the forward connector->protected
+    // link the tests assert on. That race made `wait_auth_link` intermittently
+    // hit "no link" under slow (llvm-cov) runs. Not advertising it forces the one
+    // link per pair to be the connector->protected direction under test.
+    if group != AUTH_GROUP_CONNECTOR {
+        md.insert(
+            "external_endpoint",
+            MetadataValue::String(format!("127.0.0.1:{dp_port}")),
+        );
+    }
     if let Some(extra) = extra_server_metadata {
         for (key, value) in extra.iter() {
             md.insert(key.clone(), value.clone());
