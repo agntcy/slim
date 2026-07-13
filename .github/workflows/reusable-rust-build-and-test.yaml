@@ -328,7 +328,11 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           workspace: ${{ inputs.working-directory }}
-          cache-enabled: ${{ matrix.profile != 'release' }}
+          # Each cell compiles distinct artifacts (target triple × profile), so
+          # give each its own cache rather than sharing/overwriting the host
+          # cache. This also warm-starts release builds — caching was previously
+          # disabled for release, forcing a full ~24m cold recompile every run.
+          cache-key-suffix: "-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.profile }}"
 
       - name: Build
         env:
