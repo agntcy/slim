@@ -294,28 +294,44 @@ impl super::RouteService {
                     "connection_received: node {node_id} claimed link {link_id} from {}",
                     claimed.source_node_id
                 );
-
                 // Re-expand wildcard routes now that a new link is fully established.
-                let all_nodes = self.0.db.list_nodes().await.unwrap_or_else(|e| {
-                    tracing::error!("failed to list nodes for route expansion: {e}");
-                    vec![]
-                });
-                let all_links = self.0.db.list_all_links().await.unwrap_or_else(|e| {
-                    tracing::error!("failed to list links for route expansion: {e}");
-                    vec![]
-                });
-                self.expand_all_wildcard_routes(&all_nodes, &all_links)
+                self.reexpand_routes_for_link(&claimed.source_node_id, node_id)
                     .await;
-
-                // Enqueue both source and dest for reconciliation so routes
-                // can be expanded over the now-established link.
-                self.0.queue.add(claimed.source_node_id.clone());
-                self.0.queue.add(node_id.to_string());
             }
             Ok(None) => {
-                tracing::debug!(
-                    "connection_received: link {link_id} already claimed or not found for {node_id}"
-                );
+                // claim_link is a no-op when the link is already claimed. The
+                // important case is a node reconnecting over a link whose claim
+                // survived its crash: its dependent routes were dropped when it
+                // went away, and nothing re-expands them (the reconciler marks
+                // the link Applied but is not an expansion trigger). If this node
+                // still holds the claim on an Applied link, re-run the idempotent
+                // wildcard expansion so the recovered node's routes come back.
+                let link = self
+                    .0
+                    .db
+                    .list_all_links()
+                    .await
+                    .unwrap_or_default()
+                    .into_iter()
+                    .find(|l| {
+                        l.link_id == link_id
+                            && l.dest_node_id == node_id
+                            && l.status == crate::db::LinkStatus::Applied
+                    });
+                match link {
+                    Some(link) => {
+                        tracing::info!(
+                            "connection_received: link {link_id} already claimed by {node_id}; re-expanding routes after reconnect"
+                        );
+                        self.reexpand_routes_for_link(&link.source_node_id, node_id)
+                            .await;
+                    }
+                    None => {
+                        tracing::debug!(
+                            "connection_received: link {link_id} already claimed or not found for {node_id}"
+                        );
+                    }
+                }
             }
             Err(e) => {
                 tracing::error!(
@@ -323,5 +339,22 @@ impl super::RouteService {
                 );
             }
         }
+    }
+
+    /// Re-expand wildcard routes (idempotent) over a now-established link and
+    /// enqueue both ends for reconciliation so per-node routes are pushed.
+    async fn reexpand_routes_for_link(&self, source_node_id: &str, dest_node_id: &str) {
+        let all_nodes = self.0.db.list_nodes().await.unwrap_or_else(|e| {
+            tracing::error!("failed to list nodes for route expansion: {e}");
+            vec![]
+        });
+        let all_links = self.0.db.list_all_links().await.unwrap_or_else(|e| {
+            tracing::error!("failed to list links for route expansion: {e}");
+            vec![]
+        });
+        self.expand_all_wildcard_routes(&all_nodes, &all_links)
+            .await;
+        self.0.queue.add(source_node_id.to_string());
+        self.0.queue.add(dest_node_id.to_string());
     }
 }
