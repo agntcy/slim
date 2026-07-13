@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/agntcy/slim/compare/slim-proto-v0.2.0...slim-proto-v0.3.0) - 2026-07-13
+
+### Added
+
+- *(session)* use uuid for channel ids ([#1809](https://github.com/agntcy/slim/pull/1809))
+- add websocket supports for the browser ([#1775](https://github.com/agntcy/slim/pull/1775))
+- group registration via slimctl ([#1795](https://github.com/agntcy/slim/pull/1795))
+
+### Fixed
+
+- separate server connection config ([#1778](https://github.com/agntcy/slim/pull/1778))
+
 ## [0.2.0](https://github.com/agntcy/slim/compare/slim-proto-v0.1.0...slim-proto-v0.2.0) - 2026-07-06
 
 ### Added

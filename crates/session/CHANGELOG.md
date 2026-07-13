@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1](https://github.com/agntcy/slim/compare/slim-session-v0.5.0...slim-session-v0.5.1) - 2026-07-13
+
+### Added
+
+- *(session)* use uuid for channel ids ([#1809](https://github.com/agntcy/slim/pull/1809))
+- add websocket supports for the browser ([#1775](https://github.com/agntcy/slim/pull/1775))
+
 ## [0.5.0](https://github.com/agntcy/slim/compare/slim-session-v0.4.0...slim-session-v0.5.0) - 2026-07-06
 
 ### Other
