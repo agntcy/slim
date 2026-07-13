@@ -98,6 +98,10 @@ jobs:
           provenance: false
           set: |
             *.cache-from=type=gha
-            *.cache-to=type=gha,mode=max
+            # mode=min exports only the final image layers (not every
+            # intermediate stage). mode=max was producing ~167 layer blobs
+            # (~6 GB) and pinning the repo at the 10 GB Actions-cache ceiling,
+            # forcing constant LRU eviction that churned the rust caches too.
+            *.cache-to=type=gha,mode=min
         env:
           IMAGE_REPO: ${{ inputs.image-repo }}
