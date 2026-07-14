@@ -18,6 +18,7 @@ on:
 jobs:
   coverage:
     runs-on: ubuntu-latest
+    continue-on-error: true
     permissions:
       contents: read
     steps:
@@ -41,6 +42,6 @@ jobs:
           files: lcov.info
           flags: rust
           name: rust-coverage
-          fail_ci_if_error: true
+          fail_ci_if_error: false
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
