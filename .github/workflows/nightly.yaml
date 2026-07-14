@@ -30,6 +30,10 @@ jobs:
       rust-cross-build-profiles: '["release"]'
       rust-cross-build-arches: '["aarch64","x86_64"]'
 
+  benchmark:
+    name: Data plane benchmark
+    uses: ./.github/workflows/benchmark.yaml
+
   integration-tests:
     runs-on: ubuntu-latest
     permissions:

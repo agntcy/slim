@@ -4,16 +4,13 @@
 ---
 name: ci-publish-project-coverage
 
+# Coverage is informational (continue-on-error + fail_ci_if_error: false) and
+# cannot gate a PR, so it runs only post-merge on main to track the trend
+# without burning a runner on every PR. Nightly/manual coverage is unnecessary
+# since main is the tracked baseline.
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '.github/workflows/docs-ci.yaml'
-      - '.github/workflows/docs-deploy.yml'
-      - '.github/workflows/reusable-docs.yml'
 
 jobs:
   coverage:
