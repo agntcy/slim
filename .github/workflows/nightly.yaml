@@ -17,18 +17,24 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release-cross-build:
-    name: Nightly release build
+  build-and-wasm:
+    name: Nightly release build + wasm
     uses: ./.github/workflows/reusable-rust-build-and-test.yaml
     with:
       rust-lint: true
       rust-vuln: false
       rust-test: false
-      rust-test-wasm: false
-      rust-test-wasm-browser: false
+      # wasm suites moved off the PR path; the wasm jobs need the lint job,
+      # so they share this call's single lint run.
+      rust-test-wasm: true
+      rust-test-wasm-browser: true
       rust-cross-build: true
       rust-cross-build-profiles: '["release"]'
       rust-cross-build-arches: '["aarch64","x86_64"]'
+
+  benchmark:
+    name: Data plane benchmark
+    uses: ./.github/workflows/benchmark.yaml
 
   integration-tests:
     runs-on: ubuntu-latest

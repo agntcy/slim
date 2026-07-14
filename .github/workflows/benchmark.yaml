@@ -4,15 +4,32 @@
 ---
 name: benchmark
 
+# Runs nightly (via ci-nightly, which calls this workflow) and on manual
+# dispatch. Not a PR gate: there is no regression comparison, so per-PR runs
+# produced no actionable signal while costing a runner on every PR.
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/benchmark.yaml'
-      - 'crates/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'scripts/run-benchmark.sh'
-      - 'scripts/flamegraph-profile.sh'
+  workflow_call:
+    inputs:
+      senders:
+        description: 'Comma-separated sender counts'
+        required: false
+        default: '1,2,4,8'
+        type: string
+      messages:
+        description: 'Messages per sender'
+        required: false
+        default: '1000000'
+        type: string
+      payload-sizes:
+        description: 'Comma-separated payload sizes in bytes'
+        required: false
+        default: '8,16,64,256,1024,4096'
+        type: string
+      runs:
+        description: 'Repetitions per configuration'
+        required: false
+        default: '3'
+        type: string
   workflow_dispatch:
     inputs:
       senders:
@@ -38,7 +55,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 jobs:
   benchmark:
