@@ -5,10 +5,10 @@ SPDX-License-Identifier: Apache-2.0
 
 //! Shared-secret based token generation and verification.
 //!
-//! This implementation now supports an optionally enabled replay cache.
-//! IMPORTANT: Replay prevention is DISABLED by default. You must explicitly
-//! enable it using `with_replay_cache_enabled(max_entries)` if you require
-//! replay detection.
+//! This implementation supports an optionally enabled replay cache.
+//! IMPORTANT: Replay prevention is DISABLED by default. Enable it at
+//! construction with `SharedSecret::builder(id, secret).replay_cache(max)` if
+//! you require replay detection.
 //!
 //! A token encodes: `<id>:<unix_timestamp>:<nonce>:<claims_b64url>:<mac_b64url>`
 //! Where claims_b64url is empty if no custom claims are present.
@@ -23,8 +23,11 @@ SPDX-License-Identifier: Apache-2.0
 //! * `id` is randomized per construction (`<base_id>_<random_suffix>`).
 //! * Replay cache stores only (nonce, timestamp) for memory efficiency.
 //! * HMAC via `aws-lc-rs` for constant-time primitives.
-//! * `SharedSecret` is cheap to clone (Arc increment) and cloning preserves
-//!   replay cache state (when enabled).
+//! * `SharedSecret` is cheap to clone (Arc increment). Cloning shares the replay
+//!   cache and one MLS signing identity, so an app and every session cloned from
+//!   it present the same identity.
+//! * Configuration is applied up front via [`SharedSecretBuilder`]; there is no
+//!   post-construction reconfiguration.
 //!
 //! Typical usage (no replay protection):
 //! ```ignore
@@ -35,16 +38,12 @@ SPDX-License-Identifier: Apache-2.0
 //!
 //! Enabling replay protection:
 //! ```ignore
-//! let auth = SharedSecret::new("service", secret_string)?
-//!     .with_replay_cache_enabled(4096);
+//! let auth = SharedSecret::builder("service", secret_string)
+//!     .replay_cache(4096)
+//!     .build()?;
 //! let token = auth.get_token()?;
 //! auth.try_verify(&token)?; // second verify of same token will fail
 //! ```
-//!
-//! Builder-style adjustments (`with_*`) return a new `SharedSecret` whose
-//! replay cache state is preserved IF replay protection is enabled. When
-//! disabled, replay-related builders either enable (`with_replay_cache_enabled`)
-//! or leave it disabled (`with_replay_cache_disabled`).
 //!
 //! Thread safety:
 //! * Interior mutability only for the replay cache (parking_lot::Mutex).
@@ -53,7 +52,7 @@ SPDX-License-Identifier: Apache-2.0
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as STANDARD_BASE64;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use rand::{Rng, distr::Alphanumeric};
 use std::{
     collections::{HashSet, VecDeque},
@@ -114,14 +113,6 @@ impl ReplayCache {
         }
     }
 
-    fn clone_preserving(&self) -> Self {
-        Self {
-            entries: self.entries.clone(),
-            order: self.order.clone(),
-            max_size: self.max_size,
-        }
-    }
-
     /// Insert new (nonce, timestamp) and enforce:
     /// 1. Expire old entries (age > validity_window).
     /// 2. Reject replays.
@@ -171,6 +162,9 @@ struct SharedSecretInternal {
     clock_skew: std::time::Duration,
     replay_cache_enabled: bool,
     replay_cache: Mutex<ReplayCache>,
+    /// MLS signing material (see [`SigningMaterial`]). Lives in the shared
+    /// `inner`, so an app and every session cloned from it present one identity.
+    signing: RwLock<SigningMaterial>,
 }
 
 impl std::fmt::Debug for SharedSecretInternal {
@@ -185,18 +179,32 @@ impl std::fmt::Debug for SharedSecretInternal {
     }
 }
 
+/// MLS signing material, stored in the shared [`SharedSecretInternal`].
+///
+/// An app and all the sessions cloned from it therefore present a single
+/// identity: one Ed25519 signature key pair and the matching claims. Held
+/// behind a `RwLock` (inside the shared `Arc`) so a key rotation or a restore
+/// is visible to every clone at once.
+struct SigningMaterial {
+    /// MLS signature key pair: (secret_key_bytes, public_key_bytes).
+    keys: (Vec<u8>, Vec<u8>),
+    /// Precomputed URL_SAFE_NO_PAD(base64) of the claims JSON embedding the MLS
+    /// public key. Only changes when the signature keys are rotated.
+    claims_b64: String,
+    /// True once the MLS layer has installed ciphersuite-correct keys via
+    /// `set_signature_keys`. The keys generated at construction are placeholder
+    /// Ed25519 keys (used for header signing) and are not necessarily valid for
+    /// the MLS ciphersuite in use, so the MLS layer must not reuse them until
+    /// this flips true.
+    mls_installed: bool,
+}
+
 /// Public wrapper holding an Arc to internal implementation.
-/// Cloning shares the replay cache and config but gives each clone
-/// its own independent MLS signature key pair.
+/// Cloning shares the replay cache, config, and MLS signing material, so all
+/// clones present the same identity.
 #[derive(Clone)]
 pub struct SharedSecret {
     inner: Arc<SharedSecretInternal>,
-    /// MLS Ed25519 signature key pair: (secret_key_bytes, public_key_bytes).
-    /// Plain field so each clone owns an independent copy.
-    signature_keys: (Vec<u8>, Vec<u8>),
-    /// Precomputed URL_SAFE_NO_PAD(base64) of the claims JSON embedding the MLS public key.
-    /// Only changes when the signature keys are rotated.
-    claims_b64: String,
 }
 
 impl std::fmt::Debug for SharedSecret {
@@ -216,6 +224,92 @@ impl std::fmt::Debug for SharedSecret {
     }
 }
 
+/// Builder for [`SharedSecret`]. Configure the validity window, clock skew, and
+/// (optionally) the replay cache, then call [`SharedSecretBuilder::build`].
+///
+/// Replaces the previous post-construction `with_*` transformers: configuration
+/// is applied once, up front, so there is no need to rebuild an existing
+/// instance (which would otherwise have to carefully carry over the shared MLS
+/// identity and live replay-cache state).
+pub struct SharedSecretBuilder {
+    base_id: String,
+    shared_secret: String,
+    validity_window: std::time::Duration,
+    clock_skew: std::time::Duration,
+    /// `Some(max)` enables the replay cache with that capacity; `None` disables it.
+    replay_cache: Option<usize>,
+}
+
+impl SharedSecretBuilder {
+    fn new(id: &str, shared_secret: &str) -> Self {
+        Self {
+            base_id: id.to_owned(),
+            shared_secret: shared_secret.to_owned(),
+            validity_window: std::time::Duration::from_secs(DEFAULT_VALIDITY_WINDOW),
+            clock_skew: std::time::Duration::from_secs(DEFAULT_CLOCK_SKEW),
+            replay_cache: None,
+        }
+    }
+
+    /// Token validity window.
+    pub fn validity_window(mut self, window: std::time::Duration) -> Self {
+        self.validity_window = window;
+        self
+    }
+
+    /// Tolerated forward clock skew.
+    pub fn clock_skew(mut self, skew: std::time::Duration) -> Self {
+        self.clock_skew = skew;
+        self
+    }
+
+    /// Enable replay protection with the given maximum cache capacity.
+    pub fn replay_cache(mut self, max_size: usize) -> Self {
+        self.replay_cache = Some(max_size);
+        self
+    }
+
+    /// Validate the inputs and construct the [`SharedSecret`], generating a
+    /// random `id` suffix and a fresh placeholder MLS signature key pair.
+    pub fn build(self) -> Result<SharedSecret, AuthError> {
+        SharedSecret::validate_id(&self.base_id)?;
+        SharedSecret::validate_secret(&self.shared_secret)?;
+
+        let random_suffix: String = rand::rng()
+            .sample_iter(&Alphanumeric)
+            .take(8)
+            .map(char::from)
+            .collect();
+        let full_id = format!("{}_{}", self.base_id, random_suffix);
+
+        let (secret_key, public_key) = crate::utils::generate_mls_signature_keys()?;
+        let claims_b64 = SharedSecret::compute_claims_b64(&public_key);
+        let hmac_key = HmacKey::new(self.shared_secret.as_bytes());
+
+        let replay_cache_enabled = self.replay_cache.is_some();
+        let replay_cache_max = self.replay_cache.unwrap_or(DEFAULT_REPLAY_CACHE_MAX);
+
+        let internal = SharedSecretInternal {
+            base_id: self.base_id,
+            id: full_id,
+            shared_secret: self.shared_secret,
+            hmac_key,
+            validity_window: self.validity_window,
+            clock_skew: self.clock_skew,
+            replay_cache_enabled,
+            replay_cache: Mutex::new(ReplayCache::new(replay_cache_max)),
+            signing: RwLock::new(SigningMaterial {
+                keys: (secret_key, public_key),
+                claims_b64,
+                mls_installed: false,
+            }),
+        };
+        Ok(SharedSecret {
+            inner: Arc::new(internal),
+        })
+    }
+}
+
 impl SharedSecret {
     /// Build the URL_SAFE_NO_PAD(base64) of the claims JSON embedding the MLS pubkey.
     fn compute_claims_b64(pub_key: &[u8]) -> String {
@@ -224,133 +318,27 @@ impl SharedSecret {
         URL_SAFE_NO_PAD.encode(claims_json.as_bytes())
     }
 
-    /// Construct a new shared secret instance with randomized `id` suffix.
-    /// Replay protection starts DISABLED.
+    /// Start building a shared-secret provider. Replay protection is DISABLED
+    /// unless [`SharedSecretBuilder::replay_cache`] is called.
+    pub fn builder(id: &str, shared_secret: &str) -> SharedSecretBuilder {
+        SharedSecretBuilder::new(id, shared_secret)
+    }
+
+    /// Construct a shared-secret provider with default settings and a randomized
+    /// `id` suffix. Shorthand for `SharedSecret::builder(id, secret).build()`.
     pub fn new(id: &str, shared_secret: &str) -> Result<Self, AuthError> {
-        Self::validate_id(id)?;
-        Self::validate_secret(shared_secret)?;
-
-        let random_suffix: String = rand::rng()
-            .sample_iter(&Alphanumeric)
-            .take(8)
-            .map(char::from)
-            .collect();
-        let full_id = format!("{}_{}", id, random_suffix);
-
-        let signature_keys = crate::utils::generate_mls_signature_keys()?;
-        let claims_b64 = Self::compute_claims_b64(&signature_keys.1);
-        let hmac_key = HmacKey::new(shared_secret.as_bytes());
-        let internal = SharedSecretInternal {
-            base_id: id.to_owned(),
-            id: full_id,
-            shared_secret: shared_secret.to_owned(),
-            hmac_key,
-            validity_window: std::time::Duration::from_secs(DEFAULT_VALIDITY_WINDOW),
-            clock_skew: std::time::Duration::from_secs(DEFAULT_CLOCK_SKEW),
-            replay_cache_enabled: false,
-            replay_cache: Mutex::new(ReplayCache::new(DEFAULT_REPLAY_CACHE_MAX)),
-        };
-        Ok(SharedSecret {
-            inner: Arc::new(internal),
-            signature_keys,
-            claims_b64,
-        })
-    }
-
-    /// Enable replay cache with specified maximum size.
-    /// If already enabled, updates capacity while preserving existing entries
-    /// (evicting oldest if shrinking).
-    pub fn with_replay_cache_enabled(&self, max_size: usize) -> Self {
-        self.rebuild(None, None, Some(max_size), Some(true))
-    }
-
-    /// Disable replay cache (replay detection no longer enforced).
-    /// Existing cached entries are retained internally but ignored.
-    pub fn with_replay_cache_disabled(&self) -> Self {
-        self.rebuild(None, None, None, Some(false))
-    }
-
-    /// Returns a new instance with updated validity window.
-    pub fn with_validity_window(&self, window: std::time::Duration) -> Self {
-        self.rebuild(Some(window), None, None, None)
-    }
-
-    /// Returns a new instance with updated clock skew.
-    pub fn with_clock_skew(&self, skew: std::time::Duration) -> Self {
-        self.rebuild(None, Some(skew), None, None)
-    }
-
-    /// Returns a new instance with updated replay cache max capacity (only if enabled).
-    pub fn with_replay_cache_max(&self, max_size: usize) -> Self {
-        if !self.inner.replay_cache_enabled {
-            // Replay protection disabled; capacity change has no effect.
-            return self.clone();
-        }
-        self.rebuild(None, None, Some(max_size), None)
-    }
-
-    /// Internal rebuild helper preserving replay cache state when enabled.
-    fn rebuild(
-        &self,
-        validity_window: Option<std::time::Duration>,
-        clock_skew: Option<std::time::Duration>,
-        replay_cache_max: Option<usize>,
-        replay_cache_enabled: Option<bool>,
-    ) -> Self {
-        let current = &self.inner;
-        let enable_flag = replay_cache_enabled.unwrap_or(current.replay_cache_enabled);
-
-        // Snapshot existing cache
-        let cache_guard = current.replay_cache.lock();
-        let mut cloned_cache = if current.replay_cache_enabled {
-            cache_guard.clone_preserving()
-        } else {
-            // If we are enabling now and previously disabled, start empty.
-            if enable_flag {
-                ReplayCache::new(replay_cache_max.unwrap_or(DEFAULT_REPLAY_CACHE_MAX))
-            } else {
-                cache_guard.clone_preserving() // unused but keep structure
-            }
-        };
-        drop(cache_guard);
-
-        // If capacity changed, enforce size limit by evicting oldest
-        if let Some(new_max) = replay_cache_max {
-            cloned_cache.max_size = new_max;
-            while cloned_cache.entries.len() > new_max {
-                if let Some(front) = cloned_cache.order.pop_front() {
-                    cloned_cache.entries.remove(&front);
-                } else {
-                    break;
-                }
-            }
-        }
-
-        let internal = SharedSecretInternal {
-            base_id: current.base_id.clone(),
-            id: current.id.clone(),
-            shared_secret: current.shared_secret.clone(),
-            hmac_key: HmacKey::new(current.shared_secret.as_bytes()),
-            validity_window: validity_window.unwrap_or(current.validity_window),
-            clock_skew: clock_skew.unwrap_or(current.clock_skew),
-            replay_cache_enabled: enable_flag,
-            replay_cache: Mutex::new(cloned_cache),
-        };
-        SharedSecret {
-            inner: Arc::new(internal),
-            signature_keys: self.signature_keys.clone(),
-            claims_b64: self.claims_b64.clone(),
-        }
+        Self::builder(id, shared_secret).build()
     }
 
     /// Returns the expected token byte length for this instance, suitable for
-    /// preallocating a `String` buffer.
-    fn token_capacity(&self) -> usize {
+    /// preallocating a `String` buffer. `claims_len` is the byte length of the
+    /// (already locked) claims field, passed in to avoid re-locking.
+    fn token_capacity(&self, claims_len: usize) -> usize {
         self.inner.id.len()
             + TOKEN_SEPARATOR_COUNT
             + MAX_TIMESTAMP_DIGITS
             + NONCE_B64_LEN
-            + self.claims_b64.len()
+            + claims_len
             + HMAC_TAG_B64_LEN
     }
 
@@ -370,9 +358,10 @@ impl SharedSecret {
         rand::rng().fill(&mut nonce_bytes);
 
         let id = self.id();
-        let claims_b64 = self.claims_b64.as_str();
+        let signing = self.inner.signing.read();
+        let claims_b64 = signing.claims_b64.as_str();
 
-        let cap = self.token_capacity();
+        let cap = self.token_capacity(claims_b64.len());
         out.clear();
         out.reserve(cap.saturating_sub(out.capacity()));
         out.push_str(id);
@@ -514,7 +503,8 @@ impl TokenProvider for SharedSecret {
     }
 
     fn get_token(&self) -> Result<String, AuthError> {
-        let mut buf = String::with_capacity(self.token_capacity());
+        let cap = self.token_capacity(self.inner.signing.read().claims_b64.len());
+        let mut buf = String::with_capacity(cap);
         self.get_token_into(&mut buf)?;
         Ok(buf)
     }
@@ -524,11 +514,15 @@ impl TokenProvider for SharedSecret {
     }
 
     fn get_signature_secret_key(&self) -> Result<Vec<u8>, AuthError> {
-        Ok(self.signature_keys.0.clone())
+        Ok(self.inner.signing.read().keys.0.clone())
     }
 
     fn get_signature_public_key(&self) -> Result<Vec<u8>, AuthError> {
-        Ok(self.signature_keys.1.clone())
+        Ok(self.inner.signing.read().keys.1.clone())
+    }
+
+    fn mls_signature_keys_installed(&self) -> bool {
+        self.inner.signing.read().mls_installed
     }
 
     async fn set_signature_keys(
@@ -536,8 +530,12 @@ impl TokenProvider for SharedSecret {
         private_key: Vec<u8>,
         public_key: Vec<u8>,
     ) -> Result<(), AuthError> {
-        self.claims_b64 = Self::compute_claims_b64(&public_key);
-        self.signature_keys = (private_key, public_key);
+        // Shared across clones: a rotation is visible to the app and every
+        // session cloned from it.
+        let mut signing = self.inner.signing.write();
+        signing.claims_b64 = Self::compute_claims_b64(&public_key);
+        signing.keys = (private_key, public_key);
+        signing.mls_installed = true;
         Ok(())
     }
 }
@@ -763,9 +761,10 @@ mod tests {
 
     #[test]
     fn test_future_timestamp_exceeds_skew() {
-        let s = SharedSecret::new("svc", &valid_secret())
-            .unwrap()
-            .with_clock_skew(Duration::from_secs(2));
+        let s = SharedSecret::builder("svc", &valid_secret())
+            .clock_skew(Duration::from_secs(2))
+            .build()
+            .unwrap();
         let future_ts = s.get_current_timestamp() + 10;
         let nonce = gen_nonce();
         let message = build_message(s.id(), future_ts, &nonce, "");
@@ -776,9 +775,10 @@ mod tests {
 
     #[test]
     fn test_future_timestamp_within_skew() {
-        let s = SharedSecret::new("svc", &valid_secret())
-            .unwrap()
-            .with_clock_skew(Duration::from_secs(10));
+        let s = SharedSecret::builder("svc", &valid_secret())
+            .clock_skew(Duration::from_secs(10))
+            .build()
+            .unwrap();
         let future_ts = s.get_current_timestamp() + 5;
         let nonce = gen_nonce();
         let message = build_message(s.id(), future_ts, &nonce, "");
@@ -789,9 +789,10 @@ mod tests {
 
     #[test]
     fn test_expired_token() {
-        let s = SharedSecret::new("svc", &valid_secret())
-            .unwrap()
-            .with_validity_window(Duration::from_secs(1));
+        let s = SharedSecret::builder("svc", &valid_secret())
+            .validity_window(Duration::from_secs(1))
+            .build()
+            .unwrap();
         let past_ts = s.get_current_timestamp().saturating_sub(10);
         let nonce = gen_nonce();
         let message = build_message(s.id(), past_ts, &nonce, "");
@@ -803,9 +804,10 @@ mod tests {
 
     #[test]
     fn test_replay_detection_enabled() {
-        let s = SharedSecret::new("svc", &valid_secret())
-            .unwrap()
-            .with_replay_cache_enabled(128);
+        let s = SharedSecret::builder("svc", &valid_secret())
+            .replay_cache(128)
+            .build()
+            .unwrap();
         let token = s.get_token().unwrap();
         assert!(s.try_verify(token.clone()).is_ok());
         let replay = s.try_verify(token);
@@ -866,10 +868,11 @@ mod tests {
 
     #[test]
     fn test_replay_after_expiration_enabled() {
-        let s = SharedSecret::new("svc", &valid_secret())
-            .unwrap()
-            .with_validity_window(Duration::from_secs(1))
-            .with_replay_cache_enabled(128);
+        let s = SharedSecret::builder("svc", &valid_secret())
+            .validity_window(Duration::from_secs(1))
+            .replay_cache(128)
+            .build()
+            .unwrap();
         let token = s.get_token().unwrap();
         assert!(s.try_verify(token.clone()).is_ok());
         thread::sleep(Duration::from_secs(2));
@@ -909,9 +912,10 @@ mod tests {
 
     #[test]
     fn test_replay_detection_multiple_enabled() {
-        let s = SharedSecret::new("svc", &valid_secret())
-            .unwrap()
-            .with_replay_cache_enabled(256);
+        let s = SharedSecret::builder("svc", &valid_secret())
+            .replay_cache(256)
+            .build()
+            .unwrap();
         let t1 = s.get_token().unwrap();
         let t2 = s.get_token().unwrap();
         assert!(s.try_verify(t1.clone()).is_ok());
@@ -931,9 +935,10 @@ mod tests {
 
     #[test]
     fn test_claims_enabled() {
-        let s = SharedSecret::new("svc", &valid_secret())
-            .unwrap()
-            .with_replay_cache_enabled(64);
+        let s = SharedSecret::builder("svc", &valid_secret())
+            .replay_cache(64)
+            .build()
+            .unwrap();
         let token = s.get_token().unwrap();
         let claims: BasicClaims = s.try_get_claims(token).unwrap();
         assert!(claims.sub.starts_with("svc_"));
@@ -942,9 +947,10 @@ mod tests {
 
     #[test]
     fn test_replay_cache_capacity_enabled() {
-        let s = SharedSecret::new("svc", &valid_secret())
-            .unwrap()
-            .with_replay_cache_enabled(2);
+        let s = SharedSecret::builder("svc", &valid_secret())
+            .replay_cache(2)
+            .build()
+            .unwrap();
         let t1 = s.get_token().unwrap();
         thread::sleep(Duration::from_millis(10));
         let t2 = s.get_token().unwrap();
@@ -959,51 +965,16 @@ mod tests {
 
     #[test]
     fn test_clone_preserves_replay_cache_enabled() {
-        let s = SharedSecret::new("svc", &valid_secret())
-            .unwrap()
-            .with_replay_cache_enabled(128);
+        let s = SharedSecret::builder("svc", &valid_secret())
+            .replay_cache(128)
+            .build()
+            .unwrap();
         let token = s.get_token().unwrap();
         assert!(s.try_verify(token.clone()).is_ok());
         let cloned = s.clone();
         let res = cloned.try_verify(token);
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("replay"));
-    }
-
-    #[test]
-    fn test_builder_preserves_replay_cache_enabled() {
-        let s = SharedSecret::new("svc", &valid_secret())
-            .unwrap()
-            .with_replay_cache_enabled(128);
-        let token = s.get_token().unwrap();
-        assert!(s.try_verify(token.clone()).is_ok());
-        // Adjust validity window; replay state preserved.
-        let s2 = s.with_validity_window(Duration::from_secs(600));
-        let res = s2.try_verify(token);
-        assert!(res.is_err());
-        assert!(res.unwrap_err().to_string().contains("replay"));
-    }
-
-    #[test]
-    fn test_disable_replay_cache_builder() {
-        let s = SharedSecret::new("svc", &valid_secret())
-            .unwrap()
-            .with_replay_cache_enabled(64);
-        let token = s.get_token().unwrap();
-        assert!(s.try_verify(token.clone()).is_ok()); // first verify ok
-        // Disabling replay cache allows re-verification.
-        let s_disabled = s.with_replay_cache_disabled();
-        assert!(!s_disabled.replay_cache_enabled());
-        assert!(s_disabled.try_verify(token).is_ok());
-    }
-
-    #[test]
-    fn test_replay_cache_max_noop_when_disabled() {
-        let s = SharedSecret::new("svc", &valid_secret()).unwrap();
-        let original_max = s.replay_cache_max();
-        let s2 = s.with_replay_cache_max(original_max * 2);
-        assert_eq!(original_max, s2.replay_cache_max());
-        assert!(!s2.replay_cache_enabled());
     }
 
     #[test]
@@ -1016,39 +987,13 @@ mod tests {
     }
 
     #[test]
-    fn test_with_replay_cache_max_when_enabled() {
-        let s = SharedSecret::new("svc", &valid_secret())
-            .unwrap()
-            .with_replay_cache_enabled(128);
-        let s2 = s.with_replay_cache_max(64);
-        assert_eq!(64, s2.replay_cache_max());
-        assert!(s2.replay_cache_enabled());
-    }
-
-    #[test]
-    fn test_rebuild_evicts_when_shrinking() {
-        let s = SharedSecret::new("svc", &valid_secret())
-            .unwrap()
-            .with_replay_cache_enabled(128);
-        // Fill the replay cache with 3 entries.
-        let t1 = s.get_token().unwrap();
-        let t2 = s.get_token().unwrap();
-        let t3 = s.get_token().unwrap();
-        assert!(s.try_verify(t1).is_ok());
-        assert!(s.try_verify(t2).is_ok());
-        assert!(s.try_verify(t3).is_ok());
-        // Shrink capacity to 1 — rebuild must evict the two oldest entries.
-        let s_small = s.with_replay_cache_max(1);
-        assert_eq!(1, s_small.replay_cache_max());
-    }
-
-    #[test]
     fn test_replay_cache_purges_expired_entries() {
         // Short validity window so entries expire quickly.
-        let s = SharedSecret::new("svc", &valid_secret())
-            .unwrap()
-            .with_validity_window(Duration::from_secs(1))
-            .with_replay_cache_enabled(128);
+        let s = SharedSecret::builder("svc", &valid_secret())
+            .validity_window(Duration::from_secs(1))
+            .replay_cache(128)
+            .build()
+            .unwrap();
         let t1 = s.get_token().unwrap();
         assert!(s.try_verify(t1).is_ok());
         // Sleep until t1's timestamp is older than the validity window.

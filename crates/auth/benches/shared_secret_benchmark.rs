@@ -22,9 +22,10 @@ fn make_auth() -> SharedSecret {
 }
 
 fn make_auth_replay() -> SharedSecret {
-    SharedSecret::new("svc", SECRET)
+    SharedSecret::builder("svc", SECRET)
+        .replay_cache(1 << 16)
+        .build()
         .expect("valid shared secret")
-        .with_replay_cache_enabled(1 << 16)
 }
 
 fn bench_get_token(c: &mut Criterion) {
