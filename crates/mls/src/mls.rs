@@ -426,25 +426,66 @@ where
     V: Verifier + Send + Sync + Clone + 'static,
 {
     /// Generate a fresh ciphersuite-correct key pair via the MLS crypto
-    /// provider, push it into the identity provider via `set_signature_keys`,
-    /// and assemble the corresponding `SigningIdentity`.
-    async fn generate_and_install_signing_identity(
-        &mut self,
-        is_rotation: bool,
-    ) -> Result<(SignatureSecretKey, SigningIdentity), MlsError> {
+    /// provider and push it into the (shared) identity provider via
+    /// `set_signature_keys`, so `get_token()` embeds the matching public key.
+    ///
+    /// This does NOT build a `SigningIdentity` or touch any group's credential
+    /// version — it only rotates the app-scoped key material. Because the
+    /// provider is shared across an app and its sessions, the new key becomes
+    /// visible to every clone at once.
+    async fn install_new_signature_keys(&mut self) -> Result<(), MlsError> {
         #[cfg(not(target_arch = "wasm32"))]
         let (priv_key, pub_key) = Self::generate_key_pair()?;
         #[cfg(target_arch = "wasm32")]
         let (priv_key, pub_key) = Self::generate_key_pair().await?;
 
-        // Push the ciphersuite-correct keys into the identity provider so
-        // that get_token() embeds the matching public key in the credential.
         self.identity_provider
             .set_signature_keys(priv_key.as_bytes().to_vec(), pub_key.as_bytes().to_vec())
             .await?;
+        Ok(())
+    }
 
+    /// Generate a fresh key pair, install it into the identity provider, and
+    /// assemble the corresponding `SigningIdentity`.
+    async fn generate_and_install_signing_identity(
+        &mut self,
+        is_rotation: bool,
+    ) -> Result<(SignatureSecretKey, SigningIdentity), MlsError> {
+        self.install_new_signature_keys().await?;
         self.create_signing_identity(is_rotation)
-            .map(|(_, identity)| (priv_key, identity))
+    }
+
+    /// Rotate the app-scoped signing key: generate a fresh key pair and install
+    /// it into the shared identity provider, WITHOUT proposing any group update.
+    ///
+    /// For an app with several MLS groups, call this **once** and then
+    /// [`Self::create_update_proposal`] on each group, so every group adopts the
+    /// same new key. [`Self::create_rotation_proposal`] bundles both for the
+    /// single-group case.
+    pub async fn rotate_identity_key(&mut self) -> Result<(), MlsError> {
+        self.install_new_signature_keys().await
+    }
+
+    /// Propose an MLS credential update for THIS group that adopts the identity
+    /// provider's currently-installed signature key. Does not generate a key, so
+    /// combined with a single prior [`Self::rotate_identity_key`] it lets every
+    /// group in an app rotate to the same key.
+    pub async fn create_update_proposal(&mut self) -> Result<ProposalMsg, MlsError> {
+        let (private_key, signing_identity) = self.create_signing_identity(true)?;
+
+        let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let update_proposal =
+            group.propose_update_with_identity(private_key, signing_identity, vec![])?;
+        #[cfg(target_arch = "wasm32")]
+        let update_proposal = group
+            .propose_update_with_identity(private_key, signing_identity, vec![])
+            .await?;
+
+        debug!("Created credential update proposal for the installed identity key");
+
+        Ok(update_proposal.to_bytes()?)
     }
 
     pub async fn initialize(&mut self) -> Result<(), MlsError> {
@@ -466,10 +507,18 @@ where
 
         self.stored_identity = Some(stored_identity);
 
-        // Generate ciphersuite-correct keys via the MLS crypto provider and
-        // install them into the identity provider.
+        // Reuse the identity provider's signature keys once the MLS layer has
+        // installed ciphersuite-correct ones, so an app and every session cloned
+        // from it share a single signing identity (and a restored app keeps its
+        // persisted one). On first use the provider only holds placeholder keys
+        // (possibly of the wrong ciphersuite), so generate a fresh pair via our
+        // own crypto provider and install it.
         let (private_key, signing_identity) =
-            self.generate_and_install_signing_identity(false).await?;
+            if self.identity_provider.mls_signature_keys_installed() {
+                self.create_signing_identity(false)?
+            } else {
+                self.generate_and_install_signing_identity(false).await?
+            };
 
         let crypto_provider = crate::crypto::default_crypto_provider();
 
@@ -486,33 +535,16 @@ where
         Ok(())
     }
 
+    /// Rotate the signing identity for a single-group app: generate and install
+    /// a fresh key, then propose the credential update for this group.
+    ///
+    /// For an app spanning multiple MLS groups, prefer [`Self::rotate_identity_key`]
+    /// once followed by [`Self::create_update_proposal`] per group — calling this
+    /// per group would generate a different key each time, so the groups would
+    /// diverge from the shared identity.
     pub async fn create_rotation_proposal(&mut self) -> Result<ProposalMsg, MlsError> {
-        // Generate a fresh ciphersuite-correct key pair and install it into
-        // the identity provider so the rotated token embeds the new public key.
-        let (new_private_key, new_signing_identity) =
-            self.generate_and_install_signing_identity(true).await?;
-
-        // Now get mutable reference to group after creating signing identity
-        let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
-
-        #[cfg(not(target_arch = "wasm32"))]
-        let update_proposal = group.propose_update_with_identity(
-            new_private_key.clone(),
-            new_signing_identity,
-            vec![],
-        )?;
-        #[cfg(target_arch = "wasm32")]
-        let update_proposal = group
-            .propose_update_with_identity(new_private_key.clone(), new_signing_identity, vec![])
-            .await?;
-
-        debug!(
-            "Created credential rotation proposal, stored new keys and incremented credential version"
-        );
-
-        let ret = update_proposal.to_bytes()?;
-
-        Ok(ret)
+        self.rotate_identity_key().await?;
+        self.create_update_proposal().await
     }
 }
 
@@ -598,6 +630,45 @@ mod tests {
         mls.initialize().await?;
         assert!(mls.client.is_some());
         assert!(mls.group.is_none());
+        Ok(())
+    }
+
+    // One app identity provider cloned into two sessions (as `SessionLayer`
+    // does) must yield a single shared signing identity, and one rotation must
+    // update that identity for every session/clone at once.
+    #[tokio::test]
+    async fn test_app_scoped_signing_identity_shared_and_rotates_once()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use slim_auth::traits::TokenProvider;
+
+        let provider = SharedSecret::new("app", SHARED_SECRET).unwrap();
+        let verifier = SharedSecret::new("app", SHARED_SECRET).unwrap();
+
+        let mut session_a = Mls::new(provider.clone(), verifier.clone());
+        let mut session_b = Mls::new(provider.clone(), verifier.clone());
+
+        // First init generates + installs the app key; the second reuses it.
+        session_a.initialize().await?;
+        session_b.initialize().await?;
+
+        let key_a = session_a.identity_provider().get_signature_public_key()?;
+        let key_b = session_b.identity_provider().get_signature_public_key()?;
+        assert!(!key_a.is_empty(), "an MLS key must be installed");
+        assert_eq!(
+            key_a, key_b,
+            "all sessions of one app must share a single signing identity"
+        );
+
+        // Rotating the app key once is visible to every session/clone.
+        session_a.rotate_identity_key().await?;
+        let rotated_a = session_a.identity_provider().get_signature_public_key()?;
+        let rotated_b = session_b.identity_provider().get_signature_public_key()?;
+        assert_ne!(rotated_a, key_a, "rotation must install a new key");
+        assert_eq!(
+            rotated_a, rotated_b,
+            "a single rotation must update the identity for all sessions/clones"
+        );
+
         Ok(())
     }
 

@@ -132,11 +132,26 @@ pub trait TokenProvider {
         Err(AuthError::MlsNotSupported)
     }
 
+    /// Whether MLS-ciphersuite-correct signature keys have been installed via
+    /// [`set_signature_keys`].
+    ///
+    /// Providers may pre-populate placeholder keys at construction that are not
+    /// valid for the MLS ciphersuite in use (which is configurable and may
+    /// differ from the provider's default). The MLS layer uses this to decide
+    /// whether to generate a fresh key pair via its own crypto provider (first
+    /// use) or reuse the already-installed one — the latter lets an app and all
+    /// sessions cloned from it share a single signing identity. Defaults to
+    /// `false`.
+    fn mls_signature_keys_installed(&self) -> bool {
+        false
+    }
+
     /// Replace the MLS signature key pair with externally-generated keys.
     ///
     /// The MLS layer always generates ciphersuite-correct keys via its crypto
     /// provider and pushes them here so the identity provider can embed the
-    /// public key in tokens.
+    /// public key in tokens. Implementations should treat this as marking
+    /// [`mls_signature_keys_installed`] true.
     async fn set_signature_keys(
         &mut self,
         private_key: Vec<u8>,

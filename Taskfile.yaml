@@ -291,7 +291,6 @@ tasks:
     desc: "Run the tests"
     cmds:
       - ulimit -n 4096 2>/dev/null || true; cargo test {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
-      - task: core:test
     vars:
       ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
@@ -349,7 +348,6 @@ tasks:
       - task: test:coverage
         vars:
           ARGS: "--all-targets --locked --all-features"
-      - task: core:test
 
   core:test:
     desc: "Run core end to end tests"

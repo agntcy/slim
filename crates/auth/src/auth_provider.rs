@@ -258,6 +258,16 @@ impl TokenProvider for AuthProvider {
         }
     }
 
+    fn mls_signature_keys_installed(&self) -> bool {
+        match self {
+            AuthProvider::JwtSigner(signer) => signer.mls_signature_keys_installed(),
+            AuthProvider::StaticToken(provider) => provider.mls_signature_keys_installed(),
+            AuthProvider::SharedSecret(secret) => secret.mls_signature_keys_installed(),
+            #[cfg(not(target_family = "windows"))]
+            AuthProvider::Spire(spire) => spire.mls_signature_keys_installed(),
+        }
+    }
+
     async fn set_signature_keys(
         &mut self,
         private_key: Vec<u8>,

@@ -590,6 +590,11 @@ impl TokenProvider for SignerJwt {
         Ok(self.signature_keys.1.clone())
     }
 
+    fn mls_signature_keys_installed(&self) -> bool {
+        // Keys start empty and are only ever populated by `set_signature_keys`.
+        !self.signature_keys.0.is_empty()
+    }
+
     async fn set_signature_keys(
         &mut self,
         private_key: Vec<u8>,
