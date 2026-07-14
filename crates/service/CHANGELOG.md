@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1](https://github.com/agntcy/slim/compare/slim-service-v0.11.0...slim-service-v0.11.1) - 2026-07-14
+
+### Added
+
+- *(session)* use uuid for channel ids ([#1809](https://github.com/agntcy/slim/pull/1809))
+
 ## [0.11.0](https://github.com/agntcy/slim/compare/slim-service-v0.10.1...slim-service-v0.11.0) - 2026-07-06
 
 ### Added
