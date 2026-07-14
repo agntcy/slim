@@ -39,11 +39,6 @@ jobs:
   build-and-test:
     name: Build & test
     uses: ./.github/workflows/reusable-rust-build-and-test.yaml
-    with:
-      # wasm suites run nightly (ci-nightly): the browser suite is flaky
-      # (headless Chrome) and neither is on the PR critical path.
-      rust-test-wasm: false
-      rust-test-wasm-browser: false
 
   docker-build:
     name: Build SLIM docker image
