@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3](https://github.com/agntcy/slim/compare/slim-tracing-v0.4.2...slim-tracing-v0.4.3) - 2026-07-15
+
+### Added
+
+- add websocket supports for the browser ([#1775](https://github.com/agntcy/slim/pull/1775))
+
 ## [0.4.2](https://github.com/agntcy/slim/compare/slim-tracing-v0.4.1...slim-tracing-v0.4.2) - 2026-07-06
 
 ### Other
