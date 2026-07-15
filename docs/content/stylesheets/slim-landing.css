@@ -29,6 +29,8 @@
   --slim-feature-card-shadow: var(--slim-card-shadow);
   --slim-feature-icon-bg: rgb(255, 255, 255);
   --slim-feature-icon-border: var(--slim-border);
+  --slim-repobeats-bg: rgb(255, 255, 255);
+  --slim-repobeats-surface: rgb(245, 248, 253);
 }
 
 [data-md-color-scheme="slate"] {
@@ -41,6 +43,12 @@
   --slim-feature-card-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
   --slim-feature-icon-bg: var(--md-primary-fg-color);
   --slim-feature-icon-border: rgb(13, 39, 77);
+  --slim-repobeats-bg: var(--md-default-bg-color);
+  --slim-repobeats-surface: color-mix(
+    in srgb,
+    var(--md-default-bg-color) 88%,
+    var(--md-default-fg-color) 12%
+  );
 }
 
 /* Home page only: MkDocs chrome adjustments for full-bleed hero. */
@@ -483,7 +491,7 @@ body:has(.slim-landing) .md-main__inner {
   padding: 0.65rem;
   border-radius: 8px;
   border: 1px solid var(--slim-feature-card-border);
-  background: var(--md-default-bg-color);
+  background: var(--slim-repobeats-bg);
   min-height: 12rem;
 }
 
@@ -515,7 +523,7 @@ body:has(.slim-landing) .md-main__inner {
   padding: 0.55rem 0.65rem;
   border: 1px solid var(--slim-feature-card-border);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--md-default-bg-color) 88%, var(--md-default-fg-color) 12%);
+  background: var(--slim-repobeats-surface);
 }
 
 .slim-repobeats__row-head {
@@ -584,7 +592,7 @@ body:has(.slim-landing) .md-main__inner {
   padding: 0.55rem 0.65rem;
   border: 1px solid var(--slim-feature-card-border);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--md-default-bg-color) 88%, var(--md-default-fg-color) 12%);
+  background: var(--slim-repobeats-surface);
 }
 
 .slim-repobeats__card-label {
@@ -608,7 +616,7 @@ body:has(.slim-landing) .md-main__inner {
   padding: 0.55rem 0.65rem 0.35rem;
   border: 1px solid var(--slim-feature-card-border);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--md-default-bg-color) 88%, var(--md-default-fg-color) 12%);
+  background: var(--slim-repobeats-surface);
 }
 
 .slim-repobeats__contributors-label {

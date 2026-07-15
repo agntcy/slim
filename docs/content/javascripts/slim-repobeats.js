@@ -39,7 +39,7 @@ function showRepobeatsError(panel, repo) {
     '<p class="slim-repobeats__error">Could not load repository metrics. ' +
     '<a href="https://github.com/' +
     repo +
-    '/pulse" target="_blank" rel="noopener noreferrer">View activity on GitHub</a>.</p>';
+    '/pulse?period=monthly" target="_blank" rel="noopener noreferrer">View activity on GitHub</a>.</p>';
   panel.removeAttribute("aria-busy");
 }
 
