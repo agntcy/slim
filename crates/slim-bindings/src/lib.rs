@@ -60,8 +60,9 @@ mod service;
 mod session;
 mod transport_protocol;
 
-// SlimRPC module (unified core + UniFFI bindings)
-pub mod slimrpc;
+// SlimRPC lives in the standalone `agntcy-slim-rpc` crate. It re-exports these
+// `App`/`Name` types and layers its own UniFFI interface on top of them (behind
+// its `bindings` feature); slim-bindings itself no longer contains the RPC code.
 
 // Public re-exports
 pub use app::{App, Direction, SessionWithCompletion};
@@ -103,17 +104,6 @@ pub use session::{MlsSettings, Session, SessionConfig, SessionType};
 pub use transport_protocol::TransportProtocol;
 pub use transport_protocol::TransportProtocol as ClientTransportProtocol;
 pub use transport_protocol::TransportProtocol as ServerTransportProtocol;
-
-// SLIMRpc re-exports
-pub use slimrpc::{
-    BidiStreamHandler, Channel, Codec, Context, DEADLINE_KEY, DecodedStream, Decoder, Encoder,
-    HandlerType, InvalidRpcCode, MAX_TIMEOUT, MulticastBidiStreamHandler, MulticastResponseReader,
-    MulticastStreamMessage, RawStream, RequestStreamWriter, ResponseSink, ResponseStreamReader,
-    RpcCode, RpcError, RpcMessageContext, RpcMulticastItem, STATUS_CODE_KEY, Server,
-    SessionContext as RpcSessionContext, StreamMessage, StreamStreamHandler, StreamUnaryHandler,
-    UnaryStreamHandler, UnaryUnaryHandler, UniffiRequestStream as RequestStream,
-    build_method_subscription_name,
-};
 
 // UniFFI scaffolding setup (must be at crate root)
 uniffi::setup_scaffolding!();

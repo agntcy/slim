@@ -8,6 +8,11 @@
 //! - Stream-Unary: Streaming requests, single response
 //! - Unary-Stream: Single request, streaming responses
 //! - Stream-Stream: Streaming requests, streaming responses
+//!
+//! These exercise the UniFFI-facing surface of `agntcy-slim-rpc`, so they only
+//! build/run with the `bindings` feature enabled:
+//! `cargo test -p agntcy-slim-rpc --features bindings`.
+#![cfg(feature = "bindings")]
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -16,9 +21,11 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 use slim_bindings::{
-    App, Channel, Direction, IdentityProviderConfig, IdentityVerifierConfig,
-    MulticastStreamMessage, Name, RpcCode, RpcError, Server, StreamMessage, StreamStreamHandler,
-    StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler, initialize_with_defaults,
+    App, Direction, IdentityProviderConfig, IdentityVerifierConfig, Name, initialize_with_defaults,
+};
+use slim_rpc::{
+    Channel, MulticastStreamMessage, RpcCode, RpcError, Server, StreamMessage, StreamStreamHandler,
+    StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
 };
 
 // ============================================================================
@@ -33,7 +40,7 @@ impl UnaryUnaryHandler for EchoHandler {
     async fn handle(
         &self,
         request: Vec<u8>,
-        _context: Arc<slim_bindings::Context>,
+        _context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         // Echo the request back
         println!("EchoHandler received request: {request:?}");
@@ -49,7 +56,7 @@ impl UnaryUnaryHandler for ErrorHandler {
     async fn handle(
         &self,
         _request: Vec<u8>,
-        _context: Arc<slim_bindings::Context>,
+        _context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         Err(RpcError::new(
             RpcCode::InvalidArgument,
@@ -66,8 +73,8 @@ impl UnaryStreamHandler for CounterHandler {
     async fn handle(
         &self,
         request: Vec<u8>,
-        _context: Arc<slim_bindings::Context>,
-        sink: Arc<slim_bindings::ResponseSink>,
+        _context: Arc<slim_rpc::Context>,
+        sink: Arc<slim_rpc::ResponseSink>,
     ) -> Result<(), RpcError> {
         // Parse count from request (simple u32 encoding)
         let count = if request.len() >= 4 {
@@ -95,8 +102,8 @@ impl UnaryStreamHandler for StreamErrorHandler {
     async fn handle(
         &self,
         _request: Vec<u8>,
-        _context: Arc<slim_bindings::Context>,
-        sink: Arc<slim_bindings::ResponseSink>,
+        _context: Arc<slim_rpc::Context>,
+        sink: Arc<slim_rpc::ResponseSink>,
     ) -> Result<(), RpcError> {
         // Send a couple of messages
         sink.send_async(vec![1, 2, 3]).await?;
@@ -120,8 +127,8 @@ struct AccumulatorHandler;
 impl StreamUnaryHandler for AccumulatorHandler {
     async fn handle(
         &self,
-        stream: Arc<slim_bindings::RequestStream>,
-        _context: Arc<slim_bindings::Context>,
+        stream: Arc<slim_rpc::UniffiRequestStream>,
+        _context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         let mut total = 0u32;
         let mut count = 0u32;
@@ -154,8 +161,8 @@ struct StreamInputErrorHandler;
 impl StreamUnaryHandler for StreamInputErrorHandler {
     async fn handle(
         &self,
-        stream: Arc<slim_bindings::RequestStream>,
-        _context: Arc<slim_bindings::Context>,
+        stream: Arc<slim_rpc::UniffiRequestStream>,
+        _context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         let mut count = 0u32;
 
@@ -187,9 +194,9 @@ struct StreamEchoHandler;
 impl StreamStreamHandler for StreamEchoHandler {
     async fn handle(
         &self,
-        stream: Arc<slim_bindings::RequestStream>,
-        _context: Arc<slim_bindings::Context>,
-        sink: Arc<slim_bindings::ResponseSink>,
+        stream: Arc<slim_rpc::UniffiRequestStream>,
+        _context: Arc<slim_rpc::Context>,
+        sink: Arc<slim_rpc::ResponseSink>,
     ) -> Result<(), RpcError> {
         loop {
             match stream.next_async().await {
@@ -216,9 +223,9 @@ struct TransformHandler;
 impl StreamStreamHandler for TransformHandler {
     async fn handle(
         &self,
-        stream: Arc<slim_bindings::RequestStream>,
-        _context: Arc<slim_bindings::Context>,
-        sink: Arc<slim_bindings::ResponseSink>,
+        stream: Arc<slim_rpc::UniffiRequestStream>,
+        _context: Arc<slim_rpc::Context>,
+        sink: Arc<slim_rpc::ResponseSink>,
     ) -> Result<(), RpcError> {
         loop {
             match stream.next_async().await {
@@ -252,7 +259,7 @@ impl UnaryUnaryHandler for SlowUnaryHandler {
     async fn handle(
         &self,
         request: Vec<u8>,
-        _context: Arc<slim_bindings::Context>,
+        _context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         tokio::time::sleep(Duration::from_secs(2)).await;
         Ok(request)
@@ -271,8 +278,8 @@ impl UnaryStreamHandler for SlowStreamHandler {
     async fn handle(
         &self,
         _request: Vec<u8>,
-        _context: Arc<slim_bindings::Context>,
-        sink: Arc<slim_bindings::ResponseSink>,
+        _context: Arc<slim_rpc::Context>,
+        sink: Arc<slim_rpc::ResponseSink>,
     ) -> Result<(), RpcError> {
         *self.started.lock().await = true;
 
@@ -303,8 +310,8 @@ impl UnaryStreamHandler for SlowSetupStreamHandler {
     async fn handle(
         &self,
         _request: Vec<u8>,
-        _context: Arc<slim_bindings::Context>,
-        sink: Arc<slim_bindings::ResponseSink>,
+        _context: Arc<slim_rpc::Context>,
+        sink: Arc<slim_rpc::ResponseSink>,
     ) -> Result<(), RpcError> {
         *self.started.lock().await = true;
 
@@ -333,8 +340,8 @@ struct SlowStreamUnaryHandler {
 impl StreamUnaryHandler for SlowStreamUnaryHandler {
     async fn handle(
         &self,
-        stream: Arc<slim_bindings::RequestStream>,
-        _context: Arc<slim_bindings::Context>,
+        stream: Arc<slim_rpc::UniffiRequestStream>,
+        _context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         *self.started.lock().await = true;
 
@@ -373,9 +380,9 @@ struct SlowStreamStreamHandler {
 impl StreamStreamHandler for SlowStreamStreamHandler {
     async fn handle(
         &self,
-        stream: Arc<slim_bindings::RequestStream>,
-        _context: Arc<slim_bindings::Context>,
-        sink: Arc<slim_bindings::ResponseSink>,
+        stream: Arc<slim_rpc::UniffiRequestStream>,
+        _context: Arc<slim_rpc::Context>,
+        sink: Arc<slim_rpc::ResponseSink>,
     ) -> Result<(), RpcError> {
         *self.started.lock().await = true;
 
@@ -410,7 +417,7 @@ impl UnaryUnaryHandler for LongRunningHandler {
     async fn handle(
         &self,
         request: Vec<u8>,
-        _context: Arc<slim_bindings::Context>,
+        _context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         *self.started.lock().await = true;
         println!("LongRunningHandler started, will run for 5 seconds");
@@ -434,7 +441,7 @@ impl UnaryUnaryHandler for DeadlineCaptureHandler {
     async fn handle(
         &self,
         request: Vec<u8>,
-        context: Arc<slim_bindings::Context>,
+        context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         *self.captured_deadline.lock().await = Some(context.deadline());
         Ok(request)
@@ -1059,7 +1066,7 @@ impl UnaryUnaryHandler for ContextInfoHandler {
     async fn handle(
         &self,
         _request: Vec<u8>,
-        context: Arc<slim_bindings::Context>,
+        context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         // Access context information
         let session_id = context.session_id();
@@ -1083,7 +1090,7 @@ impl UnaryUnaryHandler for ContextValidationHandler {
     async fn handle(
         &self,
         _request: Vec<u8>,
-        context: Arc<slim_bindings::Context>,
+        context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         // Capture session ID
         let session_id = context.session_id();

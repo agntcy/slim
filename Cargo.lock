@@ -92,12 +92,8 @@ dependencies = [
  "agntcy-slim-signal",
  "agntcy-slim-tracing",
  "agntcy-slim-version",
- "async-stream",
- "async-trait",
- "bincode",
  "clap",
  "display-error-chain",
- "drain",
  "futures",
  "futures-timer",
  "parking_lot",
@@ -106,12 +102,8 @@ dependencies = [
  "test-fork",
  "thiserror 2.0.18",
  "tokio",
- "tokio-stream",
- "tokio-test",
  "tracing",
- "tracing-test",
  "uniffi",
- "uuid",
 ]
 
 [[package]]
@@ -369,31 +361,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "agntcy-slim-rpc"
-version = "0.1.0"
-dependencies = [
- "agntcy-slim-auth",
- "agntcy-slim-config",
- "agntcy-slim-datapath",
- "agntcy-slim-service",
- "agntcy-slim-session",
- "async-stream",
- "async-trait",
- "bincode",
- "display-error-chain",
- "drain",
- "futures",
- "futures-timer",
- "parking_lot",
- "thiserror 2.0.18",
- "tokio",
- "tokio-stream",
- "tracing",
- "tracing-test",
- "uuid",
-]
-
-[[package]]
 name = "agntcy-slim-service"
 version = "0.11.0"
 dependencies = [
@@ -549,6 +516,33 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "url",
+ "uuid",
+]
+
+[[package]]
+name = "agntcy-slimrpc"
+version = "0.1.0"
+dependencies = [
+ "agntcy-slim-auth",
+ "agntcy-slim-bindings",
+ "agntcy-slim-config",
+ "agntcy-slim-datapath",
+ "agntcy-slim-service",
+ "agntcy-slim-session",
+ "async-stream",
+ "async-trait",
+ "bincode",
+ "display-error-chain",
+ "drain",
+ "futures",
+ "futures-timer",
+ "parking_lot",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "tracing-test",
+ "uniffi",
  "uuid",
 ]
 

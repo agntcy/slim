@@ -241,6 +241,7 @@ fn continuation_metadata(rpc_id: &str) -> Metadata {
 ///   - **Many members**: creates a GROUP channel with a generated session name
 ///     and auto-invites all members on the first multicast call.
 #[derive(Clone)]
+#[cfg_attr(feature = "bindings", derive(uniffi::Object))]
 pub struct Channel {
     app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
     /// Session destination: the remote server name for P2P channels, or a
@@ -880,8 +881,9 @@ impl Channel {
     }
 }
 
-// ── UniFFI exports ────────────────────────────────────────────────────────────
+// ── Native constructors ─────────────────────────────────────────────────────
 
+#[cfg(not(feature = "bindings"))]
 impl Channel {
     pub fn new(app: Arc<SlimApp<AuthProvider, AuthVerifier>>, remote: Arc<Name>) -> Self {
         Self::new_with_connection(app, remote, None)
@@ -914,7 +916,52 @@ impl Channel {
         let slim_names = members.iter().map(|n| n.as_ref().clone()).collect();
         Self::new_with_members_internal(slim_app, slim_names, true, connection_id)
     }
+}
 
+// ── UniFFI exports ────────────────────────────────────────────────────────────
+
+#[cfg(feature = "bindings")]
+#[uniffi::export]
+impl Channel {
+    #[uniffi::constructor]
+    pub fn new(app: Arc<slim_bindings::App>, remote: Arc<slim_bindings::Name>) -> Self {
+        Self::new_with_connection(app, remote, None)
+    }
+
+    #[uniffi::constructor]
+    pub fn new_with_connection(
+        app: Arc<slim_bindings::App>,
+        remote: Arc<slim_bindings::Name>,
+        connection_id: Option<u64>,
+    ) -> Self {
+        let slim_app = app.inner_app().clone();
+        let slim_name = remote.as_slim_name().clone();
+        Self::new_with_members_internal(slim_app, vec![slim_name], false, connection_id)
+            .expect("single non-empty member list is always valid")
+    }
+
+    #[uniffi::constructor]
+    pub fn new_group(
+        app: Arc<slim_bindings::App>,
+        members: Vec<Arc<slim_bindings::Name>>,
+    ) -> Result<Self, RpcError> {
+        Self::new_group_with_connection(app, members, None)
+    }
+
+    #[uniffi::constructor]
+    pub fn new_group_with_connection(
+        app: Arc<slim_bindings::App>,
+        members: Vec<Arc<slim_bindings::Name>>,
+        connection_id: Option<u64>,
+    ) -> Result<Self, RpcError> {
+        let slim_app = app.inner_app().clone();
+        let slim_names = members.iter().map(|n| n.as_slim_name().clone()).collect();
+        Self::new_with_members_internal(slim_app, slim_names, true, connection_id)
+    }
+}
+
+#[cfg_attr(feature = "bindings", uniffi::export)]
+impl Channel {
     pub fn call_unary(
         &self,
         service_name: String,

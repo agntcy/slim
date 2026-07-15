@@ -94,6 +94,11 @@
 
 use slim_datapath::api::ProtoName as Name;
 
+// UniFFI scaffolding setup (must be at crate root). Only emitted when the
+// `bindings` feature exposes the foreign-language interface.
+#[cfg(feature = "bindings")]
+uniffi::setup_scaffolding!();
+
 /// Build a method-specific subscription name (base-service-method)
 ///
 /// This creates a subscription name in the format: `org/namespace/app-service-method`
@@ -131,8 +136,17 @@ mod session_wrapper;
 mod handler_traits;
 mod stream_types;
 
+// Process-global runtime for the synchronous convenience wrappers.
+//
+// In native builds SlimRPC owns its own runtime. When the `bindings` feature is
+// enabled the crate shares the runtime managed by `agntcy-slim-bindings` so that
+// RPC calls run on the same runtime as the owning `App`.
+#[cfg(not(feature = "bindings"))]
 mod runtime;
+#[cfg(not(feature = "bindings"))]
 pub use runtime::get_runtime;
+#[cfg(feature = "bindings")]
+pub use slim_bindings::get_runtime;
 
 pub use channel::{Channel, MessageContext, MulticastItem};
 pub use codec::{Codec, Decoder, Encoder};

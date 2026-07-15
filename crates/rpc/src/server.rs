@@ -305,6 +305,7 @@ type ServeHandleResult = (NotificationReceiver, Result<(), RpcError>);
 /// # Ok(())
 /// # }
 /// ```
+#[cfg_attr(feature = "bindings", derive(uniffi::Object))]
 pub struct Server {
     /// The SLIM app instance
     app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
@@ -1183,7 +1184,63 @@ impl Server {
     }
 }
 
+// UniFFI constructors taking the `agntcy-slim-bindings` `App`/`Name` wrappers.
+#[cfg(feature = "bindings")]
+#[uniffi::export]
+impl Server {
+    /// Create a new RPC server
+    ///
+    /// This is the primary constructor for creating an RPC server instance
+    /// that can handle incoming RPC requests over SLIM.
+    ///
+    /// # Arguments
+    /// * `app` - The SLIM application instance that provides the underlying
+    ///   network transport and session management
+    /// * `base_name` - The base name for this service (e.g., org.namespace.service).
+    ///   This name is used to construct subscription names for RPC methods.
+    ///
+    /// # Returns
+    /// A new RPC server instance wrapped in an Arc for shared ownership
+    #[uniffi::constructor]
+    pub fn new(app: &Arc<slim_bindings::App>, base_name: Arc<slim_bindings::Name>) -> Self {
+        Self::new_with_connection(app, base_name, None)
+    }
+
+    /// Create a new RPC server with optional connection ID
+    ///
+    /// The connection ID is used to set up routing before serving RPC requests,
+    /// enabling multi-hop RPC calls through specific connections.
+    ///
+    /// # Arguments
+    /// * `app` - The SLIM application instance that provides the underlying
+    ///   network transport and session management
+    /// * `base_name` - The base name for this service (e.g., org.namespace.service).
+    ///   This name is used to construct subscription names for RPC methods.
+    /// * `connection_id` - Optional connection ID for routing setup
+    ///
+    /// # Returns
+    /// A new RPC server instance wrapped in an Arc for shared ownership
+    #[uniffi::constructor]
+    pub fn new_with_connection(
+        app: &Arc<slim_bindings::App>,
+        base_name: Arc<slim_bindings::Name>,
+        connection_id: Option<u64>,
+    ) -> Self {
+        let app_inner = app.inner();
+        let rx = app.notification_receiver();
+
+        Self::new_with_shared_rx_and_connection(
+            app_inner,
+            base_name.as_ref().into(),
+            connection_id,
+            rx,
+            Some(crate::get_runtime()),
+        )
+    }
+}
+
 // UniFFI-compatible methods for foreign language bindings
+#[cfg_attr(feature = "bindings", uniffi::export)]
 impl Server {
     /// Register a unary-to-unary RPC handler
     ///

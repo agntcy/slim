@@ -8,7 +8,6 @@ description = "UniFFI bindings and FFI adapter for SLIM data plane - enables lan
 
 [lib]
 name = "slim_bindings"
-crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
 agntcy-slim = { workspace = true }
@@ -22,10 +21,7 @@ agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 agntcy-slim-version = { workspace = true }
 
-async-stream = { workspace = true }
-async-trait = { workspace = true }
 display-error-chain = { workspace = true }
-drain = { workspace = true }
 futures = { workspace = true }
 futures-timer = { workspace = true }
 parking_lot = { workspace = true }
@@ -33,21 +29,16 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tokio-stream = { workspace = true }
 tracing = { workspace = true }
 uniffi = { workspace = true, features = ["cli"] }
-uuid = { workspace = true }
 
 [build-dependencies]
 agntcy-slim-version = { workspace = true }
 uniffi = { workspace = true, features = ["build"] }
 
 [dev-dependencies]
-bincode = { workspace = true }
 clap = { workspace = true }
 test-fork = { workspace = true }
-tokio-test = { workspace = true }
-tracing-test = { workspace = true }
 
 [[example]]
 name = "receiver"
