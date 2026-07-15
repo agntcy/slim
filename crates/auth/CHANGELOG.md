@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0](https://github.com/agntcy/slim/compare/slim-auth-v0.11.0...slim-auth-v0.12.0) - 2026-07-15
+
+### Added
+
+- *(mls)* share one signing identity across an app and its sessions ([#1825](https://github.com/agntcy/slim/pull/1825))
+- add websocket supports for the browser ([#1775](https://github.com/agntcy/slim/pull/1775))
+
 ## [0.11.0](https://github.com/agntcy/slim/compare/slim-auth-v0.10.0...slim-auth-v0.11.0) - 2026-07-01
 
 ### Added
