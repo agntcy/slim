@@ -5,11 +5,14 @@
 name = "agntcy-slim-rpc"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.1.0"
+version.workspace = true
 description = "SlimRPC: a gRPC-like RPC framework over SLIM (native Rust)."
 
 [lib]
 name = "slim_rpc"
+
+[features]
+uniffi = ["dep:uniffi"]
 
 [dependencies]
 agntcy-slim-auth = { workspace = true }
@@ -27,6 +30,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tracing = { workspace = true }
+uniffi = { workspace = true, optional = true }
 uuid = { workspace = true }
 
 [dev-dependencies]

@@ -9,6 +9,7 @@ use std::fmt;
 
 /// gRPC status codes
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[repr(u16)]
 pub enum RpcCode {
     /// Success
@@ -144,6 +145,7 @@ impl std::error::Error for InvalidRpcCode {}
 ///
 /// This represents RPC errors with gRPC-compatible status codes.
 #[derive(Debug, Clone, thiserror::Error)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum RpcError {
     #[error("{message}")]
     Rpc {

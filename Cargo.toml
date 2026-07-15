@@ -49,7 +49,7 @@ agntcy-slim-controller = { path = "crates/controller", version = "0.10.0" }
 agntcy-slim-datapath = { path = "crates/datapath", version = "0.16.1" }
 agntcy-slim-mls = { path = "crates/mls", version = "0.2.1" }
 agntcy-slim-proto = { path = "crates/proto", version = "0.2.0" }
-agntcy-slim-rpc = { path = "crates/rpc", version = "0.1.0" }
+agntcy-slim-rpc = { path = "crates/rpc", version = "2.0.0-alpha.2" }
 agntcy-slim-service = { path = "crates/service", version = "0.11.0", default-features = false }
 agntcy-slim-session = { path = "crates/session", version = "0.5.0" }
 agntcy-slim-signal = { path = "crates/signal", version = "0.1.10" }
@@ -231,6 +231,7 @@ ignored = [
     "agntcy-slim-controller",
     "agntcy-slim-datapath",
     "agntcy-slim-mls",
+    "agntcy-slim-rpc",
     "agntcy-slim-service",
     "agntcy-slim-session",
     "agntcy-slim-signal",
