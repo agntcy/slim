@@ -80,6 +80,13 @@
     "aliases": []
   },
   {
+    "version": "slim-rpc-v2.0.0-alpha.3",
+    "title": "slim-rpc-v2.0.0-alpha.3",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-mls-v0.2.1",
     "title": "slim-mls-v0.2.1",
     "aliases": []
@@ -112,9 +119,7 @@
   {
     "version": "slim-control-plane-v2.0.0-alpha.3",
     "title": "slim-control-plane-v2.0.0-alpha.3",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-control-plane-v2.0.0-alpha.2",
