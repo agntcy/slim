@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.3](https://github.com/agntcy/slim/compare/slim-control-plane-v2.0.0-alpha.2...slim-control-plane-v2.0.0-alpha.3) - 2026-07-15
+
+### Added
+
+- group registration via slimctl ([#1795](https://github.com/agntcy/slim/pull/1795))
+
+### Fixed
+
+- *(control-plane)* re-expand routes when a node reconnects over a claimed link ([#1836](https://github.com/agntcy/slim/pull/1836))
+- separate server connection config ([#1778](https://github.com/agntcy/slim/pull/1778))
+
+### Other
+
+- *(control-plane)* fix auth-link flake by making the connector dialer-only ([#1831](https://github.com/agntcy/slim/pull/1831))
+- *(control-plane)* de-flake integration tests ([#1829](https://github.com/agntcy/slim/pull/1829))
+
 ## [2.0.0-alpha.2](https://github.com/agntcy/slim/releases/tag/slim-control-plane-v2.0.0-alpha.2) - 2026-07-01
 
 ### Added
