@@ -106,7 +106,6 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
 
     if: ${{ inputs.rust-test }}
-    needs: [lint]
     steps:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -152,7 +151,6 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
 
     if: ${{ inputs.rust-test-wasm }}
-    needs: [lint]
     steps:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -205,7 +203,6 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
 
     if: ${{ inputs.rust-test-wasm-browser }}
-    needs: [lint]
 
     timeout-minutes: 30
     steps:
@@ -282,8 +279,6 @@ jobs:
       run:
         shell: bash
         working-directory: ${{ inputs.working-directory }}
-
-    needs: [lint]
 
     if: ${{ inputs.rust-cross-build }}
 
