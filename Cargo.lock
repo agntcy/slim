@@ -367,7 +367,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-rpc"
-version = "0.1.0"
+version = "2.0.0-alpha.2"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
