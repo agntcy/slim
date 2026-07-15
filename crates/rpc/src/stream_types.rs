@@ -160,6 +160,7 @@ impl StreamSource {
 /// Allows pulling messages from a client request stream.
 /// This wraps the underlying async stream and provides a blocking interface
 /// suitable for UniFFI callback traits.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct RequestStream {
     /// Inner stream wrapped in a mutex for interior mutability
     inner: TokioMutex<DecodedStream<Vec<u8>>>,
@@ -174,6 +175,7 @@ impl RequestStream {
     }
 }
 
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl RequestStream {
     /// Pull the next message from the stream (blocking version)
     ///
@@ -196,6 +198,7 @@ impl RequestStream {
 }
 
 /// Message from a stream
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum StreamMessage {
     /// Successfully received data
     Data(Vec<u8>),
@@ -210,6 +213,7 @@ pub enum StreamMessage {
 /// Allows pushing messages to a client response stream.
 /// This wraps an async channel sender and provides a blocking interface
 /// suitable for UniFFI callback traits.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct ResponseSink {
     /// Channel sender for streaming responses (None when closed)
     sender: Mutex<Option<RpcBytesSender>>,
@@ -231,6 +235,7 @@ impl ResponseSink {
     }
 }
 
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl ResponseSink {
     /// Send a message to the response stream (blocking version)
     ///
@@ -310,6 +315,7 @@ impl ResponseSink {
 /// Response stream reader for unary-to-stream RPC calls
 ///
 /// Allows pulling messages from a server response stream one at a time.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct ResponseStreamReader {
     /// Inner receiver channel for stream messages
     inner: TokioMutex<UnboundedReceiver<Result<Vec<u8>, RpcError>>>,
@@ -324,6 +330,7 @@ impl ResponseStreamReader {
     }
 }
 
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl ResponseStreamReader {
     /// Pull the next message from the response stream (blocking version)
     ///
@@ -348,6 +355,7 @@ impl ResponseStreamReader {
 /// Request stream writer for stream-to-unary RPC calls
 ///
 /// Allows sending multiple request messages and getting a final response.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct RequestStreamWriter {
     sender: TokioMutex<Option<UnboundedSender<Vec<u8>>>>,
     response: TokioMutex<Option<RpcBytesJoinHandle>>,
@@ -395,6 +403,7 @@ impl RequestStreamWriter {
     }
 }
 
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl RequestStreamWriter {
     /// Send a request message to the stream (blocking version)
     pub fn send(&self, data: Vec<u8>) -> Result<(), RpcError> {
@@ -443,6 +452,7 @@ impl RequestStreamWriter {
     }
 }
 
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl RequestStreamWriter {
     /// Finalize the stream and get the response (async version)
     ///
@@ -455,6 +465,7 @@ impl RequestStreamWriter {
 /// Bidirectional stream handler for stream-to-stream RPC calls
 ///
 /// Allows sending and receiving messages concurrently.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct BidiStreamHandler {
     sender: TokioMutex<Option<UnboundedSender<Vec<u8>>>>,
     receiver: TokioMutex<UnboundedReceiver<Result<Vec<u8>, RpcError>>>,
@@ -504,6 +515,7 @@ impl BidiStreamHandler {
     }
 }
 
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl BidiStreamHandler {
     /// Send a request message to the stream (blocking version)
     pub fn send(&self, data: Vec<u8>) -> Result<(), RpcError> {
@@ -586,6 +598,7 @@ pub enum MulticastStreamMessage {
 ///
 /// Allows pulling `RpcMulticastItem`s from a GROUP response stream one at a
 /// time. Each item carries the source member's identity alongside the payload.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct MulticastResponseReader {
     inner: TokioMutex<UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>>,
 }
@@ -639,6 +652,7 @@ impl MulticastResponseReader {
 /// close the request stream via [`close_send`](Self::close_send), and receive
 /// responses via [`recv`](Self::recv) / [`recv_async`](Self::recv_async). Each
 /// response item carries the source member's identity.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct MulticastBidiStreamHandler {
     sender: TokioMutex<Option<UnboundedSender<Vec<u8>>>>,
     receiver: TokioMutex<UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>>,

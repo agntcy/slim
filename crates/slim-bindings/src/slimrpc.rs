@@ -92,174 +92,39 @@
 //! # }
 //! ```
 
-use slim_datapath::api::ProtoName as Name;
-
-/// Build a method-specific subscription name (base-service-method)
-///
-/// This creates a subscription name in the format: `org/namespace/app-service-method`
-/// matching the Python implementation's `handler_name_to_pyname`.
-///
-/// # Arguments
-/// * `base_name` - The base name (e.g., "org/namespace/app")
-/// * `service_name` - The service name (e.g., "MyService")
-/// * `method_name` - The method name (e.g., "MyMethod")
-///
-/// # Panics
-/// Panics if base_name doesn't have at least 3 components
-pub fn build_method_subscription_name(
-    base_name: &Name,
-    service_name: &str,
-    method_name: &str,
-) -> Name {
-    let (c0, c1, c2) = base_name.str_components();
-
-    // Create subscription name: org/namespace/app-service-method
-    let app_with_method = format!("{c2}-{service_name}-{method_name}");
-
-    Name::from_strings([c0, c1, &app_with_method])
-}
-
+// FFI wrapper modules: thin UniFFI-facing newtype wrappers over the
+// corresponding `slim_rpc` types. All the RPC logic lives in the
+// `agntcy-slim-rpc` crate; these modules only adapt the public UniFFI API
+// (FFI `crate::App` / `crate::Name` parameters).
 mod channel;
-mod codec;
-mod context;
-mod error;
-mod rpc_session;
 mod server;
-mod session_wrapper;
-
-// UniFFI-specific modules
-mod handler_traits;
 mod stream_types;
 
-pub use channel::{Channel, MessageContext, MulticastItem};
-pub use codec::{Codec, Decoder, Encoder};
-pub use context::{Context, Metadata, SessionContext};
-pub use error::{InvalidRpcCode, RpcCode, RpcError};
-pub use rpc_session::{
-    HandlerInfo, RpcSession, send_eos, send_error, send_error_for_rpc, send_response_stream,
-};
-pub use server::{HandlerType, RpcHandler, Server, StreamRpcHandler};
-pub use session_wrapper::{ReceivedMessage, SessionRx, SessionTx, new_session};
+pub use channel::Channel;
+pub use server::Server;
 
-// UniFFI handler traits and stream types
-pub use handler_traits::{
-    StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
+// Core RPC types re-exported from the `slim_rpc` crate (single source of truth).
+pub use slim_rpc::{
+    Codec, Context, Decoder, Encoder, HandlerInfo, HandlerType, InvalidRpcCode, MessageContext,
+    Metadata, MulticastItem, ReceivedMessage, RpcCode, RpcError, RpcHandler, RpcSession,
+    SessionContext, SessionRx, SessionTx, StreamRpcHandler, StreamStreamHandler,
+    StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler, build_method_subscription_name,
+    calculate_deadline, calculate_timeout_duration, new_session, send_eos, send_error,
+    send_error_for_rpc, send_response_stream,
 };
+
+// Metadata keys, timeout constant and RPC type aliases re-exported from `slim_rpc`.
+pub use slim_rpc::{
+    DEADLINE_KEY, MAX_TIMEOUT, METHOD_KEY, RPC_DIR_KEY, RPC_DIR_REQ, RPC_ID_KEY, RequestStream,
+    ResponseStream, Result, SERVICE_KEY, STATUS_CODE_KEY,
+};
+
+// UniFFI stream types. Non-multicast types come straight from `slim_rpc`; the
+// multicast types are re-exported from the local `stream_types` module because
+// their FFI-facing versions use `crate::Name` (see `stream_types.rs`).
 pub use stream_types::{
     BidiStreamHandler, DecodedStream, MulticastBidiStreamHandler, MulticastResponseReader,
     MulticastStreamMessage, RawStream, RequestStream as UniffiRequestStream, RequestStreamWriter,
     ResponseSink, ResponseStreamReader, RpcMessageContext, RpcMulticastItem, StreamMessage,
     StreamSource,
 };
-
-/// Key used in metadata for RPC deadline/timeout
-pub const DEADLINE_KEY: &str = "slimrpc-timeout";
-
-/// Key used in metadata for RPC status code
-pub const STATUS_CODE_KEY: &str = "slimrpc-code";
-
-/// Key used in metadata for RPC call ID (used for session multiplexing)
-pub const RPC_ID_KEY: &str = "rpc-id";
-
-/// Key used in metadata for the RPC service name
-pub const SERVICE_KEY: &str = "service";
-
-/// Key used in metadata for the RPC method name
-pub const METHOD_KEY: &str = "method";
-
-/// Key used in metadata to mark a message as a client request.
-/// Present on all client-originated messages (data frames and EOS).
-/// Absent on server responses so the server can tell them apart.
-pub const RPC_DIR_KEY: &str = "slimrpc-dir";
-
-/// Value for [`RPC_DIR_KEY`] that marks a message as a client request.
-pub const RPC_DIR_REQ: &str = "req";
-
-/// Maximum timeout in seconds (10 hours)
-pub const MAX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(36000);
-
-/// Calculate timeout duration from optional timeout
-///
-/// Returns the provided timeout or MAX_TIMEOUT if None.
-/// This is the single point of truth for timeout duration calculation in SlimRPC.
-pub fn calculate_timeout_duration(timeout: Option<std::time::Duration>) -> std::time::Duration {
-    timeout.unwrap_or(MAX_TIMEOUT)
-}
-
-/// Calculate deadline from optional timeout duration
-///
-/// Returns now + timeout_duration (or now + MAX_TIMEOUT if None).
-/// If overflow occurs, falls back to now + MAX_TIMEOUT.
-/// This is the single point of truth for deadline calculation in SlimRPC.
-pub fn calculate_deadline(timeout: Option<std::time::Duration>) -> std::time::SystemTime {
-    let timeout_duration = timeout.unwrap_or(MAX_TIMEOUT);
-    std::time::SystemTime::now()
-        .checked_add(timeout_duration)
-        .unwrap_or_else(|| std::time::SystemTime::now() + MAX_TIMEOUT)
-}
-
-/// Result type for SlimRPC operations
-pub type Result<T> = std::result::Result<T, RpcError>;
-
-/// Type alias for request streams in stream-based RPC handlers
-///
-/// This represents a pinned, boxed stream of requests that can be used
-/// in stream-unary and stream-stream RPC handlers.
-///
-/// # Example
-///
-/// ```no_run
-/// # use slim_bindings::{RpcError, Decoder, Encoder};
-/// # use futures::StreamExt;
-/// # use futures::stream::BoxStream;
-/// # #[derive(Default)]
-/// # struct MyRequest {}
-/// # impl Decoder for MyRequest {
-/// #     fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> { Ok(MyRequest::default()) }
-/// # }
-/// # #[derive(Default)]
-/// # struct MyResponse {}
-/// # impl Encoder for MyResponse {
-/// #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
-/// # }
-/// async fn handler(mut stream: BoxStream<'static, Result<MyRequest, RpcError>>) -> Result<MyResponse, RpcError> {
-///     while let Some(request) = stream.next().await {
-///         let req = request?;
-///         // Process request
-///     }
-///     Ok(MyResponse::default())
-/// }
-/// ```
-pub type RequestStream<T> = futures::stream::BoxStream<'static, Result<T>>;
-
-/// Type alias for response streams in stream-based RPC handlers
-///
-/// This represents a stream of responses that can be returned from
-/// unary-stream and stream-stream RPC handlers.
-///
-/// Note: While this type can represent the return value, handlers typically
-/// return concrete stream types (like those from `futures::stream::iter`) which
-/// are then automatically converted.
-///
-/// # Example
-///
-/// ```no_run
-/// # use slim_bindings::{RpcError, Decoder, Encoder};
-/// # type Result<T> = std::result::Result<T, RpcError>;
-/// # use futures::stream::{self, Stream};
-/// # #[derive(Default, Clone)]
-/// # struct MyRequest {}
-/// # impl Decoder for MyRequest {
-/// #     fn decode(_buf: impl Into<Vec<u8>>) -> std::result::Result<Self, RpcError> { Ok(MyRequest::default()) }
-/// # }
-/// # #[derive(Default, Clone)]
-/// # struct MyResponse {}
-/// # impl Encoder for MyResponse {
-/// #     fn encode(self) -> std::result::Result<Vec<u8>, RpcError> { Ok(vec![]) }
-/// # }
-/// async fn handler(request: MyRequest) -> std::result::Result<impl Stream<Item = Result<MyResponse>>, RpcError> {
-///     let responses = vec![MyResponse::default(), MyResponse::default(), MyResponse::default()];
-///     Ok(stream::iter(responses.into_iter().map(Ok)))
-/// }
-/// ```
-pub type ResponseStream<T> = futures::stream::BoxStream<'static, Result<T>>;
