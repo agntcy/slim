@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.4](https://github.com/agntcy/slim/compare/slim-bindings-v2.0.0-alpha.3...slim-bindings-v2.0.0-alpha.4) - 2026-07-15
+
+### Other
+
+- release ([#1853](https://github.com/agntcy/slim/pull/1853))
+- *(slim-bindings)* reuse agntcy-slim-rpc, drop duplicated slimrpc ([#1850](https://github.com/agntcy/slim/pull/1850))
+- move slim-bindings back to slim core ([#1846](https://github.com/agntcy/slim/pull/1846))
+
 ## [2.0.0-alpha.3](https://github.com/agntcy/slim/compare/slim-bindings-v2.0.0-alpha.2...slim-bindings-v2.0.0-alpha.3) - 2026-07-15
 
 ### Other

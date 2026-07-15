@@ -42,7 +42,7 @@ resolver = "2"
 # Local dependencies
 agntcy-slim = { path = "crates/slim", version = "2.0.0-alpha.3" }
 agntcy-slim-auth = { path = "crates/auth", version = "0.12.0" }
-agntcy-slim-bindings = { path = "crates/slim-bindings", version = "2.0.0-alpha.3" }
+agntcy-slim-bindings = { path = "crates/slim-bindings", version = "2.0.0-alpha.4" }
 agntcy-slim-config = { path = "crates/config", version = "0.12.1" }
 agntcy-slim-control-plane = { path = "crates/control-plane", version = "2.0.0-alpha.3" }
 agntcy-slim-controller = { path = "crates/controller", version = "0.11.0" }
