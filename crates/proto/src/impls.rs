@@ -2278,7 +2278,7 @@ mod message_tests {
 
     #[test]
     fn test_service_type_to_int() {
-        let total_service_types = SessionMessageType::Ping as i32;
+        let total_service_types = SessionMessageType::RejoinReply as i32;
         for i in 0..total_service_types {
             let service_type =
                 SessionMessageType::try_from(i).expect("failed to convert int to service type");

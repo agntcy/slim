@@ -585,12 +585,13 @@ impl SessionController {
             .map_err(|_e| SessionError::SessionControllerSendFailed)
     }
 
-    /// Pause the session: notifies the group that this participant is going offline.
+    /// Close the session: notifies the group that this participant is going offline.
     /// The returned CompletionHandle resolves when ACKs are collected.
-    /// After completion, the caller should persist the session state and close.
-    pub async fn pause(&self) -> Result<CompletionHandle, SessionError> {
+    /// After completion, the caller should persist the session state and may
+    /// later rejoin using `rejoin()`.
+    pub async fn close(&self) -> Result<CompletionHandle, SessionError> {
         if self.session_type() == ProtoSessionType::PointToPoint {
-            return Err(SessionError::CannotPauseP2P);
+            return Err(SessionError::CannotCloseP2P);
         }
 
         let msg = Message::builder()
@@ -612,12 +613,12 @@ impl SessionController {
         self.publish_message(msg).await
     }
 
-    /// Resume the session: sends a RejoinRequest to the moderator.
+    /// Rejoin the session: sends a RejoinRequest to the moderator.
     /// The MLS epoch is filled in by the session handler before sending.
     /// The returned CompletionHandle resolves when the moderator replies.
-    pub async fn resume(&self) -> Result<CompletionHandle, SessionError> {
+    pub async fn rejoin(&self) -> Result<CompletionHandle, SessionError> {
         if self.session_type() == ProtoSessionType::PointToPoint {
-            return Err(SessionError::CannotResumeP2P);
+            return Err(SessionError::CannotRejoinP2P);
         }
         let msg = Message::builder()
             .source(self.source().clone())
@@ -642,7 +643,7 @@ impl SessionController {
         self.publish_message(msg).await
     }
 
-    pub fn close(&self) -> Result<tokio::task::JoinHandle<()>, SessionError> {
+    pub fn leave(&self) -> Result<tokio::task::JoinHandle<()>, SessionError> {
         self.cancellation_token.cancel();
 
         self.handle
@@ -1507,7 +1508,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_close_success() {
+    async fn test_leave_success() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_graceful_shutdown_timeout(std::time::Duration::from_secs(2))
             .build();
@@ -1515,7 +1516,7 @@ mod tests {
         let token = controller.cancellation_token.clone();
         assert!(!token.is_cancelled());
 
-        let handle = controller.close();
+        let handle = controller.leave();
         assert!(handle.is_ok(), "got error {}", handle.unwrap_err());
         assert!(token.is_cancelled());
 
@@ -1527,19 +1528,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_close_already_closed() {
+    async fn test_leave_already_left() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
 
-        // Close once - should succeed
-        let handle = controller.close();
+        // Leave once - should succeed
+        let handle = controller.leave();
         assert!(handle.is_ok());
         handle
             .unwrap()
             .await
             .expect("processing task should complete");
 
-        // Close again - should fail with appropriate error
-        let result = controller.close();
+        // Leave again - should fail with appropriate error
+        let result = controller.leave();
         assert!(result.is_err());
         match result {
             Err(SessionError::SessionAlreadyClosed) => {
@@ -1550,16 +1551,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_close_cancels_token_immediately() {
+    async fn test_leave_cancels_token_immediately() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
 
         let token = controller.cancellation_token.clone();
 
-        // Verify token is not cancelled before close
+        // Verify token is not cancelled before leave
         assert!(!token.is_cancelled());
 
-        // Close returns immediately after cancelling token
-        let handle = controller.close();
+        // Leave returns immediately after cancelling token
+        let handle = controller.leave();
         assert!(handle.is_ok());
 
         // Token should be cancelled immediately

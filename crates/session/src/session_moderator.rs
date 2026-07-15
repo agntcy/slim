@@ -227,12 +227,19 @@ where
                 timeouts,
             } => {
                 if message_type.is_command_message() {
-                    self.handle_failure(
-                        message_id,
-                        message_type,
-                        SessionError::MessageSendRetryFailed { id: message_id },
-                    )
-                    .await?;
+                    if let Some(state_output) = self
+                        .handle_state_update_failure_on_moderator_rejoin(message_id, message_type)
+                        .await?
+                    {
+                        output.extend(state_output);
+                    } else {
+                        self.handle_failure(
+                            message_id,
+                            message_type,
+                            SessionError::MessageSendRetryFailed { id: message_id },
+                        )
+                        .await?;
+                    }
                 } else {
                     output.extend(
                         self.inner
@@ -431,33 +438,7 @@ where
         message_type: ProtoSessionMessageType,
         error: SessionError,
     ) -> Result<(), SessionError> {
-        let missing = self.common.sender.on_failure(message_id, message_type);
-
-        // check if the moderator just came back online
-        if message_type == ProtoSessionMessageType::UpdateParticipantState
-            && matches!(self.current_task, Some(ModeratorTask::NoOp()))
-            && let Some(pending) = self.common.pending_status_update.take()
-            && pending.message_id == message_id
-            && pending.message_type == ProtoSessionMessageType::UpdateParticipantState
-            && pending.ack_tx.is_none()
-        // ack_tx is None means the moderator sends the rejoin message from the app
-        {
-            // clear the current task first so the leave message will be taken into account immediately
-            self.current_task = None;
-
-            // here the moderator came back online but some participant did not reply to the update state message.
-            // the moderator will remove all of them from the channel
-            for name in missing {
-                if let Err(e) = self
-                    .common
-                    .settings
-                    .tx_session
-                    .try_send(SessionMessage::ParticipantDisconnected { name: Some(name) })
-                {
-                    debug!(error = %e, "failed to send participant disconnected message");
-                }
-            }
-        }
+        self.common.sender.on_failure(message_id, message_type);
 
         // the task should always exist at this point
         if let Some(task) = self.current_task.as_mut()
@@ -469,6 +450,88 @@ where
         // delete current task and pick a new one
         self.current_task = None;
         self.pop_task().await
+    }
+
+    /// Handles the specific case where the moderator just came back online (rejoin)
+    /// and some participants did not ACK the UpdateParticipantState(ON_LINE) broadcast.
+    /// Sets those participants to OffLine locally and broadcasts the state change
+    /// to the remaining active participants.
+    /// Returns `Some(output)` if handled, `None` if this is not a moderator rejoin failure.
+    async fn handle_state_update_failure_on_moderator_rejoin(
+        &mut self,
+        message_id: u32,
+        message_type: ProtoSessionMessageType,
+    ) -> Result<Option<SessionOutput>, SessionError> {
+        // Check if this is the moderator rejoin case
+        if message_type != ProtoSessionMessageType::UpdateParticipantState
+            || !matches!(self.current_task, Some(ModeratorTask::NoOp()))
+        {
+            return Ok(None);
+        }
+
+        let is_rejoin = self
+            .common
+            .pending_status_update
+            .as_ref()
+            .is_some_and(|pending| {
+                pending.message_id == message_id
+                    && pending.message_type == ProtoSessionMessageType::UpdateParticipantState
+                    && pending.ack_tx.is_none()
+            });
+
+        if !is_rejoin {
+            return Ok(None);
+        }
+
+        // Consume the pending status update
+        self.common.pending_status_update.take();
+
+        // Get the missing participants
+        let missing = self.common.sender.on_failure(message_id, message_type);
+
+        // Clear the current task so new tasks can be processed
+        self.current_task = None;
+
+        let mut output = SessionOutput::new();
+
+        // For each participant that did not reply, mark them offline and broadcast
+        for name in missing {
+            let mut name_no_id = name.clone();
+            name_no_id.reset_id();
+
+            // Update group_list state to OffLine
+            if let Some(entry) = self.group_list.get_mut(&name_no_id) {
+                entry.state = ParticipantState::OffLine;
+                tracing::info!("participant {} marked offline (no ACK on rejoin)", name);
+            }
+
+            // Remove endpoint
+            self.remove_endpoint(&name);
+
+            // Broadcast UpdateParticipantState(OffLine) to remaining participants
+            let payload = CommandPayload::builder()
+                .update_participant_state(name.clone(), ParticipantState::OffLine)
+                .as_content();
+
+            let destination = self.common.settings.control.clone();
+            let msg_id = rand::random::<u32>();
+
+            output.extend(self.common.send_control_message(
+                &destination,
+                ProtoSessionMessageType::UpdateParticipantState,
+                msg_id,
+                payload,
+                None,
+                true,
+            )?);
+        }
+
+        // Pop the next queued task. The broadcasts above are tracked by the sender
+        // independently of the task queue — if they time out the sender will clean
+        // them up in a future TimerFailure without conflicting with the active task.
+        self.pop_task().await?;
+
+        Ok(Some(output))
     }
 
     /// Helper method to handle errors after task creation

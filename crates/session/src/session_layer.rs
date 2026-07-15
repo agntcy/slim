@@ -460,8 +460,8 @@ where
         let binding = self.pool.read();
         let session = binding.get(&id).ok_or(SessionError::SessionNotFound(id))?;
 
-        // close the session and get the join handle
-        let join_handle = session.close()?;
+        // leave the session and get the join handle
+        let join_handle = session.leave()?;
 
         // Return a CompletionHandle wrapping the oneshot receiver
         Ok(CompletionHandle::from_join_handle(join_handle))
@@ -476,10 +476,10 @@ where
             copy
         };
 
-        // Close all sessions and return completion handles
+        // Leave all sessions and return completion handles
         pool.iter()
             .map(|(id, session)| {
-                let result = session.close().map(CompletionHandle::from_join_handle);
+                let result = session.leave().map(CompletionHandle::from_join_handle);
                 (*id, result)
             })
             .collect()

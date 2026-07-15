@@ -749,6 +749,7 @@ where
             {
                 let _ = tx.send(Err(SessionError::RejoinFailed));
             }
+            self.common.processing_state = ProcessingState::Draining;
         }
 
         Ok(SessionOutput::new())
