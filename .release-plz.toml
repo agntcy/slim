@@ -96,3 +96,10 @@ name = "agntcy-slim-channel-manager"
 publish = true
 release = true
 changelog_update = true
+
+[[package]]
+name = "agntcy-slim-bindings"
+publish = true
+release = true
+changelog_update = true
+
