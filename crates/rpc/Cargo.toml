@@ -11,6 +11,9 @@ description = "SlimRPC: a gRPC-like RPC framework over SLIM (native Rust)."
 [lib]
 name = "slim_rpc"
 
+[features]
+uniffi = ["dep:uniffi"]
+
 [dependencies]
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
@@ -27,6 +30,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tracing = { workspace = true }
+uniffi = { workspace = true, optional = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
