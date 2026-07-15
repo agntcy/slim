@@ -26,6 +26,7 @@ pub type Metadata = HashMap<String, String>;
 /// - Deadline/timeout information
 /// - Message routing details
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct Context {
     /// Session context information
     session: SessionContext,
@@ -39,6 +40,7 @@ impl Default for Context {
     }
 }
 
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl Context {
     /// Get the session ID
     pub fn session_id(&self) -> String {

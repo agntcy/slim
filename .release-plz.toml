@@ -98,6 +98,12 @@ release = true
 changelog_update = true
 
 [[package]]
+name = "agntcy-slim-rpc"
+publish = true
+release = true
+changelog_update = true
+
+[[package]]
 name = "agntcy-slim-bindings"
 publish = true
 release = true

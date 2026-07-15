@@ -266,3 +266,6 @@ pub type RequestStream<T> = futures::stream::BoxStream<'static, Result<T>>;
 /// }
 /// ```
 pub type ResponseStream<T> = futures::stream::BoxStream<'static, Result<T>>;
+
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();
