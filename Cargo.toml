@@ -231,6 +231,7 @@ ignored = [
     "agntcy-slim-controller",
     "agntcy-slim-datapath",
     "agntcy-slim-mls",
+    "agntcy-slim-rpc",
     "agntcy-slim-service",
     "agntcy-slim-session",
     "agntcy-slim-signal",
