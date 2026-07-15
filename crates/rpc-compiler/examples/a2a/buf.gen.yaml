@@ -1,0 +1,20 @@
+version: v2
+
+inputs:
+  - git_repo: https://github.com/a2aproject/A2A.git
+    # Keep in sync with github.com/a2aproject/a2a-go buf.gen.yaml
+    ref: e7cf203ecdd7003c0f1740bb712248d2b5252bf1
+    subdir: specification/grpc
+
+managed:
+  enabled: true
+
+plugins:
+  # slimrpc service stubs (client interface, server interface, handler
+  # registration). Requires protoc-gen-slimrpc-go in PATH.
+  - local: ../../../target/release/protoc-gen-slimrpc-go
+    out: types
+    opt:
+      - paths=source_relative
+      - types_import=github.com/a2aproject/a2a-go/a2apb
+      - types_alias=a2a_a2apb

@@ -11,6 +11,7 @@ members = [
     "crates/mls",
     "crates/proto",
     "crates/rpc",
+    "crates/rpc-compiler",
     "crates/service",
     "crates/session",
     "crates/signal",
@@ -94,6 +95,7 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 gloo-net = { version = "0.6", default-features = false, features = ["websocket"] }
 h2 = "0.4.7"
 headers = "0.4.1"
+heck = "0.5.0"
 hex = "0.4.3"
 # Pure-Rust HKDF-SHA256 for the wasm32 inter-node link key derivation.
 hkdf = "0.12"
