@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1](https://github.com/agntcy/slim/compare/slim-config-v0.12.0...slim-config-v0.12.1) - 2026-07-15
+
+### Added
+
+- add websocket supports for the browser ([#1775](https://github.com/agntcy/slim/pull/1775))
+
+### Fixed
+
+- separate server connection config ([#1778](https://github.com/agntcy/slim/pull/1778))
+
 ## [0.12.0](https://github.com/agntcy/slim/compare/slim-config-v0.11.1...slim-config-v0.12.0) - 2026-07-06
 
 ### Added
