@@ -48,6 +48,8 @@ jobs:
   docker-build:
     name: Build SLIM docker image
     uses: ./.github/workflows/reusable-docker-build-push.yaml
+    # Run only on pushes to main, not on PRs
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     with:
       bake-targets: slim
       image-tag: ${{ github.sha }}
