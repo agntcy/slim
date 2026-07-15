@@ -20,13 +20,10 @@ use crate::{
     timer_factory::{TimerFactory, TimerSettings},
 };
 
-/// Ping interval.
-pub const PING_INTERVAL: Duration = Duration::from_secs(10);
-/// Maximum number of consecutive ping failures before a participant is considered disconnected.
-const MAX_PING_FAILURE: u32 = 3;
-/// Synthetic moderator name used by participants to track ping reception
-static MODERATOR_NAME: std::sync::LazyLock<ProtoName> =
-    std::sync::LazyLock::new(|| ProtoName::from_strings(["agntcy", "ns", "moderator"]));
+/// Heartbeat interval.
+pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
+/// Maximum number of consecutive missed heartbeats before a participant is considered offline.
+const MAX_MISSED_HEARTBEATS: u32 = 3;
 
 /// used a result in OnMessage function
 #[derive(PartialEq, Clone, Debug)]
@@ -49,35 +46,18 @@ struct PendingReply {
     timer: Timer,
 }
 
-struct PingState {
-    /// Current pending ping
-    /// Maybe empty if none is connected to the channel
-    /// Used only if this endpoint is sending ping messages
-    ping: Option<PendingReply>,
+struct HeartbeatState {
+    /// Tracks the number of consecutive missed heartbeats per participant.
+    /// Reset to 0 when a heartbeat is received from that participant.
+    /// Incremented on each heartbeat timer tick.
+    missed_heartbeats: HashMap<ProtoName, u32>,
 
-    /// This indicates if at least one ping message was received
-    /// during the last ping timer. It is used only by participants
-    /// and set to true on the ping reception
-    received_ping: bool,
+    /// The periodic heartbeat timer
+    heartbeat_timer: Timer,
 
-    /// Ping timer factor set to create ping related timers
+    /// Timer factory for creating heartbeat timers
     #[allow(dead_code)]
-    ping_timer_factory: TimerFactory,
-
-    /// List of potential disconnected endpoint
-    /// Initiation/Moderator mode:
-    /// If an endpoint does not reply to latest N pings it is considered
-    /// disconnected and the session controller is notified.
-    /// The map keeps track of the name and the number of missing ping replies
-    /// Participant mode:
-    /// The map keeps track only of the moderator and checks for how many
-    /// interval the moderator was silent
-    missing_pings: HashMap<ProtoName, u32>,
-
-    /// The ping timer
-    /// this timer is used only for the pings and it is not connected to
-    /// a specific message, it is used to send new pings periodically
-    ping_timer: Timer,
+    heartbeat_timer_factory: TimerFactory,
 }
 
 pub struct ControllerSender {
@@ -101,11 +81,12 @@ pub struct ControllerSender {
     /// list of pending replies for each control message
     pending_replies: HashMap<u32, PendingReply>,
 
-    /// ping state
+    /// heartbeat state
     /// by default is None, start only if a duration is set
-    ping_state: Option<PingState>,
+    heartbeat_state: Option<HeartbeatState>,
 
     /// set to true if the participant is an initiator
+    #[allow(dead_code)]
     initiator: bool,
 
     /// group list
@@ -126,29 +107,26 @@ impl ControllerSender {
         local_name: ProtoName,
         session_type: ProtoSessionType,
         session_id: u32,
-        ping_interval: Option<Duration>,
+        heartbeat_interval: Option<Duration>,
         initiator: bool,
         tx_signals: Sender<SessionMessage>,
     ) -> Self {
         let mut list = HashSet::new();
         list.insert(local_name.clone());
 
-        let ping_state = if let Some(interval) = ping_interval {
-            // we need to setup the timer for the ping
+        let heartbeat_state = if let Some(interval) = heartbeat_interval {
             let settings =
                 TimerSettings::new(interval, None, None, crate::timer::TimerType::Constant);
-            let ping_timer_factory = TimerFactory::new(settings, tx_signals.clone());
-            let ping_timer = ping_timer_factory.create_and_start_timer(
+            let heartbeat_timer_factory = TimerFactory::new(settings, tx_signals.clone());
+            let heartbeat_timer = heartbeat_timer_factory.create_and_start_timer(
                 rand::random::<u32>(),
-                slim_datapath::api::ProtoSessionMessageType::Ping,
+                slim_datapath::api::ProtoSessionMessageType::Heartbeat,
                 None,
             );
-            Some(PingState {
-                ping: None,
-                received_ping: false,
-                ping_timer_factory,
-                missing_pings: HashMap::new(),
-                ping_timer,
+            Some(HeartbeatState {
+                missed_heartbeats: HashMap::new(),
+                heartbeat_timer,
+                heartbeat_timer_factory,
             })
         } else {
             None
@@ -161,7 +139,7 @@ impl ControllerSender {
             session_type,
             session_id,
             pending_replies: HashMap::new(),
-            ping_state,
+            heartbeat_state,
             initiator,
             group_list: list,
             tx_session: tx_signals,
@@ -184,9 +162,9 @@ impl ControllerSender {
         );
         self.group_list.remove(name);
 
-        // remove also the missing_pings state if present
-        if let Some(ps) = self.ping_state.as_mut() {
-            ps.missing_pings.remove(name);
+        // remove also the heartbeat tracking state if present
+        if let Some(hs) = self.heartbeat_state.as_mut() {
+            hs.missed_heartbeats.remove(name);
         }
     }
 
@@ -277,7 +255,9 @@ impl ControllerSender {
                 // to do to handle it
                 self.on_reply_message(message);
             }
-            slim_datapath::api::ProtoSessionMessageType::Ping => self.on_ping_message(message),
+            slim_datapath::api::ProtoSessionMessageType::Heartbeat => {
+                self.on_heartbeat_received(message);
+            }
             slim_datapath::api::ProtoSessionMessageType::GroupAdd => {
                 // compute the list of participants that needs to send an ack
                 // remove the local name as we are not waiting for any reply from the local name
@@ -415,30 +395,13 @@ impl ControllerSender {
         }
     }
 
-    fn on_ping_message(&mut self, message: &Message) {
-        debug!(id = %message.get_id(), "received ping message");
-        if self.initiator {
-            // if this is an initiator update the missing acks
-            if let Some(ping_state) = &mut self.ping_state
-                && let Some(ping) = &mut ping_state.ping
-                && ping.timer.get_id() == message.get_id()
-            {
-                ping.missing_replies.remove(&message.get_source());
-                if ping.missing_replies.is_empty() {
-                    debug!("stop ping retransmissions for id {}", message.get_id());
-                    ping.timer.stop()
-                }
-                return;
-            }
-        } else {
-            // if this is a participant mark the reception of the message
-            if let Some(ping_state) = &mut self.ping_state {
-                ping_state.received_ping = true;
-                return;
-            }
+    fn on_heartbeat_received(&mut self, message: &Message) {
+        let source = message.get_source();
+        debug!(from = %source, "received heartbeat");
+        if let Some(heartbeat_state) = &mut self.heartbeat_state {
+            // Reset the missed counter for this participant
+            heartbeat_state.missed_heartbeats.insert(source, 0);
         }
-
-        debug!(id = %message.get_id(), "received a ping but the state is not set, ignore the message");
     }
 
     pub fn is_still_pending(&self, message_id: u32) -> bool {
@@ -452,12 +415,12 @@ impl ControllerSender {
     ) -> Result<SessionOutput, SessionError> {
         debug!(%id, ?msg_type, "timeout for message");
 
-        // check if the timeout is related to a ping
-        if self.ping_state.is_some() && msg_type == ProtoSessionMessageType::Ping {
-            return self.handle_ping_timeout(id);
+        // check if the timeout is related to a heartbeat
+        if self.heartbeat_state.is_some() && msg_type == ProtoSessionMessageType::Heartbeat {
+            return self.handle_heartbeat_timeout(id);
         }
 
-        // the timer is not related to a ping, resent the message if possible
+        // the timer is not related to a heartbeat, resend the message if possible
         if let Some(pending) = self.pending_replies.get(&id) {
             let mut output = SessionOutput::new();
             output.push_slim(pending.message.clone());
@@ -467,201 +430,76 @@ impl ControllerSender {
         Err(SessionError::TimerNotFound(id))
     }
 
-    fn handle_ping_timeout(&mut self, id: u32) -> Result<SessionOutput, SessionError> {
-        // If this is a participant check if a message was received
-        // during the last ping time
-        if !self.initiator
-            && let Some(ping_state) = &mut self.ping_state
-        {
-            if ping_state.received_ping {
-                // reset the state
-                debug!(%id, "received at least on ping message, reset the state");
-                ping_state.received_ping = false;
-                ping_state.missing_pings.clear();
-            } else {
-                // update the missing ping map and detect moderator disconnection
-                debug!(%id, "missing ping message from moderator");
-                let val = ping_state
-                    .missing_pings
-                    .entry(MODERATOR_NAME.clone())
-                    .or_insert(0);
-                *val += 1;
-                if *val >= MAX_PING_FAILURE {
-                    debug!("moderator got disconnected");
-                    if let Err(e) = self
-                        .tx_session
-                        .try_send(SessionMessage::ParticipantDisconnected { name: None })
-                    {
-                        debug!(error = %e.chain(), "failed to send participant disconnected message");
-                    }
-                }
-            }
+    fn handle_heartbeat_timeout(&mut self, id: u32) -> Result<SessionOutput, SessionError> {
+        let is_heartbeat_timer = self
+            .heartbeat_state
+            .as_ref()
+            .map(|hs| hs.heartbeat_timer.get_id() == id)
+            .unwrap_or(false);
+
+        if !is_heartbeat_timer {
             return Ok(SessionOutput::new());
         }
 
-        // This is a initiator
-        // Check if we need to handle ping timeout
-        let should_handle_ping_interval = self
-            .ping_state
-            .as_ref()
-            .map(|ps| ps.ping_timer.get_id() == id)
-            .ok_or(SessionError::PingStateNotInitialized)?;
+        debug!("heartbeat timer tick, check group state and send heartbeat");
 
-        if should_handle_ping_interval {
-            debug!("ping interval timeout, check current group state");
-            // the timeout is related to the ping interval timer
-            // check if we sent a ping before and if there are still pending acks to the ping
-            self.handle_ping_state();
-
-            // completely reset the ping if needed
-            self.ping_state.as_mut().map(|s| s.ping.take());
-
-            if self.group_list.len() > 1
-                && let Some(group_name) = &self.group_name
-            {
-                // someone is connected to the channel, send the ping
-                // create the message
-                let ping_id = rand::random::<u32>();
-                let mut builder = Message::builder()
-                    .source(self.local_name.clone())
-                    .destination(group_name.clone())
-                    .identity("")
-                    .session_type(self.session_type)
-                    .session_message_type(ProtoSessionMessageType::Ping)
-                    .session_id(self.session_id)
-                    .message_id(ping_id)
-                    .payload(CommandPayload::builder().ping().as_content());
-
-                if self.session_type == ProtoSessionType::Multicast {
-                    builder = builder.fanout(256);
-                }
-
-                let ping = builder.build_publish()?;
-
-                debug!(id = %ping_id, "send a new ping");
-
-                // set the ping missing replies state
-                let missing_replies = self
-                    .group_list
-                    .iter()
-                    .filter(|name| *name != &self.local_name)
-                    .cloned()
-                    .collect::<HashSet<_>>();
-
-                let mut output = SessionOutput::new();
-                output.push_slim(ping.clone());
-
-                if let Some(ping_state) = self.ping_state.as_mut() {
-                    ping_state.ping = Some(PendingReply {
-                        missing_replies,
-                        message: ping,
-                        // the ping message should be resent like all the other command message
-                        // if some remote participant do no replies. The ping_state.ping_timer_factory
-                        // is used only to recreate the message periodically
-                        timer: self.timer_factory.create_and_start_timer(
-                            ping_id,
-                            ProtoSessionMessageType::Ping,
-                            None,
-                        ),
-                    });
-                }
-
-                return Ok(output);
+        // Increment missed counter for all tracked participants and detect offline
+        if let Some(heartbeat_state) = self.heartbeat_state.as_mut() {
+            for (_, count) in heartbeat_state.missed_heartbeats.iter_mut() {
+                *count += 1;
             }
-        } else {
-            // most likely the timeout is related to the ping message itself so
-            // we need to send it again
-            let message_to_send = self
-                .ping_state
-                .as_ref()
-                .and_then(|ps| ps.ping.as_ref())
-                .map(|p| p.message.clone());
 
-            if let Some(ping_message) = message_to_send {
-                debug!(%id, "ping message timeout, send it again");
-                // simply resend the message
-                let mut output = SessionOutput::new();
-                output.push_slim(ping_message);
-                return Ok(output);
+            // Detect offline participants
+            let offline: Vec<ProtoName> = heartbeat_state
+                .missed_heartbeats
+                .iter()
+                .filter(|(_, count)| **count >= MAX_MISSED_HEARTBEATS)
+                .map(|(name, _)| name.clone())
+                .collect();
+
+            for name in &offline {
+                debug!(participant = %name, "participant detected offline (missed heartbeats)");
+                heartbeat_state.missed_heartbeats.remove(name);
+                if let Err(e) = self
+                    .tx_session
+                    .try_send(SessionMessage::ParticipantDisconnected {
+                        name: Some(name.clone()),
+                    })
+                {
+                    debug!(error = %e.chain(), "failed to send participant disconnected message");
+                }
             }
         }
 
-        Ok(SessionOutput::new())
+        // Send our heartbeat broadcast
+        let mut output = SessionOutput::new();
+        if self.group_list.len() > 1
+            && let Some(group_name) = &self.group_name
+        {
+            let heartbeat_id = rand::random::<u32>();
+            let mut builder = Message::builder()
+                .source(self.local_name.clone())
+                .destination(group_name.clone())
+                .identity("")
+                .session_type(self.session_type)
+                .session_message_type(ProtoSessionMessageType::Heartbeat)
+                .session_id(self.session_id)
+                .message_id(heartbeat_id)
+                .payload(CommandPayload::builder().heartbeat().as_content());
+
+            if self.session_type == ProtoSessionType::Multicast {
+                builder = builder.fanout(256);
+            }
+
+            let heartbeat_msg = builder.build_publish()?;
+            debug!(id = %heartbeat_id, "send heartbeat");
+            output.push_slim(heartbeat_msg);
+        }
+
+        Ok(output)
     }
 
-    /// Handle ping state by updating missing_pings and checking for disconnections
-    fn handle_ping_state(&mut self) {
-        let ping_state = self
-            .ping_state
-            .as_mut()
-            .expect("ping_state should be initialized");
-        let Some(mut ping) = ping_state.ping.take() else {
-            return;
-        };
-
-        // stop the timer for ping retransmission
-        ping.timer.stop();
-
-        // if all participants replied to the ping, reset the
-        // missing_pings map otherwise try to see if someone got disconnected
-        if ping.missing_replies.is_empty() {
-            debug!("all ping received, nobody got disconnected");
-            ping_state.missing_pings.clear();
-        } else {
-            // update missing_pings
-            for p in &ping.missing_replies {
-                debug!(from = %p, "missing ping reply from");
-                // add the non reply participant to the missing pings map
-                // only if it is still connected to the group
-                if self.group_list.contains(p) {
-                    *ping_state.missing_pings.entry(p.clone()).or_insert(0) += 1;
-                }
-            }
-
-            // check for disconnected participants and notify, then remove them
-            ping_state.missing_pings.retain(|k, v| {
-                if *v >= MAX_PING_FAILURE {
-                    debug!(participant = %k, "participant got disconnected");
-                    self.group_list.remove(k);
-                    if let Err(e) =
-                        self.tx_session
-                            .try_send(SessionMessage::ParticipantDisconnected {
-                                name: Some(k.clone()),
-                            })
-                    {
-                        debug!(error = %e.chain(), "failed to send participant disconnected message");
-                    }
-                    false // remove from missing_pings
-                } else {
-                    true // keep in missing_pings
-                }
-            });
-        }
-    }
-
-    pub fn on_failure(&mut self, id: u32, msg_type: ProtoSessionMessageType) -> Vec<ProtoName> {
-        if msg_type == ProtoSessionMessageType::Ping {
-            // the only timer that can fail is the one related to the ping retransmissions
-            let should_handle = if let Some(ping_state) = &self.ping_state {
-                ping_state
-                    .ping
-                    .as_ref()
-                    .map(|ping| ping.timer.get_id() == id)
-                    .unwrap_or(false)
-            } else {
-                false
-            };
-
-            if should_handle {
-                // reset the pending ping state and wait for the next one to be sent
-                debug!(%id, "ping message timer failure, update ping state");
-                self.handle_ping_state();
-            } else {
-                debug!("got message failure for unknown ping, ignore it");
-                return Vec::new();
-            }
-        }
-
+    pub fn on_failure(&mut self, id: u32, _msg_type: ProtoSessionMessageType) -> Vec<ProtoName> {
         if let Some(gt) = self.pending_replies.get_mut(&id) {
             gt.timer.stop();
         }
@@ -1275,13 +1113,14 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_ping_with_retransmissions_and_disconnection() {
+    async fn test_heartbeat_sends_on_timer_tick() {
         let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
-        let ping_interval = Duration::from_millis(1000);
+        let heartbeat_interval = Duration::from_millis(500);
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
+        let group_name = ProtoName::from_strings(["org", "ns", "group"]);
         let session_id = 1;
 
         let mut sender = ControllerSender::new(
@@ -1289,354 +1128,166 @@ mod tests {
             source.clone(),
             ProtoSessionType::Multicast,
             session_id,
-            Some(ping_interval),
-            true,
-            tx_signal,
-        );
-
-        sender.group_list.insert(participant.clone());
-        sender.group_name = Some(participant.clone());
-
-        let (first_ping_id, message_type) =
-            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
-        assert_eq!(message_type, ProtoSessionMessageType::Ping);
-        let first_ping = single_slim_message(
-            sender
-                .on_timer_timeout(first_ping_id, ProtoSessionMessageType::Ping)
-                .expect("error sending first ping"),
-        );
-        assert_eq!(
-            first_ping.get_session_message_type(),
-            ProtoSessionMessageType::Ping
-        );
-
-        let ping_reply = Message::builder()
-            .source(participant.clone())
-            .destination(source.clone())
-            .identity("")
-            .session_type(ProtoSessionType::Multicast)
-            .session_message_type(ProtoSessionMessageType::Ping)
-            .session_id(session_id)
-            .message_id(first_ping.get_id())
-            .payload(CommandPayload::builder().ping().as_content())
-            .build_publish()
-            .unwrap();
-        sender.on_ping_message(&ping_reply);
-        assert!(
-            timeout(Duration::from_millis(500), rx_signal.recv())
-                .await
-                .is_err()
-        );
-
-        let (second_ping_id, message_type) =
-            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
-        assert_eq!(message_type, ProtoSessionMessageType::Ping);
-        let second_ping = single_slim_message(
-            sender
-                .on_timer_timeout(second_ping_id, ProtoSessionMessageType::Ping)
-                .expect("error sending second ping"),
-        );
-        assert_eq!(
-            second_ping.get_session_message_type(),
-            ProtoSessionMessageType::Ping
-        );
-
-        for _ in 0..2 {
-            let (message_id, message_type) =
-                expect_timeout(&mut rx_signal, Duration::from_millis(500)).await;
-            assert_eq!(message_id, second_ping.get_id());
-            assert_eq!(message_type, ProtoSessionMessageType::Ping);
-            let retransmitted = single_slim_message(
-                sender
-                    .on_timer_timeout(second_ping.get_id(), ProtoSessionMessageType::Ping)
-                    .expect("error retransmitting ping"),
-            );
-            assert_eq!(retransmitted.get_id(), second_ping.get_id());
-        }
-
-        let (third_ping_id, message_type) =
-            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
-        assert_eq!(message_type, ProtoSessionMessageType::Ping);
-        let third_ping = single_slim_message(
-            sender
-                .on_timer_timeout(third_ping_id, ProtoSessionMessageType::Ping)
-                .expect("error sending third ping"),
-        );
-        assert_eq!(
-            third_ping.get_session_message_type(),
-            ProtoSessionMessageType::Ping
-        );
-
-        for _ in 0..2 {
-            let (message_id, message_type) =
-                expect_timeout(&mut rx_signal, Duration::from_millis(500)).await;
-            assert_eq!(message_id, third_ping.get_id());
-            assert_eq!(message_type, ProtoSessionMessageType::Ping);
-            let retransmitted = single_slim_message(
-                sender
-                    .on_timer_timeout(third_ping.get_id(), ProtoSessionMessageType::Ping)
-                    .expect("error retransmitting ping"),
-            );
-            assert_eq!(retransmitted.get_id(), third_ping.get_id());
-        }
-
-        let (fourth_ping_id, message_type) =
-            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
-        assert_eq!(message_type, ProtoSessionMessageType::Ping);
-        let fourth_ping = single_slim_message(
-            sender
-                .on_timer_timeout(fourth_ping_id, ProtoSessionMessageType::Ping)
-                .expect("error sending fourth ping"),
-        );
-        assert_eq!(
-            fourth_ping.get_session_message_type(),
-            ProtoSessionMessageType::Ping
-        );
-
-        for _ in 0..2 {
-            let (message_id, message_type) =
-                expect_timeout(&mut rx_signal, Duration::from_millis(500)).await;
-            assert_eq!(message_id, fourth_ping.get_id());
-            assert_eq!(message_type, ProtoSessionMessageType::Ping);
-            let retransmitted = single_slim_message(
-                sender
-                    .on_timer_timeout(fourth_ping.get_id(), ProtoSessionMessageType::Ping)
-                    .expect("error retransmitting ping"),
-            );
-            assert_eq!(retransmitted.get_id(), fourth_ping.get_id());
-        }
-
-        let (fifth_ping_id, message_type) =
-            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
-        assert_eq!(message_type, ProtoSessionMessageType::Ping);
-        assert_no_messages(
-            sender
-                .on_timer_timeout(fifth_ping_id, ProtoSessionMessageType::Ping)
-                .expect("error handling fifth ping interval"),
-        );
-
-        if let Some(ping_state) = &sender.ping_state {
-            assert_eq!(ping_state.missing_pings.get(&participant), None);
-        } else {
-            panic!("Ping state should be initialized");
-        }
-        assert!(!sender.group_list.contains(&participant));
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_participant_detects_moderator_disconnection() {
-        let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
-        let ping_interval = Duration::from_millis(1000);
-        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
-
-        let participant_name = ProtoName::from_strings(["org", "ns", "participant"]);
-        let moderator_name = ProtoName::from_strings(["org", "ns", "moderator"]);
-        let channel_name = ProtoName::from_strings(["org", "ns", "channel"]);
-        let session_id = 1;
-
-        let mut sender = ControllerSender::new(
-            settings,
-            participant_name.clone(),
-            ProtoSessionType::Multicast,
-            session_id,
-            Some(ping_interval),
+            Some(heartbeat_interval),
             false,
             tx_signal,
         );
 
-        let (first_ping_id, message_type) =
-            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
-        assert_eq!(message_type, ProtoSessionMessageType::Ping);
+        sender.group_list.insert(participant.clone());
+        sender.group_name = Some(group_name.clone());
 
-        let ping_from_moderator = Message::builder()
-            .source(moderator_name.clone())
-            .destination(channel_name.clone())
+        // Wait for the heartbeat timer to fire
+        let (timer_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(600)).await;
+        assert_eq!(message_type, ProtoSessionMessageType::Heartbeat);
+
+        let output = sender
+            .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat)
+            .expect("error handling heartbeat timeout");
+        let heartbeat_msg = single_slim_message(output);
+        assert_eq!(
+            heartbeat_msg.get_session_message_type(),
+            ProtoSessionMessageType::Heartbeat
+        );
+        assert_eq!(heartbeat_msg.get_dst(), group_name);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_heartbeat_received_resets_counter() {
+        let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
+        let heartbeat_interval = Duration::from_millis(500);
+        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
+
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
+        let participant = ProtoName::from_strings(["org", "ns", "participant"]);
+        let group_name = ProtoName::from_strings(["org", "ns", "group"]);
+        let session_id = 1;
+
+        let mut sender = ControllerSender::new(
+            settings,
+            source.clone(),
+            ProtoSessionType::Multicast,
+            session_id,
+            Some(heartbeat_interval),
+            false,
+            tx_signal,
+        );
+
+        sender.group_list.insert(participant.clone());
+        sender.group_name = Some(group_name.clone());
+
+        // Simulate receiving a heartbeat from the participant
+        let heartbeat_from_participant = Message::builder()
+            .source(participant.clone())
+            .destination(group_name.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
-            .session_message_type(ProtoSessionMessageType::Ping)
+            .session_message_type(ProtoSessionMessageType::Heartbeat)
             .session_id(session_id)
             .message_id(rand::random::<u32>())
-            .payload(CommandPayload::builder().ping().as_content())
+            .payload(CommandPayload::builder().heartbeat().as_content())
             .build_publish()
             .unwrap();
-        sender.on_ping_message(&ping_from_moderator);
-        assert_no_messages(
-            sender
-                .on_timer_timeout(first_ping_id, ProtoSessionMessageType::Ping)
-                .expect("error handling first ping timeout"),
-        );
 
-        if let Some(ping_state) = &sender.ping_state {
-            assert_eq!(ping_state.missing_pings.len(), 0);
+        sender
+            .on_message(&heartbeat_from_participant)
+            .expect("error processing heartbeat");
+
+        // Verify the missed counter is 0
+        if let Some(hs) = &sender.heartbeat_state {
+            assert_eq!(hs.missed_heartbeats.get(&participant).copied(), Some(0));
+        } else {
+            panic!("Heartbeat state should be initialized");
         }
 
-        let (second_ping_id, message_type) =
-            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
-        assert_eq!(message_type, ProtoSessionMessageType::Ping);
-        assert_no_messages(
-            sender
-                .on_timer_timeout(second_ping_id, ProtoSessionMessageType::Ping)
-                .expect("error handling second ping timeout"),
+        // Wait for timer tick — should increment to 1 (not trigger disconnect)
+        let (timer_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(600)).await;
+        assert_eq!(message_type, ProtoSessionMessageType::Heartbeat);
+        sender
+            .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat)
+            .expect("error handling heartbeat timeout");
+
+        if let Some(hs) = &sender.heartbeat_state {
+            assert_eq!(hs.missed_heartbeats.get(&participant).copied(), Some(1));
+        }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_heartbeat_detects_offline_participant() {
+        let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
+        let heartbeat_interval = Duration::from_millis(200);
+        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
+
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
+        let participant = ProtoName::from_strings(["org", "ns", "participant"]);
+        let group_name = ProtoName::from_strings(["org", "ns", "group"]);
+        let session_id = 1;
+
+        let mut sender = ControllerSender::new(
+            settings,
+            source.clone(),
+            ProtoSessionType::Multicast,
+            session_id,
+            Some(heartbeat_interval),
+            false,
+            tx_signal,
         );
-        if let Some(ping_state) = &sender.ping_state {
-            assert_eq!(
-                ping_state.missing_pings.get(&MODERATOR_NAME).copied(),
-                Some(1)
-            );
+
+        sender.group_list.insert(participant.clone());
+        sender.group_name = Some(group_name.clone());
+
+        // Simulate receiving one heartbeat so the participant is tracked
+        let heartbeat_from_participant = Message::builder()
+            .source(participant.clone())
+            .destination(group_name.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::Heartbeat)
+            .session_id(session_id)
+            .message_id(rand::random::<u32>())
+            .payload(CommandPayload::builder().heartbeat().as_content())
+            .build_publish()
+            .unwrap();
+        sender
+            .on_message(&heartbeat_from_participant)
+            .expect("error processing heartbeat");
+
+        // Now let MAX_MISSED_HEARTBEATS timer ticks pass without any heartbeat
+        for _ in 0..MAX_MISSED_HEARTBEATS {
+            let (timer_id, message_type) =
+                expect_timeout(&mut rx_signal, Duration::from_millis(300)).await;
+            assert_eq!(message_type, ProtoSessionMessageType::Heartbeat);
+            sender
+                .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat)
+                .expect("error handling heartbeat timeout");
         }
 
-        let (third_ping_id, message_type) =
-            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
-        assert_eq!(message_type, ProtoSessionMessageType::Ping);
-        assert_no_messages(
-            sender
-                .on_timer_timeout(third_ping_id, ProtoSessionMessageType::Ping)
-                .expect("error handling third ping timeout"),
-        );
-        if let Some(ping_state) = &sender.ping_state {
-            assert_eq!(
-                ping_state.missing_pings.get(&MODERATOR_NAME).copied(),
-                Some(2)
-            );
-        }
-
-        let (fourth_ping_id, message_type) =
-            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
-        assert_eq!(message_type, ProtoSessionMessageType::Ping);
-        assert_no_messages(
-            sender
-                .on_timer_timeout(fourth_ping_id, ProtoSessionMessageType::Ping)
-                .expect("error handling fourth ping timeout"),
-        );
-
+        // Should have received a ParticipantDisconnected message
         match rx_signal.try_recv() {
-            Ok(SessionMessage::ParticipantDisconnected { name }) => assert_eq!(name, None),
+            Ok(SessionMessage::ParticipantDisconnected { name }) => {
+                assert_eq!(name, Some(participant.clone()));
+            }
             Ok(other) => panic!("Expected ParticipantDisconnected message, got {:?}", other),
             Err(e) => panic!(
                 "Expected ParticipantDisconnected message, channel error: {:?}",
                 e
             ),
         }
+
+        // Participant should be removed from tracking
+        if let Some(hs) = &sender.heartbeat_state {
+            assert!(!hs.missed_heartbeats.contains_key(&participant));
+        }
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_ping_with_two_participants_one_removed_before_reply() {
-        let settings = TimerSettings::constant(Duration::from_secs(1000)).with_max_retries(3);
-        let ping_interval = Duration::from_millis(1000);
-        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
-
-        let moderator = ProtoName::from_strings(["org", "ns", "moderator"]);
-        let participant1 = ProtoName::from_strings(["org", "ns", "participant1"]);
-        let participant2 = ProtoName::from_strings(["org", "ns", "participant2"]);
-        let group_name = ProtoName::from_strings(["org", "ns", "group"]);
-        let session_id = 1;
-
-        let mut sender = ControllerSender::new(
-            settings,
-            moderator.clone(),
-            ProtoSessionType::Multicast,
-            session_id,
-            Some(ping_interval),
-            true,
-            tx_signal,
-        );
-
-        sender.group_name = Some(group_name.clone());
-        sender.group_list.insert(moderator.clone());
-        sender.group_list.insert(participant1.clone());
-        sender.group_list.insert(participant2.clone());
-
-        let (first_ping_id, message_type) =
-            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
-        assert_eq!(message_type, ProtoSessionMessageType::Ping);
-        let ping_msg = single_slim_message(
-            sender
-                .on_timer_timeout(first_ping_id, ProtoSessionMessageType::Ping)
-                .expect("error sending first ping"),
-        );
-        assert_eq!(
-            ping_msg.get_session_message_type(),
-            ProtoSessionMessageType::Ping
-        );
-        let ping_message_id = ping_msg.get_id();
-
-        if let Some(ping_state) = &sender.ping_state {
-            if let Some(ping) = &ping_state.ping {
-                assert_eq!(ping.missing_replies.len(), 2);
-                assert!(ping.missing_replies.contains(&participant1));
-                assert!(ping.missing_replies.contains(&participant2));
-            } else {
-                panic!("Ping should be set");
-            }
-        } else {
-            panic!("Ping state should be initialized");
-        }
-
-        sender.remove_participant(&participant1);
-        assert!(!sender.group_list.contains(&participant1));
-        assert!(sender.group_list.contains(&participant2));
-
-        let ping_reply = Message::builder()
-            .source(participant2.clone())
-            .destination(moderator.clone())
-            .identity("")
-            .session_type(ProtoSessionType::Multicast)
-            .session_message_type(ProtoSessionMessageType::Ping)
-            .session_id(session_id)
-            .message_id(ping_message_id)
-            .payload(CommandPayload::builder().ping().as_content())
-            .build_publish()
-            .unwrap();
-        sender.on_ping_message(&ping_reply);
-
-        if let Some(ping_state) = &sender.ping_state {
-            if let Some(ping) = &ping_state.ping {
-                assert_eq!(ping.missing_replies.len(), 1);
-                assert!(ping.missing_replies.contains(&participant1));
-                assert!(!ping.missing_replies.contains(&participant2));
-            } else {
-                panic!("Ping should still be set");
-            }
-        } else {
-            panic!("Ping state should be initialized");
-        }
-
-        let (second_ping_id, message_type) =
-            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
-        assert_eq!(message_type, ProtoSessionMessageType::Ping);
-        let second_ping = single_slim_message(
-            sender
-                .on_timer_timeout(second_ping_id, ProtoSessionMessageType::Ping)
-                .expect("error handling second ping interval"),
-        );
-
-        if let Some(ping_state) = &sender.ping_state {
-            assert_eq!(ping_state.missing_pings.get(&participant1), None);
-            assert_eq!(ping_state.missing_pings.len(), 0);
-            if let Some(ping) = &ping_state.ping {
-                assert_eq!(ping.missing_replies.len(), 1);
-                assert!(ping.missing_replies.contains(&participant2));
-                assert!(!ping.missing_replies.contains(&participant1));
-            } else {
-                panic!("Ping should be set");
-            }
-        } else {
-            panic!("Ping state should be initialized");
-        }
-
-        assert_eq!(
-            second_ping.get_session_message_type(),
-            ProtoSessionMessageType::Ping
-        );
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_ping_destination_p2p_session() {
+    async fn test_heartbeat_p2p_destination() {
         let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
-        let ping_interval = Duration::from_millis(1000);
+        let heartbeat_interval = Duration::from_millis(500);
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
@@ -1648,85 +1299,37 @@ mod tests {
             source.clone(),
             ProtoSessionType::PointToPoint,
             session_id,
-            Some(ping_interval),
+            Some(heartbeat_interval),
             true,
             tx_signal,
         );
 
-        let join_request = Message::builder()
-            .source(source.clone())
-            .destination(remote.clone())
-            .identity("")
-            .session_type(ProtoSessionType::PointToPoint)
-            .session_message_type(ProtoSessionMessageType::JoinRequest)
-            .session_id(session_id)
-            .message_id(1)
-            .payload(
-                CommandPayload::builder()
-                    .join_request(None, None, None, None, None)
-                    .as_content(),
-            )
-            .build_publish()
-            .unwrap();
-        let join_msg = single_slim_message(
-            sender
-                .on_message(&join_request)
-                .expect("error sending join request"),
-        );
-        assert_eq!(sender.group_name, Some(remote.clone()));
-
-        let join_reply = Message::builder()
-            .source(remote.clone())
-            .destination(source.clone())
-            .identity("")
-            .session_type(ProtoSessionType::PointToPoint)
-            .session_message_type(ProtoSessionMessageType::JoinReply)
-            .session_id(session_id)
-            .message_id(join_msg.get_id())
-            .payload(
-                CommandPayload::builder()
-                    .join_reply(
-                        None,
-                        Participant::new(remote.clone(), ParticipantSettings::bidirectional()),
-                    )
-                    .as_content(),
-            )
-            .build_publish()
-            .unwrap();
-        assert_no_messages(
-            sender
-                .on_message(&join_reply)
-                .expect("error sending join reply"),
-        );
-
         sender.group_list.insert(remote.clone());
+        sender.group_name = Some(remote.clone());
 
-        let (ping_id, message_type) =
-            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
-        assert_eq!(message_type, ProtoSessionMessageType::Ping);
-        let ping = single_slim_message(
-            sender
-                .on_timer_timeout(ping_id, ProtoSessionMessageType::Ping)
-                .expect("error sending ping"),
-        );
+        let (timer_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(600)).await;
+        assert_eq!(message_type, ProtoSessionMessageType::Heartbeat);
+
+        let output = sender
+            .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat)
+            .expect("error handling heartbeat timeout");
+        let heartbeat_msg = single_slim_message(output);
         assert_eq!(
-            ping.get_session_message_type(),
-            ProtoSessionMessageType::Ping
+            heartbeat_msg.get_session_message_type(),
+            ProtoSessionMessageType::Heartbeat
         );
-        assert_eq!(ping.get_dst(), remote);
+        assert_eq!(heartbeat_msg.get_dst(), remote);
     }
 
     #[tokio::test]
     #[traced_test]
-    async fn test_ping_destination_multicast_session() {
+    async fn test_heartbeat_no_send_when_alone() {
         let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
-        let ping_interval = Duration::from_millis(1000);
+        let heartbeat_interval = Duration::from_millis(500);
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
 
         let source = ProtoName::from_strings(["org", "ns", "source"]);
-        let data_channel_name = ProtoName::from_strings(["org", "ns", "channel"]).with_id(1);
-        let control_channel_name = ProtoName::from_strings(["org", "ns", "channel"]).with_id(2);
-        let participant = ProtoName::from_strings(["org", "ns", "participant"]);
         let session_id = 1;
 
         let mut sender = ControllerSender::new(
@@ -1734,79 +1337,21 @@ mod tests {
             source.clone(),
             ProtoSessionType::Multicast,
             session_id,
-            Some(ping_interval),
-            true,
+            Some(heartbeat_interval),
+            false,
             tx_signal,
         );
 
-        let join_request = Message::builder()
-            .source(source.clone())
-            .destination(participant.clone())
-            .identity("")
-            .session_type(ProtoSessionType::Multicast)
-            .session_message_type(ProtoSessionMessageType::JoinRequest)
-            .session_id(session_id)
-            .message_id(1)
-            .fanout(256)
-            .payload(
-                CommandPayload::builder()
-                    .join_request(
-                        None,
-                        None,
-                        Some(data_channel_name.clone()),
-                        Some(control_channel_name.clone()),
-                        None,
-                    )
-                    .as_content(),
-            )
-            .build_publish()
-            .unwrap();
-        let join_msg = single_slim_message(
-            sender
-                .on_message(&join_request)
-                .expect("error sending join request"),
-        );
-        assert_eq!(sender.group_name, Some(control_channel_name.clone()));
+        sender.group_name = Some(ProtoName::from_strings(["org", "ns", "group"]));
 
-        let join_reply = Message::builder()
-            .source(participant.clone())
-            .destination(source.clone())
-            .identity("")
-            .session_type(ProtoSessionType::Multicast)
-            .session_message_type(ProtoSessionMessageType::JoinReply)
-            .session_id(session_id)
-            .message_id(join_msg.get_id())
-            .fanout(256)
-            .payload(
-                CommandPayload::builder()
-                    .join_reply(
-                        None,
-                        Participant::new(participant.clone(), ParticipantSettings::bidirectional()),
-                    )
-                    .as_content(),
-            )
-            .build_publish()
-            .unwrap();
-        assert_no_messages(
-            sender
-                .on_message(&join_reply)
-                .expect("error sending join reply"),
-        );
+        // Wait for timer tick — should produce no outbound messages (alone in group)
+        let (timer_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(600)).await;
+        assert_eq!(message_type, ProtoSessionMessageType::Heartbeat);
 
-        sender.group_list.insert(participant.clone());
-
-        let (ping_id, message_type) =
-            expect_timeout(&mut rx_signal, Duration::from_millis(1100)).await;
-        assert_eq!(message_type, ProtoSessionMessageType::Ping);
-        let ping = single_slim_message(
-            sender
-                .on_timer_timeout(ping_id, ProtoSessionMessageType::Ping)
-                .expect("error sending ping"),
-        );
-        assert_eq!(
-            ping.get_session_message_type(),
-            ProtoSessionMessageType::Ping
-        );
-        assert_eq!(ping.get_dst(), control_channel_name);
+        let output = sender
+            .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat)
+            .expect("error handling heartbeat timeout");
+        assert_no_messages(output);
     }
 }

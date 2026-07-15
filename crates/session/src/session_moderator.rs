@@ -14,7 +14,7 @@ use slim_datapath::{
         CommandPayload, MlsPayload, NameId, Participant, ParticipantState, ProtoMessage as Message,
         ProtoMlsSettings, ProtoName, ProtoSessionMessageType, ProtoSessionType,
     },
-    messages::utils::{DELETE_GROUP, DISCONNECTION_DETECTED, LEAVING_SESSION, TRUE_VAL},
+    messages::utils::{DELETE_GROUP, LEAVE_REPLY_SENT, LEAVING_SESSION, TRUE_VAL},
 };
 use slim_mls::mls::Mls;
 use tokio::sync::oneshot;
@@ -276,19 +276,19 @@ where
                     opt_participant.ok_or(SessionError::MissingParticipantNameOnDisconnection)?;
                 debug!(
                     %participant,
-                    "Participant not anymore connected to the current session",
+                    "participant detected offline via missed heartbeats, marking offline locally",
                 );
 
-                let mut msg = self.common.create_control_message(
-                    &participant.clone(),
-                    ProtoSessionMessageType::LeaveRequest,
-                    rand::random::<u32>(),
-                    CommandPayload::builder().leave_request().as_content(),
-                    false,
-                )?;
-                msg.insert_metadata(DISCONNECTION_DETECTED.to_string(), TRUE_VAL.to_string());
+                let mut participant_no_id = participant.clone();
+                participant_no_id.reset_id();
 
-                output.extend(self.on_disconnection_detected(msg, None).await?);
+                // Mark the participant as offline in the local group list
+                if let Some(entry) = self.group_list.get_mut(&participant_no_id) {
+                    entry.state = ParticipantState::OffLine;
+                }
+
+                // Remove the endpoint from the sender and inner controller
+                self.remove_endpoint(&participant);
             }
             _ => {
                 return Err(SessionError::SessionMessageInternalUnexpected(Box::new(
@@ -664,10 +664,10 @@ where
             ProtoSessionMessageType::DiscoveryReply => self.on_discovery_reply(message).await,
             ProtoSessionMessageType::JoinReply => self.on_join_reply(message).await,
             ProtoSessionMessageType::LeaveRequest => {
-                // the LeaveRequest message is also used to signal the disconnection of
-                // a remote participant. if the metadata contains the key "DISCONNECTION_DETECTED"
-                // or "LEAVING_SESSION" call the function on_disconnection_detected
-                if message.contains_metadata(DISCONNECTION_DETECTED)
+                // the LeaveRequest message is also used to signal a graceful leave.
+                // if the metadata contains LEAVE_REPLY_SENT (re-queued task) or
+                // LEAVING_SESSION (new leave request) call on_disconnection_detected
+                if message.contains_metadata(LEAVE_REPLY_SENT)
                     || message.contains_metadata(LEAVING_SESSION)
                 {
                     return self.on_disconnection_detected(message, ack_tx).await;
@@ -678,7 +678,7 @@ where
             }
             ProtoSessionMessageType::LeaveReply => self.on_leave_reply(message).await,
             ProtoSessionMessageType::GroupAck => self.on_group_ack(message).await,
-            ProtoSessionMessageType::Ping => self.common.sender.on_message(&message),
+            ProtoSessionMessageType::Heartbeat => self.common.sender.on_message(&message),
             ProtoSessionMessageType::UpdateParticipantState => {
                 debug!(
                     name = %&message.get_source(),
@@ -1466,10 +1466,10 @@ where
             self.common.sender.remove_participant(&disconnected);
             output.extend(SessionOutput::to_slim(reply));
 
-            // replace LEAVING_SESSION with DISCONNECTION_DETECTED so that if the process of the
+            // replace LEAVING_SESSION with LEAVE_REPLY_SENT so that if the process of the
             // message needs to be delayed because the moderator is busy we do not send the reply twice
             msg.remove_metadata(LEAVING_SESSION);
-            msg.insert_metadata(DISCONNECTION_DETECTED.to_string(), TRUE_VAL.to_string());
+            msg.insert_metadata(LEAVE_REPLY_SENT.to_string(), TRUE_VAL.to_string());
             let header = msg.get_slim_header_mut();
             header.set_destination(disconnected.clone());
             header.set_source(self.common.settings.source.clone());
@@ -2650,12 +2650,12 @@ mod tests {
             "Second leave request should be queued while first is processing"
         );
 
-        // Verify the queued task exists and has DISCONNECTION_DETECTED metadata
+        // Verify the queued task exists and has LEAVE_REPLY_SENT metadata
         if let Some((queued_msg, _)) = moderator.tasks_todo.front() {
-            // Verify DISCONNECTION_DETECTED metadata was set (LEAVING_SESSION was replaced)
+            // Verify LEAVE_REPLY_SENT metadata was set (LEAVING_SESSION was replaced)
             assert!(
-                queued_msg.contains_metadata(DISCONNECTION_DETECTED),
-                "Queued message should have DISCONNECTION_DETECTED metadata"
+                queued_msg.contains_metadata(LEAVE_REPLY_SENT),
+                "Queued message should have LEAVE_REPLY_SENT metadata"
             );
         } else {
             panic!("Expected queued task for participant2");

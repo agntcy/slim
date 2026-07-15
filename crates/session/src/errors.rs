@@ -33,8 +33,6 @@ pub enum SessionError {
     MissingNewParticipantInGroupAdd,
     #[error("missing group name in JoinRequest message")]
     MissingGroupNameInJoinRequest,
-    #[error("ping state not initialized")]
-    PingStateNotInitialized,
     #[error("missing channel name for group session")]
     MissingChannelName,
     #[error("session type unknown: {0:?}")]

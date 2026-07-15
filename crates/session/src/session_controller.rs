@@ -27,7 +27,7 @@ use crate::{
     MessageDirection, SessionError,
     common::{OutboundMessage, SessionMessage, SessionOutput},
     completion_handle::CompletionHandle,
-    controller_sender::{ControllerSender, PING_INTERVAL},
+    controller_sender::{ControllerSender, HEARTBEAT_INTERVAL},
     session_builder::{ForController, SessionBuilder},
     session_config::SessionConfig,
     session_settings::{MAX_SEEN_CONTROL_MESSAGE_SENDERS_SIZE, SessionSettings},
@@ -896,7 +896,7 @@ where
             settings.source.clone(),
             settings.config.session_type,
             settings.id,
-            Some(PING_INTERVAL),
+            Some(HEARTBEAT_INTERVAL),
             settings.config.initiator,
             settings.tx_session.clone(),
         );

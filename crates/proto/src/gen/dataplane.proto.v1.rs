@@ -210,9 +210,9 @@ pub mod command_payload {
         #[prost(message, tag = "13")]
         GroupNack(super::GroupNackPayload),
         #[prost(message, tag = "14")]
-        Ping(super::PingPayload),
-        #[prost(message, tag = "15")]
         UpdateParticipantState(super::UpdateParticipantStatePayload),
+        #[prost(message, tag = "15")]
+        Heartbeat(super::HeartbeatPayload),
         #[prost(message, tag = "16")]
         RejoinRequest(super::RejoinRequestPayload),
         #[prost(message, tag = "17")]
@@ -389,9 +389,9 @@ pub struct GroupAckPayload {}
 /// Group Nack
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GroupNackPayload {}
-/// Ping
+/// Heartbeat — one-way presence broadcast, no reply expected
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct PingPayload {}
+pub struct HeartbeatPayload {}
 /// SubscriptionAck is delivered directly to the requesting connection in response
 /// to a Subscribe or Unsubscribe that carried a non-zero subscription_id field.
 /// It is never routed through the subscription table.
@@ -517,10 +517,10 @@ pub enum SessionMessageType {
     GroupProposal = 15,
     GroupAck = 16,
     GroupNack = 17,
-    Ping = 18,
-    UpdateParticipantState = 19,
-    RejoinRequest = 20,
-    RejoinReply = 21,
+    UpdateParticipantState = 18,
+    RejoinRequest = 19,
+    RejoinReply = 20,
+    Heartbeat = 21,
 }
 impl SessionMessageType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -547,12 +547,12 @@ impl SessionMessageType {
             Self::GroupProposal => "SESSION_MESSAGE_TYPE_GROUP_PROPOSAL",
             Self::GroupAck => "SESSION_MESSAGE_TYPE_GROUP_ACK",
             Self::GroupNack => "SESSION_MESSAGE_TYPE_GROUP_NACK",
-            Self::Ping => "SESSION_MESSAGE_TYPE_PING",
             Self::UpdateParticipantState => {
                 "SESSION_MESSAGE_TYPE_UPDATE_PARTICIPANT_STATE"
             }
             Self::RejoinRequest => "SESSION_MESSAGE_TYPE_REJOIN_REQUEST",
             Self::RejoinReply => "SESSION_MESSAGE_TYPE_REJOIN_REPLY",
+            Self::Heartbeat => "SESSION_MESSAGE_TYPE_HEARTBEAT",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -576,12 +576,12 @@ impl SessionMessageType {
             "SESSION_MESSAGE_TYPE_GROUP_PROPOSAL" => Some(Self::GroupProposal),
             "SESSION_MESSAGE_TYPE_GROUP_ACK" => Some(Self::GroupAck),
             "SESSION_MESSAGE_TYPE_GROUP_NACK" => Some(Self::GroupNack),
-            "SESSION_MESSAGE_TYPE_PING" => Some(Self::Ping),
             "SESSION_MESSAGE_TYPE_UPDATE_PARTICIPANT_STATE" => {
                 Some(Self::UpdateParticipantState)
             }
             "SESSION_MESSAGE_TYPE_REJOIN_REQUEST" => Some(Self::RejoinRequest),
             "SESSION_MESSAGE_TYPE_REJOIN_REPLY" => Some(Self::RejoinReply),
+            "SESSION_MESSAGE_TYPE_HEARTBEAT" => Some(Self::Heartbeat),
             _ => None,
         }
     }

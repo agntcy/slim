@@ -269,18 +269,20 @@ where
                 );
                 self.common.sender.start_drain();
             }
-            SessionMessage::ParticipantDisconnected { name: _ } => {
-                debug!("The moderator is not anymore connected to the current session, close it",);
+            SessionMessage::ParticipantDisconnected { name } => {
+                if let Some(participant_name) = name {
+                    debug!(
+                        %participant_name,
+                        "participant detected offline via missed heartbeats, marking offline locally",
+                    );
 
-                self.common.processing_state = ProcessingState::Draining;
-                output.extend(
-                    self.inner
-                        .on_message(SessionMessage::StartDrain {
-                            grace_period: Duration::from_secs(1),
-                        })
-                        .await?,
-                );
-                self.common.sender.start_drain();
+                    if let Some(entry) = self.group_list.get_mut(&participant_name) {
+                        entry.state = ParticipantState::OffLine;
+                    }
+
+                    self.remove_endpoint(&participant_name);
+                    tracing::info!("participant {} is now offline", participant_name);
+                }
             }
             SessionMessage::LeaveCleanup => {
                 self.disconnect_from_group().await?;
@@ -409,7 +411,7 @@ where
             ProtoSessionMessageType::LeaveRequest | ProtoSessionMessageType::GroupClose => {
                 self.on_leave_request(message).await
             }
-            ProtoSessionMessageType::Ping => self.on_ping(message).await,
+            ProtoSessionMessageType::Heartbeat => self.on_heartbeat(message).await,
             ProtoSessionMessageType::LeaveReply => {
                 // this message is received when the moderator ack the
                 // reception of the leave request sent on Drain start
@@ -941,18 +943,10 @@ where
         Ok(output)
     }
 
-    async fn on_ping(&mut self, mut msg: Message) -> Result<SessionOutput, SessionError> {
-        debug!("received ping message, reply");
-        // send ping to the local sender to register the reception
-        let mut output = self.common.sender.on_message(&msg)?;
-
-        // reply to the ping
-        let header = msg.get_slim_header_mut();
-        let src = header.get_source();
-        header.set_source(self.common.settings.source.clone());
-        header.set_destination(src);
-        output.extend(SessionOutput::to_slim(msg));
-        Ok(output)
+    async fn on_heartbeat(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {
+        debug!(from = %msg.get_source(), "received heartbeat");
+        // Forward to the controller sender to update last_seen tracking — no reply needed
+        self.common.sender.on_message(&msg)
     }
 
     async fn join(&mut self, msg: &Message) -> Result<(), SessionError> {
@@ -1759,26 +1753,26 @@ mod tests {
         // Set participant to offline
         participant.common.participant_state = ParticipantState::OffLine;
 
-        // Build a Ping message (should be dropped when offline)
+        // Build a Heartbeat message (should be dropped when offline)
         let source = make_name(&["moderator", "app", "v1"]).with_id(300);
         let destination = participant.common.settings.source.clone();
-        let ping_msg = Message::builder()
+        let heartbeat_msg = Message::builder()
             .source(source)
             .destination(destination)
             .identity("")
             .forward_to(0)
             .incoming_conn(12345)
             .session_type(ProtoSessionType::Multicast)
-            .session_message_type(ProtoSessionMessageType::Ping)
+            .session_message_type(ProtoSessionMessageType::Heartbeat)
             .session_id(1)
             .message_id(100)
-            .payload(CommandPayload::builder().ping().as_content())
+            .payload(CommandPayload::builder().heartbeat().as_content())
             .build_publish()
             .unwrap();
 
         let result = participant
             .on_message(SessionMessage::OnMessage {
-                message: ping_msg,
+                message: heartbeat_msg,
                 direction: MessageDirection::North,
                 ack_tx: None,
             })

@@ -22,11 +22,11 @@ use crate::dataplane::proto::v1::message::MessageType::Unsubscribe as ProtoUnsub
 use crate::dataplane::proto::v1::{
     ApplicationPayload, CommandPayload, Content, DiscoveryReplyPayload, DiscoveryRequestPayload,
     EncodedName, GroupAckPayload, GroupAddPayload, GroupClosePayload, GroupNackPayload,
-    GroupProposalPayload, GroupRemovePayload, GroupWelcomePayload, JoinReplyPayload,
-    JoinRequestPayload, LeaveReplyPayload, LeaveRequestPayload, Link as ProtoLink,
-    LinkConnectionType, LinkNegotiationPayload, Message as ProtoMessage, MlsPayload,
-    MlsSettings as ProtoMlsSettings, Name as ProtoName, NameId, Participant, ParticipantSettings,
-    ParticipantState, PingPayload, Publish as ProtoPublish, RejoinReplyPayload,
+    GroupProposalPayload, GroupRemovePayload, GroupWelcomePayload, HeartbeatPayload,
+    JoinReplyPayload, JoinRequestPayload, LeaveReplyPayload, LeaveRequestPayload,
+    Link as ProtoLink, LinkConnectionType, LinkNegotiationPayload, Message as ProtoMessage,
+    MlsPayload, MlsSettings as ProtoMlsSettings, Name as ProtoName, NameId, Participant,
+    ParticipantSettings, ParticipantState, Publish as ProtoPublish, RejoinReplyPayload,
     RejoinRequestPayload, SessionHeader, SessionMessageType, SessionType as ProtoSessionType,
     SlimHeader, StringName, Subscribe as ProtoSubscribe, SubscriptionAck as ProtoSubscriptionAck,
     TimerSettings, Unsubscribe as ProtoUnsubscribe, UpdateParticipantStatePayload,
@@ -56,11 +56,12 @@ pub const DELETE_GROUP: &str = "DELETE_GROUP";
 /// The value is set to `TRUE_VAL` for direct delivery without buffering.
 pub const PUBLISH_TO: &str = "PUBLISH_TO";
 
-/// DISCONNECTION_DETECTED indicates that a participant disconnection was detected (not a graceful leave).
-/// This is used in the leave request message and internally by the moderator when
-/// a disconnection is detected due to missing ping replies from the participant.
-/// The value is set to `TRUE_VAL` when disconnection is detected.
-pub const DISCONNECTION_DETECTED: &str = "DISCONNECTION_DETECTED";
+/// LEAVE_REPLY_SENT indicates that a leave reply was already sent to the participant.
+/// This is used internally by the moderator when a LEAVING_SESSION leave request is queued
+/// because the moderator is busy. The metadata is swapped from LEAVING_SESSION to LEAVE_REPLY_SENT
+/// so that on re-processing, the leave reply is not sent twice.
+/// The value is set to `TRUE_VAL`.
+pub const LEAVE_REPLY_SENT: &str = "LEAVE_REPLY_SENT";
 
 /// LEAVING_SESSION indicates that a participant is gracefully leaving the session.
 /// This is used in the leave request message sent by a participant closing the session to the moderator.
@@ -649,7 +650,7 @@ impl SessionMessageType {
                 | SessionMessageType::GroupProposal
                 | SessionMessageType::GroupAck
                 | SessionMessageType::GroupNack
-                | SessionMessageType::Ping
+                | SessionMessageType::Heartbeat
                 | SessionMessageType::UpdateParticipantState
                 | SessionMessageType::RejoinRequest
                 | SessionMessageType::RejoinReply
@@ -667,7 +668,7 @@ impl SessionMessageType {
                 | SessionMessageType::GroupProposal
                 | SessionMessageType::GroupAck
                 | SessionMessageType::GroupNack
-                | SessionMessageType::Ping
+                | SessionMessageType::Heartbeat
                 | SessionMessageType::UpdateParticipantState
                 | SessionMessageType::RejoinRequest
                 | SessionMessageType::RejoinReply
@@ -1224,7 +1225,7 @@ impl ProtoMessage {
         extract_group_proposal => as_group_proposal_payload(GroupProposalPayload),
         extract_group_ack => as_group_ack_payload(GroupAckPayload),
         extract_group_nack => as_group_nack_payload(GroupNackPayload),
-        extract_ping => as_ping_payload(PingPayload),
+        extract_heartbeat => as_heartbeat_payload(HeartbeatPayload),
         extract_update_participant_state => as_update_participant_state_payload(UpdateParticipantStatePayload),
         extract_rejoin_request => as_rejoin_request_payload(RejoinRequestPayload),
         extract_rejoin_reply => as_rejoin_reply_payload(RejoinReplyPayload),
@@ -1309,7 +1310,7 @@ impl CommandPayload {
         as_group_proposal_payload => GroupProposal(GroupProposalPayload),
         as_group_ack_payload => GroupAck(GroupAckPayload),
         as_group_nack_payload => GroupNack(GroupNackPayload),
-        as_ping_payload => Ping(PingPayload),
+        as_heartbeat_payload => Heartbeat(HeartbeatPayload),
         as_update_participant_state_payload => UpdateParticipantState(UpdateParticipantStatePayload),
         as_rejoin_request_payload => RejoinRequest(RejoinRequestPayload),
         as_rejoin_reply_payload => RejoinReply(RejoinReplyPayload),
@@ -1484,10 +1485,10 @@ impl CommandPayloadBuilder {
         }
     }
 
-    pub fn ping(self) -> CommandPayload {
-        let payload = PingPayload {};
+    pub fn heartbeat(self) -> CommandPayload {
+        let payload = HeartbeatPayload {};
         CommandPayload {
-            command_payload_type: Some(CommandPayloadType::Ping(payload)),
+            command_payload_type: Some(CommandPayloadType::Heartbeat(payload)),
         }
     }
 
@@ -2278,7 +2279,7 @@ mod message_tests {
 
     #[test]
     fn test_service_type_to_int() {
-        let total_service_types = SessionMessageType::RejoinReply as i32;
+        let total_service_types = SessionMessageType::Heartbeat as i32;
         for i in 0..total_service_types {
             let service_type =
                 SessionMessageType::try_from(i).expect("failed to convert int to service type");
@@ -2429,7 +2430,10 @@ mod message_tests {
             .group_nack()
             .as_group_nack_payload()
             .is_ok());
-        assert!(CommandPayload::builder().ping().as_ping_payload().is_ok());
+        assert!(CommandPayload::builder()
+            .heartbeat()
+            .as_heartbeat_payload()
+            .is_ok());
 
         // UpdateParticipantState
         let payload = CommandPayload::builder()
@@ -2557,7 +2561,7 @@ mod message_tests {
 
     #[test]
     fn test_update_participant_state_wrong_payload_extraction() {
-        let cmd_payload = CommandPayload::builder().ping();
+        let cmd_payload = CommandPayload::builder().heartbeat();
         assert!(cmd_payload.as_update_participant_state_payload().is_err());
         assert!(cmd_payload.as_rejoin_request_payload().is_err());
         assert!(cmd_payload.as_rejoin_reply_payload().is_err());
