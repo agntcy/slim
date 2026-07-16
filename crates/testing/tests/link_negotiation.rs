@@ -3,7 +3,7 @@
 //! Covers bidirectional negotiation (request on the server, reply on the client)
 //! and remote version advertisement in logs.
 
-use slim_integration_tests::{
+use slim_testing::{
     binaries::{require_slim_binary, workspace_root},
     helpers::*,
 };

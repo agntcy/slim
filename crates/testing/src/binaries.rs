@@ -1,9 +1,10 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Workspace root (`slim/`), one level above this crate manifest dir.
+/// Workspace root (`slim/`), two levels above this crate manifest dir
+/// (`slim/crates/testing`).
 pub fn workspace_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
 fn abs_path(path: &Path) -> PathBuf {
@@ -198,7 +199,7 @@ fn require_binary(path: PathBuf, name: &str, build_hint: &str) -> PathBuf {
     panic!(
         "{name} binary not found at {}.\n\
          Build it first: {build_hint}\n\
-         Or run: task -d tests tests:integration",
+         Or run: task -d crates/testing tests:integration",
         path.display()
     );
 }

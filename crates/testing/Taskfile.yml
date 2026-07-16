@@ -121,6 +121,25 @@ tasks:
           ARGS: ""
           BIN_ARGS: "--disable-mls --multiple-remotes"
 
+  tests:build-binaries:
+    desc: "Build SLIM binaries required by the integration tests"
+    dir: "../.."
+    cmds:
+      - cargo build --bin slim -p agntcy-slim
+      - cargo build --bin sdk-mock -p slim-examples
+      - cargo build --bin client -p slim-examples
+      - cargo build --bin channel-manager -p agntcy-slim-channel-manager
+      - cargo build --bin slimctl -p agntcy-slimctl
+      - cargo build --bin slim-control-plane -p agntcy-slim-control-plane
+
+  tests:integration:
+    desc: "Run active Rust integration tests"
+    dir: "../.."
+    deps:
+      - tests:build-binaries
+    cmds:
+      - cargo test -p agntcy-slim-testing --features integration -- --nocapture --test-threads=1
+
   benchmark:
     desc: "Run in-process throughput benchmark (dumbbell topology)"
     dir: "../.."

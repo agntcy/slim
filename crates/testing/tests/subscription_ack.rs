@@ -3,7 +3,7 @@
 //! Verifies that sdk-mock applications subscribe, receive ACKs on the remote
 //! path, and exchange messages end-to-end through a central relay node.
 
-use slim_integration_tests::{
+use slim_testing::{
     binaries::{require_sdk_mock_binary, require_slim_binary, workspace_root},
     constants::{MSG_HELLO_FROM_A, MSG_QUEUEING_REPLY, MSG_SUBSCRIPTION_REMOTE_ACK},
     helpers::*,

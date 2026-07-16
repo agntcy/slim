@@ -4,7 +4,7 @@
 //! Stays `#[ignore]` until Edge connection route cleanup is fixed upstream.
 
 use regex::Regex;
-use slim_integration_tests::{
+use slim_testing::{
     binaries::{
         require_control_plane_binary, require_sdk_mock_binary, require_slim_binary,
         require_slimctl_binary, workspace_root,
