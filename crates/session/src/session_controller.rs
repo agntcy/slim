@@ -16,7 +16,7 @@ use serde_json::Value;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, Content, NameId, ParticipantState, ProtoMessage as Message, ProtoName,
+        CommandPayload, Content, NameId, ProtoMessage as Message, ProtoName,
         ProtoSessionMessageType, ProtoSessionType, SlimHeader,
     },
     messages::utils::SlimHeaderFlags,
@@ -585,64 +585,6 @@ impl SessionController {
             .map_err(|_e| SessionError::SessionControllerSendFailed)
     }
 
-    /// Close the session: notifies the group that this participant is going offline.
-    /// The returned CompletionHandle resolves when ACKs are collected.
-    /// After completion, the caller should persist the session state and may
-    /// later rejoin using `rejoin()`.
-    pub async fn close(&self) -> Result<CompletionHandle, SessionError> {
-        if self.session_type() == ProtoSessionType::PointToPoint {
-            return Err(SessionError::CannotCloseP2P);
-        }
-
-        let msg = Message::builder()
-            .source(self.source().clone())
-            // Placeholder: this needs to be updated with control channel destination
-            .destination(self.dst().clone())
-            .identity("")
-            .session_type(self.session_type())
-            .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
-            .session_id(self.id())
-            .message_id(rand::random::<u32>())
-            .payload(
-                CommandPayload::builder()
-                    .update_participant_state(self.source().clone(), ParticipantState::OffLine)
-                    .as_content(),
-            )
-            .build_publish()?;
-
-        self.publish_message(msg).await
-    }
-
-    /// Rejoin the session: sends a RejoinRequest to the moderator.
-    /// The MLS epoch is filled in by the session handler before sending.
-    /// The returned CompletionHandle resolves when the moderator replies.
-    pub async fn rejoin(&self) -> Result<CompletionHandle, SessionError> {
-        if self.session_type() == ProtoSessionType::PointToPoint {
-            return Err(SessionError::CannotRejoinP2P);
-        }
-        let msg = Message::builder()
-            .source(self.source().clone())
-            // Placeholder: this needs to be updated with control channel destination
-            .destination(self.dst().clone())
-            .identity("")
-            .session_type(self.session_type())
-            .session_message_type(ProtoSessionMessageType::RejoinRequest)
-            .session_id(self.id())
-            .message_id(rand::random::<u32>())
-            .payload(
-                CommandPayload::builder()
-                    .rejoin_request(
-                        self.source().clone(),
-                        self.id(),
-                        // placeholder:filled by session handler before sending
-                        u64::MAX,
-                    )
-                    .as_content(),
-            )
-            .build_publish()?;
-        self.publish_message(msg).await
-    }
-
     pub fn leave(&self) -> Result<tokio::task::JoinHandle<()>, SessionError> {
         self.cancellation_token.cancel();
 
@@ -838,12 +780,6 @@ pub fn handle_channel_discovery_message(
     Ok(msg)
 }
 
-pub(crate) struct PendingStatusUpdate {
-    pub(crate) message_id: u32,
-    pub(crate) message_type: ProtoSessionMessageType,
-    pub(crate) ack_tx: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
-}
-
 pub(crate) struct SessionControllerCommon<
     P,
     V,
@@ -858,13 +794,6 @@ pub(crate) struct SessionControllerCommon<
 
     /// sender for command messages
     pub(crate) sender: ControllerSender,
-
-    /// participant state (on-line/off-line)
-    pub(crate) participant_state: ParticipantState,
-
-    /// pending status update contains the channel to notify the application when
-    /// pause or resume actions are completed
-    pub(crate) pending_status_update: Option<PendingStatusUpdate>,
 
     /// processing state
     pub(crate) processing_state: ProcessingState,
@@ -905,8 +834,6 @@ where
             settings,
             sender: controller_sender,
             processing_state: ProcessingState::Active,
-            participant_state: ParticipantState::OnLine,
-            pending_status_update: None,
             subscription_ids: HashMap::new(),
         }
     }

@@ -216,8 +216,7 @@ impl ControllerSender {
             slim_datapath::api::ProtoSessionMessageType::DiscoveryRequest
             | slim_datapath::api::ProtoSessionMessageType::JoinRequest
             | slim_datapath::api::ProtoSessionMessageType::LeaveRequest
-            | slim_datapath::api::ProtoSessionMessageType::GroupWelcome
-            | slim_datapath::api::ProtoSessionMessageType::RejoinRequest => {
+            | slim_datapath::api::ProtoSessionMessageType::GroupWelcome => {
                 if self.draining_state == ControllerSenderDrainStatus::Initiated {
                     // draining period started; reject new messages
                     return Err(SessionError::SessionDrainingDrop);
@@ -245,7 +244,6 @@ impl ControllerSender {
             slim_datapath::api::ProtoSessionMessageType::DiscoveryReply
             | slim_datapath::api::ProtoSessionMessageType::JoinReply
             | slim_datapath::api::ProtoSessionMessageType::LeaveReply
-            | slim_datapath::api::ProtoSessionMessageType::RejoinReply
             | slim_datapath::api::ProtoSessionMessageType::GroupAck => {
                 self.on_reply_message(message);
             }
@@ -314,21 +312,6 @@ impl ControllerSender {
                 output.extend(self.on_send_message(message, missing_replies)?);
             }
             slim_datapath::api::ProtoSessionMessageType::GroupProposal => todo!(),
-            slim_datapath::api::ProtoSessionMessageType::UpdateParticipantState => {
-                // compute the list of participants that needs to send an ack
-                let missing_replies = self
-                    .group_list
-                    .iter()
-                    .filter(|name| *name != &self.local_name)
-                    .cloned()
-                    .collect::<HashSet<_>>();
-                debug!(
-                    "send update state with message id {}, expected acks from {:?}",
-                    message.get_id(),
-                    missing_replies
-                );
-                output.extend(self.on_send_message(message, missing_replies)?);
-            }
             _ => {
                 debug!("unexpected message type");
             }
@@ -412,12 +395,16 @@ impl ControllerSender {
         &mut self,
         id: u32,
         msg_type: ProtoSessionMessageType,
+        mls_epoch: Option<u64>,
     ) -> Result<SessionOutput, SessionError> {
         debug!(%id, ?msg_type, "timeout for message");
 
         // check if the timeout is related to a heartbeat
-        if self.heartbeat_state.is_some() && msg_type == ProtoSessionMessageType::Heartbeat {
-            return self.handle_heartbeat_timeout(id);
+        if self.heartbeat_state.is_some()
+            && msg_type == ProtoSessionMessageType::Heartbeat
+            && let Some(epoch) = mls_epoch
+        {
+            return self.handle_heartbeat_timeout(id, epoch);
         }
 
         // the timer is not related to a heartbeat, resend the message if possible
@@ -430,7 +417,11 @@ impl ControllerSender {
         Err(SessionError::TimerNotFound(id))
     }
 
-    fn handle_heartbeat_timeout(&mut self, id: u32) -> Result<SessionOutput, SessionError> {
+    fn handle_heartbeat_timeout(
+        &mut self,
+        id: u32,
+        epoch: u64,
+    ) -> Result<SessionOutput, SessionError> {
         let is_heartbeat_timer = self
             .heartbeat_state
             .as_ref()
@@ -485,7 +476,7 @@ impl ControllerSender {
                 .session_message_type(ProtoSessionMessageType::Heartbeat)
                 .session_id(self.session_id)
                 .message_id(heartbeat_id)
-                .payload(CommandPayload::builder().heartbeat().as_content());
+                .payload(CommandPayload::builder().heartbeat(epoch).as_content());
 
             if self.session_type == ProtoSessionType::Multicast {
                 builder = builder.fanout(256);
@@ -629,7 +620,7 @@ mod tests {
 
         let resent = single_slim_message(
             sender
-                .on_timer_timeout(1, ProtoSessionMessageType::DiscoveryRequest)
+                .on_timer_timeout(1, ProtoSessionMessageType::DiscoveryRequest, None)
                 .expect("error re-sending the request"),
         );
         assert_eq!(resent, request);
@@ -708,7 +699,7 @@ mod tests {
 
         let resent = single_slim_message(
             sender
-                .on_timer_timeout(1, ProtoSessionMessageType::JoinRequest)
+                .on_timer_timeout(1, ProtoSessionMessageType::JoinRequest, None)
                 .expect("error re-sending the request"),
         );
         assert_eq!(resent, request);
@@ -782,7 +773,7 @@ mod tests {
 
         let resent = single_slim_message(
             sender
-                .on_timer_timeout(1, ProtoSessionMessageType::LeaveRequest)
+                .on_timer_timeout(1, ProtoSessionMessageType::LeaveRequest, None)
                 .expect("error re-sending the request"),
         );
         assert_eq!(resent, request);
@@ -855,7 +846,7 @@ mod tests {
 
         let resent = single_slim_message(
             sender
-                .on_timer_timeout(1, ProtoSessionMessageType::GroupWelcome)
+                .on_timer_timeout(1, ProtoSessionMessageType::GroupWelcome, None)
                 .expect("error re-sending the welcome"),
         );
         assert_eq!(resent, welcome);
@@ -947,7 +938,7 @@ mod tests {
 
         let resent = single_slim_message(
             sender
-                .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd)
+                .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd, None)
                 .expect("error re-sending the add"),
         );
         assert_eq!(resent, update);
@@ -1053,7 +1044,7 @@ mod tests {
 
         let resent = single_slim_message(
             sender
-                .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd)
+                .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd, None)
                 .expect("error re-sending the add"),
         );
         assert_eq!(resent, update);
@@ -1086,7 +1077,7 @@ mod tests {
 
         let retransmitted = single_slim_message(
             sender
-                .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd)
+                .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd, None)
                 .expect("error re-sending the add"),
         );
         assert_eq!(retransmitted, update);
@@ -1142,7 +1133,7 @@ mod tests {
         assert_eq!(message_type, ProtoSessionMessageType::Heartbeat);
 
         let output = sender
-            .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat)
+            .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat, Some(50))
             .expect("error handling heartbeat timeout");
         let heartbeat_msg = single_slim_message(output);
         assert_eq!(
@@ -1186,7 +1177,7 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::Heartbeat)
             .session_id(session_id)
             .message_id(rand::random::<u32>())
-            .payload(CommandPayload::builder().heartbeat().as_content())
+            .payload(CommandPayload::builder().heartbeat(50).as_content())
             .build_publish()
             .unwrap();
 
@@ -1206,7 +1197,7 @@ mod tests {
             expect_timeout(&mut rx_signal, Duration::from_millis(600)).await;
         assert_eq!(message_type, ProtoSessionMessageType::Heartbeat);
         sender
-            .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat)
+            .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat, Some(50))
             .expect("error handling heartbeat timeout");
 
         if let Some(hs) = &sender.heartbeat_state {
@@ -1248,7 +1239,7 @@ mod tests {
             .session_message_type(ProtoSessionMessageType::Heartbeat)
             .session_id(session_id)
             .message_id(rand::random::<u32>())
-            .payload(CommandPayload::builder().heartbeat().as_content())
+            .payload(CommandPayload::builder().heartbeat(50).as_content())
             .build_publish()
             .unwrap();
         sender
@@ -1261,7 +1252,7 @@ mod tests {
                 expect_timeout(&mut rx_signal, Duration::from_millis(300)).await;
             assert_eq!(message_type, ProtoSessionMessageType::Heartbeat);
             sender
-                .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat)
+                .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat, Some(50))
                 .expect("error handling heartbeat timeout");
         }
 
@@ -1312,7 +1303,7 @@ mod tests {
         assert_eq!(message_type, ProtoSessionMessageType::Heartbeat);
 
         let output = sender
-            .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat)
+            .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat, Some(50))
             .expect("error handling heartbeat timeout");
         let heartbeat_msg = single_slim_message(output);
         assert_eq!(
@@ -1350,7 +1341,7 @@ mod tests {
         assert_eq!(message_type, ProtoSessionMessageType::Heartbeat);
 
         let output = sender
-            .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat)
+            .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat, Some(50))
             .expect("error handling heartbeat timeout");
         assert_no_messages(output);
     }

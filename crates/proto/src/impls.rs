@@ -26,10 +26,9 @@ use crate::dataplane::proto::v1::{
     JoinReplyPayload, JoinRequestPayload, LeaveReplyPayload, LeaveRequestPayload,
     Link as ProtoLink, LinkConnectionType, LinkNegotiationPayload, Message as ProtoMessage,
     MlsPayload, MlsSettings as ProtoMlsSettings, Name as ProtoName, NameId, Participant,
-    ParticipantSettings, ParticipantState, Publish as ProtoPublish, RejoinReplyPayload,
-    RejoinRequestPayload, SessionHeader, SessionMessageType, SessionType as ProtoSessionType,
-    SlimHeader, StringName, Subscribe as ProtoSubscribe, SubscriptionAck as ProtoSubscriptionAck,
-    TimerSettings, Unsubscribe as ProtoUnsubscribe, UpdateParticipantStatePayload,
+    ParticipantSettings, Publish as ProtoPublish, SessionHeader, SessionMessageType,
+    SessionType as ProtoSessionType, SlimHeader, StringName, Subscribe as ProtoSubscribe,
+    SubscriptionAck as ProtoSubscriptionAck, TimerSettings, Unsubscribe as ProtoUnsubscribe,
 };
 
 fn calculate_hash<T: Hash + ?Sized>(t: &T) -> u64 {
@@ -651,9 +650,6 @@ impl SessionMessageType {
                 | SessionMessageType::GroupAck
                 | SessionMessageType::GroupNack
                 | SessionMessageType::Heartbeat
-                | SessionMessageType::UpdateParticipantState
-                | SessionMessageType::RejoinRequest
-                | SessionMessageType::RejoinReply
         )
     }
 
@@ -669,9 +665,6 @@ impl SessionMessageType {
                 | SessionMessageType::GroupAck
                 | SessionMessageType::GroupNack
                 | SessionMessageType::Heartbeat
-                | SessionMessageType::UpdateParticipantState
-                | SessionMessageType::RejoinRequest
-                | SessionMessageType::RejoinReply
         )
     }
 }
@@ -1226,9 +1219,6 @@ impl ProtoMessage {
         extract_group_ack => as_group_ack_payload(GroupAckPayload),
         extract_group_nack => as_group_nack_payload(GroupNackPayload),
         extract_heartbeat => as_heartbeat_payload(HeartbeatPayload),
-        extract_update_participant_state => as_update_participant_state_payload(UpdateParticipantStatePayload),
-        extract_rejoin_request => as_rejoin_request_payload(RejoinRequestPayload),
-        extract_rejoin_reply => as_rejoin_reply_payload(RejoinReplyPayload),
     }
 
     pub fn builder() -> ProtoMessageBuilder {
@@ -1311,9 +1301,6 @@ impl CommandPayload {
         as_group_ack_payload => GroupAck(GroupAckPayload),
         as_group_nack_payload => GroupNack(GroupNackPayload),
         as_heartbeat_payload => Heartbeat(HeartbeatPayload),
-        as_update_participant_state_payload => UpdateParticipantState(UpdateParticipantStatePayload),
-        as_rejoin_request_payload => RejoinRequest(RejoinRequestPayload),
-        as_rejoin_reply_payload => RejoinReply(RejoinReplyPayload),
     }
 
     pub fn builder() -> CommandPayloadBuilder {
@@ -1485,47 +1472,10 @@ impl CommandPayloadBuilder {
         }
     }
 
-    pub fn heartbeat(self) -> CommandPayload {
-        let payload = HeartbeatPayload {};
+    pub fn heartbeat(self, epoch: u64) -> CommandPayload {
+        let payload = HeartbeatPayload { epoch };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::Heartbeat(payload)),
-        }
-    }
-
-    pub fn update_participant_state(
-        self,
-        participant: ProtoName,
-        new_state: ParticipantState,
-    ) -> CommandPayload {
-        let payload = UpdateParticipantStatePayload {
-            participant: Some(participant),
-            new_state: new_state as i32,
-        };
-        CommandPayload {
-            command_payload_type: Some(CommandPayloadType::UpdateParticipantState(payload)),
-        }
-    }
-
-    pub fn rejoin_request(
-        self,
-        participant: ProtoName,
-        session_id: u32,
-        mls_epoch: u64,
-    ) -> CommandPayload {
-        let payload = RejoinRequestPayload {
-            participant: Some(participant),
-            session_id,
-            mls_epoch,
-        };
-        CommandPayload {
-            command_payload_type: Some(CommandPayloadType::RejoinRequest(payload)),
-        }
-    }
-
-    pub fn rejoin_reply(self, success: bool) -> CommandPayload {
-        let payload = RejoinReplyPayload { success };
-        CommandPayload {
-            command_payload_type: Some(CommandPayloadType::RejoinReply(payload)),
         }
     }
 }
@@ -2431,32 +2381,9 @@ mod message_tests {
             .as_group_nack_payload()
             .is_ok());
         assert!(CommandPayload::builder()
-            .heartbeat()
+            .heartbeat(0)
             .as_heartbeat_payload()
             .is_ok());
-
-        // UpdateParticipantState
-        let payload = CommandPayload::builder()
-            .update_participant_state(dest.clone(), ParticipantState::OffLine);
-        let extracted = payload.as_update_participant_state_payload().unwrap();
-        assert_eq!(extracted.participant, Some(dest.clone()));
-        assert_eq!(extracted.new_state, ParticipantState::OffLine as i32);
-
-        // RejoinRequest
-        let payload = CommandPayload::builder().rejoin_request(dest.clone(), 42, 7);
-        let extracted = payload.as_rejoin_request_payload().unwrap();
-        assert_eq!(extracted.participant, Some(dest.clone()));
-        assert_eq!(extracted.session_id, 42);
-        assert_eq!(extracted.mls_epoch, 7);
-
-        // RejoinReply
-        let payload = CommandPayload::builder().rejoin_reply(true);
-        let extracted = payload.as_rejoin_reply_payload().unwrap();
-        assert!(extracted.success);
-
-        let payload = CommandPayload::builder().rejoin_reply(false);
-        let extracted = payload.as_rejoin_reply_payload().unwrap();
-        assert!(!extracted.success);
     }
 
     #[test]
@@ -2480,91 +2407,6 @@ mod message_tests {
             msg.get_session_message_type(),
             SessionMessageType::DiscoveryRequest
         );
-    }
-
-    #[test]
-    fn test_builder_with_update_participant_state_payload() {
-        let source = ProtoName::from_strings(["org", "ns", "participant1"]).with_id(1);
-        let dest = ProtoName::from_strings(["org", "ns", "moderator"]).with_id(2);
-        let cmd_payload = CommandPayload::builder()
-            .update_participant_state(source.clone(), ParticipantState::OffLine);
-
-        let msg = ProtoMessage::builder()
-            .source(source)
-            .destination(dest)
-            .session_type(ProtoSessionType::Multicast)
-            .session_message_type(SessionMessageType::UpdateParticipantState)
-            .session_id(1)
-            .command_payload(cmd_payload)
-            .build_publish()
-            .unwrap();
-
-        assert!(msg.is_publish());
-        assert_eq!(
-            msg.get_session_message_type(),
-            SessionMessageType::UpdateParticipantState
-        );
-        let extracted = msg.extract_update_participant_state().unwrap();
-        assert_eq!(extracted.new_state, ParticipantState::OffLine as i32);
-    }
-
-    #[test]
-    fn test_builder_with_rejoin_request_payload() {
-        let source = ProtoName::from_strings(["org", "ns", "participant1"]).with_id(1);
-        let dest = ProtoName::from_strings(["org", "ns", "moderator"]).with_id(2);
-        let cmd_payload = CommandPayload::builder().rejoin_request(source.clone(), 100, 5);
-
-        let msg = ProtoMessage::builder()
-            .source(source)
-            .destination(dest)
-            .session_type(ProtoSessionType::Multicast)
-            .session_message_type(SessionMessageType::RejoinRequest)
-            .session_id(100)
-            .command_payload(cmd_payload)
-            .build_publish()
-            .unwrap();
-
-        assert!(msg.is_publish());
-        assert_eq!(
-            msg.get_session_message_type(),
-            SessionMessageType::RejoinRequest
-        );
-        let extracted = msg.extract_rejoin_request().unwrap();
-        assert_eq!(extracted.session_id, 100);
-        assert_eq!(extracted.mls_epoch, 5);
-    }
-
-    #[test]
-    fn test_builder_with_rejoin_reply_payload() {
-        let source = ProtoName::from_strings(["org", "ns", "moderator"]).with_id(1);
-        let dest = ProtoName::from_strings(["org", "ns", "participant1"]).with_id(2);
-        let cmd_payload = CommandPayload::builder().rejoin_reply(true);
-
-        let msg = ProtoMessage::builder()
-            .source(source)
-            .destination(dest)
-            .session_type(ProtoSessionType::Multicast)
-            .session_message_type(SessionMessageType::RejoinReply)
-            .session_id(100)
-            .command_payload(cmd_payload)
-            .build_publish()
-            .unwrap();
-
-        assert!(msg.is_publish());
-        assert_eq!(
-            msg.get_session_message_type(),
-            SessionMessageType::RejoinReply
-        );
-        let extracted = msg.extract_rejoin_reply().unwrap();
-        assert!(extracted.success);
-    }
-
-    #[test]
-    fn test_update_participant_state_wrong_payload_extraction() {
-        let cmd_payload = CommandPayload::builder().heartbeat();
-        assert!(cmd_payload.as_update_participant_state_payload().is_err());
-        assert!(cmd_payload.as_rejoin_request_payload().is_err());
-        assert!(cmd_payload.as_rejoin_reply_payload().is_err());
     }
 
     #[test]

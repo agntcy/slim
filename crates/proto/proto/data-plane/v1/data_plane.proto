@@ -126,10 +126,7 @@ enum SessionMessageType {
   SESSION_MESSAGE_TYPE_GROUP_PROPOSAL = 15;
   SESSION_MESSAGE_TYPE_GROUP_ACK = 16;
   SESSION_MESSAGE_TYPE_GROUP_NACK = 17;
-  SESSION_MESSAGE_TYPE_UPDATE_PARTICIPANT_STATE = 18;
-  SESSION_MESSAGE_TYPE_REJOIN_REQUEST = 19;
-  SESSION_MESSAGE_TYPE_REJOIN_REPLY = 20;
-  SESSION_MESSAGE_TYPE_HEARTBEAT = 21;
+  SESSION_MESSAGE_TYPE_HEARTBEAT = 18;
 }
 
 // SLIM message content
@@ -160,10 +157,7 @@ message CommandPayload {
     GroupProposalPayload group_proposal = 11;
     GroupAckPayload group_ack = 12;
     GroupNackPayload group_nack = 13;
-    UpdateParticipantStatePayload update_participant_state = 14;
-    HeartbeatPayload heartbeat = 15;
-    RejoinRequestPayload rejoin_request = 16;
-    RejoinReplyPayload rejoin_reply = 17;
+    HeartbeatPayload heartbeat = 14;
   }
 }
 
@@ -303,7 +297,11 @@ message GroupAckPayload {}
 message GroupNackPayload {}
 
 // Heartbeat — one-way presence broadcast, no reply expected
-message HeartbeatPayload {}
+// The epoch is the current MLS epoch of the participant sending
+// the packet. If MLS is not enable it is ignored
+message HeartbeatPayload {
+  uint64 epoch = 1;
+}
 
 // SubscriptionAck is delivered directly to the requesting connection in response
 // to a Subscribe or Unsubscribe that carried a non-zero subscription_id field.
@@ -315,32 +313,6 @@ message SubscriptionAck {
   bool success = 2;
   // Non-empty only when success == false.
   string error = 3;
-}
-
-enum ParticipantState {
-  PARTICIPANT_STATE_ON_LINE = 0;
-  PARTICIPANT_STATE_OFF_LINE = 1;
-  // other states may be added here in the future
-}
-
-// message to send to set the state to online or offline
-// the message is broadcasted to the channel and expects group_ack
-// as reply by all the receivers
-message UpdateParticipantStatePayload {
-  Name participant = 1;
-  ParticipantState new_state = 2;
-}
-
-// Message to send to the moderator to rejoin a session
-message RejoinRequestPayload {
-  Name participant = 1;
-  uint32 session_id = 2;
-  uint64 mls_epoch = 3;
-}
-
-// Message sent by the moderator as reply
-message RejoinReplyPayload {
-  bool success = 1;
 }
 
 // Link Negotiation
