@@ -21,7 +21,8 @@ use crate::errors::SlimError;
 use slim_config::component::configuration::Configuration;
 
 /// Compression type for gRPC messages
-#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+#[derive(uniffi::Enum, Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum CompressionType {
     Gzip,
     Zlib,
@@ -258,57 +259,73 @@ impl From<CoreBackoffConfig> for BackoffConfig {
 }
 
 /// Client configuration for connecting to a SLIM server
-#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+#[derive(uniffi::Record, Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct ClientConfig {
     /// The target endpoint the client will connect to.
     ///
     /// The transport protocol is inferred from the endpoint scheme:
     /// `ws://`/`wss://` → WebSocket, otherwise gRPC.
+    #[serde(default)]
     pub endpoint: String,
 
     /// TLS client configuration
+    #[serde(default)]
     pub tls: TlsClientConfig,
 
     /// Origin (HTTP Host authority override) for the client
+    #[serde(default)]
     pub origin: Option<String>,
 
     /// Optional TLS SNI server name override
+    #[serde(default)]
     pub server_name: Option<String>,
 
     /// Compression type
+    #[serde(default)]
     pub compression: Option<CompressionType>,
 
     /// Rate limit string (e.g., "100/s" for 100 requests per second)
+    #[serde(default)]
     pub rate_limit: Option<String>,
 
     /// Keepalive parameters
+    #[serde(skip, default)]
     pub keepalive: Option<KeepaliveConfig>,
 
     /// HTTP Proxy configuration
+    #[serde(skip, default)]
     pub proxy: Option<ProxyConfig>,
 
     /// Connection timeout
+    #[serde(default, with = "humantime_serde::option")]
     pub connect_timeout: Option<Duration>,
 
     /// Request timeout
+    #[serde(default, with = "humantime_serde::option")]
     pub request_timeout: Option<Duration>,
 
     /// Read buffer size in bytes
+    #[serde(default)]
     pub buffer_size: Option<u64>,
 
     /// Headers associated with gRPC requests
+    #[serde(default)]
     pub headers: Option<HashMap<String, String>>,
 
     /// Authentication configuration for outgoing RPCs
+    #[serde(skip, default)]
     pub auth: Option<ClientAuthenticationConfig>,
 
     /// Backoff retry configuration
+    #[serde(skip, default)]
     pub backoff: Option<BackoffConfig>,
 
     /// Arbitrary user-provided metadata as JSON string
+    #[serde(default)]
     pub metadata: Option<String>,
 
     /// When true, reject inter-node messages without a valid header MAC (strict mode).
+    #[serde(default)]
     pub require_header_mac: Option<bool>,
 }
 

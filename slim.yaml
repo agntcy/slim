@@ -1,0 +1,23 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# slim.yaml — default local development configuration for slim-bindings examples.
+#
+# Run the local SLIM server first:
+#   task run:server
+#
+# Then run the receiver and sender examples:
+#   task run:example:receiver
+#   task run:example:sender ARGS='--session-type p2p --participants agntcy/default/receiver'
+
+node:
+  endpoint: "http://localhost:46357"
+
+app:
+  name: "agntcy/default/receiver"
+  identity:
+    type: shared_secret
+    data: "slim-dev-shared-secret-change-in-production"
+  identity_verifier:
+    type: shared_secret
+    data: "slim-dev-shared-secret-change-in-production"

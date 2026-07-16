@@ -1190,7 +1190,7 @@ mod tests {
             "ns".to_string(),
             "dest".to_string(),
             "00000000-0000-0000-0000-000000012345".to_string(),
-        ));
+        ).unwrap());
 
         let mut metadata = HashMap::new();
         metadata.insert("key".to_string(), "value".to_string());

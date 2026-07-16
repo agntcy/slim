@@ -9,7 +9,19 @@
 //! 3. Receives messages from that session
 //! 4. Replies to each message using publish_to
 //!
-//! Usage:
+//! ## Modes
+//!
+//! **Config-based (recommended):** Supply `--slim-config` with a path to a `slim.yaml`
+//! file, or omit it to use hierarchical discovery (walks up from CWD, then
+//! `~/.slim/config.yaml`).
+//!
+//! ```bash
+//! cargo run --example receiver -- --slim-config /path/to/slim.yaml
+//! cargo run --example receiver  # discovery mode — needs slim.yaml in CWD or above
+//! ```
+//!
+//! **Manual:** Supply `--local` and `--shared-secret` (legacy, backward-compatible).
+//!
 //! ```bash
 //! cargo run --example receiver -- \
 //!   --local agntcy/ns/alice \
@@ -21,22 +33,29 @@ use std::time::Duration;
 
 use clap::Parser;
 use slim_bindings::{
-    Name, get_global_service, initialize_with_defaults, new_insecure_client_config, shutdown,
+    Name, get_global_service, initialize_with_defaults, load_slim_config,
+    new_insecure_client_config, shutdown,
 };
 use tokio::signal;
 
 /// Command-line arguments for the receiver application
 #[derive(Parser, Debug)]
 struct Args {
-    /// Local identity in format: organization/namespace/application
+    /// Path to a slim.yaml config file. When absent the receiver searches
+    /// upward from the current directory (then ~/.slim/config.yaml).
+    /// Mutually exclusive with --local / --shared-secret.
     #[arg(long)]
-    local: String,
+    slim_config: Option<String>,
 
-    /// Shared secret for authentication
+    /// Local identity in format: organization/namespace/application (manual mode)
     #[arg(long)]
-    shared_secret: String,
+    local: Option<String>,
 
-    /// SLIM control plane endpoint
+    /// Shared secret for authentication (manual mode)
+    #[arg(long)]
+    shared_secret: Option<String>,
+
+    /// SLIM node endpoint (manual mode only, ignored when --slim-config is used)
     #[arg(long, default_value = "http://localhost:46357")]
     slim: String,
 }
@@ -60,29 +79,56 @@ fn parse_name(id: &str) -> Result<Name, Box<dyn std::error::Error>> {
 
 /// Main receiver loop
 async fn run_receiver(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    // Parse the local identity
-    let local_name = parse_name(&args.local)?;
-    let local_name_arc = Arc::new(local_name);
-
     // Initialize SLIM with default configuration
     initialize_with_defaults();
 
-    // Get the global service and connect to the control plane
     let service = get_global_service();
-    let client_config = new_insecure_client_config(args.slim);
-    let conn_id = service.connect_async(client_config).await?;
 
-    println!("Connected to control plane with connection ID: {conn_id}");
+    // Determine which mode to use
+    let use_slim_config = args.slim_config.is_some()
+        || (args.local.is_none() && args.shared_secret.is_none());
 
-    // Create the slim application using global service with shared secret
-    let app = service
-        .create_app_with_secret_async(local_name_arc.clone(), args.shared_secret)
-        .await?;
+    let (app, full_name) = if use_slim_config {
+        // ── Config-based mode ─────────────────────────────────────────────
+        // load_slim_config discovers slim.yaml (or uses the explicit path),
+        // applies env-var overrides, then create_app_from_slim_config does
+        // connect + create_app + subscribe in one call.
+        let config = load_slim_config(args.slim_config.clone()).map_err(|e| {
+            format!(
+                "Failed to load SLIM config{}: {e}",
+                args.slim_config
+                    .as_deref()
+                    .map(|p| format!(" from '{p}'"))
+                    .unwrap_or_default()
+            )
+        })?;
 
-    let full_name = app.name();
+        let handle = service.create_app_from_slim_config_async(config).await?;
+        let full_name = handle.name.to_string();
+        println!("Connected via slim.yaml (app: {full_name}, conn: {})", handle.conn_id);
+        (handle.app, full_name)
+    } else {
+        // ── Manual mode (legacy) ──────────────────────────────────────────
+        let local = args.local.ok_or("--local is required in manual mode")?;
+        let secret = args.shared_secret.ok_or("--shared-secret is required in manual mode")?;
 
-    // Subscribe to local name
-    app.subscribe_async(local_name_arc, Some(conn_id)).await?;
+        let local_name = parse_name(&local)?;
+        let local_name_arc = Arc::new(local_name);
+
+        let client_config = new_insecure_client_config(args.slim);
+        let conn_id = service.connect_async(client_config).await?;
+
+        println!("Connected to control plane with connection ID: {conn_id}");
+
+        let app = service
+            .create_app_with_secret_async(local_name_arc.clone(), secret)
+            .await?;
+
+        let full_name = app.name().to_string();
+
+        app.subscribe_async(local_name_arc, Some(conn_id)).await?;
+        (app, full_name)
+    };
 
     println!("[{full_name}] Waiting for incoming session...");
 

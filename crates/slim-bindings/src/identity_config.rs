@@ -15,13 +15,18 @@ use std::time::Duration;
 use crate::common_config::SpireConfig;
 use crate::errors::SlimError;
 
+fn default_jwt_duration() -> Duration {
+    Duration::from_secs(3600)
+}
+
 /// Static JWT (Bearer token) authentication configuration
 /// The token is loaded from a file and automatically reloaded when changed
-#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+#[derive(uniffi::Record, Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct StaticJwtAuth {
     /// Path to file containing the JWT token
     pub token_file: String,
     /// Duration for caching the token before re-reading from file (default: 3600 seconds)
+    #[serde(default = "default_jwt_duration", with = "humantime_serde")]
     pub duration: Duration,
 }
 
@@ -41,7 +46,7 @@ impl From<StaticJwtConfig> for StaticJwtAuth {
 }
 
 /// JWT signing/verification algorithm
-#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+#[derive(uniffi::Enum, Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub enum JwtAlgorithm {
     HS256,
     HS384,
@@ -96,7 +101,8 @@ impl From<slim_auth::jwt::Algorithm> for JwtAlgorithm {
 }
 
 /// JWT key format
-#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+#[derive(uniffi::Enum, Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum JwtKeyFormat {
     Pem,
     Jwk,
@@ -124,7 +130,8 @@ impl From<slim_auth::jwt::KeyFormat> for JwtKeyFormat {
 }
 
 /// JWT key data source
-#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+#[derive(uniffi::Enum, Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum JwtKeyData {
     /// String with encoded key(s)
     Data { value: String },
@@ -151,7 +158,7 @@ impl From<slim_auth::jwt::KeyData> for JwtKeyData {
 }
 
 /// JWT key configuration
-#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+#[derive(uniffi::Record, Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct JwtKeyConfig {
     /// Algorithm used for signing/verifying the JWT
     pub algorithm: JwtAlgorithm,
@@ -182,7 +189,7 @@ impl From<slim_auth::jwt::Key> for JwtKeyConfig {
 }
 
 /// JWT key type (encoding, decoding, or autoresolve)
-#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+#[derive(uniffi::Enum, Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub enum JwtKeyType {
     /// Encoding key for signing JWTs (client-side)
     Encoding { key: JwtKeyConfig },
@@ -213,17 +220,21 @@ impl From<JwtKey> for JwtKeyType {
 }
 
 /// JWT authentication configuration for client-side signing
-#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+#[derive(uniffi::Record, Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct ClientJwtAuth {
     /// JWT key configuration (encoding key for signing)
     pub key: JwtKeyType,
     /// JWT audience claims to include
+    #[serde(default)]
     pub audience: Option<Vec<String>>,
     /// JWT issuer to include
+    #[serde(default)]
     pub issuer: Option<String>,
     /// JWT subject to include
+    #[serde(default)]
     pub subject: Option<String>,
     /// Token validity duration (default: 3600 seconds)
+    #[serde(default = "default_jwt_duration", with = "humantime_serde")]
     pub duration: Duration,
 }
 
@@ -261,17 +272,21 @@ impl From<JwtAuthConfig> for ClientJwtAuth {
 }
 
 /// JWT authentication configuration for server-side verification
-#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+#[derive(uniffi::Record, Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct JwtAuth {
     /// JWT key configuration (decoding key for verification)
     pub key: JwtKeyType,
     /// JWT audience claims to verify
+    #[serde(default)]
     pub audience: Option<Vec<String>>,
     /// JWT issuer to verify
+    #[serde(default)]
     pub issuer: Option<String>,
     /// JWT subject to verify
+    #[serde(default)]
     pub subject: Option<String>,
     /// Token validity duration (default: 3600 seconds)
+    #[serde(default = "default_jwt_duration", with = "humantime_serde")]
     pub duration: Duration,
 }
 
@@ -309,10 +324,17 @@ impl From<JwtAuthConfig> for JwtAuth {
 }
 
 /// Identity provider configuration - used to prove identity to others
-#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+#[derive(
+    uniffi::Enum, Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize,
+)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum IdentityProviderConfig {
     /// Shared secret authentication (symmetric key)
-    SharedSecret { id: String, data: String },
+    SharedSecret {
+        #[serde(default)]
+        id: String,
+        data: String,
+    },
     /// Static JWT loaded from file with auto-reload
     StaticJwt { config: StaticJwtAuth },
     /// Dynamic JWT generation with signing key
@@ -321,6 +343,7 @@ pub enum IdentityProviderConfig {
     #[cfg(not(target_family = "windows"))]
     Spire { config: SpireConfig },
     /// No identity provider configured
+    #[default]
     None,
 }
 
@@ -367,16 +390,24 @@ impl From<CoreIdentityProviderConfig> for IdentityProviderConfig {
 }
 
 /// Identity verifier configuration - used to verify identity of others
-#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+#[derive(
+    uniffi::Enum, Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize,
+)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum IdentityVerifierConfig {
     /// Shared secret verification (symmetric key)
-    SharedSecret { id: String, data: String },
+    SharedSecret {
+        #[serde(default)]
+        id: String,
+        data: String,
+    },
     /// JWT verification with decoding key
     Jwt { config: JwtAuth },
     /// SPIRE-based identity verifier (non-Windows only)
     #[cfg(not(target_family = "windows"))]
     Spire { config: SpireConfig },
     /// No identity verifier configured
+    #[default]
     None,
 }
 
