@@ -125,6 +125,11 @@ where
                 direction,
                 ack_tx,
             } => {
+                // Any incoming message from a remote participant is proof of liveness
+                if direction == MessageDirection::North {
+                    self.common.sender.notify_received_activity(&message);
+                }
+
                 if message.get_session_message_type().is_command_message() {
                     debug!(
                         message = ?message.get_session_message_type(),
@@ -133,6 +138,11 @@ where
                     );
                     output.extend(self.process_control_message(message).await?);
                 } else {
+                    // Sending a data message south counts as activity
+                    if direction == MessageDirection::South {
+                        self.common.sender.notify_sent_activity();
+                    }
+
                     if direction == MessageDirection::North
                         && let Some(mls_state) = &mut self.mls_state
                     {

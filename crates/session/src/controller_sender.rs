@@ -52,6 +52,10 @@ struct HeartbeatState {
     /// Incremented on each heartbeat timer tick.
     missed_heartbeats: HashMap<ProtoName, u32>,
 
+    /// When true, skip sending the next heartbeat because we already
+    /// sent other traffic during this interval. Reset to false on each tick.
+    postpone_heartbeat: bool,
+
     /// The periodic heartbeat timer
     heartbeat_timer: Timer,
 
@@ -125,6 +129,7 @@ impl ControllerSender {
             );
             Some(HeartbeatState {
                 missed_heartbeats: HashMap::new(),
+                postpone_heartbeat: false,
                 heartbeat_timer,
                 heartbeat_timer_factory,
             })
@@ -153,6 +158,11 @@ impl ControllerSender {
             "adding participant to group on controller sender"
         );
         self.group_list.insert(name.clone());
+
+        // Start tracking heartbeats for this participant
+        if let Some(hs) = self.heartbeat_state.as_mut() {
+            hs.missed_heartbeats.insert(name.clone(), 0);
+        }
     }
 
     pub fn remove_participant(&mut self, name: &ProtoName) {
@@ -343,6 +353,11 @@ impl ControllerSender {
 
         self.pending_replies.insert(id, pending);
 
+        // Sending a message to the group channel counts as activity
+        if self.group_name.as_ref() == Some(&message.get_dst()) {
+            self.notify_sent_activity();
+        }
+
         let mut output = SessionOutput::new();
         output.push_slim(message.clone());
         Ok(output)
@@ -382,9 +397,24 @@ impl ControllerSender {
         let source = message.get_source();
         debug!(from = %source, "received heartbeat");
         if let Some(heartbeat_state) = &mut self.heartbeat_state {
-            // Reset the missed counter for this participant
-            heartbeat_state.missed_heartbeats.insert(source, 0);
+            // Reset the missed counter only if this participant is already tracked
+            if heartbeat_state.missed_heartbeats.contains_key(&source) {
+                heartbeat_state.missed_heartbeats.insert(source, 0);
+            }
         }
+    }
+
+    /// Notify that we sent traffic on the channel, so the next heartbeat can be skipped.
+    pub fn notify_sent_activity(&mut self) {
+        if let Some(hs) = self.heartbeat_state.as_mut() {
+            hs.postpone_heartbeat = true;
+        }
+    }
+
+    /// Notify that we received traffic from a remote participant,
+    /// which counts as proof of liveness (same as receiving a heartbeat).
+    pub fn notify_received_activity(&mut self, message: &Message) {
+        self.on_heartbeat_received(message);
     }
 
     pub fn is_still_pending(&self, message_id: u32) -> bool {
@@ -462,9 +492,16 @@ impl ControllerSender {
             }
         }
 
-        // Send our heartbeat broadcast
+        // Send our heartbeat broadcast only if we didn't already send traffic
         let mut output = SessionOutput::new();
-        if self.group_list.len() > 1
+        let should_send = self
+            .heartbeat_state
+            .as_ref()
+            .map(|hs| !hs.postpone_heartbeat)
+            .unwrap_or(false);
+
+        if should_send
+            && self.group_list.len() > 1
             && let Some(group_name) = &self.group_name
         {
             let heartbeat_id = rand::random::<u32>();
@@ -485,6 +522,11 @@ impl ControllerSender {
             let heartbeat_msg = builder.build_publish()?;
             debug!(id = %heartbeat_id, "send heartbeat");
             output.push_slim(heartbeat_msg);
+        }
+
+        // Always reset the flag for the next interval
+        if let Some(hs) = self.heartbeat_state.as_mut() {
+            hs.postpone_heartbeat = false;
         }
 
         Ok(output)
@@ -1165,7 +1207,7 @@ mod tests {
             tx_signal,
         );
 
-        sender.group_list.insert(participant.clone());
+        sender.add_participant(&participant);
         sender.group_name = Some(group_name.clone());
 
         // Simulate receiving a heartbeat from the participant
@@ -1227,10 +1269,8 @@ mod tests {
             tx_signal,
         );
 
-        sender.group_list.insert(participant.clone());
+        sender.add_participant(&participant);
         sender.group_name = Some(group_name.clone());
-
-        // Simulate receiving one heartbeat so the participant is tracked
         let heartbeat_from_participant = Message::builder()
             .source(participant.clone())
             .destination(group_name.clone())
@@ -1344,5 +1384,121 @@ mod tests {
             .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat, Some(50))
             .expect("error handling heartbeat timeout");
         assert_no_messages(output);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_heartbeat_suppressed_when_sent_activity() {
+        let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
+        let heartbeat_interval = Duration::from_millis(500);
+        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
+
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
+        let participant = ProtoName::from_strings(["org", "ns", "participant"]);
+        let group_name = ProtoName::from_strings(["org", "ns", "group"]);
+        let session_id = 1;
+
+        let mut sender = ControllerSender::new(
+            settings,
+            source.clone(),
+            ProtoSessionType::Multicast,
+            session_id,
+            Some(heartbeat_interval),
+            false,
+            tx_signal,
+        );
+
+        sender.add_participant(&participant);
+        sender.group_name = Some(group_name.clone());
+
+        // Mark that we sent activity on the channel
+        sender.notify_sent_activity();
+
+        // Wait for heartbeat timer tick
+        let (timer_id, message_type) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(600)).await;
+        assert_eq!(message_type, ProtoSessionMessageType::Heartbeat);
+
+        // Heartbeat should be suppressed because we sent activity
+        let output = sender
+            .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat, Some(50))
+            .expect("error handling heartbeat timeout");
+        assert_no_messages(output);
+
+        // Next tick should send heartbeat since postpone_heartbeat was reset
+        let (timer_id2, message_type2) =
+            expect_timeout(&mut rx_signal, Duration::from_millis(600)).await;
+        assert_eq!(message_type2, ProtoSessionMessageType::Heartbeat);
+
+        let output2 = sender
+            .on_timer_timeout(timer_id2, ProtoSessionMessageType::Heartbeat, Some(50))
+            .expect("error handling heartbeat timeout");
+        let msg = single_slim_message(output2);
+        assert_eq!(
+            msg.get_session_message_type(),
+            ProtoSessionMessageType::Heartbeat
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_received_activity_resets_counter() {
+        let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
+        let heartbeat_interval = Duration::from_millis(500);
+        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
+
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
+        let participant = ProtoName::from_strings(["org", "ns", "participant"]);
+        let group_name = ProtoName::from_strings(["org", "ns", "group"]);
+        let session_id = 1;
+
+        let mut sender = ControllerSender::new(
+            settings,
+            source.clone(),
+            ProtoSessionType::Multicast,
+            session_id,
+            Some(heartbeat_interval),
+            false,
+            tx_signal,
+        );
+
+        sender.add_participant(&participant);
+        sender.group_name = Some(group_name.clone());
+
+        // Let 2 timer ticks pass (missed count goes to 2)
+        for _ in 0..2 {
+            let (timer_id, message_type) =
+                expect_timeout(&mut rx_signal, Duration::from_millis(600)).await;
+            assert_eq!(message_type, ProtoSessionMessageType::Heartbeat);
+            sender
+                .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat, Some(50))
+                .expect("error handling heartbeat timeout");
+        }
+
+        // Verify counter is at 2
+        if let Some(hs) = &sender.heartbeat_state {
+            assert_eq!(hs.missed_heartbeats.get(&participant).copied(), Some(2));
+        }
+
+        // Simulate receiving a non-heartbeat message (e.g., data message) from participant
+        let data_message = Message::builder()
+            .source(participant.clone())
+            .destination(source.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::Msg)
+            .session_id(session_id)
+            .message_id(rand::random::<u32>())
+            .build_publish()
+            .unwrap();
+
+        sender.notify_received_activity(&data_message);
+
+        // Counter should be reset to 0
+        if let Some(hs) = &sender.heartbeat_state {
+            assert_eq!(hs.missed_heartbeats.get(&participant).copied(), Some(0));
+        } else {
+            panic!("Heartbeat state should be initialized");
+        }
     }
 }
