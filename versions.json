@@ -55,6 +55,13 @@
     "aliases": []
   },
   {
+    "version": "slim-signal-v0.1.12",
+    "title": "slim-signal-v0.1.12",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-signal-v0.1.11",
     "title": "slim-signal-v0.1.11",
     "aliases": []
@@ -197,9 +204,7 @@
   {
     "version": "slim-auth-v0.12.1",
     "title": "slim-auth-v0.12.1",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-auth-v0.12.0",
