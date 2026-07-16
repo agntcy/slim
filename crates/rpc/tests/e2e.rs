@@ -10,9 +10,9 @@
 //! - Stream-Stream: Streaming requests, streaming responses
 //!
 //! These exercise the UniFFI-facing surface of `agntcy-slim-rpc`, so they only
-//! build/run with the `bindings` feature enabled:
-//! `cargo test -p agntcy-slim-rpc --features bindings`.
-#![cfg(feature = "bindings")]
+//! build/run with the `uniffi` feature enabled:
+//! `cargo test -p agntcy-slim-rpc --features uniffi`.
+#![cfg(feature = "uniffi")]
 
 use std::collections::HashMap;
 use std::sync::Arc;

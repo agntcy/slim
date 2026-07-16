@@ -241,7 +241,7 @@ fn continuation_metadata(rpc_id: &str) -> Metadata {
 ///   - **Many members**: creates a GROUP channel with a generated session name
 ///     and auto-invites all members on the first multicast call.
 #[derive(Clone)]
-#[cfg_attr(feature = "bindings", derive(uniffi::Object))]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct Channel {
     app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
     /// Session destination: the remote server name for P2P channels, or a
@@ -883,7 +883,7 @@ impl Channel {
 
 // ── Native constructors ─────────────────────────────────────────────────────
 
-#[cfg(not(feature = "bindings"))]
+#[cfg(not(feature = "uniffi"))]
 impl Channel {
     pub fn new(app: Arc<SlimApp<AuthProvider, AuthVerifier>>, remote: Arc<Name>) -> Self {
         Self::new_with_connection(app, remote, None)
@@ -920,7 +920,7 @@ impl Channel {
 
 // ── UniFFI exports ────────────────────────────────────────────────────────────
 
-#[cfg(feature = "bindings")]
+#[cfg(feature = "uniffi")]
 #[uniffi::export]
 impl Channel {
     #[uniffi::constructor]
@@ -960,7 +960,7 @@ impl Channel {
     }
 }
 
-#[cfg_attr(feature = "bindings", uniffi::export)]
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl Channel {
     pub fn call_unary(
         &self,

@@ -95,8 +95,8 @@
 use slim_datapath::api::ProtoName as Name;
 
 // UniFFI scaffolding setup (must be at crate root). Only emitted when the
-// `bindings` feature exposes the foreign-language interface.
-#[cfg(feature = "bindings")]
+// `uniffi` feature exposes the foreign-language interface.
+#[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
 /// Build a method-specific subscription name (base-service-method)
@@ -138,14 +138,14 @@ mod stream_types;
 
 // Process-global runtime for the synchronous convenience wrappers.
 //
-// In native builds SlimRPC owns its own runtime. When the `bindings` feature is
+// In native builds SlimRPC owns its own runtime. When the `uniffi` feature is
 // enabled the crate shares the runtime managed by `agntcy-slim-bindings` so that
 // RPC calls run on the same runtime as the owning `App`.
-#[cfg(not(feature = "bindings"))]
+#[cfg(not(feature = "uniffi"))]
 mod runtime;
-#[cfg(not(feature = "bindings"))]
+#[cfg(not(feature = "uniffi"))]
 pub use runtime::get_runtime;
-#[cfg(feature = "bindings")]
+#[cfg(feature = "uniffi")]
 pub use slim_bindings::get_runtime;
 
 pub use channel::{Channel, MessageContext, MulticastItem};
@@ -280,6 +280,3 @@ pub type RequestStream<T> = futures::stream::BoxStream<'static, Result<T>>;
 /// }
 /// ```
 pub type ResponseStream<T> = futures::stream::BoxStream<'static, Result<T>>;
-
-#[cfg(feature = "uniffi")]
-uniffi::setup_scaffolding!();

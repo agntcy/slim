@@ -13,10 +13,14 @@ name = "slim_rpc"
 
 [features]
 default = []
-uniffi = ["dep:uniffi"]
+# Enables the UniFFI foreign-language interface. This pulls in `agntcy-slim-bindings`
+# for the `App`/`Name` wrapper types exposed across the FFI boundary and emits the
+# UniFFI scaffolding. Without this feature the crate is a pure native Rust library.
+uniffi = ["dep:uniffi", "dep:agntcy-slim-bindings"]
 
 [dependencies]
 agntcy-slim-auth = { workspace = true }
+agntcy-slim-bindings = { workspace = true, optional = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-service = { workspace = true, features = ["session"] }
 agntcy-slim-session = { workspace = true }

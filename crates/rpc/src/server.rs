@@ -305,7 +305,7 @@ type ServeHandleResult = (NotificationReceiver, Result<(), RpcError>);
 /// # Ok(())
 /// # }
 /// ```
-#[cfg_attr(feature = "bindings", derive(uniffi::Object))]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct Server {
     /// The SLIM app instance
     app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
@@ -1185,7 +1185,7 @@ impl Server {
 }
 
 // UniFFI constructors taking the `agntcy-slim-bindings` `App`/`Name` wrappers.
-#[cfg(feature = "bindings")]
+#[cfg(feature = "uniffi")]
 #[uniffi::export]
 impl Server {
     /// Create a new RPC server
@@ -1240,7 +1240,7 @@ impl Server {
 }
 
 // UniFFI-compatible methods for foreign language bindings
-#[cfg_attr(feature = "bindings", uniffi::export)]
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl Server {
     /// Register a unary-to-unary RPC handler
     ///

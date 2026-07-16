@@ -7,7 +7,7 @@
 //! Since UniFFI doesn't support Rust async streams, we provide synchronous
 //! pull/push interfaces backed by async channels.
 
-#[cfg(not(feature = "bindings"))]
+#[cfg(not(feature = "uniffi"))]
 use slim_datapath::api::ProtoName as Name;
 use std::pin::Pin;
 use std::task::Poll;
@@ -570,20 +570,20 @@ impl BidiStreamHandler {
 /// Per-message context for a multicast RPC response — identifies which group
 /// member sent the response.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "bindings", derive(uniffi::Record))]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct RpcMessageContext {
     /// The SLIM name of the group member that sent this response.
-    #[cfg(not(feature = "bindings"))]
+    #[cfg(not(feature = "uniffi"))]
     pub source: Arc<Name>,
     /// The SLIM name of the group member that sent this response.
-    #[cfg(feature = "bindings")]
+    #[cfg(feature = "uniffi")]
     pub source: Arc<slim_bindings::Name>,
 }
 
 /// A single item in a multicast response stream, pairing the response payload
 /// with the identity of the member that produced it.
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "bindings", derive(uniffi::Record))]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct RpcMulticastItem {
     /// Context identifying the source member.
     pub context: RpcMessageContext,
@@ -592,7 +592,7 @@ pub struct RpcMulticastItem {
 }
 
 /// Message from a multicast response stream.
-#[cfg_attr(feature = "bindings", derive(uniffi::Enum))]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum MulticastStreamMessage {
     /// Successfully received response item with source context.
     Data { item: RpcMulticastItem },
@@ -625,9 +625,9 @@ impl MulticastResponseReader {
     ) -> MulticastStreamMessage {
         match item {
             Ok(mi) => {
-                #[cfg(not(feature = "bindings"))]
+                #[cfg(not(feature = "uniffi"))]
                 let source = Arc::new(mi.context.source);
-                #[cfg(feature = "bindings")]
+                #[cfg(feature = "uniffi")]
                 let source = Arc::new(slim_bindings::Name::from_slim_name(mi.context.source));
                 MulticastStreamMessage::Data {
                     item: RpcMulticastItem {
@@ -641,7 +641,7 @@ impl MulticastResponseReader {
     }
 }
 
-#[cfg_attr(feature = "bindings", uniffi::export)]
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl MulticastResponseReader {
     /// Pull the next item from the multicast response stream (blocking).
     pub fn next(&self) -> MulticastStreamMessage {
@@ -716,7 +716,7 @@ impl MulticastBidiStreamHandler {
     }
 }
 
-#[cfg_attr(feature = "bindings", uniffi::export)]
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl MulticastBidiStreamHandler {
     /// Send a request message to the stream (blocking).
     pub fn send(&self, data: Vec<u8>) -> Result<(), RpcError> {
