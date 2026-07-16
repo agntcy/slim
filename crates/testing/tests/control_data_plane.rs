@@ -2,7 +2,7 @@
 //!
 //! These scenarios depend on the removed `slimctl n route add` command and stay
 //! `#[ignore]` until topology-based routing replaces manual route wiring.
-use slim_integration_tests::{
+use slim_testing::{
     binaries::{
         require_sdk_mock_binary, require_slim_binary, require_slimctl_binary, workspace_root,
     },

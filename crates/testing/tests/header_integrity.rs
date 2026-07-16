@@ -4,7 +4,7 @@
 //! tampered-destination rejection. Both depend on `slimctl n route add` and stay
 //! `#[ignore]` until topology-based routing replaces manual route wiring.
 
-use slim_integration_tests::{
+use slim_testing::{
     binaries::{
         require_sdk_mock_binary, require_slim_binary, require_slimctl_binary, workspace_root,
     },

@@ -3,7 +3,7 @@
 //! Verifies that adding a nonexistent participant to a channel returns an error
 //! from `slimctl cm add-participant`.
 
-use slim_integration_tests::{
+use slim_testing::{
     binaries::{
         require_channel_manager_binary, require_slim_binary, require_slimctl_binary, workspace_root,
     },

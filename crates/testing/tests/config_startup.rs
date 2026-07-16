@@ -4,7 +4,7 @@
 //! files, rewrites ports to avoid collisions, and verifies startup plus dataplane
 //! connection logs.
 
-use slim_integration_tests::{
+use slim_testing::{
     binaries::{require_slim_binary, workspace_root},
     helpers::*,
 };
@@ -62,7 +62,7 @@ fn port_replacements(port: u16) -> HashMap<String, String> {
 }
 
 fn resolve_config_cases() -> Vec<ConfigCase> {
-    let config_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../config");
+    let config_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../config");
     let entries = match fs::read_dir(&config_root) {
         Ok(entries) => entries,
         Err(_) => return Vec::new(),

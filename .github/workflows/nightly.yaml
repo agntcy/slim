@@ -54,7 +54,7 @@ jobs:
         uses: ./.github/actions/setup-rust
 
       - name: Run active integration tests
-        working-directory: ./tests
+        working-directory: ./crates/testing
         run: task tests:integration
 
   sessions-test:

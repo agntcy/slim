@@ -3,7 +3,7 @@
 //! Exercises create/add/remove/delete flows via `slimctl cm` while three client
 //! apps join a channel and exchange messages.
 
-use slim_integration_tests::{
+use slim_testing::{
     binaries::{
         require_channel_manager_binary, require_client_binary, require_slim_binary,
         require_slimctl_binary, workspace_root,
