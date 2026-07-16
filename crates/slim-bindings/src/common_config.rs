@@ -8,7 +8,7 @@ use slim_config::tls::server::TlsServerConfig as CoreTlsServerConfig;
 use crate::identity_config::{ClientJwtAuth, JwtAuth, StaticJwtAuth};
 
 /// SPIRE configuration for SPIFFE Workload API integration
-#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+#[derive(uniffi::Record, Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct SpireConfig {
     /// Path to the SPIFFE Workload API socket (None => use SPIFFE_ENDPOINT_SOCKET env var)
     pub socket_path: Option<String>,
@@ -56,7 +56,8 @@ impl From<slim_config::auth::spire::SpireConfig> for SpireConfig {
 }
 
 /// TLS certificate and key source configuration
-#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+#[derive(uniffi::Enum, Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum TlsSource {
     /// Load certificate and key from PEM strings
     Pem { cert: String, key: String },
@@ -65,6 +66,7 @@ pub enum TlsSource {
     /// Load certificate and key from SPIRE Workload API
     Spire { config: SpireConfig },
     /// No certificate/key configured
+    #[default]
     None,
 }
 
@@ -105,7 +107,8 @@ impl From<slim_config::tls::common::TlsSource> for TlsSource {
 }
 
 /// CA certificate source configuration
-#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+#[derive(uniffi::Enum, Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum CaSource {
     /// Load CA from file
     File { path: String },
@@ -114,6 +117,7 @@ pub enum CaSource {
     /// Load CA from SPIRE Workload API
     Spire { config: SpireConfig },
     /// No CA configured
+    #[default]
     None,
 }
 
@@ -149,21 +153,35 @@ impl From<slim_config::tls::common::CaSource> for CaSource {
     }
 }
 
+fn serde_default_include_system_ca_certs_pool() -> bool {
+    true
+}
+
+fn serde_default_tls_version() -> String {
+    "tls1.3".to_string()
+}
+
 /// TLS configuration for client connections
-#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+#[derive(uniffi::Record, Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct TlsClientConfig {
     /// Disable TLS entirely (plain text connection)
+    #[serde(default)]
     pub insecure: bool,
     /// Skip server certificate verification (enables TLS but doesn't verify certs)
     /// WARNING: Only use for testing - insecure in production!
+    #[serde(default)]
     pub insecure_skip_verify: bool,
     /// Certificate and key source for client authentication
+    #[serde(default)]
     pub source: TlsSource,
     /// CA certificate source for verifying server certificates
+    #[serde(default)]
     pub ca_source: CaSource,
     /// Include system CA certificates pool (default: true)
+    #[serde(default = "serde_default_include_system_ca_certs_pool")]
     pub include_system_ca_certs_pool: bool,
     /// TLS version to use: "tls1.2" or "tls1.3" (default: "tls1.3")
+    #[serde(default = "serde_default_tls_version")]
     pub tls_version: String,
 }
 

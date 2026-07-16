@@ -22,7 +22,7 @@ uniffi = ["dep:uniffi", "dep:agntcy-slim-bindings"]
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-bindings = { workspace = true, optional = true }
 agntcy-slim-datapath = { workspace = true }
-agntcy-slim-service = { workspace = true, features = ["session"] }
+agntcy-slim-service = { workspace = true, features = ["session", "slim-config"] }
 agntcy-slim-session = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
@@ -41,5 +41,7 @@ uuid = { workspace = true }
 [dev-dependencies]
 agntcy-slim-config = { workspace = true }
 bincode = { workspace = true }
+tempfile = { workspace = true }
+test-fork = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
 tracing-test = { workspace = true }
