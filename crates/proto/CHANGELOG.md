@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/agntcy/slim/compare/slim-proto-v0.3.0...slim-proto-v0.3.1) - 2026-07-16
+
+### Other
+
+- updated the following local packages: agntcy-slim-config
+
 ## [0.3.0](https://github.com/agntcy/slim/compare/slim-proto-v0.2.0...slim-proto-v0.3.0) - 2026-07-15
 
 ### Added
