@@ -529,6 +529,15 @@ header.main-header {
     flex-wrap: wrap;
   }
 
+  [data-theme="light"] .journey-pills {
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    border-radius: 0;
+    padding: 0;
+    gap: 0.5rem;
+  }
+
   .arrow-stepper-wrap {
     overflow-x: auto;
   }
