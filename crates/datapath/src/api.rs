@@ -30,6 +30,7 @@ pub use proto::dataplane::v1::Name as ProtoName;
 pub use proto::dataplane::v1::NameId;
 pub use proto::dataplane::v1::Participant;
 pub use proto::dataplane::v1::ParticipantSettings;
+pub use proto::dataplane::v1::ParticipantState;
 pub use proto::dataplane::v1::Publish as ProtoPublish;
 pub use proto::dataplane::v1::SessionHeader;
 pub use proto::dataplane::v1::SessionMessageType as ProtoSessionMessageType;

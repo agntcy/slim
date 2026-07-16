@@ -173,7 +173,7 @@ pub struct ApplicationPayload {
 pub struct CommandPayload {
     #[prost(
         oneof = "command_payload::CommandPayloadType",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15"
     )]
     pub command_payload_type: ::core::option::Option<
         command_payload::CommandPayloadType,
@@ -211,6 +211,8 @@ pub mod command_payload {
         GroupNack(super::GroupNackPayload),
         #[prost(message, tag = "14")]
         Heartbeat(super::HeartbeatPayload),
+        #[prost(message, tag = "15")]
+        UpdateParticipantState(super::UpdateParticipantStatePayload),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -391,6 +393,19 @@ pub struct HeartbeatPayload {
     #[prost(uint64, tag = "1")]
     pub epoch: u64,
 }
+/// Message to broadcast a participant state change (online/offline).
+/// Sent to the group channel and expects GroupAck from all receivers.
+/// On rejoin (ONLINE), includes the sender's MLS epoch so receivers
+/// can verify epoch compatibility and ACK or NACK accordingly.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct UpdateParticipantStatePayload {
+    #[prost(message, optional, tag = "1")]
+    pub participant: ::core::option::Option<Name>,
+    #[prost(enumeration = "ParticipantState", tag = "2")]
+    pub new_state: i32,
+    #[prost(uint64, tag = "3")]
+    pub epoch: u64,
+}
 /// SubscriptionAck is delivered directly to the requesting connection in response
 /// to a Subscribe or Unsubscribe that carried a non-zero subscription_id field.
 /// It is never routed through the subscription table.
@@ -491,6 +506,7 @@ pub enum SessionMessageType {
     GroupAck = 16,
     GroupNack = 17,
     Heartbeat = 18,
+    UpdateParticipantState = 19,
 }
 impl SessionMessageType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -518,6 +534,9 @@ impl SessionMessageType {
             Self::GroupAck => "SESSION_MESSAGE_TYPE_GROUP_ACK",
             Self::GroupNack => "SESSION_MESSAGE_TYPE_GROUP_NACK",
             Self::Heartbeat => "SESSION_MESSAGE_TYPE_HEARTBEAT",
+            Self::UpdateParticipantState => {
+                "SESSION_MESSAGE_TYPE_UPDATE_PARTICIPANT_STATE"
+            }
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -542,6 +561,35 @@ impl SessionMessageType {
             "SESSION_MESSAGE_TYPE_GROUP_ACK" => Some(Self::GroupAck),
             "SESSION_MESSAGE_TYPE_GROUP_NACK" => Some(Self::GroupNack),
             "SESSION_MESSAGE_TYPE_HEARTBEAT" => Some(Self::Heartbeat),
+            "SESSION_MESSAGE_TYPE_UPDATE_PARTICIPANT_STATE" => {
+                Some(Self::UpdateParticipantState)
+            }
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ParticipantState {
+    OnLine = 0,
+    OffLine = 1,
+}
+impl ParticipantState {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::OnLine => "PARTICIPANT_STATE_ON_LINE",
+            Self::OffLine => "PARTICIPANT_STATE_OFF_LINE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "PARTICIPANT_STATE_ON_LINE" => Some(Self::OnLine),
+            "PARTICIPANT_STATE_OFF_LINE" => Some(Self::OffLine),
             _ => None,
         }
     }

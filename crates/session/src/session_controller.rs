@@ -16,7 +16,7 @@ use serde_json::Value;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, Content, NameId, ProtoMessage as Message, ProtoName,
+        CommandPayload, Content, NameId, ParticipantState, ProtoMessage as Message, ProtoName,
         ProtoSessionMessageType, ProtoSessionType, SlimHeader,
     },
     messages::utils::SlimHeaderFlags,
@@ -585,13 +585,78 @@ impl SessionController {
             .map_err(|_e| SessionError::SessionControllerSendFailed)
     }
 
-    pub fn close(&self) -> Result<tokio::task::JoinHandle<()>, SessionError> {
+    /// Leave the session: cancels the controller and returns the join handle.
+    /// This terminates the session permanently.
+    pub fn leave(&self) -> Result<tokio::task::JoinHandle<()>, SessionError> {
         self.cancellation_token.cancel();
 
         self.handle
             .lock()
             .take()
             .ok_or(SessionError::SessionAlreadyClosed)
+    }
+
+    /// Close the session: notifies the group that this participant is going offline.
+    /// The returned CompletionHandle resolves when ACKs are collected.
+    /// After completion, the caller should persist the session state and may
+    /// later rejoin using `rejoin()`.
+    pub async fn close(&self) -> Result<CompletionHandle, SessionError> {
+        if self.session_type() == ProtoSessionType::PointToPoint {
+            return Err(SessionError::CannotCloseP2P);
+        }
+
+        let msg = Message::builder()
+            .source(self.source().clone())
+            .destination(self.dst().clone())
+            .identity("")
+            .session_type(self.session_type())
+            .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
+            .session_id(self.id())
+            .message_id(rand::random::<u32>())
+            .payload(
+                CommandPayload::builder()
+                    .update_participant_state(
+                        self.source().clone(),
+                        ParticipantState::OffLine,
+                        0, // epoch not needed for going offline
+                    )
+                    .as_content(),
+            )
+            .build_publish()?;
+
+        self.publish_message(msg).await
+    }
+
+    /// Rejoin the session: notifies the group that this participant is back online.
+    /// Includes the current MLS epoch for validation by other participants.
+    /// The returned CompletionHandle resolves when ACKs/NACKs are collected.
+    /// If any participant NACKs (epoch mismatch), the rejoin fails.
+    pub async fn rejoin(&self) -> Result<CompletionHandle, SessionError> {
+        if self.session_type() == ProtoSessionType::PointToPoint {
+            return Err(SessionError::CannotRejoinP2P);
+        }
+
+        let msg = Message::builder()
+            .source(self.source().clone())
+            .destination(self.dst().clone())
+            .identity("")
+            .session_type(self.session_type())
+            .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
+            .session_id(self.id())
+            .message_id(rand::random::<u32>())
+            .payload(
+                CommandPayload::builder()
+                    .update_participant_state(
+                        self.source().clone(),
+                        ParticipantState::OnLine,
+                        // placeholder: filled by session handler before sending
+                        u64::MAX,
+                    )
+                    .as_content(),
+            )
+            .build_publish()?;
+
+        self.publish_message(msg).await
     }
 
     pub async fn publish_message(
@@ -780,6 +845,12 @@ pub fn handle_channel_discovery_message(
     Ok(msg)
 }
 
+pub(crate) struct PendingStatusUpdate {
+    pub(crate) message_id: u32,
+    pub(crate) status: ParticipantState,
+    pub(crate) ack_tx: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
+}
+
 pub(crate) struct SessionControllerCommon<
     P,
     V,
@@ -794,6 +865,13 @@ pub(crate) struct SessionControllerCommon<
 
     /// sender for command messages
     pub(crate) sender: ControllerSender,
+
+    /// participant is online/offline
+    pub(crate) online: bool,
+
+    /// pending status update contains the channel to notify the application when
+    /// pause or resume actions are completed
+    pub(crate) pending_status_update: Option<PendingStatusUpdate>,
 
     /// processing state
     pub(crate) processing_state: ProcessingState,
@@ -833,6 +911,8 @@ where
         SessionControllerCommon {
             settings,
             sender: controller_sender,
+            online: true,
+            pending_status_update: None,
             processing_state: ProcessingState::Active,
             subscription_ids: HashMap::new(),
         }
@@ -1435,7 +1515,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_close_success() {
+    async fn test_leave_success() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_graceful_shutdown_timeout(std::time::Duration::from_secs(2))
             .build();
@@ -1443,7 +1523,7 @@ mod tests {
         let token = controller.cancellation_token.clone();
         assert!(!token.is_cancelled());
 
-        let handle = controller.close();
+        let handle = controller.leave();
         assert!(handle.is_ok(), "got error {}", handle.unwrap_err());
         assert!(token.is_cancelled());
 
@@ -1455,11 +1535,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_close_already_closed() {
+    async fn test_leave_already_closed() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
 
         // Leave once - should succeed
-        let handle = controller.close();
+        let handle = controller.leave();
         assert!(handle.is_ok());
         handle
             .unwrap()
@@ -1467,7 +1547,7 @@ mod tests {
             .expect("processing task should complete");
 
         // Leave again - should fail with appropriate error
-        let result = controller.close();
+        let result = controller.leave();
         assert!(result.is_err());
         match result {
             Err(SessionError::SessionAlreadyClosed) => {
@@ -1478,7 +1558,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_close_cancels_token_immediately() {
+    async fn test_leave_cancels_token_immediately() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
 
         let token = controller.cancellation_token.clone();
@@ -1487,7 +1567,7 @@ mod tests {
         assert!(!token.is_cancelled());
 
         // Leave returns immediately after cancelling token
-        let handle = controller.close();
+        let handle = controller.leave();
         assert!(handle.is_ok());
 
         // Token should be cancelled immediately

@@ -6,8 +6,8 @@ use std::{collections::HashMap, time::Duration};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, Participant, ParticipantSettings, ProtoMessage as Message, ProtoName,
-        ProtoSessionMessageType, ProtoSessionType,
+        CommandPayload, Participant, ParticipantSettings, ParticipantState,
+        ProtoMessage as Message, ProtoName, ProtoSessionMessageType, ProtoSessionType,
     },
     messages::utils::{LEAVING_SESSION, TRUE_VAL},
 };
@@ -20,7 +20,7 @@ use crate::{
     errors::SessionError,
     mls_state::MlsState,
     runtime::maybe_await,
-    session_controller::{SessionControllerCommon, sign_control_messages},
+    session_controller::{PendingStatusUpdate, SessionControllerCommon, sign_control_messages},
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
     traits::{MessageHandler, ProcessingState},
@@ -125,6 +125,25 @@ where
                 direction,
                 ack_tx,
             } => {
+                // If the participant is offline drop all messages except:
+                // - UpdateParticipantState from the app (South) — the app wants to come back online
+                // - GroupAck/GroupNack — responses to our own rejoin/close
+                if !self.common.online {
+                    let msg_type = message.get_session_message_type();
+                    let allowed = (msg_type == ProtoSessionMessageType::UpdateParticipantState
+                        && direction == MessageDirection::South)
+                        || msg_type == ProtoSessionMessageType::GroupAck
+                        || msg_type == ProtoSessionMessageType::GroupNack;
+
+                    if !allowed {
+                        debug!(
+                            name = %self.common.settings.source,
+                            "participant is off-line, drop the message",
+                        );
+                        return Err(SessionError::ParticipantOffLine);
+                    }
+                }
+
                 // Any incoming message from a remote participant is proof of liveness
                 if direction == MessageDirection::North {
                     self.common.sender.notify_received_activity(&message);
@@ -136,7 +155,10 @@ where
                         source = %message.get_source(),
                         "received message",
                     );
-                    output.extend(self.process_control_message(message).await?);
+                    output.extend(
+                        self.process_control_message(direction, message, ack_tx)
+                            .await?,
+                    );
                 } else {
                     // Sending a data message south counts as activity
                     if direction == MessageDirection::South {
@@ -202,6 +224,30 @@ where
             } => {
                 if message_type.is_command_message() {
                     self.common.sender.on_failure(message_id, message_type);
+
+                    // If this was a rejoin (UpdateParticipantState + OnLine) timeout,
+                    // treat as partial success: non-responders are offline, notify app OK
+                    if message_type == ProtoSessionMessageType::UpdateParticipantState {
+                        if let Some(pending_task) = self.common.pending_status_update.take() {
+                            if pending_task.message_id == message_id
+                                && pending_task.status == ParticipantState::OnLine
+                            {
+                                if let Some(tx) = pending_task.ack_tx {
+                                    let _ = tx.send(Ok(()));
+                                }
+                                self.common.online = true;
+                            } else if pending_task.message_id == message_id
+                                && pending_task.status == ParticipantState::OffLine
+                            {
+                                // close timeout: not all participants acknowledged, notify failure
+                                if let Some(tx) = pending_task.ack_tx {
+                                    let _ = tx.send(Err(SessionError::MessageSendRetryFailed {
+                                        id: message_id,
+                                    }));
+                                }
+                            }
+                        }
+                    }
                 } else {
                     output.extend(
                         self.inner
@@ -375,7 +421,9 @@ where
 
     async fn process_control_message(
         &mut self,
+        direction: MessageDirection,
         message: Message,
+        ack_tx: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<SessionOutput, SessionError> {
         match message.get_session_message_type() {
             ProtoSessionMessageType::JoinRequest => self.on_join_request(message).await,
@@ -397,9 +445,32 @@ where
                 }
                 Ok(SessionOutput::new())
             }
-            ProtoSessionMessageType::GroupProposal
-            | ProtoSessionMessageType::GroupNack
-            | ProtoSessionMessageType::GroupAck => todo!(),
+            ProtoSessionMessageType::UpdateParticipantState => {
+                debug!(
+                    name = %message.get_source(),
+                    id = %message.get_id(),
+                    direction = ?direction,
+                    "received update participant state message",
+                );
+                match direction {
+                    MessageDirection::North => {
+                        self.on_update_participant_state_from_slim(message).await
+                    }
+                    MessageDirection::South => {
+                        self.on_update_participant_state_from_app(message, ack_tx)
+                            .await
+                    }
+                }
+            }
+            ProtoSessionMessageType::GroupAck => {
+                self.on_group_ack(&message)?;
+                Ok(SessionOutput::new())
+            }
+            ProtoSessionMessageType::GroupNack => {
+                self.on_group_nack(&message);
+                Ok(SessionOutput::new())
+            }
+            ProtoSessionMessageType::GroupProposal => todo!(),
             ProtoSessionMessageType::DiscoveryRequest
             | ProtoSessionMessageType::DiscoveryReply
             | ProtoSessionMessageType::JoinReply => {
@@ -694,6 +765,240 @@ where
                 "dropping heartbeat from offline participant with mismatched epoch"
             );
             Ok(SessionOutput::new())
+        }
+    }
+
+    async fn on_update_participant_state_from_slim(
+        &mut self,
+        message: Message,
+    ) -> Result<SessionOutput, SessionError> {
+        let payload = message
+            .get_payload()
+            .ok_or(SessionError::MissingPayload {
+                context: "update_participant_state",
+            })?
+            .as_command_payload()?
+            .as_update_participant_state_payload()?;
+
+        let participant_name = payload
+            .participant
+            .as_ref()
+            .ok_or(SessionError::MissingPayload {
+                context: "update_participant_state: missing participant name",
+            })?
+            .clone();
+
+        // filter all the messages where participant name is equal to self.common.settings.source
+        if participant_name == self.common.settings.source {
+            debug!(
+                name = %participant_name,
+                "ignoring our own participant state update",
+            );
+            return Ok(SessionOutput::new());
+        }
+
+        let new_state = ParticipantState::try_from(payload.new_state).map_err(|_| {
+            SessionError::MissingPayload {
+                context: "update_participant_state: invalid participant state",
+            }
+        })?;
+
+        match new_state {
+            ParticipantState::OffLine => {
+                // Participant went offline: update state, remove route
+                if let Some(state) = self.group_list.get_mut(&participant_name) {
+                    if !state.online {
+                        debug!(
+                            name = %participant_name,
+                            "received offline state for participant already offline",
+                        );
+                        return Ok(SessionOutput::new());
+                    }
+                    state.online = false;
+                } else {
+                    debug!(
+                        name = %participant_name,
+                        "received offline state for unknown participant",
+                    );
+                    return Ok(SessionOutput::new());
+                }
+
+                self.remove_endpoint(&participant_name);
+                tracing::info!("participant {} is now offline", participant_name);
+            }
+            ParticipantState::OnLine => {
+                // First check if the participant is in our group
+                if !self.group_list.contains_key(&participant_name) {
+                    debug!(
+                        name = %participant_name,
+                        "received online state for unknown participant",
+                    );
+                    return Ok(SessionOutput::new());
+                }
+
+                // Check epoch: if MLS is enabled, verify the epoch matches
+                let current_epoch = match &self.mls_state {
+                    Some(mls_state) => mls_state.mls.get_epoch(),
+                    None => None,
+                };
+
+                if let Some(epoch) = current_epoch {
+                    if payload.epoch != epoch {
+                        tracing::warn!(
+                            name = %participant_name,
+                            local_epoch = epoch,
+                            remote_epoch = payload.epoch,
+                            "epoch mismatch on rejoin, sending NACK",
+                        );
+                        let nack = self.common.create_control_message(
+                            &message.get_source(),
+                            ProtoSessionMessageType::GroupNack,
+                            message.get_id(),
+                            CommandPayload::builder().group_nack().as_content(),
+                            false,
+                        )?;
+                        return Ok(SessionOutput::to_slim(nack));
+                    }
+                }
+
+                // Epoch matches (or MLS not enabled): bring participant online
+                let state = self.group_list.get_mut(&participant_name).unwrap();
+                state.online = true;
+                let settings = state.settings.clone();
+                tracing::info!("participant {} is now online", participant_name);
+                let participant = Participant::new(participant_name, settings);
+                self.add_endpoint(&participant).await?;
+            }
+        }
+
+        // Send ACK back to the source
+        let ack = self.common.create_control_message(
+            &message.get_source(),
+            ProtoSessionMessageType::GroupAck,
+            message.get_id(),
+            CommandPayload::builder().group_ack().as_content(),
+            false,
+        )?;
+
+        Ok(SessionOutput::to_slim(ack))
+    }
+
+    async fn on_update_participant_state_from_app(
+        &mut self,
+        message: Message,
+        ack_tx: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
+    ) -> Result<SessionOutput, SessionError> {
+        // we can have only one update state per time, so if the pending state is already set, we return an error
+        if self.common.pending_status_update.is_some() {
+            return Err(SessionError::StatusChangeInProgress);
+        }
+
+        let destination = self.common.settings.control.clone();
+        let msg_id = message.get_id();
+        let payload = message
+            .get_payload()
+            .ok_or(SessionError::MissingPayload {
+                context: "update_participant_state_from_app",
+            })?
+            .clone();
+
+        // store the ack_tx in the common sender so that it can be used when the ack is received
+        let status = ParticipantState::try_from(
+            payload
+                .as_command_payload()?
+                .as_update_participant_state_payload()?
+                .new_state,
+        )
+        .map_err(|_| SessionError::MissingPayload {
+            context: "update_participant_state: invalid state",
+        })?;
+
+        // On rejoin (OnLine): mark all other participants as offline.
+        // They will be moved back online as their ACKs arrive.
+        if status == ParticipantState::OnLine {
+            for (_, entry) in self.group_list.iter_mut() {
+                entry.online = false;
+            }
+        }
+
+        self.common.pending_status_update = Some(PendingStatusUpdate {
+            message_id: message.get_id(),
+            status,
+            ack_tx,
+        });
+
+        self.common.send_control_message(
+            &destination,
+            ProtoSessionMessageType::UpdateParticipantState,
+            msg_id,
+            payload,
+            None,
+            true,
+        )
+    }
+
+    fn on_group_ack(&mut self, message: &Message) -> Result<(), SessionError> {
+        let id = message.get_id();
+        let source = message.get_source();
+
+        debug!(
+            name = %source,
+            id = %id,
+            "received group ack message",
+        );
+        self.common.sender.on_message(message)?;
+
+        // If we have a pending rejoin (OnLine), move the ACK sender back online
+        if let Some(ref pending_task) = self.common.pending_status_update {
+            if pending_task.message_id == id && pending_task.status == ParticipantState::OnLine {
+                if let Some(entry) = self.group_list.get_mut(&source) {
+                    entry.online = true;
+                    tracing::info!("participant {} confirmed online via ACK", source);
+                }
+            }
+        }
+
+        // check if the task is still pending and if the message id matches the pending task
+        if !self.common.sender.is_still_pending(id) && self.common.pending_status_update.is_some() {
+            let pending_task = self.common.pending_status_update.take().unwrap();
+            if pending_task.message_id == id {
+                if let Some(tx) = pending_task.ack_tx {
+                    let _ = tx.send(Ok(()));
+                }
+                // update the local online state
+                match pending_task.status {
+                    ParticipantState::OffLine => {
+                        self.common.online = false;
+                    }
+                    ParticipantState::OnLine => {
+                        self.common.online = true;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn on_group_nack(&mut self, message: &Message) {
+        // this may happen when the participant tries to rejoin with an old MLS epoch
+        let id = message.get_id();
+
+        // check that we have a pending status update with matching id and status == OnLine
+        if let Some(pending_task) = self.common.pending_status_update.take() {
+            if pending_task.message_id == id && pending_task.status == ParticipantState::OnLine {
+                // remove the pending message from the sender
+                self.common
+                    .sender
+                    .on_failure(id, ProtoSessionMessageType::UpdateParticipantState);
+                // notify the application that the rejoin failed
+                if let Some(tx) = pending_task.ack_tx {
+                    let _ = tx.send(Err(SessionError::RejoinFailed));
+                }
+            } else {
+                // not matching, put it back
+                self.common.pending_status_update = Some(pending_task);
+            }
         }
     }
 
@@ -1456,8 +1761,9 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result: Result<SessionOutput, SessionError> =
-            participant.process_control_message(discovery_msg).await;
+        let result: Result<SessionOutput, SessionError> = participant
+            .process_control_message(MessageDirection::South, discovery_msg, None)
+            .await;
         assert!(result.is_ok()); // Should handle gracefully
     }
 

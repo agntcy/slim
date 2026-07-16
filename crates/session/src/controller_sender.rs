@@ -321,6 +321,17 @@ impl ControllerSender {
 
                 output.extend(self.on_send_message(message, missing_replies)?);
             }
+            slim_datapath::api::ProtoSessionMessageType::UpdateParticipantState => {
+                // compute the list of participants that needs to send an ack
+                let missing_replies = self
+                    .group_list
+                    .iter()
+                    .filter(|name| *name != &self.local_name)
+                    .cloned()
+                    .collect::<HashSet<_>>();
+
+                output.extend(self.on_send_message(message, missing_replies)?);
+            }
             slim_datapath::api::ProtoSessionMessageType::GroupProposal => todo!(),
             _ => {
                 debug!("unexpected message type");

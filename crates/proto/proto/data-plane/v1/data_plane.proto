@@ -127,6 +127,7 @@ enum SessionMessageType {
   SESSION_MESSAGE_TYPE_GROUP_ACK = 16;
   SESSION_MESSAGE_TYPE_GROUP_NACK = 17;
   SESSION_MESSAGE_TYPE_HEARTBEAT = 18;
+  SESSION_MESSAGE_TYPE_UPDATE_PARTICIPANT_STATE = 19;
 }
 
 // SLIM message content
@@ -158,6 +159,7 @@ message CommandPayload {
     GroupAckPayload group_ack = 12;
     GroupNackPayload group_nack = 13;
     HeartbeatPayload heartbeat = 14;
+    UpdateParticipantStatePayload update_participant_state = 15;
   }
 }
 
@@ -301,6 +303,21 @@ message GroupNackPayload {}
 // the packet. If MLS is not enable it is ignored
 message HeartbeatPayload {
   uint64 epoch = 1;
+}
+
+enum ParticipantState {
+  PARTICIPANT_STATE_ON_LINE = 0;
+  PARTICIPANT_STATE_OFF_LINE = 1;
+}
+
+// Message to broadcast a participant state change (online/offline).
+// Sent to the group channel and expects GroupAck from all receivers.
+// On rejoin (ONLINE), includes the sender's MLS epoch so receivers
+// can verify epoch compatibility and ACK or NACK accordingly.
+message UpdateParticipantStatePayload {
+  Name participant = 1;
+  ParticipantState new_state = 2;
+  uint64 epoch = 3;
 }
 
 // SubscriptionAck is delivered directly to the requesting connection in response

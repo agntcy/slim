@@ -461,7 +461,7 @@ where
         let session = binding.get(&id).ok_or(SessionError::SessionNotFound(id))?;
 
         // leave the session and get the join handle
-        let join_handle = session.close()?;
+        let join_handle = session.leave()?;
 
         // Return a CompletionHandle wrapping the oneshot receiver
         Ok(CompletionHandle::from_join_handle(join_handle))
@@ -479,7 +479,7 @@ where
         // Leave all sessions and return completion handles
         pool.iter()
             .map(|(id, session)| {
-                let result = session.close().map(CompletionHandle::from_join_handle);
+                let result = session.leave().map(CompletionHandle::from_join_handle);
                 (*id, result)
             })
             .collect()

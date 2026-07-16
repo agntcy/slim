@@ -1106,7 +1106,7 @@ async fn run_pub_worker(
         }
     }
 
-    controller.close()?.await?;
+    controller.leave()?.await?;
 
     let end = Instant::now();
 
@@ -1409,7 +1409,7 @@ async fn run_channel_pub_worker(
             .context("publish completion failed")?;
     }
 
-    controller.close()?.await?;
+    controller.leave()?.await?;
 
     let end = Instant::now();
 
