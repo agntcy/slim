@@ -301,7 +301,12 @@ impl SharedSecretBuilder {
             signing: RwLock::new(SigningMaterial {
                 keys: (secret_key, public_key),
                 claims_b64,
-                mls_installed: false,
+                // The keys above are generated for the exact ciphersuite MLS
+                // uses on this target (see `utils::generate_mls_signature_keys`),
+                // so MLS adopts them directly and never has to rotate the signing
+                // identity mid-handshake — which is what previously raced with
+                // concurrent control-message signing.
+                mls_installed: true,
             }),
         };
         Ok(SharedSecret {

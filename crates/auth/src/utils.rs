@@ -11,15 +11,23 @@ use mls_rs_core::crypto::CryptoProvider;
 #[cfg(not(target_arch = "wasm32"))]
 use mls_rs_crypto_awslc::AwsLcCryptoProvider;
 
-#[cfg(not(target_arch = "wasm32"))]
+// Must stay in lock-step with the MLS layer's ciphersuite
+// (`agntcy-slim-mls`): the `curve25519` feature is propagated from that crate so
+// the keys an identity ships are always valid for the ciphersuite MLS uses. The
+// default (P-256) matches MLS's default; enabling `curve25519` switches both.
+#[cfg(all(not(target_arch = "wasm32"), feature = "curve25519"))]
 const CIPHERSUITE: mls_rs_core::crypto::CipherSuite =
     mls_rs_core::crypto::CipherSuite::CURVE25519_AES128;
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "curve25519")))]
+const CIPHERSUITE: mls_rs_core::crypto::CipherSuite =
+    mls_rs_core::crypto::CipherSuite::P256_AES128;
 
-/// Generate an Ed25519 key pair for MLS use.
+/// Generate an MLS signature key pair valid for the ciphersuite MLS uses.
 ///
-/// Returns provider-compatible `(secret_key_bytes, public_key_bytes)` for
-/// `CURVE25519_AES128`: AWS-LC bytes on native targets and an Ed25519 seed plus
-/// public key in browsers.
+/// Returns provider-compatible `(secret_key_bytes, public_key_bytes)`: AWS-LC
+/// bytes for the active `CIPHERSUITE` on native targets (P-256 by default, or
+/// Curve25519 with the `curve25519` feature) and an Ed25519 seed plus public key
+/// in browsers.
 pub fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), crate::errors::AuthError> {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -40,16 +48,27 @@ pub fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), crate::errors
 
     #[cfg(target_arch = "wasm32")]
     {
-        // AWS-LC cannot target the browser. Generate the same Ed25519 seed and
-        // public-key representation with the pure-Rust provider already used
-        // by header signing and verification.
-        let mut seed = [0_u8; 32];
-        getrandom::fill(&mut seed).map_err(|_| crate::errors::AuthError::MlsKeyGenerationFailed)?;
-        let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
-        Ok((
-            seed.to_vec(),
-            signing_key.verifying_key().to_bytes().to_vec(),
-        ))
+        // AWS-LC cannot target the browser, so generate the P-256 key with the
+        // pure-Rust `p256` crate. This yields the same ciphersuite MLS uses on
+        // wasm (always P-256) in the same byte formats as the native AWS-LC
+        // path: a raw 32-byte big-endian scalar secret and an uncompressed SEC1
+        // public key. A random 32-byte value is a valid scalar with
+        // overwhelming probability; retry the vanishingly rare rejections.
+        use p256::elliptic_curve::sec1::ToEncodedPoint;
+        for _ in 0..8 {
+            let mut scalar = [0_u8; 32];
+            getrandom::fill(&mut scalar)
+                .map_err(|_| crate::errors::AuthError::MlsKeyGenerationFailed)?;
+            if let Ok(secret_key) = p256::SecretKey::from_bytes((&scalar).into()) {
+                let public = secret_key
+                    .public_key()
+                    .to_encoded_point(false)
+                    .as_bytes()
+                    .to_vec();
+                return Ok((scalar.to_vec(), public));
+            }
+        }
+        Err(crate::errors::AuthError::MlsKeyGenerationFailed)
     }
 }
 
@@ -180,8 +199,18 @@ fn p256_signing_key(
     use p256::ecdsa::SigningKey;
     use p256::pkcs8::DecodePrivateKey;
 
-    if private_key_bytes.len() == 32 {
-        let secret_key = p256::SecretKey::from_bytes(private_key_bytes.into())
+    // A P-256 private scalar is a 32-byte big-endian integer, but the AWS-LC
+    // provider returns it with leading zero bytes stripped, so a scalar whose
+    // top byte(s) are zero comes back as 31 (or fewer) bytes — roughly 1 key in
+    // 256. Left-pad any raw scalar of at most 32 bytes back to the fixed width
+    // before importing; only genuinely longer encodings are treated as PKCS#8
+    // DER. (Before this, a 31-byte scalar fell through to the DER branch and
+    // failed with `MlsKeyGenerationFailed`, breaking header signing ~1/256 of
+    // the time.)
+    if private_key_bytes.len() <= 32 {
+        let mut scalar = [0u8; 32];
+        scalar[32 - private_key_bytes.len()..].copy_from_slice(private_key_bytes);
+        let secret_key = p256::SecretKey::from_bytes((&scalar).into())
             .map_err(|_| crate::errors::AuthError::MlsKeyGenerationFailed)?;
         let signing_key = SigningKey::from(&secret_key);
         let verifying_key = p256_verifying_key(public_key_bytes)?;

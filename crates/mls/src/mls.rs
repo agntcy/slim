@@ -8,8 +8,6 @@ use mls_rs::{
     group::ReceivedMessage,
     identity::{SigningIdentity, basic::BasicCredential},
 };
-use mls_rs::{CipherSuiteProvider, CryptoProvider};
-
 use crate::crypto::CryptoProviderImpl;
 use std::collections::HashSet;
 use tracing::debug;
@@ -191,15 +189,16 @@ where
     /// guaranteed to be valid for the negotiated ciphersuite (P-256 by
     /// default, or Curve25519 when the `curve25519` feature is enabled).
     pub async fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
-        let crypto_provider = crate::crypto::default_crypto_provider();
-        let cipher_suite_provider = crypto_provider
-            .cipher_suite_provider(CIPHERSUITE)
-            .ok_or(MlsError::CiphersuiteUnavailable)?;
-
-        cipher_suite_provider
-            .signature_key_generate()
-            .await
-            .map_err(MlsError::crypto_provider)
+        // Single source of truth with the identity layer: `agntcy-slim-auth`
+        // generates signature keys for the same ciphersuite on every target (its
+        // `curve25519` feature is propagated from this crate), so keys an
+        // identity ships and keys MLS generates always share the same ciphersuite
+        // and byte format.
+        let (secret, public) = slim_auth::utils::generate_mls_signature_keys()?;
+        Ok((
+            SignatureSecretKey::new(secret),
+            SignaturePublicKey::new(public),
+        ))
     }
 
     pub async fn create_group(&mut self) -> Result<Vec<u8>, MlsError> {
