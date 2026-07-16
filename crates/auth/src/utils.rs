@@ -19,8 +19,7 @@ use mls_rs_crypto_awslc::AwsLcCryptoProvider;
 const CIPHERSUITE: mls_rs_core::crypto::CipherSuite =
     mls_rs_core::crypto::CipherSuite::CURVE25519_AES128;
 #[cfg(all(not(target_arch = "wasm32"), not(feature = "curve25519")))]
-const CIPHERSUITE: mls_rs_core::crypto::CipherSuite =
-    mls_rs_core::crypto::CipherSuite::P256_AES128;
+const CIPHERSUITE: mls_rs_core::crypto::CipherSuite = mls_rs_core::crypto::CipherSuite::P256_AES128;
 
 /// Generate an MLS signature key pair valid for the ciphersuite MLS uses.
 ///

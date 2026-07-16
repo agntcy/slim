@@ -426,7 +426,11 @@ impl SpireIdentityManagerBuilder {
     }
 
     pub fn build(self) -> Result<SpireIdentityManager, crate::errors::AuthError> {
-        let signature_keys = (vec![], vec![]);
+        // Generate the MLS signature key pair up front, for the ciphersuite MLS
+        // uses, so `initialize` embeds the pubkey in the SVID audiences from the
+        // start and MLS adopts the key instead of rotating the signing identity
+        // mid-handshake. Mirrors `SharedSecret`.
+        let signature_keys = crate::utils::generate_mls_signature_keys()?;
         let internal = SpireIdentityManagerInternal {
             socket_path: self.socket_path,
             target_spiffe_id: self.target_spiffe_id,
@@ -459,7 +463,7 @@ struct SpireIdentityManagerInternal {
 #[derive(Clone)]
 pub struct SpireIdentityManager {
     inner: Arc<SpireIdentityManagerInternal>,
-    /// MLS Ed25519 signature key pair: (secret_key_bytes, public_key_bytes).
+    /// MLS signature key pair: (secret_key_bytes, public_key_bytes).
     /// Plain field so each clone owns an independent copy.
     signature_keys: (Vec<u8>, Vec<u8>),
 }
@@ -652,16 +656,13 @@ impl TokenProvider for SpireIdentityManager {
         Ok(jwt_svid.spiffe_id().to_string())
     }
 
-    fn get_signature_secret_key(&self) -> Result<Vec<u8>, AuthError> {
-        Ok(self.signature_keys.0.clone())
-    }
-
-    fn get_signature_public_key(&self) -> Result<Vec<u8>, AuthError> {
-        Ok(self.signature_keys.1.clone())
+    fn get_signature_keys(&self) -> Result<(Vec<u8>, Vec<u8>), AuthError> {
+        Ok(self.signature_keys.clone())
     }
 
     fn mls_signature_keys_installed(&self) -> bool {
-        // Keys start empty and are only ever populated by `set_signature_keys`.
+        // Keys are generated at construction for the MLS ciphersuite, so they are
+        // always present; rotations replace them via `set_signature_keys`.
         !self.signature_keys.0.is_empty()
     }
 

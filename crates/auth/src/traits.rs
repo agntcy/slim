@@ -120,15 +120,14 @@ pub trait TokenProvider {
     /// Get ID from the identity provider, e.g. the sub claim in JWT
     fn get_id(&self) -> Result<String, AuthError>;
 
-    /// Get the MLS signature secret key bytes.
-    /// Returns `Err(AuthError::MlsNotSupported)` by default.
-    fn get_signature_secret_key(&self) -> Result<Vec<u8>, AuthError> {
-        Err(AuthError::MlsNotSupported)
-    }
-
-    /// Get the MLS signature public key bytes.
-    /// Returns `Err(AuthError::MlsNotSupported)` by default.
-    fn get_signature_public_key(&self) -> Result<Vec<u8>, AuthError> {
+    /// Get the MLS signature key pair as `(secret_key_bytes, public_key_bytes)`.
+    ///
+    /// Returned as a single pair so callers can never observe a torn
+    /// (secret, public) combination from a concurrent [`set_signature_keys`]
+    /// rotation — header signing selects its algorithm from the public-key
+    /// length, so a mismatched pair would make signing fail. Returns
+    /// `Err(AuthError::MlsNotSupported)` by default.
+    fn get_signature_keys(&self) -> Result<(Vec<u8>, Vec<u8>), AuthError> {
         Err(AuthError::MlsNotSupported)
     }
 
@@ -193,11 +192,7 @@ mod tests {
     async fn default_mls_methods_return_not_supported() {
         let mut p = MinimalProvider;
         assert!(matches!(
-            p.get_signature_secret_key(),
-            Err(AuthError::MlsNotSupported)
-        ));
-        assert!(matches!(
-            p.get_signature_public_key(),
+            p.get_signature_keys(),
             Err(AuthError::MlsNotSupported)
         ));
         assert!(matches!(
