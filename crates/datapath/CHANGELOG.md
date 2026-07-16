@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.4](https://github.com/agntcy/slim/compare/slim-datapath-v0.16.3...slim-datapath-v0.16.4) - 2026-07-16
+
+### Other
+
+- updated the following local packages: agntcy-slim-config, agntcy-slim-proto, agntcy-slim-tracing
+
+## [0.16.3](https://github.com/agntcy/slim/compare/slim-datapath-v0.16.2...slim-datapath-v0.16.3) - 2026-07-16
+
+### Other
+
+- updated the following local packages: agntcy-slim-config, agntcy-slim-proto, agntcy-slim-tracing
+
+## [0.16.2](https://github.com/agntcy/slim/compare/slim-datapath-v0.16.1...slim-datapath-v0.16.2) - 2026-07-15
+
+### Added
+
+- *(session)* use uuid for channel ids ([#1809](https://github.com/agntcy/slim/pull/1809))
+- add websocket supports for the browser ([#1775](https://github.com/agntcy/slim/pull/1775))
+
 ## [0.16.1](https://github.com/agntcy/slim/compare/slim-datapath-v0.16.0...slim-datapath-v0.16.1) - 2026-07-06
 
 ### Other

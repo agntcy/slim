@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2](https://github.com/agntcy/slim/compare/slim-controller-v0.11.1...slim-controller-v0.11.2) - 2026-07-16
+
+### Fixed
+
+- *(controller)* gate AuthenticationConfig::Spire match for windows ([#1859](https://github.com/agntcy/slim/pull/1859))
+
+## [0.11.1](https://github.com/agntcy/slim/compare/slim-controller-v0.11.0...slim-controller-v0.11.1) - 2026-07-16
+
+### Other
+
+- updated the following local packages: agntcy-slim-config, agntcy-slim-proto, agntcy-slim-tracing, agntcy-slim-datapath, agntcy-slim-session
+
+## [0.11.0](https://github.com/agntcy/slim/compare/slim-controller-v0.10.0...slim-controller-v0.11.0) - 2026-07-15
+
+### Fixed
+
+- separate server connection config ([#1778](https://github.com/agntcy/slim/pull/1778))
+
 ## [0.10.0](https://github.com/agntcy/slim/compare/slim-controller-v0.9.0...slim-controller-v0.10.0) - 2026-07-06
 
 ### Added
