@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.2](https://github.com/agntcy/slim/compare/slim-config-v0.12.1...slim-config-v0.12.2) - 2026-07-16
+
+### Fixed
+
+- *(config)* gate RequiredAuthMethod::Spire for windows ([#1855](https://github.com/agntcy/slim/pull/1855))
+
 ## [0.12.1](https://github.com/agntcy/slim/compare/slim-config-v0.12.0...slim-config-v0.12.1) - 2026-07-15
 
 ### Added
