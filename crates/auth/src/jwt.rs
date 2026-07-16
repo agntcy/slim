@@ -215,7 +215,11 @@ impl<T> Jwt<T> {
             watchers: Arc::new(Vec::new()),
             static_token: None,
             token_cache: std::sync::Arc::new(TokenCache::new()),
-            signature_keys: (vec![], vec![]),
+            // Generate an MLS signature key pair up front, for the ciphersuite
+            // MLS uses, so MLS adopts it instead of rotating the signing
+            // identity mid-handshake (which races with concurrent
+            // control-message signing). Mirrors `SharedSecret`.
+            signature_keys: crate::utils::generate_mls_signature_keys()?,
             _phantom: std::marker::PhantomData,
         })
     }
@@ -582,16 +586,13 @@ impl TokenProvider for SignerJwt {
             .ok_or(AuthError::TokenInvalidMissingSub)
     }
 
-    fn get_signature_secret_key(&self) -> Result<Vec<u8>, AuthError> {
-        Ok(self.signature_keys.0.clone())
-    }
-
-    fn get_signature_public_key(&self) -> Result<Vec<u8>, AuthError> {
-        Ok(self.signature_keys.1.clone())
+    fn get_signature_keys(&self) -> Result<(Vec<u8>, Vec<u8>), AuthError> {
+        Ok(self.signature_keys.clone())
     }
 
     fn mls_signature_keys_installed(&self) -> bool {
-        // Keys start empty and are only ever populated by `set_signature_keys`.
+        // Keys are generated at construction for the MLS ciphersuite, so they are
+        // always present; rotations replace them via `set_signature_keys`.
         !self.signature_keys.0.is_empty()
     }
 

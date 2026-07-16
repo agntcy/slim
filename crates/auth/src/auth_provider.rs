@@ -238,23 +238,13 @@ impl TokenProvider for AuthProvider {
         }
     }
 
-    fn get_signature_secret_key(&self) -> Result<Vec<u8>, AuthError> {
+    fn get_signature_keys(&self) -> Result<(Vec<u8>, Vec<u8>), AuthError> {
         match self {
-            AuthProvider::JwtSigner(signer) => signer.get_signature_secret_key(),
-            AuthProvider::StaticToken(provider) => provider.get_signature_secret_key(),
-            AuthProvider::SharedSecret(secret) => secret.get_signature_secret_key(),
+            AuthProvider::JwtSigner(signer) => signer.get_signature_keys(),
+            AuthProvider::StaticToken(provider) => provider.get_signature_keys(),
+            AuthProvider::SharedSecret(secret) => secret.get_signature_keys(),
             #[cfg(not(target_family = "windows"))]
-            AuthProvider::Spire(spire) => spire.get_signature_secret_key(),
-        }
-    }
-
-    fn get_signature_public_key(&self) -> Result<Vec<u8>, AuthError> {
-        match self {
-            AuthProvider::JwtSigner(signer) => signer.get_signature_public_key(),
-            AuthProvider::StaticToken(provider) => provider.get_signature_public_key(),
-            AuthProvider::SharedSecret(secret) => secret.get_signature_public_key(),
-            #[cfg(not(target_family = "windows"))]
-            AuthProvider::Spire(spire) => spire.get_signature_public_key(),
+            AuthProvider::Spire(spire) => spire.get_signature_keys(),
         }
     }
 
