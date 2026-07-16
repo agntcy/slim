@@ -4,6 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use display_error_chain::ErrorChainExt;
 use parking_lot::RwLock;
@@ -101,10 +102,12 @@ struct MessageProcessorInternal {
     /// Empty when no peer config is set.
     deployment_name: String,
 
-    /// Default strict header MAC policy for server-accepted inter-node connections (see [`ServerConfig::require_header_mac`]).
-    // Only read by the native gRPC/WebSocket-accept server paths.
+    /// Strict header MAC policy for server-accepted inter-node connections (see [`ServerConfig::require_header_mac`]).
+    /// Seeded at construction and refreshed by [`MessageProcessor::run_server`] from the actual
+    /// `ServerConfig`, so the dynamic `run_server` path honors the config even when the processor
+    /// was built without one. Only read by the native gRPC/WebSocket-accept server paths.
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
-    server_require_header_mac: bool,
+    server_require_header_mac: AtomicBool,
 
     /// Timeout for link negotiation to complete.
     negotiation_timeout: std::time::Duration,
@@ -188,7 +191,7 @@ impl MessageProcessor {
             remote_sync: RemoteSync::default(),
             service_id,
             deployment_name,
-            server_require_header_mac,
+            server_require_header_mac: AtomicBool::new(server_require_header_mac),
             negotiation_timeout,
             relay_peer_publishes,
             peer_sync: parking_lot::RwLock::new(crate::sync::PeerSync::standalone()),
@@ -213,13 +216,13 @@ impl MessageProcessor {
     ) -> Result<CancellationToken, DataPathError> {
         debug!(%config, "starting dataplane server");
 
-        if config.require_header_mac != self.internal.server_require_header_mac {
-            warn!(
-                configured = config.require_header_mac,
-                processor = self.internal.server_require_header_mac,
-                "server require_header_mac differs from MessageProcessor; inbound connections use the processor value set at construction (prefer MessageProcessor::new_with_server_config)",
-            );
-        }
+        // The server config is authoritative for the connections this server accepts.
+        // Apply its header-MAC policy so inbound connections honor it even when the
+        // processor was built without a ServerConfig (e.g. via a dynamic run_server
+        // call rather than new_with_server_config).
+        self.internal
+            .server_require_header_mac
+            .store(config.require_header_mac, Ordering::Relaxed);
 
         let watch = self.get_drain_watch()?;
         config
@@ -237,7 +240,11 @@ impl MessageProcessor {
         let connection = Connection::new(ConnType::Remote, Channel::Client(streams.outbound))
             .with_remote_addr(accepted.remote_addr)
             .with_local_addr(accepted.local_addr)
-            .with_require_header_mac(self.internal.server_require_header_mac)
+            .with_require_header_mac(
+                self.internal
+                    .server_require_header_mac
+                    .load(Ordering::Relaxed),
+            )
             .with_cancellation_token(Some(cancellation_token.clone()));
 
         debug!(
@@ -1924,7 +1931,11 @@ impl DataPlaneService for MessageProcessor {
         let connection = Connection::new(ConnType::Remote, Channel::Server(tx))
             .with_remote_addr(remote_addr)
             .with_local_addr(local_addr)
-            .with_require_header_mac(self.internal.server_require_header_mac);
+            .with_require_header_mac(
+                self.internal
+                    .server_require_header_mac
+                    .load(Ordering::Relaxed),
+            );
 
         debug!(
             remote = ?connection.remote_addr(),
@@ -2093,7 +2104,12 @@ mod tests {
     ) -> (u64, tokio::sync::mpsc::Receiver<Result<Message, Status>>) {
         let (tx, rx) = mpsc::channel(16);
         let conn = Connection::new(ConnType::Remote, Channel::Server(tx))
-            .with_require_header_mac(processor.internal.server_require_header_mac)
+            .with_require_header_mac(
+                processor
+                    .internal
+                    .server_require_header_mac
+                    .load(Ordering::Relaxed),
+            )
             .with_negotiation(&uuid::Uuid::new_v4().to_string(), version)
             .with_header_hmac(HeaderMacSession::new(b"01234567890123456789012345678901").unwrap());
         let conn_id = processor
@@ -2121,6 +2137,42 @@ mod tests {
             processor.internal.negotiation_timeout,
             std::time::Duration::from_secs(1)
         );
+    }
+
+    #[tokio::test]
+    async fn run_server_applies_require_header_mac_from_config() {
+        // Processor built without a ServerConfig defaults to require_header_mac=false
+        // (the dynamic run_server path used by slim-bindings).
+        let processor = MessageProcessor::new_with_service_id("test_service".to_string());
+        assert!(
+            !processor
+                .internal
+                .server_require_header_mac
+                .load(Ordering::Relaxed)
+        );
+
+        let mut server_config = ServerConfig {
+            endpoint: "127.0.0.1:0".to_string(),
+            require_header_mac: true,
+            ..Default::default()
+        };
+        server_config.tls_setting.insecure = true;
+
+        let token = processor
+            .run_server(&server_config)
+            .await
+            .expect("run_server should start");
+
+        // run_server must adopt the config's policy so inbound connections honor it.
+        assert!(
+            processor
+                .internal
+                .server_require_header_mac
+                .load(Ordering::Relaxed),
+            "run_server must apply require_header_mac from the ServerConfig"
+        );
+
+        token.cancel();
     }
 
     #[test]
