@@ -150,6 +150,13 @@
     "aliases": []
   },
   {
+    "version": "slim-control-plane-v2.0.0-alpha.4",
+    "title": "slim-control-plane-v2.0.0-alpha.4",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-control-plane-v2.0.0-alpha.3",
     "title": "slim-control-plane-v2.0.0-alpha.3",
     "aliases": []
@@ -187,9 +194,7 @@
   {
     "version": "slim-channel-manager-v2.0.0-alpha.4",
     "title": "slim-channel-manager-v2.0.0-alpha.4",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-channel-manager-v2.0.0-alpha.3",
