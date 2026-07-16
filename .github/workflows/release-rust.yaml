@@ -14,6 +14,9 @@ jobs:
   release-crates:
     name: Release slim crates
     runs-on: ubuntu-latest
+    # Scope the publish/token secrets to a dedicated environment (zizmor
+    # secrets-outside-env); add protection rules to it in repo settings as needed.
+    environment: release
     permissions:
       contents: write
       pull-requests: read
@@ -40,6 +43,7 @@ jobs:
   release-crates-pr:
     name: Release slim crates - PR
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
       pull-requests: write
