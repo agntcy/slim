@@ -105,10 +105,6 @@ pub enum SessionError {
     CannotInviteToP2P,
     #[error("cannot remove participant from point-to-point session")]
     CannotRemoveFromP2P,
-    #[error("cannot close point-to-point session")]
-    CannotCloseP2P,
-    #[error("cannot rejoin point-to-point session")]
-    CannotRejoinP2P,
     #[error("only initiator can modify participants")]
     NotInitiator,
 
@@ -131,14 +127,6 @@ pub enum SessionError {
     SessionDrainingDrop,
     #[error("session already closed")]
     SessionAlreadyClosed,
-    #[error("rejoin request was rejected")]
-    RejoinFailed,
-    #[error("participant is offline")]
-    ParticipantOffLine,
-    #[error("a status change is in progress")]
-    StatusChangeInProgress,
-    #[error("moderator is busy")]
-    ModeratorBusy,
     #[error("session cleanup failed: {details}")]
     SessionCleanupFailed { details: String },
     #[error("message send retries exhausted for id={id}")]
@@ -188,10 +176,6 @@ pub enum SessionError {
     ModeratorTaskUpdateFailed { source: Box<SessionError> },
     #[error("failed to close session: {source}")]
     ModeratorTaskCloseFailed { source: Box<SessionError> },
-    #[error("failed to perform no-op task: {source}")]
-    ModeratorTaskNoOpFailed { source: Box<SessionError> },
-    #[error("the moderator is not offline")]
-    ModeratorNotOffLine,
 }
 
 impl SessionError {

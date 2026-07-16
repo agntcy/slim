@@ -585,7 +585,7 @@ impl SessionController {
             .map_err(|_e| SessionError::SessionControllerSendFailed)
     }
 
-    pub fn leave(&self) -> Result<tokio::task::JoinHandle<()>, SessionError> {
+    pub fn close(&self) -> Result<tokio::task::JoinHandle<()>, SessionError> {
         self.cancellation_token.cancel();
 
         self.handle
@@ -1435,7 +1435,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_leave_success() {
+    async fn test_close_success() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_graceful_shutdown_timeout(std::time::Duration::from_secs(2))
             .build();
@@ -1443,7 +1443,7 @@ mod tests {
         let token = controller.cancellation_token.clone();
         assert!(!token.is_cancelled());
 
-        let handle = controller.leave();
+        let handle = controller.close();
         assert!(handle.is_ok(), "got error {}", handle.unwrap_err());
         assert!(token.is_cancelled());
 
@@ -1455,11 +1455,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_leave_already_left() {
+    async fn test_close_already_closed() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
 
         // Leave once - should succeed
-        let handle = controller.leave();
+        let handle = controller.close();
         assert!(handle.is_ok());
         handle
             .unwrap()
@@ -1467,7 +1467,7 @@ mod tests {
             .expect("processing task should complete");
 
         // Leave again - should fail with appropriate error
-        let result = controller.leave();
+        let result = controller.close();
         assert!(result.is_err());
         match result {
             Err(SessionError::SessionAlreadyClosed) => {
@@ -1478,7 +1478,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_leave_cancels_token_immediately() {
+    async fn test_close_cancels_token_immediately() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
 
         let token = controller.cancellation_token.clone();
@@ -1487,7 +1487,7 @@ mod tests {
         assert!(!token.is_cancelled());
 
         // Leave returns immediately after cancelling token
-        let handle = controller.leave();
+        let handle = controller.close();
         assert!(handle.is_ok());
 
         // Token should be cancelled immediately

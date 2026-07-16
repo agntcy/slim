@@ -199,8 +199,6 @@ async fn run_receiver(args: Args) -> Result<()> {
                             .context("publish_to failed")?;
 
                         tprintln!("[{}] Reply to initiator {}", full_name, source);
-
-                        // if local name is b/b/b and the received message
                     }
                     Ok(Some(Err(e))) => {
                         tprintln!("[{}] Error receiving message: {}", full_name, e);
