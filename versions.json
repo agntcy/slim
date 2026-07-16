@@ -102,9 +102,7 @@
   {
     "version": "slim-datapath-v0.16.3",
     "title": "slim-datapath-v0.16.3",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-datapath-v0.16.2",
@@ -120,6 +118,13 @@
     "version": "slim-datapath-v0.15.0",
     "title": "slim-datapath-v0.15.0",
     "aliases": []
+  },
+  {
+    "version": "slim-controller-v0.11.1",
+    "title": "slim-controller-v0.11.1",
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "slim-controller-v0.9.0",
