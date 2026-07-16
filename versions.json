@@ -137,9 +137,7 @@
   {
     "version": "slim-rpc-v2.0.0-alpha.5",
     "title": "slim-rpc-v2.0.0-alpha.5",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-rpc-v2.0.0-alpha.4",
@@ -280,6 +278,13 @@
     "version": "slim-channel-manager-v2.0.0-alpha.2",
     "title": "slim-channel-manager-v2.0.0-alpha.2",
     "aliases": []
+  },
+  {
+    "version": "slim-bindings-v2.0.0-alpha.7",
+    "title": "slim-bindings-v2.0.0-alpha.7",
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "slim-bindings-v2.0.0-alpha.6",
