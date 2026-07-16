@@ -72,9 +72,7 @@
   {
     "version": "slim-signal-v0.1.13",
     "title": "slim-signal-v0.1.13",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-signal-v0.1.12",
@@ -95,6 +93,13 @@
     "version": "slim-session-v0.5.0",
     "title": "slim-session-v0.5.0",
     "aliases": []
+  },
+  {
+    "version": "slim-service-v0.11.4",
+    "title": "slim-service-v0.11.4",
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "slim-service-v0.11.3",
