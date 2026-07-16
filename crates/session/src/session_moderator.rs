@@ -575,7 +575,7 @@ where
             }
             ProtoSessionMessageType::LeaveReply => self.on_leave_reply(message).await,
             ProtoSessionMessageType::GroupAck => self.on_group_ack(message).await,
-            ProtoSessionMessageType::Heartbeat => self.common.sender.on_message(&message),
+            ProtoSessionMessageType::Heartbeat => self.on_heartbeat(message).await,
             ProtoSessionMessageType::GroupProposal => todo!(),
             ProtoSessionMessageType::JoinRequest
             | ProtoSessionMessageType::GroupAdd
@@ -1120,6 +1120,58 @@ where
 
         self.task_done().await?;
         Ok(output)
+    }
+
+    async fn on_heartbeat(&mut self, message: Message) -> Result<SessionOutput, SessionError> {
+        let source = message.get_source();
+        let mut source_no_id = source.clone();
+        source_no_id.reset_id();
+
+        // Check if the source is in the group list
+        let Some(entry) = self.group_list.get_mut(&source_no_id) else {
+            debug!(from = %source, "dropping heartbeat from unknown participant");
+            return Ok(SessionOutput::new());
+        };
+
+        // Verify the full name (with ID) matches
+        if entry.participant.get_name().ok().as_ref() != Some(&source) {
+            debug!(from = %source, "dropping heartbeat from unknown participant (id mismatch)");
+            return Ok(SessionOutput::new());
+        }
+
+        if entry.online {
+            // Participant is online, just forward to sender for tracking
+            return self.common.sender.on_message(&message);
+        }
+
+        // Participant is offline — check if MLS epoch matches
+        let heartbeat_payload = message.extract_heartbeat()?;
+        let current_epoch = self
+            .mls_state
+            .as_ref()
+            .and_then(|s| s.common.mls.get_epoch());
+
+        let epoch_matches = match current_epoch {
+            Some(epoch) => heartbeat_payload.epoch == epoch,
+            None => true, // no MLS, always allow reconnection
+        };
+
+        if epoch_matches {
+            // Epoch matches — bring participant back online
+            debug!(from = %source, "participant back online (epoch matches), re-adding endpoint");
+            entry.online = true;
+            let participant = entry.participant.clone();
+            self.add_endpoint(&participant).await?;
+            self.common.sender.on_message(&message)
+        } else {
+            debug!(
+                from = %source,
+                heartbeat_epoch = heartbeat_payload.epoch,
+                current_epoch = ?current_epoch,
+                "dropping heartbeat from offline participant with mismatched epoch"
+            );
+            Ok(SessionOutput::new())
+        }
     }
 
     async fn on_group_ack(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {

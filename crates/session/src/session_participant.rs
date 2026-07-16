@@ -645,9 +645,46 @@ where
     }
 
     async fn on_heartbeat(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {
-        debug!(from = %msg.get_source(), "received heartbeat");
-        // Forward to the controller sender to update last_seen tracking — no reply needed
-        self.common.sender.on_message(&msg)
+        let source = msg.get_source();
+        debug!(from = %source, "received heartbeat");
+
+        // Check if the source is in the group list
+        let Some(entry) = self.group_list.get_mut(&source) else {
+            debug!(from = %source, "dropping heartbeat from unknown participant");
+            return Ok(SessionOutput::new());
+        };
+
+        if entry.online {
+            // Participant is online, just forward to sender for tracking
+            return self.common.sender.on_message(&msg);
+        }
+
+        // Participant is offline — check if MLS epoch matches
+        let heartbeat_payload = msg.extract_heartbeat()?;
+        let current_epoch = self.mls_state.as_ref().and_then(|s| s.mls.get_epoch());
+
+        let epoch_matches = match current_epoch {
+            Some(epoch) => heartbeat_payload.epoch == epoch,
+            None => true, // no MLS, always allow reconnection
+        };
+
+        if epoch_matches {
+            // Epoch matches — bring participant back online
+            debug!(from = %source, "participant back online (epoch matches), re-adding endpoint");
+            let settings = entry.settings;
+            entry.online = true;
+            let participant = Participant::new(source.clone(), settings);
+            self.add_endpoint(&participant).await?;
+            self.common.sender.on_message(&msg)
+        } else {
+            debug!(
+                from = %source,
+                heartbeat_epoch = heartbeat_payload.epoch,
+                current_epoch = ?current_epoch,
+                "dropping heartbeat from offline participant with mismatched epoch"
+            );
+            Ok(SessionOutput::new())
+        }
     }
 
     async fn join(&mut self, msg: &Message) -> Result<(), SessionError> {
