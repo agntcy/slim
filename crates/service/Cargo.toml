@@ -13,6 +13,7 @@ crate-type = ["lib"]
 default = ["session"]
 kubernetes = ["agntcy-slim-datapath/kubernetes"]
 session = ["agntcy-slim-session", "agntcy-slim-persistence"]
+slim-config = ["dirs", "serde_yaml", "humantime-serde"]
 
 [dependencies]
 agntcy-slim-auth = { workspace = true }
@@ -21,6 +22,10 @@ agntcy-slim-datapath = { workspace = true }
 agntcy-slim-persistence = { workspace = true, optional = true }
 agntcy-slim-session = { workspace = true, optional = true }
 agntcy-slim-version = { workspace = true }
+async-trait = { workspace = true }
+dirs = { workspace = true, optional = true }
+humantime-serde = { workspace = true, optional = true }
+serde_yaml = { workspace = true, optional = true }
 display-error-chain = { workspace = true }
 thiserror = { workspace = true }
 tokio-util = { workspace = true }
@@ -45,5 +50,6 @@ uuid = { workspace = true, features = ["v4", "js"] }
 agntcy-slim-testing = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
+test-fork = { workspace = true }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true, features = ["no-env-filter"] }

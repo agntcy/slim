@@ -32,7 +32,7 @@ agntcy-slim-config = { workspace = true }
 agntcy-slim-controller = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-persistence = { workspace = true }
-agntcy-slim-service = { workspace = true, features = ["session"] }
+agntcy-slim-service = { workspace = true, features = ["session", "slim-config"] }
 agntcy-slim-session = { workspace = true }
 agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
@@ -57,6 +57,7 @@ uniffi = { workspace = true, features = ["build"] }
 [dev-dependencies]
 cfg-if = { workspace = true }
 clap = { workspace = true }
+tempfile = { workspace = true }
 test-fork = { workspace = true }
 
 [[example]]

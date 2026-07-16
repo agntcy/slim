@@ -69,6 +69,8 @@ mod server_config;
 mod service;
 mod session;
 #[cfg(not(feature = "web"))]
+mod slim_node_config;
+#[cfg(not(feature = "web"))]
 mod transport_protocol;
 
 // Public re-exports
@@ -115,9 +117,11 @@ pub use server_config::{
 pub use service::Service;
 #[cfg(not(feature = "web"))]
 pub use service::{
-    DataplaneConfig, ServiceConfig, create_service, create_service_with_config,
+    DataplaneConfig, ServiceConfig, SlimAppHandle, create_service, create_service_with_config,
     new_dataplane_config, new_service_configuration,
 };
+#[cfg(not(feature = "web"))]
+pub use slim_node_config::{SlimAppConfig, SlimConfig, load_slim_config};
 pub use session::{MlsSettings, Session, SessionConfig, SessionType};
 #[cfg(not(feature = "web"))]
 pub use transport_protocol::TransportProtocol;

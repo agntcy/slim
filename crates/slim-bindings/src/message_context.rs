@@ -347,13 +347,15 @@ mod tests {
                     "ns".to_string(),
                     "app".to_string(),
                     "00000000-0000-0000-0000-00000000007b".to_string(),
-                ),
+                )
+                .unwrap(),
                 Some(Name::new_with_id(
                     "org".to_string(),
                     "ns".to_string(),
                     "dest".to_string(),
                     "00000000-0000-0000-0000-000000012345".to_string(),
-                )),
+                )
+                .unwrap()),
                 "application/json".to_string(),
                 std::collections::HashMap::new(),
                 789,
