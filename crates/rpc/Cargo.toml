@@ -2,25 +2,21 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [package]
-name = "agntcy-slimrpc"
+name = "agntcy-slim-rpc"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.1.0"
+version.workspace = true
 description = "SlimRPC: a gRPC-like RPC framework over SLIM (native Rust)."
 
 [lib]
-name = "slimrpc"
+name = "slim_rpc"
 
 [features]
 default = []
-# Enables the UniFFI foreign-language interface. This pulls in `agntcy-slim-bindings`
-# for the `App`/`Name` wrapper types exposed across the FFI boundary and emits the
-# UniFFI scaffolding. Without this feature the crate is a pure native Rust library.
-bindings = ["dep:uniffi", "dep:agntcy-slim-bindings"]
+uniffi = ["dep:uniffi"]
 
 [dependencies]
 agntcy-slim-auth = { workspace = true }
-agntcy-slim-bindings = { workspace = true, optional = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-service = { workspace = true, features = ["session"] }
 agntcy-slim-session = { workspace = true }

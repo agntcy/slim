@@ -451,6 +451,7 @@ impl ClientConfig {
             RequiredAuthMethod::None => {
                 self.auth = AuthenticationConfig::None;
             }
+            #[cfg(not(target_family = "windows"))]
             RequiredAuthMethod::Spire { trust_domain } => {
                 use crate::auth::spire::SpireConfig;
                 use crate::tls::common::{CaSource, TlsSource};
@@ -620,6 +621,7 @@ pub enum RequiredAuthMethod {
     None,
     Basic,
     Jwt,
+    #[cfg(not(target_family = "windows"))]
     Spire {
         trust_domain: Option<String>,
     },

@@ -17,7 +17,7 @@ use super::{
 ///
 /// Implement this trait to handle unary-to-unary RPC calls.
 /// The handler receives a single request and returns a single response.
-#[cfg_attr(feature = "bindings", uniffi::export(with_foreign))]
+#[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
 #[async_trait::async_trait]
 pub trait UnaryUnaryHandler: Send + Sync {
     /// Handle a unary-to-unary RPC call
@@ -35,7 +35,7 @@ pub trait UnaryUnaryHandler: Send + Sync {
 ///
 /// Implement this trait to handle unary-to-stream RPC calls.
 /// The handler receives a single request and sends multiple responses via the sink.
-#[cfg_attr(feature = "bindings", uniffi::export(with_foreign))]
+#[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
 #[async_trait::async_trait]
 pub trait UnaryStreamHandler: Send + Sync {
     /// Handle a unary-to-stream RPC call
@@ -62,7 +62,7 @@ pub trait UnaryStreamHandler: Send + Sync {
 ///
 /// Implement this trait to handle stream-to-unary RPC calls.
 /// The handler receives multiple requests via the stream and returns a single response.
-#[cfg_attr(feature = "bindings", uniffi::export(with_foreign))]
+#[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
 #[async_trait::async_trait]
 pub trait StreamUnaryHandler: Send + Sync {
     /// Handle a stream-to-unary RPC call
@@ -84,7 +84,7 @@ pub trait StreamUnaryHandler: Send + Sync {
 ///
 /// Implement this trait to handle stream-to-stream RPC calls.
 /// The handler receives multiple requests via the stream and sends multiple responses via the sink.
-#[cfg_attr(feature = "bindings", uniffi::export(with_foreign))]
+#[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
 #[async_trait::async_trait]
 pub trait StreamStreamHandler: Send + Sync {
     /// Handle a stream-to-stream RPC call

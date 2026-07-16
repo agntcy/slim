@@ -107,3 +107,7 @@ pub use transport_protocol::TransportProtocol as ServerTransportProtocol;
 
 // UniFFI scaffolding setup (must be at crate root)
 uniffi::setup_scaffolding!();
+
+// Re-export the scaffolding of the native slimrpc crate so this cdylib ships
+// its FFI symbols (same pattern the slim-bindings wrapper uses for this crate).
+slim_rpc::uniffi_reexport_scaffolding!();
