@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0](https://github.com/agntcy/slim/compare/slim-auth-v0.12.1...slim-auth-v0.13.0) - 2026-07-16
+
+### Fixed
+
+- *(auth,mls)* stop mid-handshake MLS signing-key rotation ([#1869](https://github.com/agntcy/slim/pull/1869))
+
 ## [0.12.1](https://github.com/agntcy/slim/compare/slim-auth-v0.12.0...slim-auth-v0.12.1) - 2026-07-16
 
 ### Other
