@@ -135,6 +135,13 @@
     "aliases": []
   },
   {
+    "version": "slim-rpc-v2.0.0-alpha.5",
+    "title": "slim-rpc-v2.0.0-alpha.5",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-rpc-v2.0.0-alpha.4",
     "title": "slim-rpc-v2.0.0-alpha.4",
     "aliases": []
@@ -202,9 +209,7 @@
   {
     "version": "slim-control-plane-v2.0.0-alpha.5",
     "title": "slim-control-plane-v2.0.0-alpha.5",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-control-plane-v2.0.0-alpha.4",
