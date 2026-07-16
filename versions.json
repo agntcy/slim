@@ -2,9 +2,7 @@
   {
     "version": "slimctl-v2.0.0-alpha.3",
     "title": "slimctl-v2.0.0-alpha.3",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slimctl-v2.0.0-alpha.2",
@@ -160,6 +158,13 @@
     "version": "slim-channel-manager-v2.0.0-alpha.2",
     "title": "slim-channel-manager-v2.0.0-alpha.2",
     "aliases": []
+  },
+  {
+    "version": "slim-bindings-v2.0.0-alpha.4",
+    "title": "slim-bindings-v2.0.0-alpha.4",
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "slim-auth-v0.12.0",
