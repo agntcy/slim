@@ -2,7 +2,7 @@
 name = "agntcy-slim-mls"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.2.2"
+version = "0.2.3"
 description = "Messaging Layer Security for SLIM data plane."
 
 [lib]
@@ -11,8 +11,9 @@ name = "slim_mls"
 [features]
 default = []
 # Use Curve25519 (X25519 + Ed25519) MLS ciphersuite instead of the
-# default NIST P-256 ciphersuite.
-curve25519 = []
+# default NIST P-256 ciphersuite. Propagates to the auth crate so identity keys
+# are generated for the same ciphersuite MLS negotiates.
+curve25519 = ["agntcy-slim-auth/curve25519"]
 
 [dependencies]
 agntcy-slim-auth = { workspace = true }

@@ -212,10 +212,12 @@ pub(crate) fn from_server_config(server_config: &ServerConfig) -> ConnectionDeta
     }
 
     let tls_required = !server_config.tls_setting.insecure || spire_socket_path.is_some();
-    let auth_method = if spire_socket_path.is_some()
-        || trust_domain.is_some()
-        || matches!(server_config.auth, AuthenticationConfig::Spire(_))
-    {
+    // AuthenticationConfig::Spire is gated to non-windows in slim-config.
+    #[cfg(not(target_family = "windows"))]
+    let auth_is_spire = matches!(server_config.auth, AuthenticationConfig::Spire(_));
+    #[cfg(target_family = "windows")]
+    let auth_is_spire = false;
+    let auth_method = if spire_socket_path.is_some() || trust_domain.is_some() || auth_is_spire {
         AuthMethod::Spire
     } else {
         match &server_config.auth {
