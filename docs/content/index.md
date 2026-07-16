@@ -199,7 +199,7 @@ hide:
   <div class="slim-community-social">
     <a
       class="slim-community-card"
-      href="https://discord.gg/nbeEENusy"
+      href="https://discord.gg/FbEnSHXD34"
       target="_blank"
       rel="noopener noreferrer"
     >
