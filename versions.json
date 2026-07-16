@@ -67,9 +67,7 @@
   {
     "version": "slim-service-v0.11.2",
     "title": "slim-service-v0.11.2",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-service-v0.11.1",
@@ -180,6 +178,13 @@
     "version": "slim-channel-manager-v2.0.0-alpha.2",
     "title": "slim-channel-manager-v2.0.0-alpha.2",
     "aliases": []
+  },
+  {
+    "version": "slim-bindings-v2.0.0-alpha.5",
+    "title": "slim-bindings-v2.0.0-alpha.5",
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "slim-bindings-v2.0.0-alpha.4",
