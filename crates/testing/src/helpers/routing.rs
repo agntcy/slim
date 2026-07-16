@@ -1,4 +1,4 @@
-use super::command::run_combined_output_with_retry;
+use super::command::{combined_output, run_combined_output_with_retry};
 use regex::Regex;
 use std::path::Path;
 use std::process::Command;
@@ -69,7 +69,7 @@ pub fn run_slimctl_node_retry(
     timeout: Duration,
 ) -> Vec<u8> {
     let endpoint = controller_endpoint.to_string();
-    run_combined_output_with_retry(timeout, || {
+    let output = run_combined_output_with_retry(timeout, || {
         let mut cmd = Command::new(slimctl);
         cmd.arg("n");
         for arg in args {
@@ -77,7 +77,8 @@ pub fn run_slimctl_node_retry(
         }
         cmd.arg("--server").arg(&endpoint);
         cmd
-    })
+    });
+    combined_output(&output)
 }
 
 pub fn run_slimctl_node_add_route_via(
@@ -108,7 +109,7 @@ pub fn run_slimctl_controller_retry(
     timeout: Duration,
 ) -> Vec<u8> {
     let endpoint = controller_endpoint.to_string();
-    run_combined_output_with_retry(timeout, || {
+    let output = run_combined_output_with_retry(timeout, || {
         let mut cmd = Command::new(slimctl);
         cmd.arg("controller");
         for arg in args {
@@ -116,7 +117,8 @@ pub fn run_slimctl_controller_retry(
         }
         cmd.arg("--server").arg(&endpoint);
         cmd
-    })
+    });
+    combined_output(&output)
 }
 
 fn run_slimctl_node(

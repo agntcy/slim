@@ -7,8 +7,11 @@ const SLIMCTL_CM_RETRY_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Run a command until it succeeds or `timeout` elapses, retrying every 200 ms.
 ///
+/// Returns the successful [`Output`] so callers can layer `assert_cmd` assertions
+/// (e.g. `output.assert().success().stdout(...)`) on top of the retry.
+///
 /// Each attempt calls `build_cmd()` so callers can construct a fresh `Command` (with args/env) per try.
-pub fn run_combined_output_with_retry<F>(timeout: Duration, mut build_cmd: F) -> Vec<u8>
+pub fn run_combined_output_with_retry<F>(timeout: Duration, mut build_cmd: F) -> Output
 where
     F: FnMut() -> Command,
 {
@@ -23,10 +26,10 @@ where
 
         match command.output() {
             Ok(output) => {
-                last_out = combined_output(&output);
                 if output.status.success() {
-                    return last_out;
+                    return output;
                 }
+                last_out = combined_output(&output);
                 last_err = std::io::Error::other(format!("process exited with {}", output.status));
             }
             Err(err) => {
@@ -46,14 +49,18 @@ where
     );
 }
 
-fn combined_output(output: &Output) -> Vec<u8> {
+/// Merge a command's stderr and stdout into a single buffer (stderr first).
+pub(crate) fn combined_output(output: &Output) -> Vec<u8> {
     let mut combined = output.stderr.clone();
     combined.extend_from_slice(&output.stdout);
     combined
 }
 
 /// Run `slimctl cm …` until it succeeds or the channel-manager retry budget elapses.
-pub fn run_slimctl_cm(slimctl: &Path, cm_endpoint: &str, args: &[&str]) -> Vec<u8> {
+///
+/// Returns the successful [`Output`]; assert on it with `assert_cmd`, e.g.
+/// `run_slimctl_cm(...).assert().success().stdout(predicate::str::contains("..."))`.
+pub fn run_slimctl_cm(slimctl: &Path, cm_endpoint: &str, args: &[&str]) -> Output {
     let endpoint = cm_endpoint.to_string();
     run_combined_output_with_retry(SLIMCTL_CM_RETRY_TIMEOUT, || {
         let mut cmd = Command::new(slimctl);

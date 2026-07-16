@@ -3,6 +3,8 @@
 //! Verifies that adding a nonexistent participant to a channel returns an error
 //! from `slimctl cm add-participant`.
 
+use assert_cmd::prelude::*;
+use predicates::prelude::*;
 use slim_testing::{
     binaries::{
         require_channel_manager_binary, require_slim_binary, require_slimctl_binary, workspace_root,
@@ -140,34 +142,22 @@ fn add_nonexistent_participant_fails() {
             panic!("channel manager did not start gRPC server:\n{output}");
         });
 
-    let create_output = run_slimctl_cm(&slimctl, &cm_endpoint, &["create-channel", CHANNEL_NAME]);
-    assert!(!create_output.is_empty());
+    run_slimctl_cm(&slimctl, &cm_endpoint, &["create-channel", CHANNEL_NAME])
+        .assert()
+        .success();
 
-    let add_output = Command::new(&slimctl)
+    // Inviting a participant that never connected must fail; the invite error is
+    // reported on stderr by slimctl's anyhow error handler.
+    Command::new(&slimctl)
         .arg("cm")
         .arg("add-participant")
         .arg(CHANNEL_NAME)
         .arg("org/default/a")
         .arg("--server")
         .arg(&cm_endpoint)
-        .output()
-        .expect("failed to run slimctl add-participant");
-
-    assert!(
-        !add_output.status.success(),
-        "expected add-participant to fail, got success:\n{}",
-        String::from_utf8_lossy(&add_output.stdout)
-    );
-
-    let combined = {
-        let mut buf = add_output.stderr.clone();
-        buf.extend_from_slice(&add_output.stdout);
-        String::from_utf8_lossy(&buf).into_owned()
-    };
-    assert!(
-        combined.contains("failed to invite participant"),
-        "expected invite failure in output, got:\n{combined}"
-    );
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("failed to invite participant"));
 
     terminate_session(&mut channel_manager_session, Duration::from_secs(30));
     terminate_session(&mut slim_session, Duration::from_secs(30));
