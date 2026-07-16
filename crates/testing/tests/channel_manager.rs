@@ -3,6 +3,8 @@
 //! Exercises create/add/remove/delete flows via `slimctl cm` while three client
 //! apps join a channel and exchange messages.
 
+use assert_cmd::prelude::*;
+use predicates::prelude::*;
 use slim_testing::{
     binaries::{
         require_channel_manager_binary, require_client_binary, require_slim_binary,
@@ -119,14 +121,6 @@ fn spawn_client(
             config.display()
         )
     })
-}
-
-fn assert_output_contains(output: &[u8], needle: &str, context: &str) {
-    let text = String::from_utf8_lossy(output);
-    assert!(
-        text.contains(needle),
-        "{context}: expected output to contain {needle:?}, got:\n{text}"
-    );
 }
 
 /// SLIM node creates a channel, adds participants, verifies messaging, then tears down.
@@ -246,21 +240,23 @@ fn slim_node_manages_channel_participants_and_messaging() {
             });
     }
 
-    let create_output = run_slimctl_cm(&slimctl, &cm_endpoint, &["create-channel", CHANNEL_NAME]);
-    assert!(!create_output.is_empty());
-    assert_output_contains(&create_output, "created successfully", "create channel");
+    run_slimctl_cm(&slimctl, &cm_endpoint, &["create-channel", CHANNEL_NAME])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("created successfully"));
 
     let participant_a = "org/default/a";
     let participant_b = "org/default/b";
     let participant_c = "org/default/c";
 
-    let add_a_output = run_slimctl_cm(
+    run_slimctl_cm(
         &slimctl,
         &cm_endpoint,
         &["add-participant", CHANNEL_NAME, participant_a],
-    );
-    assert!(!add_a_output.is_empty());
-    assert_output_contains(&add_a_output, "added to channel", "add participant a");
+    )
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("added to channel"));
     client_a_logs
         .wait_contains(MSG_SESSION_HANDLER_TASK_STARTED, Duration::from_secs(30))
         .unwrap_or_else(|output| {
@@ -272,13 +268,14 @@ fn slim_node_manages_channel_participants_and_messaging() {
             panic!("client A did not start session handler:\n{output}");
         });
 
-    let add_b_output = run_slimctl_cm(
+    run_slimctl_cm(
         &slimctl,
         &cm_endpoint,
         &["add-participant", CHANNEL_NAME, participant_b],
-    );
-    assert!(!add_b_output.is_empty());
-    assert_output_contains(&add_b_output, "added to channel", "add participant b");
+    )
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("added to channel"));
     client_b_logs
         .wait_contains(MSG_SESSION_HANDLER_TASK_STARTED, Duration::from_secs(30))
         .unwrap_or_else(|output| {
@@ -290,13 +287,14 @@ fn slim_node_manages_channel_participants_and_messaging() {
             panic!("client B did not start session handler:\n{output}");
         });
 
-    let add_c_output = run_slimctl_cm(
+    run_slimctl_cm(
         &slimctl,
         &cm_endpoint,
         &["add-participant", CHANNEL_NAME, participant_c],
-    );
-    assert!(!add_c_output.is_empty());
-    assert_output_contains(&add_c_output, "added to channel", "add participant c");
+    )
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("added to channel"));
     client_c_logs
         .wait_contains(MSG_SESSION_HANDLER_TASK_STARTED, Duration::from_secs(30))
         .unwrap_or_else(|output| {
@@ -330,12 +328,13 @@ fn slim_node_manages_channel_participants_and_messaging() {
             panic!("client B did not receive message from C:\n{output}");
         });
 
-    let delete_participant_output = run_slimctl_cm(
+    run_slimctl_cm(
         &slimctl,
         &cm_endpoint,
         &["delete-participant", CHANNEL_NAME, participant_c],
-    );
-    assert!(!delete_participant_output.is_empty());
+    )
+    .assert()
+    .success();
     client_c_logs
         .wait_contains(MSG_SESSION_CLOSED, Duration::from_secs(15))
         .unwrap_or_else(|output| {
@@ -347,9 +346,9 @@ fn slim_node_manages_channel_participants_and_messaging() {
             panic!("client C session was not closed:\n{output}");
         });
 
-    let delete_channel_output =
-        run_slimctl_cm(&slimctl, &cm_endpoint, &["delete-channel", CHANNEL_NAME]);
-    assert!(!delete_channel_output.is_empty());
+    run_slimctl_cm(&slimctl, &cm_endpoint, &["delete-channel", CHANNEL_NAME])
+        .assert()
+        .success();
     client_a_logs
         .wait_contains(MSG_SESSION_CLOSED, Duration::from_secs(15))
         .unwrap_or_else(|output| {
