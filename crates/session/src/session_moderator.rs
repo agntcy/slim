@@ -11,8 +11,9 @@ use display_error_chain::ErrorChainExt;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, MlsPayload, NameId, Participant, ParticipantState, ProtoMessage as Message,
-        ProtoMlsSettings, ProtoName, ProtoSessionMessageType, ProtoSessionType,
+        CommandPayload, GroupUpdateOp, MlsPayload, NameId, Participant, ParticipantState,
+        ProtoMessage as Message, ProtoMlsSettings, ProtoName, ProtoSessionMessageType,
+        ProtoSessionType,
     },
     messages::utils::{DELETE_GROUP, LEAVE_REPLY_SENT, LEAVING_SESSION, TRUE_VAL},
 };
@@ -35,11 +36,6 @@ use crate::{
     traits::{MessageHandler, ProcessingState},
 };
 
-struct ParticipantEntry {
-    participant: Participant,
-    online: bool,
-}
-
 pub struct SessionModerator<P, V, I, M = SubscriptionManager>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -60,7 +56,7 @@ where
     /// List of group participants
     /// The key is the participant name without ID
     /// The value contains the full name, participant settings, and online/offline state
-    group_list: HashMap<ProtoName, ParticipantEntry>,
+    group_list: HashMap<ProtoName, Participant>,
 
     /// Common settings
     common: SessionControllerCommon<P, V, M>,
@@ -296,7 +292,7 @@ where
 
                 // Mark the participant as offline in the local group list
                 if let Some(entry) = self.group_list.get_mut(&participant_no_id) {
-                    entry.online = false;
+                    entry.status = ParticipantState::OffLine as i32;
                 }
 
                 // Remove the endpoint from the sender and inner controller
@@ -343,7 +339,6 @@ where
             .iter()
             .map(|(name, entry)| {
                 let id = entry
-                    .participant
                     .name
                     .as_ref()
                     .map(|n| n.id())
@@ -460,8 +455,12 @@ where
                         // Rejoin timeout: participants that didn't reply are offline,
                         // those that replied are online. Notify success to the app.
                         for (_, entry) in self.group_list.iter_mut() {
-                            if let Ok(name) = entry.participant.get_name() {
-                                entry.online = !missing.contains(&name);
+                            if let Ok(name) = entry.get_name() {
+                                entry.status = if !missing.contains(&name) {
+                                    ParticipantState::OnLine as i32
+                                } else {
+                                    ParticipantState::OffLine as i32
+                                };
                             }
                         }
                         self.common.online = true;
@@ -549,26 +548,22 @@ where
         &mut self,
         participant: &ProtoName,
         msg: &Message,
-    ) -> Result<(Vec<ProtoName>, Option<MlsPayload>), SessionError> {
+    ) -> Result<(Participant, Vec<Participant>, Option<MlsPayload>), SessionError> {
         // Build participants list with current participants
         // the group update needs to be received by everybody
         // in the group unless there are only 2 participants
         // (the moderator and a participant)
-        let participants_vec: Vec<ProtoName> = self
+        let participants_vec: Vec<Participant> = self
             .group_list
-            .iter()
-            .map(|(n, entry)| {
-                entry
-                    .participant
-                    .get_name()
-                    .map(|name| n.clone().with_id(name.id()))
-            })
-            .collect::<Result<Vec<ProtoName>, _>>()?;
+            .values()
+            .map(|entry| entry.clone())
+            .collect();
 
         // Remove participant from group list
         let mut participant_no_id = participant.clone();
         participant_no_id.reset_id();
-        self.group_list.remove(&participant_no_id);
+        let removed_entry = self.group_list.remove(&participant_no_id);
+        let removed_participant = removed_entry.unwrap();
 
         // Remove endpoint from local session
         self.remove_endpoint(participant);
@@ -587,25 +582,26 @@ where
             None => None,
         };
 
-        Ok((participants_vec, mls_payload))
+        Ok((removed_participant, participants_vec, mls_payload))
     }
 
-    /// Helper method to send a GroupRemove message to notify participants
-    /// Returns the message ID of the sent GroupRemove message
-    async fn send_group_remove(
+    /// Helper method to send a GroupUpdate message to notify participants
+    /// Returns the message ID of the sent GroupUpdate message
+    async fn send_group_update(
         &mut self,
-        removed_participant: ProtoName,
-        participants: Vec<ProtoName>,
+        op: slim_datapath::api::GroupUpdateOp,
+        participant: Participant,
+        participants: Vec<Participant>,
         mls_payload: Option<MlsPayload>,
     ) -> Result<(u32, SessionOutput), SessionError> {
         let update_payload = CommandPayload::builder()
-            .group_remove(removed_participant, participants, mls_payload)
+            .group_update(op, participant, participants, mls_payload)
             .as_content();
         let msg_id = rand::random::<u32>();
 
         let output = self.common.send_control_message(
             &self.common.settings.control.clone(),
-            ProtoSessionMessageType::GroupRemove,
+            ProtoSessionMessageType::GroupUpdate,
             msg_id,
             update_payload,
             None,
@@ -662,8 +658,7 @@ where
             }
             ProtoSessionMessageType::GroupProposal
             | ProtoSessionMessageType::JoinRequest
-            | ProtoSessionMessageType::GroupAdd
-            | ProtoSessionMessageType::GroupRemove
+            | ProtoSessionMessageType::GroupUpdate
             | ProtoSessionMessageType::GroupWelcome
             | ProtoSessionMessageType::GroupClose
             | ProtoSessionMessageType::GroupNack => Err(
@@ -851,13 +846,7 @@ where
         self.add_endpoint(&new_participant).await?;
 
         new_name.reset_id();
-        self.group_list.insert(
-            new_name,
-            ParticipantEntry {
-                participant: new_participant.clone(),
-                online: true,
-            },
-        );
+        self.group_list.insert(new_name, new_participant.clone());
 
         // get mls data if MLS is enabled
         let (commit, welcome) = if let Some(mls_state) = &mut self.mls_state {
@@ -884,20 +873,25 @@ where
         let participants_vec = self
             .group_list
             .values()
-            .map(|entry| entry.participant.clone())
+            .map(|entry| entry.clone())
             .collect::<Vec<_>>();
 
         // send the group update
         if participants_vec.len() > 2 {
             debug!("participant len is > 2, send a group update");
             let update_payload = CommandPayload::builder()
-                .group_add(new_participant, participants_vec.clone(), commit)
+                .group_update(
+                    slim_datapath::api::GroupUpdateOp::Add,
+                    new_participant,
+                    participants_vec.clone(),
+                    commit,
+                )
                 .as_content();
             let add_msg_id = rand::random::<u32>();
             debug!(id = %add_msg_id, "send add update to channel");
             output.extend(self.common.send_control_message(
                 &self.common.settings.control.clone(),
-                ProtoSessionMessageType::GroupAdd,
+                ProtoSessionMessageType::GroupUpdate,
                 add_msg_id,
                 update_payload,
                 None,
@@ -965,7 +959,7 @@ where
         let dst_without_id = msg.get_dst();
         // Look up participant ID in group list
         let id = match self.group_list.get(&dst_without_id) {
-            Some(entry) => entry.participant.get_name()?.id(),
+            Some(entry) => entry.get_name()?.id(),
             None => {
                 let err = SessionError::ParticipantNotFound(dst_without_id);
                 return Err(self.handle_task_error(err));
@@ -985,14 +979,19 @@ where
             "remove endpoint from the session",
         );
 
-        let (participants_vec, mls_payload) = self
+        let (removed_participant, participants_vec, mls_payload) = self
             .remove_participant_and_compute_mls(&leave_message.get_dst(), &leave_message)
             .await?;
 
         if participants_vec.len() > 2 {
             // in this case we need to send first the group update and later the leave message
             let (msg_id, output) = self
-                .send_group_remove(leave_message.get_dst(), participants_vec, mls_payload)
+                .send_group_update(
+                    GroupUpdateOp::Remove,
+                    removed_participant,
+                    participants_vec,
+                    mls_payload,
+                )
                 .await?;
             self.current_task.as_mut().unwrap().commit_start(msg_id)?;
 
@@ -1122,13 +1121,18 @@ where
             "remove disconnected endpoint from the session",
         );
 
-        let (participants_vec, mls_payload) = self
+        let (removed_participant, participants_vec, mls_payload) = self
             .remove_participant_and_compute_mls(&disconnected, &msg)
             .await?;
 
         // Notify all the participants left and update the MLS state if needed
         let (msg_id, remove_output) = self
-            .send_group_remove(disconnected, participants_vec, mls_payload)
+            .send_group_update(
+                GroupUpdateOp::Remove,
+                removed_participant,
+                participants_vec,
+                mls_payload,
+            )
             .await?;
         output.extend(remove_output);
         self.current_task.as_mut().unwrap().commit_start(msg_id)?;
@@ -1147,12 +1151,7 @@ where
         let participants: Vec<ProtoName> = self
             .group_list
             .iter()
-            .map(|(n, entry)| {
-                entry
-                    .participant
-                    .get_name()
-                    .map(|name| n.clone().with_id(name.id()))
-            })
+            .map(|(n, entry)| entry.get_name().map(|name| n.clone().with_id(name.id())))
             .collect::<Result<Vec<ProtoName>, _>>()?;
 
         if participants.len() == 1 {
@@ -1218,12 +1217,12 @@ where
         };
 
         // Verify the full name (with ID) matches
-        if entry.participant.get_name().ok().as_ref() != Some(&source) {
+        if entry.get_name().ok().as_ref() != Some(&source) {
             debug!(from = %source, "dropping heartbeat from unknown participant (id mismatch)");
             return Ok(SessionOutput::new());
         }
 
-        if entry.online {
+        if entry.status == ParticipantState::OnLine as i32 {
             // Participant is online, just forward to sender for tracking
             return self.common.sender.on_message(&message);
         }
@@ -1243,8 +1242,8 @@ where
         if epoch_matches {
             // Epoch matches — bring participant back online
             debug!(from = %source, "participant back online (epoch matches), re-adding endpoint");
-            entry.online = true;
-            let participant = entry.participant.clone();
+            entry.status = ParticipantState::OnLine as i32;
+            let participant = entry.clone();
             self.add_endpoint(&participant).await?;
             self.common.sender.on_message(&message)
         } else {
@@ -1300,14 +1299,14 @@ where
         match new_state {
             ParticipantState::OffLine => {
                 if let Some(entry) = self.group_list.get_mut(&name_no_id) {
-                    if !entry.online {
+                    if entry.status != ParticipantState::OnLine as i32 {
                         debug!(
                             name = %participant_name,
                             "received offline state for participant already offline",
                         );
                         return Ok(SessionOutput::new());
                     }
-                    entry.online = false;
+                    entry.status = ParticipantState::OffLine as i32;
                 } else {
                     debug!(
                         name = %participant_name,
@@ -1355,9 +1354,9 @@ where
 
                 // Epoch matches (or MLS not enabled): bring participant online
                 let entry = self.group_list.get_mut(&name_no_id).unwrap();
-                entry.online = true;
+                entry.status = ParticipantState::OnLine as i32;
                 tracing::info!("participant {} is now online", participant_name);
-                let participant = entry.participant.clone();
+                let participant = entry.clone();
                 self.add_endpoint(&participant).await?;
             }
         }
@@ -1410,7 +1409,7 @@ where
         // They will be moved back online as their ACKs arrive.
         if status == ParticipantState::OnLine {
             for (_, entry) in self.group_list.iter_mut() {
-                entry.online = false;
+                entry.status = ParticipantState::OffLine as i32;
             }
         }
 
@@ -1481,7 +1480,7 @@ where
                     ParticipantState::OnLine => {
                         debug!("The moderator is back online, mark all participants as online");
                         for (_, entry) in self.group_list.iter_mut() {
-                            entry.online = true;
+                            entry.status = ParticipantState::OnLine as i32;
                         }
                         self.common.online = true;
                         self.common.sender.restart_heartbeat();
@@ -1624,13 +1623,7 @@ where
         let settings = self.common.settings.direction.to_participant_settings();
         let participant = Participant::new(local_name.clone(), settings);
         local_name.reset_id();
-        self.group_list.insert(
-            local_name,
-            ParticipantEntry {
-                participant,
-                online: true,
-            },
-        );
+        self.group_list.insert(local_name, participant);
 
         Ok(())
     }
@@ -2018,33 +2011,24 @@ mod tests {
         // Add some participants to group list
         moderator.group_list.insert(
             make_name(&["participant1", "app", "v1"]),
-            ParticipantEntry {
-                participant: Participant::new(
-                    make_name(&["participant1", "app", "v1"]).with_id(401),
-                    ParticipantSettings::bidirectional(),
-                ),
-                online: true,
-            },
+            Participant::new(
+                make_name(&["participant1", "app", "v1"]).with_id(401),
+                ParticipantSettings::bidirectional(),
+            ),
         );
         moderator.group_list.insert(
             make_name(&["participant2", "app", "v1"]),
-            ParticipantEntry {
-                participant: Participant::new(
-                    make_name(&["participant2", "app", "v1"]).with_id(402),
-                    ParticipantSettings::bidirectional(),
-                ),
-                online: true,
-            },
+            Participant::new(
+                make_name(&["participant2", "app", "v1"]).with_id(402),
+                ParticipantSettings::bidirectional(),
+            ),
         );
         moderator.group_list.insert(
             make_name(&["participant3", "app", "v1"]),
-            ParticipantEntry {
-                participant: Participant::new(
-                    make_name(&["participant3", "app", "v1"]).with_id(403),
-                    ParticipantSettings::bidirectional(),
-                ),
-                online: true,
-            },
+            Participant::new(
+                make_name(&["participant3", "app", "v1"]).with_id(403),
+                ParticipantSettings::bidirectional(),
+            ),
         );
 
         let result = moderator.delete_all(None).await;
@@ -2242,13 +2226,9 @@ mod tests {
         // Fill in participant settings as needed
         let participant_id = 401u128;
         participant_name.reset_id(); // Remove ID before inserting into group_list
-        moderator.group_list.insert(
-            participant_name.clone(),
-            ParticipantEntry {
-                participant,
-                online: true,
-            },
-        );
+        moderator
+            .group_list
+            .insert(participant_name.clone(), participant);
 
         // Verify we have exactly 2 participants (moderator + participant)
         assert_eq!(
@@ -2406,27 +2386,15 @@ mod tests {
         participant2_name.reset_id();
         participant3_name.reset_id();
 
-        moderator.group_list.insert(
-            participant1_name.clone(),
-            ParticipantEntry {
-                participant: participant1,
-                online: true,
-            },
-        );
-        moderator.group_list.insert(
-            participant2_name.clone(),
-            ParticipantEntry {
-                participant: participant2,
-                online: true,
-            },
-        );
-        moderator.group_list.insert(
-            participant3_name.clone(),
-            ParticipantEntry {
-                participant: participant3,
-                online: true,
-            },
-        );
+        moderator
+            .group_list
+            .insert(participant1_name.clone(), participant1);
+        moderator
+            .group_list
+            .insert(participant2_name.clone(), participant2);
+        moderator
+            .group_list
+            .insert(participant3_name.clone(), participant3);
 
         // Create first leave request coming directly from participant1 with LEAVING_SESSION metadata
         let participant1_with_id = participant1_name.clone().with_id(401);
@@ -2576,13 +2544,10 @@ mod tests {
 
         moderator.group_list.insert(
             other_key.clone(),
-            ParticipantEntry {
-                participant: Participant::new(
-                    other_name_with_id.clone(),
-                    ParticipantSettings::bidirectional(),
-                ),
-                online: true,
-            },
+            Participant::new(
+                other_name_with_id.clone(),
+                ParticipantSettings::bidirectional(),
+            ),
         );
 
         let msg = Message::builder()
@@ -2617,7 +2582,10 @@ mod tests {
         assert!(result.is_ok());
 
         // Participant should be offline
-        assert!(!moderator.group_list.get(&other_key).unwrap().online);
+        assert!(
+            moderator.group_list.get(&other_key).unwrap().status
+                == ParticipantState::OffLine as i32
+        );
 
         // Should have sent an ACK
         let output = result.unwrap();
@@ -2642,16 +2610,12 @@ mod tests {
         other_key.reset_id();
 
         // Add participant as offline
-        moderator.group_list.insert(
-            other_key.clone(),
-            ParticipantEntry {
-                participant: Participant::new(
-                    other_name_with_id.clone(),
-                    ParticipantSettings::bidirectional(),
-                ),
-                online: false,
-            },
+        let mut p = Participant::new(
+            other_name_with_id.clone(),
+            ParticipantSettings::bidirectional(),
         );
+        p.status = ParticipantState::OffLine as i32;
+        moderator.group_list.insert(other_key.clone(), p);
 
         // MLS is None in test setup, so epoch check is skipped (always matches)
         let msg = Message::builder()
@@ -2686,7 +2650,9 @@ mod tests {
         assert!(result.is_ok());
 
         // Participant should be online now
-        assert!(moderator.group_list.get(&other_key).unwrap().online);
+        assert!(
+            moderator.group_list.get(&other_key).unwrap().status == ParticipantState::OnLine as i32
+        );
 
         // Should have sent an ACK
         let output = result.unwrap();
@@ -2711,13 +2677,10 @@ mod tests {
         let other_name_with_id = other_name.clone().with_id(500);
         moderator.group_list.insert(
             other_name.clone(),
-            ParticipantEntry {
-                participant: Participant::new(
-                    other_name_with_id.clone(),
-                    ParticipantSettings::bidirectional(),
-                ),
-                online: true,
-            },
+            Participant::new(
+                other_name_with_id.clone(),
+                ParticipantSettings::bidirectional(),
+            ),
         );
         moderator.common.sender.add_participant(&other_name_with_id);
 
@@ -2815,23 +2778,11 @@ mod tests {
 
         moderator.group_list.insert(
             p1_name.clone(),
-            ParticipantEntry {
-                participant: Participant::new(
-                    p1_with_id.clone(),
-                    ParticipantSettings::bidirectional(),
-                ),
-                online: true,
-            },
+            Participant::new(p1_with_id.clone(), ParticipantSettings::bidirectional()),
         );
         moderator.group_list.insert(
             p2_name.clone(),
-            ParticipantEntry {
-                participant: Participant::new(
-                    p2_with_id.clone(),
-                    ParticipantSettings::bidirectional(),
-                ),
-                online: true,
-            },
+            Participant::new(p2_with_id.clone(), ParticipantSettings::bidirectional()),
         );
         moderator.common.sender.add_participant(&p1_with_id);
         moderator.common.sender.add_participant(&p2_with_id);
@@ -2871,8 +2822,12 @@ mod tests {
         assert!(result.is_ok());
 
         // All participants should be marked offline after rejoin send
-        assert!(!moderator.group_list.get(&p1_name).unwrap().online);
-        assert!(!moderator.group_list.get(&p2_name).unwrap().online);
+        assert!(
+            moderator.group_list.get(&p1_name).unwrap().status == ParticipantState::OffLine as i32
+        );
+        assert!(
+            moderator.group_list.get(&p2_name).unwrap().status == ParticipantState::OffLine as i32
+        );
 
         let msg_id = moderator
             .common
@@ -2930,8 +2885,12 @@ mod tests {
         assert!(result.is_ok());
 
         // All participants should be online now
-        assert!(moderator.group_list.get(&p1_name).unwrap().online);
-        assert!(moderator.group_list.get(&p2_name).unwrap().online);
+        assert!(
+            moderator.group_list.get(&p1_name).unwrap().status == ParticipantState::OnLine as i32
+        );
+        assert!(
+            moderator.group_list.get(&p2_name).unwrap().status == ParticipantState::OnLine as i32
+        );
         // Moderator should be online
         assert!(moderator.common.online);
         // Task should be cleared

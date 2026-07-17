@@ -27,6 +27,8 @@ pub enum SessionError {
     // Message processing and validation errors
     #[error("message error")]
     MessageError(#[from] MessageError),
+    #[error("invalid group update operation: {0}")]
+    InvalidGroupUpdateOp(i32),
     #[error("missing removed participant in GroupRemove message")]
     MissingRemovedParticipantInGroupRemove,
     #[error("missing new participant in GroupAdd message")]

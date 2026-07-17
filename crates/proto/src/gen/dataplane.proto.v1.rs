@@ -173,7 +173,7 @@ pub struct ApplicationPayload {
 pub struct CommandPayload {
     #[prost(
         oneof = "command_payload::CommandPayloadType",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16"
     )]
     pub command_payload_type: ::core::option::Option<
         command_payload::CommandPayloadType,
@@ -196,35 +196,26 @@ pub mod command_payload {
         #[prost(message, tag = "6")]
         LeaveReply(super::LeaveReplyPayload),
         #[prost(message, tag = "7")]
-        GroupAdd(super::GroupAddPayload),
+        GroupUpdate(super::GroupUpdatePayload),
         #[prost(message, tag = "8")]
-        GroupRemove(super::GroupRemovePayload),
-        #[prost(message, tag = "9")]
         GroupWelcome(super::GroupWelcomePayload),
-        #[prost(message, tag = "10")]
+        #[prost(message, tag = "9")]
         GroupClose(super::GroupClosePayload),
-        #[prost(message, tag = "11")]
+        #[prost(message, tag = "10")]
         GroupProposal(super::GroupProposalPayload),
-        #[prost(message, tag = "12")]
+        #[prost(message, tag = "11")]
         GroupAck(super::GroupAckPayload),
-        #[prost(message, tag = "13")]
+        #[prost(message, tag = "12")]
         GroupNack(super::GroupNackPayload),
-        #[prost(message, tag = "14")]
+        #[prost(message, tag = "13")]
         Heartbeat(super::HeartbeatPayload),
-        #[prost(message, tag = "15")]
+        #[prost(message, tag = "14")]
         UpdateParticipantState(super::UpdateParticipantStatePayload),
-        #[prost(message, tag = "16")]
+        #[prost(message, tag = "15")]
         RejoinRequest(super::RejoinRequestPayload),
-        #[prost(message, tag = "17")]
+        #[prost(message, tag = "16")]
         RejoinReply(super::RejoinReplyPayload),
     }
-}
-#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct Participant {
-    #[prost(message, optional, tag = "1")]
-    pub name: ::core::option::Option<Name>,
-    #[prost(message, optional, tag = "2")]
-    pub settings: ::core::option::Option<ParticipantSettings>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ParticipantSettings {
@@ -234,6 +225,15 @@ pub struct ParticipantSettings {
     /// participant consumes data messages
     #[prost(bool, tag = "2")]
     pub receives_data: bool,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Participant {
+    #[prost(message, optional, tag = "1")]
+    pub name: ::core::option::Option<Name>,
+    #[prost(message, optional, tag = "2")]
+    pub settings: ::core::option::Option<ParticipantSettings>,
+    #[prost(enumeration = "ParticipantState", tag = "3")]
+    pub status: i32,
 }
 /// Discovery Request
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
@@ -324,32 +324,22 @@ pub struct HeaderIntegrityAad {
     #[prost(string, tag = "9")]
     pub payload_type: ::prost::alloc::string::String,
 }
-/// Group Add Payload
-/// sent when a new participant is added
+/// Group Update Payload
+/// sent when participant is added, removed
+/// or is rejoining the gruop
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GroupAddPayload {
-    /// new participant to add
-    #[prost(message, optional, tag = "1")]
-    pub new_participant: ::core::option::Option<Participant>,
-    /// new list of participants
-    #[prost(message, repeated, tag = "2")]
+pub struct GroupUpdatePayload {
+    /// operation to perform (add/rm/rejoin)
+    #[prost(enumeration = "GroupUpdateOp", tag = "1")]
+    pub op: i32,
+    /// participant that triggered the add/rm/rejoin
+    #[prost(message, optional, tag = "2")]
+    pub participant: ::core::option::Option<Participant>,
+    /// updated list of participants and their status
+    #[prost(message, repeated, tag = "3")]
     pub participants: ::prost::alloc::vec::Vec<Participant>,
     /// used only when MLS is enabled
-    #[prost(message, optional, tag = "3")]
-    pub mls: ::core::option::Option<MlsPayload>,
-}
-/// Group Remove Payload
-/// sent when a participant is removed
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GroupRemovePayload {
-    /// new participant to add
-    #[prost(message, optional, tag = "1")]
-    pub removed_participant: ::core::option::Option<Name>,
-    /// new list of participants
-    #[prost(message, repeated, tag = "2")]
-    pub participants: ::prost::alloc::vec::Vec<Name>,
-    /// used only when MLS is enabled
-    #[prost(message, optional, tag = "3")]
+    #[prost(message, optional, tag = "4")]
     pub mls: ::core::option::Option<MlsPayload>,
 }
 /// Group Welcome
@@ -524,17 +514,16 @@ pub enum SessionMessageType {
     JoinReply = 8,
     LeaveRequest = 9,
     LeaveReply = 10,
-    GroupAdd = 11,
-    GroupRemove = 12,
-    GroupWelcome = 13,
-    GroupClose = 14,
-    GroupProposal = 15,
-    GroupAck = 16,
-    GroupNack = 17,
-    Heartbeat = 18,
-    UpdateParticipantState = 19,
-    RejoinRequest = 20,
-    RejoinReply = 21,
+    GroupUpdate = 11,
+    GroupWelcome = 12,
+    GroupClose = 13,
+    GroupProposal = 14,
+    GroupAck = 15,
+    GroupNack = 16,
+    Heartbeat = 17,
+    UpdateParticipantState = 18,
+    RejoinRequest = 19,
+    RejoinReply = 20,
 }
 impl SessionMessageType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -554,8 +543,7 @@ impl SessionMessageType {
             Self::JoinReply => "SESSION_MESSAGE_TYPE_JOIN_REPLY",
             Self::LeaveRequest => "SESSION_MESSAGE_TYPE_LEAVE_REQUEST",
             Self::LeaveReply => "SESSION_MESSAGE_TYPE_LEAVE_REPLY",
-            Self::GroupAdd => "SESSION_MESSAGE_TYPE_GROUP_ADD",
-            Self::GroupRemove => "SESSION_MESSAGE_TYPE_GROUP_REMOVE",
+            Self::GroupUpdate => "SESSION_MESSAGE_TYPE_GROUP_UPDATE",
             Self::GroupWelcome => "SESSION_MESSAGE_TYPE_GROUP_WELCOME",
             Self::GroupClose => "SESSION_MESSAGE_TYPE_GROUP_CLOSE",
             Self::GroupProposal => "SESSION_MESSAGE_TYPE_GROUP_PROPOSAL",
@@ -583,8 +571,7 @@ impl SessionMessageType {
             "SESSION_MESSAGE_TYPE_JOIN_REPLY" => Some(Self::JoinReply),
             "SESSION_MESSAGE_TYPE_LEAVE_REQUEST" => Some(Self::LeaveRequest),
             "SESSION_MESSAGE_TYPE_LEAVE_REPLY" => Some(Self::LeaveReply),
-            "SESSION_MESSAGE_TYPE_GROUP_ADD" => Some(Self::GroupAdd),
-            "SESSION_MESSAGE_TYPE_GROUP_REMOVE" => Some(Self::GroupRemove),
+            "SESSION_MESSAGE_TYPE_GROUP_UPDATE" => Some(Self::GroupUpdate),
             "SESSION_MESSAGE_TYPE_GROUP_WELCOME" => Some(Self::GroupWelcome),
             "SESSION_MESSAGE_TYPE_GROUP_CLOSE" => Some(Self::GroupClose),
             "SESSION_MESSAGE_TYPE_GROUP_PROPOSAL" => Some(Self::GroupProposal),
@@ -622,6 +609,35 @@ impl ParticipantState {
         match value {
             "PARTICIPANT_STATE_ON_LINE" => Some(Self::OnLine),
             "PARTICIPANT_STATE_OFF_LINE" => Some(Self::OffLine),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum GroupUpdateOp {
+    Add = 0,
+    Remove = 1,
+    Rejoin = 2,
+}
+impl GroupUpdateOp {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Add => "ADD",
+            Self::Remove => "REMOVE",
+            Self::Rejoin => "REJOIN",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "ADD" => Some(Self::Add),
+            "REMOVE" => Some(Self::Remove),
+            "REJOIN" => Some(Self::Rejoin),
             _ => None,
         }
     }

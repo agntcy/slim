@@ -16,8 +16,8 @@ use serde_json::Value;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, Content, NameId, ParticipantState, ProtoMessage as Message, ProtoName,
-        ProtoSessionMessageType, ProtoSessionType, SlimHeader,
+        CommandPayload, Content, GroupUpdateOp, NameId, ParticipantState, ProtoMessage as Message,
+        ProtoName, ProtoSessionMessageType, ProtoSessionType, SlimHeader,
     },
     messages::utils::SlimHeaderFlags,
 };
@@ -436,8 +436,17 @@ impl SessionController {
                             } = &session_message
                             {
                                 let msg_type = message.get_session_message_type();
-                                if matches!(msg_type, ProtoSessionMessageType::LeaveRequest | ProtoSessionMessageType::GroupRemove) {
+                                if matches!(msg_type, ProtoSessionMessageType::LeaveRequest) {
                                     Some(message.get_source())
+                                } else if msg_type == ProtoSessionMessageType::GroupUpdate {
+                                    // Check if this is a REMOVE operation
+                                    message.extract_group_update().ok().and_then(|payload| {
+                                        if payload.op == GroupUpdateOp::Remove as i32 {
+                                            payload.participant.as_ref().and_then(|p| p.get_name().ok())
+                                        } else {
+                                            None
+                                        }
+                                    })
                                 } else {
                                     None
                                 }

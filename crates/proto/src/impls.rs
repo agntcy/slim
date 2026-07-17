@@ -21,16 +21,15 @@ use crate::dataplane::proto::v1::message::MessageType::SubscriptionAck as ProtoS
 use crate::dataplane::proto::v1::message::MessageType::Unsubscribe as ProtoUnsubscribeType;
 use crate::dataplane::proto::v1::{
     ApplicationPayload, CommandPayload, Content, DiscoveryReplyPayload, DiscoveryRequestPayload,
-    EncodedName, GroupAckPayload, GroupAddPayload, GroupClosePayload, GroupNackPayload,
-    GroupProposalPayload, GroupRemovePayload, GroupWelcomePayload, HeartbeatPayload,
-    JoinReplyPayload, JoinRequestPayload, LeaveReplyPayload, LeaveRequestPayload,
-    Link as ProtoLink, LinkConnectionType, LinkNegotiationPayload, Message as ProtoMessage,
-    MlsPayload, MlsSettings as ProtoMlsSettings, Name as ProtoName, NameId, Participant,
-    ParticipantSettings, ParticipantState, Publish as ProtoPublish, SessionHeader,
-    SessionMessageType, SessionType as ProtoSessionType, SlimHeader, StringName,
+    EncodedName, GroupAckPayload, GroupClosePayload, GroupNackPayload, GroupProposalPayload,
+    GroupUpdateOp, GroupUpdatePayload, GroupWelcomePayload, HeartbeatPayload, JoinReplyPayload,
+    JoinRequestPayload, LeaveReplyPayload, LeaveRequestPayload, Link as ProtoLink,
+    LinkConnectionType, LinkNegotiationPayload, Message as ProtoMessage, MlsPayload,
+    MlsSettings as ProtoMlsSettings, Name as ProtoName, NameId, Participant, ParticipantSettings,
+    ParticipantState, Publish as ProtoPublish, RejoinReplyPayload, RejoinRequestPayload,
+    SessionHeader, SessionMessageType, SessionType as ProtoSessionType, SlimHeader, StringName,
     Subscribe as ProtoSubscribe, SubscriptionAck as ProtoSubscriptionAck, TimerSettings,
-    Unsubscribe as ProtoUnsubscribe, UpdateParticipantStatePayload, RejoinRequestPayload,
-    RejoinReplyPayload,
+    Unsubscribe as ProtoUnsubscribe, UpdateParticipantStatePayload,
 };
 
 fn calculate_hash<T: Hash + ?Sized>(t: &T) -> u64 {
@@ -429,6 +428,7 @@ impl Participant {
         Self {
             name: Some(name),
             settings: Some(settings),
+            status: ParticipantState::OnLine as i32,
         }
     }
 
@@ -644,8 +644,7 @@ impl SessionMessageType {
                 | SessionMessageType::JoinReply
                 | SessionMessageType::LeaveRequest
                 | SessionMessageType::LeaveReply
-                | SessionMessageType::GroupAdd
-                | SessionMessageType::GroupRemove
+                | SessionMessageType::GroupUpdate
                 | SessionMessageType::GroupWelcome
                 | SessionMessageType::GroupClose
                 | SessionMessageType::GroupProposal
@@ -661,8 +660,7 @@ impl SessionMessageType {
             self,
             SessionMessageType::LeaveRequest
                 | SessionMessageType::LeaveReply
-                | SessionMessageType::GroupAdd
-                | SessionMessageType::GroupRemove
+                | SessionMessageType::GroupUpdate
                 | SessionMessageType::GroupClose
                 | SessionMessageType::GroupProposal
                 | SessionMessageType::GroupAck
@@ -1215,8 +1213,7 @@ impl ProtoMessage {
         extract_join_reply => as_join_reply_payload(JoinReplyPayload),
         extract_leave_request => as_leave_request_payload(LeaveRequestPayload),
         extract_leave_reply => as_leave_reply_payload(LeaveReplyPayload),
-        extract_group_add => as_group_add_payload(GroupAddPayload),
-        extract_group_remove => as_group_remove_payload(GroupRemovePayload),
+        extract_group_update => as_group_update_payload(GroupUpdatePayload),
         extract_group_welcome => as_welcome_payload(GroupWelcomePayload),
         extract_group_close => as_group_close_payload(GroupClosePayload),
         extract_group_proposal => as_group_proposal_payload(GroupProposalPayload),
@@ -1300,8 +1297,7 @@ impl CommandPayload {
         as_join_reply_payload => JoinReply(JoinReplyPayload),
         as_leave_request_payload => LeaveRequest(LeaveRequestPayload),
         as_leave_reply_payload => LeaveReply(LeaveReplyPayload),
-        as_group_add_payload => GroupAdd(GroupAddPayload),
-        as_group_remove_payload => GroupRemove(GroupRemovePayload),
+        as_group_update_payload => GroupUpdate(GroupUpdatePayload),
         as_welcome_payload => GroupWelcome(GroupWelcomePayload),
         as_group_close_payload => GroupClose(GroupClosePayload),
         as_group_proposal_payload => GroupProposal(GroupProposalPayload),
@@ -1404,35 +1400,21 @@ impl CommandPayloadBuilder {
         }
     }
 
-    pub fn group_add(
+    pub fn group_update(
         self,
-        new_participant: Participant,
+        op: GroupUpdateOp,
+        participant: Participant,
         participants: Vec<Participant>,
         mls: Option<MlsPayload>,
     ) -> CommandPayload {
-        let payload = GroupAddPayload {
-            new_participant: Some(new_participant),
+        let payload = GroupUpdatePayload {
+            op: op as i32,
+            participant: Some(participant),
             participants,
             mls,
         };
         CommandPayload {
-            command_payload_type: Some(CommandPayloadType::GroupAdd(payload)),
-        }
-    }
-
-    pub fn group_remove(
-        self,
-        removed_participant: ProtoName,
-        participants: Vec<ProtoName>,
-        mls: Option<MlsPayload>,
-    ) -> CommandPayload {
-        let payload = GroupRemovePayload {
-            removed_participant: Some(removed_participant),
-            participants,
-            mls,
-        };
-        CommandPayload {
-            command_payload_type: Some(CommandPayloadType::GroupRemove(payload)),
+            command_payload_type: Some(CommandPayloadType::GroupUpdate(payload)),
         }
     }
 
@@ -1505,11 +1487,7 @@ impl CommandPayloadBuilder {
         }
     }
 
-    pub fn rejoin_request(
-        self,
-        participant: ProtoName,
-        key_package: Vec<u8>,
-    ) -> CommandPayload {
+    pub fn rejoin_request(self, participant: ProtoName, key_package: Vec<u8>) -> CommandPayload {
         let payload = RejoinRequestPayload {
             participant: Some(participant),
             key_package,
@@ -2389,18 +2367,28 @@ mod message_tests {
             .is_ok());
 
         let participants = vec![participant.clone()];
-        let payload =
-            CommandPayload::builder().group_add(participant.clone(), participants.clone(), None);
-        let extracted = payload.as_group_add_payload().unwrap();
-        assert_eq!(extracted.new_participant, Some(participant));
+        let payload = CommandPayload::builder().group_update(
+            GroupUpdateOp::Add,
+            participant.clone(),
+            participants.clone(),
+            None,
+        );
+        let extracted = payload.as_group_update_payload().unwrap();
+        assert_eq!(extracted.participant, Some(participant));
         assert_eq!(extracted.participants, participants);
 
-        let payload =
-            CommandPayload::builder().group_remove(dest.clone(), vec![dest.clone()], None);
+        let remove_participant =
+            Participant::new(dest.clone(), ParticipantSettings::bidirectional());
+        let payload = CommandPayload::builder().group_update(
+            GroupUpdateOp::Remove,
+            remove_participant,
+            vec![],
+            None,
+        );
         assert!(payload
-            .as_group_remove_payload()
+            .as_group_update_payload()
             .unwrap()
-            .removed_participant
+            .participant
             .is_some());
         assert!(!CommandPayload::builder()
             .group_welcome(

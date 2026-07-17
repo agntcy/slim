@@ -6,8 +6,8 @@ use std::{collections::HashMap, time::Duration};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, Participant, ParticipantSettings, ParticipantState,
-        ProtoMessage as Message, ProtoName, ProtoSessionMessageType, ProtoSessionType,
+        CommandPayload, Participant, ParticipantState, ProtoMessage as Message, ProtoName,
+        ProtoSessionMessageType, ProtoSessionType,
     },
     messages::utils::{LEAVING_SESSION, TRUE_VAL},
 };
@@ -26,12 +26,6 @@ use crate::{
     traits::{MessageHandler, ProcessingState},
 };
 
-struct ParticipantEntry {
-    #[allow(dead_code)]
-    settings: ParticipantSettings,
-    online: bool,
-}
-
 pub struct SessionParticipant<P, V, I, M = SubscriptionManager>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -43,7 +37,7 @@ where
     moderator_name: Option<ProtoName>,
 
     /// list of participants
-    group_list: HashMap<ProtoName, ParticipantEntry>,
+    group_list: HashMap<ProtoName, Participant>,
 
     /// mls state
     mls_state: Option<MlsState<P, V>>,
@@ -233,18 +227,20 @@ where
                         {
                             // If this was a rejoin (UpdateParticipantState + OnLine) timeout,
                             // treat as partial success: non-responders are offline, notify app OK
-                            if pending_task.message_type == ProtoSessionMessageType::UpdateParticipantState {
+                            if pending_task.message_type
+                                == ProtoSessionMessageType::UpdateParticipantState
+                            {
                                 if let Some(tx) = pending_task.ack_tx {
                                     let _ = tx.send(Ok(()));
-                                }   
+                                }
                                 self.common.online = true;
                                 self.common.sender.restart_heartbeat();
                             } else {
-                                // If we get a timoeut for the RejoinRequest, it means that the rekey did 
+                                // If we get a timoeut for the RejoinRequest, it means that the rekey did
                                 // not work so we need to return an error to the application
                                 if let Some(tx) = pending_task.ack_tx {
                                     let _ = tx.send(Err(SessionError::RejoinFailed));
-                                }   
+                                }
                             }
                         } else if pending_task.message_id == message_id
                             && pending_task.status == ParticipantState::OffLine
@@ -312,7 +308,7 @@ where
                     );
 
                     if let Some(entry) = self.group_list.get_mut(&participant_name) {
-                        entry.online = false;
+                        entry.status = ParticipantState::OffLine as i32;
                     }
 
                     self.remove_endpoint(&participant_name);
@@ -440,10 +436,7 @@ where
         match message.get_session_message_type() {
             ProtoSessionMessageType::JoinRequest => self.on_join_request(message).await,
             ProtoSessionMessageType::GroupWelcome => self.on_welcome(message).await,
-            ProtoSessionMessageType::GroupAdd => self.on_group_update_message(message, true).await,
-            ProtoSessionMessageType::GroupRemove => {
-                self.on_group_update_message(message, false).await
-            }
+            ProtoSessionMessageType::GroupUpdate => self.on_group_update_message(message).await,
             ProtoSessionMessageType::LeaveRequest | ProtoSessionMessageType::GroupClose => {
                 self.on_leave_request(message).await
             }
@@ -564,11 +557,7 @@ where
             .participants;
         for p in list {
             let name = p.get_name()?;
-            let entry = ParticipantEntry {
-                settings: *p.get_settings()?,
-                online: true,
-            };
-            self.group_list.insert(name.clone(), entry);
+            self.group_list.insert(name.clone(), p.clone());
 
             if name != self.common.settings.source.clone() {
                 debug!(name = %msg.get_source(), "add endpoint to the session");
@@ -597,7 +586,6 @@ where
     async fn on_group_update_message(
         &mut self,
         msg: Message,
-        add: bool,
     ) -> Result<SessionOutput, SessionError> {
         debug!(
             name = %self.common.settings.source,
@@ -619,46 +607,48 @@ where
             }
         }
 
-        if add {
-            let p = msg
-                .get_payload()
-                .unwrap()
-                .as_command_payload()?
-                .as_group_add_payload()?;
-            if let Some(ref new_participant) = p.new_participant {
-                let name = new_participant.get_name()?;
-                let entry = ParticipantEntry {
-                    settings: *new_participant.get_settings()?,
-                    online: true,
-                };
-                self.group_list.insert(name.clone(), entry);
+        let update = msg
+            .get_payload()
+            .unwrap()
+            .as_command_payload()?
+            .as_group_update_payload()?
+            .clone();
 
-                debug!(name  = %msg.get_source(), "add endpoint to session");
-                // add a route to the new endpoint, this is needed in case of message retransmission
-                self.common.add_route(name, msg.get_incoming_conn()).await?;
-                self.add_endpoint(new_participant).await?;
-            }
-        } else {
-            let p = msg
-                .get_payload()
-                .unwrap()
-                .as_command_payload()?
-                .as_group_remove_payload()?;
-            if let Some(ref removed_participant) = p.removed_participant {
-                let name = removed_participant.clone();
-                self.group_list.remove(&name);
+        let op = slim_datapath::api::GroupUpdateOp::try_from(update.op)
+            .map_err(|_| SessionError::InvalidGroupUpdateOp(update.op))?;
+        match op {
+            slim_datapath::api::GroupUpdateOp::Add => {
+                if let Some(ref new_participant) = update.participant {
+                    let name = new_participant.get_name()?;
+                    self.group_list
+                        .insert(name.clone(), new_participant.clone());
 
-                debug!(name = %msg.get_source(), "remove endpoint from session");
-                // remove a route to the endpoint
-                // Skip delete_route when the removed participant is ourselves: we never
-                // set up a recv_from subscription for our own name, so the datapath
-                // would return SubscriptionNotFound and block the GroupAck.
-                if name != self.common.settings.source.clone() {
-                    self.common
-                        .delete_route(name.clone(), msg.get_incoming_conn())
-                        .await?;
+                    debug!(name = %msg.get_source(), "add endpoint to session");
+                    // add a route to the new endpoint, this is needed in case of message retransmission
+                    self.common.add_route(name, msg.get_incoming_conn()).await?;
+                    self.add_endpoint(new_participant).await?;
                 }
-                self.inner.remove_endpoint(&name);
+            }
+            slim_datapath::api::GroupUpdateOp::Remove => {
+                if let Some(ref removed_participant) = update.participant {
+                    let name = removed_participant.get_name()?;
+                    self.group_list.remove(&name);
+
+                    debug!(name = %msg.get_source(), "remove endpoint from session");
+                    // Skip delete_route when the removed participant is ourselves: we never
+                    // set up a recv_from subscription for our own name, so the datapath
+                    // would return SubscriptionNotFound and block the GroupAck.
+                    if name != self.common.settings.source.clone() {
+                        self.common
+                            .delete_route(name.clone(), msg.get_incoming_conn())
+                            .await?;
+                    }
+                    self.inner.remove_endpoint(&name);
+                }
+            }
+            slim_datapath::api::GroupUpdateOp::Rejoin => {
+                // Rejoin: participant is back online, update their state
+                todo!()
             }
         }
 
@@ -746,7 +736,7 @@ where
             return Ok(SessionOutput::new());
         };
 
-        if entry.online {
+        if entry.status == ParticipantState::OnLine as i32 {
             // Participant is online, just forward to sender for tracking
             return self.common.sender.on_message(&msg);
         }
@@ -763,9 +753,8 @@ where
         if epoch_matches {
             // Epoch matches — bring participant back online
             debug!(from = %source, "participant back online (epoch matches), re-adding endpoint");
-            let settings = entry.settings;
-            entry.online = true;
-            let participant = Participant::new(source.clone(), settings);
+            entry.status = ParticipantState::OnLine as i32;
+            let participant = entry.clone();
             self.add_endpoint(&participant).await?;
             self.common.sender.on_message(&msg)
         } else {
@@ -817,15 +806,15 @@ where
         match new_state {
             ParticipantState::OffLine => {
                 // Participant went offline: update state, remove route
-                if let Some(state) = self.group_list.get_mut(&participant_name) {
-                    if !state.online {
+                if let Some(p) = self.group_list.get_mut(&participant_name) {
+                    if p.status == ParticipantState::OffLine as i32 {
                         debug!(
                             name = %participant_name,
                             "received offline state for participant already offline",
                         );
                         return Ok(SessionOutput::new());
                     }
-                    state.online = false;
+                    p.status = ParticipantState::OffLine as i32;
                 } else {
                     debug!(
                         name = %participant_name,
@@ -874,10 +863,9 @@ where
 
                 // Epoch matches (or MLS not enabled): bring participant online
                 let state = self.group_list.get_mut(&participant_name).unwrap();
-                state.online = true;
-                let settings = state.settings;
+                state.status = ParticipantState::OnLine as i32;
                 tracing::info!("participant {} is now online", participant_name);
-                let participant = Participant::new(participant_name, settings);
+                let participant = state.clone();
                 self.add_endpoint(&participant).await?;
             }
         }
@@ -928,7 +916,7 @@ where
         // They will be moved back online as their ACKs arrive.
         if status == ParticipantState::OnLine {
             for (_, entry) in self.group_list.iter_mut() {
-                entry.online = false;
+                entry.status = ParticipantState::OffLine as i32;
             }
         }
 
@@ -1036,7 +1024,7 @@ where
             && pending_task.status == ParticipantState::OnLine
             && let Some(entry) = self.group_list.get_mut(&source)
         {
-            entry.online = true;
+            entry.status = ParticipantState::OnLine as i32;
             tracing::info!("participant {} confirmed online via ACK", source);
         }
 
@@ -1209,7 +1197,7 @@ mod tests {
     use crate::session_settings::SessionSettings;
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
     use slim_datapath::Status;
-    use slim_datapath::api::{CommandPayload, ProtoSessionType};
+    use slim_datapath::api::{CommandPayload, ParticipantSettings, ProtoSessionType};
     use tokio::sync::mpsc;
 
     // --- Test Helpers -----------------------------------------------------------------------
@@ -1461,12 +1449,17 @@ mod tests {
             .forward_to(0)
             .incoming_conn(12345)
             .session_type(ProtoSessionType::Multicast)
-            .session_message_type(ProtoSessionMessageType::GroupAdd)
+            .session_message_type(ProtoSessionMessageType::GroupUpdate)
             .session_id(1)
             .message_id(300)
             .payload(
                 CommandPayload::builder()
-                    .group_add(new_participant.clone(), vec![], None)
+                    .group_update(
+                        slim_datapath::api::GroupUpdateOp::Add,
+                        new_participant.clone(),
+                        vec![],
+                        None,
+                    )
                     .as_content(),
             )
             .build_publish()
@@ -1474,7 +1467,7 @@ mod tests {
 
         let sub_mgr = participant.common.settings.subscription_manager.clone();
         let result = run_with_acks(
-            participant.on_group_update_message(add_msg, true),
+            participant.on_group_update_message(add_msg),
             &mut rx_slim,
             &sub_mgr,
         )
@@ -1503,13 +1496,14 @@ mod tests {
         participant.moderator_name = Some(moderator.clone());
 
         let removed_participant_name = make_name(&["removed", "app", "v1"]).with_id(500);
-        let state = ParticipantEntry {
-            settings: ParticipantSettings::bidirectional(),
-            online: true,
-        };
-        participant
-            .group_list
-            .insert(removed_participant_name.clone(), state);
+        let removed_participant = Participant::new(
+            removed_participant_name.clone(),
+            ParticipantSettings::bidirectional(),
+        );
+        participant.group_list.insert(
+            removed_participant_name.clone(),
+            removed_participant.clone(),
+        );
 
         let remove_msg = Message::builder()
             .source(moderator.clone())
@@ -1518,12 +1512,17 @@ mod tests {
             .forward_to(0)
             .incoming_conn(12345)
             .session_type(ProtoSessionType::Multicast)
-            .session_message_type(ProtoSessionMessageType::GroupRemove)
+            .session_message_type(ProtoSessionMessageType::GroupUpdate)
             .session_id(1)
             .message_id(400)
             .payload(
                 CommandPayload::builder()
-                    .group_remove(removed_participant_name.clone(), vec![], None)
+                    .group_update(
+                        slim_datapath::api::GroupUpdateOp::Remove,
+                        removed_participant,
+                        vec![],
+                        None,
+                    )
                     .as_content(),
             )
             .build_publish()
@@ -1531,7 +1530,7 @@ mod tests {
 
         let sub_mgr = participant.common.settings.subscription_manager.clone();
         let result = run_with_acks(
-            participant.on_group_update_message(remove_msg, false),
+            participant.on_group_update_message(remove_msg),
             &mut rx_slim,
             &sub_mgr,
         )
@@ -1926,10 +1925,7 @@ mod tests {
         let other = make_name(&["other", "participant", "v1"]).with_id(500);
         participant.group_list.insert(
             other.clone(),
-            ParticipantEntry {
-                settings: ParticipantSettings::bidirectional(),
-                online: true,
-            },
+            Participant::new(other.clone(), ParticipantSettings::bidirectional()),
         );
 
         // Receive an UpdateParticipantState(OffLine)
@@ -1959,7 +1955,10 @@ mod tests {
         assert!(result.is_ok());
 
         // Participant should be offline
-        assert!(!participant.group_list.get(&other).unwrap().online);
+        assert_eq!(
+            participant.group_list.get(&other).unwrap().status,
+            ParticipantState::OffLine as i32
+        );
 
         // Should have sent an ACK
         let output = result.unwrap();
@@ -1982,13 +1981,12 @@ mod tests {
 
         // Add a participant that is offline
         let other = make_name(&["other", "participant", "v1"]).with_id(500);
-        participant.group_list.insert(
-            other.clone(),
-            ParticipantEntry {
-                settings: ParticipantSettings::bidirectional(),
-                online: false,
-            },
-        );
+        let mut offline_participant =
+            Participant::new(other.clone(), ParticipantSettings::bidirectional());
+        offline_participant.status = ParticipantState::OffLine as i32;
+        participant
+            .group_list
+            .insert(other.clone(), offline_participant);
 
         // MLS is None in test setup, so epoch check is skipped (always matches)
         let msg = Message::builder()
@@ -2017,7 +2015,10 @@ mod tests {
         assert!(result.is_ok());
 
         // Participant should be online now
-        assert!(participant.group_list.get(&other).unwrap().online);
+        assert_eq!(
+            participant.group_list.get(&other).unwrap().status,
+            ParticipantState::OnLine as i32
+        );
 
         // Should have sent an ACK
         let output = result.unwrap();
@@ -2045,10 +2046,7 @@ mod tests {
         let other = make_name(&["other", "participant", "v1"]).with_id(500);
         participant.group_list.insert(
             other.clone(),
-            ParticipantEntry {
-                settings: ParticipantSettings::bidirectional(),
-                online: true,
-            },
+            Participant::new(other.clone(), ParticipantSettings::bidirectional()),
         );
         participant.common.sender.add_participant(&other);
 
@@ -2089,7 +2087,10 @@ mod tests {
         assert_eq!(pending.status, ParticipantState::OffLine);
 
         // Participants should still be online (they change on ACK completion)
-        assert!(participant.group_list.get(&other).unwrap().online);
+        assert_eq!(
+            participant.group_list.get(&other).unwrap().status,
+            ParticipantState::OnLine as i32
+        );
 
         // ack_rx should not have been notified yet
         assert!(ack_rx.try_recv().is_err());
@@ -2109,22 +2110,16 @@ mod tests {
         let other2 = make_name(&["other2", "participant", "v1"]).with_id(600);
         participant.group_list.insert(
             other1.clone(),
-            ParticipantEntry {
-                settings: ParticipantSettings::bidirectional(),
-                online: true,
-            },
+            Participant::new(other1.clone(), ParticipantSettings::bidirectional()),
         );
         participant.group_list.insert(
             other2.clone(),
-            ParticipantEntry {
-                settings: ParticipantSettings::bidirectional(),
-                online: true,
-            },
+            Participant::new(other2.clone(), ParticipantSettings::bidirectional()),
         );
         participant.common.sender.add_participant(&other1);
         participant.common.sender.add_participant(&other2);
 
-        let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+        let (ack_tx, mut ack_rx) = tokio::sync::oneshot::channel();
 
         // Send rejoin from app
         let msg = Message::builder()
@@ -2157,8 +2152,14 @@ mod tests {
         assert!(result.is_ok());
 
         // All participants should be marked offline after rejoin send
-        assert!(!participant.group_list.get(&other1).unwrap().online);
-        assert!(!participant.group_list.get(&other2).unwrap().online);
+        assert_eq!(
+            participant.group_list.get(&other1).unwrap().status,
+            ParticipantState::OffLine as i32
+        );
+        assert_eq!(
+            participant.group_list.get(&other2).unwrap().status,
+            ParticipantState::OffLine as i32
+        );
 
         // Should have a pending status update with OnLine
         assert!(participant.common.pending_status_update.is_some());
@@ -2169,7 +2170,7 @@ mod tests {
             .unwrap()
             .message_id;
 
-        // Now receive a NACK → rejoin should fail
+        // Now receive a NACK → should trigger a rejoin request (not immediate failure)
         let nack_msg = Message::builder()
             .source(other1.clone())
             .destination(participant.common.settings.source.clone())
@@ -2190,16 +2191,14 @@ mod tests {
         .await;
         assert!(result.is_ok());
 
-        // The pending status update should be cleared
-        assert!(participant.common.pending_status_update.is_none());
+        // The pending status update should now be a RejoinRequest (not cleared)
+        assert!(participant.common.pending_status_update.is_some());
+        let pending = participant.common.pending_status_update.as_ref().unwrap();
+        assert_eq!(pending.message_type, ProtoSessionMessageType::RejoinRequest);
+        assert_eq!(pending.status, ParticipantState::OnLine);
 
-        // The app should have been notified of failure
-        let ack_result = ack_rx.await.unwrap();
-        assert!(ack_result.is_err());
-        assert!(matches!(
-            ack_result.unwrap_err(),
-            SessionError::RejoinFailed
-        ));
+        // The ack_tx should still be held (not resolved yet — waiting for RejoinReply)
+        assert!(ack_rx.try_recv().is_err());
     }
 
     #[tokio::test]
@@ -2214,10 +2213,7 @@ mod tests {
         let other = make_name(&["other", "participant", "v1"]).with_id(500);
         participant.group_list.insert(
             other.clone(),
-            ParticipantEntry {
-                settings: ParticipantSettings::bidirectional(),
-                online: true,
-            },
+            Participant::new(other.clone(), ParticipantSettings::bidirectional()),
         );
         participant.common.sender.add_participant(&other);
 

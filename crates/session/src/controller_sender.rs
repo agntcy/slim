@@ -8,7 +8,8 @@ use std::{
 
 use display_error_chain::ErrorChainExt;
 use slim_datapath::api::{
-    CommandPayload, ProtoMessage as Message, ProtoName, ProtoSessionMessageType, ProtoSessionType,
+    CommandPayload, GroupUpdateOp, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
+    ProtoSessionType,
 };
 use tokio::sync::mpsc::Sender;
 use tracing::debug;
@@ -291,7 +292,7 @@ impl ControllerSender {
             slim_datapath::api::ProtoSessionMessageType::Heartbeat => {
                 self.on_heartbeat_received(message);
             }
-            slim_datapath::api::ProtoSessionMessageType::GroupAdd => {
+            slim_datapath::api::ProtoSessionMessageType::GroupUpdate => {
                 // compute the list of participants that needs to send an ack
                 // remove the local name as we are not waiting for any reply from the local name
                 // remove also the new participant as it will not receive the message
@@ -302,36 +303,24 @@ impl ControllerSender {
                     .cloned()
                     .collect::<HashSet<_>>();
 
-                // remove the new participant also from the missing replies
-                let payload = message.extract_group_add()?;
-
-                let to_remove = payload
-                    .new_participant
-                    .as_ref()
-                    .ok_or(SessionError::MissingNewParticipantInGroupAdd)?
-                    .get_name()?
-                    .clone();
-
-                missing_replies.remove(&to_remove);
+                let payload = message.extract_group_update()?;
+                if payload.op == GroupUpdateOp::Add as i32 {
+                    // remove also new participant from the missing replies
+                    let to_remove = payload
+                        .participant
+                        .as_ref()
+                        .ok_or(SessionError::MissingNewParticipantInGroupAdd)?
+                        .get_name()?
+                        .clone();
+                    missing_replies.remove(&to_remove);
+                }
 
                 debug!(
-                    "send group add with message id {}, expected acks from {:?}",
+                    "send group update ({}) with message id {}, expected acks from {:?}",
+                    payload.op,
                     message.get_id(),
                     missing_replies
                 );
-
-                output.extend(self.on_send_message(message, missing_replies)?);
-            }
-            slim_datapath::api::ProtoSessionMessageType::GroupRemove => {
-                // compute the list of participants that needs to send an ack
-                // the participant that we are removing will get the update
-                // so we can use the group list as is, removing only the local name
-                let missing_replies = self
-                    .group_list
-                    .iter()
-                    .filter(|name| *name != &self.local_name)
-                    .cloned()
-                    .collect::<HashSet<_>>();
 
                 output.extend(self.on_send_message(message, missing_replies)?);
             }
@@ -614,7 +603,8 @@ mod tests {
     use super::*;
     use crate::common::{OutboundMessage, SessionOutput};
     use slim_datapath::api::{
-        CommandPayload, Participant, ParticipantSettings, ProtoSessionMessageType, ProtoSessionType,
+        CommandPayload, GroupUpdateOp, Participant, ParticipantSettings, ProtoSessionMessageType,
+        ProtoSessionType,
     };
     use std::time::Duration;
     use tokio::time::timeout;
@@ -951,7 +941,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_on_group_add_message() {
+    async fn test_on_group_update_add_message() {
         let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
@@ -978,12 +968,13 @@ mod tests {
             .destination(group.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
-            .session_message_type(ProtoSessionMessageType::GroupAdd)
+            .session_message_type(ProtoSessionMessageType::GroupUpdate)
             .session_id(session_id)
             .message_id(1)
             .payload(
                 CommandPayload::builder()
-                    .group_add(
+                    .group_update(
+                        GroupUpdateOp::Add,
                         Participant::new(
                             participant1.clone(),
                             ParticipantSettings::bidirectional(),
@@ -1012,11 +1003,11 @@ mod tests {
         let (message_id, message_type) =
             expect_timeout(&mut rx_signal, Duration::from_millis(300)).await;
         assert_eq!(message_id, 1);
-        assert_eq!(message_type, ProtoSessionMessageType::GroupAdd);
+        assert_eq!(message_type, ProtoSessionMessageType::GroupUpdate);
 
         let resent = single_slim_message(
             sender
-                .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd, None)
+                .on_timer_timeout(1, ProtoSessionMessageType::GroupUpdate, None)
                 .expect("error re-sending the add"),
         );
         assert_eq!(resent, update);
@@ -1084,12 +1075,13 @@ mod tests {
             .destination(remote.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
-            .session_message_type(ProtoSessionMessageType::GroupAdd)
+            .session_message_type(ProtoSessionMessageType::GroupUpdate)
             .session_id(session_id)
             .message_id(1)
             .payload(
                 CommandPayload::builder()
-                    .group_add(
+                    .group_update(
+                        GroupUpdateOp::Add,
                         Participant::new(
                             participant1.clone(),
                             ParticipantSettings::bidirectional(),
@@ -1118,11 +1110,11 @@ mod tests {
         let (message_id, message_type) =
             expect_timeout(&mut rx_signal, Duration::from_millis(300)).await;
         assert_eq!(message_id, 1);
-        assert_eq!(message_type, ProtoSessionMessageType::GroupAdd);
+        assert_eq!(message_type, ProtoSessionMessageType::GroupUpdate);
 
         let resent = single_slim_message(
             sender
-                .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd, None)
+                .on_timer_timeout(1, ProtoSessionMessageType::GroupUpdate, None)
                 .expect("error re-sending the add"),
         );
         assert_eq!(resent, update);
@@ -1151,11 +1143,11 @@ mod tests {
         let (message_id, message_type) =
             expect_timeout(&mut rx_signal, Duration::from_millis(300)).await;
         assert_eq!(message_id, 1);
-        assert_eq!(message_type, ProtoSessionMessageType::GroupAdd);
+        assert_eq!(message_type, ProtoSessionMessageType::GroupUpdate);
 
         let retransmitted = single_slim_message(
             sender
-                .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd, None)
+                .on_timer_timeout(1, ProtoSessionMessageType::GroupUpdate, None)
                 .expect("error re-sending the add"),
         );
         assert_eq!(retransmitted, update);
