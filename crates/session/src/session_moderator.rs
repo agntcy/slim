@@ -1426,6 +1426,7 @@ where
 
         self.common.pending_status_update = Some(PendingStatusUpdate {
             message_id: message.get_id(),
+            message_type: ProtoSessionMessageType::UpdateParticipantState,
             status,
             ack_tx,
         });

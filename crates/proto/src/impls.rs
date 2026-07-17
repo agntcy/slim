@@ -29,7 +29,8 @@ use crate::dataplane::proto::v1::{
     ParticipantSettings, ParticipantState, Publish as ProtoPublish, SessionHeader,
     SessionMessageType, SessionType as ProtoSessionType, SlimHeader, StringName,
     Subscribe as ProtoSubscribe, SubscriptionAck as ProtoSubscriptionAck, TimerSettings,
-    Unsubscribe as ProtoUnsubscribe, UpdateParticipantStatePayload,
+    Unsubscribe as ProtoUnsubscribe, UpdateParticipantStatePayload, RejoinRequestPayload,
+    RejoinReplyPayload,
 };
 
 fn calculate_hash<T: Hash + ?Sized>(t: &T) -> u64 {
@@ -1223,6 +1224,8 @@ impl ProtoMessage {
         extract_group_nack => as_group_nack_payload(GroupNackPayload),
         extract_heartbeat => as_heartbeat_payload(HeartbeatPayload),
         extract_update_participant_state => as_update_participant_state_payload(UpdateParticipantStatePayload),
+        extract_rejoin_request => as_rejoin_request_payload(RejoinRequestPayload),
+        extract_rejoin_reply => as_rejoin_reply_payload(RejoinReplyPayload),
     }
 
     pub fn builder() -> ProtoMessageBuilder {
@@ -1306,6 +1309,8 @@ impl CommandPayload {
         as_group_nack_payload => GroupNack(GroupNackPayload),
         as_heartbeat_payload => Heartbeat(HeartbeatPayload),
         as_update_participant_state_payload => UpdateParticipantState(UpdateParticipantStatePayload),
+        as_rejoin_request_payload => RejoinRequest(RejoinRequestPayload),
+        as_rejoin_reply_payload => RejoinReply(RejoinReplyPayload),
     }
 
     pub fn builder() -> CommandPayloadBuilder {
@@ -1497,6 +1502,30 @@ impl CommandPayloadBuilder {
         };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::UpdateParticipantState(payload)),
+        }
+    }
+
+    pub fn rejoin_request(
+        self,
+        participant: ProtoName,
+        key_package: Vec<u8>,
+    ) -> CommandPayload {
+        let payload = RejoinRequestPayload {
+            participant: Some(participant),
+            key_package,
+        };
+        CommandPayload {
+            command_payload_type: Some(CommandPayloadType::RejoinRequest(payload)),
+        }
+    }
+
+    pub fn rejoin_reply(self, commit_id: u32, mls_content: Vec<u8>) -> CommandPayload {
+        let payload = RejoinReplyPayload {
+            commit_id,
+            mls_content,
+        };
+        CommandPayload {
+            command_payload_type: Some(CommandPayloadType::RejoinReply(payload)),
         }
     }
 }
@@ -2250,7 +2279,7 @@ mod message_tests {
 
     #[test]
     fn test_service_type_to_int() {
-        let total_service_types = SessionMessageType::UpdateParticipantState as i32;
+        let total_service_types = SessionMessageType::RejoinReply as i32;
         for i in 0..total_service_types {
             let service_type =
                 SessionMessageType::try_from(i).expect("failed to convert int to service type");

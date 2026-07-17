@@ -173,7 +173,7 @@ pub struct ApplicationPayload {
 pub struct CommandPayload {
     #[prost(
         oneof = "command_payload::CommandPayloadType",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17"
     )]
     pub command_payload_type: ::core::option::Option<
         command_payload::CommandPayloadType,
@@ -213,6 +213,10 @@ pub mod command_payload {
         Heartbeat(super::HeartbeatPayload),
         #[prost(message, tag = "15")]
         UpdateParticipantState(super::UpdateParticipantStatePayload),
+        #[prost(message, tag = "16")]
+        RejoinRequest(super::RejoinRequestPayload),
+        #[prost(message, tag = "17")]
+        RejoinReply(super::RejoinReplyPayload),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -406,6 +410,28 @@ pub struct UpdateParticipantStatePayload {
     #[prost(uint64, tag = "3")]
     pub epoch: u64,
 }
+/// sent by participants to the moderator when a NACK is received
+/// as reply for UpdateParticipantStatePayload(online). This means
+/// that the epoch changed while the partcipant was offline and
+/// we need to create a new key for MLS
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RejoinRequestPayload {
+    #[prost(message, optional, tag = "1")]
+    pub participant: ::core::option::Option<Name>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub key_package: ::prost::alloc::vec::Vec<u8>,
+}
+/// reply from the moderator that contains the
+/// welcome commit triggered buy the rejoin request
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RejoinReplyPayload {
+    /// the last commit id send by the moderator
+    #[prost(uint32, tag = "1")]
+    pub commit_id: u32,
+    /// welcome mls message
+    #[prost(bytes = "vec", tag = "2")]
+    pub mls_content: ::prost::alloc::vec::Vec<u8>,
+}
 /// SubscriptionAck is delivered directly to the requesting connection in response
 /// to a Subscribe or Unsubscribe that carried a non-zero subscription_id field.
 /// It is never routed through the subscription table.
@@ -507,6 +533,8 @@ pub enum SessionMessageType {
     GroupNack = 17,
     Heartbeat = 18,
     UpdateParticipantState = 19,
+    RejoinRequest = 20,
+    RejoinReply = 21,
 }
 impl SessionMessageType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -537,6 +565,8 @@ impl SessionMessageType {
             Self::UpdateParticipantState => {
                 "SESSION_MESSAGE_TYPE_UPDATE_PARTICIPANT_STATE"
             }
+            Self::RejoinRequest => "SESSION_MESSAGE_TYPE_REJOIN_REQUEST",
+            Self::RejoinReply => "SESSION_MESSAGE_TYPE_REJOIN_REPLY",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -564,6 +594,8 @@ impl SessionMessageType {
             "SESSION_MESSAGE_TYPE_UPDATE_PARTICIPANT_STATE" => {
                 Some(Self::UpdateParticipantState)
             }
+            "SESSION_MESSAGE_TYPE_REJOIN_REQUEST" => Some(Self::RejoinRequest),
+            "SESSION_MESSAGE_TYPE_REJOIN_REPLY" => Some(Self::RejoinReply),
             _ => None,
         }
     }

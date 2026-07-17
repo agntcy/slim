@@ -128,6 +128,8 @@ enum SessionMessageType {
   SESSION_MESSAGE_TYPE_GROUP_NACK = 17;
   SESSION_MESSAGE_TYPE_HEARTBEAT = 18;
   SESSION_MESSAGE_TYPE_UPDATE_PARTICIPANT_STATE = 19;
+  SESSION_MESSAGE_TYPE_REJOIN_REQUEST = 20;
+  SESSION_MESSAGE_TYPE_REJOIN_REPLY = 21;
 }
 
 // SLIM message content
@@ -160,6 +162,8 @@ message CommandPayload {
     GroupNackPayload group_nack = 13;
     HeartbeatPayload heartbeat = 14;
     UpdateParticipantStatePayload update_participant_state = 15;
+    RejoinRequestPayload rejoin_request = 16;
+    RejoinReplyPayload rejoin_reply = 17;
   }
 }
 
@@ -318,6 +322,24 @@ message UpdateParticipantStatePayload {
   Name participant = 1;
   ParticipantState new_state = 2;
   uint64 epoch = 3;
+}
+
+// sent by participants to the moderator when a NACK is received 
+// as reply for UpdateParticipantStatePayload(online). This means
+// that the epoch changed while the partcipant was offline and
+// we need to create a new key for MLS
+message RejoinRequestPayload {
+  Name participant = 1;
+  bytes key_package = 2;
+}
+
+// reply from the moderator that contains the 
+// welcome commit triggered buy the rejoin request
+message RejoinReplyPayload {
+  // the last commit id send by the moderator
+  uint32 commit_id = 1;
+  // welcome mls message
+  bytes mls_content = 2;
 }
 
 // SubscriptionAck is delivered directly to the requesting connection in response

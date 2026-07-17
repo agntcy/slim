@@ -135,6 +135,8 @@ pub enum SessionError {
     ParticipantOffLine,
     #[error("rejoin failed: epoch mismatch")]
     RejoinFailed,
+    #[error("moderator not found")]
+    ModeratorNotFound,
     #[error("another status change is already in progress")]
     StatusChangeInProgress,
     #[error("session cleanup failed: {details}")]

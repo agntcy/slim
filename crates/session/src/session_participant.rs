@@ -225,19 +225,27 @@ where
                 if message_type.is_command_message() {
                     self.common.sender.on_failure(message_id, message_type);
 
-                    // If this was a rejoin (UpdateParticipantState + OnLine) timeout,
-                    // treat as partial success: non-responders are offline, notify app OK
                     if message_type == ProtoSessionMessageType::UpdateParticipantState
                         && let Some(pending_task) = self.common.pending_status_update.take()
                     {
                         if pending_task.message_id == message_id
                             && pending_task.status == ParticipantState::OnLine
                         {
-                            if let Some(tx) = pending_task.ack_tx {
-                                let _ = tx.send(Ok(()));
+                            // If this was a rejoin (UpdateParticipantState + OnLine) timeout,
+                            // treat as partial success: non-responders are offline, notify app OK
+                            if pending_task.message_type == ProtoSessionMessageType::UpdateParticipantState {
+                                if let Some(tx) = pending_task.ack_tx {
+                                    let _ = tx.send(Ok(()));
+                                }   
+                                self.common.online = true;
+                                self.common.sender.restart_heartbeat();
+                            } else {
+                                // If we get a timoeut for the RejoinRequest, it means that the rekey did 
+                                // not work so we need to return an error to the application
+                                if let Some(tx) = pending_task.ack_tx {
+                                    let _ = tx.send(Err(SessionError::RejoinFailed));
+                                }   
                             }
-                            self.common.online = true;
-                            self.common.sender.restart_heartbeat();
                         } else if pending_task.message_id == message_id
                             && pending_task.status == ParticipantState::OffLine
                         {
@@ -470,14 +478,13 @@ where
                 self.on_group_ack(&message)?;
                 Ok(SessionOutput::new())
             }
-            ProtoSessionMessageType::GroupNack => {
-                self.on_group_nack(&message);
-                Ok(SessionOutput::new())
-            }
+            ProtoSessionMessageType::GroupNack => self.on_group_nack(&message).await,
+            ProtoSessionMessageType::RejoinReply => self.on_rejoin_reply(&message).await,
             ProtoSessionMessageType::GroupProposal
             | ProtoSessionMessageType::DiscoveryRequest
             | ProtoSessionMessageType::DiscoveryReply
-            | ProtoSessionMessageType::JoinReply => {
+            | ProtoSessionMessageType::JoinReply
+            | ProtoSessionMessageType::RejoinRequest => {
                 debug!(
                     control_message_type = ?message.get_session_message_type(),
                     "Unexpected control message type",
@@ -936,6 +943,7 @@ where
 
         self.common.pending_status_update = Some(PendingStatusUpdate {
             message_id: message.get_id(),
+            message_type: ProtoSessionMessageType::UpdateParticipantState,
             status,
             ack_tx,
         });
@@ -948,6 +956,67 @@ where
             None,
             true,
         )
+    }
+
+    async fn on_rejoin_reply(&mut self, message: &Message) -> Result<SessionOutput, SessionError> {
+        debug!(
+            name = %message.get_source(),
+            id = %message.get_id(),
+            "received rejoin reply",
+        );
+
+        // Use the welcome message in the rejoin reply payload to update the local MLS state
+        let payload = message.extract_rejoin_reply()?;
+        let mls_success = if let Some(mls_state) = &mut self.mls_state {
+            if !payload.mls_content.is_empty() {
+                // Reset the MLS state by processing the welcome message
+                match maybe_await!(mls_state.mls.process_welcome(&payload.mls_content)) {
+                    Ok(group_id) => {
+                        mls_state.group = group_id;
+                        mls_state.last_mls_msg_id = payload.commit_id;
+                        debug!(
+                            commit_id = payload.commit_id,
+                            "MLS state reset via rejoin welcome",
+                        );
+                        true
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, "failed to process rejoin welcome");
+                        false
+                    }
+                }
+            } else {
+                // if we are here MLS must be set and so the payload
+                false
+            }
+        } else {
+            // if we are here MLS must be set and so the payload
+            false
+        };
+
+        // Notify the application of the result and update local online state
+        if let Some(pending_task) = self.common.pending_status_update.take() {
+            if pending_task.message_id == message.get_id()
+                && pending_task.status == ParticipantState::OnLine
+            {
+                if mls_success {
+                    if let Some(tx) = pending_task.ack_tx {
+                        let _ = tx.send(Ok(()));
+                    }
+                    self.common.online = true;
+                    self.common.sender.restart_heartbeat();
+                } else {
+                    if let Some(tx) = pending_task.ack_tx {
+                        let _ = tx.send(Err(SessionError::RejoinFailed));
+                    }
+                }
+            } else {
+                // not matching, put it back
+                self.common.pending_status_update = Some(pending_task);
+            }
+        }
+
+        Ok(SessionOutput::new())
     }
 
     fn on_group_ack(&mut self, message: &Message) -> Result<(), SessionError> {
@@ -995,7 +1064,7 @@ where
         Ok(())
     }
 
-    fn on_group_nack(&mut self, message: &Message) {
+    async fn on_group_nack(&mut self, message: &Message) -> Result<SessionOutput, SessionError> {
         // this may happen when the participant tries to rejoin with an old MLS epoch
         let id = message.get_id();
 
@@ -1006,15 +1075,47 @@ where
                 self.common
                     .sender
                     .on_failure(id, ProtoSessionMessageType::UpdateParticipantState);
-                // notify the application that the rejoin failed
-                if let Some(tx) = pending_task.ack_tx {
-                    let _ = tx.send(Err(SessionError::RejoinFailed));
-                }
+
+                // generate a fresh key package for the rejoin request
+                let key_package = if let Some(mls_state) = &mut self.mls_state {
+                    maybe_await!(mls_state.generate_key_package())?
+                } else {
+                    vec![]
+                };
+
+                // send a rejoin request to the moderator
+                let moderator = self
+                    .moderator_name
+                    .clone()
+                    .ok_or(SessionError::ModeratorNotFound)?;
+                let msg_id = rand::random::<u32>();
+                let participant = self.common.settings.source.clone();
+                let rejoin_msg = self.common.create_control_message(
+                    &moderator,
+                    ProtoSessionMessageType::RejoinRequest,
+                    msg_id,
+                    CommandPayload::builder()
+                        .rejoin_request(participant, key_package)
+                        .as_content(),
+                    false,
+                )?;
+
+                // keep the ack_tx for when RejoinReply arrives
+                self.common.pending_status_update = Some(PendingStatusUpdate {
+                    message_id: msg_id,
+                    message_type: ProtoSessionMessageType::RejoinRequest,
+                    status: ParticipantState::OnLine,
+                    ack_tx: pending_task.ack_tx,
+                });
+
+                return Ok(SessionOutput::to_slim(rejoin_msg));
             } else {
                 // not matching, put it back
                 self.common.pending_status_update = Some(pending_task);
             }
         }
+
+        Ok(SessionOutput::new())
     }
 
     async fn join(&mut self, msg: &Message) -> Result<(), SessionError> {
@@ -2123,6 +2224,7 @@ mod tests {
         // Set a pending status update
         participant.common.pending_status_update = Some(PendingStatusUpdate {
             message_id: 100,
+            message_type: ProtoSessionMessageType::UpdateParticipantState,
             status: ParticipantState::OffLine,
             ack_tx: None,
         });
