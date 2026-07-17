@@ -652,21 +652,8 @@ impl SessionMessageType {
                 | SessionMessageType::GroupNack
                 | SessionMessageType::Heartbeat
                 | SessionMessageType::UpdateParticipantState
-        )
-    }
-
-    pub fn is_post_session_control(&self) -> bool {
-        matches!(
-            self,
-            SessionMessageType::LeaveRequest
-                | SessionMessageType::LeaveReply
-                | SessionMessageType::GroupUpdate
-                | SessionMessageType::GroupClose
-                | SessionMessageType::GroupProposal
-                | SessionMessageType::GroupAck
-                | SessionMessageType::GroupNack
-                | SessionMessageType::Heartbeat
-                | SessionMessageType::UpdateParticipantState
+                | SessionMessageType::RejoinRequest
+                | SessionMessageType::RejoinReply
         )
     }
 }

@@ -252,7 +252,9 @@ impl ControllerSender {
             slim_datapath::api::ProtoSessionMessageType::DiscoveryRequest
             | slim_datapath::api::ProtoSessionMessageType::JoinRequest
             | slim_datapath::api::ProtoSessionMessageType::LeaveRequest
-            | slim_datapath::api::ProtoSessionMessageType::GroupWelcome => {
+            | slim_datapath::api::ProtoSessionMessageType::GroupWelcome
+            | slim_datapath::api::ProtoSessionMessageType::RejoinRequest
+            | slim_datapath::api::ProtoSessionMessageType::RejoinReply => {
                 if self.draining_state == ControllerSenderDrainStatus::Initiated {
                     // draining period started; reject new messages
                     return Err(SessionError::SessionDrainingDrop);

@@ -1544,42 +1544,34 @@ where
 
         let participants_vec: Vec<Participant> = self.group_list.values().cloned().collect();
 
-        if participants_vec.len() > 2 {
-            let update_msg_id = rand::random::<u32>();
-            let update_payload = CommandPayload::builder()
-                .group_update(
-                    GroupUpdateOp::Rejoin,
-                    participant_entry,
-                    participants_vec,
-                    mls_payload,
-                )
-                .as_content();
-            debug!(
-                id = %update_msg_id,
-                "send group update (rejoin) to channel",
-            );
-            output.extend(self.common.send_control_message(
-                &self.common.settings.control.clone(),
-                ProtoSessionMessageType::GroupUpdate,
-                update_msg_id,
-                update_payload,
-                None,
-                true,
-            )?);
+        // Always send GroupUpdate(REJOIN) — the rejoining participant uses it to rebuild its group_list
+        let update_msg_id = rand::random::<u32>();
+        let update_payload = CommandPayload::builder()
+            .group_update(
+                GroupUpdateOp::Rejoin,
+                participant_entry,
+                participants_vec,
+                mls_payload,
+            )
+            .as_content();
+        debug!(
+            id = %update_msg_id,
+            "send group update (rejoin) to channel",
+        );
+        output.extend(self.common.send_control_message(
+            &self.common.settings.control.clone(),
+            ProtoSessionMessageType::GroupUpdate,
+            update_msg_id,
+            update_payload,
+            None,
+            true,
+        )?);
 
-            // 9. Start the commit/update phase in rejoin task
-            self.current_task
-                .as_mut()
-                .unwrap()
-                .commit_start(update_msg_id)?;
-        } else {
-            // No other participants to notify — skip the commit phase
-            self.current_task.as_mut().unwrap().commit_start(12345)?;
-            self.current_task
-                .as_mut()
-                .unwrap()
-                .update_phase_completed(12345)?;
-        }
+        // Start the commit/update phase in rejoin task
+        self.current_task
+            .as_mut()
+            .unwrap()
+            .commit_start(update_msg_id)?;
 
         Ok(output)
     }
@@ -3044,5 +3036,328 @@ mod tests {
         // App notified of success
         let ack_result = ack_rx.await.unwrap();
         assert!(ack_result.is_ok());
+    }
+
+    // --- Rejoin Tests -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_on_rejoin_request_success() {
+        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        // Add a third participant so GroupUpdate gets broadcast
+        let third = make_name(&["third", "participant", "v1"]).with_id(700);
+        let mut third_key = third.clone();
+        third_key.reset_id();
+        moderator.group_list.insert(
+            third_key.clone(),
+            Participant::new(third.clone(), ParticipantSettings::bidirectional()),
+        );
+        moderator.common.sender.add_participant(&third);
+
+        // Add a participant that is offline
+        let other = make_name(&["other", "participant", "v1"]).with_id(500);
+        let mut other_key = other.clone();
+        other_key.reset_id();
+        let mut offline_participant =
+            Participant::new(other.clone(), ParticipantSettings::bidirectional());
+        offline_participant.status = ParticipantState::OffLine as i32;
+        moderator
+            .group_list
+            .insert(other_key.clone(), offline_participant);
+
+        // Send rejoin request
+        let msg = Message::builder()
+            .source(other.clone())
+            .destination(moderator.common.settings.source.clone())
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(1)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::RejoinRequest)
+            .session_id(1)
+            .message_id(100)
+            .payload(
+                CommandPayload::builder()
+                    .rejoin_request(other.clone(), vec![1, 2, 3])
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            moderator.process_control_message(msg, MessageDirection::North, None),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+        // Should have sent RejoinReply + GroupUpdate(REJOIN)
+        assert!(output.messages.len() >= 2);
+
+        // Verify RejoinReply was sent
+        let rejoin_reply = output
+            .messages
+            .iter()
+            .find_map(|m| match m {
+                OutboundMessage::ToSlim(msg)
+                    if msg.get_session_message_type() == ProtoSessionMessageType::RejoinReply =>
+                {
+                    Some(msg)
+                }
+                _ => None,
+            })
+            .expect("Expected RejoinReply message");
+        assert_eq!(rejoin_reply.get_dst(), other);
+
+        // Verify GroupUpdate(REJOIN) was sent
+        let group_update = output
+            .messages
+            .iter()
+            .find_map(|m| match m {
+                OutboundMessage::ToSlim(msg)
+                    if msg.get_session_message_type() == ProtoSessionMessageType::GroupUpdate =>
+                {
+                    Some(msg)
+                }
+                _ => None,
+            })
+            .expect("Expected GroupUpdate message");
+        let update_payload = group_update
+            .get_payload()
+            .unwrap()
+            .as_command_payload()
+            .unwrap()
+            .as_group_update_payload()
+            .unwrap();
+        assert_eq!(update_payload.op, GroupUpdateOp::Rejoin as i32);
+
+        // Task should be Rejoin
+        assert!(matches!(
+            moderator.current_task,
+            Some(ModeratorTask::Rejoin(_))
+        ));
+
+        // Participant should be marked online
+        assert_eq!(
+            moderator.group_list.get(&other_key).unwrap().status,
+            ParticipantState::OnLine as i32
+        );
+    }
+
+    #[tokio::test]
+    async fn test_on_rejoin_request_unknown_participant() {
+        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        let unknown = make_name(&["unknown", "participant", "v1"]).with_id(999);
+
+        let msg = Message::builder()
+            .source(unknown.clone())
+            .destination(moderator.common.settings.source.clone())
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(1)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::RejoinRequest)
+            .session_id(1)
+            .message_id(100)
+            .payload(
+                CommandPayload::builder()
+                    .rejoin_request(unknown.clone(), vec![1, 2, 3])
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            moderator.process_control_message(msg, MessageDirection::North, None),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+        assert!(result.is_ok());
+
+        // Should produce no output (ignored)
+        let output = result.unwrap();
+        assert!(output.is_empty());
+        assert!(moderator.current_task.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_on_rejoin_request_participant_online() {
+        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        // Add a participant that is ONLINE
+        let other = make_name(&["other", "participant", "v1"]).with_id(500);
+        let mut other_key = other.clone();
+        other_key.reset_id();
+        moderator.group_list.insert(
+            other_key.clone(),
+            Participant::new(other.clone(), ParticipantSettings::bidirectional()),
+        );
+
+        let msg = Message::builder()
+            .source(other.clone())
+            .destination(moderator.common.settings.source.clone())
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(1)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::RejoinRequest)
+            .session_id(1)
+            .message_id(100)
+            .payload(
+                CommandPayload::builder()
+                    .rejoin_request(other.clone(), vec![1, 2, 3])
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            moderator.process_control_message(msg, MessageDirection::North, None),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+        assert!(result.is_ok());
+
+        // Should produce no output (ignored — participant is already online)
+        let output = result.unwrap();
+        assert!(output.is_empty());
+        assert!(moderator.current_task.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_on_rejoin_request_when_busy() {
+        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        // Add a participant that is offline
+        let other = make_name(&["other", "participant", "v1"]).with_id(500);
+        let mut other_key = other.clone();
+        other_key.reset_id();
+        let mut offline_participant =
+            Participant::new(other.clone(), ParticipantSettings::bidirectional());
+        offline_participant.status = ParticipantState::OffLine as i32;
+        moderator
+            .group_list
+            .insert(other_key.clone(), offline_participant);
+
+        // Set a current task (busy)
+        moderator.current_task = Some(ModeratorTask::UpdateLocalStatus());
+
+        let msg = Message::builder()
+            .source(other.clone())
+            .destination(moderator.common.settings.source.clone())
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(1)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::RejoinRequest)
+            .session_id(1)
+            .message_id(100)
+            .payload(
+                CommandPayload::builder()
+                    .rejoin_request(other.clone(), vec![1, 2, 3])
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            moderator.process_control_message(msg, MessageDirection::North, None),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+        assert!(result.is_ok());
+
+        // Should produce no output (dropped)
+        let output = result.unwrap();
+        assert!(output.is_empty());
+
+        // Task should still be the old one
+        assert!(matches!(
+            moderator.current_task,
+            Some(ModeratorTask::UpdateLocalStatus())
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_on_rejoin_request_two_participants_sends_group_update() {
+        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        // Only moderator + one offline participant
+        let other = make_name(&["other", "participant", "v1"]).with_id(500);
+        let mut other_key = other.clone();
+        other_key.reset_id();
+        let mut offline_participant =
+            Participant::new(other.clone(), ParticipantSettings::bidirectional());
+        offline_participant.status = ParticipantState::OffLine as i32;
+        moderator
+            .group_list
+            .insert(other_key.clone(), offline_participant);
+
+        let msg = Message::builder()
+            .source(other.clone())
+            .destination(moderator.common.settings.source.clone())
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(1)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::RejoinRequest)
+            .session_id(1)
+            .message_id(100)
+            .payload(
+                CommandPayload::builder()
+                    .rejoin_request(other.clone(), vec![1, 2, 3])
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            moderator.process_control_message(msg, MessageDirection::North, None),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+
+        // Should have sent both RejoinReply and GroupUpdate (always sent for group_list rebuild)
+        let has_rejoin_reply = output.messages.iter().any(|m| match m {
+            OutboundMessage::ToSlim(msg) => {
+                msg.get_session_message_type() == ProtoSessionMessageType::RejoinReply
+            }
+            _ => false,
+        });
+        assert!(has_rejoin_reply, "Expected RejoinReply message");
+
+        let has_group_update = output.messages.iter().any(|m| match m {
+            OutboundMessage::ToSlim(msg) => {
+                msg.get_session_message_type() == ProtoSessionMessageType::GroupUpdate
+            }
+            _ => false,
+        });
+        assert!(has_group_update, "Expected GroupUpdate message");
+
+        // Task should be Rejoin
+        assert!(matches!(
+            moderator.current_task,
+            Some(ModeratorTask::Rejoin(_))
+        ));
     }
 }

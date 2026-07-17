@@ -2302,4 +2302,247 @@ mod tests {
         .await;
         assert!(matches!(result, Err(SessionError::StatusChangeInProgress)));
     }
+
+    // --- Rejoin Tests -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_on_rejoin_reply_sends_ack() {
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
+            setup_participant(ProtoSessionType::Multicast);
+        participant.init().await.unwrap();
+
+        let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
+        participant.moderator_name = Some(moderator.clone());
+
+        // Set up a pending status update matching a RejoinRequest
+        let (ack_tx, _ack_rx) = tokio::sync::oneshot::channel();
+        let msg_id = 42u32;
+        participant.common.pending_status_update = Some(PendingStatusUpdate {
+            message_id: msg_id,
+            message_type: ProtoSessionMessageType::RejoinRequest,
+            status: ParticipantState::OnLine,
+            ack_tx: Some(ack_tx),
+        });
+
+        // Receive a RejoinReply (no MLS in test — mls_state is None so it won't process welcome)
+        let reply_msg = Message::builder()
+            .source(moderator.clone())
+            .destination(participant.common.settings.source.clone())
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::RejoinReply)
+            .session_id(1)
+            .message_id(msg_id)
+            .payload(
+                CommandPayload::builder()
+                    .rejoin_reply(1, vec![])
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            participant.process_control_message(MessageDirection::North, reply_msg, None),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+        assert!(result.is_ok());
+
+        // Should have sent a GroupAck back
+        let output = result.unwrap();
+        assert!(!output.is_empty());
+        let ack_msg = match &output.messages[0] {
+            OutboundMessage::ToSlim(m) => m,
+            _ => panic!("Expected ToSlim message"),
+        };
+        assert_eq!(
+            ack_msg.get_session_message_type(),
+            ProtoSessionMessageType::GroupAck
+        );
+        assert_eq!(ack_msg.get_id(), msg_id);
+    }
+
+    #[tokio::test]
+    async fn test_on_group_update_rejoin_self_refreshes_group_list() {
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
+            setup_participant(ProtoSessionType::Multicast);
+        participant.init().await.unwrap();
+        participant.subscribed = true;
+
+        let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
+        participant.moderator_name = Some(moderator.clone());
+
+        // Set up a stale group_list with an old participant
+        let stale = make_name(&["stale", "participant", "v1"]).with_id(800);
+        participant.group_list.insert(
+            stale.clone(),
+            Participant::new(stale.clone(), ParticipantSettings::bidirectional()),
+        );
+
+        // Fresh participants list from moderator
+        let self_name = participant.common.settings.source.clone();
+        let self_participant =
+            Participant::new(self_name.clone(), ParticipantSettings::bidirectional());
+        let new_other = make_name(&["new_other", "participant", "v1"]).with_id(900);
+        let new_other_participant =
+            Participant::new(new_other.clone(), ParticipantSettings::bidirectional());
+
+        let update_msg = Message::builder()
+            .source(moderator.clone())
+            .destination(participant.common.settings.destination.clone())
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupUpdate)
+            .session_id(1)
+            .message_id(200)
+            .payload(
+                CommandPayload::builder()
+                    .group_update(
+                        slim_datapath::api::GroupUpdateOp::Rejoin,
+                        self_participant.clone(),
+                        vec![self_participant, new_other_participant],
+                        None,
+                    )
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            participant.on_group_update_message(update_msg),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+        assert!(result.is_ok());
+
+        // group_list should be refreshed — stale participant gone, new one present
+        assert!(!participant.group_list.contains_key(&stale));
+        assert!(participant.group_list.contains_key(&self_name));
+        assert!(participant.group_list.contains_key(&new_other));
+    }
+
+    #[tokio::test]
+    async fn test_on_group_update_rejoin_other_marks_online() {
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
+            setup_participant(ProtoSessionType::Multicast);
+        participant.init().await.unwrap();
+        participant.subscribed = true;
+
+        let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
+        participant.moderator_name = Some(moderator.clone());
+
+        // Add another participant that is offline
+        let other = make_name(&["other", "participant", "v1"]).with_id(500);
+        let mut offline_participant =
+            Participant::new(other.clone(), ParticipantSettings::bidirectional());
+        offline_participant.status = ParticipantState::OffLine as i32;
+        participant
+            .group_list
+            .insert(other.clone(), offline_participant.clone());
+
+        let update_msg = Message::builder()
+            .source(moderator.clone())
+            .destination(participant.common.settings.destination.clone())
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupUpdate)
+            .session_id(1)
+            .message_id(300)
+            .payload(
+                CommandPayload::builder()
+                    .group_update(
+                        slim_datapath::api::GroupUpdateOp::Rejoin,
+                        offline_participant,
+                        vec![],
+                        None,
+                    )
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            participant.on_group_update_message(update_msg),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+        assert!(result.is_ok());
+
+        // Participant should be online now
+        assert_eq!(
+            participant.group_list.get(&other).unwrap().status,
+            ParticipantState::OnLine as i32
+        );
+    }
+
+    #[tokio::test]
+    async fn test_on_group_update_rejoin_unknown_other_adds_to_group() {
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
+            setup_participant(ProtoSessionType::Multicast);
+        participant.init().await.unwrap();
+        participant.subscribed = true;
+
+        let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
+        participant.moderator_name = Some(moderator.clone());
+
+        // An unknown participant that is rejoining
+        let unknown = make_name(&["unknown", "participant", "v1"]).with_id(999);
+        let unknown_participant =
+            Participant::new(unknown.clone(), ParticipantSettings::bidirectional());
+
+        let update_msg = Message::builder()
+            .source(moderator.clone())
+            .destination(participant.common.settings.destination.clone())
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupUpdate)
+            .session_id(1)
+            .message_id(400)
+            .payload(
+                CommandPayload::builder()
+                    .group_update(
+                        slim_datapath::api::GroupUpdateOp::Rejoin,
+                        unknown_participant,
+                        vec![],
+                        None,
+                    )
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            participant.on_group_update_message(update_msg),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+        assert!(result.is_ok());
+
+        // Unknown participant should have been added to group_list as online
+        assert!(participant.group_list.contains_key(&unknown));
+        assert_eq!(
+            participant.group_list.get(&unknown).unwrap().status,
+            ParticipantState::OnLine as i32
+        );
+
+        // Should have added endpoint
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        assert_eq!(participant.inner.get_endpoints_added_count().await, 1);
+    }
 }

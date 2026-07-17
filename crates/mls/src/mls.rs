@@ -1287,4 +1287,93 @@ mod tests {
         );
         Ok(())
     }
+
+    #[tokio::test]
+    async fn test_rejoin_member() -> Result<(), Box<dyn std::error::Error>> {
+        // Setup: alice (moderator), bob, charlie in a group
+        let mut alice = Mls::new(
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+        );
+        let mut bob = Mls::new(
+            SharedSecret::new("bob", SHARED_SECRET).unwrap(),
+            SharedSecret::new("bob", SHARED_SECRET).unwrap(),
+        );
+        let mut charlie = Mls::new(
+            SharedSecret::new("charlie", SHARED_SECRET).unwrap(),
+            SharedSecret::new("charlie", SHARED_SECRET).unwrap(),
+        );
+
+        alice.initialize().await?;
+        bob.initialize().await?;
+        charlie.initialize().await?;
+
+        alice.create_group()?;
+
+        // Add bob
+        let bob_key_package = bob.generate_key_package()?;
+        let bob_add_res = alice.add_member(&bob_key_package)?;
+        bob.process_welcome(&bob_add_res.welcome_message)?;
+
+        // Add charlie
+        let charlie_key_package = charlie.generate_key_package()?;
+        let charlie_add_res = alice.add_member(&charlie_key_package)?;
+        bob.process_commit(&charlie_add_res.commit_message)?;
+        charlie.process_welcome(&charlie_add_res.welcome_message)?;
+
+        // All three at the same epoch
+        assert_eq!(alice.get_epoch().unwrap(), bob.get_epoch().unwrap());
+        assert_eq!(alice.get_epoch().unwrap(), charlie.get_epoch().unwrap());
+
+        // Bob goes offline. Simulate epoch advancing without bob:
+        // Remove charlie and re-add charlie (bob doesn't process these commits)
+        let _remove_charlie_commit = alice.remove_member(&charlie_add_res.member_identity)?;
+        // charlie processes its own removal (optional, but keeps charlie in sync for re-add)
+        // bob does NOT process this — he's offline
+
+        let charlie_rejoin_kp = charlie.generate_key_package()?;
+        let charlie_readd_res = alice.add_member(&charlie_rejoin_kp)?;
+        charlie.process_welcome(&charlie_readd_res.welcome_message)?;
+        // bob still doesn't process — his epoch is now stale
+
+        let epoch_before_rejoin = alice.get_epoch().unwrap();
+        assert_ne!(epoch_before_rejoin, bob.get_epoch().unwrap()); // bob is stale
+
+        // Bob wants to rejoin — generate a fresh key package
+        let bob_rejoin_kp = bob.generate_key_package()?;
+
+        // Alice performs the rejoin: remove old bob + re-add with new key package
+        let rejoin_res = alice.rejoin_member(&bob_add_res.member_identity, &bob_rejoin_kp)?;
+
+        // Charlie processes the commit
+        charlie.process_commit(&rejoin_res.commit_message)?;
+
+        // Bob processes the welcome to get back in sync
+        let bob_group_id = bob.process_welcome(&rejoin_res.welcome_message)?;
+        assert_eq!(bob_group_id, alice.get_group_id().unwrap());
+
+        // All three should be at the same epoch (advanced by 1 from the rejoin)
+        let epoch_after_rejoin = alice.get_epoch().unwrap();
+        assert_eq!(epoch_after_rejoin, epoch_before_rejoin + 1);
+        assert_eq!(alice.get_epoch().unwrap(), bob.get_epoch().unwrap());
+        assert_eq!(alice.get_epoch().unwrap(), charlie.get_epoch().unwrap());
+
+        // Verify messaging still works after rejoin
+        let original = b"Hello after rejoin!";
+        let encrypted = alice.encrypt_message(original, vec![])?;
+        let (decrypted_bob, _) = bob.decrypt_message(&encrypted)?;
+        let (decrypted_charlie, _) = charlie.decrypt_message(&encrypted)?;
+        assert_eq!(original, decrypted_bob.as_slice());
+        assert_eq!(original, decrypted_charlie.as_slice());
+
+        // Bob can also send messages
+        let bob_msg = b"Bob is back!";
+        let encrypted = bob.encrypt_message(bob_msg, vec![])?;
+        let (decrypted_alice, _) = alice.decrypt_message(&encrypted)?;
+        let (decrypted_charlie, _) = charlie.decrypt_message(&encrypted)?;
+        assert_eq!(bob_msg, decrypted_alice.as_slice());
+        assert_eq!(bob_msg, decrypted_charlie.as_slice());
+
+        Ok(())
+    }
 }
