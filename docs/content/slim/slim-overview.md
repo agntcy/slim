@@ -49,7 +49,7 @@ SLIM is built from the ground up for agentic workloads:
 
 | Capability | How SLIM delivers it |
 |-----------|----------------------|
-| **Bidirectional, low-latency transport** | Built on gRPC over HTTP/2 — multiplexed, efficient, and NAT/firewall-friendly without any special configuration |
+| **Bidirectional, low-latency transport** | Built on gRPC over HTTP/2 — multiplexed, efficient, and NAT/firewall-friendly without any special configuration, with an optional WebSocket transport for HTTP-only paths and browser (WASM) clients |
 | **End-to-end encryption** | [MLS (RFC 9420)](https://www.rfc-editor.org/rfc/rfc9420.txt) encrypts data at the session layer — even a compromised routing node cannot read message content |
 | **Group communication** | Native multicast and group sessions; agents join shared channels identified by hierarchical names |
 | **Cross-org federation** | SPIRE-based identity federation lets agents in different organizations communicate with verified cryptographic identities |

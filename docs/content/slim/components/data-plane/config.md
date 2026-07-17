@@ -124,6 +124,22 @@ runtime:
 
 The `services` section defines SLIM service instances and their network configurations. Each service is identified by a unique ID in the format `slim/<instance_number>`.
 
+## Transport Protocols
+
+SLIM data plane endpoints support two wire transports: **gRPC over HTTP/2** (the default) and **WebSocket**. The transport is selected automatically from the **endpoint URI scheme** — there is no separate `transport` field.
+
+| Endpoint scheme | Transport | TLS |
+|-----------------|-----------|-----|
+| bare `host:port`, `http://`, `https://` | gRPC over HTTP/2 (default) | Controlled by the `tls` block |
+| `ws://` | WebSocket | Plaintext (set `tls.insecure: true`) |
+| `wss://` | WebSocket | TLS (provide certificates via the `tls` block) |
+| `unix://` | gRPC over a Unix socket | Not supported |
+
+Both transports share the same `tls`, `auth`, and (for clients) `keepalive`/`backoff` configuration blocks documented below. WebSocket is useful when connecting through infrastructure that only forwards HTTP/WebSocket traffic (for example, load balancers or API gateways), or from browser-based (WASM) applications.
+
+!!! note "Transport is chosen by the scheme, not a field"
+    `endpoint: "ws://0.0.0.0:46357"` starts a WebSocket listener, while `endpoint: "0.0.0.0:46357"` starts a gRPC listener. To switch transports, change the endpoint scheme.
+
 ## Service Configuration
 
 ### Basic Service Structure
@@ -651,6 +667,31 @@ dataplane:
         insecure: true
 ```
 
+#### WebSocket
+
+Use a `ws://` endpoint for plaintext WebSocket or `wss://` for WebSocket over TLS. See [Transport Protocols](#transport-protocols).
+
+=== "Plaintext (ws://)"
+    ```yaml
+    dataplane:
+      servers:
+        - endpoint: "ws://0.0.0.0:46357"
+          tls:
+            insecure: true
+    ```
+
+=== "TLS (wss://)"
+    ```yaml
+    dataplane:
+      servers:
+        - endpoint: "wss://0.0.0.0:46357"
+          tls:
+            source:
+              type: file
+              cert: "./certs/server-cert.pem"
+              key: "./certs/server-key.pem"
+    ```
+
 ### Server Connection Settings
 
 ```yaml
@@ -732,6 +773,32 @@ dataplane:
       tls:
         insecure: true
 ```
+
+#### WebSocket
+
+Connect with a `ws://` endpoint for plaintext WebSocket or `wss://` for WebSocket over TLS. See [Transport Protocols](#transport-protocols).
+
+=== "Plaintext (ws://)"
+    ```yaml
+    dataplane:
+      clients:
+        - endpoint: "ws://remote-slim:46357"
+          tls:
+            insecure: true
+    ```
+
+=== "TLS (wss://)"
+    ```yaml
+    dataplane:
+      clients:
+        - endpoint: "wss://remote-slim:46357"
+          # Optional SNI override when the certificate CN/SAN differs from the host
+          server_name: "remote-slim"
+          tls:
+            ca_source:
+              type: file
+              path: "./certs/ca-cert.pem"
+    ```
 
 ### Client Connection Settings
 
@@ -1478,10 +1545,11 @@ services:
 
 ### Endpoint Configuration
 
-The `endpoint` field can be configured as either a network address or a Unix socket:
+The `endpoint` field sets both the address and the transport, which is inferred from the URI scheme (see [Transport Protocols](#transport-protocols)):
 
-- Network address: standard TCP address for gRPC/HTTP/2 connections (e.g., `0.0.0.0:8080`, `example.com:443`)
-- Unix socket: local socket file path prefixed with `unix://` (e.g., `unix:///var/run/slim.sock`)
+- gRPC over HTTP/2 (default): bare TCP address or an `http://`/`https://` URL (e.g., `0.0.0.0:8080`, `example.com:443`, `http://remote-slim:46357`)
+- WebSocket: `ws://` for plaintext or `wss://` for TLS (e.g., `ws://0.0.0.0:46357`, `wss://remote-slim:46357`)
+- Unix socket: local socket file path prefixed with `unix://` (e.g., `unix:///var/run/slim.sock`); gRPC only
 
 !!! warning "Unix Socket Limitations"
     When using Unix sockets, TLS and other transport-related options (such as `tls`, `keepalive`, `proxy`) are not supported and will be ignored. Unix sockets provide local inter-process communication without network transport.
