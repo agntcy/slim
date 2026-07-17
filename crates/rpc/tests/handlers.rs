@@ -1,6 +1,10 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+// The trait-object (`Arc<dyn *Handler>`) registration API this suite exercises
+// is compiled only under the `uniffi` feature, so gate the whole suite on it.
+#![cfg(feature = "uniffi")]
+
 //! End-to-end tests for SlimRPC using the native trait-object handler
 //! registration API and the raw-bytes client call API.
 //!
@@ -296,10 +300,14 @@ impl TestEnv {
             .unwrap();
         let server_app = Arc::new(server_app);
 
-        let server = Arc::new(Server::new_internal(
+        // Native-typed constructor available in both builds (this suite runs
+        // under `uniffi`, where `Server::new` is the FFI-typed constructor).
+        let server = Arc::new(Server::new_with_connection_and_runtime(
             server_app.clone(),
             server_app.app_name().clone(),
+            None,
             server_notifications,
+            None,
         ));
 
         // Create client
@@ -314,7 +322,7 @@ impl TestEnv {
             .unwrap();
         let client_app = Arc::new(client_app);
 
-        let channel = Channel::new_with_members_internal(
+        let channel = Channel::new_with_members(
             client_app.clone(),
             vec![server_app.app_name().clone()],
             false,
@@ -333,7 +341,7 @@ impl TestEnv {
         let server = self.server.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = server.serve_async().await {
+            if let Err(e) = server.serve().await {
                 tracing::error!("Server error: {:?}", e);
             }
         });
@@ -343,7 +351,7 @@ impl TestEnv {
 
     async fn shutdown(&mut self) {
         tracing::info!("Shutting down server...");
-        self.server.shutdown_internal().await;
+        self.server.shutdown().await;
 
         tracing::info!("Shutting down service...");
         self.service.shutdown().await.unwrap();

@@ -87,14 +87,11 @@ dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-controller",
  "agntcy-slim-datapath",
- "agntcy-slim-rpc",
  "agntcy-slim-service",
  "agntcy-slim-session",
  "agntcy-slim-signal",
  "agntcy-slim-tracing",
  "agntcy-slim-version",
- "async-trait",
- "bincode",
  "clap",
  "display-error-chain",
  "futures",
@@ -105,9 +102,7 @@ dependencies = [
  "test-fork",
  "thiserror 2.0.18",
  "tokio",
- "tokio-test",
  "tracing",
- "tracing-test",
  "uniffi",
 ]
 
@@ -370,6 +365,7 @@ name = "agntcy-slim-rpc"
 version = "2.0.0-alpha.5"
 dependencies = [
  "agntcy-slim-auth",
+ "agntcy-slim-bindings",
  "agntcy-slim-config",
  "agntcy-slim-datapath",
  "agntcy-slim-service",

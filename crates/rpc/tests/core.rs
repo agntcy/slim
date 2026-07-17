@@ -1,6 +1,10 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+// Exercises the native (non-uniffi) RPC API; the uniffi trait-object suite
+// lives in handlers.rs.
+#![cfg(not(feature = "uniffi"))]
+
 //! End-to-end tests for SlimRPC
 //!
 //! These tests verify the four RPC interaction patterns:
@@ -106,7 +110,7 @@ impl TestEnv {
             .unwrap();
         let server_app = Arc::new(server_app);
 
-        let server = Arc::new(Server::new_internal(
+        let server = Arc::new(Server::new(
             server_app.clone(),
             server_app.app_name().clone(),
             server_notifications,
@@ -124,7 +128,7 @@ impl TestEnv {
             .unwrap();
         let client_app = Arc::new(client_app);
 
-        let channel = Channel::new_with_members_internal(
+        let channel = Channel::new_with_members(
             client_app.clone(),
             vec![server_app.app_name().clone()],
             false,
@@ -145,7 +149,7 @@ impl TestEnv {
 
         // Spawn task to run the server
         tokio::spawn(async move {
-            if let Err(e) = server.serve_async().await {
+            if let Err(e) = server.serve().await {
                 tracing::error!("Server error: {:?}", e);
             }
         });
@@ -157,7 +161,7 @@ impl TestEnv {
     /// Clean shutdown of the test environment
     async fn shutdown(&mut self) {
         tracing::info!("Shutting down server...");
-        self.server.shutdown_internal().await;
+        self.server.shutdown().await;
 
         tracing::info!("Shutting down service...");
         self.service.shutdown().await.unwrap();
@@ -205,7 +209,7 @@ fn register_counting_handler(
     call_count: Arc<Mutex<i32>>,
     session_ids: Option<Arc<Mutex<Vec<String>>>>,
 ) {
-    server.register_unary_unary_internal(
+    server.register_unary_unary(
         service,
         method,
         move |request: TestRequest, ctx: Context| {
@@ -266,7 +270,7 @@ fn assert_error_with_code(
 async fn test_unary_unary_rpc() {
     let mut env = TestEnv::new("test-service-unary").await;
 
-    env.server.register_unary_unary_internal(
+    env.server.register_unary_unary(
         "TestService",
         "Echo",
         |request: TestRequest, _ctx: Context| async move {
@@ -302,7 +306,7 @@ async fn test_unary_unary_rpc() {
 async fn test_unary_unary_error_handling() {
     let mut env = TestEnv::new("test-service-error").await;
 
-    env.server.register_unary_unary_internal(
+    env.server.register_unary_unary(
         "TestService",
         "ErrorMethod",
         |_request: TestRequest, _ctx: Context| async move {
@@ -336,7 +340,7 @@ async fn test_unary_unary_error_handling() {
 async fn test_stream_unary_rpc() {
     let mut env = TestEnv::new("test-service-stream-unary").await;
 
-    env.server.register_stream_unary_internal(
+    env.server.register_stream_unary(
         "TestService",
         "Sum",
         |mut request_stream: DecodedStream<TestRequest>, _ctx: Context| async move {
@@ -405,7 +409,7 @@ async fn test_stream_unary_rpc() {
 async fn test_stream_unary_error_handling() {
     let mut env = TestEnv::new("test-service-stream-unary-error").await;
 
-    env.server.register_stream_unary_internal(
+    env.server.register_stream_unary(
         "TestService",
         "SumWithValidation",
         |mut request_stream: DecodedStream<TestRequest>, _ctx: Context| async move {
@@ -496,7 +500,7 @@ async fn test_stream_unary_error_handling() {
 async fn test_unary_stream_rpc() {
     let mut env = TestEnv::new("test-service-unary-stream").await;
 
-    env.server.register_unary_stream_internal(
+    env.server.register_unary_stream(
         "TestService",
         "Generate",
         |request: TestRequest, _ctx: Context| async move {
@@ -566,7 +570,7 @@ async fn test_unary_stream_rpc() {
 async fn test_unary_stream_error_handling() {
     let mut env = TestEnv::new("test-service-unary-stream-error").await;
 
-    env.server.register_unary_stream_internal(
+    env.server.register_unary_stream(
         "TestService",
         "GenerateWithError",
         |request: TestRequest, _ctx: Context| async move {
@@ -643,7 +647,7 @@ async fn test_unary_stream_error_handling() {
 async fn test_stream_stream_rpc() {
     let mut env = TestEnv::new("test-service-stream-stream").await;
 
-    env.server.register_stream_stream_internal(
+    env.server.register_stream_stream(
         "TestService",
         "Transform",
         |request_stream, _ctx: Context| async move {
@@ -718,7 +722,7 @@ async fn test_stream_stream_rpc() {
 async fn test_stream_stream_with_async_processing() {
     let mut env = TestEnv::new("test-service-stream-stream-async").await;
 
-    env.server.register_stream_stream_internal(
+    env.server.register_stream_stream(
         "TestService",
         "ProcessAsync",
         |mut request_stream: DecodedStream<TestRequest>, _ctx: Context| async move {
@@ -803,7 +807,7 @@ async fn test_stream_stream_with_async_processing() {
 async fn test_empty_stream_unary() {
     let mut env = TestEnv::new("test-service-empty-stream").await;
 
-    env.server.register_stream_unary_internal(
+    env.server.register_stream_unary(
         "TestService",
         "EmptySum",
         |mut request_stream: DecodedStream<TestRequest>, _ctx: Context| async move {
@@ -846,7 +850,7 @@ async fn test_concurrent_unary_calls() {
     let call_counter = Arc::new(Mutex::new(0));
     let counter_clone = call_counter.clone();
 
-    env.server.register_unary_unary_internal(
+    env.server.register_unary_unary(
         "TestService",
         "Count",
         move |request: TestRequest, _ctx: Context| {
@@ -993,7 +997,7 @@ async fn test_session_reused_after_handler_error() {
     let count_clone = call_count.clone();
     let ids_clone = session_ids.clone();
 
-    env.server.register_unary_unary_internal(
+    env.server.register_unary_unary(
         "TestService",
         "FlakyMethod",
         move |request: TestRequest, ctx: Context| {
@@ -1090,7 +1094,7 @@ async fn test_different_methods_different_sessions() {
     let m1_clone = method1_count.clone();
     let m2_clone = method2_count.clone();
 
-    env.server.register_unary_unary_internal(
+    env.server.register_unary_unary(
         "TestService",
         "Method1",
         move |request: TestRequest, _ctx: Context| {
@@ -1108,7 +1112,7 @@ async fn test_different_methods_different_sessions() {
         },
     );
 
-    env.server.register_unary_unary_internal(
+    env.server.register_unary_unary(
         "TestService",
         "Method2",
         move |request: TestRequest, _ctx: Context| {
@@ -1176,7 +1180,7 @@ async fn test_session_reused_for_streaming() {
     let count_clone = call_count.clone();
     let ids_clone = session_ids.clone();
 
-    env.server.register_unary_stream_internal(
+    env.server.register_unary_stream(
         "TestService",
         "GenerateNumbers",
         move |request: TestRequest, ctx: Context| {
@@ -1288,7 +1292,7 @@ async fn test_concurrent_calls_independent() {
     let active_clone = active_count.clone();
     let max_clone = max_concurrent.clone();
 
-    env.server.register_unary_unary_internal(
+    env.server.register_unary_unary(
         "TestService",
         "SlowEcho",
         move |request: TestRequest, _ctx: Context| {
@@ -1377,7 +1381,7 @@ async fn test_multiple_handler_types_same_client() {
 
     // Register unary-unary handler
     let uu_counter = unary_count.clone();
-    env.server.register_unary_unary_internal(
+    env.server.register_unary_unary(
         "MultiService",
         "UnaryUnary",
         move |request: TestRequest, _ctx: Context| {
@@ -1397,7 +1401,7 @@ async fn test_multiple_handler_types_same_client() {
 
     // Register stream-unary handler
     let su_counter = stream_unary_count.clone();
-    env.server.register_stream_unary_internal(
+    env.server.register_stream_unary(
         "MultiService",
         "StreamUnary",
         move |mut stream: DecodedStream<TestRequest>, _ctx: Context| {
@@ -1425,7 +1429,7 @@ async fn test_multiple_handler_types_same_client() {
 
     // Register unary-stream handler
     let us_counter = unary_stream_count.clone();
-    env.server.register_unary_stream_internal(
+    env.server.register_unary_stream(
         "MultiService",
         "UnaryStream",
         move |request: TestRequest, _ctx: Context| {
@@ -1449,7 +1453,7 @@ async fn test_multiple_handler_types_same_client() {
 
     // Register stream-stream handler
     let ss_counter = stream_stream_count.clone();
-    env.server.register_stream_stream_internal(
+    env.server.register_stream_stream(
         "MultiService",
         "StreamStream",
         move |mut stream: DecodedStream<TestRequest>, _ctx: Context| {
@@ -1609,7 +1613,7 @@ async fn test_client_deadline_unary_unary() {
     let mut env = TestEnv::new("test-client-deadline-unary").await;
 
     // Register a handler that takes longer than the timeout
-    env.server.register_unary_unary_internal(
+    env.server.register_unary_unary(
         "TestService",
         "SlowMethod",
         |request: TestRequest, _ctx: Context| async move {
@@ -1655,7 +1659,7 @@ async fn test_client_deadline_unary_stream() {
     let mut env = TestEnv::new("test-client-deadline-unary-stream").await;
 
     // Register a handler that streams slowly
-    env.server.register_unary_stream_internal(
+    env.server.register_unary_stream(
         "TestService",
         "SlowStream",
         |request: TestRequest, _ctx: Context| async move {
@@ -1716,7 +1720,7 @@ async fn test_server_deadline_unary_unary() {
     let mut env = TestEnv::new("test-server-deadline-unary").await;
 
     // Register a handler that takes longer than the deadline
-    env.server.register_unary_unary_internal(
+    env.server.register_unary_unary(
         "TestService",
         "SlowHandler",
         |request: TestRequest, _ctx: Context| async move {
@@ -1762,7 +1766,7 @@ async fn test_server_deadline_unary_stream() {
     let mut env = TestEnv::new("test-server-deadline-unary-stream").await;
 
     // Register a handler that takes too long to start streaming
-    env.server.register_unary_stream_internal(
+    env.server.register_unary_stream(
         "TestService",
         "SlowStreamHandler",
         |request: TestRequest, _ctx: Context| async move {
@@ -1815,7 +1819,7 @@ async fn test_server_deadline_stream_unary() {
     let mut env = TestEnv::new("test-server-deadline-stream-unary").await;
 
     // Register a handler that takes too long to process the stream
-    env.server.register_stream_unary_internal(
+    env.server.register_stream_unary(
         "TestService",
         "SlowStreamUnary",
         |mut request_stream: DecodedStream<TestRequest>, _ctx: Context| async move {
@@ -1875,7 +1879,7 @@ async fn test_server_deadline_stream_stream() {
     let mut env = TestEnv::new("test-server-deadline-stream-stream").await;
 
     // Register a handler that takes too long to setup
-    env.server.register_stream_stream_internal(
+    env.server.register_stream_stream(
         "TestService",
         "SlowStreamStream",
         |mut request_stream: DecodedStream<TestRequest>, _ctx: Context| async move {
@@ -1947,7 +1951,7 @@ async fn test_server_deadline_already_exceeded() {
     let handler_called_clone = handler_called.clone();
 
     // Register a handler
-    env.server.register_unary_unary_internal(
+    env.server.register_unary_unary(
         "TestService",
         "CheckDeadline",
         move |request: TestRequest, _ctx: Context| {
@@ -2014,7 +2018,7 @@ async fn test_deadline_propagation() {
     let deadline_clone = deadline_from_handler.clone();
 
     // Register a handler that captures the deadline from context
-    env.server.register_unary_unary_internal(
+    env.server.register_unary_unary(
         "TestService",
         "CaptureDeadline",
         move |request: TestRequest, ctx: Context| {
@@ -2090,7 +2094,7 @@ async fn test_server_rejects_already_expired_deadline() {
     let handler_called_clone = handler_called.clone();
 
     // Register a handler that should never be called
-    env.server.register_unary_unary_internal(
+    env.server.register_unary_unary(
         "TestService",
         "ShouldNotBeCalled",
         move |request: TestRequest, _ctx: Context| {
@@ -2165,7 +2169,7 @@ async fn test_server_enforces_deadline_during_handler_execution() {
     let completed_clone = handler_completed.clone();
 
     // Register a handler that takes a long time (ignores deadline)
-    env.server.register_unary_unary_internal(
+    env.server.register_unary_unary(
         "TestService",
         "LongRunningIgnoresDeadline",
         move |request: TestRequest, _ctx: Context| {
@@ -2243,7 +2247,7 @@ async fn test_server_enforces_deadline_for_stream_unary() {
     let handler_completed_clone = handler_completed.clone();
 
     // Register a stream-unary handler that processes messages slowly
-    env.server.register_stream_unary_internal(
+    env.server.register_stream_unary(
         "TestService",
         "SlowStreamProcessor",
         move |mut request_stream: DecodedStream<TestRequest>, _ctx: Context| {
@@ -2339,7 +2343,7 @@ async fn test_server_enforces_deadline_for_unary_stream() {
     let completed_clone = handler_completed.clone();
 
     // Register a unary-stream handler that generates messages slowly
-    env.server.register_unary_stream_internal(
+    env.server.register_unary_stream(
         "TestService",
         "SlowStreamGenerator",
         move |request: TestRequest, _ctx: Context| {
@@ -2440,7 +2444,7 @@ async fn test_server_enforces_deadline_for_stream_stream() {
     let completed_clone = handler_completed.clone();
 
     // Register a stream-stream handler that processes slowly
-    env.server.register_stream_stream_internal(
+    env.server.register_stream_stream(
         "TestService",
         "SlowStreamTransform",
         move |mut request_stream: DecodedStream<TestRequest>, _ctx: Context| {
@@ -2553,7 +2557,7 @@ async fn test_server_restart() {
     let call_count = Arc::new(Mutex::new(0u32));
     let count_clone = call_count.clone();
 
-    env.server.register_unary_unary_internal(
+    env.server.register_unary_unary(
         "TestService",
         "Counter",
         move |request: TestRequest, _ctx: Context| {
@@ -2611,7 +2615,7 @@ async fn test_server_restart() {
 
     // Shutdown the server
     tracing::info!("Shutting down server for restart test...");
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 
     // Give a brief moment for cleanup
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -2666,7 +2670,7 @@ async fn test_server_shutdown_during_handler_execution() {
     let started_clone = handler_started.clone();
 
     // Register a handler that takes some time to execute
-    env.server.register_unary_unary_internal(
+    env.server.register_unary_unary(
         "TestService",
         "SlowHandler",
         move |request: TestRequest, _ctx: Context| {
@@ -2714,7 +2718,7 @@ async fn test_server_shutdown_during_handler_execution() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Now shut down the server while the handler is still executing
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 
     // The RPC call should return an error since the handler was cancelled
     let result = call_handle.await.expect("Task should not panic");

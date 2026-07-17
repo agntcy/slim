@@ -28,7 +28,7 @@ use futures::stream::Stream;
 use futures_timer::Delay;
 use parking_lot::RwLock as ParkingRwLock;
 use slim_session::session_config::MlsSettings;
-use tokio::sync::mpsc::{self, unbounded_channel};
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
@@ -60,10 +60,8 @@ pub struct MulticastItem<T> {
 }
 
 use super::{
-    BidiStreamHandler, Context, METHOD_KEY, Metadata, MulticastBidiStreamHandler,
-    MulticastResponseReader, RPC_DIR_KEY, RPC_DIR_REQ, RPC_ID_KEY, ReceivedMessage,
-    RequestStreamWriter, ResponseStreamReader, RpcCode, RpcError, SERVICE_KEY, STATUS_CODE_KEY,
-    calculate_timeout_duration,
+    Context, METHOD_KEY, Metadata, RPC_DIR_KEY, RPC_DIR_REQ, RPC_ID_KEY, ReceivedMessage, RpcCode,
+    RpcError, SERVICE_KEY, STATUS_CODE_KEY, calculate_timeout_duration,
     codec::{Decoder, Encoder},
     send_eos,
     session_wrapper::{SessionRx, SessionTx, new_session},
@@ -241,6 +239,7 @@ fn continuation_metadata(rpc_id: &str) -> Metadata {
 ///   - **Many members**: creates a GROUP channel with a generated session name
 ///     and auto-invites all members on the first multicast call.
 #[derive(Clone)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct Channel {
     app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
     /// Session destination: the remote server name for P2P channels, or a
@@ -255,7 +254,7 @@ pub struct Channel {
     /// in `ChannelSession::members` and inherited across session recreations.
     initial_members: HashSet<Name>,
     connection_id: Option<u64>,
-    runtime: tokio::runtime::Handle,
+    pub(crate) runtime: tokio::runtime::Handle,
     /// Persistent session (lazily initialised, recreated when dead).
     /// PointToPoint for P2P channels, Multicast for GROUP channels.
     session: Arc<tokio::sync::Mutex<Option<ChannelSession>>>,
@@ -269,11 +268,12 @@ impl Channel {
     ///   and all `members` are auto-invited on the first multicast call.
     ///
     /// Returns an error if `members` is empty.
-    pub fn new_with_members_internal(
+    pub(crate) fn new_with_members_internal(
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         members: Vec<Name>,
         is_group: bool,
         connection_id: Option<u64>,
+        runtime: tokio::runtime::Handle,
     ) -> Result<Self, RpcError> {
         if members.is_empty() {
             return Err(RpcError::invalid_argument("members must not be empty"));
@@ -283,8 +283,6 @@ impl Channel {
                 "P2P channel requires exactly one member",
             ));
         }
-
-        let runtime = crate::get_runtime();
 
         let members_set: HashSet<Name> = members.into_iter().collect();
 
@@ -880,8 +878,33 @@ impl Channel {
     }
 }
 
-// ── UniFFI exports ────────────────────────────────────────────────────────────
+// ── Native constructors ─────────────────────────────────────────────────────
 
+impl Channel {
+    /// Create a channel to `members` (P2P if `is_group` is false, GROUP if true),
+    /// running on the ambient tokio runtime.
+    ///
+    /// This is the native-typed public constructor. It is available in both
+    /// builds; the `uniffi` build additionally exposes `#[uniffi::constructor]`
+    /// wrappers below that accept the FFI `App`/`Name` types and supply the
+    /// bindings-owned runtime.
+    pub fn new_with_members(
+        app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
+        members: Vec<Name>,
+        is_group: bool,
+        connection_id: Option<u64>,
+    ) -> Result<Self, RpcError> {
+        Self::new_with_members_internal(
+            app,
+            members,
+            is_group,
+            connection_id,
+            tokio::runtime::Handle::current(),
+        )
+    }
+}
+
+#[cfg(not(feature = "uniffi"))]
 impl Channel {
     pub fn new(app: Arc<SlimApp<AuthProvider, AuthVerifier>>, remote: Arc<Name>) -> Self {
         Self::new_with_connection(app, remote, None)
@@ -894,8 +917,14 @@ impl Channel {
     ) -> Self {
         let slim_app = app.clone();
         let slim_name = remote.as_ref().clone();
-        Self::new_with_members_internal(slim_app, vec![slim_name], false, connection_id)
-            .expect("single non-empty member list is always valid")
+        Self::new_with_members_internal(
+            slim_app,
+            vec![slim_name],
+            false,
+            connection_id,
+            tokio::runtime::Handle::current(),
+        )
+        .expect("single non-empty member list is always valid")
     }
 
     pub fn new_group(
@@ -912,280 +941,29 @@ impl Channel {
     ) -> Result<Self, RpcError> {
         let slim_app = app.clone();
         let slim_names = members.iter().map(|n| n.as_ref().clone()).collect();
-        Self::new_with_members_internal(slim_app, slim_names, true, connection_id)
+        Self::new_with_members_internal(
+            slim_app,
+            slim_names,
+            true,
+            connection_id,
+            tokio::runtime::Handle::current(),
+        )
     }
+}
 
-    pub fn call_unary(
-        &self,
-        service_name: String,
-        method_name: String,
-        request: Vec<u8>,
-        timeout: Option<std::time::Duration>,
-        metadata: Option<Metadata>,
-    ) -> Result<Vec<u8>, RpcError> {
-        crate::get_runtime().block_on(self.call_unary_async(
-            service_name,
-            method_name,
-            request,
-            timeout,
-            metadata,
-        ))
-    }
+// ── UniFFI exports ────────────────────────────────────────────────────────────
 
-    pub async fn call_unary_async(
-        &self,
-        service_name: String,
-        method_name: String,
-        request: Vec<u8>,
-        timeout: Option<std::time::Duration>,
-        metadata: Option<Metadata>,
-    ) -> Result<Vec<u8>, RpcError> {
-        self.unary(&service_name, &method_name, request, timeout, metadata)
-            .await
-    }
+// The blocking FFI call methods (`call_*` / `close`) live in `crate::ffi`.
 
-    pub fn call_unary_stream(
-        &self,
-        service_name: String,
-        method_name: String,
-        request: Vec<u8>,
-        timeout: Option<std::time::Duration>,
-        metadata: Option<Metadata>,
-    ) -> Result<Arc<ResponseStreamReader>, RpcError> {
-        crate::get_runtime().block_on(self.call_unary_stream_async(
-            service_name,
-            method_name,
-            request,
-            timeout,
-            metadata,
-        ))
-    }
-
-    pub async fn call_unary_stream_async(
-        &self,
-        service_name: String,
-        method_name: String,
-        request: Vec<u8>,
-        timeout: Option<std::time::Duration>,
-        metadata: Option<Metadata>,
-    ) -> Result<Arc<ResponseStreamReader>, RpcError> {
-        let channel = self.clone();
-        let (tx, rx) = unbounded_channel();
-        crate::get_runtime().spawn(async move {
-            let stream = channel.unary_stream::<Vec<u8>, Vec<u8>>(
-                &service_name,
-                &method_name,
-                request,
-                timeout,
-                metadata,
-            );
-            futures::pin_mut!(stream);
-            while let Some(item) = futures::StreamExt::next(&mut stream).await {
-                if tx.send(item).is_err() {
-                    break;
-                }
-            }
-        });
-        Ok(Arc::new(ResponseStreamReader::new(rx)))
-    }
-
-    pub fn call_stream_unary(
-        &self,
-        service_name: String,
-        method_name: String,
-        timeout: Option<std::time::Duration>,
-        metadata: Option<Metadata>,
-    ) -> Arc<RequestStreamWriter> {
-        Arc::new(RequestStreamWriter::new(
-            self.clone(),
-            service_name,
-            method_name,
-            timeout,
-            metadata,
-        ))
-    }
-
-    pub fn call_stream_stream(
-        &self,
-        service_name: String,
-        method_name: String,
-        timeout: Option<std::time::Duration>,
-        metadata: Option<HashMap<String, String>>,
-    ) -> Arc<BidiStreamHandler> {
-        Arc::new(BidiStreamHandler::new(
-            self.clone(),
-            service_name,
-            method_name,
-            timeout,
-            metadata,
-        ))
-    }
-
-    // ── Multicast UniFFI methods ───────────────────────────────────────────────
-
-    /// Broadcast one request to all GROUP members and collect their responses.
+impl Channel {
+    /// Close the channel's active session, if any.
     ///
-    /// Returns a reader from which each member's response (wrapped in
-    /// `MulticastStreamMessage`) can be pulled one at a time (blocking).
-    pub fn call_multicast_unary(
-        &self,
-        service_name: String,
-        method_name: String,
-        request: Vec<u8>,
-        timeout: Option<std::time::Duration>,
-        metadata: Option<Metadata>,
-    ) -> Result<Arc<MulticastResponseReader>, RpcError> {
-        crate::get_runtime().block_on(self.call_multicast_unary_async(
-            service_name,
-            method_name,
-            request,
-            timeout,
-            metadata,
-        ))
-    }
-
-    /// Broadcast one request to all GROUP members and collect their responses
-    /// (async).
-    pub async fn call_multicast_unary_async(
-        &self,
-        service_name: String,
-        method_name: String,
-        request: Vec<u8>,
-        timeout: Option<std::time::Duration>,
-        metadata: Option<Metadata>,
-    ) -> Result<Arc<MulticastResponseReader>, RpcError> {
-        let channel = self.clone();
-        let (tx, rx) = unbounded_channel();
-        crate::get_runtime().spawn(async move {
-            let stream = channel.multicast_unary::<Vec<u8>, Vec<u8>>(
-                &service_name,
-                &method_name,
-                request,
-                timeout,
-                metadata,
-            );
-            futures::pin_mut!(stream);
-            while let Some(item) = futures::StreamExt::next(&mut stream).await {
-                if tx.send(item).is_err() {
-                    break;
-                }
-            }
-        });
-        Ok(Arc::new(MulticastResponseReader::new(rx)))
-    }
-
-    /// Broadcast one request to all GROUP members and stream their responses
-    /// (blocking).
-    ///
-    /// Semantically identical to `call_multicast_unary` at the transport level;
-    /// the difference is that each member may send multiple responses before its
-    /// EOS, which the server handler determines.
-    pub fn call_multicast_unary_stream(
-        &self,
-        service_name: String,
-        method_name: String,
-        request: Vec<u8>,
-        timeout: Option<std::time::Duration>,
-        metadata: Option<Metadata>,
-    ) -> Result<Arc<MulticastResponseReader>, RpcError> {
-        crate::get_runtime().block_on(self.call_multicast_unary_stream_async(
-            service_name,
-            method_name,
-            request,
-            timeout,
-            metadata,
-        ))
-    }
-
-    /// Broadcast one request to all GROUP members and stream their responses
-    /// (async).
-    pub async fn call_multicast_unary_stream_async(
-        &self,
-        service_name: String,
-        method_name: String,
-        request: Vec<u8>,
-        timeout: Option<std::time::Duration>,
-        metadata: Option<Metadata>,
-    ) -> Result<Arc<MulticastResponseReader>, RpcError> {
-        let channel = self.clone();
-        let (tx, rx) = unbounded_channel();
-        crate::get_runtime().spawn(async move {
-            let stream = channel.multicast_unary_stream::<Vec<u8>, Vec<u8>>(
-                &service_name,
-                &method_name,
-                request,
-                timeout,
-                metadata,
-            );
-            futures::pin_mut!(stream);
-            while let Some(item) = futures::StreamExt::next(&mut stream).await {
-                if tx.send(item).is_err() {
-                    break;
-                }
-            }
-        });
-        Ok(Arc::new(MulticastResponseReader::new(rx)))
-    }
-
-    /// Broadcast a request stream to all GROUP members and collect their
-    /// responses.
-    ///
-    /// Returns a handler that lets you send requests and receive responses
-    /// concurrently. Use `send` / `send_async` to push request messages,
-    /// `close_send` / `close_send_async` to signal end-of-requests, and
-    /// `recv` / `recv_async` to pull response items.
-    pub fn call_multicast_stream_unary(
-        &self,
-        service_name: String,
-        method_name: String,
-        timeout: Option<std::time::Duration>,
-        metadata: Option<Metadata>,
-    ) -> Arc<MulticastBidiStreamHandler> {
-        Arc::new(MulticastBidiStreamHandler::new(
-            self.clone(),
-            service_name,
-            method_name,
-            timeout,
-            metadata,
-        ))
-    }
-
-    /// Broadcast a request stream to all GROUP members and stream their
-    /// responses.
-    ///
-    /// Semantically equivalent to `call_multicast_stream_unary` at the
-    /// transport level; the difference (one vs many responses per member) is
-    /// determined by the server handler.
-    pub fn call_multicast_stream_stream(
-        &self,
-        service_name: String,
-        method_name: String,
-        timeout: Option<std::time::Duration>,
-        metadata: Option<Metadata>,
-    ) -> Arc<MulticastBidiStreamHandler> {
-        Arc::new(MulticastBidiStreamHandler::new(
-            self.clone(),
-            service_name,
-            method_name,
-            timeout,
-            metadata,
-        ))
-    }
-
-    /// Close the persistent SLIM session held by this channel, if any.
-    ///
-    /// `timeout` optionally bounds how long to wait for the session layer to
-    /// confirm the close before giving up and proceeding with cleanup anyway.
-    /// Pass `None` to wait indefinitely.
+    /// Native Rust applications await this directly; the blocking and FFI
+    /// (`close_async`) variants live in `crate::ffi`.
     ///
     /// After this call the channel can still be used; a new session will be
     /// created automatically on the next RPC call.
-    pub fn close(&self, timeout: Option<Duration>) -> Result<(), RpcError> {
-        crate::get_runtime().block_on(self.close_async(timeout))
-    }
-
-    /// Async version of [`close`](Self::close).
-    pub async fn close_async(&self, timeout: Option<Duration>) -> Result<(), RpcError> {
+    pub async fn close(&self, timeout: Option<Duration>) -> Result<(), RpcError> {
         let mut guard = self.session.lock().await;
         let Some(cs) = guard.take() else {
             return Ok(());

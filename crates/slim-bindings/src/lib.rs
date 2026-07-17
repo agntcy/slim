@@ -60,9 +60,6 @@ mod service;
 mod session;
 mod transport_protocol;
 
-// SlimRPC module (unified core + UniFFI bindings)
-pub mod slimrpc;
-
 // Public re-exports
 pub use app::{App, Direction, SessionWithCompletion};
 pub use build_info::{BuildInfo, get_build_info, get_version};
@@ -104,20 +101,5 @@ pub use transport_protocol::TransportProtocol;
 pub use transport_protocol::TransportProtocol as ClientTransportProtocol;
 pub use transport_protocol::TransportProtocol as ServerTransportProtocol;
 
-// SLIMRpc re-exports
-pub use slimrpc::{
-    BidiStreamHandler, Channel, Codec, Context, DEADLINE_KEY, DecodedStream, Decoder, Encoder,
-    HandlerType, InvalidRpcCode, MAX_TIMEOUT, MulticastBidiStreamHandler, MulticastResponseReader,
-    MulticastStreamMessage, RawStream, RequestStreamWriter, ResponseSink, ResponseStreamReader,
-    RpcCode, RpcError, RpcMessageContext, RpcMulticastItem, STATUS_CODE_KEY, Server,
-    SessionContext as RpcSessionContext, StreamMessage, StreamStreamHandler, StreamUnaryHandler,
-    UnaryStreamHandler, UnaryUnaryHandler, UniffiRequestStream as RequestStream,
-    build_method_subscription_name,
-};
-
 // UniFFI scaffolding setup (must be at crate root)
 uniffi::setup_scaffolding!();
-
-// Re-export the scaffolding of the native slimrpc crate so this cdylib ships
-// its FFI symbols (same pattern the slim-bindings wrapper uses for this crate).
-slim_rpc::uniffi_reexport_scaffolding!();

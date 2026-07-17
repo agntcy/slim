@@ -227,6 +227,7 @@ repository = "https://github.com/agntcy/slim"
 ignored = [
     "agntcy-slim",
     "agntcy-slim-auth",
+    "agntcy-slim-bindings",
     "agntcy-slim-config",
     "agntcy-slim-controller",
     "agntcy-slim-datapath",
