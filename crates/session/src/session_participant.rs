@@ -1809,4 +1809,352 @@ mod tests {
         .await;
         assert!(result.is_ok());
     }
+
+    // --- UpdateParticipantState Tests ---
+
+    #[tokio::test]
+    async fn test_update_participant_state_offline_from_slim() {
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
+            setup_participant(ProtoSessionType::Multicast);
+        participant.init().await.unwrap();
+
+        let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
+        participant.moderator_name = Some(moderator.clone());
+
+        // Add a participant to the group
+        let other = make_name(&["other", "participant", "v1"]).with_id(500);
+        participant.group_list.insert(
+            other.clone(),
+            ParticipantEntry {
+                settings: ParticipantSettings::bidirectional(),
+                online: true,
+            },
+        );
+
+        // Receive an UpdateParticipantState(OffLine)
+        let msg = Message::builder()
+            .source(other.clone())
+            .destination(participant.common.settings.destination.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
+            .session_id(1)
+            .message_id(100)
+            .payload(
+                CommandPayload::builder()
+                    .update_participant_state(other.clone(), ParticipantState::OffLine, 0)
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            participant.process_control_message(MessageDirection::North, msg, None),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+        assert!(result.is_ok());
+
+        // Participant should be offline
+        assert!(!participant.group_list.get(&other).unwrap().online);
+
+        // Should have sent an ACK
+        let output = result.unwrap();
+        assert!(!output.is_empty());
+        let ack_msg = match &output.messages[0] {
+            OutboundMessage::ToSlim(m) => m,
+            _ => panic!("Expected ToSlim message"),
+        };
+        assert_eq!(
+            ack_msg.get_session_message_type(),
+            ProtoSessionMessageType::GroupAck
+        );
+    }
+
+    #[tokio::test]
+    async fn test_update_participant_state_online_from_slim_epoch_match() {
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
+            setup_participant(ProtoSessionType::Multicast);
+        participant.init().await.unwrap();
+
+        // Add a participant that is offline
+        let other = make_name(&["other", "participant", "v1"]).with_id(500);
+        participant.group_list.insert(
+            other.clone(),
+            ParticipantEntry {
+                settings: ParticipantSettings::bidirectional(),
+                online: false,
+            },
+        );
+
+        // MLS is None in test setup, so epoch check is skipped (always matches)
+        let msg = Message::builder()
+            .source(other.clone())
+            .destination(participant.common.settings.destination.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
+            .session_id(1)
+            .message_id(101)
+            .payload(
+                CommandPayload::builder()
+                    .update_participant_state(other.clone(), ParticipantState::OnLine, 0)
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            participant.process_control_message(MessageDirection::North, msg, None),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+        assert!(result.is_ok());
+
+        // Participant should be online now
+        assert!(participant.group_list.get(&other).unwrap().online);
+
+        // Should have sent an ACK
+        let output = result.unwrap();
+        assert!(!output.is_empty());
+        let ack_msg = match &output.messages[0] {
+            OutboundMessage::ToSlim(m) => m,
+            _ => panic!("Expected ToSlim message"),
+        };
+        assert_eq!(
+            ack_msg.get_session_message_type(),
+            ProtoSessionMessageType::GroupAck
+        );
+    }
+
+    #[tokio::test]
+    async fn test_update_participant_state_from_app_close() {
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
+            setup_participant(ProtoSessionType::Multicast);
+        participant.init().await.unwrap();
+
+        let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
+        participant.moderator_name = Some(moderator.clone());
+
+        // Add another participant
+        let other = make_name(&["other", "participant", "v1"]).with_id(500);
+        participant.group_list.insert(
+            other.clone(),
+            ParticipantEntry {
+                settings: ParticipantSettings::bidirectional(),
+                online: true,
+            },
+        );
+        participant.common.sender.add_participant(&other);
+
+        let (ack_tx, mut ack_rx) = tokio::sync::oneshot::channel();
+
+        let msg = Message::builder()
+            .source(participant.common.settings.source.clone())
+            .destination(participant.common.settings.control.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
+            .session_id(1)
+            .message_id(200)
+            .payload(
+                CommandPayload::builder()
+                    .update_participant_state(
+                        participant.common.settings.source.clone(),
+                        ParticipantState::OffLine,
+                        0,
+                    )
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            participant.process_control_message(MessageDirection::South, msg, Some(ack_tx)),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+        assert!(result.is_ok());
+
+        // Should have a pending status update
+        assert!(participant.common.pending_status_update.is_some());
+        let pending = participant.common.pending_status_update.as_ref().unwrap();
+        assert_eq!(pending.status, ParticipantState::OffLine);
+
+        // Participants should still be online (they change on ACK completion)
+        assert!(participant.group_list.get(&other).unwrap().online);
+
+        // ack_rx should not have been notified yet
+        assert!(ack_rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_update_participant_state_from_app_rejoin_and_nack() {
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
+            setup_participant(ProtoSessionType::Multicast);
+        participant.init().await.unwrap();
+
+        let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
+        participant.moderator_name = Some(moderator.clone());
+
+        // Add participants
+        let other1 = make_name(&["other1", "participant", "v1"]).with_id(500);
+        let other2 = make_name(&["other2", "participant", "v1"]).with_id(600);
+        participant.group_list.insert(
+            other1.clone(),
+            ParticipantEntry {
+                settings: ParticipantSettings::bidirectional(),
+                online: true,
+            },
+        );
+        participant.group_list.insert(
+            other2.clone(),
+            ParticipantEntry {
+                settings: ParticipantSettings::bidirectional(),
+                online: true,
+            },
+        );
+        participant.common.sender.add_participant(&other1);
+        participant.common.sender.add_participant(&other2);
+
+        let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+
+        // Send rejoin from app
+        let msg = Message::builder()
+            .source(participant.common.settings.source.clone())
+            .destination(participant.common.settings.control.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
+            .session_id(1)
+            .message_id(201)
+            .payload(
+                CommandPayload::builder()
+                    .update_participant_state(
+                        participant.common.settings.source.clone(),
+                        ParticipantState::OnLine,
+                        u64::MAX,
+                    )
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            participant.process_control_message(MessageDirection::South, msg, Some(ack_tx)),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+        assert!(result.is_ok());
+
+        // All participants should be marked offline after rejoin send
+        assert!(!participant.group_list.get(&other1).unwrap().online);
+        assert!(!participant.group_list.get(&other2).unwrap().online);
+
+        // Should have a pending status update with OnLine
+        assert!(participant.common.pending_status_update.is_some());
+        let msg_id = participant
+            .common
+            .pending_status_update
+            .as_ref()
+            .unwrap()
+            .message_id;
+
+        // Now receive a NACK → rejoin should fail
+        let nack_msg = Message::builder()
+            .source(other1.clone())
+            .destination(participant.common.settings.source.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupNack)
+            .session_id(1)
+            .message_id(msg_id)
+            .payload(CommandPayload::builder().group_nack().as_content())
+            .build_publish()
+            .unwrap();
+
+        let result = run_with_acks(
+            participant.process_control_message(MessageDirection::North, nack_msg, None),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+        assert!(result.is_ok());
+
+        // The pending status update should be cleared
+        assert!(participant.common.pending_status_update.is_none());
+
+        // The app should have been notified of failure
+        let ack_result = ack_rx.await.unwrap();
+        assert!(ack_result.is_err());
+        assert!(matches!(
+            ack_result.unwrap_err(),
+            SessionError::RejoinFailed
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_status_change_in_progress_guard() {
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
+            setup_participant(ProtoSessionType::Multicast);
+        participant.init().await.unwrap();
+
+        let moderator = make_name(&["moderator", "app", "v1"]).with_id(300);
+        participant.moderator_name = Some(moderator.clone());
+
+        let other = make_name(&["other", "participant", "v1"]).with_id(500);
+        participant.group_list.insert(
+            other.clone(),
+            ParticipantEntry {
+                settings: ParticipantSettings::bidirectional(),
+                online: true,
+            },
+        );
+        participant.common.sender.add_participant(&other);
+
+        // Set a pending status update
+        participant.common.pending_status_update = Some(PendingStatusUpdate {
+            message_id: 100,
+            status: ParticipantState::OffLine,
+            ack_tx: None,
+        });
+
+        // Try another state change — should fail
+        let msg = Message::builder()
+            .source(participant.common.settings.source.clone())
+            .destination(participant.common.settings.control.clone())
+            .identity("")
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
+            .session_id(1)
+            .message_id(201)
+            .payload(
+                CommandPayload::builder()
+                    .update_participant_state(
+                        participant.common.settings.source.clone(),
+                        ParticipantState::OnLine,
+                        0,
+                    )
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            participant.process_control_message(MessageDirection::South, msg, None),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+        assert!(matches!(result, Err(SessionError::StatusChangeInProgress)));
+    }
 }

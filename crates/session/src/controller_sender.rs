@@ -1537,4 +1537,82 @@ mod tests {
             panic!("Heartbeat state should be initialized");
         }
     }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_stop_and_restart_heartbeat() {
+        let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
+        let heartbeat_interval = Duration::from_millis(300);
+        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let source = ProtoName::from_strings(["org", "ns", "source"]);
+        let participant = ProtoName::from_strings(["org", "ns", "participant"]).with_id(100);
+        let session_id = 1;
+
+        let mut sender = ControllerSender::new(
+            settings,
+            source.clone(),
+            ProtoSessionType::Multicast,
+            session_id,
+            Some(heartbeat_interval),
+            false,
+            tx_signal,
+        );
+
+        sender.add_participant(&participant);
+
+        // Verify heartbeat state is initialized
+        assert!(sender.heartbeat_state.is_some());
+        assert_eq!(
+            sender
+                .heartbeat_state
+                .as_ref()
+                .unwrap()
+                .missed_heartbeats
+                .get(&participant)
+                .copied(),
+            Some(0)
+        );
+
+        // Stop heartbeat — missed_heartbeats should be cleared
+        sender.stop_heartbeat();
+        assert!(
+            sender
+                .heartbeat_state
+                .as_ref()
+                .unwrap()
+                .missed_heartbeats
+                .is_empty()
+        );
+
+        // No timer should fire after stop
+        let no_signal = timeout(Duration::from_millis(500), rx_signal.recv()).await;
+        assert!(no_signal.is_err(), "Expected no timer signal after stop");
+
+        // Restart heartbeat — missed_heartbeats should be repopulated from group_list
+        sender.restart_heartbeat();
+        assert_eq!(
+            sender
+                .heartbeat_state
+                .as_ref()
+                .unwrap()
+                .missed_heartbeats
+                .get(&participant)
+                .copied(),
+            Some(0)
+        );
+        // Source (local_name) should NOT be in missed_heartbeats
+        assert!(
+            !sender
+                .heartbeat_state
+                .as_ref()
+                .unwrap()
+                .missed_heartbeats
+                .contains_key(&source)
+        );
+
+        // Timer should fire again after restart
+        let (_, message_type) = expect_timeout(&mut rx_signal, Duration::from_millis(500)).await;
+        assert_eq!(message_type, ProtoSessionMessageType::Heartbeat);
+    }
 }
