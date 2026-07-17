@@ -11,8 +11,8 @@ use display_error_chain::ErrorChainExt;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, MlsPayload, NameId, Participant, ProtoMessage as Message, ProtoMlsSettings,
-        ProtoName, ProtoSessionMessageType, ProtoSessionType,
+        CommandPayload, MlsPayload, NameId, Participant, ParticipantState, ProtoMessage as Message,
+        ProtoMlsSettings, ProtoName, ProtoSessionMessageType, ProtoSessionType,
     },
     messages::utils::{DELETE_GROUP, LEAVE_REPLY_SENT, LEAVING_SESSION, TRUE_VAL},
 };
@@ -29,7 +29,7 @@ use crate::{
         AddParticipant, ModeratorTask, NotifyParticipants, RemoveParticipant, TaskUpdate,
     },
     runtime::maybe_await,
-    session_controller::{SessionControllerCommon, sign_control_messages},
+    session_controller::{PendingStatusUpdate, SessionControllerCommon, sign_control_messages},
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
     traits::{MessageHandler, ProcessingState},
@@ -145,13 +145,34 @@ where
                     self.common.sender.notify_received_activity(&message);
                 }
 
+                // If the moderator is offline drop all messages except:
+                // - UpdateParticipantState from the app (South) — the app wants to come back online
+                // - GroupAck — responses to our own rejoin/close
+                if !self.common.online {
+                    let msg_type = message.get_session_message_type();
+                    let allowed = (msg_type == ProtoSessionMessageType::UpdateParticipantState
+                        && direction == MessageDirection::South)
+                        || msg_type == ProtoSessionMessageType::GroupAck;
+
+                    if !allowed {
+                        debug!(
+                            name = %self.common.settings.source,
+                            "moderator is off-line, drop the message",
+                        );
+                        return Err(SessionError::ParticipantOffLine);
+                    }
+                }
+
                 if message.get_session_message_type().is_command_message() {
                     debug!(
                         message = ?message.get_session_message_type(),
                         source = %message.get_source(),
                         "received  message",
                     );
-                    output.extend(self.process_control_message(message, ack_tx).await?);
+                    output.extend(
+                        self.process_control_message(message, direction, ack_tx)
+                            .await?,
+                    );
                 } else {
                     if direction == MessageDirection::South
                         && self.common.settings.config.session_type
@@ -429,16 +450,50 @@ where
         message_type: ProtoSessionMessageType,
         error: SessionError,
     ) -> Result<(), SessionError> {
-        self.common.sender.on_failure(message_id, message_type);
+        let missing = self.common.sender.on_failure(message_id, message_type);
 
-        // the task should always exist at this point
+        // Handle UpdateLocalStatus task independently
+        if matches!(self.current_task, Some(ModeratorTask::UpdateLocalStatus())) {
+            if let Some(pending) = self.common.pending_status_update.take() {
+                match pending.status {
+                    ParticipantState::OnLine => {
+                        // Rejoin timeout: participants that didn't reply are offline,
+                        // those that replied are online. Notify success to the app.
+                        for (_, entry) in self.group_list.iter_mut() {
+                            if let Ok(name) = entry.participant.get_name() {
+                                entry.online = !missing.contains(&name);
+                            }
+                        }
+                        self.common.online = true;
+                        self.common.sender.restart_heartbeat();
+                        if let Some(tx) = pending.ack_tx {
+                            let _ = tx.send(Ok(()));
+                        }
+                    }
+                    ParticipantState::OffLine => {
+                        // move to offline anyway
+                        self.common.online = false;
+                        self.common.sender.stop_heartbeat();
+                        // return no error also in this case. If the problem was and connection
+                        // hickup the other participants will discover that the moderator is offline
+                        // thanks to the heartbeat mechanism.
+                        if let Some(tx) = pending.ack_tx {
+                            let _ = tx.send(Ok(()));
+                        }
+                    }
+                }
+            }
+            self.current_task = None;
+            return self.pop_task().await;
+        }
+
+        // For all other tasks, notify the app of the failure
         if let Some(task) = self.current_task.as_mut()
             && let Some(ack_tx) = task.ack_tx_take()
         {
             let _ = ack_tx.send(Err(task.failure_message(error)));
         }
 
-        // delete current task and pick a new one
         self.current_task = None;
         self.pop_task().await
     }
@@ -452,6 +507,7 @@ where
                 ModeratorTask::Remove(t) => t.ack_tx,
                 ModeratorTask::Update(t) => t.ack_tx,
                 ModeratorTask::CloseOrDisconnect(t) => t.ack_tx,
+                ModeratorTask::UpdateLocalStatus() => None,
             };
             if let Some(tx) = ack_tx {
                 let _ = tx.send(Err(SessionError::cleanup_failed(&error)));
@@ -562,6 +618,7 @@ where
     async fn process_control_message(
         &mut self,
         message: Message,
+        direction: MessageDirection,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<SessionOutput, SessionError> {
         match message.get_session_message_type() {
@@ -586,8 +643,25 @@ where
             ProtoSessionMessageType::LeaveReply => self.on_leave_reply(message).await,
             ProtoSessionMessageType::GroupAck => self.on_group_ack(message).await,
             ProtoSessionMessageType::Heartbeat => self.on_heartbeat(message).await,
-            ProtoSessionMessageType::GroupProposal => todo!(),
-            ProtoSessionMessageType::JoinRequest
+            ProtoSessionMessageType::UpdateParticipantState => {
+                debug!(
+                    name = %message.get_source(),
+                    id = %message.get_id(),
+                    direction = ?direction,
+                    "received update participant state message",
+                );
+                match direction {
+                    MessageDirection::North => {
+                        self.on_update_participant_state_from_slim(message).await
+                    }
+                    MessageDirection::South => {
+                        self.on_update_participant_state_from_app(message, ack_tx)
+                            .await
+                    }
+                }
+            }
+            ProtoSessionMessageType::GroupProposal
+            | ProtoSessionMessageType::JoinRequest
             | ProtoSessionMessageType::GroupAdd
             | ProtoSessionMessageType::GroupRemove
             | ProtoSessionMessageType::GroupWelcome
@@ -1184,6 +1258,188 @@ where
         }
     }
 
+    async fn on_update_participant_state_from_slim(
+        &mut self,
+        message: Message,
+    ) -> Result<SessionOutput, SessionError> {
+        let payload = message
+            .get_payload()
+            .ok_or(SessionError::MissingPayload {
+                context: "update_participant_state",
+            })?
+            .as_command_payload()?
+            .as_update_participant_state_payload()?;
+
+        let participant_name = payload
+            .participant
+            .as_ref()
+            .ok_or(SessionError::MissingPayload {
+                context: "update_participant_state: missing participant name",
+            })?
+            .clone();
+
+        // Ignore our own state updates
+        if participant_name == self.common.settings.source {
+            debug!(
+                name = %participant_name,
+                "ignoring our own participant state update",
+            );
+            return Ok(SessionOutput::new());
+        }
+
+        let new_state = ParticipantState::try_from(payload.new_state).map_err(|_| {
+            SessionError::MissingPayload {
+                context: "update_participant_state: invalid participant state",
+            }
+        })?;
+
+        // Look up participant by name without ID
+        let mut name_no_id = participant_name.clone();
+        name_no_id.reset_id();
+
+        match new_state {
+            ParticipantState::OffLine => {
+                if let Some(entry) = self.group_list.get_mut(&name_no_id) {
+                    if !entry.online {
+                        debug!(
+                            name = %participant_name,
+                            "received offline state for participant already offline",
+                        );
+                        return Ok(SessionOutput::new());
+                    }
+                    entry.online = false;
+                } else {
+                    debug!(
+                        name = %participant_name,
+                        "received offline state for unknown participant",
+                    );
+                    return Ok(SessionOutput::new());
+                }
+
+                self.remove_endpoint(&participant_name);
+                tracing::info!("participant {} is now offline", participant_name);
+            }
+            ParticipantState::OnLine => {
+                if !self.group_list.contains_key(&name_no_id) {
+                    debug!(
+                        name = %participant_name,
+                        "received online state for unknown participant",
+                    );
+                    return Ok(SessionOutput::new());
+                }
+
+                // Check epoch: if MLS is enabled, verify the epoch matches
+                let current_epoch = match &self.mls_state {
+                    Some(mls_state) => mls_state.common.mls.get_epoch(),
+                    None => None,
+                };
+
+                if let Some(epoch) = current_epoch
+                    && payload.epoch != epoch
+                {
+                    tracing::warn!(
+                        name = %participant_name,
+                        local_epoch = epoch,
+                        remote_epoch = payload.epoch,
+                        "epoch mismatch on rejoin, sending NACK",
+                    );
+                    let nack = self.common.create_control_message(
+                        &message.get_source(),
+                        ProtoSessionMessageType::GroupNack,
+                        message.get_id(),
+                        CommandPayload::builder().group_nack().as_content(),
+                        false,
+                    )?;
+                    return Ok(SessionOutput::to_slim(nack));
+                }
+
+                // Epoch matches (or MLS not enabled): bring participant online
+                let entry = self.group_list.get_mut(&name_no_id).unwrap();
+                entry.online = true;
+                tracing::info!("participant {} is now online", participant_name);
+                let participant = entry.participant.clone();
+                self.add_endpoint(&participant).await?;
+            }
+        }
+
+        // Send ACK back to the source
+        let ack = self.common.create_control_message(
+            &message.get_source(),
+            ProtoSessionMessageType::GroupAck,
+            message.get_id(),
+            CommandPayload::builder().group_ack().as_content(),
+            false,
+        )?;
+
+        Ok(SessionOutput::to_slim(ack))
+    }
+
+    async fn on_update_participant_state_from_app(
+        &mut self,
+        message: Message,
+        ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
+    ) -> Result<SessionOutput, SessionError> {
+        // we can have only one update state/task at a time
+        if self.common.pending_status_update.is_some() || self.current_task.is_some() {
+            return Err(SessionError::StatusChangeInProgress);
+        }
+
+        // set the task to avoid to take other operation
+        self.current_task = Some(ModeratorTask::UpdateLocalStatus());
+
+        let destination = self.common.settings.control.clone();
+        let msg_id = message.get_id();
+        let payload = message
+            .get_payload()
+            .ok_or(SessionError::MissingPayload {
+                context: "update_participant_state_from_app",
+            })?
+            .clone();
+
+        let status = ParticipantState::try_from(
+            payload
+                .as_command_payload()?
+                .as_update_participant_state_payload()?
+                .new_state,
+        )
+        .map_err(|_| SessionError::MissingPayload {
+            context: "update_participant_state: invalid state",
+        })?;
+
+        // On rejoin (OnLine): mark all other participants as offline.
+        // They will be moved back online as their ACKs arrive.
+        if status == ParticipantState::OnLine {
+            for (_, entry) in self.group_list.iter_mut() {
+                entry.online = false;
+            }
+        }
+
+        // Fill in the actual MLS epoch before sending
+        let current_epoch = self
+            .mls_state
+            .as_ref()
+            .and_then(|s| s.common.mls.get_epoch())
+            .unwrap_or(0);
+        let payload = CommandPayload::builder()
+            .update_participant_state(self.common.settings.source.clone(), status, current_epoch)
+            .as_content();
+
+        self.common.pending_status_update = Some(PendingStatusUpdate {
+            message_id: message.get_id(),
+            status,
+            ack_tx,
+        });
+
+        self.common.send_control_message(
+            &destination,
+            ProtoSessionMessageType::UpdateParticipantState,
+            msg_id,
+            payload,
+            None,
+            true,
+        )
+    }
+
     async fn on_group_ack(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {
         debug!(
             from = %msg.get_source(),
@@ -1212,6 +1468,34 @@ where
                 );
                 return Ok(output);
             };
+
+            // if task is UpdateLocalStatus at this point the task is completed
+            if matches!(task, ModeratorTask::UpdateLocalStatus())
+                && let Some(pending_update) = self.common.pending_status_update.take()
+            {
+                if let Some(tx) = pending_update.ack_tx {
+                    let _ = tx.send(Ok(()));
+                }
+                match pending_update.status {
+                    ParticipantState::OnLine => {
+                        debug!("The moderator is back online, mark all participants as online");
+                        for (_, entry) in self.group_list.iter_mut() {
+                            entry.online = true;
+                        }
+                        self.common.online = true;
+                        self.common.sender.restart_heartbeat();
+                    }
+                    ParticipantState::OffLine => {
+                        debug!("The moderator is offline");
+                        self.common.online = false;
+                        self.common.sender.stop_heartbeat();
+                    }
+                }
+
+                self.current_task = None;
+                self.task_done().await?;
+                return Ok(output);
+            }
 
             // we received all the messages related to this timer
             // check if we are done and move on
@@ -1606,7 +1890,9 @@ mod tests {
             .unwrap();
         // JoinRequest is no longer handled by the moderator (moved to channel-manager).
         // It should return an error.
-        let result = moderator.process_control_message(join_msg, None).await;
+        let result = moderator
+            .process_control_message(join_msg, MessageDirection::North, None)
+            .await;
         assert!(result.is_err());
     }
 
@@ -2267,7 +2553,9 @@ mod tests {
             .unwrap();
 
         // Must not panic; the stale ACK is discarded and Ok(()) is returned.
-        let result = moderator.process_control_message(group_ack, None).await;
+        let result = moderator
+            .process_control_message(group_ack, MessageDirection::North, None)
+            .await;
         assert!(result.is_ok());
 
         // State is unchanged.

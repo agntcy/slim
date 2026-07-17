@@ -178,6 +178,31 @@ impl ControllerSender {
         }
     }
 
+    pub fn stop_heartbeat(&mut self) {
+        if let Some(hs) = self.heartbeat_state.as_mut() {
+            debug!("stop heartbeat timer");
+            hs.heartbeat_timer.stop();
+            hs.missed_heartbeats.clear();
+        }
+    }
+
+    pub fn restart_heartbeat(&mut self) {
+        if let Some(hs) = self.heartbeat_state.as_mut() {
+            debug!("restart heartbeat timer");
+            hs.heartbeat_timer = hs.heartbeat_timer_factory.create_and_start_timer(
+                rand::random::<u32>(),
+                slim_datapath::api::ProtoSessionMessageType::Heartbeat,
+                None,
+            );
+            // Re-initialize missed heartbeat tracking for all group members
+            for name in &self.group_list {
+                if name != &self.local_name {
+                    hs.missed_heartbeats.insert(name.clone(), 0);
+                }
+            }
+        }
+    }
+
     // helper function to update local state based on the message type received
     fn update_local_state(&mut self, message: &Message) -> Result<(), SessionError> {
         match message.get_session_message_type() {

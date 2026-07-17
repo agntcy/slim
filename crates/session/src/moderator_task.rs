@@ -42,6 +42,11 @@ pub enum ModeratorTask {
     // we need to notify all the participant in the
     // group and wait for the acks
     CloseOrDisconnect(NotifyParticipants),
+    // this task is used to track a local status update
+    // (the moderator is going online/offline).
+    // here we don't need any state as the message and the
+    // tx to the app is tracked in the PendingStatusUpdate struct
+    UpdateLocalStatus(),
     #[allow(dead_code)]
     Update(UpdateParticipant),
 }
@@ -54,6 +59,7 @@ impl ModeratorTask {
             ModeratorTask::Remove(t) => t.ack_tx.take(),
             ModeratorTask::CloseOrDisconnect(t) => t.ack_tx.take(),
             ModeratorTask::Update(t) => t.ack_tx.take(),
+            ModeratorTask::UpdateLocalStatus() => None,
         }
     }
 
@@ -71,6 +77,7 @@ impl ModeratorTask {
             ModeratorTask::CloseOrDisconnect(_) => SessionError::ModeratorTaskCloseFailed {
                 source: Box::new(err),
             },
+            _ => unsupported_phase(),
         }
     }
 }
@@ -131,6 +138,7 @@ impl TaskUpdate for ModeratorTask {
             ModeratorTask::Remove(task) => task.commit_start(timer_id),
             ModeratorTask::Update(task) => task.commit_start(timer_id),
             ModeratorTask::CloseOrDisconnect(task) => task.commit_start(timer_id),
+            _ => Err(unsupported_phase()),
         }
     }
 
@@ -147,6 +155,7 @@ impl TaskUpdate for ModeratorTask {
             ModeratorTask::Remove(task) => task.update_phase_completed(timer_id),
             ModeratorTask::Update(task) => task.update_phase_completed(timer_id),
             ModeratorTask::CloseOrDisconnect(task) => task.update_phase_completed(timer_id),
+            _ => Err(unsupported_phase()),
         }
     }
 
@@ -156,6 +165,7 @@ impl TaskUpdate for ModeratorTask {
             ModeratorTask::Remove(task) => task.task_complete(),
             ModeratorTask::Update(task) => task.task_complete(),
             ModeratorTask::CloseOrDisconnect(task) => task.task_complete(),
+            ModeratorTask::UpdateLocalStatus() => true,
         }
     }
 }

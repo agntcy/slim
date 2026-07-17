@@ -135,7 +135,7 @@ pub enum SessionError {
     ParticipantOffLine,
     #[error("rejoin failed: epoch mismatch")]
     RejoinFailed,
-    #[error("a participant state update is already in progress")]
+    #[error("another status change is already in progress")]
     StatusChangeInProgress,
     #[error("session cleanup failed: {details}")]
     SessionCleanupFailed { details: String },

@@ -227,24 +227,28 @@ where
 
                     // If this was a rejoin (UpdateParticipantState + OnLine) timeout,
                     // treat as partial success: non-responders are offline, notify app OK
-                    if message_type == ProtoSessionMessageType::UpdateParticipantState {
-                        if let Some(pending_task) = self.common.pending_status_update.take() {
-                            if pending_task.message_id == message_id
-                                && pending_task.status == ParticipantState::OnLine
-                            {
-                                if let Some(tx) = pending_task.ack_tx {
-                                    let _ = tx.send(Ok(()));
-                                }
-                                self.common.online = true;
-                            } else if pending_task.message_id == message_id
-                                && pending_task.status == ParticipantState::OffLine
-                            {
-                                // close timeout: not all participants acknowledged, notify failure
-                                if let Some(tx) = pending_task.ack_tx {
-                                    let _ = tx.send(Err(SessionError::MessageSendRetryFailed {
-                                        id: message_id,
-                                    }));
-                                }
+                    if message_type == ProtoSessionMessageType::UpdateParticipantState
+                        && let Some(pending_task) = self.common.pending_status_update.take()
+                    {
+                        if pending_task.message_id == message_id
+                            && pending_task.status == ParticipantState::OnLine
+                        {
+                            if let Some(tx) = pending_task.ack_tx {
+                                let _ = tx.send(Ok(()));
+                            }
+                            self.common.online = true;
+                            self.common.sender.restart_heartbeat();
+                        } else if pending_task.message_id == message_id
+                            && pending_task.status == ParticipantState::OffLine
+                        {
+                            // close timeout: not all participants acknowledged, the message.
+                            // we can still consider the participant as offline and notify success
+                            // to the application. the other participants will discover that this
+                            // participant is offline using the heartbeat mechanism.
+                            self.common.online = false;
+                            self.common.sender.stop_heartbeat();
+                            if let Some(tx) = pending_task.ack_tx {
+                                let _ = tx.send(Ok(()));
                             }
                         }
                     }
@@ -470,8 +474,8 @@ where
                 self.on_group_nack(&message);
                 Ok(SessionOutput::new())
             }
-            ProtoSessionMessageType::GroupProposal => todo!(),
-            ProtoSessionMessageType::DiscoveryRequest
+            ProtoSessionMessageType::GroupProposal
+            | ProtoSessionMessageType::DiscoveryRequest
             | ProtoSessionMessageType::DiscoveryReply
             | ProtoSessionMessageType::JoinReply => {
                 debug!(
@@ -842,29 +846,29 @@ where
                     None => None,
                 };
 
-                if let Some(epoch) = current_epoch {
-                    if payload.epoch != epoch {
-                        tracing::warn!(
-                            name = %participant_name,
-                            local_epoch = epoch,
-                            remote_epoch = payload.epoch,
-                            "epoch mismatch on rejoin, sending NACK",
-                        );
-                        let nack = self.common.create_control_message(
-                            &message.get_source(),
-                            ProtoSessionMessageType::GroupNack,
-                            message.get_id(),
-                            CommandPayload::builder().group_nack().as_content(),
-                            false,
-                        )?;
-                        return Ok(SessionOutput::to_slim(nack));
-                    }
+                if let Some(epoch) = current_epoch
+                    && payload.epoch != epoch
+                {
+                    tracing::warn!(
+                        name = %participant_name,
+                        local_epoch = epoch,
+                        remote_epoch = payload.epoch,
+                        "epoch mismatch on rejoin, sending NACK",
+                    );
+                    let nack = self.common.create_control_message(
+                        &message.get_source(),
+                        ProtoSessionMessageType::GroupNack,
+                        message.get_id(),
+                        CommandPayload::builder().group_nack().as_content(),
+                        false,
+                    )?;
+                    return Ok(SessionOutput::to_slim(nack));
                 }
 
                 // Epoch matches (or MLS not enabled): bring participant online
                 let state = self.group_list.get_mut(&participant_name).unwrap();
                 state.online = true;
-                let settings = state.settings.clone();
+                let settings = state.settings;
                 tracing::info!("participant {} is now online", participant_name);
                 let participant = Participant::new(participant_name, settings);
                 self.add_endpoint(&participant).await?;
@@ -921,6 +925,15 @@ where
             }
         }
 
+        // Fill in the actual MLS epoch before sending
+        let current_epoch = match &self.mls_state {
+            Some(mls_state) => mls_state.mls.get_epoch().unwrap_or(0),
+            None => 0,
+        };
+        let payload = CommandPayload::builder()
+            .update_participant_state(self.common.settings.source.clone(), status, current_epoch)
+            .as_content();
+
         self.common.pending_status_update = Some(PendingStatusUpdate {
             message_id: message.get_id(),
             status,
@@ -949,13 +962,13 @@ where
         self.common.sender.on_message(message)?;
 
         // If we have a pending rejoin (OnLine), move the ACK sender back online
-        if let Some(ref pending_task) = self.common.pending_status_update {
-            if pending_task.message_id == id && pending_task.status == ParticipantState::OnLine {
-                if let Some(entry) = self.group_list.get_mut(&source) {
-                    entry.online = true;
-                    tracing::info!("participant {} confirmed online via ACK", source);
-                }
-            }
+        if let Some(ref pending_task) = self.common.pending_status_update
+            && pending_task.message_id == id
+            && pending_task.status == ParticipantState::OnLine
+            && let Some(entry) = self.group_list.get_mut(&source)
+        {
+            entry.online = true;
+            tracing::info!("participant {} confirmed online via ACK", source);
         }
 
         // check if the task is still pending and if the message id matches the pending task
@@ -969,9 +982,11 @@ where
                 match pending_task.status {
                     ParticipantState::OffLine => {
                         self.common.online = false;
+                        self.common.sender.stop_heartbeat();
                     }
                     ParticipantState::OnLine => {
                         self.common.online = true;
+                        self.common.sender.restart_heartbeat();
                     }
                 }
             }
