@@ -1,6 +1,10 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+// Exercises the native (non-uniffi) RPC API; the uniffi trait-object suite
+// lives in handlers.rs.
+#![cfg(not(feature = "uniffi"))]
+
 //! End-to-end tests for SlimRPC multicast / GROUP RPC patterns
 //!
 //! Tests the four multicast interaction patterns plus the group-inbox observer:
@@ -98,7 +102,7 @@ struct MulticastTestEnv {
     member_servers: Vec<Arc<Server>>,
     /// Channel used as the multicast broadcaster.
     ///
-    /// Created with `Channel::new_with_members_internal` so the GROUP session
+    /// Created with `Channel::new_with_members` so the GROUP session
     /// name is randomly generated and members are auto-invited on the first
     /// multicast call.
     channel: Channel,
@@ -125,7 +129,7 @@ impl MulticastTestEnv {
                 )
                 .unwrap();
             let app = Arc::new(app);
-            let server = Arc::new(Server::new_internal(
+            let server = Arc::new(Server::new(
                 app.clone(),
                 member_app_name.clone(),
                 notifications,
@@ -134,7 +138,7 @@ impl MulticastTestEnv {
             member_servers.push(server);
         }
 
-        // Broadcaster app — uses new_with_members_internal so the Channel
+        // Broadcaster app — uses new_with_members so the Channel
         // generates a random UUID group name and auto-invites all members on
         // the first multicast call.
         let client_name = Name::from_strings(["org", "ns", "client"]);
@@ -146,9 +150,8 @@ impl MulticastTestEnv {
                 AuthVerifier::shared_secret(secret),
             )
             .unwrap();
-        let channel =
-            Channel::new_with_members_internal(Arc::new(client_app), member_app_names, true, None)
-                .expect("failed to create channel");
+        let channel = Channel::new_with_members(Arc::new(client_app), member_app_names, true, None)
+            .expect("failed to create channel");
 
         Self {
             service,
@@ -162,7 +165,7 @@ impl MulticastTestEnv {
         for server in &self.member_servers {
             let s = server.clone();
             tokio::spawn(async move {
-                if let Err(e) = s.serve_async().await {
+                if let Err(e) = s.serve().await {
                     tracing::error!("Member server error: {:?}", e);
                 }
             });
@@ -172,10 +175,10 @@ impl MulticastTestEnv {
     }
 
     async fn shutdown(&mut self) {
-        self.channel.close_async(None).await.unwrap();
+        self.channel.close(None).await.unwrap();
 
         for server in &self.member_servers {
-            server.shutdown_internal().await;
+            server.shutdown().await;
         }
 
         self.service.shutdown().await.unwrap();
@@ -260,7 +263,7 @@ async fn test_multicast_unary() {
     let mut env = MulticastTestEnv::new("test-multicast-unary", NUM_MEMBERS).await;
 
     for (i, server) in env.member_servers.iter().enumerate() {
-        server.register_unary_unary_internal(
+        server.register_unary_unary(
             "TestService",
             "Echo",
             move |req: TestRequest, _ctx: Context| async move {
@@ -326,7 +329,7 @@ async fn test_multicast_unary_stream() {
     let mut env = MulticastTestEnv::new("test-multicast-unary-stream", NUM_MEMBERS).await;
 
     for (i, server) in env.member_servers.iter().enumerate() {
-        server.register_unary_stream_internal(
+        server.register_unary_stream(
             "TestService",
             "Expand",
             move |req: TestRequest, _ctx: Context| async move {
@@ -404,7 +407,7 @@ async fn test_multicast_stream_unary() {
     let mut env = MulticastTestEnv::new("test-multicast-stream-unary", NUM_MEMBERS).await;
 
     for (i, server) in env.member_servers.iter().enumerate() {
-        server.register_stream_unary_internal(
+        server.register_stream_unary(
             "TestService",
             "Sum",
             move |mut req_stream: DecodedStream<TestRequest>, _ctx: Context| async move {
@@ -493,7 +496,7 @@ async fn test_multicast_stream_stream() {
     let mut env = MulticastTestEnv::new("test-multicast-stream-stream", NUM_MEMBERS).await;
 
     for (i, server) in env.member_servers.iter().enumerate() {
-        server.register_stream_stream_internal(
+        server.register_stream_stream(
             "TestService",
             "Echo",
             move |mut req_stream: DecodedStream<TestRequest>, _ctx: Context| async move {
@@ -589,7 +592,7 @@ async fn test_multicast_partial_error_unary() {
     let mut env = MulticastTestEnv::new("test-multicast-partial-error-unary", NUM_MEMBERS).await;
 
     // Member 0 returns an error.
-    env.member_servers[0].register_unary_unary_internal(
+    env.member_servers[0].register_unary_unary(
         "TestService",
         "Echo",
         move |_req: TestRequest, _ctx: Context| async move {
@@ -598,7 +601,7 @@ async fn test_multicast_partial_error_unary() {
     );
     // Members 1 and 2 succeed.
     for i in 1..NUM_MEMBERS {
-        env.member_servers[i].register_unary_unary_internal(
+        env.member_servers[i].register_unary_unary(
             "TestService",
             "Echo",
             move |req: TestRequest, _ctx: Context| async move {
@@ -663,7 +666,7 @@ async fn test_multicast_partial_error_unary_stream() {
         MulticastTestEnv::new("test-multicast-partial-error-unary-stream", NUM_MEMBERS).await;
 
     // Member 0: 2 ok items then an error (no server-side EOS follows the error).
-    env.member_servers[0].register_unary_stream_internal(
+    env.member_servers[0].register_unary_stream(
         "TestService",
         "Expand",
         move |req: TestRequest, _ctx: Context| async move {
@@ -681,7 +684,7 @@ async fn test_multicast_partial_error_unary_stream() {
         },
     );
     // Member 1: 3 ok items, server sends EOS after the last one.
-    env.member_servers[1].register_unary_stream_internal(
+    env.member_servers[1].register_unary_stream(
         "TestService",
         "Expand",
         move |req: TestRequest, _ctx: Context| async move {
@@ -755,7 +758,7 @@ async fn test_multicast_error_origin_unary() {
     let mut env = MulticastTestEnv::new("test-multicast-error-origin-unary", NUM_MEMBERS).await;
 
     // Member 0 returns an error.
-    env.member_servers[0].register_unary_unary_internal(
+    env.member_servers[0].register_unary_unary(
         "TestService",
         "Echo",
         move |_req: TestRequest, _ctx: Context| async move {
@@ -764,7 +767,7 @@ async fn test_multicast_error_origin_unary() {
     );
     // Members 1 and 2 succeed.
     for i in 1..NUM_MEMBERS {
-        env.member_servers[i].register_unary_unary_internal(
+        env.member_servers[i].register_unary_unary(
             "TestService",
             "Echo",
             move |req: TestRequest, _ctx: Context| async move {
@@ -846,7 +849,7 @@ async fn test_multicast_error_origin_stream() {
     let mut env = MulticastTestEnv::new("test-multicast-error-origin-stream", NUM_MEMBERS).await;
 
     // Member 0: 1 ok item then an error.
-    env.member_servers[0].register_unary_stream_internal(
+    env.member_servers[0].register_unary_stream(
         "TestService",
         "Expand",
         move |req: TestRequest, _ctx: Context| async move {
@@ -864,7 +867,7 @@ async fn test_multicast_error_origin_stream() {
         },
     );
     // Member 1: 2 ok items, normal completion.
-    env.member_servers[1].register_unary_stream_internal(
+    env.member_servers[1].register_unary_stream(
         "TestService",
         "Expand",
         move |req: TestRequest, _ctx: Context| async move {
@@ -933,7 +936,7 @@ async fn test_multicast_error_origin_multiple_failures() {
 
     // All members return errors with distinct messages.
     for i in 0..NUM_MEMBERS {
-        env.member_servers[i].register_unary_unary_internal(
+        env.member_servers[i].register_unary_unary(
             "TestService",
             "Echo",
             move |_req: TestRequest, _ctx: Context| async move {
@@ -994,14 +997,14 @@ async fn test_multicast_error_origin_multiple_failures() {
 // Test 10 — channel close: idle (no session)
 // ============================================================================
 
-/// `close_async` on a channel that has never been used must succeed immediately
+/// `close` on a channel that has never been used must succeed immediately
 /// without panicking or blocking.
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_channel_close_no_session() {
     let mut env = MulticastTestEnv::new("test-channel-close-no-session", 1).await;
 
-    env.member_servers[0].register_unary_unary_internal(
+    env.member_servers[0].register_unary_unary(
         "TestService",
         "Echo",
         move |req: TestRequest, _ctx: Context| async move {
@@ -1016,7 +1019,7 @@ async fn test_channel_close_no_session() {
 
     // No RPC has been made — no underlying session exists yet.
     env.channel
-        .close_async(None)
+        .close(None)
         .await
         .expect("close on idle channel must succeed");
 
@@ -1027,7 +1030,7 @@ async fn test_channel_close_no_session() {
 // Test 11 — channel close: active session, then reuse
 // ============================================================================
 
-/// After `close_async` on a channel with an active session the channel must
+/// After `close` on a channel with an active session the channel must
 /// still be usable: the next RPC call re-creates the session transparently.
 #[tokio::test]
 #[tracing_test::traced_test]
@@ -1036,7 +1039,7 @@ async fn test_channel_close_after_rpc() {
     let mut env = MulticastTestEnv::new("test-channel-close-after-rpc", NUM_MEMBERS).await;
 
     for (i, server) in env.member_servers.iter().enumerate() {
-        server.register_unary_unary_internal(
+        server.register_unary_unary(
             "TestService",
             "Echo",
             move |req: TestRequest, _ctx: Context| async move {
@@ -1067,7 +1070,7 @@ async fn test_channel_close_after_rpc() {
 
     // Close the session — the dispatcher task must exit naturally.
     env.channel
-        .close_async(None)
+        .close(None)
         .await
         .expect("close must succeed with an active session");
 

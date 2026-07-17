@@ -27,9 +27,8 @@ use super::{RPC_DIR_KEY, RPC_DIR_REQ};
 use crate::STATUS_CODE_KEY;
 
 use super::{
-    Context, HandlerInfo, METHOD_KEY, RPC_ID_KEY, ReceivedMessage, ResponseSink, RpcCode, RpcError,
-    RpcSession, SERVICE_KEY, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler,
-    UnaryUnaryHandler, UniffiRequestStream,
+    Context, HandlerInfo, METHOD_KEY, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcSession,
+    SERVICE_KEY,
     codec::{Decoder, Encoder},
     send_error_for_rpc, send_response_stream,
     session_wrapper::{SessionRx, SessionTx, new_session},
@@ -322,7 +321,7 @@ pub struct Server {
     /// Drain watch for session handlers
     drain_watch: RwLock<Option<drain::Watch>>,
     /// Runtime handle for spawning tasks (resolved at construction)
-    runtime: tokio::runtime::Handle,
+    pub(crate) runtime: tokio::runtime::Handle,
 }
 
 /// Spawn a handler task for a new RPC call and, for stream-input handlers, register the mpsc
@@ -534,7 +533,13 @@ impl Server {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn new_internal(
+    /// Create a new RPC server on the ambient tokio runtime.
+    ///
+    /// This is the native public API. The `uniffi` build instead exposes the
+    /// `#[uniffi::constructor] new`/`new_with_connection` below (which supply the
+    /// bindings-owned runtime).
+    #[cfg(not(feature = "uniffi"))]
+    pub fn new(
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         base_name: Name,
         notification_rx: mpsc::Receiver<Result<Notification, SessionError>>,
@@ -694,7 +699,7 @@ impl Server {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn register_unary_unary_internal<F, Req, Res, Fut>(
+    pub(crate) fn register_unary_unary_internal<F, Req, Res, Fut>(
         &self,
         service_name: &str,
         method_name: &str,
@@ -757,7 +762,7 @@ impl Server {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn register_unary_stream_internal<F, Req, Res, S, Fut>(
+    pub(crate) fn register_unary_stream_internal<F, Req, Res, S, Fut>(
         &self,
         service_name: &str,
         method_name: &str,
@@ -824,7 +829,7 @@ impl Server {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn register_stream_unary_internal<F, Req, Res, Fut>(
+    pub(crate) fn register_stream_unary_internal<F, Req, Res, Fut>(
         &self,
         service_name: &str,
         method_name: &str,
@@ -901,7 +906,7 @@ impl Server {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn register_stream_stream_internal<F, Req, Res, S, Fut>(
+    pub(crate) fn register_stream_stream_internal<F, Req, Res, S, Fut>(
         &self,
         service_name: &str,
         method_name: &str,
@@ -1123,12 +1128,12 @@ impl Server {
     /// # let server = Server::new_with_shared_rx_and_connection(core_app, base_name.as_slim_name(), None, notification_rx, None);
     /// // In another task or signal handler:
     /// # slim_bindings::get_runtime().block_on(async {
-    /// server.shutdown_internal().await;
+    /// server.shutdown_async().await;
     /// # });
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn shutdown_internal(&self) {
+    pub(crate) async fn shutdown_internal(&self) {
         tracing::info!("Shutting down SlimRPC server");
 
         // Take the drain signal and watch
@@ -1185,222 +1190,90 @@ impl Server {
 }
 
 // UniFFI constructors taking the `agntcy-slim-bindings` `App`/`Name` wrappers.
-#[cfg(feature = "uniffi")]
-#[uniffi::export]
+// The UniFFI Server constructors live in `crate::ffi`.
+
+// Native registration API — generic over handler closures. This is the public
+// API for native Rust applications. The `uniffi` build instead exposes the
+// `Arc<dyn *Handler>` trait-object methods below.
+#[cfg(not(feature = "uniffi"))]
 impl Server {
-    /// Create a new RPC server
-    ///
-    /// This is the primary constructor for creating an RPC server instance
-    /// that can handle incoming RPC requests over SLIM.
-    ///
-    /// # Arguments
-    /// * `app` - The SLIM application instance that provides the underlying
-    ///   network transport and session management
-    /// * `base_name` - The base name for this service (e.g., org.namespace.service).
-    ///   This name is used to construct subscription names for RPC methods.
-    ///
-    /// # Returns
-    /// A new RPC server instance wrapped in an Arc for shared ownership
-    #[uniffi::constructor]
-    pub fn new(app: &Arc<slim_bindings::App>, base_name: Arc<slim_bindings::Name>) -> Self {
-        Self::new_with_connection(app, base_name, None)
+    /// Register a unary-to-unary RPC handler.
+    pub fn register_unary_unary<F, Req, Res, Fut>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
+        Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        self.register_unary_unary_internal(service_name, method_name, handler)
     }
 
-    /// Create a new RPC server with optional connection ID
-    ///
-    /// The connection ID is used to set up routing before serving RPC requests,
-    /// enabling multi-hop RPC calls through specific connections.
-    ///
-    /// # Arguments
-    /// * `app` - The SLIM application instance that provides the underlying
-    ///   network transport and session management
-    /// * `base_name` - The base name for this service (e.g., org.namespace.service).
-    ///   This name is used to construct subscription names for RPC methods.
-    /// * `connection_id` - Optional connection ID for routing setup
-    ///
-    /// # Returns
-    /// A new RPC server instance wrapped in an Arc for shared ownership
-    #[uniffi::constructor]
-    pub fn new_with_connection(
-        app: &Arc<slim_bindings::App>,
-        base_name: Arc<slim_bindings::Name>,
-        connection_id: Option<u64>,
-    ) -> Self {
-        let app_inner = app.inner();
-        let rx = app.notification_receiver();
+    /// Register a unary-to-stream RPC handler.
+    pub fn register_unary_stream<F, Req, Res, S, Fut>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(Req, Context) -> Fut + Send + Sync + 'static,
+        Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
+        S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        self.register_unary_stream_internal(service_name, method_name, handler)
+    }
 
-        Self::new_with_shared_rx_and_connection(
-            app_inner,
-            base_name.as_ref().into(),
-            connection_id,
-            rx,
-            Some(crate::get_runtime()),
-        )
+    /// Register a stream-to-unary RPC handler.
+    pub fn register_stream_unary<F, Req, Res, Fut>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(DecodedStream<Req>, Context) -> Fut + Send + Sync + 'static,
+        Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        self.register_stream_unary_internal(service_name, method_name, handler)
+    }
+
+    /// Register a stream-to-stream RPC handler.
+    pub fn register_stream_stream<F, Req, Res, S, Fut>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(DecodedStream<Req>, Context) -> Fut + Send + Sync + 'static,
+        Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
+        S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        self.register_stream_stream_internal(service_name, method_name, handler)
     }
 }
 
-// UniFFI-compatible methods for foreign language bindings
-#[cfg_attr(feature = "uniffi", uniffi::export)]
+// UniFFI-compatible methods for foreign language bindings.
+//
+// The `register_*` trait-object (`Arc<dyn *Handler>`) methods here are the FFI
+// callback API and are individually gated on `uniffi` (the native generic
+// registration API lives in the `#[cfg(not(feature = "uniffi"))]` block above).
+// The remaining methods (serve/shutdown/…) are shared.
+// Native async serve/shutdown API. The blocking and FFI (`*_async`) variants
+// live in `crate::ffi`.
 impl Server {
-    /// Register a unary-to-unary RPC handler
+    /// Serve RPC requests until the server is shut down.
     ///
-    /// # Arguments
-    /// * `service_name` - The service name (e.g., "MyService")
-    /// * `method_name` - The method name (e.g., "GetUser")
-    /// * `handler` - Implementation of the UnaryUnaryHandler trait
-    pub fn register_unary_unary(
-        &self,
-        service_name: String,
-        method_name: String,
-        handler: Arc<dyn UnaryUnaryHandler>,
-    ) {
-        let service_clone = service_name.clone();
-        let method_clone = method_name.clone();
-
-        tracing::debug!(service = %service_clone, method = %method_clone, "Registering unary-unary handler");
-
-        self.register_unary_unary_internal(
-            &service_name,
-            &method_name,
-            move |request: Vec<u8>, context: Context| {
-                let handler = handler.clone();
-                tracing::debug!(service = %service_clone, method = %method_clone, "Handling unary-unary request");
-
-                async move { handler.handle(request, Arc::new(context)).await }
-            },
-        );
-    }
-
-    /// Register a unary-to-stream RPC handler
-    ///
-    /// # Arguments
-    /// * `service_name` - The service name
-    /// * `method_name` - The method name
-    /// * `handler` - Implementation of the UnaryStreamHandler trait
-    pub fn register_unary_stream(
-        &self,
-        service_name: String,
-        method_name: String,
-        handler: Arc<dyn UnaryStreamHandler>,
-    ) {
-        self.register_unary_stream_internal(
-            &service_name,
-            &method_name,
-            move |request: Vec<u8>, context: Context| {
-                let handler = handler.clone();
-
-                async move {
-                    let (sink, rx) = ResponseSink::receiver();
-                    let sink_arc = Arc::new(sink);
-
-                    // Spawn a task to run the handler
-                    let handler_task = {
-                        let sink = sink_arc.clone();
-                        crate::get_runtime().spawn(async move {
-                            if let Err(e) = handler
-                                .handle(request, Arc::new(context), sink.clone())
-                                .await
-                            {
-                                let _ = sink.send_error_async(e).await;
-                            }
-                        })
-                    };
-
-                    // Detach the task - it will run independently
-                    drop(handler_task);
-
-                    // Convert the receiver to a stream
-                    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
-                    Ok(stream)
-                }
-            },
-        );
-    }
-
-    /// Register a stream-to-unary RPC handler
-    ///
-    /// # Arguments
-    /// * `service_name` - The service name
-    /// * `method_name` - The method name
-    /// * `handler` - Implementation of the StreamUnaryHandler trait
-    pub fn register_stream_unary(
-        &self,
-        service_name: String,
-        method_name: String,
-        handler: Arc<dyn StreamUnaryHandler>,
-    ) {
-        self.register_stream_unary_internal(
-            &service_name,
-            &method_name,
-            move |stream: DecodedStream<Vec<u8>>, context: Context| {
-                let handler = handler.clone();
-                let request_stream = Arc::new(UniffiRequestStream::new(stream));
-
-                async move { handler.handle(request_stream, Arc::new(context)).await }
-            },
-        );
-    }
-
-    /// Register a stream-to-stream RPC handler
-    ///
-    /// # Arguments
-    /// * `service_name` - The service name
-    /// * `method_name` - The method name
-    /// * `handler` - Implementation of the StreamStreamHandler trait
-    pub fn register_stream_stream(
-        &self,
-        service_name: String,
-        method_name: String,
-        handler: Arc<dyn StreamStreamHandler>,
-    ) {
-        self.register_stream_stream_internal(
-            &service_name,
-            &method_name,
-            move |stream: DecodedStream<Vec<u8>>, context: Context| {
-                let handler = handler.clone();
-                let request_stream = Arc::new(UniffiRequestStream::new(stream));
-
-                async move {
-                    let (sink, rx) = ResponseSink::receiver();
-                    let sink_arc = Arc::new(sink);
-
-                    // Spawn a task to run the handler
-                    let handler_task = {
-                        let sink = sink_arc.clone();
-                        crate::get_runtime().spawn(async move {
-                            if let Err(e) = handler
-                                .handle(request_stream, Arc::new(context), sink.clone())
-                                .await
-                            {
-                                let _ = sink.send_error_async(e).await;
-                            }
-                        })
-                    };
-
-                    // Detach the task - it will run independently
-                    drop(handler_task);
-
-                    // Convert the receiver to a stream
-                    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
-                    Ok(stream)
-                }
-            },
-        );
-    }
-
-    /// Start serving RPC requests (blocking version)
-    ///
-    /// This is a blocking method that runs until the server is shut down.
-    /// It listens for incoming RPC calls and dispatches them to registered handlers.
-    pub fn serve(&self) -> Result<(), RpcError> {
-        crate::get_runtime().block_on(self.serve_async())
-    }
-
-    /// Start serving RPC requests (async version)
-    ///
-    /// This is an async method that runs until the server is shut down.
-    /// It listens for incoming RPC calls and dispatches them to registered handlers.
-    pub async fn serve_async(&self) -> Result<(), RpcError> {
+    /// Listens for incoming RPC calls and dispatches them to registered handlers.
+    /// Native Rust applications await this directly.
+    pub async fn serve(&self) -> Result<(), RpcError> {
         let handle = self.serve_handle()?;
 
         // Wait for the server task to complete and restore the NotificationReceiver
@@ -1415,19 +1288,11 @@ impl Server {
         result.map_err(|e| RpcError::new(RpcCode::Internal, e.to_string()))
     }
 
-    /// Shutdown the server gracefully (blocking version)
+    /// Shut down the server gracefully.
     ///
-    /// This signals the server to stop accepting new requests and wait for
-    /// in-flight requests to complete.
-    pub fn shutdown(&self) {
-        crate::get_runtime().block_on(self.shutdown_async())
-    }
-
-    /// Shutdown the server gracefully (async version)
-    ///
-    /// This signals the server to stop accepting new requests and wait for
-    /// in-flight requests to complete.
-    pub async fn shutdown_async(&self) {
+    /// Signals the server to stop accepting new requests and waits for in-flight
+    /// requests to complete.
+    pub async fn shutdown(&self) {
         self.shutdown_internal().await
     }
 }

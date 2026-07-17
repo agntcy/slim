@@ -512,7 +512,7 @@ impl TestEnv {
 
         // Spawn task to run the server
         tokio::spawn(async move {
-            if let Err(e) = server.serve_async().await {
+            if let Err(e) = server.serve().await {
                 eprintln!("Server error: {e:?}");
             }
         });
@@ -595,7 +595,7 @@ async fn test_unary_unary_rpc() {
     assert_eq!(response, request);
 
     println!("Unary call succeeded");
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -631,7 +631,7 @@ async fn test_unary_unary_error_handling() {
     assert_eq!(error.code(), RpcCode::InvalidArgument);
     assert!(error.message().contains("Intentional error"));
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -689,7 +689,7 @@ async fn test_unary_stream_rpc() {
         assert_eq!(value, i as u32);
     }
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -741,7 +741,7 @@ async fn test_unary_stream_error_handling() {
     assert_eq!(responses.len(), 2);
     assert!(got_error);
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -795,7 +795,7 @@ async fn test_stream_unary_rpc() {
     assert_eq!(total, 100); // 10 + 20 + 30 + 40
     assert_eq!(count, 4);
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -841,7 +841,7 @@ async fn test_stream_unary_error_handling() {
     assert_eq!(error.code(), RpcCode::InvalidArgument);
     assert!(error.message().contains("Invalid data"));
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -901,7 +901,7 @@ async fn test_stream_stream_echo() {
     assert_eq!(received.len(), 3);
     assert_eq!(received, messages);
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -964,7 +964,7 @@ async fn test_stream_stream_transform() {
     assert_eq!(received[1], vec![20, 40, 60]); // [10,20,30] * 2
     assert_eq!(received[2], vec![200]); // [100] * 2
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -1014,7 +1014,7 @@ async fn test_concurrent_unary_calls() {
         handle.await.expect("Task panicked");
     }
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -1051,7 +1051,7 @@ async fn test_handler_registration() {
     let methods = env.server.methods();
     assert!(methods.len() >= 3);
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -1146,7 +1146,7 @@ async fn test_context_access() {
     // Should get a session ID back
     assert!(!response.is_empty());
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1192,7 +1192,7 @@ async fn test_context_session_id() {
         "Session ID should not be empty"
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1241,7 +1241,7 @@ async fn test_context_metadata() {
         "Metadata should contain deadline"
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1314,7 +1314,7 @@ async fn test_context_custom_metadata() {
         "Metadata should contain deadline"
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1367,7 +1367,7 @@ async fn test_unary_stream_with_metadata() {
 
     assert_eq!(count, 5, "Should receive 5 items");
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1418,7 +1418,7 @@ async fn test_stream_unary_with_metadata() {
     let expected_sum: u32 = values.iter().sum();
     assert_eq!(sum, expected_sum, "Sum should match");
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1482,7 +1482,7 @@ async fn test_stream_stream_with_metadata() {
         assert_eq!(sent, recv, "Messages should match");
     }
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1542,7 +1542,7 @@ async fn test_context_deadline() {
         "Deadline should be close to expected value"
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1604,7 +1604,7 @@ async fn test_context_remaining_time() {
         "Remaining time should be close to timeout"
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -1649,7 +1649,7 @@ async fn test_client_deadline_unary_unary() {
         err.code()
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1729,7 +1729,7 @@ async fn test_client_deadline_unary_stream() {
         "Handler should not have sent all items, sent {sent}"
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -1774,7 +1774,7 @@ async fn test_server_deadline_unary_unary() {
         err.code()
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1837,7 +1837,7 @@ async fn test_server_deadline_unary_stream() {
     assert!(was_started, "Handler should have started execution");
     assert!(!was_completed, "Handler should not have completed");
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1903,7 +1903,7 @@ async fn test_server_deadline_stream_unary() {
     assert!(!was_completed, "Handler should not have completed");
     println!("Handler received {received} messages before deadline");
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1968,7 +1968,7 @@ async fn test_server_deadline_stream_stream() {
     assert!(was_started, "Handler should have started execution");
     assert!(!was_completed, "Handler should not have completed");
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -2031,7 +2031,7 @@ async fn test_server_enforces_deadline_during_handler_execution() {
     assert!(was_started, "Handler should have started execution");
     assert!(!was_completed, "Handler should not have completed");
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -2095,7 +2095,7 @@ async fn test_deadline_propagation() {
         "Deadline should match expected value within tolerance, diff: {diff:?}"
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -2144,7 +2144,7 @@ async fn test_context_deadline_not_exceeded() {
         "Deadline should not be exceeded for normal calls"
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -2245,7 +2245,7 @@ async fn test_context_all_fields() {
         assert!(!is_exceeded.unwrap(), "Deadline should not be exceeded");
     }
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -2331,7 +2331,7 @@ async fn start_multicast_servers(servers: &[Arc<Server>]) {
     for s in servers {
         let s = s.clone();
         tokio::spawn(async move {
-            if let Err(e) = s.serve_async().await {
+            if let Err(e) = s.serve().await {
                 eprintln!("Member server error: {e:?}");
             }
         });
@@ -2398,7 +2398,7 @@ async fn test_uniffi_multicast_unary() {
     }
 
     for s in &servers {
-        s.shutdown_async().await;
+        s.shutdown().await;
     }
 }
 
@@ -2450,7 +2450,7 @@ async fn test_uniffi_multicast_unary_stream() {
     );
 
     for s in &servers {
-        s.shutdown_async().await;
+        s.shutdown().await;
     }
 }
 
@@ -2523,7 +2523,7 @@ async fn test_uniffi_multicast_stream_unary() {
     }
 
     for s in &servers {
-        s.shutdown_async().await;
+        s.shutdown().await;
     }
 }
 
@@ -2598,6 +2598,6 @@ async fn test_uniffi_multicast_stream_stream() {
     }
 
     for s in &servers {
-        s.shutdown_async().await;
+        s.shutdown().await;
     }
 }

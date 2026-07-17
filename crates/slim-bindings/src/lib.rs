@@ -60,10 +60,6 @@ mod service;
 mod session;
 mod transport_protocol;
 
-// SlimRPC lives in the standalone `agntcy-slim-rpc` crate. It depends on these
-// `App`/`Name` types and layers its own UniFFI interface on top of them (behind
-// its `uniffi` feature); slim-bindings itself no longer contains the RPC code.
-
 // Public re-exports
 pub use app::{App, Direction, SessionWithCompletion};
 pub use build_info::{BuildInfo, get_build_info, get_version};

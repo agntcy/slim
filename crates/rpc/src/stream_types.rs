@@ -176,15 +176,7 @@ impl RequestStream {
     }
 }
 
-#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl RequestStream {
-    /// Pull the next message from the stream (blocking version)
-    ///
-    /// Returns a StreamMessage indicating the result
-    pub fn next(&self) -> StreamMessage {
-        crate::get_runtime().block_on(self.next_async())
-    }
-
     /// Pull the next message from the stream (async version)
     ///
     /// Returns a StreamMessage indicating the result
@@ -236,15 +228,7 @@ impl ResponseSink {
     }
 }
 
-#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl ResponseSink {
-    /// Send a message to the response stream (blocking version)
-    ///
-    /// Returns an error if the stream has been closed or if sending fails.
-    pub fn send(&self, data: Vec<u8>) -> Result<(), RpcError> {
-        crate::get_runtime().block_on(self.send_async(data))
-    }
-
     /// Send a message to the response stream (async version)
     ///
     /// Returns an error if the stream has been closed or if sending fails.
@@ -259,13 +243,6 @@ impl ResponseSink {
                 "Response sink is closed".to_string(),
             )),
         }
-    }
-
-    /// Send an error to the response stream and close it (blocking version)
-    ///
-    /// This terminates the stream with an error status.
-    pub fn send_error(&self, error: RpcError) -> Result<(), RpcError> {
-        crate::get_runtime().block_on(self.send_error_async(error))
     }
 
     /// Send an error to the response stream and close it (async version)
@@ -284,14 +261,6 @@ impl ResponseSink {
         }
     }
 
-    /// Close the response stream (blocking version)
-    ///
-    /// Signals that no more messages will be sent.
-    /// The stream will end gracefully.
-    pub fn close(&self) -> Result<(), RpcError> {
-        crate::get_runtime().block_on(self.close_async())
-    }
-
     /// Close the response stream (async version)
     ///
     /// Signals that no more messages will be sent.
@@ -300,11 +269,6 @@ impl ResponseSink {
         let mut sender = self.sender.lock();
         sender.take(); // Drop the sender to signal stream end
         Ok(())
-    }
-
-    /// Check if the sink has been closed (blocking version)
-    pub fn is_closed(&self) -> bool {
-        crate::get_runtime().block_on(self.is_closed_async())
     }
 
     /// Check if the sink has been closed (async version)
@@ -331,15 +295,7 @@ impl ResponseStreamReader {
     }
 }
 
-#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl ResponseStreamReader {
-    /// Pull the next message from the response stream (blocking version)
-    ///
-    /// Returns a StreamMessage indicating the result
-    pub fn next(&self) -> StreamMessage {
-        crate::get_runtime().block_on(self.next_async())
-    }
-
     /// Pull the next message from the response stream (async version)
     ///
     /// Returns a StreamMessage indicating the result
@@ -377,7 +333,7 @@ impl RequestStreamWriter {
         let method_name_clone = method_name;
 
         // Spawn task to handle the stream_unary call
-        let response_handle = crate::get_runtime().spawn(async move {
+        let response_handle = crate::spawn(async move {
             use async_stream::stream;
 
             let stream = stream! {
@@ -404,13 +360,7 @@ impl RequestStreamWriter {
     }
 }
 
-#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl RequestStreamWriter {
-    /// Send a request message to the stream (blocking version)
-    pub fn send(&self, data: Vec<u8>) -> Result<(), RpcError> {
-        crate::get_runtime().block_on(self.send_async(data))
-    }
-
     /// Send a request message to the stream (async version)
     pub async fn send_async(&self, data: Vec<u8>) -> Result<(), RpcError> {
         let sender = self.sender.lock().await;
@@ -423,11 +373,6 @@ impl RequestStreamWriter {
                 "Stream already finalized".to_string(),
             ))
         }
-    }
-
-    /// Finalize the stream and get the response (blocking version)
-    pub fn finalize_stream(&self) -> Result<Vec<u8>, RpcError> {
-        crate::get_runtime().block_on(self.finalize_stream_async())
     }
 
     /// Finalize the stream and get the response (async version)
@@ -484,7 +429,7 @@ impl BidiStreamHandler {
         let (resp_tx, resp_rx) = unbounded_channel();
 
         // Spawn task to handle the stream_stream call
-        crate::get_runtime().spawn(async move {
+        crate::spawn(async move {
             use async_stream::stream;
 
             let request_stream = stream! {
@@ -516,13 +461,7 @@ impl BidiStreamHandler {
     }
 }
 
-#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl BidiStreamHandler {
-    /// Send a request message to the stream (blocking version)
-    pub fn send(&self, data: Vec<u8>) -> Result<(), RpcError> {
-        crate::get_runtime().block_on(self.send_async(data))
-    }
-
     /// Send a request message to the stream (async version)
     pub async fn send_async(&self, data: Vec<u8>) -> Result<(), RpcError> {
         let sender = self.sender.lock().await;
@@ -537,21 +476,11 @@ impl BidiStreamHandler {
         }
     }
 
-    /// Close the request stream (no more messages will be sent)
-    pub fn close_send(&self) -> Result<(), RpcError> {
-        crate::get_runtime().block_on(self.close_send_async())
-    }
-
     /// Close the request stream (async version)
     pub async fn close_send_async(&self) -> Result<(), RpcError> {
         let mut sender = self.sender.lock().await;
         *sender = None;
         Ok(())
-    }
-
-    /// Receive the next response message (blocking version)
-    pub fn recv(&self) -> StreamMessage {
-        crate::get_runtime().block_on(self.recv_async())
     }
 
     /// Receive the next response message (async version)
@@ -641,13 +570,7 @@ impl MulticastResponseReader {
     }
 }
 
-#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl MulticastResponseReader {
-    /// Pull the next item from the multicast response stream (blocking).
-    pub fn next(&self) -> MulticastStreamMessage {
-        crate::get_runtime().block_on(self.next_async())
-    }
-
     /// Pull the next item from the multicast response stream (async).
     pub async fn next_async(&self) -> MulticastStreamMessage {
         let mut rx = self.inner.lock().await;
@@ -684,7 +607,7 @@ impl MulticastBidiStreamHandler {
         let (req_tx, mut req_rx) = unbounded_channel();
         let (resp_tx, resp_rx) = unbounded_channel();
 
-        crate::get_runtime().spawn(async move {
+        crate::spawn(async move {
             use async_stream::stream;
 
             let request_stream = stream! {
@@ -716,13 +639,7 @@ impl MulticastBidiStreamHandler {
     }
 }
 
-#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl MulticastBidiStreamHandler {
-    /// Send a request message to the stream (blocking).
-    pub fn send(&self, data: Vec<u8>) -> Result<(), RpcError> {
-        crate::get_runtime().block_on(self.send_async(data))
-    }
-
     /// Send a request message to the stream (async).
     pub async fn send_async(&self, data: Vec<u8>) -> Result<(), RpcError> {
         let sender = self.sender.lock().await;
@@ -737,22 +654,11 @@ impl MulticastBidiStreamHandler {
         }
     }
 
-    /// Close the request stream — signals that no more messages will be sent
-    /// (blocking).
-    pub fn close_send(&self) -> Result<(), RpcError> {
-        crate::get_runtime().block_on(self.close_send_async())
-    }
-
     /// Close the request stream (async).
     pub async fn close_send_async(&self) -> Result<(), RpcError> {
         let mut sender = self.sender.lock().await;
         *sender = None;
         Ok(())
-    }
-
-    /// Receive the next response item (blocking).
-    pub fn recv(&self) -> MulticastStreamMessage {
-        crate::get_runtime().block_on(self.recv_async())
     }
 
     /// Receive the next response item (async).
