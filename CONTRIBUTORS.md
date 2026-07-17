@@ -8,10 +8,3 @@ Copyright AGNTCY Contributors (https://github.com/agntcy)
 SPDX-License-Identifier: Apache-2.0
 
 1. Cisco Systems Inc.
-2. Brisa AI
-3. Oracle Corp.
-4. Dell Inc.
-5. Amazon Web Services (AWS)
-6. SourceFuse
-7. Neurelay
-8. Infosys
