@@ -14,3 +14,4 @@ SPDX-License-Identifier: Apache-2.0
 5. Amazon Web Services (AWS)
 6. SourceFuse
 7. Neurelay
+8. Infosys
