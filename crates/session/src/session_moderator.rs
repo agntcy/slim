@@ -27,7 +27,8 @@ use crate::{
     errors::SessionError,
     mls_state::{MlsModeratorState, MlsState},
     moderator_task::{
-        AddParticipant, ModeratorTask, NotifyParticipants, RemoveParticipant, TaskUpdate,
+        AddParticipant, ModeratorTask, NotifyParticipants, RejoinParticipant, RemoveParticipant,
+        TaskUpdate,
     },
     runtime::maybe_await,
     session_controller::{PendingStatusUpdate, SessionControllerCommon, sign_control_messages},
@@ -506,7 +507,7 @@ where
                 ModeratorTask::Remove(t) => t.ack_tx,
                 ModeratorTask::Update(t) => t.ack_tx,
                 ModeratorTask::CloseOrDisconnect(t) => t.ack_tx,
-                ModeratorTask::UpdateLocalStatus() => None,
+                _ => None,
             };
             if let Some(tx) = ack_tx {
                 let _ = tx.send(Err(SessionError::cleanup_failed(&error)));
@@ -553,11 +554,7 @@ where
         // the group update needs to be received by everybody
         // in the group unless there are only 2 participants
         // (the moderator and a participant)
-        let participants_vec: Vec<Participant> = self
-            .group_list
-            .values()
-            .map(|entry| entry.clone())
-            .collect();
+        let participants_vec: Vec<Participant> = self.group_list.values().cloned().collect();
 
         // Remove participant from group list
         let mut participant_no_id = participant.clone();
@@ -656,12 +653,14 @@ where
                     }
                 }
             }
+            ProtoSessionMessageType::RejoinRequest => self.on_rejoin_request(message).await,
             ProtoSessionMessageType::GroupProposal
             | ProtoSessionMessageType::JoinRequest
             | ProtoSessionMessageType::GroupUpdate
             | ProtoSessionMessageType::GroupWelcome
             | ProtoSessionMessageType::GroupClose
-            | ProtoSessionMessageType::GroupNack => Err(
+            | ProtoSessionMessageType::GroupNack
+            | ProtoSessionMessageType::RejoinReply => Err(
                 SessionError::SessionMessageTypeUnexpected(message.get_session_message_type()),
             ),
             _ => Err(SessionError::SessionMessageTypeUnknown(
@@ -870,11 +869,7 @@ where
         };
 
         // Create participants list for the messages to send
-        let participants_vec = self
-            .group_list
-            .values()
-            .map(|entry| entry.clone())
-            .collect::<Vec<_>>();
+        let participants_vec = self.group_list.values().cloned().collect::<Vec<_>>();
 
         // send the group update
         if participants_vec.len() > 2 {
@@ -1438,6 +1433,155 @@ where
             None,
             true,
         )
+    }
+
+    async fn on_rejoin_request(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {
+        let source = msg.get_source();
+        debug!(
+            from = %source,
+            id = %msg.get_id(),
+            "received rejoin request",
+        );
+
+        // Extract the rejoin request payload
+        let rejoin_payload = msg
+            .get_payload()
+            .unwrap()
+            .as_command_payload()?
+            .as_rejoin_request_payload()?
+            .clone();
+
+        // 1. Check if the participant is in the group and is offline
+        let participant_name = rejoin_payload
+            .participant
+            .as_ref()
+            .ok_or(SessionError::MalformedParticipant)?
+            .clone();
+        let mut name_no_id = participant_name.clone();
+        name_no_id.reset_id();
+
+        let participant_entry = match self.group_list.get(&name_no_id) {
+            Some(entry) => entry.clone(),
+            None => {
+                debug!(from = %participant_name, "rejoin request from unknown participant, ignoring");
+                return Ok(SessionOutput::new());
+            }
+        };
+
+        if participant_entry.status != ParticipantState::OffLine as i32 {
+            debug!(from = %participant_name, "rejoin request from online participant, ignoring");
+            return Ok(SessionOutput::new());
+        }
+
+        // 2. Check if there is a current task
+        if self.current_task.is_some() {
+            // 3. Drop the message — the participant will retry
+            debug!(from = %participant_name, "moderator is busy, dropping rejoin request (participant will retry)");
+            return Ok(SessionOutput::new());
+        }
+
+        // 4. Set current task to Rejoin
+        self.current_task = Some(ModeratorTask::Rejoin(RejoinParticipant::new()));
+
+        let mut output = SessionOutput::new();
+
+        // 5. Update the MLS group (rejoin = remove + re-add in one commit)
+        let key_package = &rejoin_payload.key_package;
+
+        let (commit_id, welcome_content, commit_content) =
+            if let Some(mls_state) = &mut self.mls_state {
+                let (commit_msg, welcome_msg) =
+                    maybe_await!(mls_state.rejoin_participant(&name_no_id, key_package))
+                        .map_err(|e| self.handle_task_error(e))?;
+
+                let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
+                (commit_id, welcome_msg, commit_msg)
+            } else {
+                // this should never happen since the rejoin request is only sent when MLS is enabled
+                (0, vec![], vec![])
+            };
+
+        // 6. Send rejoin reply with the welcome message and commit id to the participant
+        let reply_msg_id = rand::random::<u32>();
+        let reply_payload = CommandPayload::builder()
+            .rejoin_reply(commit_id, welcome_content)
+            .as_content();
+        debug!(
+            dst = %source,
+            id = %reply_msg_id,
+            "send rejoin reply (welcome) to participant",
+        );
+        output.extend(self.common.send_control_message(
+            &source,
+            ProtoSessionMessageType::RejoinReply,
+            reply_msg_id,
+            reply_payload,
+            None,
+            false,
+        )?);
+
+        // 7. Start the welcome phase in rejoin task
+        self.current_task
+            .as_mut()
+            .unwrap()
+            .welcome_start(reply_msg_id)?;
+
+        // Mark participant as online in group list
+        if let Some(entry) = self.group_list.get_mut(&name_no_id) {
+            entry.status = ParticipantState::OnLine as i32;
+        }
+
+        // 8. Send GroupUpdate with REJOIN op and MLS commit to all participants
+        //    Only if there are at least 3 participants (moderator + rejoin + at least one other)
+        let mls_payload = if !commit_content.is_empty() {
+            Some(MlsPayload {
+                commit_id,
+                mls_content: commit_content,
+            })
+        } else {
+            None
+        };
+
+        let participants_vec: Vec<Participant> = self.group_list.values().cloned().collect();
+
+        if participants_vec.len() > 2 {
+            let update_msg_id = rand::random::<u32>();
+            let update_payload = CommandPayload::builder()
+                .group_update(
+                    GroupUpdateOp::Rejoin,
+                    participant_entry,
+                    participants_vec,
+                    mls_payload,
+                )
+                .as_content();
+            debug!(
+                id = %update_msg_id,
+                "send group update (rejoin) to channel",
+            );
+            output.extend(self.common.send_control_message(
+                &self.common.settings.control.clone(),
+                ProtoSessionMessageType::GroupUpdate,
+                update_msg_id,
+                update_payload,
+                None,
+                true,
+            )?);
+
+            // 9. Start the commit/update phase in rejoin task
+            self.current_task
+                .as_mut()
+                .unwrap()
+                .commit_start(update_msg_id)?;
+        } else {
+            // No other participants to notify — skip the commit phase
+            self.current_task.as_mut().unwrap().commit_start(12345)?;
+            self.current_task
+                .as_mut()
+                .unwrap()
+                .update_phase_completed(12345)?;
+        }
+
+        Ok(output)
     }
 
     async fn on_group_ack(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {

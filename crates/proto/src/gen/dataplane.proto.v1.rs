@@ -326,7 +326,7 @@ pub struct HeaderIntegrityAad {
 }
 /// Group Update Payload
 /// sent when participant is added, removed
-/// or is rejoining the gruop
+/// or is rejoining the group
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupUpdatePayload {
     /// operation to perform (add/rm/rejoin)
@@ -402,7 +402,7 @@ pub struct UpdateParticipantStatePayload {
 }
 /// sent by participants to the moderator when a NACK is received
 /// as reply for UpdateParticipantStatePayload(online). This means
-/// that the epoch changed while the partcipant was offline and
+/// that the epoch changed while the participant was offline and
 /// we need to create a new key for MLS
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RejoinRequestPayload {

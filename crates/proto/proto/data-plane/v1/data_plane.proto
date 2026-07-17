@@ -260,7 +260,7 @@ enum GroupUpdateOp {
 
 // Group Update Payload
 // sent when participant is added, removed
-// or is rejoining the gruop
+// or is rejoining the group
 message GroupUpdatePayload {
   // operation to perform (add/rm/rejoin)
   GroupUpdateOp op = 1;
@@ -323,7 +323,7 @@ message UpdateParticipantStatePayload {
 
 // sent by participants to the moderator when a NACK is received 
 // as reply for UpdateParticipantStatePayload(online). This means
-// that the epoch changed while the partcipant was offline and
+// that the epoch changed while the participant was offline and
 // we need to create a new key for MLS
 message RejoinRequestPayload {
   Name participant = 1;

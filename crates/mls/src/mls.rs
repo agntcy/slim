@@ -307,6 +307,53 @@ where
         Ok(commit_msg)
     }
 
+    /// Remove a member and re-add them with a fresh key package in a single commit.
+    /// Used when a participant rejoins with a stale MLS epoch.
+    /// Returns the commit message (to broadcast) and a welcome message (for the rejoining participant).
+    pub async fn rejoin_member(
+        &mut self,
+        identity: &[u8],
+        key_package_bytes: &[u8],
+    ) -> Result<MlsAddMemberResult, MlsError> {
+        debug!("Rejoining member in the MLS group (remove + re-add)");
+        let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
+
+        // Find the member to remove
+        let m = group.member_with_identity(identity).await?;
+
+        // Parse the new key package
+        let key_package = MlsMessage::from_bytes(key_package_bytes)?;
+
+        // Build a single commit that removes and re-adds the member
+        let commit = group
+            .commit_builder()
+            .remove_member(m.index)?
+            .add_member(key_package)?
+            .build()
+            .await?;
+
+        // Serialize the commit message
+        let commit_msg = commit.commit_message.to_bytes()?;
+
+        // Extract the welcome message for the rejoining participant
+        let welcome = commit
+            .welcome_messages
+            .first()
+            .ok_or(MlsError::NoWelcomeMessage)
+            .map(|w| w.to_bytes().map_err(MlsError::from))??;
+
+        // Apply the commit locally
+        group.apply_pending_commit().await?;
+
+        // Identity stays the same — no roster diff needed
+        let ret = MlsAddMemberResult {
+            welcome_message: welcome,
+            commit_message: commit_msg,
+            member_identity: identity.to_vec(),
+        };
+        Ok(ret)
+    }
+
     pub async fn process_commit(&mut self, commit_message: &[u8]) -> Result<(), MlsError> {
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
         let commit = MlsMessage::from_bytes(commit_message)?;

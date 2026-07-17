@@ -496,6 +496,30 @@ where
         Ok(ret)
     }
 
+    /// Rejoin a participant: remove them from the MLS group and re-add with a fresh key package.
+    /// Returns the commit message (to broadcast to all) and the welcome message (for the rejoining participant).
+    pub(crate) async fn rejoin_participant(
+        &mut self,
+        name: &ProtoName,
+        key_package: &[u8],
+    ) -> Result<(CommitMsg, WelcomeMsg), SessionError> {
+        debug!("Rejoin participant in the MLS group (remove + re-add)");
+        let id = match self.participants.get(name) {
+            Some(id) => id,
+            None => {
+                error!("the name does not exist in the group");
+                return Err(SessionError::ParticipantNotFound(name.clone()));
+            }
+        };
+
+        let ret = self.common.mls.rejoin_member(id, key_package).await?;
+
+        // Update the participant's identity (may have changed with new key package)
+        self.participants.insert(name.clone(), ret.member_identity);
+
+        Ok((ret.commit_message, ret.welcome_message))
+    }
+
     #[allow(dead_code)]
     pub(crate) async fn process_proposal_message(
         &mut self,

@@ -236,7 +236,7 @@ where
                                 self.common.online = true;
                                 self.common.sender.restart_heartbeat();
                             } else {
-                                // If we get a timoeut for the RejoinRequest, it means that the rekey did
+                                // If we get a timeout for the RejoinRequest, it means that the rekey did
                                 // not work so we need to return an error to the application
                                 if let Some(tx) = pending_task.ack_tx {
                                     let _ = tx.send(Err(SessionError::RejoinFailed));
@@ -568,7 +568,9 @@ where
                         .add_route(name.clone(), msg.get_incoming_conn())
                         .await?;
                 }
-                self.add_endpoint(p).await?;
+                if p.status == ParticipantState::OnLine as i32 {
+                    self.add_endpoint(p).await?;
+                }
             }
         }
 
@@ -593,7 +595,27 @@ where
             "received update",
         );
 
-        if let Some(mls_state) = &mut self.mls_state {
+        let update = msg
+            .get_payload()
+            .unwrap()
+            .as_command_payload()?
+            .as_group_update_payload()?
+            .clone();
+
+        let op = slim_datapath::api::GroupUpdateOp::try_from(update.op)
+            .map_err(|_| SessionError::InvalidGroupUpdateOp(update.op))?;
+
+        // Check if this is a Rejoin for ourselves — if so, skip MLS processing
+        // (we already processed the welcome in on_rejoin_reply) but still refresh the group list
+        let is_self_rejoin = op == slim_datapath::api::GroupUpdateOp::Rejoin
+            && update
+                .participant
+                .as_ref()
+                .and_then(|p| p.get_name().ok())
+                .map(|name| name == self.common.settings.source)
+                .unwrap_or(false);
+
+        if !is_self_rejoin && let Some(mls_state) = &mut self.mls_state {
             debug!("process mls control update");
             let source_proto = self.common.settings.source.clone();
             let ret = maybe_await!(mls_state.process_control_message(msg.clone(), &source_proto))?;
@@ -606,16 +628,6 @@ where
                 return Ok(SessionOutput::new());
             }
         }
-
-        let update = msg
-            .get_payload()
-            .unwrap()
-            .as_command_payload()?
-            .as_group_update_payload()?
-            .clone();
-
-        let op = slim_datapath::api::GroupUpdateOp::try_from(update.op)
-            .map_err(|_| SessionError::InvalidGroupUpdateOp(update.op))?;
         match op {
             slim_datapath::api::GroupUpdateOp::Add => {
                 if let Some(ref new_participant) = update.participant {
@@ -647,8 +659,35 @@ where
                 }
             }
             slim_datapath::api::GroupUpdateOp::Rejoin => {
-                // Rejoin: participant is back online, update their state
-                todo!()
+                if let Some(ref rejoined_participant) = update.participant {
+                    let name = rejoined_participant.get_name()?;
+
+                    if is_self_rejoin {
+                        // We are the rejoining participant — rebuild the group list
+                        // from the participants field (members may have been added/removed
+                        // while we were offline)
+                        self.group_list.clear();
+                        for p in &update.participants {
+                            let p_name = p.get_name()?;
+                            if p.status == ParticipantState::OffLine as i32 {
+                                self.remove_endpoint(&p_name);
+                            }
+                            self.group_list.insert(p_name, p.clone());
+                        }
+                    } else {
+                        // Another participant rejoined — update their status
+                        if let Some(entry) = self.group_list.get_mut(&name) {
+                            entry.status = ParticipantState::OnLine as i32;
+                        } else {
+                            // Unknown participant — add them to the group
+                            let mut updated = rejoined_participant.clone();
+                            updated.status = ParticipantState::OnLine as i32;
+                            self.group_list.insert(name.clone(), updated);
+                            self.common.add_route(name, msg.get_incoming_conn()).await?;
+                            self.add_endpoint(rejoined_participant).await?;
+                        }
+                    }
+                }
             }
         }
 
@@ -1004,7 +1043,15 @@ where
             }
         }
 
-        Ok(SessionOutput::new())
+        // Send a GroupAck back to the moderator
+        let ack_msg = self.common.create_control_message(
+            &message.get_source(),
+            ProtoSessionMessageType::GroupAck,
+            message.get_id(),
+            CommandPayload::builder().group_ack().as_content(),
+            false,
+        )?;
+        Ok(SessionOutput::to_slim(ack_msg))
     }
 
     fn on_group_ack(&mut self, message: &Message) -> Result<(), SessionError> {
