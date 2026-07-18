@@ -321,7 +321,7 @@ message UpdateParticipantStatePayload {
   uint64 epoch = 3;
 }
 
-// sent by participants to the moderator when a NACK is received 
+// sent by participants to the moderator when a NACK is received
 // as reply for UpdateParticipantStatePayload(online). This means
 // that the epoch changed while the participant was offline and
 // we need to create a new key for MLS
@@ -330,7 +330,7 @@ message RejoinRequestPayload {
   bytes key_package = 2;
 }
 
-// reply from the moderator that contains the 
+// reply from the moderator that contains the
 // welcome commit triggered buy the rejoin request
 message RejoinReplyPayload {
   // the last commit id send by the moderator
