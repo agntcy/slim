@@ -258,7 +258,7 @@ where
                     }
 
                     self.remove_endpoint(&participant_name);
-                    tracing::info!("participant {} is now offline", participant_name);
+                    debug!("participant {} is now offline", participant_name);
                 }
             }
             SessionMessage::LeaveCleanup => {
@@ -431,6 +431,18 @@ where
         self.common
             .add_route(source.clone(), msg.get_incoming_conn())
             .await?;
+
+        // setup the control sender with missing group name
+        if self.common.settings.config.session_type == ProtoSessionType::Multicast {
+            self.common
+                .sender
+                .set_group_name(self.common.settings.control.clone());
+        } else {
+            // in point-to-point sessions the group name is the same as the destination
+            self.common
+                .sender
+                .set_group_name(self.common.settings.destination.clone());
+        }
 
         let key_package = if let Some(mls_state) = &mut self.mls_state {
             debug!("mls enabled, create the package key");
