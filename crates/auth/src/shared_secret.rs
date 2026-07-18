@@ -301,7 +301,12 @@ impl SharedSecretBuilder {
             signing: RwLock::new(SigningMaterial {
                 keys: (secret_key, public_key),
                 claims_b64,
-                mls_installed: false,
+                // The keys above are generated for the exact ciphersuite MLS
+                // uses on this target (see `utils::generate_mls_signature_keys`),
+                // so MLS adopts them directly and never has to rotate the signing
+                // identity mid-handshake — which is what previously raced with
+                // concurrent control-message signing.
+                mls_installed: true,
             }),
         };
         Ok(SharedSecret {
@@ -513,12 +518,11 @@ impl TokenProvider for SharedSecret {
         Ok(self.id().to_string())
     }
 
-    fn get_signature_secret_key(&self) -> Result<Vec<u8>, AuthError> {
-        Ok(self.inner.signing.read().keys.0.clone())
-    }
-
-    fn get_signature_public_key(&self) -> Result<Vec<u8>, AuthError> {
-        Ok(self.inner.signing.read().keys.1.clone())
+    fn get_signature_keys(&self) -> Result<(Vec<u8>, Vec<u8>), AuthError> {
+        // Read both keys under a single lock so a concurrent `set_signature_keys`
+        // rotation can never hand back a mismatched (secret, public) pair.
+        let signing = self.inner.signing.read();
+        Ok((signing.keys.0.clone(), signing.keys.1.clone()))
     }
 
     fn mls_signature_keys_installed(&self) -> bool {
@@ -676,7 +680,7 @@ mod tests {
     async fn test_set_signature_keys_updates_keys_and_claims() {
         let mut s = SharedSecret::new("svc", &valid_secret()).unwrap();
 
-        let initial_pub = s.get_signature_public_key().unwrap();
+        let initial_pub = s.get_signature_keys().unwrap().1;
         let initial_token = s.get_token().unwrap();
 
         let new_priv = vec![7u8; 32];
@@ -686,9 +690,11 @@ mod tests {
             .unwrap();
 
         // The provider now reports the externally-supplied key pair.
-        assert_eq!(s.get_signature_secret_key().unwrap(), new_priv);
-        assert_eq!(s.get_signature_public_key().unwrap(), new_pub);
-        assert_ne!(s.get_signature_public_key().unwrap(), initial_pub);
+        assert_eq!(
+            s.get_signature_keys().unwrap(),
+            (new_priv.clone(), new_pub.clone())
+        );
+        assert_ne!(s.get_signature_keys().unwrap().1, initial_pub);
 
         // The embedded claims carry the public key, so a token minted after the
         // swap differs from one minted before it.
@@ -704,8 +710,7 @@ mod tests {
     #[tokio::test]
     async fn test_set_signature_keys_changes_keys() {
         let mut s = SharedSecret::new("svc", &valid_secret()).unwrap();
-        let before_pub = s.get_signature_public_key().unwrap();
-        let before_priv = s.get_signature_secret_key().unwrap();
+        let (before_priv, before_pub) = s.get_signature_keys().unwrap();
 
         let new_priv = vec![42u8; 32];
         let new_pub = vec![43u8; 32];
@@ -713,10 +718,11 @@ mod tests {
             .await
             .unwrap();
 
-        assert_ne!(before_pub, s.get_signature_public_key().unwrap());
-        assert_ne!(before_priv, s.get_signature_secret_key().unwrap());
-        assert_eq!(s.get_signature_public_key().unwrap(), new_pub);
-        assert_eq!(s.get_signature_secret_key().unwrap(), new_priv);
+        let (after_priv, after_pub) = s.get_signature_keys().unwrap();
+        assert_ne!(before_pub, after_pub);
+        assert_ne!(before_priv, after_priv);
+        assert_eq!(after_pub, new_pub);
+        assert_eq!(after_priv, new_priv);
 
         // The updated identity still produces a verifiable token.
         let token = s.get_token().unwrap();
@@ -1025,18 +1031,17 @@ mod tests {
         // get_id
         let id = s.get_id().unwrap();
         assert!(id.starts_with("svc_"));
-        // get_signature_secret_key / get_signature_public_key
-        let sk = s.get_signature_secret_key().unwrap();
-        let pk_before = s.get_signature_public_key().unwrap();
+        // get_signature_keys
+        let (sk, pk_before) = s.get_signature_keys().unwrap();
         // set_signature_keys: public key must change after setting new keys.
         let new_priv = vec![11u8; 32];
         let new_pub = vec![22u8; 32];
         s.set_signature_keys(new_priv.clone(), new_pub.clone())
             .await
             .unwrap();
-        let pk_after = s.get_signature_public_key().unwrap();
+        let (sk_after, pk_after) = s.get_signature_keys().unwrap();
         assert_ne!(pk_before, pk_after);
-        assert_ne!(sk, s.get_signature_secret_key().unwrap());
+        assert_ne!(sk, sk_after);
         // Token issued after key update must still verify with the same shared secret.
         let token = s.get_token().unwrap();
         assert!(s.try_verify(token).is_ok());

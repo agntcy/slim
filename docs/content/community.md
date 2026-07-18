@@ -25,7 +25,7 @@ infrastructure for open, vendor-neutral agent communication.
 
 Stay involved with the AGNTCY community and SLIM contributors:
 
-- **[AGNTCY Discord server](https://discord.gg/nbeEENusy)** — chat with maintainers and contributors
+- **[AGNTCY Discord server](https://discord.gg/FbEnSHXD34)** — chat with maintainers and contributors
 - **[AGNTCY Meeting Calendar](https://zoom-lfx.platform.linuxfoundation.org/meetings/agntcy?view=week)** — working group and community meetings
 - **[AGNTCY on GitHub](https://github.com/agntcy)** — organization home for all IoA projects
 - **[AGNTCY Blogs](https://blogs.agntcy.org/)** — announcements, tutorials, and project updates

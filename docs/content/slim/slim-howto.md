@@ -429,8 +429,8 @@ You've installed SLIM! Here's what to do next:
 1. Read the [messaging layer documentation](./slim-data-plane.md)
 2. Explore the [example applications](https://github.com/agntcy/slim-bindings)
 3. Learn about [configuration options](./slim-data-plane-config.md)
-4. Join us on [Discord](https://discord.gg/nbeEENusy)
+4. Join us on [Discord](https://discord.gg/FbEnSHXD34)
 
 ## Need Help?
 
-If you get stuck, check the [detailed documentation](../index.md), ask questions in our [Discord community](https://discord.gg/nbeEENusy), or report issues on [GitHub](https://github.com/agntcy/slim).
+If you get stuck, check the [detailed documentation](../index.md), ask questions in our [Discord community](https://discord.gg/FbEnSHXD34), or report issues on [GitHub](https://github.com/agntcy/slim).
