@@ -94,6 +94,11 @@
 
 use slim_datapath::api::ProtoName as Name;
 
+// UniFFI scaffolding setup (must be at crate root). Only emitted when the
+// `uniffi` feature exposes the foreign-language interface.
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();
+
 /// Build a method-specific subscription name (base-service-method)
 ///
 /// This creates a subscription name in the format: `org/namespace/app-service-method`
@@ -131,8 +136,37 @@ mod session_wrapper;
 mod handler_traits;
 mod stream_types;
 
-mod runtime;
-pub use runtime::get_runtime;
+// All `#[uniffi::export]` impls are grouped in this module (compiled only under
+// the `uniffi` feature).
+#[cfg(feature = "uniffi")]
+mod ffi;
+
+// The runtime handle for the synchronous FFI convenience wrappers is only
+// available under the `uniffi` feature (it is owned by `agntcy-slim-bindings`).
+// Native builds have no `get_runtime`: they use the ambient tokio runtime
+// (`Handle::current()`) and the async API directly.
+#[cfg(feature = "uniffi")]
+pub use slim_bindings::get_runtime;
+
+/// Spawn a background task on the runtime that drives streaming RPC work.
+///
+/// Native builds spawn onto the ambient tokio runtime (the caller is always
+/// inside one). The `uniffi` build spawns onto the runtime owned by
+/// `agntcy-slim-bindings`, because FFI callers have no ambient runtime.
+pub(crate) fn spawn<F>(future: F) -> tokio::task::JoinHandle<F::Output>
+where
+    F: std::future::Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    #[cfg(feature = "uniffi")]
+    {
+        get_runtime().spawn(future)
+    }
+    #[cfg(not(feature = "uniffi"))]
+    {
+        tokio::spawn(future)
+    }
+}
 
 pub use channel::{Channel, MessageContext, MulticastItem};
 pub use codec::{Codec, Decoder, Encoder};
@@ -266,6 +300,3 @@ pub type RequestStream<T> = futures::stream::BoxStream<'static, Result<T>>;
 /// }
 /// ```
 pub type ResponseStream<T> = futures::stream::BoxStream<'static, Result<T>>;
-
-#[cfg(feature = "uniffi")]
-uniffi::setup_scaffolding!();

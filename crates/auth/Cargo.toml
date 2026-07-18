@@ -1,6 +1,6 @@
 [package]
 name = "agntcy-slim-auth"
-version = "0.12.1"
+version = "0.13.0"
 license = { workspace = true }
 edition = { workspace = true }
 description = "Authentication utilities for the Agntcy Slim framework"
@@ -10,6 +10,11 @@ name = "slim_auth"
 
 [features]
 default = []
+# Generate MLS signature keys with the Curve25519 (Ed25519) ciphersuite instead
+# of the default NIST P-256. Kept in lock-step with `agntcy-slim-mls`'s feature
+# of the same name (propagated from there) so identity keys always match the
+# ciphersuite MLS uses.
+curve25519 = []
 
 # Dependencies shared by the always-available core modules (errors,
 # identity_claims, metadata, shared_secret, traits) on every target,

@@ -114,23 +114,12 @@ where
     if !msg.get_session_message_type().is_command_message() {
         return Ok(());
     }
-    let private_key = match identity_provider.get_signature_secret_key() {
-        Ok(k) => {
-            if k.is_empty() {
+    let (private_key, public_key) = match identity_provider.get_signature_keys() {
+        Ok((secret, public)) => {
+            if secret.is_empty() || public.is_empty() {
                 return Err(SessionError::SignatureKeyIsEmpty);
-            } else {
-                k
             }
-        }
-        Err(err) => return Err(SessionError::SignatureKeyCollectionFailedWithAuthErr(err)),
-    };
-    let public_key = match identity_provider.get_signature_public_key() {
-        Ok(k) => {
-            if k.is_empty() {
-                return Err(SessionError::SignatureKeyIsEmpty);
-            } else {
-                k
-            }
+            (secret, public)
         }
         Err(err) => return Err(SessionError::SignatureKeyCollectionFailedWithAuthErr(err)),
     };

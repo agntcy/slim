@@ -203,42 +203,9 @@ impl ControllerSender {
         }
     }
 
-    // helper function to update local state based on the message type received
-    fn update_local_state(&mut self, message: &Message) -> Result<(), SessionError> {
-        match message.get_session_message_type() {
-            slim_datapath::api::ProtoSessionMessageType::JoinRequest
-                if self.group_name.is_none() =>
-            {
-                // setup the group name if not set yet
-                if self.session_type == ProtoSessionType::PointToPoint {
-                    // in p2p session the group name is equal to the remote name
-                    // in the join request message. Data and control messages
-                    // are distributed using the same name.
-                    debug!(
-                        destination = %message.get_dst(),
-                        "update group name on join request message for p2p session",
-                    );
-                    self.group_name = Some(message.get_dst());
-                } else {
-                    // in multicast session the group name is specified in the
-                    // payload of the message, here we use only the control
-                    // channel name that must be set
-                    let group_name = message
-                        .extract_join_request()?
-                        .control
-                        .as_ref()
-                        .ok_or(SessionError::MissingGroupNameInJoinRequest)?
-                        .clone();
-                    debug!(
-                        destination = %group_name,
-                        "update group name on join request message for multicast session",
-                    );
-                    self.group_name = Some(group_name);
-                }
-            }
-            _ => {}
-        }
-        Ok(())
+    pub fn set_group_name(&mut self, name: ProtoName) {
+        debug!(group = %name, "set group name on controller sender");
+        self.group_name = Some(name);
     }
 
     pub fn on_message(&mut self, message: &Message) -> Result<SessionOutput, SessionError> {
@@ -269,9 +236,6 @@ impl ControllerSender {
                     name.reset_id();
                 }
                 missing_replies.insert(name);
-
-                // update local state
-                self.update_local_state(message)?;
 
                 // send the message and setup the required timers
                 output.extend(self.on_send_message(message, missing_replies)?);
@@ -434,8 +398,14 @@ impl ControllerSender {
         debug!(from = %source, "received heartbeat");
         if let Some(heartbeat_state) = &mut self.heartbeat_state {
             // Reset the missed counter only if this participant is already tracked
-            if heartbeat_state.missed_heartbeats.contains_key(&source) {
-                heartbeat_state.missed_heartbeats.insert(source, 0);
+            if let Some(counter) = heartbeat_state.missed_heartbeats.get_mut(&source) {
+                debug!("reset missed heartbeat counter for participant {}", source);
+                *counter = 0;
+            } else {
+                debug!(
+                    "received heartbeat from untracked participant {}, ignoring",
+                    source
+                );
             }
         }
     }
@@ -443,6 +413,7 @@ impl ControllerSender {
     /// Notify that we sent traffic on the channel, so the next heartbeat can be skipped.
     pub fn notify_sent_activity(&mut self) {
         if let Some(hs) = self.heartbeat_state.as_mut() {
+            debug!("notify sent activity, postpone next heartbeat");
             hs.postpone_heartbeat = true;
         }
     }
@@ -450,6 +421,10 @@ impl ControllerSender {
     /// Notify that we received traffic from a remote participant,
     /// which counts as proof of liveness (same as receiving a heartbeat).
     pub fn notify_received_activity(&mut self, message: &Message) {
+        debug!(
+            from = %message.get_source(),
+            "notify received activity, reset missed heartbeat counter"
+        );
         self.on_heartbeat_received(message);
     }
 
@@ -558,6 +533,8 @@ impl ControllerSender {
             let heartbeat_msg = builder.build_publish()?;
             debug!(id = %heartbeat_id, "send heartbeat");
             output.push_slim(heartbeat_msg);
+        } else {
+            debug!("skip sending heartbeat (traffic sent or no other participants)");
         }
 
         // Always reset the flag for the next interval
