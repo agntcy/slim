@@ -759,6 +759,15 @@ where
                     msg.get_incoming_conn(),
                 )
                 .await?;
+            // setup the control sender with missing information
+            self.common
+                .sender
+                .set_group_name(self.common.settings.control.clone());
+        } else {
+            // in point-to-point sessions the group name is the same as the destination
+            self.common
+                .sender
+                .set_group_name(self.common.settings.destination.clone());
         }
 
         // an endpoint replied to the discovery message

@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::crypto::CryptoProviderImpl;
 use mls_rs::IdentityProvider;
 use mls_rs::{
     CipherSuite, Client, ExtensionList, Group, MlsMessage,
@@ -8,9 +9,6 @@ use mls_rs::{
     group::ReceivedMessage,
     identity::{SigningIdentity, basic::BasicCredential},
 };
-use mls_rs::{CipherSuiteProvider, CryptoProvider};
-
-use crate::crypto::CryptoProviderImpl;
 use std::collections::HashSet;
 use tracing::debug;
 
@@ -139,8 +137,7 @@ where
         is_rotation: bool,
     ) -> Result<(SignatureSecretKey, SigningIdentity), MlsError> {
         let token = self.identity_provider.get_token()?;
-        let pub_key_bytes = self.identity_provider.get_signature_public_key()?;
-        let priv_key_bytes = self.identity_provider.get_signature_secret_key()?;
+        let (priv_key_bytes, pub_key_bytes) = self.identity_provider.get_signature_keys()?;
 
         let public_key = SignaturePublicKey::new(pub_key_bytes.clone());
         let private_key = SignatureSecretKey::new(priv_key_bytes.clone());
@@ -191,15 +188,16 @@ where
     /// guaranteed to be valid for the negotiated ciphersuite (P-256 by
     /// default, or Curve25519 when the `curve25519` feature is enabled).
     pub async fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
-        let crypto_provider = crate::crypto::default_crypto_provider();
-        let cipher_suite_provider = crypto_provider
-            .cipher_suite_provider(CIPHERSUITE)
-            .ok_or(MlsError::CiphersuiteUnavailable)?;
-
-        cipher_suite_provider
-            .signature_key_generate()
-            .await
-            .map_err(MlsError::crypto_provider)
+        // Single source of truth with the identity layer: `agntcy-slim-auth`
+        // generates signature keys for the same ciphersuite on every target (its
+        // `curve25519` feature is propagated from this crate), so keys an
+        // identity ships and keys MLS generates always share the same ciphersuite
+        // and byte format.
+        let (secret, public) = slim_auth::utils::generate_mls_signature_keys()?;
+        Ok((
+            SignatureSecretKey::new(secret),
+            SignaturePublicKey::new(public),
+        ))
     }
 
     pub async fn create_group(&mut self) -> Result<Vec<u8>, MlsError> {
@@ -694,12 +692,13 @@ mod tests {
         let mut session_a = Mls::new(provider.clone(), verifier.clone());
         let mut session_b = Mls::new(provider.clone(), verifier.clone());
 
-        // First init generates + installs the app key; the second reuses it.
+        // The app key is generated at identity construction, so both inits
+        // reuse the same installed key rather than generating a fresh one.
         session_a.initialize().await?;
         session_b.initialize().await?;
 
-        let key_a = session_a.identity_provider().get_signature_public_key()?;
-        let key_b = session_b.identity_provider().get_signature_public_key()?;
+        let key_a = session_a.identity_provider().get_signature_keys()?.1;
+        let key_b = session_b.identity_provider().get_signature_keys()?.1;
         assert!(!key_a.is_empty(), "an MLS key must be installed");
         assert_eq!(
             key_a, key_b,
@@ -708,8 +707,8 @@ mod tests {
 
         // Rotating the app key once is visible to every session/clone.
         session_a.rotate_identity_key().await?;
-        let rotated_a = session_a.identity_provider().get_signature_public_key()?;
-        let rotated_b = session_b.identity_provider().get_signature_public_key()?;
+        let rotated_a = session_a.identity_provider().get_signature_keys()?.1;
+        let rotated_b = session_b.identity_provider().get_signature_keys()?.1;
         assert_ne!(rotated_a, key_a, "rotation must install a new key");
         assert_eq!(
             rotated_a, rotated_b,

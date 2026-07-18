@@ -8,6 +8,11 @@
 //! - Stream-Unary: Streaming requests, single response
 //! - Unary-Stream: Single request, streaming responses
 //! - Stream-Stream: Streaming requests, streaming responses
+//!
+//! These exercise the UniFFI-facing surface of `agntcy-slim-rpc`, so they only
+//! build/run with the `uniffi` feature enabled:
+//! `cargo test -p agntcy-slim-rpc --features uniffi`.
+#![cfg(feature = "uniffi")]
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -16,9 +21,11 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 use slim_bindings::{
-    App, Channel, Direction, IdentityProviderConfig, IdentityVerifierConfig,
-    MulticastStreamMessage, Name, RpcCode, RpcError, Server, StreamMessage, StreamStreamHandler,
-    StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler, initialize_with_defaults,
+    App, Direction, IdentityProviderConfig, IdentityVerifierConfig, Name, initialize_with_defaults,
+};
+use slim_rpc::{
+    Channel, MulticastStreamMessage, RpcCode, RpcError, Server, StreamMessage, StreamStreamHandler,
+    StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
 };
 
 // ============================================================================
@@ -33,7 +40,7 @@ impl UnaryUnaryHandler for EchoHandler {
     async fn handle(
         &self,
         request: Vec<u8>,
-        _context: Arc<slim_bindings::Context>,
+        _context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         // Echo the request back
         println!("EchoHandler received request: {request:?}");
@@ -49,7 +56,7 @@ impl UnaryUnaryHandler for ErrorHandler {
     async fn handle(
         &self,
         _request: Vec<u8>,
-        _context: Arc<slim_bindings::Context>,
+        _context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         Err(RpcError::new(
             RpcCode::InvalidArgument,
@@ -66,8 +73,8 @@ impl UnaryStreamHandler for CounterHandler {
     async fn handle(
         &self,
         request: Vec<u8>,
-        _context: Arc<slim_bindings::Context>,
-        sink: Arc<slim_bindings::ResponseSink>,
+        _context: Arc<slim_rpc::Context>,
+        sink: Arc<slim_rpc::ResponseSink>,
     ) -> Result<(), RpcError> {
         // Parse count from request (simple u32 encoding)
         let count = if request.len() >= 4 {
@@ -95,8 +102,8 @@ impl UnaryStreamHandler for StreamErrorHandler {
     async fn handle(
         &self,
         _request: Vec<u8>,
-        _context: Arc<slim_bindings::Context>,
-        sink: Arc<slim_bindings::ResponseSink>,
+        _context: Arc<slim_rpc::Context>,
+        sink: Arc<slim_rpc::ResponseSink>,
     ) -> Result<(), RpcError> {
         // Send a couple of messages
         sink.send_async(vec![1, 2, 3]).await?;
@@ -120,8 +127,8 @@ struct AccumulatorHandler;
 impl StreamUnaryHandler for AccumulatorHandler {
     async fn handle(
         &self,
-        stream: Arc<slim_bindings::RequestStream>,
-        _context: Arc<slim_bindings::Context>,
+        stream: Arc<slim_rpc::UniffiRequestStream>,
+        _context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         let mut total = 0u32;
         let mut count = 0u32;
@@ -154,8 +161,8 @@ struct StreamInputErrorHandler;
 impl StreamUnaryHandler for StreamInputErrorHandler {
     async fn handle(
         &self,
-        stream: Arc<slim_bindings::RequestStream>,
-        _context: Arc<slim_bindings::Context>,
+        stream: Arc<slim_rpc::UniffiRequestStream>,
+        _context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         let mut count = 0u32;
 
@@ -187,9 +194,9 @@ struct StreamEchoHandler;
 impl StreamStreamHandler for StreamEchoHandler {
     async fn handle(
         &self,
-        stream: Arc<slim_bindings::RequestStream>,
-        _context: Arc<slim_bindings::Context>,
-        sink: Arc<slim_bindings::ResponseSink>,
+        stream: Arc<slim_rpc::UniffiRequestStream>,
+        _context: Arc<slim_rpc::Context>,
+        sink: Arc<slim_rpc::ResponseSink>,
     ) -> Result<(), RpcError> {
         loop {
             match stream.next_async().await {
@@ -216,9 +223,9 @@ struct TransformHandler;
 impl StreamStreamHandler for TransformHandler {
     async fn handle(
         &self,
-        stream: Arc<slim_bindings::RequestStream>,
-        _context: Arc<slim_bindings::Context>,
-        sink: Arc<slim_bindings::ResponseSink>,
+        stream: Arc<slim_rpc::UniffiRequestStream>,
+        _context: Arc<slim_rpc::Context>,
+        sink: Arc<slim_rpc::ResponseSink>,
     ) -> Result<(), RpcError> {
         loop {
             match stream.next_async().await {
@@ -252,7 +259,7 @@ impl UnaryUnaryHandler for SlowUnaryHandler {
     async fn handle(
         &self,
         request: Vec<u8>,
-        _context: Arc<slim_bindings::Context>,
+        _context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         tokio::time::sleep(Duration::from_secs(2)).await;
         Ok(request)
@@ -271,8 +278,8 @@ impl UnaryStreamHandler for SlowStreamHandler {
     async fn handle(
         &self,
         _request: Vec<u8>,
-        _context: Arc<slim_bindings::Context>,
-        sink: Arc<slim_bindings::ResponseSink>,
+        _context: Arc<slim_rpc::Context>,
+        sink: Arc<slim_rpc::ResponseSink>,
     ) -> Result<(), RpcError> {
         *self.started.lock().await = true;
 
@@ -303,8 +310,8 @@ impl UnaryStreamHandler for SlowSetupStreamHandler {
     async fn handle(
         &self,
         _request: Vec<u8>,
-        _context: Arc<slim_bindings::Context>,
-        sink: Arc<slim_bindings::ResponseSink>,
+        _context: Arc<slim_rpc::Context>,
+        sink: Arc<slim_rpc::ResponseSink>,
     ) -> Result<(), RpcError> {
         *self.started.lock().await = true;
 
@@ -333,8 +340,8 @@ struct SlowStreamUnaryHandler {
 impl StreamUnaryHandler for SlowStreamUnaryHandler {
     async fn handle(
         &self,
-        stream: Arc<slim_bindings::RequestStream>,
-        _context: Arc<slim_bindings::Context>,
+        stream: Arc<slim_rpc::UniffiRequestStream>,
+        _context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         *self.started.lock().await = true;
 
@@ -373,9 +380,9 @@ struct SlowStreamStreamHandler {
 impl StreamStreamHandler for SlowStreamStreamHandler {
     async fn handle(
         &self,
-        stream: Arc<slim_bindings::RequestStream>,
-        _context: Arc<slim_bindings::Context>,
-        sink: Arc<slim_bindings::ResponseSink>,
+        stream: Arc<slim_rpc::UniffiRequestStream>,
+        _context: Arc<slim_rpc::Context>,
+        sink: Arc<slim_rpc::ResponseSink>,
     ) -> Result<(), RpcError> {
         *self.started.lock().await = true;
 
@@ -410,7 +417,7 @@ impl UnaryUnaryHandler for LongRunningHandler {
     async fn handle(
         &self,
         request: Vec<u8>,
-        _context: Arc<slim_bindings::Context>,
+        _context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         *self.started.lock().await = true;
         println!("LongRunningHandler started, will run for 5 seconds");
@@ -434,7 +441,7 @@ impl UnaryUnaryHandler for DeadlineCaptureHandler {
     async fn handle(
         &self,
         request: Vec<u8>,
-        context: Arc<slim_bindings::Context>,
+        context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         *self.captured_deadline.lock().await = Some(context.deadline());
         Ok(request)
@@ -505,7 +512,7 @@ impl TestEnv {
 
         // Spawn task to run the server
         tokio::spawn(async move {
-            if let Err(e) = server.serve_async().await {
+            if let Err(e) = server.serve().await {
                 eprintln!("Server error: {e:?}");
             }
         });
@@ -588,7 +595,7 @@ async fn test_unary_unary_rpc() {
     assert_eq!(response, request);
 
     println!("Unary call succeeded");
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -624,7 +631,7 @@ async fn test_unary_unary_error_handling() {
     assert_eq!(error.code(), RpcCode::InvalidArgument);
     assert!(error.message().contains("Intentional error"));
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -682,7 +689,7 @@ async fn test_unary_stream_rpc() {
         assert_eq!(value, i as u32);
     }
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -734,7 +741,7 @@ async fn test_unary_stream_error_handling() {
     assert_eq!(responses.len(), 2);
     assert!(got_error);
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -788,7 +795,7 @@ async fn test_stream_unary_rpc() {
     assert_eq!(total, 100); // 10 + 20 + 30 + 40
     assert_eq!(count, 4);
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -834,7 +841,7 @@ async fn test_stream_unary_error_handling() {
     assert_eq!(error.code(), RpcCode::InvalidArgument);
     assert!(error.message().contains("Invalid data"));
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -894,7 +901,7 @@ async fn test_stream_stream_echo() {
     assert_eq!(received.len(), 3);
     assert_eq!(received, messages);
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -957,7 +964,7 @@ async fn test_stream_stream_transform() {
     assert_eq!(received[1], vec![20, 40, 60]); // [10,20,30] * 2
     assert_eq!(received[2], vec![200]); // [100] * 2
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -1007,7 +1014,7 @@ async fn test_concurrent_unary_calls() {
         handle.await.expect("Task panicked");
     }
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -1044,7 +1051,7 @@ async fn test_handler_registration() {
     let methods = env.server.methods();
     assert!(methods.len() >= 3);
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -1059,7 +1066,7 @@ impl UnaryUnaryHandler for ContextInfoHandler {
     async fn handle(
         &self,
         _request: Vec<u8>,
-        context: Arc<slim_bindings::Context>,
+        context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         // Access context information
         let session_id = context.session_id();
@@ -1083,7 +1090,7 @@ impl UnaryUnaryHandler for ContextValidationHandler {
     async fn handle(
         &self,
         _request: Vec<u8>,
-        context: Arc<slim_bindings::Context>,
+        context: Arc<slim_rpc::Context>,
     ) -> Result<Vec<u8>, RpcError> {
         // Capture session ID
         let session_id = context.session_id();
@@ -1139,7 +1146,7 @@ async fn test_context_access() {
     // Should get a session ID back
     assert!(!response.is_empty());
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1185,7 +1192,7 @@ async fn test_context_session_id() {
         "Session ID should not be empty"
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1234,7 +1241,7 @@ async fn test_context_metadata() {
         "Metadata should contain deadline"
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1307,7 +1314,7 @@ async fn test_context_custom_metadata() {
         "Metadata should contain deadline"
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1360,7 +1367,7 @@ async fn test_unary_stream_with_metadata() {
 
     assert_eq!(count, 5, "Should receive 5 items");
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1411,7 +1418,7 @@ async fn test_stream_unary_with_metadata() {
     let expected_sum: u32 = values.iter().sum();
     assert_eq!(sum, expected_sum, "Sum should match");
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1475,7 +1482,7 @@ async fn test_stream_stream_with_metadata() {
         assert_eq!(sent, recv, "Messages should match");
     }
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1535,7 +1542,7 @@ async fn test_context_deadline() {
         "Deadline should be close to expected value"
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1597,7 +1604,7 @@ async fn test_context_remaining_time() {
         "Remaining time should be close to timeout"
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -1642,7 +1649,7 @@ async fn test_client_deadline_unary_unary() {
         err.code()
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1722,7 +1729,7 @@ async fn test_client_deadline_unary_stream() {
         "Handler should not have sent all items, sent {sent}"
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -1767,7 +1774,7 @@ async fn test_server_deadline_unary_unary() {
         err.code()
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1830,7 +1837,7 @@ async fn test_server_deadline_unary_stream() {
     assert!(was_started, "Handler should have started execution");
     assert!(!was_completed, "Handler should not have completed");
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1896,7 +1903,7 @@ async fn test_server_deadline_stream_unary() {
     assert!(!was_completed, "Handler should not have completed");
     println!("Handler received {received} messages before deadline");
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -1961,7 +1968,7 @@ async fn test_server_deadline_stream_stream() {
     assert!(was_started, "Handler should have started execution");
     assert!(!was_completed, "Handler should not have completed");
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -2024,7 +2031,7 @@ async fn test_server_enforces_deadline_during_handler_execution() {
     assert!(was_started, "Handler should have started execution");
     assert!(!was_completed, "Handler should not have completed");
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -2088,7 +2095,7 @@ async fn test_deadline_propagation() {
         "Deadline should match expected value within tolerance, diff: {diff:?}"
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -2137,7 +2144,7 @@ async fn test_context_deadline_not_exceeded() {
         "Deadline should not be exceeded for normal calls"
     );
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 #[tokio::test]
@@ -2238,7 +2245,7 @@ async fn test_context_all_fields() {
         assert!(!is_exceeded.unwrap(), "Deadline should not be exceeded");
     }
 
-    env.server.shutdown_async().await;
+    env.server.shutdown().await;
 }
 
 // ============================================================================
@@ -2324,7 +2331,7 @@ async fn start_multicast_servers(servers: &[Arc<Server>]) {
     for s in servers {
         let s = s.clone();
         tokio::spawn(async move {
-            if let Err(e) = s.serve_async().await {
+            if let Err(e) = s.serve().await {
                 eprintln!("Member server error: {e:?}");
             }
         });
@@ -2391,7 +2398,7 @@ async fn test_uniffi_multicast_unary() {
     }
 
     for s in &servers {
-        s.shutdown_async().await;
+        s.shutdown().await;
     }
 }
 
@@ -2443,7 +2450,7 @@ async fn test_uniffi_multicast_unary_stream() {
     );
 
     for s in &servers {
-        s.shutdown_async().await;
+        s.shutdown().await;
     }
 }
 
@@ -2516,7 +2523,7 @@ async fn test_uniffi_multicast_stream_unary() {
     }
 
     for s in &servers {
-        s.shutdown_async().await;
+        s.shutdown().await;
     }
 }
 
@@ -2591,6 +2598,6 @@ async fn test_uniffi_multicast_stream_stream() {
     }
 
     for s in &servers {
-        s.shutdown_async().await;
+        s.shutdown().await;
     }
 }

@@ -15,7 +15,7 @@ It should be considered a map to help you navigate the process.
 The [Discord community][dev] is available for any concerns not covered in this guide,
 please join us!
 
-[dev]: https://discord.gg/nbeEENusy
+[dev]: https://discord.gg/FbEnSHXD34
 
 ## Contributing in Issues
 
