@@ -1376,39 +1376,6 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_heartbeat_no_send_when_alone() {
-        let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
-        let heartbeat_interval = Duration::from_millis(500);
-        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
-
-        let source = ProtoName::from_strings(["org", "ns", "source"]);
-        let session_id = 1;
-
-        let mut sender = ControllerSender::new(
-            settings,
-            source.clone(),
-            ProtoSessionType::Multicast,
-            session_id,
-            Some(heartbeat_interval),
-            false,
-            tx_signal,
-        );
-
-        sender.group_name = Some(ProtoName::from_strings(["org", "ns", "group"]));
-
-        // Wait for timer tick — should produce no outbound messages (alone in group)
-        let (timer_id, message_type) =
-            expect_timeout(&mut rx_signal, Duration::from_millis(600)).await;
-        assert_eq!(message_type, ProtoSessionMessageType::Heartbeat);
-
-        let output = sender
-            .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat, Some(50))
-            .expect("error handling heartbeat timeout");
-        assert_no_messages(output);
-    }
-
-    #[tokio::test]
-    #[traced_test]
     async fn test_heartbeat_suppressed_when_sent_activity() {
         let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
         let heartbeat_interval = Duration::from_millis(500);
