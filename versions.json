@@ -1,5 +1,12 @@
 [
   {
+    "version": "slimctl-v2.0.0-alpha.7",
+    "title": "slimctl-v2.0.0-alpha.7",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slimctl-v2.0.0-alpha.6",
     "title": "slimctl-v2.0.0-alpha.6",
     "aliases": []
@@ -377,9 +384,7 @@
   {
     "version": "slim-bindings-v2.0.0-alpha.9",
     "title": "slim-bindings-v2.0.0-alpha.9",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-bindings-v2.0.0-alpha.8",
