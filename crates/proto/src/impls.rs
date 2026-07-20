@@ -26,9 +26,10 @@ use crate::dataplane::proto::v1::{
     JoinReplyPayload, JoinRequestPayload, LeaveReplyPayload, LeaveRequestPayload,
     Link as ProtoLink, LinkConnectionType, LinkNegotiationPayload, Message as ProtoMessage,
     MlsPayload, MlsSettings as ProtoMlsSettings, Name as ProtoName, NameId, Participant,
-    ParticipantSettings, Publish as ProtoPublish, SessionHeader, SessionMessageType,
-    SessionType as ProtoSessionType, SlimHeader, StringName, Subscribe as ProtoSubscribe,
-    SubscriptionAck as ProtoSubscriptionAck, TimerSettings, Unsubscribe as ProtoUnsubscribe,
+    ParticipantSettings, ParticipantState, Publish as ProtoPublish, SessionHeader,
+    SessionMessageType, SessionType as ProtoSessionType, SlimHeader, StringName,
+    Subscribe as ProtoSubscribe, SubscriptionAck as ProtoSubscriptionAck, TimerSettings,
+    Unsubscribe as ProtoUnsubscribe, UpdateParticipantStatePayload,
 };
 
 fn calculate_hash<T: Hash + ?Sized>(t: &T) -> u64 {
@@ -650,6 +651,7 @@ impl SessionMessageType {
                 | SessionMessageType::GroupAck
                 | SessionMessageType::GroupNack
                 | SessionMessageType::Heartbeat
+                | SessionMessageType::UpdateParticipantState
         )
     }
 
@@ -665,6 +667,7 @@ impl SessionMessageType {
                 | SessionMessageType::GroupAck
                 | SessionMessageType::GroupNack
                 | SessionMessageType::Heartbeat
+                | SessionMessageType::UpdateParticipantState
         )
     }
 }
@@ -1219,6 +1222,7 @@ impl ProtoMessage {
         extract_group_ack => as_group_ack_payload(GroupAckPayload),
         extract_group_nack => as_group_nack_payload(GroupNackPayload),
         extract_heartbeat => as_heartbeat_payload(HeartbeatPayload),
+        extract_update_participant_state => as_update_participant_state_payload(UpdateParticipantStatePayload),
     }
 
     pub fn builder() -> ProtoMessageBuilder {
@@ -1301,6 +1305,7 @@ impl CommandPayload {
         as_group_ack_payload => GroupAck(GroupAckPayload),
         as_group_nack_payload => GroupNack(GroupNackPayload),
         as_heartbeat_payload => Heartbeat(HeartbeatPayload),
+        as_update_participant_state_payload => UpdateParticipantState(UpdateParticipantStatePayload),
     }
 
     pub fn builder() -> CommandPayloadBuilder {
@@ -1476,6 +1481,22 @@ impl CommandPayloadBuilder {
         let payload = HeartbeatPayload { epoch };
         CommandPayload {
             command_payload_type: Some(CommandPayloadType::Heartbeat(payload)),
+        }
+    }
+
+    pub fn update_participant_state(
+        self,
+        participant: ProtoName,
+        new_state: ParticipantState,
+        epoch: u64,
+    ) -> CommandPayload {
+        let payload = UpdateParticipantStatePayload {
+            participant: Some(participant),
+            new_state: new_state as i32,
+            epoch,
+        };
+        CommandPayload {
+            command_payload_type: Some(CommandPayloadType::UpdateParticipantState(payload)),
         }
     }
 }
@@ -2229,7 +2250,7 @@ mod message_tests {
 
     #[test]
     fn test_service_type_to_int() {
-        let total_service_types = SessionMessageType::Heartbeat as i32;
+        let total_service_types = SessionMessageType::UpdateParticipantState as i32;
         for i in 0..total_service_types {
             let service_type =
                 SessionMessageType::try_from(i).expect("failed to convert int to service type");
@@ -2383,6 +2404,14 @@ mod message_tests {
         assert!(CommandPayload::builder()
             .heartbeat(0)
             .as_heartbeat_payload()
+            .is_ok());
+        assert!(CommandPayload::builder()
+            .update_participant_state(
+                ProtoName::from_strings(["org", "ns", "test"]),
+                ParticipantState::Offline,
+                42,
+            )
+            .as_update_participant_state_payload()
             .is_ok());
     }
 
