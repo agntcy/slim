@@ -347,8 +347,12 @@ impl<S> Jwt<S> {
             .as_ref()
             .ok_or(AuthError::JwtMissingPrivateKey)?;
 
-        // Create the JWT header
-        let header = JwtHeader::new(self.validation.algorithms[0]);
+        // Create the JWT header, stamping `kid = sub` so verifiers can select the
+        // right key in O(1) from a multi-key JWKS instead of trying each. `sub` is
+        // this identity's stable id (its DID in a did:key mesh); the matching JWKS
+        // entry is expected to carry the same `kid`.
+        let mut header = JwtHeader::new(self.validation.algorithms[0]);
+        header.kid = self.claims.sub.clone();
 
         // Encode the claims into a JWT token (use #[from] JwtError for propagation)
         let token = encode(&header, claims, &encoding_key.read())?;
@@ -386,6 +390,17 @@ impl<P> Jwt<P> {
 #[derive(Clone)]
 pub struct V {}
 
+/// True if `err` is specifically a signature-verification failure, i.e. the token
+/// was checked against the wrong key. Used to decide whether to try the next
+/// candidate key in a multi-key JWKS; any other error is terminal.
+fn is_signature_error(err: &AuthError) -> bool {
+    matches!(
+        err,
+        AuthError::JwtTokenInvalid(e)
+            if matches!(e.kind(), jsonwebtoken::errors::ErrorKind::InvalidSignature)
+    )
+}
+
 impl<V> Jwt<V> {
     fn try_verify_claims<Claims: serde::de::DeserializeOwned>(
         &self,
@@ -398,11 +413,11 @@ impl<V> Jwt<V> {
             return Ok(cached_claims);
         }
 
-        // Try to decode the key from the cache first; if this would require async, return WouldBlockOn
-        let decoding_key = self.decoding_key(token)?;
+        // Collect candidate keys from the cache first; if resolution would require
+        // async, return WouldBlockOn. Try each until the signature verifies.
+        let decoding_keys = self.decoding_keys(token)?;
 
-        // If we have a decoding key, proceed with verification
-        self.verify_internal::<Claims>(token, decoding_key)
+        self.verify_with_keys::<Claims>(token, decoding_keys)
     }
 
     async fn verify_claims<Claims: serde::de::DeserializeOwned>(
@@ -416,10 +431,38 @@ impl<V> Jwt<V> {
             return Ok(cached_claims);
         }
 
-        // Resolve the decoding key for verification
-        let decoding_key = self.resolve_decoding_key(token).await?;
+        // Resolve every candidate key for verification, then try each until the
+        // signature verifies.
+        let decoding_keys = self.resolve_decoding_keys(token).await?;
 
-        self.verify_internal::<Claims>(token, decoding_key)
+        self.verify_with_keys::<Claims>(token, decoding_keys)
+    }
+
+    /// Verify `token` against each candidate key, returning the claims from the
+    /// first key that validates.
+    ///
+    /// Only a signature mismatch advances to the next key; any other validation
+    /// failure (expiry, audience, issuer, ...) is returned immediately so the real
+    /// reason surfaces instead of a misleading "invalid signature" produced by an
+    /// unrelated key. This is what lets a multi-key JWKS allow-list work when tokens
+    /// carry no `kid`: the correct key cannot be chosen from the header, so the
+    /// signature check itself selects it.
+    fn verify_with_keys<Claims: serde::de::DeserializeOwned>(
+        &self,
+        token: &str,
+        keys: Vec<DecodingKey>,
+    ) -> Result<Claims, AuthError> {
+        let mut last_err = AuthError::JwksNoSuitableKey;
+        for key in keys {
+            match self.verify_internal::<Claims>(token, key) {
+                Ok(claims) => return Ok(claims),
+                Err(e) if is_signature_error(&e) => {
+                    last_err = e;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err(last_err)
     }
 
     fn verify_internal<Claims: serde::de::DeserializeOwned>(
@@ -490,15 +533,15 @@ impl<V> Jwt<V> {
     }
 
     /// Get decoding key for verification
-    fn decoding_key(&self, token: &str) -> Result<DecodingKey, AuthError> {
-        // If the decoding key is available, return it
+    fn decoding_keys(&self, token: &str) -> Result<Vec<DecodingKey>, AuthError> {
+        // If a decoding key is configured directly, use it.
         {
             if let Some(key) = &self.decoding_key {
-                return Ok(key.read().clone());
+                return Ok(vec![key.read().clone()]);
             }
         }
 
-        // Try to get a cached decoding key
+        // Try to get cached decoding keys
         if let Some(resolver) = &self.key_resolver {
             // Get issuer from claims
             let token_data: TokenData<StandardClaims> =
@@ -510,7 +553,7 @@ impl<V> Jwt<V> {
                 .as_ref()
                 .ok_or(AuthError::JwtMissingIssuer)?;
 
-            match resolver.get_cached_key(issuer, &token_data.header) {
+            match resolver.get_cached_keys(issuer, &token_data.header) {
                 Ok(k) => return Ok(k),
                 Err(_e) => {
                     // No cached key yet; async resolution would be required.
@@ -524,11 +567,11 @@ impl<V> Jwt<V> {
     }
 
     /// Resolve a decoding key for token verification
-    async fn resolve_decoding_key(&self, token: &str) -> Result<DecodingKey, AuthError> {
+    async fn resolve_decoding_keys(&self, token: &str) -> Result<Vec<DecodingKey>, AuthError> {
         // First check if we already have a decoding key
         {
             if let Some(key) = &self.decoding_key {
-                return Ok(key.read().clone());
+                return Ok(vec![key.read().clone()]);
             }
         }
 
@@ -548,8 +591,8 @@ impl<V> Jwt<V> {
             .as_ref()
             .ok_or(AuthError::JwtMissingIssuer)?;
 
-        // Resolve the key
-        resolver.resolve_key(issuer, &token_data.header).await
+        // Resolve every candidate key
+        resolver.resolve_keys(issuer, &token_data.header).await
     }
 }
 
@@ -1121,6 +1164,100 @@ mod tests {
     #[tokio::test]
     async fn test_jwt_resolve_decoding_key_eddsa() {
         test_jwt_resolve_with_algorithm(Algorithm::EdDSA).await;
+    }
+
+    #[tokio::test]
+    async fn test_multi_key_jwks_verifies_token_from_non_first_key() {
+        // Regression for the multi-member allow-list bug: a static JWKS holding more
+        // than one EdDSA key. slim's signer emits no `kid`, so verification must try
+        // every candidate key. Before the fix only the *first* key was tried, so a
+        // token signed by any member other than keys[0] failed with InvalidSignature.
+        use aws_lc_rs::rand::SystemRandom;
+        use aws_lc_rs::signature::{Ed25519KeyPair, KeyPair};
+        use base64::Engine;
+        use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
+        use jsonwebtoken::jwk::JwkSet;
+
+        initialize_crypto_provider();
+
+        // Generate a fresh Ed25519 key; return (pkcs8 PEM, JWK json carrying `kid`).
+        fn make_key(kid: &str) -> (String, serde_json::Value) {
+            let rng = SystemRandom::new();
+            let pkcs8 = Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
+            let kp = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
+            let x = URL_SAFE_NO_PAD.encode(kp.public_key().as_ref());
+
+            let b64 = STANDARD.encode(pkcs8.as_ref());
+            let mut body = String::new();
+            for chunk in b64.as_bytes().chunks(64) {
+                body.push_str(std::str::from_utf8(chunk).unwrap());
+                body.push('\n');
+            }
+            let pem = format!("-----BEGIN PRIVATE KEY-----\n{body}-----END PRIVATE KEY-----\n");
+
+            let jwk = serde_json::json!({
+                "kty": "OKP", "alg": "EdDSA", "use": "sig",
+                "kid": kid, "crv": "Ed25519", "x": x,
+            });
+            (pem, jwk)
+        }
+
+        let signer_pem = |pem: &str, sub: &str| {
+            JwtBuilder::new()
+                .issuer("test-issuer")
+                .audience(&["test-audience"])
+                .subject(sub)
+                .private_key(&Key {
+                    algorithm: Algorithm::EdDSA,
+                    format: KeyFormat::Pem,
+                    key: KeyData::Data(pem.to_string()),
+                })
+                .build()
+                .unwrap()
+        };
+
+        let (_, jwk_a) = make_key("member-a");
+        let (pem_b, jwk_b) = make_key("member-b");
+
+        // Two-member allow-list; member-a is first (keys[0]).
+        let jwks: JwkSet =
+            serde_json::from_value(serde_json::json!({ "keys": [jwk_a, jwk_b] })).unwrap();
+
+        // Verifier trusting the whole allow-list via a static multi-key JWKS.
+        let verifier = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience(&["test-audience"])
+            .auto_resolve_keys(true)
+            .build()
+            .unwrap()
+            .with_key_resolver(KeyResolver::with_jwks(jwks));
+
+        // Fast path: member-b is the *second* key. The signer stamps kid=sub, so the
+        // verifier resolves member-b's key in O(1). Before the fix, a token from any
+        // member other than keys[0] failed with InvalidSignature.
+        let signer_b = signer_pem(&pem_b, "member-b");
+        let token = signer_b.sign_claims(&signer_b.create_claims()).unwrap();
+        let claims: StandardClaims = verifier.get_claims(token).await.unwrap();
+        assert_eq!(claims.sub.as_deref(), Some("member-b"));
+
+        // Fallback: a legacy kid-less token from member-b must still verify by trying
+        // every candidate key.
+        let mut header = JwtHeader::new(Algorithm::EdDSA);
+        header.kid = None;
+        let enc = EncodingKey::from_ed_pem(pem_b.as_bytes()).unwrap();
+        let kidless = encode(&header, &signer_b.create_claims(), &enc).unwrap();
+        let claims: StandardClaims = verifier.get_claims(kidless).await.unwrap();
+        assert_eq!(claims.sub.as_deref(), Some("member-b"));
+
+        // A token from a key that is NOT in the allow-list must still be rejected.
+        let (pem_x, _) = make_key("outsider");
+        let signer_x = signer_pem(&pem_x, "outsider");
+        let bad = signer_x.sign_claims(&signer_x.create_claims()).unwrap();
+        let res: Result<StandardClaims, _> = verifier.get_claims(bad).await;
+        assert!(
+            res.is_err(),
+            "a token signed by a non-member key must not verify against the allow-list"
+        );
     }
 
     #[tokio::test]
