@@ -1,5 +1,12 @@
 [
   {
+    "version": "slimctl-v2.0.0-alpha.6",
+    "title": "slimctl-v2.0.0-alpha.6",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slimctl-v2.0.0-alpha.5",
     "title": "slimctl-v2.0.0-alpha.5",
     "aliases": []
@@ -162,9 +169,7 @@
   {
     "version": "slim-rpc-v2.0.0-alpha.6",
     "title": "slim-rpc-v2.0.0-alpha.6",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-rpc-v2.0.0-alpha.5",
