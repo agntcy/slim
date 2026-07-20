@@ -7,26 +7,37 @@
 //! Since UniFFI doesn't support Rust async streams, we provide synchronous
 //! pull/push interfaces backed by async channels.
 
-#[cfg(not(feature = "uniffi"))]
-use slim_datapath::api::ProtoName as Name;
 use std::pin::Pin;
 use std::task::Poll;
 
+use tokio::sync::mpsc;
+
+use super::{ReceivedMessage, RpcCode, RpcError, STATUS_CODE_KEY};
+
+// The UniFFI FFI stream wrapper types below use these; the native raw stream
+// (`RawStream`/`StreamSource`/`DecodedStream`) does not.
+#[cfg(feature = "uniffi")]
+use super::{Channel, MulticastItem};
+#[cfg(feature = "uniffi")]
 use futures::StreamExt;
+#[cfg(feature = "uniffi")]
 use parking_lot::Mutex;
+#[cfg(feature = "uniffi")]
 use std::sync::Arc;
+#[cfg(feature = "uniffi")]
 use tokio::sync::{
     Mutex as TokioMutex,
-    mpsc::{self, UnboundedReceiver, UnboundedSender, unbounded_channel},
+    mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
 };
 
-use super::{Channel, MulticastItem, ReceivedMessage, RpcCode, RpcError, STATUS_CODE_KEY};
-
 /// Result type for raw byte payloads flowing through the RPC streams.
+#[cfg(feature = "uniffi")]
 type RpcBytesResult = Result<Vec<u8>, RpcError>;
 /// Sender end of a channel carrying RPC byte results.
+#[cfg(feature = "uniffi")]
 type RpcBytesSender = UnboundedSender<RpcBytesResult>;
 /// Tokio JoinHandle producing a final RPC byte result.
+#[cfg(feature = "uniffi")]
 type RpcBytesJoinHandle = tokio::task::JoinHandle<RpcBytesResult>;
 
 /// Raw byte stream for a stream-input RPC call.
@@ -156,6 +167,7 @@ impl StreamSource {
     }
 }
 
+#[cfg(feature = "uniffi")]
 /// Request stream reader
 ///
 /// Allows pulling messages from a client request stream.
@@ -167,6 +179,7 @@ pub struct RequestStream {
     inner: TokioMutex<DecodedStream<Vec<u8>>>,
 }
 
+#[cfg(feature = "uniffi")]
 impl RequestStream {
     /// Create a new request stream wrapper
     pub fn new(stream: DecodedStream<Vec<u8>>) -> Self {
@@ -176,7 +189,16 @@ impl RequestStream {
     }
 }
 
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
 impl RequestStream {
+    /// Pull the next message from the stream (blocking version)
+    ///
+    /// Returns a StreamMessage indicating the result
+    pub fn next(&self) -> StreamMessage {
+        crate::get_runtime().block_on(self.next_async())
+    }
+
     /// Pull the next message from the stream (async version)
     ///
     /// Returns a StreamMessage indicating the result
@@ -190,6 +212,7 @@ impl RequestStream {
     }
 }
 
+#[cfg(feature = "uniffi")]
 /// Message from a stream
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum StreamMessage {
@@ -201,6 +224,7 @@ pub enum StreamMessage {
     End,
 }
 
+#[cfg(feature = "uniffi")]
 /// Response stream writer
 ///
 /// Allows pushing messages to a client response stream.
@@ -212,6 +236,7 @@ pub struct ResponseSink {
     sender: Mutex<Option<RpcBytesSender>>,
 }
 
+#[cfg(feature = "uniffi")]
 impl ResponseSink {
     /// Create a new response sink wrapper
     pub fn new(sender: UnboundedSender<Result<Vec<u8>, RpcError>>) -> Self {
@@ -228,7 +253,36 @@ impl ResponseSink {
     }
 }
 
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
 impl ResponseSink {
+    /// Send a message to the response stream (blocking version)
+    ///
+    /// Returns an error if the stream has been closed or if sending fails.
+    pub fn send(&self, data: Vec<u8>) -> Result<(), RpcError> {
+        crate::get_runtime().block_on(self.send_async(data))
+    }
+
+    /// Send an error to the response stream and close it (blocking version)
+    ///
+    /// This terminates the stream with an error status.
+    pub fn send_error(&self, error: RpcError) -> Result<(), RpcError> {
+        crate::get_runtime().block_on(self.send_error_async(error))
+    }
+
+    /// Close the response stream (blocking version)
+    ///
+    /// Signals that no more messages will be sent.
+    /// The stream will end gracefully.
+    pub fn close(&self) -> Result<(), RpcError> {
+        crate::get_runtime().block_on(self.close_async())
+    }
+
+    /// Check if the sink has been closed (blocking version)
+    pub fn is_closed(&self) -> bool {
+        crate::get_runtime().block_on(self.is_closed_async())
+    }
+
     /// Send a message to the response stream (async version)
     ///
     /// Returns an error if the stream has been closed or if sending fails.
@@ -277,6 +331,7 @@ impl ResponseSink {
     }
 }
 
+#[cfg(feature = "uniffi")]
 /// Response stream reader for unary-to-stream RPC calls
 ///
 /// Allows pulling messages from a server response stream one at a time.
@@ -286,6 +341,7 @@ pub struct ResponseStreamReader {
     inner: TokioMutex<UnboundedReceiver<Result<Vec<u8>, RpcError>>>,
 }
 
+#[cfg(feature = "uniffi")]
 impl ResponseStreamReader {
     /// Create a new response stream reader
     pub fn new(rx: UnboundedReceiver<Result<Vec<u8>, RpcError>>) -> Self {
@@ -295,7 +351,16 @@ impl ResponseStreamReader {
     }
 }
 
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
 impl ResponseStreamReader {
+    /// Pull the next message from the response stream (blocking version)
+    ///
+    /// Returns a StreamMessage indicating the result
+    pub fn next(&self) -> StreamMessage {
+        crate::get_runtime().block_on(self.next_async())
+    }
+
     /// Pull the next message from the response stream (async version)
     ///
     /// Returns a StreamMessage indicating the result
@@ -309,6 +374,7 @@ impl ResponseStreamReader {
     }
 }
 
+#[cfg(feature = "uniffi")]
 /// Request stream writer for stream-to-unary RPC calls
 ///
 /// Allows sending multiple request messages and getting a final response.
@@ -318,6 +384,7 @@ pub struct RequestStreamWriter {
     response: TokioMutex<Option<RpcBytesJoinHandle>>,
 }
 
+#[cfg(feature = "uniffi")]
 impl RequestStreamWriter {
     pub fn new(
         channel: Channel,
@@ -360,7 +427,19 @@ impl RequestStreamWriter {
     }
 }
 
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
 impl RequestStreamWriter {
+    /// Send a request message to the stream (blocking version)
+    pub fn send(&self, data: Vec<u8>) -> Result<(), RpcError> {
+        crate::get_runtime().block_on(self.send_async(data))
+    }
+
+    /// Finalize the stream and get the response (blocking version)
+    pub fn finalize_stream(&self) -> Result<Vec<u8>, RpcError> {
+        crate::get_runtime().block_on(self.finalize_stream_async())
+    }
+
     /// Send a request message to the stream (async version)
     pub async fn send_async(&self, data: Vec<u8>) -> Result<(), RpcError> {
         let sender = self.sender.lock().await;
@@ -398,7 +477,8 @@ impl RequestStreamWriter {
     }
 }
 
-#[cfg_attr(feature = "uniffi", uniffi::export)]
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
 impl RequestStreamWriter {
     /// Finalize the stream and get the response (async version)
     ///
@@ -408,6 +488,7 @@ impl RequestStreamWriter {
     }
 }
 
+#[cfg(feature = "uniffi")]
 /// Bidirectional stream handler for stream-to-stream RPC calls
 ///
 /// Allows sending and receiving messages concurrently.
@@ -417,6 +498,7 @@ pub struct BidiStreamHandler {
     receiver: TokioMutex<UnboundedReceiver<Result<Vec<u8>, RpcError>>>,
 }
 
+#[cfg(feature = "uniffi")]
 impl BidiStreamHandler {
     pub fn new(
         channel: Channel,
@@ -461,7 +543,24 @@ impl BidiStreamHandler {
     }
 }
 
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
 impl BidiStreamHandler {
+    /// Send a request message to the stream (blocking version)
+    pub fn send(&self, data: Vec<u8>) -> Result<(), RpcError> {
+        crate::get_runtime().block_on(self.send_async(data))
+    }
+
+    /// Close the request stream (no more messages will be sent)
+    pub fn close_send(&self) -> Result<(), RpcError> {
+        crate::get_runtime().block_on(self.close_send_async())
+    }
+
+    /// Receive the next response message (blocking version)
+    pub fn recv(&self) -> StreamMessage {
+        crate::get_runtime().block_on(self.recv_async())
+    }
+
     /// Send a request message to the stream (async version)
     pub async fn send_async(&self, data: Vec<u8>) -> Result<(), RpcError> {
         let sender = self.sender.lock().await;
@@ -496,6 +595,7 @@ impl BidiStreamHandler {
 
 // ── Multicast stream types ────────────────────────────────────────────────────
 
+#[cfg(feature = "uniffi")]
 /// Per-message context for a multicast RPC response — identifies which group
 /// member sent the response.
 #[derive(Clone, Debug)]
@@ -509,6 +609,7 @@ pub struct RpcMessageContext {
     pub source: Arc<slim_bindings::Name>,
 }
 
+#[cfg(feature = "uniffi")]
 /// A single item in a multicast response stream, pairing the response payload
 /// with the identity of the member that produced it.
 #[derive(Clone, Debug)]
@@ -520,6 +621,7 @@ pub struct RpcMulticastItem {
     pub message: Vec<u8>,
 }
 
+#[cfg(feature = "uniffi")]
 /// Message from a multicast response stream.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum MulticastStreamMessage {
@@ -531,6 +633,7 @@ pub enum MulticastStreamMessage {
     End,
 }
 
+#[cfg(feature = "uniffi")]
 /// Response stream reader for multicast RPC calls.
 ///
 /// Allows pulling `RpcMulticastItem`s from a GROUP response stream one at a
@@ -540,6 +643,7 @@ pub struct MulticastResponseReader {
     inner: TokioMutex<UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>>,
 }
 
+#[cfg(feature = "uniffi")]
 impl MulticastResponseReader {
     /// Create a new reader backed by the given mpsc receiver.
     pub fn new(rx: UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>) -> Self {
@@ -570,7 +674,14 @@ impl MulticastResponseReader {
     }
 }
 
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
 impl MulticastResponseReader {
+    /// Pull the next item from the multicast response stream (blocking).
+    pub fn next(&self) -> MulticastStreamMessage {
+        crate::get_runtime().block_on(self.next_async())
+    }
+
     /// Pull the next item from the multicast response stream (async).
     pub async fn next_async(&self) -> MulticastStreamMessage {
         let mut rx = self.inner.lock().await;
@@ -581,6 +692,7 @@ impl MulticastResponseReader {
     }
 }
 
+#[cfg(feature = "uniffi")]
 /// Bidirectional stream handler for multicast stream-to-unary and
 /// stream-to-stream RPC calls.
 ///
@@ -594,6 +706,7 @@ pub struct MulticastBidiStreamHandler {
     receiver: TokioMutex<UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>>,
 }
 
+#[cfg(feature = "uniffi")]
 impl MulticastBidiStreamHandler {
     /// Create a new handler that pipes a request stream through a multicast
     /// `stream_stream` call on `channel`.
@@ -639,7 +752,25 @@ impl MulticastBidiStreamHandler {
     }
 }
 
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
 impl MulticastBidiStreamHandler {
+    /// Send a request message to the stream (blocking).
+    pub fn send(&self, data: Vec<u8>) -> Result<(), RpcError> {
+        crate::get_runtime().block_on(self.send_async(data))
+    }
+
+    /// Close the request stream — signals that no more messages will be sent
+    /// (blocking).
+    pub fn close_send(&self) -> Result<(), RpcError> {
+        crate::get_runtime().block_on(self.close_send_async())
+    }
+
+    /// Receive the next response item (blocking).
+    pub fn recv(&self) -> MulticastStreamMessage {
+        crate::get_runtime().block_on(self.recv_async())
+    }
+
     /// Send a request message to the stream (async).
     pub async fn send_async(&self, data: Vec<u8>) -> Result<(), RpcError> {
         let sender = self.sender.lock().await;
@@ -671,7 +802,9 @@ impl MulticastBidiStreamHandler {
     }
 }
 
-#[cfg(test)]
+// These tests exercise the UniFFI stream wrapper types (`RequestStream`,
+// `ResponseSink`, …), which are compiled only under the `uniffi` feature.
+#[cfg(all(test, feature = "uniffi"))]
 mod tests {
     use super::*;
 

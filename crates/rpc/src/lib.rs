@@ -133,6 +133,7 @@ mod server;
 mod session_wrapper;
 
 // UniFFI-specific modules
+#[cfg(feature = "uniffi")]
 mod handler_traits;
 mod stream_types;
 
@@ -153,19 +154,13 @@ pub use slim_bindings::get_runtime;
 /// Native builds spawn onto the ambient tokio runtime (the caller is always
 /// inside one). The `uniffi` build spawns onto the runtime owned by
 /// `agntcy-slim-bindings`, because FFI callers have no ambient runtime.
+#[cfg(feature = "uniffi")]
 pub(crate) fn spawn<F>(future: F) -> tokio::task::JoinHandle<F::Output>
 where
     F: std::future::Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    #[cfg(feature = "uniffi")]
-    {
-        get_runtime().spawn(future)
-    }
-    #[cfg(not(feature = "uniffi"))]
-    {
-        tokio::spawn(future)
-    }
+    get_runtime().spawn(future)
 }
 
 pub use channel::{Channel, MessageContext, MulticastItem};
@@ -178,15 +173,20 @@ pub use rpc_session::{
 pub use server::{HandlerType, RpcHandler, Server, StreamRpcHandler};
 pub use session_wrapper::{ReceivedMessage, SessionRx, SessionTx, new_session};
 
-// UniFFI handler traits and stream types
+// Native/shared stream types.
+pub use stream_types::{DecodedStream, RawStream, StreamSource};
+
+// UniFFI handler traits and FFI stream wrapper types (compiled only under the
+// `uniffi` feature).
+#[cfg(feature = "uniffi")]
 pub use handler_traits::{
     StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
 };
+#[cfg(feature = "uniffi")]
 pub use stream_types::{
-    BidiStreamHandler, DecodedStream, MulticastBidiStreamHandler, MulticastResponseReader,
-    MulticastStreamMessage, RawStream, RequestStream as UniffiRequestStream, RequestStreamWriter,
-    ResponseSink, ResponseStreamReader, RpcMessageContext, RpcMulticastItem, StreamMessage,
-    StreamSource,
+    BidiStreamHandler, MulticastBidiStreamHandler, MulticastResponseReader, MulticastStreamMessage,
+    RequestStream as UniffiRequestStream, RequestStreamWriter, ResponseSink, ResponseStreamReader,
+    RpcMessageContext, RpcMulticastItem, StreamMessage,
 };
 
 /// Key used in metadata for RPC deadline/timeout
