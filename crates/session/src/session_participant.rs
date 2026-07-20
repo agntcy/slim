@@ -127,7 +127,8 @@ where
                     let allowed = (msg_type == ProtoSessionMessageType::UpdateParticipantState
                         && direction == MessageDirection::South)
                         || msg_type == ProtoSessionMessageType::GroupAck
-                        || msg_type == ProtoSessionMessageType::GroupNack;
+                        || msg_type == ProtoSessionMessageType::GroupNack
+                        || msg_type == ProtoSessionMessageType::RejoinReply;
 
                     if !allowed {
                         debug!(
@@ -675,6 +676,7 @@ where
                     let name = rejoined_participant.get_name()?;
 
                     if is_self_rejoin {
+                        debug!("we are the rejoining participant, rebuild the group list");
                         // We are the rejoining participant — rebuild the group list
                         // from the participants field (members may have been added/removed
                         // while we were offline)
@@ -683,10 +685,14 @@ where
                             let p_name = p.get_name()?;
                             if p.status == ParticipantState::OffLine as i32 {
                                 self.remove_endpoint(&p_name);
+                            } else if p_name != self.common.settings.source {
+                                // Add endpoint for online participants (skip self)
+                                self.add_endpoint(p).await?;
                             }
                             self.group_list.insert(p_name, p.clone());
                         }
                     } else {
+                        debug!("participant rejoined: {}", name);
                         // Another participant rejoined — update their status
                         if let Some(entry) = self.group_list.get_mut(&name) {
                             entry.status = ParticipantState::OnLine as i32;
@@ -787,15 +793,72 @@ where
             return Ok(SessionOutput::new());
         };
 
+        // Extract heartbeat and check epoch regardless of participant state.
+        // If remote epoch is higher than ours, we fell behind (e.g. brief network
+        // disconnection) and need to rejoin.
+        let heartbeat_payload = msg.extract_heartbeat()?;
+        let current_epoch = self.mls_state.as_ref().and_then(|s| s.mls.get_epoch());
+
+        if let Some(local_epoch) = current_epoch
+            && heartbeat_payload.epoch > local_epoch
+        {
+            // Remote epoch is higher than ours — the group was updated while we were
+            // offline (e.g. network disconnection). Send a rejoin request to the
+            // moderator to get the latest group state.
+            debug!(
+                from = %source,
+                heartbeat_epoch = heartbeat_payload.epoch,
+                current_epoch = local_epoch,
+                "epoch behind remote, sending rejoin request to moderator"
+            );
+
+            // Only send rejoin if we don't already have one pending
+            if self.common.pending_status_update.is_none() {
+                let key_package = if let Some(mls_state) = &mut self.mls_state {
+                    maybe_await!(mls_state.generate_key_package())?
+                } else {
+                    vec![]
+                };
+
+                let moderator = self
+                    .moderator_name
+                    .clone()
+                    .ok_or(SessionError::ModeratorNotFound)?;
+                let msg_id = rand::random::<u32>();
+                let participant = self.common.settings.source.clone();
+                let rejoin_msg = self.common.create_control_message(
+                    &moderator,
+                    ProtoSessionMessageType::RejoinRequest,
+                    msg_id,
+                    CommandPayload::builder()
+                        .rejoin_request(participant, key_package)
+                        .as_content(),
+                    false,
+                )?;
+
+                self.common.pending_status_update = Some(PendingStatusUpdate {
+                    message_id: msg_id,
+                    message_type: ProtoSessionMessageType::RejoinRequest,
+                    status: ParticipantState::OnLine,
+                    ack_tx: None,
+                });
+
+                debug!(
+                    name = %moderator,
+                    id = %msg_id,
+                    "sent rejoin request to moderator (epoch mismatch on heartbeat)",
+                );
+                return Ok(SessionOutput::to_slim(rejoin_msg));
+            }
+            return Ok(SessionOutput::new());
+        }
+
         if entry.status == ParticipantState::OnLine as i32 {
-            // Participant is online, just forward to sender for tracking
+            // Participant is online and epoch matches, just forward to sender for tracking
             return self.common.sender.on_message(&msg);
         }
 
         // Participant is offline — check if MLS epoch matches
-        let heartbeat_payload = msg.extract_heartbeat()?;
-        let current_epoch = self.mls_state.as_ref().and_then(|s| s.mls.get_epoch());
-
         let epoch_matches = match current_epoch {
             Some(epoch) => heartbeat_payload.epoch == epoch,
             None => true, // no MLS, always allow reconnection
@@ -809,11 +872,14 @@ where
             self.add_endpoint(&participant).await?;
             self.common.sender.on_message(&msg)
         } else {
+            // force haertbeat sending in the next round so the participant that
+            // was offline can see the current epoch and rejoin the session.
+            self.common.sender.force_heartbeat();
             debug!(
                 from = %source,
                 heartbeat_epoch = heartbeat_payload.epoch,
                 current_epoch = ?current_epoch,
-                "dropping heartbeat from offline participant with mismatched epoch"
+                "dropping heartbeat from offline participant with lower epoch"
             );
             Ok(SessionOutput::new())
         }
@@ -875,7 +941,7 @@ where
                 }
 
                 self.remove_endpoint(&participant_name);
-                tracing::info!("participant {} is now offline", participant_name);
+                debug!("participant {} is now offline", participant_name);
             }
             ParticipantState::OnLine => {
                 // First check if the participant is in our group
@@ -896,7 +962,7 @@ where
                 if let Some(epoch) = current_epoch
                     && payload.epoch != epoch
                 {
-                    tracing::warn!(
+                    debug!(
                         name = %participant_name,
                         local_epoch = epoch,
                         remote_epoch = payload.epoch,
@@ -915,7 +981,7 @@ where
                 // Epoch matches (or MLS not enabled): bring participant online
                 let state = self.group_list.get_mut(&participant_name).unwrap();
                 state.status = ParticipantState::OnLine as i32;
-                tracing::info!("participant {} is now online", participant_name);
+                debug!("participant {} is now online", participant_name);
                 let participant = state.clone();
                 self.add_endpoint(&participant).await?;
             }
@@ -1055,6 +1121,11 @@ where
             }
         }
 
+        debug!(
+            name = %message.get_source(),
+            id = %message.get_id(),
+            "rejoin reply processed, send ack to moderator",
+        );
         // Send a GroupAck back to the moderator
         let ack_msg = self.common.create_control_message(
             &message.get_source(),
@@ -1084,7 +1155,7 @@ where
             && let Some(entry) = self.group_list.get_mut(&source)
         {
             entry.status = ParticipantState::OnLine as i32;
-            tracing::info!("participant {} confirmed online via ACK", source);
+            debug!("participant {} confirmed online via ACK", source);
         }
 
         // check if the task is still pending and if the message id matches the pending task
@@ -1114,6 +1185,12 @@ where
     async fn on_group_nack(&mut self, message: &Message) -> Result<SessionOutput, SessionError> {
         // this may happen when the participant tries to rejoin with an old MLS epoch
         let id = message.get_id();
+
+        debug!(
+            name = %message.get_source(),
+            id = %id,
+            "received group nack message",
+        );
 
         // check that we have a pending status update with matching id and status == OnLine
         if let Some(pending_task) = self.common.pending_status_update.take() {
@@ -1155,6 +1232,11 @@ where
                     ack_tx: pending_task.ack_tx,
                 });
 
+                debug!(
+                    name = %moderator,
+                    id = %msg_id,
+                    "sent rejoin request to moderator",
+                );
                 return Ok(SessionOutput::to_slim(rejoin_msg));
             } else {
                 // not matching, put it back

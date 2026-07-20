@@ -1251,6 +1251,9 @@ where
             self.add_endpoint(&participant).await?;
             self.common.sender.on_message(&message)
         } else {
+            // force haertbeat sending in the next round so the participant that
+            // was offline can see the current epoch and rejoin the session.
+            self.common.sender.force_heartbeat();
             debug!(
                 from = %source,
                 heartbeat_epoch = heartbeat_payload.epoch,
@@ -1320,7 +1323,7 @@ where
                 }
 
                 self.remove_endpoint(&participant_name);
-                tracing::info!("participant {} is now offline", participant_name);
+                debug!("participant {} is now offline", participant_name);
             }
             ParticipantState::OnLine => {
                 if !self.group_list.contains_key(&name_no_id) {
@@ -1340,7 +1343,7 @@ where
                 if let Some(epoch) = current_epoch
                     && payload.epoch != epoch
                 {
-                    tracing::warn!(
+                    debug!(
                         name = %participant_name,
                         local_epoch = epoch,
                         remote_epoch = payload.epoch,
@@ -1359,7 +1362,7 @@ where
                 // Epoch matches (or MLS not enabled): bring participant online
                 let entry = self.group_list.get_mut(&name_no_id).unwrap();
                 entry.status = ParticipantState::OnLine as i32;
-                tracing::info!("participant {} is now online", participant_name);
+                debug!("participant {} is now online", participant_name);
                 let participant = entry.clone();
                 self.add_endpoint(&participant).await?;
             }
@@ -1500,7 +1503,7 @@ where
         let (commit_id, welcome_content, commit_content) =
             if let Some(mls_state) = &mut self.mls_state {
                 let (commit_msg, welcome_msg) =
-                    maybe_await!(mls_state.rejoin_participant(&name_no_id, key_package))
+                    maybe_await!(mls_state.rejoin_participant(&participant_name, key_package))
                         .map_err(|e| self.handle_task_error(e))?;
 
                 let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
@@ -1511,7 +1514,7 @@ where
             };
 
         // 6. Send rejoin reply with the welcome message and commit id to the participant
-        let reply_msg_id = rand::random::<u32>();
+        let reply_msg_id = msg.get_id();
         let reply_payload = CommandPayload::builder()
             .rejoin_reply(commit_id, welcome_content)
             .as_content();

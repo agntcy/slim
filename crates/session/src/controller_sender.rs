@@ -57,6 +57,12 @@ struct HeartbeatState {
     /// sent other traffic during this interval. Reset to false on each tick.
     postpone_heartbeat: bool,
 
+    /// When true, force the sending of the next heartbeat even if
+    /// postpone_heartbeat is set. This is used when we detect someone
+    /// that comes back online using the heartbeat mechanism.
+    /// in this way the participant can check the current epoch
+    force_next_heartbeat: bool,
+
     /// The periodic heartbeat timer
     heartbeat_timer: Timer,
 
@@ -131,6 +137,7 @@ impl ControllerSender {
             Some(HeartbeatState {
                 missed_heartbeats: HashMap::new(),
                 postpone_heartbeat: false,
+                force_next_heartbeat: false,
                 heartbeat_timer,
                 heartbeat_timer_factory,
             })
@@ -409,6 +416,15 @@ impl ControllerSender {
         }
     }
 
+    /// Force sending the heartbeat on the next round.
+    pub fn force_heartbeat(&mut self) {
+        if let Some(hs) = self.heartbeat_state.as_mut() {
+            debug!("force next heartbeat to be sent");
+            hs.force_next_heartbeat = true;
+            hs.postpone_heartbeat = false;
+        }
+    }
+
     /// Notify that we received traffic from a remote participant,
     /// which counts as proof of liveness (same as receiving a heartbeat).
     pub fn notify_received_activity(&mut self, message: &Message) {
@@ -499,13 +515,10 @@ impl ControllerSender {
         let should_send = self
             .heartbeat_state
             .as_ref()
-            .map(|hs| !hs.postpone_heartbeat)
+            .map(|hs| !hs.postpone_heartbeat || hs.force_next_heartbeat)
             .unwrap_or(false);
 
-        if should_send
-            && self.group_list.len() > 1
-            && let Some(group_name) = &self.group_name
-        {
+        if should_send && let Some(group_name) = &self.group_name {
             let heartbeat_id = rand::random::<u32>();
             let mut builder = Message::builder()
                 .source(self.local_name.clone())
@@ -525,12 +538,13 @@ impl ControllerSender {
             debug!(id = %heartbeat_id, "send heartbeat");
             output.push_slim(heartbeat_msg);
         } else {
-            debug!("skip sending heartbeat (traffic sent or no other participants)");
+            debug!("skip sending heartbeat (traffic sent or no group name)");
         }
 
-        // Always reset the flag for the next interval
+        // Always reset the flags for the next interval
         if let Some(hs) = self.heartbeat_state.as_mut() {
             hs.postpone_heartbeat = false;
+            hs.force_next_heartbeat = false;
         }
 
         Ok(output)
