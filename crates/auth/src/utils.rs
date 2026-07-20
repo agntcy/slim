@@ -25,8 +25,8 @@ const CIPHERSUITE: mls_rs_core::crypto::CipherSuite = mls_rs_core::crypto::Ciphe
 ///
 /// Returns provider-compatible `(secret_key_bytes, public_key_bytes)`: AWS-LC
 /// bytes for the active `CIPHERSUITE` on native targets (P-256 by default, or
-/// Curve25519 with the `curve25519` feature) and an Ed25519 seed plus public key
-/// in browsers.
+/// Curve25519 with the `curve25519` feature), and PKCS#8 DER plus an
+/// uncompressed SEC1 public key for browser WebCrypto.
 pub fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), crate::errors::AuthError> {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -48,23 +48,30 @@ pub fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), crate::errors
     #[cfg(target_arch = "wasm32")]
     {
         // AWS-LC cannot target the browser, so generate the P-256 key with the
-        // pure-Rust `p256` crate. This yields the same ciphersuite MLS uses on
-        // wasm (always P-256) in the same byte formats as the native AWS-LC
-        // path: a raw 32-byte big-endian scalar secret and an uncompressed SEC1
-        // public key. A random 32-byte value is a valid scalar with
-        // overwhelming probability; retry the vanishingly rare rejections.
+        // pure-Rust `p256` crate. MLS uses the WebCrypto provider on wasm,
+        // whose ECDSA key import requires a PKCS#8 private key (not the raw
+        // scalar accepted by the native AWS-LC provider). The public key stays
+        // an uncompressed SEC1 point. A random 32-byte value is a valid scalar
+        // with overwhelming probability; retry the vanishingly rare
+        // rejections.
         use p256::elliptic_curve::sec1::ToEncodedPoint;
+        use p256::pkcs8::EncodePrivateKey;
         for _ in 0..8 {
             let mut scalar = [0_u8; 32];
             getrandom::fill(&mut scalar)
                 .map_err(|_| crate::errors::AuthError::MlsKeyGenerationFailed)?;
             if let Ok(secret_key) = p256::SecretKey::from_bytes((&scalar).into()) {
+                let private = secret_key
+                    .to_pkcs8_der()
+                    .map_err(|_| crate::errors::AuthError::MlsKeyGenerationFailed)?
+                    .as_bytes()
+                    .to_vec();
                 let public = secret_key
                     .public_key()
                     .to_encoded_point(false)
                     .as_bytes()
                     .to_vec();
-                return Ok((scalar.to_vec(), public));
+                return Ok((private, public));
             }
         }
         Err(crate::errors::AuthError::MlsKeyGenerationFailed)
