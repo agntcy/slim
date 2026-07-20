@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = { workspace = true }
 license = { workspace = true }
 publish = false
+autotests = false
 
 [lib]
 name = "slim_testing"
@@ -36,6 +37,11 @@ path = "src/bin/sender_app.rs"
 name = "receiver-app"
 path = "src/bin/receiver_app.rs"
 
+[features]
+# Enables the black-box integration-test harness and its `tests/*.rs` suites.
+# Kept off by default so normal `cargo test`/`task test` stays fast.
+integration = ["dep:assert_cmd", "dep:predicates", "dep:regex"]
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim = { workspace = true }
 agntcy-slim-auth = { workspace = true }
@@ -45,6 +51,7 @@ agntcy-slim-service = { workspace = true, features = ["session"] }
 agntcy-slim-session = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 anyhow = { workspace = true }
+assert_cmd = { version = "2.0", optional = true }
 aws-lc-rs = { workspace = true }
 base64 = { workspace = true }
 bollard = { version = "0.17" }
@@ -53,7 +60,9 @@ futures = { workspace = true }
 jsonwebtoken = { workspace = true }
 libc = { version = "0.2.177" }
 parking_lot = { workspace = true }
+predicates = { version = "3.0", optional = true }
 rand = { workspace = true }
+regex = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -61,3 +70,43 @@ tokio = { workspace = true, features = ["fs"] }
 tracing = { workspace = true }
 uuid = { workspace = true }
 wiremock = { workspace = true }
+
+[[test]]
+name = "channel_manager"
+path = "tests/channel_manager.rs"
+required-features = ["integration"]
+
+[[test]]
+name = "channel_manager_timeout"
+path = "tests/channel_manager_timeout.rs"
+required-features = ["integration"]
+
+[[test]]
+name = "config_startup"
+path = "tests/config_startup.rs"
+required-features = ["integration"]
+
+[[test]]
+name = "control_data_plane"
+path = "tests/control_data_plane.rs"
+required-features = ["integration"]
+
+[[test]]
+name = "control_data_plane_cp"
+path = "tests/control_data_plane_cp.rs"
+required-features = ["integration"]
+
+[[test]]
+name = "header_integrity"
+path = "tests/header_integrity.rs"
+required-features = ["integration"]
+
+[[test]]
+name = "link_negotiation"
+path = "tests/link_negotiation.rs"
+required-features = ["integration"]
+
+[[test]]
+name = "subscription_ack"
+path = "tests/subscription_ack.rs"
+required-features = ["integration"]
