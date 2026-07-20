@@ -586,7 +586,8 @@ impl SessionController {
     }
 
     /// Close the session: notifies the group that this participant is going offline.
-    /// The returned CompletionHandle resolves when ACKs are collected.
+    /// The returned CompletionHandle resolves when ACKs are collected or on timeout
+    /// (callers should not assume all participants have acknowledged).
     /// After completion, the caller should persist the session state and may
     /// later rejoin using `rejoin()`.
     pub async fn close(&self) -> Result<CompletionHandle, SessionError> {
@@ -606,7 +607,7 @@ impl SessionController {
                 CommandPayload::builder()
                     .update_participant_state(
                         self.source().clone(),
-                        ParticipantState::OffLine,
+                        ParticipantState::Offline,
                         0, // epoch not needed for going offline
                     )
                     .as_content(),
@@ -637,7 +638,7 @@ impl SessionController {
                 CommandPayload::builder()
                     .update_participant_state(
                         self.source().clone(),
-                        ParticipantState::OnLine,
+                        ParticipantState::Online,
                         // placeholder: filled by session handler before sending
                         u64::MAX,
                     )

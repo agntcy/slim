@@ -231,7 +231,7 @@ where
                         && let Some(pending_task) = self.common.pending_status_update.take()
                     {
                         if pending_task.message_id == message_id
-                            && pending_task.status == ParticipantState::OnLine
+                            && pending_task.status == ParticipantState::Online
                         {
                             if let Some(tx) = pending_task.ack_tx {
                                 let _ = tx.send(Ok(()));
@@ -239,7 +239,7 @@ where
                             self.common.online = true;
                             self.common.sender.restart_heartbeat();
                         } else if pending_task.message_id == message_id
-                            && pending_task.status == ParticipantState::OffLine
+                            && pending_task.status == ParticipantState::Offline
                         {
                             // close timeout: not all participants acknowledged, the message.
                             // we can still consider the participant as offline and notify success
@@ -823,7 +823,7 @@ where
         })?;
 
         match new_state {
-            ParticipantState::OffLine => {
+            ParticipantState::Offline => {
                 // Participant went offline: update state, remove route
                 if let Some(state) = self.group_list.get_mut(&participant_name) {
                     if !state.online {
@@ -845,7 +845,7 @@ where
                 self.remove_endpoint(&participant_name);
                 tracing::info!("participant {} is now offline", participant_name);
             }
-            ParticipantState::OnLine => {
+            ParticipantState::Online => {
                 // First check if the participant is in our group
                 if !self.group_list.contains_key(&participant_name) {
                     debug!(
@@ -934,7 +934,7 @@ where
 
         // On rejoin (OnLine): mark all other participants as offline.
         // They will be moved back online as their ACKs arrive.
-        if status == ParticipantState::OnLine {
+        if status == ParticipantState::Online {
             for (_, entry) in self.group_list.iter_mut() {
                 entry.online = false;
             }
@@ -979,7 +979,7 @@ where
         // If we have a pending rejoin (OnLine), move the ACK sender back online
         if let Some(ref pending_task) = self.common.pending_status_update
             && pending_task.message_id == id
-            && pending_task.status == ParticipantState::OnLine
+            && pending_task.status == ParticipantState::Online
             && let Some(entry) = self.group_list.get_mut(&source)
         {
             entry.online = true;
@@ -995,11 +995,11 @@ where
                 }
                 // update the local online state
                 match pending_task.status {
-                    ParticipantState::OffLine => {
+                    ParticipantState::Offline => {
                         self.common.online = false;
                         self.common.sender.stop_heartbeat();
                     }
-                    ParticipantState::OnLine => {
+                    ParticipantState::Online => {
                         self.common.online = true;
                         self.common.sender.restart_heartbeat();
                     }
@@ -1016,7 +1016,7 @@ where
 
         // check that we have a pending status update with matching id and status == OnLine
         if let Some(pending_task) = self.common.pending_status_update.take() {
-            if pending_task.message_id == id && pending_task.status == ParticipantState::OnLine {
+            if pending_task.message_id == id && pending_task.status == ParticipantState::Online {
                 // remove the pending message from the sender
                 self.common
                     .sender
@@ -1857,7 +1857,7 @@ mod tests {
             .message_id(100)
             .payload(
                 CommandPayload::builder()
-                    .update_participant_state(other.clone(), ParticipantState::OffLine, 0)
+                    .update_participant_state(other.clone(), ParticipantState::Offline, 0)
                     .as_content(),
             )
             .build_publish()
@@ -1915,7 +1915,7 @@ mod tests {
             .message_id(101)
             .payload(
                 CommandPayload::builder()
-                    .update_participant_state(other.clone(), ParticipantState::OnLine, 0)
+                    .update_participant_state(other.clone(), ParticipantState::Online, 0)
                     .as_content(),
             )
             .build_publish()
@@ -1980,7 +1980,7 @@ mod tests {
                 CommandPayload::builder()
                     .update_participant_state(
                         participant.common.settings.source.clone(),
-                        ParticipantState::OffLine,
+                        ParticipantState::Offline,
                         0,
                     )
                     .as_content(),
@@ -2000,7 +2000,7 @@ mod tests {
         // Should have a pending status update
         assert!(participant.common.pending_status_update.is_some());
         let pending = participant.common.pending_status_update.as_ref().unwrap();
-        assert_eq!(pending.status, ParticipantState::OffLine);
+        assert_eq!(pending.status, ParticipantState::Offline);
 
         // Participants should still be online (they change on ACK completion)
         assert!(participant.group_list.get(&other).unwrap().online);
@@ -2053,7 +2053,7 @@ mod tests {
                 CommandPayload::builder()
                     .update_participant_state(
                         participant.common.settings.source.clone(),
-                        ParticipantState::OnLine,
+                        ParticipantState::Online,
                         u64::MAX,
                     )
                     .as_content(),
@@ -2138,7 +2138,7 @@ mod tests {
         // Set a pending status update
         participant.common.pending_status_update = Some(PendingStatusUpdate {
             message_id: 100,
-            status: ParticipantState::OffLine,
+            status: ParticipantState::Offline,
             ack_tx: None,
         });
 
@@ -2155,7 +2155,7 @@ mod tests {
                 CommandPayload::builder()
                     .update_participant_state(
                         participant.common.settings.source.clone(),
-                        ParticipantState::OnLine,
+                        ParticipantState::Online,
                         0,
                     )
                     .as_content(),

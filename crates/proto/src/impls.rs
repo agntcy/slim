@@ -2408,7 +2408,7 @@ mod message_tests {
         assert!(CommandPayload::builder()
             .update_participant_state(
                 ProtoName::from_strings(["org", "ns", "test"]),
-                ParticipantState::OffLine,
+                ParticipantState::Offline,
                 42,
             )
             .as_update_participant_state_payload()

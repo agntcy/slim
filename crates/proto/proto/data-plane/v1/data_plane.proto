@@ -306,8 +306,8 @@ message HeartbeatPayload {
 }
 
 enum ParticipantState {
-  PARTICIPANT_STATE_ON_LINE = 0;
-  PARTICIPANT_STATE_OFF_LINE = 1;
+  ONLINE = 0;
+  OFFLINE = 1;
 }
 
 // Message to broadcast a participant state change (online/offline).
