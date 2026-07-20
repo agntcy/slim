@@ -176,6 +176,7 @@ impl RequestStream {
     }
 }
 
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl RequestStream {
     /// Pull the next message from the stream (async version)
     ///
@@ -228,6 +229,7 @@ impl ResponseSink {
     }
 }
 
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl ResponseSink {
     /// Send a message to the response stream (async version)
     ///
@@ -295,6 +297,7 @@ impl ResponseStreamReader {
     }
 }
 
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl ResponseStreamReader {
     /// Pull the next message from the response stream (async version)
     ///
@@ -360,6 +363,7 @@ impl RequestStreamWriter {
     }
 }
 
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl RequestStreamWriter {
     /// Send a request message to the stream (async version)
     pub async fn send_async(&self, data: Vec<u8>) -> Result<(), RpcError> {
@@ -461,6 +465,7 @@ impl BidiStreamHandler {
     }
 }
 
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl BidiStreamHandler {
     /// Send a request message to the stream (async version)
     pub async fn send_async(&self, data: Vec<u8>) -> Result<(), RpcError> {
@@ -570,6 +575,7 @@ impl MulticastResponseReader {
     }
 }
 
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl MulticastResponseReader {
     /// Pull the next item from the multicast response stream (async).
     pub async fn next_async(&self) -> MulticastStreamMessage {
@@ -639,6 +645,7 @@ impl MulticastBidiStreamHandler {
     }
 }
 
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl MulticastBidiStreamHandler {
     /// Send a request message to the stream (async).
     pub async fn send_async(&self, data: Vec<u8>) -> Result<(), RpcError> {
