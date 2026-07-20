@@ -126,7 +126,7 @@ enum SessionMessageType {
   SESSION_MESSAGE_TYPE_GROUP_PROPOSAL = 15;
   SESSION_MESSAGE_TYPE_GROUP_ACK = 16;
   SESSION_MESSAGE_TYPE_GROUP_NACK = 17;
-  SESSION_MESSAGE_TYPE_PING = 18;
+  SESSION_MESSAGE_TYPE_HEARTBEAT = 18;
 }
 
 // SLIM message content
@@ -157,7 +157,7 @@ message CommandPayload {
     GroupProposalPayload group_proposal = 11;
     GroupAckPayload group_ack = 12;
     GroupNackPayload group_nack = 13;
-    PingPayload ping = 14;
+    HeartbeatPayload heartbeat = 14;
   }
 }
 
@@ -296,8 +296,12 @@ message GroupAckPayload {}
 // Group Nack
 message GroupNackPayload {}
 
-// Ping
-message PingPayload {}
+// Heartbeat — one-way presence broadcast, no reply expected
+// The epoch is the current MLS epoch of the participant sending
+// the packet. If MLS is not enable it is ignored
+message HeartbeatPayload {
+  uint64 epoch = 1;
+}
 
 // SubscriptionAck is delivered directly to the requesting connection in response
 // to a Subscribe or Unsubscribe that carried a non-zero subscription_id field.

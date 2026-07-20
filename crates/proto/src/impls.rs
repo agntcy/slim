@@ -22,11 +22,11 @@ use crate::dataplane::proto::v1::message::MessageType::Unsubscribe as ProtoUnsub
 use crate::dataplane::proto::v1::{
     ApplicationPayload, CommandPayload, Content, DiscoveryReplyPayload, DiscoveryRequestPayload,
     EncodedName, GroupAckPayload, GroupAddPayload, GroupClosePayload, GroupNackPayload,
-    GroupProposalPayload, GroupRemovePayload, GroupWelcomePayload, JoinReplyPayload,
-    JoinRequestPayload, LeaveReplyPayload, LeaveRequestPayload, Link as ProtoLink,
-    LinkConnectionType, LinkNegotiationPayload, Message as ProtoMessage, MlsPayload,
-    MlsSettings as ProtoMlsSettings, Name as ProtoName, NameId, Participant, ParticipantSettings,
-    PingPayload, Publish as ProtoPublish, SessionHeader, SessionMessageType,
+    GroupProposalPayload, GroupRemovePayload, GroupWelcomePayload, HeartbeatPayload,
+    JoinReplyPayload, JoinRequestPayload, LeaveReplyPayload, LeaveRequestPayload,
+    Link as ProtoLink, LinkConnectionType, LinkNegotiationPayload, Message as ProtoMessage,
+    MlsPayload, MlsSettings as ProtoMlsSettings, Name as ProtoName, NameId, Participant,
+    ParticipantSettings, Publish as ProtoPublish, SessionHeader, SessionMessageType,
     SessionType as ProtoSessionType, SlimHeader, StringName, Subscribe as ProtoSubscribe,
     SubscriptionAck as ProtoSubscriptionAck, TimerSettings, Unsubscribe as ProtoUnsubscribe,
 };
@@ -55,11 +55,12 @@ pub const DELETE_GROUP: &str = "DELETE_GROUP";
 /// The value is set to `TRUE_VAL` for direct delivery without buffering.
 pub const PUBLISH_TO: &str = "PUBLISH_TO";
 
-/// DISCONNECTION_DETECTED indicates that a participant disconnection was detected (not a graceful leave).
-/// This is used in the leave request message and internally by the moderator when
-/// a disconnection is detected due to missing ping replies from the participant.
-/// The value is set to `TRUE_VAL` when disconnection is detected.
-pub const DISCONNECTION_DETECTED: &str = "DISCONNECTION_DETECTED";
+/// LEAVE_REPLY_SENT indicates that a leave reply was already sent to the participant.
+/// This is used internally by the moderator when a LEAVING_SESSION leave request is queued
+/// because the moderator is busy. The metadata is swapped from LEAVING_SESSION to LEAVE_REPLY_SENT
+/// so that on re-processing, the leave reply is not sent twice.
+/// The value is set to `TRUE_VAL`.
+pub const LEAVE_REPLY_SENT: &str = "LEAVE_REPLY_SENT";
 
 /// LEAVING_SESSION indicates that a participant is gracefully leaving the session.
 /// This is used in the leave request message sent by a participant closing the session to the moderator.
@@ -648,7 +649,7 @@ impl SessionMessageType {
                 | SessionMessageType::GroupProposal
                 | SessionMessageType::GroupAck
                 | SessionMessageType::GroupNack
-                | SessionMessageType::Ping
+                | SessionMessageType::Heartbeat
         )
     }
 
@@ -663,7 +664,7 @@ impl SessionMessageType {
                 | SessionMessageType::GroupProposal
                 | SessionMessageType::GroupAck
                 | SessionMessageType::GroupNack
-                | SessionMessageType::Ping
+                | SessionMessageType::Heartbeat
         )
     }
 }
@@ -1217,7 +1218,7 @@ impl ProtoMessage {
         extract_group_proposal => as_group_proposal_payload(GroupProposalPayload),
         extract_group_ack => as_group_ack_payload(GroupAckPayload),
         extract_group_nack => as_group_nack_payload(GroupNackPayload),
-        extract_ping => as_ping_payload(PingPayload),
+        extract_heartbeat => as_heartbeat_payload(HeartbeatPayload),
     }
 
     pub fn builder() -> ProtoMessageBuilder {
@@ -1299,7 +1300,7 @@ impl CommandPayload {
         as_group_proposal_payload => GroupProposal(GroupProposalPayload),
         as_group_ack_payload => GroupAck(GroupAckPayload),
         as_group_nack_payload => GroupNack(GroupNackPayload),
-        as_ping_payload => Ping(PingPayload),
+        as_heartbeat_payload => Heartbeat(HeartbeatPayload),
     }
 
     pub fn builder() -> CommandPayloadBuilder {
@@ -1471,10 +1472,10 @@ impl CommandPayloadBuilder {
         }
     }
 
-    pub fn ping(self) -> CommandPayload {
-        let payload = PingPayload {};
+    pub fn heartbeat(self, epoch: u64) -> CommandPayload {
+        let payload = HeartbeatPayload { epoch };
         CommandPayload {
-            command_payload_type: Some(CommandPayloadType::Ping(payload)),
+            command_payload_type: Some(CommandPayloadType::Heartbeat(payload)),
         }
     }
 }
@@ -2228,7 +2229,7 @@ mod message_tests {
 
     #[test]
     fn test_service_type_to_int() {
-        let total_service_types = SessionMessageType::Ping as i32;
+        let total_service_types = SessionMessageType::Heartbeat as i32;
         for i in 0..total_service_types {
             let service_type =
                 SessionMessageType::try_from(i).expect("failed to convert int to service type");
@@ -2379,7 +2380,10 @@ mod message_tests {
             .group_nack()
             .as_group_nack_payload()
             .is_ok());
-        assert!(CommandPayload::builder().ping().as_ping_payload().is_ok());
+        assert!(CommandPayload::builder()
+            .heartbeat(0)
+            .as_heartbeat_payload()
+            .is_ok());
     }
 
     #[test]

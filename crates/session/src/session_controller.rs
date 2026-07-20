@@ -27,7 +27,7 @@ use crate::{
     MessageDirection, SessionError,
     common::{OutboundMessage, SessionMessage, SessionOutput},
     completion_handle::CompletionHandle,
-    controller_sender::{ControllerSender, PING_INTERVAL},
+    controller_sender::{ControllerSender, HEARTBEAT_INTERVAL},
     session_builder::{ForController, SessionBuilder},
     session_config::SessionConfig,
     session_settings::{MAX_SEEN_CONTROL_MESSAGE_SENDERS_SIZE, SessionSettings},
@@ -814,7 +814,7 @@ where
             settings.source.clone(),
             settings.config.session_type,
             settings.id,
-            Some(PING_INTERVAL),
+            Some(HEARTBEAT_INTERVAL),
             settings.config.initiator,
             settings.tx_session.clone(),
         );
@@ -1447,7 +1447,7 @@ mod tests {
     async fn test_close_already_closed() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
 
-        // Close once - should succeed
+        // Leave once - should succeed
         let handle = controller.close();
         assert!(handle.is_ok());
         handle
@@ -1455,7 +1455,7 @@ mod tests {
             .await
             .expect("processing task should complete");
 
-        // Close again - should fail with appropriate error
+        // Leave again - should fail with appropriate error
         let result = controller.close();
         assert!(result.is_err());
         match result {
@@ -1472,10 +1472,10 @@ mod tests {
 
         let token = controller.cancellation_token.clone();
 
-        // Verify token is not cancelled before close
+        // Verify token is not cancelled before leave
         assert!(!token.is_cancelled());
 
-        // Close returns immediately after cancelling token
+        // Leave returns immediately after cancelling token
         let handle = controller.close();
         assert!(handle.is_ok());
 

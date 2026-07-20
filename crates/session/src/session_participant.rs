@@ -26,6 +26,12 @@ use crate::{
     traits::{MessageHandler, ProcessingState},
 };
 
+struct ParticipantEntry {
+    #[allow(dead_code)]
+    settings: ParticipantSettings,
+    online: bool,
+}
+
 pub struct SessionParticipant<P, V, I, M = SubscriptionManager>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -37,7 +43,7 @@ where
     moderator_name: Option<ProtoName>,
 
     /// list of participants
-    group_list: HashMap<ProtoName, ParticipantSettings>,
+    group_list: HashMap<ProtoName, ParticipantEntry>,
 
     /// mls state
     mls_state: Option<MlsState<P, V>>,
@@ -119,6 +125,11 @@ where
                 direction,
                 ack_tx,
             } => {
+                // Any incoming message from a remote participant is proof of liveness
+                if direction == MessageDirection::North {
+                    self.common.sender.notify_received_activity(&message);
+                }
+
                 if message.get_session_message_type().is_command_message() {
                     debug!(
                         message = ?message.get_session_message_type(),
@@ -127,6 +138,11 @@ where
                     );
                     output.extend(self.process_control_message(message).await?);
                 } else {
+                    // Sending a data message south counts as activity
+                    if direction == MessageDirection::South {
+                        self.common.sender.notify_sent_activity();
+                    }
+
                     if direction == MessageDirection::North
                         && let Some(mls_state) = &mut self.mls_state
                     {
@@ -155,11 +171,15 @@ where
                 timeouts,
             } => {
                 if message_type.is_command_message() {
-                    output.extend(
-                        self.common
-                            .sender
-                            .on_timer_timeout(message_id, message_type)?,
-                    );
+                    let current_epoch = match &self.mls_state {
+                        Some(mls_state) => mls_state.mls.get_epoch(),
+                        None => None,
+                    };
+                    output.extend(self.common.sender.on_timer_timeout(
+                        message_id,
+                        message_type,
+                        current_epoch,
+                    )?);
                 } else {
                     let inner_output = self
                         .inner
@@ -226,18 +246,20 @@ where
                 );
                 self.common.sender.start_drain();
             }
-            SessionMessage::ParticipantDisconnected { name: _ } => {
-                debug!("The moderator is not anymore connected to the current session, close it",);
+            SessionMessage::ParticipantDisconnected { name } => {
+                if let Some(participant_name) = name {
+                    debug!(
+                        %participant_name,
+                        "participant detected offline via missed heartbeats, marking offline locally",
+                    );
 
-                self.common.processing_state = ProcessingState::Draining;
-                output.extend(
-                    self.inner
-                        .on_message(SessionMessage::StartDrain {
-                            grace_period: Duration::from_secs(1),
-                        })
-                        .await?,
-                );
-                self.common.sender.start_drain();
+                    if let Some(entry) = self.group_list.get_mut(&participant_name) {
+                        entry.online = false;
+                    }
+
+                    self.remove_endpoint(&participant_name);
+                    debug!("participant {} is now offline", participant_name);
+                }
             }
             SessionMessage::LeaveCleanup => {
                 self.disconnect_from_group().await?;
@@ -260,10 +282,14 @@ where
         &mut self,
         endpoint: &Participant,
     ) -> Result<SessionOutput, SessionError> {
+        self.common
+            .sender
+            .add_participant(endpoint.name.as_ref().unwrap());
         self.inner.add_endpoint(endpoint).await
     }
 
     fn remove_endpoint(&mut self, endpoint: &ProtoName) {
+        self.common.sender.remove_participant(endpoint);
         self.inner.remove_endpoint(endpoint);
     }
 
@@ -361,7 +387,7 @@ where
             ProtoSessionMessageType::LeaveRequest | ProtoSessionMessageType::GroupClose => {
                 self.on_leave_request(message).await
             }
-            ProtoSessionMessageType::Ping => self.on_ping(message).await,
+            ProtoSessionMessageType::Heartbeat => self.on_heartbeat(message).await,
             ProtoSessionMessageType::LeaveReply => {
                 // this message is received when the moderator ack the
                 // reception of the leave request sent on Drain start
@@ -372,8 +398,8 @@ where
                 Ok(SessionOutput::new())
             }
             ProtoSessionMessageType::GroupProposal
-            | ProtoSessionMessageType::GroupAck
-            | ProtoSessionMessageType::GroupNack => todo!(),
+            | ProtoSessionMessageType::GroupNack
+            | ProtoSessionMessageType::GroupAck => todo!(),
             ProtoSessionMessageType::DiscoveryRequest
             | ProtoSessionMessageType::DiscoveryReply
             | ProtoSessionMessageType::JoinReply => {
@@ -405,6 +431,18 @@ where
         self.common
             .add_route(source.clone(), msg.get_incoming_conn())
             .await?;
+
+        // setup the control sender with missing group name
+        if self.common.settings.config.session_type == ProtoSessionType::Multicast {
+            self.common
+                .sender
+                .set_group_name(self.common.settings.control.clone());
+        } else {
+            // in point-to-point sessions the group name is the same as the destination
+            self.common
+                .sender
+                .set_group_name(self.common.settings.destination.clone());
+        }
 
         let key_package = if let Some(mls_state) = &mut self.mls_state {
             debug!("mls enabled, create the package key");
@@ -456,7 +494,11 @@ where
             .participants;
         for p in list {
             let name = p.get_name()?;
-            self.group_list.insert(name.clone(), *p.get_settings()?);
+            let entry = ParticipantEntry {
+                settings: *p.get_settings()?,
+                online: true,
+            };
+            self.group_list.insert(name.clone(), entry);
 
             if name != self.common.settings.source.clone() {
                 debug!(name = %msg.get_source(), "add endpoint to the session");
@@ -515,8 +557,11 @@ where
                 .as_group_add_payload()?;
             if let Some(ref new_participant) = p.new_participant {
                 let name = new_participant.get_name()?;
-                self.group_list
-                    .insert(name.clone(), *new_participant.get_settings()?);
+                let entry = ParticipantEntry {
+                    settings: *new_participant.get_settings()?,
+                    online: true,
+                };
+                self.group_list.insert(name.clone(), entry);
 
                 debug!(name  = %msg.get_source(), "add endpoint to session");
                 // add a route to the new endpoint, this is needed in case of message retransmission
@@ -621,18 +666,50 @@ where
         Ok(output)
     }
 
-    async fn on_ping(&mut self, mut msg: Message) -> Result<SessionOutput, SessionError> {
-        debug!("received ping message, reply");
-        // send ping to the local sender to register the reception
-        let mut output = self.common.sender.on_message(&msg)?;
+    async fn on_heartbeat(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {
+        let source = msg.get_source();
+        debug!(from = %source, "received heartbeat");
 
-        // reply to the ping
-        let header = msg.get_slim_header_mut();
-        let src = header.get_source();
-        header.set_source(self.common.settings.source.clone());
-        header.set_destination(src);
-        output.extend(SessionOutput::to_slim(msg));
-        Ok(output)
+        // Check if the source is in the group list
+        let Some(entry) = self.group_list.get_mut(&source) else {
+            debug!(from = %source, "dropping heartbeat from unknown participant");
+            return Ok(SessionOutput::new());
+        };
+
+        if entry.online {
+            // Participant is online, just forward to sender for tracking
+            return self.common.sender.on_message(&msg);
+        }
+
+        // Participant is offline — check if MLS epoch matches
+        let heartbeat_payload = msg.extract_heartbeat()?;
+        let current_epoch = self.mls_state.as_ref().and_then(|s| s.mls.get_epoch());
+
+        let epoch_matches = match current_epoch {
+            Some(epoch) => heartbeat_payload.epoch == epoch,
+            None => true, // no MLS, always allow reconnection
+        };
+
+        if epoch_matches {
+            // Epoch matches — bring participant back online
+            debug!(from = %source, "participant back online (epoch matches), re-adding endpoint");
+            let settings = entry.settings;
+            let participant = Participant::new(source.clone(), settings);
+            self.add_endpoint(&participant).await?;
+            // Mark online only after add_endpoint succeeds
+            if let Some(entry) = self.group_list.get_mut(&source) {
+                entry.online = true;
+            }
+            self.common.sender.on_message(&msg)
+        } else {
+            debug!(
+                from = %source,
+                heartbeat_epoch = heartbeat_payload.epoch,
+                current_epoch = ?current_epoch,
+                "dropping heartbeat from offline participant with mismatched epoch"
+            );
+            Ok(SessionOutput::new())
+        }
     }
 
     async fn join(&mut self, msg: &Message) -> Result<(), SessionError> {
@@ -650,6 +727,10 @@ where
 
         let destination = self.common.settings.destination.clone();
         let control = self.common.settings.control.clone();
+        debug!(
+            "subscribe to channel {} and control {}",
+            destination, control
+        );
         self.common
             .add_route(destination.clone(), msg.get_incoming_conn())
             .await?;
@@ -1016,10 +1097,13 @@ mod tests {
         participant.moderator_name = Some(moderator.clone());
 
         let removed_participant_name = make_name(&["removed", "app", "v1"]).with_id(500);
-        participant.group_list.insert(
-            removed_participant_name.clone(),
-            ParticipantSettings::bidirectional(),
-        );
+        let state = ParticipantEntry {
+            settings: ParticipantSettings::bidirectional(),
+            online: true,
+        };
+        participant
+            .group_list
+            .insert(removed_participant_name.clone(), state);
 
         let remove_msg = Message::builder()
             .source(moderator.clone())
@@ -1387,7 +1471,8 @@ mod tests {
             .build_publish()
             .unwrap();
 
-        let result = participant.process_control_message(discovery_msg).await;
+        let result: Result<SessionOutput, SessionError> =
+            participant.process_control_message(discovery_msg).await;
         assert!(result.is_ok()); // Should handle gracefully
     }
 
