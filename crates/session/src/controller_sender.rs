@@ -6,7 +6,6 @@ use std::{
     time::Duration,
 };
 
-use display_error_chain::ErrorChainExt;
 use slim_datapath::api::{
     CommandPayload, ProtoMessage as Message, ProtoName, ProtoSessionMessageType, ProtoSessionType,
 };
@@ -441,11 +440,8 @@ impl ControllerSender {
         debug!(%id, ?msg_type, "timeout for message");
 
         // check if the timeout is related to a heartbeat
-        if self.heartbeat_state.is_some()
-            && msg_type == ProtoSessionMessageType::Heartbeat
-            && let Some(epoch) = mls_epoch
-        {
-            return self.handle_heartbeat_timeout(id, epoch);
+        if self.heartbeat_state.is_some() && msg_type == ProtoSessionMessageType::Heartbeat {
+            return self.handle_heartbeat_timeout(id, mls_epoch);
         }
 
         // the timer is not related to a heartbeat, resend the message if possible
@@ -461,8 +457,13 @@ impl ControllerSender {
     fn handle_heartbeat_timeout(
         &mut self,
         id: u32,
-        epoch: u64,
+        mls_epoch: Option<u64>,
     ) -> Result<SessionOutput, SessionError> {
+        // If MLS is not enabled, epoch is not tracked locally. Use u64::MAX as a
+        // sentinel — receivers without MLS ignore the epoch field entirely (they
+        // treat it as always matching), so the actual value doesn't matter.
+        let epoch = mls_epoch.unwrap_or(u64::MAX);
+
         let is_heartbeat_timer = self
             .heartbeat_state
             .as_ref()
@@ -491,14 +492,16 @@ impl ControllerSender {
 
             for name in &offline {
                 debug!(participant = %name, "participant detected offline (missed heartbeats)");
-                heartbeat_state.missed_heartbeats.remove(name);
-                if let Err(e) = self
+                if self
                     .tx_session
                     .try_send(SessionMessage::ParticipantDisconnected {
                         name: Some(name.clone()),
                     })
+                    .is_ok()
                 {
-                    debug!(error = %e.chain(), "failed to send participant disconnected message");
+                    heartbeat_state.missed_heartbeats.remove(name);
+                } else {
+                    debug!(participant = %name, "channel full, will retry on next tick");
                 }
             }
         }

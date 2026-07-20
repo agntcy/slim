@@ -1252,9 +1252,12 @@ where
         if epoch_matches {
             // Epoch matches — bring participant back online
             debug!(from = %source, "participant back online (epoch matches), re-adding endpoint");
-            entry.online = true;
             let participant = entry.participant.clone();
             self.add_endpoint(&participant).await?;
+            // Mark online only after add_endpoint succeeds
+            if let Some(entry) = self.group_list.get_mut(&source_no_id) {
+                entry.online = true;
+            }
             self.common.sender.on_message(&message)
         } else {
             debug!(

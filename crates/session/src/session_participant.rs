@@ -769,9 +769,12 @@ where
             // Epoch matches — bring participant back online
             debug!(from = %source, "participant back online (epoch matches), re-adding endpoint");
             let settings = entry.settings;
-            entry.online = true;
             let participant = Participant::new(source.clone(), settings);
             self.add_endpoint(&participant).await?;
+            // Mark online only after add_endpoint succeeds
+            if let Some(entry) = self.group_list.get_mut(&source) {
+                entry.online = true;
+            }
             self.common.sender.on_message(&msg)
         } else {
             debug!(
