@@ -67,9 +67,7 @@
   {
     "version": "slim-v2.0.0-alpha.7",
     "title": "slim-v2.0.0-alpha.7",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-v2.0.0-alpha.6",
@@ -340,6 +338,13 @@
     "version": "slim-config-v0.11.0",
     "title": "slim-config-v0.11.0",
     "aliases": []
+  },
+  {
+    "version": "slim-channel-manager-v2.0.0-alpha.7",
+    "title": "slim-channel-manager-v2.0.0-alpha.7",
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "slim-channel-manager-v2.0.0-alpha.6",
