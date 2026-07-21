@@ -31,9 +31,9 @@ pub trait ProtoRouteExt {
     fn to_db_route(
         &self,
         source_node_id: &str,
-        source_group: &str,
+        source_domain: &str,
         dest_node_id: &str,
-        dest_group: &str,
+        dest_domain: &str,
     ) -> crate::db::Route;
 }
 
@@ -41,9 +41,9 @@ impl ProtoRouteExt for ProtoRoute {
     fn to_db_route(
         &self,
         source_node_id: &str,
-        source_group: &str,
+        source_domain: &str,
         dest_node_id: &str,
-        dest_group: &str,
+        dest_domain: &str,
     ) -> crate::db::Route {
         let n = self.name.as_ref().unwrap();
         let (c0, c1, c2) = n.str_components();
@@ -56,9 +56,9 @@ impl ProtoRouteExt for ProtoRoute {
         crate::db::Route {
             id: String::new(),
             source_node_id: source_node_id.to_string(),
-            source_group: source_group.to_string(),
+            source_domain: source_domain.to_string(),
             dest_node_id: dest_node_id.to_string(),
-            dest_group: dest_group.to_string(),
+            dest_domain: dest_domain.to_string(),
             link_id: None,
             component0: c0.to_string(),
             component1: c1.to_string(),

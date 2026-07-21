@@ -62,7 +62,7 @@ pub struct ControlPlaneSettings {
     /// Node ID of this SLIM instance
     pub id: String,
     /// Optional group name
-    pub group_name: Option<String>,
+    pub domain_name: Option<String>,
     /// Server configurations
     pub servers: Vec<ServerConfig>,
     /// Client configurations
@@ -87,7 +87,7 @@ struct ControllerServiceInternal {
     id: String,
 
     /// optional group name
-    group_name: Option<String>,
+    domain_name: Option<String>,
 
     /// underlying message processor
     message_processor: MessageProcessor,
@@ -273,7 +273,7 @@ impl ControlPlane {
             controller: ControllerService {
                 inner: Arc::new(ControllerServiceInternal {
                     id: config.id,
-                    group_name: config.group_name,
+                    domain_name: config.domain_name,
                     message_processor: config.message_processor,
                     subscription_manager: SubscriptionManager::new(tx_slim.clone()),
                     tx_slim,
@@ -1877,7 +1877,7 @@ impl ControllerService {
                 message_id: uuid::Uuid::new_v4().to_string(),
                 payload: Some(Payload::RegisterNodeRequest(v1::RegisterNodeRequest {
                     node_id: this.inner.id.clone(),
-                    group_name: this.inner.group_name.clone(),
+                    domain_name: this.inner.domain_name.clone(),
                     connection_details: this.inner.connection_details.clone(),
                     connections: active_connections,
                     routes: active_routes,
@@ -2234,7 +2234,7 @@ mod tests {
 
         let control_plane_server = ControlPlane::new(ControlPlaneSettings {
             id: server_name.to_string(),
-            group_name: None,
+            domain_name: None,
             servers: vec![server_config.clone()],
             clients: vec![],
             outbound_clients: vec![],
@@ -2245,7 +2245,7 @@ mod tests {
 
         let control_plane_client = ControlPlane::new(ControlPlaneSettings {
             id: client_name.to_string(),
-            group_name: None,
+            domain_name: None,
             servers: vec![],
             clients: vec![client_config.clone()],
             outbound_clients: vec![],
@@ -2840,7 +2840,7 @@ mod tests {
     fn make_controller(outbound_clients: Vec<ClientConfig>) -> ControllerService {
         ControlPlane::new(ControlPlaneSettings {
             id: "test-node".to_string(),
-            group_name: None,
+            domain_name: None,
             servers: vec![],
             clients: vec![],
             outbound_clients,

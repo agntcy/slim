@@ -34,14 +34,14 @@ struct Inner {
     /// Per-node mutex that serializes node_deregistered and node_disconnected
     /// for the same node, preventing concurrent cleanup from corrupting state.
     node_locks: tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
-    /// Per-group mutex that serializes link creation for nodes in the same group.
-    /// Without this, two nodes from the same group registering concurrently can
-    /// both read the link table before either writes, causing duplicate inter-group
-    /// links for the same group pair.
-    group_locks: tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// Per-domain mutex that serializes link creation for nodes in the same domain.
+    /// Without this, two nodes from the same domain registering concurrently can
+    /// both read the link table before either writes, causing duplicate inter-domain
+    /// links for the same domain pair.
+    domain_locks: tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Topology configuration for link and route filtering.
     topology: TopologyConfig,
-    /// Runtime segment graphs at the group level. Rebuilt when nodes join/leave.
+    /// Runtime segment graphs at the domain level. Rebuilt when nodes join/leave.
     /// Each entry is (segment_name, graph). For Links, there's a single "default" entry.
     /// For Segments, one entry per segment. For ApiManaged, loaded from DB.
     segment_graphs: tokio::sync::RwLock<Vec<(String, UnGraph<String, u32>)>>,
@@ -94,7 +94,7 @@ impl RouteService {
             queue,
             shutdown_tx,
             node_locks: tokio::sync::Mutex::new(HashMap::new()),
-            group_locks: tokio::sync::Mutex::new(HashMap::new()),
+            domain_locks: tokio::sync::Mutex::new(HashMap::new()),
             topology,
             segment_graphs: tokio::sync::RwLock::new(Vec::new()),
         }));
@@ -218,20 +218,20 @@ impl RouteService {
         let mut reconcile_nodes: std::collections::HashSet<String> =
             std::collections::HashSet::new();
 
-        // Delete links whose group pair is no longer allowed by the topology,
+        // Delete links whose domain pair is no longer allowed by the topology,
         // along with any routes that referenced those links.
         for link in &all_links {
             if link.status == crate::db::LinkStatus::Deleted {
                 continue;
             }
-            let pair = (link.source_group.clone(), link.dest_group.clone());
+            let pair = (link.source_domain.clone(), link.dest_domain.clone());
             if !allowed_pairs.contains(&pair) {
                 tracing::info!(
-                    "reconcile_topology_change: removing disallowed link {}↔{} (groups {}↔{})",
+                    "reconcile_topology_change: removing disallowed link {}↔{} (domains {}↔{})",
                     link.source_node_id,
                     link.dest_node_id,
-                    link.source_group,
-                    link.dest_group,
+                    link.source_domain,
+                    link.dest_domain,
                 );
                 // Delete routes that depended on this link.
                 match self.0.db.get_routes_by_link_id(&link.link_id).await {
@@ -267,13 +267,13 @@ impl RouteService {
             vec![]
         });
 
-        // Only call ensure_links for one node per group to avoid creating
-        // duplicate inter-group links (the gateway pattern: one link per group pair).
-        // Re-read links after each call so the next group sees newly created links.
+        // Only call ensure_links for one node per domain to avoid creating
+        // duplicate inter-domain links (the gateway pattern: one link per domain pair).
+        // Re-read links after each call so the next domain sees newly created links.
         let mut seen_groups: std::collections::HashSet<String> = std::collections::HashSet::new();
         for node in &all_nodes {
-            let group = node.group_name.as_deref().unwrap_or("").to_string();
-            if !seen_groups.insert(group) {
+            let domain = node.domain_name.as_deref().unwrap_or("").to_string();
+            if !seen_groups.insert(domain) {
                 continue;
             }
             let node_links: Vec<_> = current_links
@@ -294,7 +294,7 @@ impl RouteService {
                 .await;
             reconcile_nodes.extend(affected);
 
-            // Update snapshot so the next group sees newly created links.
+            // Update snapshot so the next domain sees newly created links.
             if !new_links.is_empty() {
                 current_links.extend(new_links);
             }
@@ -350,41 +350,41 @@ impl RouteService {
         Ok(())
     }
 
-    /// Add a bidirectional topology link between two groups in a segment.
+    /// Add a bidirectional topology link between two domains in a segment.
     /// The segment must already exist (use `add_segment` first).
-    /// Both groups must have at least one registered node.
+    /// Both domains must have at least one registered node.
     pub async fn add_topology_link(
         &self,
-        group_a: &str,
-        group_b: &str,
+        domain_a: &str,
+        domain_b: &str,
         segment: &str,
     ) -> Result<Vec<String>, tonic::Status> {
         self.ensure_api_mode()?;
 
-        // Check which groups have registered nodes (for warnings).
+        // Check which domains have registered nodes (for warnings).
         let all_nodes = self
             .0
             .db
             .list_nodes()
             .await
             .map_err(|e| tonic::Status::internal(format!("failed to list nodes: {e}")))?;
-        let has_group_a = all_nodes
+        let has_domain_a = all_nodes
             .iter()
-            .any(|n| n.group_name.as_deref() == Some(group_a));
-        let has_group_b = all_nodes
+            .any(|n| n.domain_name.as_deref() == Some(domain_a));
+        let has_domain_b = all_nodes
             .iter()
-            .any(|n| n.group_name.as_deref() == Some(group_b));
+            .any(|n| n.domain_name.as_deref() == Some(domain_b));
         let mut warnings = Vec::new();
-        if !has_group_a {
+        if !has_domain_a {
             warnings.push(format!(
-                "group '{}' has no registered nodes yet; physical link will be created when nodes register",
-                group_a
+                "domain '{}' has no registered nodes yet; physical link will be created when nodes register",
+                domain_a
             ));
         }
-        if !has_group_b {
+        if !has_domain_b {
             warnings.push(format!(
-                "group '{}' has no registered nodes yet; physical link will be created when nodes register",
-                group_b
+                "domain '{}' has no registered nodes yet; physical link will be created when nodes register",
+                domain_b
             ));
         }
 
@@ -397,7 +397,7 @@ impl RouteService {
             .ok_or_else(|| tonic::Status::not_found(format!("segment '{segment}' not found")))?;
         self.0
             .db
-            .add_link_to_segment(&seg.id, group_a, group_b)
+            .add_link_to_segment(&seg.id, domain_a, domain_b)
             .await
             .map_err(|e| tonic::Status::internal(format!("failed to add link: {e}")))?;
         self.load_topology_from_db()
@@ -407,11 +407,11 @@ impl RouteService {
         Ok(warnings)
     }
 
-    /// Remove a bidirectional topology link between two groups in a segment.
+    /// Remove a bidirectional topology link between two domains in a segment.
     pub async fn remove_topology_link(
         &self,
-        group_a: &str,
-        group_b: &str,
+        domain_a: &str,
+        domain_b: &str,
         segment: &str,
     ) -> Result<(), tonic::Status> {
         self.ensure_api_mode()?;
@@ -430,17 +430,17 @@ impl RouteService {
             .await
             .map_err(|e| tonic::Status::internal(format!("failed to query links: {e}")))?;
         let exists = links.iter().any(|(src, dst)| {
-            (src == group_a && dst == group_b) || (src == group_b && dst == group_a)
+            (src == domain_a && dst == domain_b) || (src == domain_b && dst == domain_a)
         });
         if !exists {
             return Err(tonic::Status::not_found(format!(
                 "link {}↔{} not found in segment '{segment}'",
-                group_a, group_b
+                domain_a, domain_b
             )));
         }
         self.0
             .db
-            .delete_link_from_segment(&seg.id, group_a, group_b)
+            .delete_link_from_segment(&seg.id, domain_a, domain_b)
             .await
             .map_err(|e| tonic::Status::internal(format!("failed to remove link: {e}")))?;
         self.load_topology_from_db()
@@ -483,12 +483,12 @@ pub(crate) mod test_utils {
 
     pub(super) fn make_node(
         id: &str,
-        group: Option<&str>,
+        domain: Option<&str>,
         details: Vec<ConnectionDetails>,
     ) -> crate::db::Node {
         crate::db::Node {
             id: id.to_string(),
-            group_name: group.map(|s| s.to_string()),
+            domain_name: domain.map(|s| s.to_string()),
             conn_details: details,
             created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
@@ -506,7 +506,7 @@ pub(crate) mod test_utils {
                 ..Default::default()
             },
             TopologyConfig::Links(vec![AdjacencyEntry {
-                group: "*".to_string(),
+                domain: "*".to_string(),
                 neighbors: vec!["*".to_string()],
             }]),
         )
@@ -531,11 +531,11 @@ pub(crate) mod test_utils {
     pub(super) fn star_topology() -> TopologyConfig {
         TopologyConfig::Links(vec![
             AdjacencyEntry {
-                group: "platform".to_string(),
+                domain: "platform".to_string(),
                 neighbors: vec!["*".to_string()],
             },
             AdjacencyEntry {
-                group: "*".to_string(),
+                domain: "*".to_string(),
                 neighbors: vec!["platform".to_string()],
             },
         ])
@@ -555,12 +555,12 @@ mod topology_mutation_tests {
         make_route_service_with_topology(db, TopologyConfig::ApiManaged)
     }
 
-    /// Helper to register nodes so group validation passes.
-    async fn register_groups(svc: &super::RouteService, groups: &[&str]) {
-        for (i, group) in groups.iter().enumerate() {
+    /// Helper to register nodes so domain validation passes.
+    async fn register_groups(svc: &super::RouteService, domains: &[&str]) {
+        for (i, domain) in domains.iter().enumerate() {
             let node = Node {
-                id: format!("{group}/node-{i}"),
-                group_name: Some(group.to_string()),
+                id: format!("{domain}/node-{i}"),
+                domain_name: Some(domain.to_string()),
                 conn_details: vec![ConnectionDetails {
                     endpoint: format!("127.0.0.1:{}", 9000 + i),
                     external_endpoint: None,

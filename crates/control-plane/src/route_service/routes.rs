@@ -18,9 +18,9 @@ use super::*;
 #[allow(clippy::too_many_arguments)]
 fn build_route_for_gateway(
     source_node_id: &str,
-    source_group: &str,
+    source_domain: &str,
     dest_node_id: &str,
-    dest_group: &str,
+    dest_domain: &str,
     link_id: String,
     component0: &str,
     component1: &str,
@@ -30,9 +30,9 @@ fn build_route_for_gateway(
     Route {
         id: String::new(),
         source_node_id: source_node_id.to_string(),
-        source_group: source_group.to_string(),
+        source_domain: source_domain.to_string(),
         dest_node_id: dest_node_id.to_string(),
-        dest_group: dest_group.to_string(),
+        dest_domain: dest_domain.to_string(),
         link_id: Some(link_id),
         component0: component0.to_string(),
         component1: component1.to_string(),
@@ -48,12 +48,12 @@ fn build_route_for_gateway(
 impl super::RouteService {
     /// Rebuild the runtime segment graphs from the config-defined topology.
     ///
-    /// **Config mode only.** Extracts distinct group names from registered nodes,
-    /// expands `$group` templates in segment configs, and rebuilds one graph per
-    /// segment. Called on every node register/deregister so that dynamic `$group`
-    /// expansion picks up new groups.
+    /// **Config mode only.** Extracts distinct domain names from registered nodes,
+    /// expands `$domain` templates in segment configs, and rebuilds one graph per
+    /// segment. Called on every node register/deregister so that dynamic `$domain`
+    /// expansion picks up new domains.
     ///
-    /// Returns `true` if the set of groups changed (a group was added or removed),
+    /// Returns `true` if the set of domains changed (a domain was added or removed),
     /// `false` if unchanged or if running in API mode.
     ///
     /// **API mode:** returns `false` immediately — segment graphs are managed
@@ -66,7 +66,7 @@ impl super::RouteService {
 
         let new_groups: HashSet<&str> = nodes
             .iter()
-            .map(|n| n.group_name.as_deref().unwrap_or(""))
+            .map(|n| n.domain_name.as_deref().unwrap_or(""))
             .collect();
 
         let snapshot = {
@@ -88,7 +88,7 @@ impl super::RouteService {
 
         // Persist outside the lock — DB writes are best-effort and must not
         // block concurrent readers (allowed_link_pairs, expand_wildcard, etc.).
-        tracing::debug!("groups changed, persisting topology to DB");
+        tracing::debug!("domains changed, persisting topology to DB");
         self.persist_segments_to_db(&snapshot).await;
 
         true
@@ -118,16 +118,16 @@ impl super::RouteService {
             };
 
             for edge in graph.edge_references() {
-                let group_a = &graph[edge.source()];
-                let group_b = &graph[edge.target()];
+                let domain_a = &graph[edge.source()];
+                let domain_b = &graph[edge.target()];
                 if let Err(e) = self
                     .0
                     .db
-                    .add_link_to_segment(&seg.id, group_a, group_b)
+                    .add_link_to_segment(&seg.id, domain_a, domain_b)
                     .await
                 {
                     tracing::debug!(
-                        %seg_name, %group_a, %group_b, error = %e,
+                        %seg_name, %domain_a, %domain_b, error = %e,
                         "failed to persist topology link (may already exist)"
                     );
                 }
@@ -166,8 +166,8 @@ impl super::RouteService {
         }
     }
 
-    /// Compute the set of allowed group pairs from the runtime segment graphs.
-    /// Two groups can link if they share an edge in any segment.
+    /// Compute the set of allowed domain pairs from the runtime segment graphs.
+    /// Two domains can link if they share an edge in any segment.
     pub(super) async fn allowed_link_pairs(&self) -> HashSet<(String, String)> {
         let segments = self.0.segment_graphs.read().await;
         let mut pairs = HashSet::new();
@@ -183,8 +183,8 @@ impl super::RouteService {
         pairs
     }
 
-    /// Return the current segment graphs as (name, groups, edges) tuples.
-    /// Only groups that participate in at least one edge are included.
+    /// Return the current segment graphs as (name, domains, edges) tuples.
+    /// Only domains that participate in at least one edge are included.
     pub async fn list_segments(&self) -> Vec<(String, Vec<String>, Vec<(String, String)>)> {
         let segments = self.0.segment_graphs.read().await;
         segments
@@ -200,7 +200,7 @@ impl super::RouteService {
                     .collect();
                 edges.sort();
                 edges.dedup();
-                let mut groups: Vec<String> = {
+                let mut domains: Vec<String> = {
                     let mut connected = std::collections::HashSet::new();
                     for (a, b) in &edges {
                         connected.insert(a.clone());
@@ -208,35 +208,35 @@ impl super::RouteService {
                     }
                     connected.into_iter().collect()
                 };
-                groups.sort();
-                (name.clone(), groups, edges)
+                domains.sort();
+                (name.clone(), domains, edges)
             })
             .collect()
     }
 
-    /// Find the inter-group link between two groups using pre-loaded links.
+    /// Find the inter-domain link between two domains using pre-loaded links.
     ///
-    /// Searches for an existing (non-deleted) link between any node in `group_a`
-    /// and any node in `group_b`. Returns the node_id in `group_a` (the gateway)
+    /// Searches for an existing (non-deleted) link between any node in `domain_a`
+    /// and any node in `domain_b`. Returns the node_id in `domain_a` (the gateway)
     /// and the link_id connecting them.
-    pub(super) fn find_inter_group_link_from_cache(
-        group_a: &str,
-        group_b: &str,
+    pub(super) fn find_inter_domain_link_from_cache(
+        domain_a: &str,
+        domain_b: &str,
         all_nodes: &[crate::db::Node],
         all_links: &[crate::db::Link],
     ) -> Option<(String, String)> {
         let nodes_a: HashSet<&str> = all_nodes
             .iter()
-            .filter(|n| n.group_name.as_deref() == Some(group_a))
+            .filter(|n| n.domain_name.as_deref() == Some(domain_a))
             .map(|n| n.id.as_str())
             .collect();
         let nodes_b: HashSet<&str> = all_nodes
             .iter()
-            .filter(|n| n.group_name.as_deref() == Some(group_b))
+            .filter(|n| n.domain_name.as_deref() == Some(domain_b))
             .map(|n| n.id.as_str())
             .collect();
 
-        // Find an established link connecting a node in group_a to a node in group_b.
+        // Find an established link connecting a node in domain_a to a node in domain_b.
         // Only Applied links with a known dest_node_id are usable for routing.
         for link in all_links {
             if link.status != LinkStatus::Applied || link.dest_node_id.is_empty() {
@@ -250,7 +250,7 @@ impl super::RouteService {
             if nodes_b.contains(link.source_node_id.as_str())
                 && nodes_a.contains(link.dest_node_id.as_str())
             {
-                // Link goes B→A; the gateway in group_a is the dest side.
+                // Link goes B→A; the gateway in domain_a is the dest side.
                 return Some((link.dest_node_id.clone(), link.link_id.clone()));
             }
         }
@@ -260,8 +260,8 @@ impl super::RouteService {
     /// Expand a wildcard route using the Shortest Path Tree.
     ///
     /// Given a route template (dest_node_id + name components), computes the SPT
-    /// rooted at the destination's group. For each non-root group in the tree,
-    /// selects a gateway node and installs a route pointing toward the parent group.
+    /// rooted at the destination's domain. For each non-root domain in the tree,
+    /// selects a gateway node and installs a route pointing toward the parent domain.
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn expand_route_via_spt(
         &self,
@@ -273,41 +273,41 @@ impl super::RouteService {
         all_nodes: &[crate::db::Node],
         all_links: &[crate::db::Link],
     ) {
-        // Resolve the destination node's group — this is the root of the SPT.
-        let dest_group = all_nodes
+        // Resolve the destination node's domain — this is the root of the SPT.
+        let dest_domain = all_nodes
             .iter()
             .find(|n| n.id == dest_node_id)
-            .and_then(|n| n.group_name.as_deref())
+            .and_then(|n| n.domain_name.as_deref())
             .unwrap_or("");
 
         // Clone the segment graphs to release the read lock before the async loop,
         // preventing potential deadlocks with concurrent write lock acquisitions.
         // The snapshot may become stale if a concurrent registration from a different
-        // group triggers rebuild_link_graph. This is safe: missing routes will be
-        // installed when the other group's handler runs expand_all_wildcard_routes,
+        // domain triggers rebuild_link_graph. This is safe: missing routes will be
+        // installed when the other domain's handler runs expand_all_wildcard_routes,
         // and stale routes are cleaned up by handle_disconnect.
         let segment_graphs = self.0.segment_graphs.read().await.clone();
 
         for (_seg_name, graph) in &segment_graphs {
-            // If the link graph has no inter-group edges, there is nothing for the
-            // control plane to expand (same-group routing is handled by the data plane).
+            // If the link graph has no inter-domain edges, there is nothing for the
+            // control plane to expand (same-domain routing is handled by the data plane).
             if graph.node_count() <= 1 {
                 continue;
             }
 
-            let root_idx = match graph.node_indices().find(|&idx| graph[idx] == dest_group) {
+            let root_idx = match graph.node_indices().find(|&idx| graph[idx] == dest_domain) {
                 Some(idx) => idx,
                 None => continue,
             };
 
-            // Compute the SPT rooted at the destination group.
+            // Compute the SPT rooted at the destination domain.
             let spt = match spt::compute_spt(root_idx, graph) {
                 Some(t) => t,
                 None => continue,
             };
 
-            // For each non-root group in the SPT, install a route on the gateway
-            // node pointing toward the parent group.
+            // For each non-root domain in the SPT, install a route on the gateway
+            // node pointing toward the parent domain.
             for (&orig_idx, &tree_idx) in &spt.index_map {
                 if orig_idx == root_idx {
                     continue;
@@ -315,7 +315,7 @@ impl super::RouteService {
 
                 let child_group = &graph[orig_idx];
 
-                // Find the parent group in the directed tree (incoming edge = from parent).
+                // Find the parent domain in the directed tree (incoming edge = from parent).
                 let parent_tree_idx = match spt
                     .tree
                     .edges_directed(tree_idx, petgraph::Direction::Incoming)
@@ -326,8 +326,8 @@ impl super::RouteService {
                 };
                 let parent_group = &spt.tree[parent_tree_idx];
 
-                // Find the inter-group link from pre-loaded links (O(n) scan, no DB query).
-                let (source_node_id, link_id) = match Self::find_inter_group_link_from_cache(
+                // Find the inter-domain link from pre-loaded links (O(n) scan, no DB query).
+                let (source_node_id, link_id) = match Self::find_inter_domain_link_from_cache(
                     child_group,
                     parent_group,
                     all_nodes,
@@ -342,12 +342,12 @@ impl super::RouteService {
                     }
                 };
 
-                // Create the per-gateway route pointing toward the parent group.
+                // Create the per-gateway route pointing toward the parent domain.
                 let per_node = build_route_for_gateway(
                     &source_node_id,
                     child_group,
                     dest_node_id,
-                    dest_group,
+                    dest_domain,
                     link_id,
                     component0,
                     component1,
@@ -364,8 +364,8 @@ impl super::RouteService {
     /// Install downward routes from the SPT root toward a new announcer.
     ///
     /// When a name already has an SPT (first announcer = root), subsequent
-    /// announcers need routes along the path from root down to their group.
-    /// Walks from the new announcer's group up to the root in the SPT and
+    /// announcers need routes along the path from root down to their domain.
+    /// Walks from the new announcer's domain up to the root in the SPT and
     /// installs a route on each intermediate parent pointing toward the child.
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn install_downward_path(
@@ -382,21 +382,21 @@ impl super::RouteService {
         let root_group = all_nodes
             .iter()
             .find(|n| n.id == root_node_id)
-            .and_then(|n| n.group_name.as_deref())
+            .and_then(|n| n.domain_name.as_deref())
             .unwrap_or("");
 
         let announcer_group = all_nodes
             .iter()
             .find(|n| n.id == new_announcer_node_id)
-            .and_then(|n| n.group_name.as_deref())
+            .and_then(|n| n.domain_name.as_deref())
             .unwrap_or("");
 
         // Clone the segment graphs to release the read lock before the async loop.
         // See expand_route_via_spt for why staleness from concurrent registrations is safe.
         let segment_graphs = self.0.segment_graphs.read().await.clone();
 
-        // If root and announcer are in the same group, the data plane handles
-        // routing within that group — nothing for the control plane to do.
+        // If root and announcer are in the same domain, the data plane handles
+        // routing within that domain — nothing for the control plane to do.
         if root_group == announcer_group {
             return;
         }
@@ -444,8 +444,8 @@ impl super::RouteService {
                 let parent_group = &spt.tree[parent_tree_idx];
                 let child_group = &spt.tree[current];
 
-                // Install route on the parent group's gateway pointing toward child.
-                if let Some((gateway_node_id, link_id)) = Self::find_inter_group_link_from_cache(
+                // Install route on the parent domain's gateway pointing toward child.
+                if let Some((gateway_node_id, link_id)) = Self::find_inter_domain_link_from_cache(
                     parent_group,
                     child_group,
                     all_nodes,
@@ -486,9 +486,9 @@ impl super::RouteService {
             db_route.link_id = self
                 .find_matching_link(
                     &db_route.source_node_id,
-                    &db_route.source_group,
+                    &db_route.source_domain,
                     &db_route.dest_node_id,
-                    &db_route.dest_group,
+                    &db_route.dest_domain,
                 )
                 .await
                 .ok();
@@ -555,7 +555,7 @@ impl super::RouteService {
     }
 
     /// Expand every wildcard route template via SPT.
-    /// Called when the group topology changes (group added/removed) or when a
+    /// Called when the domain topology changes (domain added/removed) or when a
     /// node registers and needs its routes populated.
     /// `add_single_route` rejects duplicates so this is idempotent.
     pub(super) async fn expand_all_wildcard_routes(
@@ -729,13 +729,13 @@ mod tests {
         let all_nodes = db.list_nodes().await.unwrap();
         svc.rebuild_link_graph(&all_nodes).await;
 
-        // Create inter-group links (star: hub↔spoke-a, hub↔spoke-b).
+        // Create inter-domain links (star: hub↔spoke-a, hub↔spoke-b).
         let link_hub_a = crate::db::Link {
             link_id: "link-hub-a".to_string(),
             source_node_id: "hub-node".to_string(),
-            source_group: String::new(),
+            source_domain: String::new(),
             dest_node_id: "spoke-a".to_string(),
-            dest_group: String::new(),
+            dest_domain: String::new(),
             dest_endpoint: "spoke-a:8080".to_string(),
             conn_config_data: ServerConnectionConfig::default(),
             status: LinkStatus::Applied,
@@ -746,9 +746,9 @@ mod tests {
         let link_hub_b = crate::db::Link {
             link_id: "link-hub-b".to_string(),
             source_node_id: "hub-node".to_string(),
-            source_group: String::new(),
+            source_domain: String::new(),
             dest_node_id: "spoke-b".to_string(),
-            dest_group: String::new(),
+            dest_domain: String::new(),
             dest_endpoint: "spoke-b:8080".to_string(),
             conn_config_data: ServerConnectionConfig::default(),
             status: LinkStatus::Applied,
@@ -805,11 +805,11 @@ mod tests {
         // Star topology: platform links to all, spokes link only to platform.
         let topology = TopologyConfig::Links(vec![
             AdjacencyEntry {
-                group: "platform".to_string(),
+                domain: "platform".to_string(),
                 neighbors: vec!["*".to_string()],
             },
             AdjacencyEntry {
-                group: "*".to_string(),
+                domain: "*".to_string(),
                 neighbors: vec!["platform".to_string()],
             },
         ]);
@@ -820,9 +820,9 @@ mod tests {
         let wildcard_route = crate::db::Route {
             id: "wildcard-1".to_string(),
             source_node_id: ALL_NODES_ID.to_string(),
-            source_group: String::new(),
+            source_domain: String::new(),
             dest_node_id: "spoke-b".to_string(),
-            dest_group: String::new(),
+            dest_domain: String::new(),
             link_id: None,
             component0: "org".to_string(),
             component1: "name".to_string(),
@@ -839,9 +839,9 @@ mod tests {
         let link_a_hub = crate::db::Link {
             link_id: "link-a-hub".to_string(),
             source_node_id: "spoke-a".to_string(),
-            source_group: String::new(),
+            source_domain: String::new(),
             dest_node_id: "hub-node".to_string(),
-            dest_group: String::new(),
+            dest_domain: String::new(),
             dest_endpoint: "hub:8080".to_string(),
             conn_config_data: ServerConnectionConfig::default(),
             status: LinkStatus::Applied,
@@ -855,9 +855,9 @@ mod tests {
         let link_hub_b = crate::db::Link {
             link_id: "link-hub-b".to_string(),
             source_node_id: "hub-node".to_string(),
-            source_group: String::new(),
+            source_domain: String::new(),
             dest_node_id: "spoke-b".to_string(),
-            dest_group: String::new(),
+            dest_domain: String::new(),
             dest_endpoint: "spoke-b:8080".to_string(),
             conn_config_data: ServerConnectionConfig::default(),
             status: LinkStatus::Applied,
@@ -911,15 +911,15 @@ mod tests {
     #[tokio::test]
     async fn rebuild_link_graph_returns_false_when_groups_unchanged() {
         let db = InMemoryDb::shared();
-        let node_a = make_node("node-a", Some("group-a"), vec![]);
-        let node_b = make_node("node-b", Some("group-b"), vec![]);
+        let node_a = make_node("node-a", Some("domain-a"), vec![]);
+        let node_b = make_node("node-b", Some("domain-b"), vec![]);
         db.save_node(node_a).await.unwrap();
         db.save_node(node_b).await.unwrap();
 
         let svc = make_route_service(db.clone());
         let all_nodes = db.list_nodes().await.unwrap();
 
-        // First call: groups change (empty → {group-a, group-b}).
+        // First call: domains change (empty → {domain-a, domain-b}).
         assert!(svc.rebuild_link_graph(&all_nodes).await);
 
         // Second call with same nodes: no change.
@@ -942,9 +942,9 @@ mod tests {
         let link = crate::db::Link {
             link_id: "link-1".to_string(),
             source_node_id: "hub-node".to_string(),
-            source_group: String::new(),
+            source_domain: String::new(),
             dest_node_id: "spoke-a".to_string(),
-            dest_group: String::new(),
+            dest_domain: String::new(),
             dest_endpoint: "spoke-a:8080".to_string(),
             conn_config_data: ServerConnectionConfig::default(),
             status: LinkStatus::Applied,
@@ -979,9 +979,9 @@ mod tests {
     #[tokio::test]
     async fn spt_expansion_full_mesh_all_nodes_get_routes() {
         let db = InMemoryDb::shared();
-        let node_a = make_node("node-a", Some("group-a"), vec![]);
-        let node_b = make_node("node-b", Some("group-b"), vec![]);
-        let node_c = make_node("node-c", Some("group-c"), vec![]);
+        let node_a = make_node("node-a", Some("domain-a"), vec![]);
+        let node_b = make_node("node-b", Some("domain-b"), vec![]);
+        let node_c = make_node("node-c", Some("domain-c"), vec![]);
         db.save_node(node_a).await.unwrap();
         db.save_node(node_b).await.unwrap();
         db.save_node(node_c).await.unwrap();
@@ -991,7 +991,7 @@ mod tests {
         let all_nodes = db.list_nodes().await.unwrap();
         svc.rebuild_link_graph(&all_nodes).await;
 
-        // Create all inter-group links (full mesh).
+        // Create all inter-domain links (full mesh).
         for (src, dst, lid) in [
             ("node-a", "node-b", "link-ab"),
             ("node-a", "node-c", "link-ac"),
@@ -1000,9 +1000,9 @@ mod tests {
             let link = crate::db::Link {
                 link_id: lid.to_string(),
                 source_node_id: src.to_string(),
-                source_group: String::new(),
+                source_domain: String::new(),
                 dest_node_id: dst.to_string(),
-                dest_group: String::new(),
+                dest_domain: String::new(),
                 dest_endpoint: format!("{dst}:8080"),
                 conn_config_data: ServerConnectionConfig::default(),
                 status: LinkStatus::Applied,
@@ -1013,14 +1013,14 @@ mod tests {
             db.add_link(link).await.unwrap();
         }
 
-        // Add wildcard route to node-a (root = group-a).
+        // Add wildcard route to node-a (root = domain-a).
         let route = ProtoRoute {
             name: Some(ProtoName::from_strings(["org", "svc", "type"])),
             ..Default::default()
         };
         svc.add_route(ALL_NODES_ID, "node-a", &route).await.unwrap();
 
-        // In full mesh SPT rooted at group-a, both group-b and group-c are
+        // In full mesh SPT rooted at domain-a, both domain-b and domain-c are
         // direct children. So node-b and node-c should each get a route.
         let routes_b = db.get_routes_for_node("node-b").await.unwrap();
         let routes_c = db.get_routes_for_node("node-c").await.unwrap();
@@ -1037,12 +1037,12 @@ mod tests {
 
     #[tokio::test]
     async fn spt_expansion_chain_routes_through_intermediate() {
-        // Chain: group-a — group-b — group-c
-        // Route to node-a (root=group-a). node-c should route via node-b.
+        // Chain: domain-a — domain-b — domain-c
+        // Route to node-a (root=domain-a). node-c should route via node-b.
         let db = InMemoryDb::shared();
-        let node_a = make_node("node-a", Some("group-a"), vec![]);
-        let node_b = make_node("node-b", Some("group-b"), vec![]);
-        let node_c = make_node("node-c", Some("group-c"), vec![]);
+        let node_a = make_node("node-a", Some("domain-a"), vec![]);
+        let node_b = make_node("node-b", Some("domain-b"), vec![]);
+        let node_c = make_node("node-c", Some("domain-c"), vec![]);
         db.save_node(node_a).await.unwrap();
         db.save_node(node_b).await.unwrap();
         db.save_node(node_c).await.unwrap();
@@ -1050,16 +1050,16 @@ mod tests {
         // Chain topology: a↔b, b↔c (no direct a↔c).
         let topology = TopologyConfig::Links(vec![
             AdjacencyEntry {
-                group: "group-a".to_string(),
-                neighbors: vec!["group-b".to_string()],
+                domain: "domain-a".to_string(),
+                neighbors: vec!["domain-b".to_string()],
             },
             AdjacencyEntry {
-                group: "group-b".to_string(),
-                neighbors: vec!["group-a".to_string(), "group-c".to_string()],
+                domain: "domain-b".to_string(),
+                neighbors: vec!["domain-a".to_string(), "domain-c".to_string()],
             },
             AdjacencyEntry {
-                group: "group-c".to_string(),
-                neighbors: vec!["group-b".to_string()],
+                domain: "domain-c".to_string(),
+                neighbors: vec!["domain-b".to_string()],
             },
         ]);
         let svc = make_route_service_with_topology(db.clone(), topology);
@@ -1070,9 +1070,9 @@ mod tests {
         let link_ab = crate::db::Link {
             link_id: "link-ab".to_string(),
             source_node_id: "node-a".to_string(),
-            source_group: String::new(),
+            source_domain: String::new(),
             dest_node_id: "node-b".to_string(),
-            dest_group: String::new(),
+            dest_domain: String::new(),
             dest_endpoint: "node-b:8080".to_string(),
             conn_config_data: ServerConnectionConfig::default(),
             status: LinkStatus::Applied,
@@ -1083,9 +1083,9 @@ mod tests {
         let link_bc = crate::db::Link {
             link_id: "link-bc".to_string(),
             source_node_id: "node-b".to_string(),
-            source_group: String::new(),
+            source_domain: String::new(),
             dest_node_id: "node-c".to_string(),
-            dest_group: String::new(),
+            dest_domain: String::new(),
             dest_endpoint: "node-c:8080".to_string(),
             conn_config_data: ServerConnectionConfig::default(),
             status: LinkStatus::Applied,
@@ -1103,21 +1103,21 @@ mod tests {
         };
         svc.add_route(ALL_NODES_ID, "node-a", &route).await.unwrap();
 
-        // node-b (child of root group-a) should route via link-ab.
+        // node-b (child of root domain-a) should route via link-ab.
         let routes_b = db.get_routes_for_node("node-b").await.unwrap();
         let route_b = routes_b.iter().find(|r| r.dest_node_id == "node-a");
         assert!(route_b.is_some(), "node-b should have route to node-a");
         assert_eq!(route_b.unwrap().link_id.as_deref(), Some("link-ab"));
 
-        // node-c (child of group-b in the chain) should route via link-bc
-        // toward its parent (group-b), NOT directly to group-a.
+        // node-c (child of domain-b in the chain) should route via link-bc
+        // toward its parent (domain-b), NOT directly to domain-a.
         let routes_c = db.get_routes_for_node("node-c").await.unwrap();
         let route_c = routes_c.iter().find(|r| r.dest_node_id == "node-a");
         assert!(route_c.is_some(), "node-c should have route to node-a");
         assert_eq!(
             route_c.unwrap().link_id.as_deref(),
             Some("link-bc"),
-            "node-c should route toward group-b (its parent in the SPT)"
+            "node-c should route toward domain-b (its parent in the SPT)"
         );
     }
 
@@ -1128,9 +1128,9 @@ mod tests {
         crate::db::Link {
             link_id: id.to_string(),
             source_node_id: src.to_string(),
-            source_group: String::new(),
+            source_domain: String::new(),
             dest_node_id: dst.to_string(),
-            dest_group: String::new(),
+            dest_domain: String::new(),
             dest_endpoint: format!("{dst}:8080"),
             conn_config_data: slim_config::client::ServerConnectionConfig::default(),
             status: LinkStatus::Applied,
@@ -1160,14 +1160,14 @@ mod tests {
             SegmentConfig {
                 name: "seg-a".to_string(),
                 links: vec![AdjacencyEntry {
-                    group: "platform".to_string(),
+                    domain: "platform".to_string(),
                     neighbors: vec!["customer-a".to_string()],
                 }],
             },
             SegmentConfig {
                 name: "seg-b".to_string(),
                 links: vec![AdjacencyEntry {
-                    group: "platform".to_string(),
+                    domain: "platform".to_string(),
                     neighbors: vec!["customer-b".to_string()],
                 }],
             },
@@ -1232,7 +1232,7 @@ mod tests {
 
     #[tokio::test]
     async fn segments_group_template_expands_and_isolates() {
-        // Same isolation test but using $group template config.
+        // Same isolation test but using $domain template config.
         let db = InMemoryDb::shared();
         db.save_node(make_node("hub", Some("platform"), vec![]))
             .await
@@ -1245,10 +1245,10 @@ mod tests {
             .unwrap();
 
         let topology = TopologyConfig::Segments(vec![SegmentConfig {
-            name: "seg-$group".to_string(),
+            name: "seg-$domain".to_string(),
             links: vec![AdjacencyEntry {
-                group: "platform".to_string(),
-                neighbors: vec!["$group".to_string()],
+                domain: "platform".to_string(),
+                neighbors: vec!["$domain".to_string()],
             }],
         }]);
         let svc = make_route_service_with_topology(db.clone(), topology);
@@ -1276,14 +1276,14 @@ mod tests {
         let hub_routes = db.get_routes_for_node("hub").await.unwrap();
         assert!(
             hub_routes.iter().any(|r| r.dest_node_id == "spoke-a"),
-            "hub should have a route to spoke-a ($group template)"
+            "hub should have a route to spoke-a ($domain template)"
         );
 
         // Spoke-b should NOT have a route to spoke-a
         let spoke_b_routes = db.get_routes_for_node("spoke-b").await.unwrap();
         assert!(
             !spoke_b_routes.iter().any(|r| r.dest_node_id == "spoke-a"),
-            "spoke-b should NOT have a route to spoke-a ($group isolation)"
+            "spoke-b should NOT have a route to spoke-a ($domain isolation)"
         );
     }
 }

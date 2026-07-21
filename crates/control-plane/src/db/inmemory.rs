@@ -219,11 +219,11 @@ impl InMemoryDb {
         latest.cloned()
     }
 
-    /// Find an unclaimed link (dest_node_id empty) from source to a given dest_group.
+    /// Find an unclaimed link (dest_node_id empty) from source to a given dest_domain.
     fn find_unclaimed_link_in_store(
         store: &LinkStore,
         source_node_id: &str,
-        dest_group: &str,
+        dest_domain: &str,
     ) -> Option<Link> {
         store
             .by_src
@@ -234,7 +234,7 @@ impl InMemoryDb {
             .find(|link| {
                 link.status != LinkStatus::Deleted
                     && link.dest_node_id.is_empty()
-                    && link.dest_group == dest_group
+                    && link.dest_domain == dest_domain
             })
             .cloned()
     }
@@ -639,15 +639,19 @@ impl DataAccess for InMemoryDb {
         ))
     }
 
-    async fn find_link_between_groups(&self, group_a: &str, group_b: &str) -> Result<Option<Link>> {
+    async fn find_link_between_domains(
+        &self,
+        domain_a: &str,
+        domain_b: &str,
+    ) -> Result<Option<Link>> {
         let store = self.links.read();
         Ok(store
             .primary
             .values()
             .find(|l| {
                 l.status != LinkStatus::Deleted
-                    && ((l.source_group == group_a && l.dest_group == group_b)
-                        || (l.source_group == group_b && l.dest_group == group_a))
+                    && ((l.source_domain == domain_a && l.dest_domain == domain_b)
+                        || (l.source_domain == domain_b && l.dest_domain == domain_a))
             })
             .cloned())
     }
@@ -662,10 +666,10 @@ impl DataAccess for InMemoryDb {
         let mut store = self.links.write();
 
         // Uniqueness depends on whether the link has a known destination node.
-        // Unclaimed (dest_node_id empty): unique by (source_node_id, dest_group)
+        // Unclaimed (dest_node_id empty): unique by (source_node_id, dest_domain)
         // Claimed (dest_node_id set): unique by node pair (bidirectional)
         let existing = if link.dest_node_id.is_empty() {
-            Self::find_unclaimed_link_in_store(&store, &link.source_node_id, &link.dest_group)
+            Self::find_unclaimed_link_in_store(&store, &link.source_node_id, &link.dest_domain)
         } else {
             Self::find_link_in_store(&store, &link.source_node_id, &link.dest_node_id)
         };
@@ -774,12 +778,12 @@ impl DataAccess for InMemoryDb {
     async fn claim_link(
         &self,
         link_id: &str,
-        dest_group: &str,
+        dest_domain: &str,
         claimant_node_id: &str,
     ) -> Result<Option<Link>> {
         let mut store = self.links.write();
 
-        // Find an unclaimed link with matching link_id and dest_group.
+        // Find an unclaimed link with matching link_id and dest_domain.
         let old_key = {
             let keys = match store.by_link_id.get(link_id) {
                 Some(keys) => keys,
@@ -789,7 +793,7 @@ impl DataAccess for InMemoryDb {
             for key in keys {
                 if let Some(link) = store.primary.get(key)
                     && link.dest_node_id.is_empty()
-                    && link.dest_group == dest_group
+                    && link.dest_domain == dest_domain
                     && link.status != LinkStatus::Deleted
                 {
                     found = Some(key.clone());
@@ -883,19 +887,19 @@ impl DataAccess for InMemoryDb {
     async fn add_link_to_segment(
         &self,
         segment_id: &str,
-        source_group: &str,
-        dest_group: &str,
+        source_domain: &str,
+        dest_domain: &str,
     ) -> Result<()> {
         let mut links = self.topology_segment_links.write();
         if !links.iter().any(|link| {
             link.segment_id == segment_id
-                && link.source_group == source_group
-                && link.dest_group == dest_group
+                && link.source_domain == source_domain
+                && link.dest_domain == dest_domain
         }) {
             links.push(TopologySegmentLink {
                 segment_id: segment_id.to_string(),
-                source_group: source_group.to_string(),
-                dest_group: dest_group.to_string(),
+                source_domain: source_domain.to_string(),
+                dest_domain: dest_domain.to_string(),
             });
         }
         Ok(())
@@ -904,13 +908,13 @@ impl DataAccess for InMemoryDb {
     async fn delete_link_from_segment(
         &self,
         segment_id: &str,
-        source_group: &str,
-        dest_group: &str,
+        source_domain: &str,
+        dest_domain: &str,
     ) -> Result<()> {
         self.topology_segment_links.write().retain(|link| {
             !(link.segment_id == segment_id
-                && ((link.source_group == source_group && link.dest_group == dest_group)
-                    || (link.source_group == dest_group && link.dest_group == source_group)))
+                && ((link.source_domain == source_domain && link.dest_domain == dest_domain)
+                    || (link.source_domain == dest_domain && link.dest_domain == source_domain)))
         });
         Ok(())
     }
@@ -921,7 +925,7 @@ impl DataAccess for InMemoryDb {
             .read()
             .iter()
             .filter(|link| link.segment_id == segment_id)
-            .map(|link| (link.source_group.clone(), link.dest_group.clone()))
+            .map(|link| (link.source_domain.clone(), link.dest_domain.clone()))
             .collect())
     }
 
@@ -946,19 +950,19 @@ impl DataAccess for InMemoryDb {
         Ok(self.registration_secrets.read().keys().cloned().collect())
     }
 
-    async fn get_registration_secret(&self, group_name: &str) -> Result<Option<String>> {
-        Ok(self.registration_secrets.read().get(group_name).cloned())
+    async fn get_registration_secret(&self, domain_name: &str) -> Result<Option<String>> {
+        Ok(self.registration_secrets.read().get(domain_name).cloned())
     }
 
-    async fn upsert_registration_secret(&self, group_name: &str, secret: &str) -> Result<()> {
+    async fn upsert_registration_secret(&self, domain_name: &str, secret: &str) -> Result<()> {
         self.registration_secrets
             .write()
-            .insert(group_name.to_string(), secret.to_string());
+            .insert(domain_name.to_string(), secret.to_string());
         Ok(())
     }
 
-    async fn delete_registration_secret(&self, group_name: &str) -> Result<()> {
-        self.registration_secrets.write().remove(group_name);
+    async fn delete_registration_secret(&self, domain_name: &str) -> Result<()> {
+        self.registration_secrets.write().remove(domain_name);
         Ok(())
     }
 
@@ -978,10 +982,10 @@ mod tests {
         InMemoryDb::new()
     }
 
-    fn make_node(id: &str, group: Option<&str>) -> Node {
+    fn make_node(id: &str, domain: Option<&str>) -> Node {
         Node {
             id: id.to_string(),
-            group_name: group.map(|s| s.to_string()),
+            domain_name: domain.map(|s| s.to_string()),
             conn_details: vec![ConnectionDetails {
                 endpoint: format!("{id}:8080"),
                 external_endpoint: None,
@@ -998,9 +1002,9 @@ mod tests {
         Route {
             id: String::new(),
             source_node_id: src.to_string(),
-            source_group: String::new(),
+            source_domain: String::new(),
             dest_node_id: dst.to_string(),
-            dest_group: String::new(),
+            dest_domain: String::new(),
             link_id: Some(link.to_string()),
             component0: "org".to_string(),
             component1: "ns".to_string(),
@@ -1017,9 +1021,9 @@ mod tests {
         Link {
             link_id: lid.to_string(),
             source_node_id: src.to_string(),
-            source_group: String::new(),
+            source_domain: String::new(),
             dest_node_id: dst.to_string(),
-            dest_group: String::new(),
+            dest_domain: String::new(),
             dest_endpoint: ep.to_string(),
             conn_config_data: slim_config::client::ServerConnectionConfig::default(),
             status: LinkStatus::Pending,
@@ -1040,7 +1044,7 @@ mod tests {
         assert!(!changed);
         let got = db.get_node("n1").await.unwrap().unwrap();
         assert_eq!(got.id, "n1");
-        assert_eq!(got.group_name.as_deref(), Some("grp"));
+        assert_eq!(got.domain_name.as_deref(), Some("grp"));
     }
 
     #[tokio::test]
@@ -1048,7 +1052,7 @@ mod tests {
         let db = db();
         let node = Node {
             id: String::new(),
-            group_name: None,
+            domain_name: None,
             conn_details: vec![],
             created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
@@ -1509,7 +1513,7 @@ mod tests {
     async fn delete_segment_cascades() {
         let db = db();
         let seg = db.create_segment("seg-1").await.unwrap();
-        db.add_link_to_segment(&seg.id, "group-a", "group-b")
+        db.add_link_to_segment(&seg.id, "domain-a", "domain-b")
             .await
             .unwrap();
 
@@ -1524,22 +1528,22 @@ mod tests {
         let db = db();
         let seg = db.create_segment("seg-1").await.unwrap();
 
-        db.add_link_to_segment(&seg.id, "group-a", "group-b")
+        db.add_link_to_segment(&seg.id, "domain-a", "domain-b")
             .await
             .unwrap();
-        db.add_link_to_segment(&seg.id, "group-b", "group-c")
+        db.add_link_to_segment(&seg.id, "domain-b", "domain-c")
             .await
             .unwrap();
 
         let links = db.get_links_for_segment(&seg.id).await.unwrap();
         assert_eq!(links.len(), 2);
 
-        db.delete_link_from_segment(&seg.id, "group-a", "group-b")
+        db.delete_link_from_segment(&seg.id, "domain-a", "domain-b")
             .await
             .unwrap();
         let links = db.get_links_for_segment(&seg.id).await.unwrap();
         assert_eq!(links.len(), 1);
-        assert_eq!(links[0], ("group-b".to_string(), "group-c".to_string()));
+        assert_eq!(links[0], ("domain-b".to_string(), "domain-c".to_string()));
     }
 
     #[tokio::test]
@@ -1547,7 +1551,7 @@ mod tests {
         let db = db();
         let seg1 = db.create_segment("seg-1").await.unwrap();
         let seg2 = db.create_segment("seg-2").await.unwrap();
-        db.add_link_to_segment(&seg2.id, "group-x", "group-y")
+        db.add_link_to_segment(&seg2.id, "domain-x", "domain-y")
             .await
             .unwrap();
 
@@ -1568,7 +1572,7 @@ mod tests {
     async fn clear_runtime_state_keeps_topology() {
         let db = db();
         let seg = db.create_segment("seg-1").await.unwrap();
-        db.add_link_to_segment(&seg.id, "group-a", "group-b")
+        db.add_link_to_segment(&seg.id, "domain-a", "domain-b")
             .await
             .unwrap();
 

@@ -223,7 +223,7 @@ impl DataAccess for SqliteDb {
             .unwrap_or(false);
 
         let node_id = node.id.clone();
-        let group_name = node.group_name.clone();
+        let domain_name = node.domain_name.clone();
         let conn_json = ConnDetailsJson(node.conn_details.clone());
         let ts = DbTimestamp::from(SystemTime::now());
 
@@ -236,7 +236,7 @@ impl DataAccess for SqliteDb {
             .on_conflict(nodes::id)
             .do_update()
             .set((
-                nodes::group_name.eq(group_name),
+                nodes::domain_name.eq(domain_name),
                 nodes::conn_details.eq(conn_json),
                 nodes::last_updated.eq(ts),
             ))
@@ -741,27 +741,31 @@ impl DataAccess for SqliteDb {
             })
     }
 
-    async fn find_link_between_groups(&self, group_a: &str, group_b: &str) -> Result<Option<Link>> {
+    async fn find_link_between_domains(
+        &self,
+        domain_a: &str,
+        domain_b: &str,
+    ) -> Result<Option<Link>> {
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
-            context: "find_link_between_groups pool",
+            context: "find_link_between_domains pool",
             msg: e.to_string(),
         })?;
         links::table
             .filter(links::status.ne(LinkStatus::Deleted))
             .filter(
-                links::source_group
-                    .eq(group_a)
-                    .and(links::dest_group.eq(group_b))
-                    .or(links::source_group
-                        .eq(group_b)
-                        .and(links::dest_group.eq(group_a))),
+                links::source_domain
+                    .eq(domain_a)
+                    .and(links::dest_domain.eq(domain_b))
+                    .or(links::source_domain
+                        .eq(domain_b)
+                        .and(links::dest_domain.eq(domain_a))),
             )
             .order(links::last_updated.desc())
             .first::<Link>(&mut conn)
             .await
             .optional()
             .map_err(|e| Error::DbError {
-                context: "find_link_between_groups",
+                context: "find_link_between_domains",
                 msg: e.to_string(),
             })
     }
@@ -791,13 +795,13 @@ impl DataAccess for SqliteDb {
 
         let result = async {
             // Uniqueness depends on whether the link has a known destination node.
-            // Unclaimed (dest_node_id empty): unique by (source_node_id, dest_group)
+            // Unclaimed (dest_node_id empty): unique by (source_node_id, dest_domain)
             // Claimed (dest_node_id set): unique by node pair (bidirectional)
             let existing = if link.dest_node_id.is_empty() {
                 links::table
                     .filter(links::status.ne(LinkStatus::Deleted))
                     .filter(links::source_node_id.eq(&link.source_node_id))
-                    .filter(links::dest_group.eq(&link.dest_group))
+                    .filter(links::dest_domain.eq(&link.dest_domain))
                     .order(links::last_updated.desc())
                     .first::<Link>(&mut conn)
                     .await
@@ -974,7 +978,7 @@ impl DataAccess for SqliteDb {
     async fn claim_link(
         &self,
         link_id: &str,
-        dest_group: &str,
+        dest_domain: &str,
         claimant_node_id: &str,
     ) -> Result<Option<Link>> {
         let now = SystemTime::now();
@@ -984,12 +988,12 @@ impl DataAccess for SqliteDb {
             msg: e.to_string(),
         })?;
 
-        // Atomic CAS: only update if dest_node_id is empty and dest_group matches.
+        // Atomic CAS: only update if dest_node_id is empty and dest_domain matches.
         let updated = diesel::update(
             links::table
                 .filter(links::link_id.eq(link_id))
                 .filter(links::dest_node_id.eq(""))
-                .filter(links::dest_group.eq(dest_group))
+                .filter(links::dest_domain.eq(dest_domain))
                 .filter(links::status.ne(LinkStatus::Deleted)),
         )
         .set((
@@ -1102,13 +1106,13 @@ impl DataAccess for SqliteDb {
     async fn add_link_to_segment(
         &self,
         segment_id: &str,
-        source_group: &str,
-        dest_group: &str,
+        source_domain: &str,
+        dest_domain: &str,
     ) -> Result<()> {
         let link = TopologySegmentLink {
             segment_id: segment_id.to_string(),
-            source_group: source_group.to_string(),
-            dest_group: dest_group.to_string(),
+            source_domain: source_domain.to_string(),
+            dest_domain: dest_domain.to_string(),
         };
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
             context: "add_link_to_segment pool",
@@ -1129,26 +1133,26 @@ impl DataAccess for SqliteDb {
     async fn delete_link_from_segment(
         &self,
         segment_id: &str,
-        source_group: &str,
-        dest_group: &str,
+        source_domain: &str,
+        dest_domain: &str,
     ) -> Result<()> {
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
             context: "delete_link_from_segment pool",
             msg: e.to_string(),
         })?;
         let seg_id = segment_id.to_string();
-        let src = source_group.to_string();
-        let dst = dest_group.to_string();
+        let src = source_domain.to_string();
+        let dst = dest_domain.to_string();
         diesel::delete(
             topology_segment_links::table
                 .filter(topology_segment_links::segment_id.eq(&seg_id))
                 .filter(
-                    topology_segment_links::source_group
+                    topology_segment_links::source_domain
                         .eq(&src)
-                        .and(topology_segment_links::dest_group.eq(&dst))
-                        .or(topology_segment_links::source_group
+                        .and(topology_segment_links::dest_domain.eq(&dst))
+                        .or(topology_segment_links::source_domain
                             .eq(&dst)
-                            .and(topology_segment_links::dest_group.eq(&src))),
+                            .and(topology_segment_links::dest_domain.eq(&src))),
                 ),
         )
         .execute(&mut conn)
@@ -1168,8 +1172,8 @@ impl DataAccess for SqliteDb {
         topology_segment_links::table
             .filter(topology_segment_links::segment_id.eq(segment_id))
             .select((
-                topology_segment_links::source_group,
-                topology_segment_links::dest_group,
+                topology_segment_links::source_domain,
+                topology_segment_links::dest_domain,
             ))
             .load::<(String, String)>(&mut conn)
             .await
@@ -1247,7 +1251,7 @@ impl DataAccess for SqliteDb {
             msg: e.to_string(),
         })?;
         registration_secrets::table
-            .select(registration_secrets::group_name)
+            .select(registration_secrets::domain_name)
             .load::<String>(&mut conn)
             .await
             .map_err(|e| Error::DbError {
@@ -1256,13 +1260,13 @@ impl DataAccess for SqliteDb {
             })
     }
 
-    async fn get_registration_secret(&self, group_name: &str) -> Result<Option<String>> {
+    async fn get_registration_secret(&self, domain_name: &str) -> Result<Option<String>> {
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
             context: "get_registration_secret pool",
             msg: e.to_string(),
         })?;
         registration_secrets::table
-            .find(group_name)
+            .find(domain_name)
             .select(registration_secrets::secret)
             .first::<String>(&mut conn)
             .await
@@ -1273,7 +1277,7 @@ impl DataAccess for SqliteDb {
             })
     }
 
-    async fn upsert_registration_secret(&self, group_name: &str, secret: &str) -> Result<()> {
+    async fn upsert_registration_secret(&self, domain_name: &str, secret: &str) -> Result<()> {
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
             context: "upsert_registration_secret pool",
             msg: e.to_string(),
@@ -1284,11 +1288,11 @@ impl DataAccess for SqliteDb {
             .as_secs() as i64;
         diesel::insert_into(registration_secrets::table)
             .values((
-                registration_secrets::group_name.eq(group_name),
+                registration_secrets::domain_name.eq(domain_name),
                 registration_secrets::secret.eq(secret),
                 registration_secrets::created_at.eq(now),
             ))
-            .on_conflict(registration_secrets::group_name)
+            .on_conflict(registration_secrets::domain_name)
             .do_update()
             .set(registration_secrets::secret.eq(secret))
             .execute(&mut conn)
@@ -1300,12 +1304,12 @@ impl DataAccess for SqliteDb {
         Ok(())
     }
 
-    async fn delete_registration_secret(&self, group_name: &str) -> Result<()> {
+    async fn delete_registration_secret(&self, domain_name: &str) -> Result<()> {
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
             context: "delete_registration_secret pool",
             msg: e.to_string(),
         })?;
-        diesel::delete(registration_secrets::table.find(group_name))
+        diesel::delete(registration_secrets::table.find(domain_name))
             .execute(&mut conn)
             .await
             .map_err(|e| Error::DbError {
@@ -1346,10 +1350,10 @@ mod tests {
         (f, db)
     }
 
-    fn make_node(id: &str, group: Option<&str>) -> Node {
+    fn make_node(id: &str, domain: Option<&str>) -> Node {
         Node {
             id: id.to_string(),
-            group_name: group.map(|s| s.to_string()),
+            domain_name: domain.map(|s| s.to_string()),
             conn_details: vec![ConnectionDetails {
                 endpoint: format!("{id}:8080"),
                 external_endpoint: None,
@@ -1366,9 +1370,9 @@ mod tests {
         Route {
             id: String::new(),
             source_node_id: src.to_string(),
-            source_group: String::new(),
+            source_domain: String::new(),
             dest_node_id: dst.to_string(),
-            dest_group: String::new(),
+            dest_domain: String::new(),
             link_id: Some(link.to_string()),
             component0: "org".to_string(),
             component1: "ns".to_string(),
@@ -1385,9 +1389,9 @@ mod tests {
         Link {
             link_id: lid.to_string(),
             source_node_id: src.to_string(),
-            source_group: String::new(),
+            source_domain: String::new(),
             dest_node_id: dst.to_string(),
-            dest_group: String::new(),
+            dest_domain: String::new(),
             dest_endpoint: ep.to_string(),
             conn_config_data: slim_config::client::ServerConnectionConfig::default(),
             status: LinkStatus::Pending,
@@ -1408,7 +1412,7 @@ mod tests {
         assert!(!changed);
         let got = db.get_node("n1").await.unwrap().unwrap();
         assert_eq!(got.id, "n1");
-        assert_eq!(got.group_name.as_deref(), Some("grp"));
+        assert_eq!(got.domain_name.as_deref(), Some("grp"));
     }
 
     #[tokio::test]
@@ -1741,7 +1745,7 @@ mod tests {
     async fn topology_delete_segment_cascades() {
         let (_f, db) = tmp_db().await;
         let seg = db.create_segment("seg-1").await.unwrap();
-        db.add_link_to_segment(&seg.id, "group-a", "group-b")
+        db.add_link_to_segment(&seg.id, "domain-a", "domain-b")
             .await
             .unwrap();
 
@@ -1756,22 +1760,22 @@ mod tests {
         let (_f, db) = tmp_db().await;
         let seg = db.create_segment("seg-1").await.unwrap();
 
-        db.add_link_to_segment(&seg.id, "group-a", "group-b")
+        db.add_link_to_segment(&seg.id, "domain-a", "domain-b")
             .await
             .unwrap();
-        db.add_link_to_segment(&seg.id, "group-b", "group-c")
+        db.add_link_to_segment(&seg.id, "domain-b", "domain-c")
             .await
             .unwrap();
 
         let links = db.get_links_for_segment(&seg.id).await.unwrap();
         assert_eq!(links.len(), 2);
 
-        db.delete_link_from_segment(&seg.id, "group-a", "group-b")
+        db.delete_link_from_segment(&seg.id, "domain-a", "domain-b")
             .await
             .unwrap();
         let links = db.get_links_for_segment(&seg.id).await.unwrap();
         assert_eq!(links.len(), 1);
-        assert_eq!(links[0], ("group-b".to_string(), "group-c".to_string()));
+        assert_eq!(links[0], ("domain-b".to_string(), "domain-c".to_string()));
     }
 
     #[tokio::test]
@@ -1779,7 +1783,7 @@ mod tests {
         let (_f, db) = tmp_db().await;
         let _seg1 = db.create_segment("seg-1").await.unwrap();
         let seg2 = db.create_segment("seg-2").await.unwrap();
-        db.add_link_to_segment(&seg2.id, "group-x", "group-y")
+        db.add_link_to_segment(&seg2.id, "domain-x", "domain-y")
             .await
             .unwrap();
 

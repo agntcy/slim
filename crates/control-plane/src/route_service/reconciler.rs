@@ -104,24 +104,24 @@ async fn handle_request(
         return Ok(());
     }
 
-    let node_group = db
+    let node_domain = db
         .get_node(node_id)
         .await
         .ok()
         .flatten()
-        .and_then(|n| n.group_name)
+        .and_then(|n| n.domain_name)
         .unwrap_or_default();
 
     // Single query for all links, then filter to those relevant to this node
-    // or its group (avoids separate get_links_for_node + list_all_links calls).
+    // or its domain (avoids separate get_links_for_node + list_all_links calls).
     let all_links = db.list_all_links().await?;
     let mut links: Vec<_> = all_links
         .into_iter()
         .filter(|l| {
             l.source_node_id == node_id
                 || l.dest_node_id == node_id
-                || (!node_group.is_empty()
-                    && (l.source_group == node_group || l.dest_group == node_group))
+                || (!node_domain.is_empty()
+                    && (l.source_domain == node_domain || l.dest_domain == node_domain))
         })
         .collect();
     let routes = db.get_routes_for_node(node_id).await?;
@@ -248,18 +248,18 @@ async fn build_desired_routes<'a>(
         let link_id = match route.link_id.as_deref() {
             Some(id) => id,
             None => {
-                // No link_id yet — find a link from this node to the dest node's group.
+                // No link_id yet — find a link from this node to the dest node's domain.
                 let found_link = node_links.iter().find(|l| {
                     l.source_node_id == route.source_node_id
                         && l.status != LinkStatus::Deleted
-                        && l.dest_group == route.dest_group
+                        && l.dest_domain == route.dest_domain
                 });
-                // Also check reverse direction (link where dest claimed by source's group).
+                // Also check reverse direction (link where dest claimed by source's domain).
                 let found_link = found_link.or_else(|| {
                     node_links.iter().find(|l| {
                         l.dest_node_id == route.source_node_id
                             && l.status != LinkStatus::Deleted
-                            && l.source_group == route.dest_group
+                            && l.source_domain == route.dest_domain
                     })
                 });
                 match found_link {
@@ -397,20 +397,20 @@ async fn process_connection_acks(
             }
             updated.status_msg = String::new();
             tracing::info!(
-                "reconciler: link {} ({}→dest_group:{}) status={:?}",
+                "reconciler: link {} ({}→dest_domain:{}) status={:?}",
                 current_link.link_id,
                 current_link.source_node_id,
-                current_link.dest_group,
+                current_link.dest_domain,
                 updated.status
             );
         } else {
             updated.status = LinkStatus::Failed;
             updated.status_msg = conn_ack.error_msg.clone();
             tracing::warn!(
-                "reconciler: link {} ({}→dest_group:{}) failed: {}",
+                "reconciler: link {} ({}→dest_domain:{}) failed: {}",
                 current_link.link_id,
                 current_link.source_node_id,
-                current_link.dest_group,
+                current_link.dest_domain,
                 conn_ack.error_msg
             );
         }

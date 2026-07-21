@@ -199,29 +199,29 @@ The control plane supports two mutually exclusive topology modes:
 
 ##### Wildcard `"*"`
 
-In both `group` and `neighbors` fields, the value `"*"` matches all registered groups and is resolved dynamically at node registration time.
+In both `domain` and `neighbors` fields, the value `"*"` matches all registered domains and is resolved dynamically at node registration time.
 
 ```yaml
-# Full mesh — every group connects to every other group
+# Full mesh — every domain connects to every other domain
 config:
   topology:
     links:
-      - group: "*"
+      - domain: "*"
         neighbors: ["*"]
 
 # Star — cloud connects to all, spokes only reach each other via cloud
 config:
   topology:
     links:
-      - group: cloud
+      - domain: cloud
         neighbors: ["*"]
 ```
 
 All links are **bidirectional**: declaring `cloud → edge` also creates `edge → cloud`.
 
-##### Template variable `$group`
+##### Template variable `$domain`
 
-`$group` is only valid inside a `segments` definition. It causes the segment to be **instantiated once per registered group**, with `$group` replaced by that group's name at registration time — it does not expand to a list of all groups simultaneously.
+`$domain` is only valid inside a `segments` definition. It causes the segment to be **instantiated once per registered domain**, with `$domain` replaced by that domain's name at registration time — it does not expand to a list of all domains simultaneously.
 
 This is the idiomatic way to achieve per-tenant isolation where every tenant can reach a shared hub but not each other:
 
@@ -230,13 +230,13 @@ This is the idiomatic way to achieve per-tenant isolation where every tenant can
 config:
   topology:
     segments:
-      - name: segment-$group
+      - name: segment-$domain
         links:
-          - group: cloud
-            neighbors: [$group]
+          - domain: cloud
+            neighbors: [$domain]
 ```
 
-For each group that registers (e.g. `customer-a`, `customer-b`) the control plane generates a separate segment (`segment-customer-a`, `segment-customer-b`). Inside each segment only `cloud` ↔ that one customer are linked.
+For each domain that registers (e.g. `customer-a`, `customer-b`) the control plane generates a separate segment (`segment-customer-a`, `segment-customer-b`). Inside each segment only `cloud` ↔ that one customer are linked.
 
 Named segments (explicit multi-tenant isolation without the template):
 
@@ -246,11 +246,11 @@ config:
     segments:
       - name: tenant-1
         links:
-          - group: cloud
+          - domain: cloud
             neighbors: [cluster-a]
       - name: tenant-2
         links:
-          - group: cloud
+          - domain: cloud
             neighbors: [cluster-b, cluster-c]
 ```
 

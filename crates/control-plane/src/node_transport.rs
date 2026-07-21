@@ -157,7 +157,7 @@ impl DefaultNodeCommandHandler {
     }
 
     /// Forcibly remove the stream for a node regardless of epoch.
-    /// Used when administratively removing a group — all nodes in the group
+    /// Used when administratively removing a domain — all nodes in the domain
     /// must be disconnected.
     pub async fn force_remove_stream(&self, node_id: &str) {
         let removed = {

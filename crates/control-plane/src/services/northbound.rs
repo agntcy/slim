@@ -10,15 +10,15 @@ use crate::api::proto::controller::proto::v1::{
     RouteListResponse as NodeRouteListResponse,
 };
 use crate::api::proto::controlplane::proto::v1::{
-    AddGroupRequest, AddGroupResponse, AddSegmentRequest, AddSegmentResponse,
-    AddTopologyLinkRequest, AddTopologyLinkResponse, GroupEntry, LinkEntry, LinkListRequest,
-    LinkStatus, ListGroupsRequest, ListGroupsResponse, NodeEntry, NodeListRequest,
-    RemoveGroupRequest, RemoveGroupResponse, RemoveSegmentRequest, RemoveSegmentResponse,
+    AddDomainRequest, AddDomainResponse, AddSegmentRequest, AddSegmentResponse,
+    AddTopologyLinkRequest, AddTopologyLinkResponse, DomainEntry, LinkEntry, LinkListRequest,
+    LinkStatus, ListDomainsRequest, ListDomainsResponse, NodeEntry, NodeListRequest,
+    RemoveDomainRequest, RemoveDomainResponse, RemoveSegmentRequest, RemoveSegmentResponse,
     RemoveTopologyLinkRequest, RemoveTopologyLinkResponse, RouteEntry, RouteListRequest,
     RouteStatus, SegmentEdge, SegmentEntry, SegmentListRequest, SegmentListResponse,
     control_plane_service_server::ControlPlaneService,
 };
-use crate::auth::GroupAuthenticator;
+use crate::auth::DomainAuthenticator;
 use crate::db::{SharedDb, model};
 use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
 use crate::route_service::RouteService;
@@ -28,7 +28,7 @@ pub struct NorthboundApiService {
     db: SharedDb,
     cmd_handler: DefaultNodeCommandHandler,
     route_service: RouteService,
-    authenticator: GroupAuthenticator,
+    authenticator: DomainAuthenticator,
 }
 
 impl NorthboundApiService {
@@ -36,7 +36,7 @@ impl NorthboundApiService {
         db: SharedDb,
         cmd_handler: DefaultNodeCommandHandler,
         route_service: RouteService,
-        authenticator: GroupAuthenticator,
+        authenticator: DomainAuthenticator,
     ) -> Self {
         Self {
             db,
@@ -46,7 +46,7 @@ impl NorthboundApiService {
         }
     }
 
-    /// Build a map of link_id → qualified peer name (group/node) for a given node.
+    /// Build a map of link_id → qualified peer name (domain/node) for a given node.
     fn build_link_peer_map(
         node_id: &str,
         links: &[crate::db::Link],
@@ -55,33 +55,33 @@ impl NorthboundApiService {
             .iter()
             .map(|link| {
                 let peer = if link.source_node_id == node_id {
-                    if link.dest_group.is_empty()
+                    if link.dest_domain.is_empty()
                         || link
                             .dest_node_id
-                            .starts_with(&format!("{}/", link.dest_group))
+                            .starts_with(&format!("{}/", link.dest_domain))
                     {
                         link.dest_node_id.clone()
                     } else {
-                        format!("{}/{}", link.dest_group, link.dest_node_id)
+                        format!("{}/{}", link.dest_domain, link.dest_node_id)
                     }
-                } else if link.source_group.is_empty()
+                } else if link.source_domain.is_empty()
                     || link
                         .source_node_id
-                        .starts_with(&format!("{}/", link.source_group))
+                        .starts_with(&format!("{}/", link.source_domain))
                 {
                     link.source_node_id.clone()
                 } else {
-                    format!("{}/{}", link.source_group, link.source_node_id)
+                    format!("{}/{}", link.source_domain, link.source_node_id)
                 };
                 (link.link_id.clone(), peer)
             })
             .collect()
     }
 
-    /// Enrich `peer_node_id` on connection entries using group information.
+    /// Enrich `peer_node_id` on connection entries using domain information.
     fn enrich_peer_node_ids(
         entries: &mut [crate::api::proto::controller::proto::v1::ConnectionEntry],
-        node_group: &str,
+        node_domain: &str,
         link_peer_map: &std::collections::HashMap<String, String>,
     ) {
         use crate::api::proto::controller::proto::v1::ConnectionType;
@@ -89,10 +89,10 @@ impl NorthboundApiService {
             match entry.connection_type() {
                 ConnectionType::Peer => {
                     if let Some(bare_id) = entry.peer_node_id.take() {
-                        if bare_id.starts_with(&format!("{}/", node_group)) {
+                        if bare_id.starts_with(&format!("{}/", node_domain)) {
                             entry.peer_node_id = Some(bare_id);
                         } else {
-                            entry.peer_node_id = Some(format!("{}/{}", node_group, bare_id));
+                            entry.peer_node_id = Some(format!("{}/{}", node_domain, bare_id));
                         }
                     }
                 }
@@ -109,14 +109,14 @@ impl NorthboundApiService {
     }
 
     /// Fetch link data for a node and build the enrichment context.
-    /// Returns `(node_group, link_peer_map)`. Logs a warning on DB errors
+    /// Returns `(node_domain, link_peer_map)`. Logs a warning on DB errors
     /// and continues with an empty map (enrichment is best-effort).
     async fn enrichment_context(
         &self,
         node: &crate::db::Node,
         caller: &str,
     ) -> (String, std::collections::HashMap<String, String>) {
-        let node_group = node.group_name.clone().unwrap_or_default();
+        let node_domain = node.domain_name.clone().unwrap_or_default();
         let links = self
             .db
             .get_links_for_node(&node.id)
@@ -126,7 +126,7 @@ impl NorthboundApiService {
                 Vec::new()
             });
         let link_peer_map = Self::build_link_peer_map(&node.id, &links);
-        (node_group, link_peer_map)
+        (node_domain, link_peer_map)
     }
 }
 
@@ -183,12 +183,12 @@ impl ControlPlaneService for NorthboundApiService {
                     })
                     .collect();
 
-                let group = node.group_name.unwrap_or_default();
+                let domain = node.domain_name.unwrap_or_default();
                 let entry = NodeEntry {
                     id: node.id,
                     connections,
                     status,
-                    group,
+                    domain,
                 };
                 if tx.send(Ok(entry)).await.is_err() {
                     break;
@@ -223,11 +223,11 @@ impl ControlPlaneService for NorthboundApiService {
                 Status::internal("internal error")
             })?;
 
-        // Enrich peer_node_id with group prefix (same logic as list_connections).
-        let (node_group, link_peer_map) = self.enrichment_context(&node, "list_node_routes").await;
+        // Enrich peer_node_id with domain prefix (same logic as list_connections).
+        let (node_domain, link_peer_map) = self.enrichment_context(&node, "list_node_routes").await;
 
         for entry in &mut resp.entries {
-            Self::enrich_peer_node_ids(&mut entry.connections, &node_group, &link_peer_map);
+            Self::enrich_peer_node_ids(&mut entry.connections, &node_domain, &link_peer_map);
         }
 
         Ok(Response::new(resp))
@@ -257,9 +257,9 @@ impl ControlPlaneService for NorthboundApiService {
                 Status::internal("internal error")
             })?;
 
-        // Enrich peer_node_id with group prefix using link information.
-        let (node_group, link_peer_map) = self.enrichment_context(&node, "list_connections").await;
-        Self::enrich_peer_node_ids(&mut resp.entries, &node_group, &link_peer_map);
+        // Enrich peer_node_id with domain prefix using link information.
+        let (node_domain, link_peer_map) = self.enrichment_context(&node, "list_connections").await;
+        Self::enrich_peer_node_ids(&mut resp.entries, &node_domain, &link_peer_map);
 
         Ok(Response::new(resp))
     }
@@ -356,7 +356,7 @@ impl ControlPlaneService for NorthboundApiService {
                 Status::internal("internal error")
             })?;
 
-        // Collect topology link group pairs to identify pending ones.
+        // Collect topology link domain pairs to identify pending ones.
         let segments = self.route_service.list_segments().await;
         let mut topology_pairs: std::collections::HashSet<(String, String)> =
             std::collections::HashSet::new();
@@ -367,14 +367,14 @@ impl ControlPlaneService for NorthboundApiService {
             }
         }
 
-        // Track which group pairs have physical links.
+        // Track which domain pairs have physical links.
         let mut realized_pairs: std::collections::HashSet<(String, String)> =
             std::collections::HashSet::new();
 
         for l in &links {
-            if !l.source_group.is_empty() && !l.dest_group.is_empty() {
-                realized_pairs.insert((l.source_group.clone(), l.dest_group.clone()));
-                realized_pairs.insert((l.dest_group.clone(), l.source_group.clone()));
+            if !l.source_domain.is_empty() && !l.dest_domain.is_empty() {
+                realized_pairs.insert((l.source_domain.clone(), l.dest_domain.clone()));
+                realized_pairs.insert((l.dest_domain.clone(), l.source_domain.clone()));
             }
         }
 
@@ -436,7 +436,7 @@ impl ControlPlaneService for NorthboundApiService {
                 }
             }
             // Emit pending topology links.
-            // For pending entries, source_node_id/dest_node_id hold group names
+            // For pending entries, source_node_id/dest_node_id hold domain names
             // (not node IDs) since no physical link exists yet.
             for (src, dst) in pending_entries {
                 let entry = LinkEntry {
@@ -467,14 +467,14 @@ impl ControlPlaneService for NorthboundApiService {
         let segments = self.route_service.list_segments().await;
         let entries = segments
             .into_iter()
-            .map(|(name, groups, edges)| SegmentEntry {
+            .map(|(name, domains, edges)| SegmentEntry {
                 name,
-                groups,
+                domains,
                 edges: edges
                     .into_iter()
                     .map(|(a, b)| SegmentEdge {
-                        group_a: a,
-                        group_b: b,
+                        domain_a: a,
+                        domain_b: b,
                     })
                     .collect(),
             })
@@ -511,9 +511,9 @@ impl ControlPlaneService for NorthboundApiService {
         request: Request<AddTopologyLinkRequest>,
     ) -> Result<Response<AddTopologyLinkResponse>, Status> {
         let req = request.get_ref();
-        if req.group_a.is_empty() || req.group_b.is_empty() {
+        if req.domain_a.is_empty() || req.domain_b.is_empty() {
             return Err(Status::invalid_argument(
-                "group_a and group_b must not be empty",
+                "domain_a and domain_b must not be empty",
             ));
         }
         let segment = if req.segment.is_empty() {
@@ -523,7 +523,7 @@ impl ControlPlaneService for NorthboundApiService {
         };
         let warnings = self
             .route_service
-            .add_topology_link(&req.group_a, &req.group_b, segment)
+            .add_topology_link(&req.domain_a, &req.domain_b, segment)
             .await?;
         Ok(Response::new(AddTopologyLinkResponse { warnings }))
     }
@@ -533,9 +533,9 @@ impl ControlPlaneService for NorthboundApiService {
         request: Request<RemoveTopologyLinkRequest>,
     ) -> Result<Response<RemoveTopologyLinkResponse>, Status> {
         let req = request.get_ref();
-        if req.group_a.is_empty() || req.group_b.is_empty() {
+        if req.domain_a.is_empty() || req.domain_b.is_empty() {
             return Err(Status::invalid_argument(
-                "group_a and group_b must not be empty",
+                "domain_a and domain_b must not be empty",
             ));
         }
         let segment = if req.segment.is_empty() {
@@ -544,69 +544,69 @@ impl ControlPlaneService for NorthboundApiService {
             &req.segment
         };
         self.route_service
-            .remove_topology_link(&req.group_a, &req.group_b, segment)
+            .remove_topology_link(&req.domain_a, &req.domain_b, segment)
             .await?;
         Ok(Response::new(RemoveTopologyLinkResponse {}))
     }
 
-    // ── Registration auth group management ─────────────────────────────────
+    // ── Registration auth domain management ─────────────────────────────────
 
-    async fn list_groups(
+    async fn list_domains(
         &self,
-        _request: Request<ListGroupsRequest>,
-    ) -> Result<Response<ListGroupsResponse>, Status> {
-        // Start with groups from the live authenticator (covers both config and API mode).
-        let mut groups: std::collections::BTreeMap<String, Vec<String>> =
+        _request: Request<ListDomainsRequest>,
+    ) -> Result<Response<ListDomainsResponse>, Status> {
+        // Start with domains from the live authenticator (covers both config and API mode).
+        let mut domains: std::collections::BTreeMap<String, Vec<String>> =
             std::collections::BTreeMap::new();
-        for g in self.authenticator.configured_groups() {
-            groups.entry(g).or_default();
+        for g in self.authenticator.configured_domains() {
+            domains.entry(g).or_default();
         }
 
-        // Also include groups from DB secrets (API mode — may have groups not yet
+        // Also include domains from DB secrets (API mode — may have domains not yet
         // loaded into the authenticator on error, or for consistency).
         let auth_groups = self
             .db
             .list_registration_secret_groups()
             .await
-            .map_err(|e| Status::internal(format!("failed to list groups: {e}")))?;
+            .map_err(|e| Status::internal(format!("failed to list domains: {e}")))?;
         for g in auth_groups {
-            groups.entry(g).or_default();
+            domains.entry(g).or_default();
         }
 
-        // Add connected nodes grouped by group_name.
+        // Add connected nodes grouped by domain_name.
         let nodes = self
             .db
             .list_nodes()
             .await
             .map_err(|e| Status::internal(format!("failed to list nodes: {e}")))?;
         for node in nodes {
-            if let Some(group_name) = node.group_name {
-                groups.entry(group_name).or_default().push(node.id);
+            if let Some(domain_name) = node.domain_name {
+                domains.entry(domain_name).or_default().push(node.id);
             }
         }
 
-        let entries = groups
+        let entries = domains
             .into_iter()
-            .map(|(group_name, nodes)| GroupEntry { group_name, nodes })
+            .map(|(domain_name, nodes)| DomainEntry { domain_name, nodes })
             .collect();
-        Ok(Response::new(ListGroupsResponse { groups: entries }))
+        Ok(Response::new(ListDomainsResponse { domains: entries }))
     }
 
-    async fn add_group(
+    async fn add_domain(
         &self,
-        request: Request<AddGroupRequest>,
-    ) -> Result<Response<AddGroupResponse>, Status> {
+        request: Request<AddDomainRequest>,
+    ) -> Result<Response<AddDomainResponse>, Status> {
         self.route_service.ensure_api_mode()?;
 
         if !self.authenticator.is_shared_secret() {
             return Err(Status::unimplemented(
-                "add_group is only supported in shared_secret auth mode",
+                "add_domain is only supported in shared_secret auth mode",
             ));
         }
 
         let req = request.get_ref();
-        if req.group_name.is_empty() {
-            return Err(Status::invalid_argument("group_name must not be empty"));
+        if req.domain_name.is_empty() {
+            return Err(Status::invalid_argument("domain_name must not be empty"));
         }
         if req.secret.is_empty() {
             return Err(Status::invalid_argument("secret must not be empty"));
@@ -614,50 +614,50 @@ impl ControlPlaneService for NorthboundApiService {
 
         // Build the verifier first (validates the secret is usable).
         self.authenticator
-            .add_verifier(&req.group_name, &req.secret)?;
+            .add_verifier(&req.domain_name, &req.secret)?;
 
         // Persist to DB only after the verifier was successfully built.
         if let Err(e) = self
             .db
-            .upsert_registration_secret(&req.group_name, &req.secret)
+            .upsert_registration_secret(&req.domain_name, &req.secret)
             .await
         {
             // Roll back the in-memory verifier so the caller's error is consistent.
-            let _ = self.authenticator.remove_verifier(&req.group_name);
+            let _ = self.authenticator.remove_verifier(&req.domain_name);
             return Err(Status::internal(format!("failed to store secret: {e}")));
         }
 
-        tracing::info!("add_group: added group '{}'", req.group_name);
-        Ok(Response::new(AddGroupResponse {}))
+        tracing::info!("add_domain: added domain '{}'", req.domain_name);
+        Ok(Response::new(AddDomainResponse {}))
     }
 
-    async fn remove_group(
+    async fn remove_domain(
         &self,
-        request: Request<RemoveGroupRequest>,
-    ) -> Result<Response<RemoveGroupResponse>, Status> {
+        request: Request<RemoveDomainRequest>,
+    ) -> Result<Response<RemoveDomainResponse>, Status> {
         self.route_service.ensure_api_mode()?;
 
         let req = request.get_ref();
-        if req.group_name.is_empty() {
-            return Err(Status::invalid_argument("group_name must not be empty"));
+        if req.domain_name.is_empty() {
+            return Err(Status::invalid_argument("domain_name must not be empty"));
         }
 
         if !self.authenticator.is_shared_secret() {
             return Err(Status::unimplemented(
-                "remove_group is only supported in shared_secret auth mode",
+                "remove_domain is only supported in shared_secret auth mode",
             ));
         }
 
         // Remove the verifier first to prevent new registrations.
-        self.authenticator.remove_verifier(&req.group_name)?;
+        self.authenticator.remove_verifier(&req.domain_name)?;
 
         // Remove the secret from DB (won't survive restart).
         self.db
-            .delete_registration_secret(&req.group_name)
+            .delete_registration_secret(&req.domain_name)
             .await
             .map_err(|e| Status::internal(format!("failed to delete secret: {e}")))?;
 
-        // Now list nodes — no new nodes can register for this group since the
+        // Now list nodes — no new nodes can register for this domain since the
         // verifier is already removed.
         let nodes = self
             .db
@@ -666,21 +666,21 @@ impl ControlPlaneService for NorthboundApiService {
             .map_err(|e| Status::internal(format!("failed to list nodes: {e}")))?;
         let group_nodes: Vec<_> = nodes
             .iter()
-            .filter(|n| n.group_name.as_deref() == Some(&req.group_name))
+            .filter(|n| n.domain_name.as_deref() == Some(&req.domain_name))
             .collect();
 
-        // Disconnect and deregister each existing node in the group.
+        // Disconnect and deregister each existing node in the domain.
         for node in &group_nodes {
             self.cmd_handler.force_remove_stream(&node.id).await;
             self.route_service.node_deregistered(&node.id).await;
         }
 
         tracing::info!(
-            "remove_group: removed group '{}' ({} node(s) disconnected)",
-            req.group_name,
+            "remove_domain: removed domain '{}' ({} node(s) disconnected)",
+            req.domain_name,
             group_nodes.len()
         );
-        Ok(Response::new(RemoveGroupResponse {}))
+        Ok(Response::new(RemoveDomainResponse {}))
     }
 }
 
@@ -698,16 +698,16 @@ mod tests {
     fn make_link(
         link_id: &str,
         src_node: &str,
-        src_group: &str,
+        src_domain: &str,
         dst_node: &str,
-        dst_group: &str,
+        dst_domain: &str,
     ) -> Link {
         Link {
             link_id: link_id.to_string(),
             source_node_id: src_node.to_string(),
-            source_group: src_group.to_string(),
+            source_domain: src_domain.to_string(),
             dest_node_id: dst_node.to_string(),
-            dest_group: dst_group.to_string(),
+            dest_domain: dst_domain.to_string(),
             dest_endpoint: "http://127.0.0.1:9000".to_string(),
             conn_config_data: slim_config::client::ServerConnectionConfig::default(),
             status: LinkStatus::Applied,
@@ -720,7 +720,7 @@ mod tests {
     /// Create a NorthboundApiService with an in-memory DB and the given topology.
     fn make_nb_service(
         topology: TopologyConfig,
-        authenticator: GroupAuthenticator,
+        authenticator: DomainAuthenticator,
     ) -> NorthboundApiService {
         let db = InMemoryDb::shared();
         let cmd_handler = DefaultNodeCommandHandler::new();
@@ -736,45 +736,45 @@ mod tests {
         NorthboundApiService::new(db, cmd_handler, route_service, authenticator)
     }
 
-    fn shared_secret_authenticator() -> GroupAuthenticator {
-        GroupAuthenticator::SharedSecret {
+    fn shared_secret_authenticator() -> DomainAuthenticator {
+        DomainAuthenticator::SharedSecret {
             verifiers: Arc::new(parking_lot::RwLock::new(HashMap::new())),
         }
     }
 
     fn config_managed_topology() -> TopologyConfig {
         TopologyConfig::Links(vec![AdjacencyEntry {
-            group: "*".to_string(),
+            domain: "*".to_string(),
             neighbors: vec!["*".to_string()],
         }])
     }
 
     #[test]
     fn build_link_peer_map_normal_prefix() {
-        // node-a is source, peer should be "group-b/node-b"
-        let links = vec![make_link("l1", "node-a", "group-a", "node-b", "group-b")];
+        // node-a is source, peer should be "domain-b/node-b"
+        let links = vec![make_link("l1", "node-a", "domain-a", "node-b", "domain-b")];
         let map = NorthboundApiService::build_link_peer_map("node-a", &links);
-        assert_eq!(map.get("l1").unwrap(), "group-b/node-b");
+        assert_eq!(map.get("l1").unwrap(), "domain-b/node-b");
     }
 
     #[test]
     fn build_link_peer_map_already_prefixed() {
-        // dest_node_id already has "group-b/" prefix — should not double it
+        // dest_node_id already has "domain-b/" prefix — should not double it
         let links = vec![make_link(
             "l1",
             "node-a",
-            "group-a",
-            "group-b/node-b",
-            "group-b",
+            "domain-a",
+            "domain-b/node-b",
+            "domain-b",
         )];
         let map = NorthboundApiService::build_link_peer_map("node-a", &links);
-        assert_eq!(map.get("l1").unwrap(), "group-b/node-b");
+        assert_eq!(map.get("l1").unwrap(), "domain-b/node-b");
     }
 
     #[test]
     fn build_link_peer_map_empty_group() {
-        // Empty dest_group — should return dest_node_id as-is
-        let links = vec![make_link("l1", "node-a", "group-a", "node-b", "")];
+        // Empty dest_domain — should return dest_node_id as-is
+        let links = vec![make_link("l1", "node-a", "domain-a", "node-b", "")];
         let map = NorthboundApiService::build_link_peer_map("node-a", &links);
         assert_eq!(map.get("l1").unwrap(), "node-b");
     }
@@ -782,19 +782,19 @@ mod tests {
     #[test]
     fn build_link_peer_map_reverse_direction() {
         // node-b is the current node (dest in the link), peer should be source
-        let links = vec![make_link("l1", "node-a", "group-a", "node-b", "group-b")];
+        let links = vec![make_link("l1", "node-a", "domain-a", "node-b", "domain-b")];
         let map = NorthboundApiService::build_link_peer_map("node-b", &links);
-        assert_eq!(map.get("l1").unwrap(), "group-a/node-a");
+        assert_eq!(map.get("l1").unwrap(), "domain-a/node-a");
     }
 
     // ── Group management unit tests ───────────────────────────────────────────
 
     #[tokio::test]
-    async fn add_group_rejects_in_config_mode() {
+    async fn add_domain_rejects_in_config_mode() {
         let svc = make_nb_service(config_managed_topology(), shared_secret_authenticator());
         let err = svc
-            .add_group(Request::new(AddGroupRequest {
-                group_name: "test-group".to_string(),
+            .add_domain(Request::new(AddDomainRequest {
+                domain_name: "test-domain".to_string(),
                 secret: "secret-0123456789abcdefghijk".to_string(),
             }))
             .await
@@ -803,25 +803,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn add_group_rejects_empty_group_name() {
+    async fn add_domain_rejects_empty_domain_name() {
         let svc = make_nb_service(TopologyConfig::ApiManaged, shared_secret_authenticator());
         let err = svc
-            .add_group(Request::new(AddGroupRequest {
-                group_name: "".to_string(),
+            .add_domain(Request::new(AddDomainRequest {
+                domain_name: "".to_string(),
                 secret: "secret-0123456789abcdefghijk".to_string(),
             }))
             .await
-            .expect_err("should reject empty group name");
+            .expect_err("should reject empty domain name");
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
-        assert!(err.message().contains("group_name"));
+        assert!(err.message().contains("domain_name"));
     }
 
     #[tokio::test]
-    async fn add_group_rejects_empty_secret() {
+    async fn add_domain_rejects_empty_secret() {
         let svc = make_nb_service(TopologyConfig::ApiManaged, shared_secret_authenticator());
         let err = svc
-            .add_group(Request::new(AddGroupRequest {
-                group_name: "test-group".to_string(),
+            .add_domain(Request::new(AddDomainRequest {
+                domain_name: "test-domain".to_string(),
                 secret: "".to_string(),
             }))
             .await
@@ -831,35 +831,35 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn add_group_succeeds_and_persists() {
+    async fn add_domain_succeeds_and_persists() {
         let svc = make_nb_service(TopologyConfig::ApiManaged, shared_secret_authenticator());
         let secret = "my-secret-0123456789abcdefghijklmnopqrstuv";
 
-        // Add the group.
-        svc.add_group(Request::new(AddGroupRequest {
-            group_name: "new-group".to_string(),
+        // Add the domain.
+        svc.add_domain(Request::new(AddDomainRequest {
+            domain_name: "new-domain".to_string(),
             secret: secret.to_string(),
         }))
         .await
-        .expect("add_group should succeed");
+        .expect("add_domain should succeed");
 
         // Verify it persisted in DB.
-        let groups = svc.db.list_registration_secret_groups().await.unwrap();
-        assert!(groups.contains(&"new-group".to_string()));
+        let domains = svc.db.list_registration_secret_groups().await.unwrap();
+        assert!(domains.contains(&"new-domain".to_string()));
 
-        // Verify the verifier was added (the authenticator can verify for this group).
+        // Verify the verifier was added (the authenticator can verify for this domain).
         assert!(svc.authenticator.is_shared_secret());
-        if let GroupAuthenticator::SharedSecret { verifiers } = &svc.authenticator {
-            assert!(verifiers.read().contains_key("new-group"));
+        if let DomainAuthenticator::SharedSecret { verifiers } = &svc.authenticator {
+            assert!(verifiers.read().contains_key("new-domain"));
         }
     }
 
     #[tokio::test]
-    async fn remove_group_rejects_in_config_mode() {
+    async fn remove_domain_rejects_in_config_mode() {
         let svc = make_nb_service(config_managed_topology(), shared_secret_authenticator());
         let err = svc
-            .remove_group(Request::new(RemoveGroupRequest {
-                group_name: "test-group".to_string(),
+            .remove_domain(Request::new(RemoveDomainRequest {
+                domain_name: "test-domain".to_string(),
             }))
             .await
             .expect_err("should reject in config mode");
@@ -867,119 +867,119 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn remove_group_nonexistent_succeeds() {
-        // Removing a group that doesn't exist should still succeed (idempotent).
+    async fn remove_domain_nonexistent_succeeds() {
+        // Removing a domain that doesn't exist should still succeed (idempotent).
         let svc = make_nb_service(TopologyConfig::ApiManaged, shared_secret_authenticator());
-        svc.remove_group(Request::new(RemoveGroupRequest {
-            group_name: "nonexistent".to_string(),
+        svc.remove_domain(Request::new(RemoveDomainRequest {
+            domain_name: "nonexistent".to_string(),
         }))
         .await
-        .expect("remove_group for nonexistent group should succeed");
+        .expect("remove_domain for nonexistent domain should succeed");
     }
 
     #[tokio::test]
-    async fn remove_group_disconnects_nodes() {
+    async fn remove_domain_disconnects_nodes() {
         let svc = make_nb_service(TopologyConfig::ApiManaged, shared_secret_authenticator());
 
-        // Register a node in the group via the DB directly.
+        // Register a node in the domain via the DB directly.
         let node = crate::db::Node {
-            id: "my-group/node-1".to_string(),
-            group_name: Some("my-group".to_string()),
+            id: "my-domain/node-1".to_string(),
+            domain_name: Some("my-domain".to_string()),
             conn_details: vec![],
             created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         };
         svc.db.save_node(node).await.unwrap();
 
-        // Add a secret so remove_group can clean up the verifier.
+        // Add a secret so remove_domain can clean up the verifier.
         svc.db
-            .upsert_registration_secret("my-group", "secret-0123456789abcdefghijklmnopqrstuv")
+            .upsert_registration_secret("my-domain", "secret-0123456789abcdefghijklmnopqrstuv")
             .await
             .unwrap();
         svc.authenticator
-            .add_verifier("my-group", "secret-0123456789abcdefghijklmnopqrstuv")
+            .add_verifier("my-domain", "secret-0123456789abcdefghijklmnopqrstuv")
             .unwrap();
 
-        // Remove the group.
-        svc.remove_group(Request::new(RemoveGroupRequest {
-            group_name: "my-group".to_string(),
+        // Remove the domain.
+        svc.remove_domain(Request::new(RemoveDomainRequest {
+            domain_name: "my-domain".to_string(),
         }))
         .await
-        .expect("remove_group should succeed");
+        .expect("remove_domain should succeed");
 
         // Node should be deregistered (removed from DB).
         let nodes = svc.db.list_nodes().await.unwrap();
         assert!(
-            !nodes.iter().any(|n| n.id == "my-group/node-1"),
+            !nodes.iter().any(|n| n.id == "my-domain/node-1"),
             "node should have been deregistered"
         );
 
         // Verifier should be removed.
-        if let GroupAuthenticator::SharedSecret { verifiers } = &svc.authenticator {
-            assert!(!verifiers.read().contains_key("my-group"));
+        if let DomainAuthenticator::SharedSecret { verifiers } = &svc.authenticator {
+            assert!(!verifiers.read().contains_key("my-domain"));
         }
 
         // Secret should be removed from DB.
-        let groups = svc.db.list_registration_secret_groups().await.unwrap();
-        assert!(!groups.contains(&"my-group".to_string()));
+        let domains = svc.db.list_registration_secret_groups().await.unwrap();
+        assert!(!domains.contains(&"my-domain".to_string()));
     }
 
     #[tokio::test]
-    async fn list_groups_merges_auth_and_connected() {
+    async fn list_domains_merges_auth_and_connected() {
         let svc = make_nb_service(TopologyConfig::ApiManaged, shared_secret_authenticator());
 
-        // Add a group secret (no nodes connected yet).
+        // Add a domain secret (no nodes connected yet).
         svc.db
-            .upsert_registration_secret("empty-group", "secret-0123456789abcdefgh")
+            .upsert_registration_secret("empty-domain", "secret-0123456789abcdefgh")
             .await
             .unwrap();
 
-        // Add a node belonging to a different group (that also has a secret).
+        // Add a node belonging to a different domain (that also has a secret).
         svc.db
-            .upsert_registration_secret("active-group", "secret-0123456789xyzxyzxyz")
+            .upsert_registration_secret("active-domain", "secret-0123456789xyzxyzxyz")
             .await
             .unwrap();
         let node = crate::db::Node {
-            id: "active-group/node-a".to_string(),
-            group_name: Some("active-group".to_string()),
+            id: "active-domain/node-a".to_string(),
+            domain_name: Some("active-domain".to_string()),
             conn_details: vec![],
             created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
         };
         svc.db.save_node(node).await.unwrap();
 
-        // Call list_groups.
+        // Call list_domains.
         let resp = svc
-            .list_groups(Request::new(ListGroupsRequest {}))
+            .list_domains(Request::new(ListDomainsRequest {}))
             .await
-            .expect("list_groups should succeed")
+            .expect("list_domains should succeed")
             .into_inner();
 
-        // Should have both groups.
-        assert_eq!(resp.groups.len(), 2);
+        // Should have both domains.
+        assert_eq!(resp.domains.len(), 2);
 
         let empty = resp
-            .groups
+            .domains
             .iter()
-            .find(|g| g.group_name == "empty-group")
+            .find(|g| g.domain_name == "empty-domain")
             .unwrap();
-        assert!(empty.nodes.is_empty(), "empty-group should have no nodes");
+        assert!(empty.nodes.is_empty(), "empty-domain should have no nodes");
 
         let active = resp
-            .groups
+            .domains
             .iter()
-            .find(|g| g.group_name == "active-group")
+            .find(|g| g.domain_name == "active-domain")
             .unwrap();
-        assert_eq!(active.nodes, vec!["active-group/node-a"]);
+        assert_eq!(active.nodes, vec!["active-domain/node-a"]);
     }
 
     #[tokio::test]
-    async fn add_group_rejects_noop_authenticator() {
-        // When auth is Noop (no auth configured), add_group should fail.
-        let svc = make_nb_service(TopologyConfig::ApiManaged, GroupAuthenticator::Noop);
+    async fn add_domain_rejects_noop_authenticator() {
+        // When auth is Noop (no auth configured), add_domain should fail.
+        let svc = make_nb_service(TopologyConfig::ApiManaged, DomainAuthenticator::Noop);
         let err = svc
-            .add_group(Request::new(AddGroupRequest {
-                group_name: "test".to_string(),
+            .add_domain(Request::new(AddDomainRequest {
+                domain_name: "test".to_string(),
                 secret: "secret-0123456789abcdefghijk".to_string(),
             }))
             .await

@@ -74,7 +74,7 @@ pub(super) fn select_connection<'a>(
         "select_connection called with empty conn_details for node {}",
         dst_node.id
     );
-    let same_group = dst_node.group_name == src_node.group_name;
+    let same_group = dst_node.domain_name == src_node.domain_name;
     if same_group {
         return (&dst_node.conn_details[0], true);
     }
@@ -125,7 +125,7 @@ pub(super) fn generate_config_data(
             let trust_domain = detail
                 .spire_trust_domain
                 .as_deref()
-                .or(dest_node.group_name.as_deref())
+                .or(dest_node.domain_name.as_deref())
                 .map(|s| s.to_string());
             RequiredAuthMethod::Spire { trust_domain }
         }
@@ -288,7 +288,7 @@ mod tests {
         let db = InMemoryDb::shared();
         let dst = crate::db::Node {
             id: "dst".to_string(),
-            group_name: None,
+            domain_name: None,
             conn_details: vec![make_conn_details("dst:8080", None)],
             created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
@@ -305,7 +305,7 @@ mod tests {
         let db = InMemoryDb::shared();
         let dst = crate::db::Node {
             id: "dst".to_string(),
-            group_name: None,
+            domain_name: None,
             conn_details: vec![],
             created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
@@ -313,7 +313,7 @@ mod tests {
         db.save_node(dst).await.unwrap();
         let src = crate::db::Node {
             id: "src".to_string(),
-            group_name: None,
+            domain_name: None,
             conn_details: vec![],
             created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
@@ -329,7 +329,7 @@ mod tests {
         let db = InMemoryDb::shared();
         let dst = crate::db::Node {
             id: "dst".to_string(),
-            group_name: Some("grp".to_string()),
+            domain_name: Some("grp".to_string()),
             conn_details: vec![make_conn_details("dst:8080", None)],
             created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
@@ -337,7 +337,7 @@ mod tests {
         db.save_node(dst).await.unwrap();
         let src = crate::db::Node {
             id: "src".to_string(),
-            group_name: Some("grp".to_string()),
+            domain_name: Some("grp".to_string()),
             conn_details: vec![],
             created_at: SystemTime::now(),
             last_updated: SystemTime::now(),
@@ -436,12 +436,12 @@ mod tests {
             auth_method: AuthMethod::Spire,
             spire_trust_domain: None, // no explicit trust domain
         };
-        let dest = make_node("dst", Some("fallback-group"), vec![cd.clone()]);
+        let dest = make_node("dst", Some("fallback-domain"), vec![cd.clone()]);
         let (_, config) = generate_config_data(&cd, false, &dest).unwrap();
         assert_eq!(
             config.auth_method,
             RequiredAuthMethod::Spire {
-                trust_domain: Some("fallback-group".to_string())
+                trust_domain: Some("fallback-domain".to_string())
             }
         );
     }

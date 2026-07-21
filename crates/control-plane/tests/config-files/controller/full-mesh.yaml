@@ -1,4 +1,4 @@
-# Full mesh topology: all groups link to each other.
+# Full mesh topology: all domains link to each other.
 # Expressed as a wildcard link entry in config-managed mode.
 
 tracing:
@@ -23,5 +23,5 @@ database:
 
 topology:
   links:
-    - group: "*"
+    - domain: "*"
       neighbors: ["*"]

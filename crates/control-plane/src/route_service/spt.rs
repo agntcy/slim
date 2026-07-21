@@ -20,7 +20,7 @@ use petgraph::visit::EdgeRef;
 pub struct SptTree {
     pub root: NodeIndex,
     /// Directed tree: edges go parent → child (root toward leaves).
-    /// Node weights are group names, edge weights are costs.
+    /// Node weights are domain names, edge weights are costs.
     pub tree: DiGraph<String, u32>,
     /// Maps original graph NodeIndex → tree NodeIndex.
     pub index_map: HashMap<NodeIndex, NodeIndex>,
