@@ -223,6 +223,7 @@ wiremock = "0.6"
 # Pure-Rust X25519 ECDH for the wasm32 inter-node link negotiation (aws-lc-rs is
 # native-only). `static_secrets` exposes the bytes we need for HKDF.
 x25519-dalek = { version = "2", default-features = false, features = ["static_secrets"] }
+zeroize = "1.9"
 
 [workspace.package]
 version = "2.0.0-alpha.7"

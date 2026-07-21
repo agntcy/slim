@@ -1092,8 +1092,9 @@ mod tests {
         // ...but restored from the export it adopts the original identity + keys.
         let restored = fresh.with_restored_identity(exported).unwrap();
         assert_eq!(restored.get_id().unwrap(), original.get_id().unwrap());
-        assert_eq!(restored.get_signature_secret_key().unwrap(), sk);
-        assert_eq!(restored.get_signature_public_key().unwrap(), pk);
+        let (rsk, rpk) = restored.get_signature_keys().unwrap();
+        assert_eq!(rsk, sk);
+        assert_eq!(rpk, pk);
         assert!(restored.mls_signature_keys_installed());
 
         // A token from the restored provider verifies against the original

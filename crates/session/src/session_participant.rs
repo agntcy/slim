@@ -88,7 +88,7 @@ where
         settings: SessionSettings<P, V, M>,
         mls_state: Option<MlsState<P, V>>,
         moderator_name: Option<ProtoName>,
-        group_list: HashMap<ProtoName, ParticipantSettings>,
+        group_list: HashMap<ProtoName, Participant>,
     ) -> Self {
         let common = SessionControllerCommon::new(settings);
 
@@ -422,16 +422,11 @@ where
             None => (None, 0),
         };
 
+        // Serialize each member as a `Participant` (name + settings + status).
         let group_list = self
             .group_list
-            .iter()
-            .map(|(name, settings)| {
-                (
-                    persistence::encode_name(name),
-                    settings.sends_data,
-                    settings.receives_data,
-                )
-            })
+            .values()
+            .map(persistence::encode_participant)
             .collect();
 
         let moderator_name = self.moderator_name.as_ref().map(persistence::encode_name);

@@ -103,8 +103,9 @@ pub(crate) enum PersistedRole {
     Participant {
         /// prost-encoded [`ProtoName`] of the moderator, if known.
         moderator_name: Option<Vec<u8>>,
-        /// (prost-encoded [`ProtoName`], sends_data, receives_data).
-        group_list: Vec<(Vec<u8>, bool, bool)>,
+        /// prost-encoded [`Participant`] entries (each carries its name,
+        /// settings, and online/offline `status`).
+        group_list: Vec<Vec<u8>>,
     },
 }
 
@@ -345,7 +346,13 @@ mod tests {
             None,
             PersistedRole::Participant {
                 moderator_name: Some(encode_name(&name("mod").with_id(1))),
-                group_list: vec![(encode_name(&name("alice").with_id(2)), true, false)],
+                group_list: vec![encode_participant(&Participant::new(
+                    name("alice").with_id(2),
+                    ParticipantSettings {
+                        sends_data: true,
+                        receives_data: false,
+                    },
+                ))],
             },
         );
 
@@ -360,8 +367,11 @@ mod tests {
                     decode_name(&moderator_name.unwrap()).unwrap(),
                     name("mod").with_id(1)
                 );
-                assert!(group_list[0].1);
-                assert!(!group_list[0].2);
+                let p = decode_participant(&group_list[0]).unwrap();
+                assert_eq!(p.get_name().unwrap(), name("alice").with_id(2));
+                let settings = p.settings.unwrap();
+                assert!(settings.sends_data);
+                assert!(!settings.receives_data);
             }
             _ => panic!("expected participant"),
         }

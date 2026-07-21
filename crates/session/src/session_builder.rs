@@ -535,14 +535,9 @@ where
                 group_list,
             } => {
                 let mut roster = std::collections::HashMap::new();
-                for (name_bytes, sends, receives) in group_list {
-                    roster.insert(
-                        persistence::decode_name(name_bytes)?,
-                        slim_datapath::api::ParticipantSettings {
-                            sends_data: *sends,
-                            receives_data: *receives,
-                        },
-                    );
+                for bytes in group_list {
+                    let participant = persistence::decode_participant(bytes)?;
+                    roster.insert(participant.get_name()?, participant);
                 }
                 let moderator = match moderator_name {
                     Some(bytes) => Some(persistence::decode_name(bytes)?),
