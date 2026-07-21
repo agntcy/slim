@@ -395,6 +395,30 @@ impl App {
         Ok(session_with_completion.session)
     }
 
+    /// Restore the app's persisted sessions after a restart (async).
+    ///
+    /// Only meaningful for an app created with
+    /// [`crate::service::Service::create_app_with_persistence`]; returns an
+    /// empty list when persistence is disabled. `conn_id` must be the live
+    /// upstream connection to the node (the one the app subscribes over).
+    /// Each restored session rejoins its MLS group without repeating the
+    /// invite/welcome handshake.
+    pub async fn restore_sessions_async(
+        &self,
+        conn_id: u64,
+    ) -> Result<Vec<Arc<crate::Session>>, SlimError> {
+        let contexts = self.app.restore_sessions(conn_id).await?;
+        Ok(contexts
+            .into_iter()
+            .map(|ctx| Arc::new(crate::Session::new(ctx)))
+            .collect())
+    }
+
+    /// Blocking wrapper around [`App::restore_sessions_async`].
+    pub fn restore_sessions(&self, conn_id: u64) -> Result<Vec<Arc<crate::Session>>, SlimError> {
+        crate::config::get_runtime().block_on(async { self.restore_sessions_async(conn_id).await })
+    }
+
     /// Delete a session (blocking version for FFI)
     ///
     /// Returns a completion handle that can be awaited to ensure the deletion completes.

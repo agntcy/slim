@@ -34,7 +34,7 @@ use std::sync::Arc;
 /// A deliberately provider-agnostic key type so callers do not depend on the
 /// crypto crate directly. When no key is supplied, one is derived from the
 /// endpoint identity (see [`crate::cipher`]).
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MlsEncryptionKey {
     /// A passphrase; a 256-bit key is derived from it via HKDF-SHA256.
     Passphrase(String),

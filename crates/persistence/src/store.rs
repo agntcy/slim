@@ -25,7 +25,10 @@ use crate::kv_store::SlimKvStore;
 use std::path::Path;
 
 /// Where and how a session's state is persisted.
-#[derive(Clone, Debug, PartialEq)]
+///
+/// Serde-(de)serializable so it can be embedded as a `persistence:` section of
+/// the app/node config in addition to being constructed programmatically.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PersistenceConfig {
     /// Directory holding the encrypted store. One database file per endpoint
     /// identity is kept here.

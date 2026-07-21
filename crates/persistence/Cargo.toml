@@ -12,6 +12,9 @@ name = "slim_persistence"
 hex = "0.4"
 mls-rs = { workspace = true }
 mls-rs-core = { workspace = true }
+# Config-file embedding: `PersistenceConfig`/`MlsEncryptionKey` are (de)serializable
+# so persistence can be a section of the app/node config.
+serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 zeroize = { workspace = true }
