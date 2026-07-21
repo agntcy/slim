@@ -220,42 +220,37 @@ where
                 if message_type.is_command_message() {
                     self.common.sender.on_failure(message_id, message_type);
 
-                    // If this was a rejoin (UpdateParticipantState + OnLine) timeout,
-                    // treat as partial success: non-responders are offline, notify app OK
-                    if message_type == ProtoSessionMessageType::UpdateParticipantState
-                        && let Some(pending_task) = self.common.pending_status_update.take()
+                    if let Some(pending_task) = self.common.pending_status_update.take()
+                        && pending_task.message_id == message_id
                     {
-                        if pending_task.message_id == message_id
-                            && pending_task.status == ParticipantState::Online
+                        // the rejoin request did not succeed, notify the application with an error
+                        if pending_task.message_type == ProtoSessionMessageType::RejoinRequest {
+                            // If we get a timeout for the RejoinRequest, it means that the rekey did
+                            // not work so we need to return an error to the application
+                            if let Some(tx) = pending_task.ack_tx {
+                                let _ = tx.send(Err(SessionError::RejoinFailed));
+                            }
+                        } else if pending_task.message_type
+                            == ProtoSessionMessageType::UpdateParticipantState
                         {
-                            // If this was a rejoin (UpdateParticipantState + OnLine) timeout,
+                            // If this was rejoin (UpdateParticipantState + OnLine) timeout,
                             // treat as partial success: non-responders are offline, notify app OK
-                            if pending_task.message_type
-                                == ProtoSessionMessageType::UpdateParticipantState
-                            {
+                            if pending_task.status == ParticipantState::Online {
                                 if let Some(tx) = pending_task.ack_tx {
                                     let _ = tx.send(Ok(()));
                                 }
                                 self.common.online = true;
                                 self.common.sender.restart_heartbeat();
                             } else {
-                                // If we get a timeout for the RejoinRequest, it means that the rekey did
-                                // not work so we need to return an error to the application
+                                // close timeout: not all participants acknowledged, the message.
+                                // we can still consider the participant as offline and notify success
+                                // to the application. the other participants will discover that this
+                                // participant is offline using the heartbeat mechanism.
+                                self.common.online = false;
+                                self.common.sender.stop_heartbeat();
                                 if let Some(tx) = pending_task.ack_tx {
-                                    let _ = tx.send(Err(SessionError::RejoinFailed));
+                                    let _ = tx.send(Ok(()));
                                 }
-                            }
-                        } else if pending_task.message_id == message_id
-                            && pending_task.status == ParticipantState::Offline
-                        {
-                            // close timeout: not all participants acknowledged, the message.
-                            // we can still consider the participant as offline and notify success
-                            // to the application. the other participants will discover that this
-                            // participant is offline using the heartbeat mechanism.
-                            self.common.online = false;
-                            self.common.sender.stop_heartbeat();
-                            if let Some(tx) = pending_task.ack_tx {
-                                let _ = tx.send(Ok(()));
                             }
                         }
                     }
@@ -850,7 +845,7 @@ where
                     id = %msg_id,
                     "sent rejoin request to moderator (epoch mismatch on heartbeat)",
                 );
-                return Ok(SessionOutput::to_slim(rejoin_msg));
+                return self.common.sender.on_message(&rejoin_msg);
             }
             return Ok(SessionOutput::new());
         }
@@ -1078,6 +1073,8 @@ where
             "received rejoin reply",
         );
 
+        self.common.sender.on_message(message)?;
+
         // Use the welcome message in the rejoin reply payload to update the local MLS state
         let payload = message.extract_rejoin_reply()?;
         let mls_success = if let Some(mls_state) = &mut self.mls_state {
@@ -1245,7 +1242,7 @@ where
                     id = %msg_id,
                     "sent rejoin request to moderator",
                 );
-                return Ok(SessionOutput::to_slim(rejoin_msg));
+                return self.common.sender.on_message(&rejoin_msg);
             } else {
                 // not matching, put it back
                 self.common.pending_status_update = Some(pending_task);
