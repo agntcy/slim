@@ -128,7 +128,7 @@ pub struct MessageProcessor {
 
 impl Default for MessageProcessor {
     fn default() -> Self {
-        Self::new_with_service_id(String::new())
+        Self::new_with_service_id(String::new(), false)
     }
 }
 
@@ -147,12 +147,12 @@ enum StreamSetup {
 }
 
 impl MessageProcessor {
-    pub fn new_with_service_id(service_id: String) -> Self {
+    pub fn new_with_service_id(service_id: String, enforce_pqc: bool) -> Self {
         Self::new_internal(
             service_id,
             String::new(),
             false,
-            false,
+            enforce_pqc,
             std::time::Duration::from_secs(5),
             false,
         )
@@ -164,13 +164,14 @@ impl MessageProcessor {
         service_id: String,
         deployment_name: String,
         server_config: &ServerConfig,
+        enforce_pqc: bool,
         relay_peer_publishes: bool,
     ) -> Self {
         Self::new_internal(
             service_id,
             deployment_name,
             server_config.require_header_mac,
-            server_config.tls_setting.config.enforce_pqc,
+            enforce_pqc,
             std::time::Duration::from_secs(server_config.negotiation_timeout_secs),
             relay_peer_publishes,
         )
@@ -2138,6 +2139,7 @@ mod tests {
             "test_service".to_string(),
             String::new(),
             &server_config,
+            false,
             false,
         );
 

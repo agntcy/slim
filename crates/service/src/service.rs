@@ -143,6 +143,17 @@ impl ServiceConfiguration {
         &self.dataplane.clients
     }
 
+    /// Canonical post-quantum policy for this service (TLS, link negotiation, MLS).
+    pub fn enforce_pqc(&self) -> slim_config::EnforcePqcPolicy {
+        self.dataplane.enforce_pqc()
+    }
+
+    /// Resolve and apply [`EnforcePqcPolicy`] to all dataplane TLS endpoints.
+    pub fn prepare(&mut self) -> Result<(), ServiceError> {
+        self.dataplane.normalize_pqc()?;
+        Ok(())
+    }
+
     pub fn with_controlplane_server(mut self, server: Vec<ServerConfig>) -> Self {
         self.controller.servers = server;
         self
@@ -172,7 +183,9 @@ impl ServiceConfiguration {
     }
 
     pub fn build_server(&self, id: ID) -> Result<Service, ServiceError> {
-        let service = Service::new_with_config(id, self.clone());
+        let mut config = self.clone();
+        config.prepare()?;
+        let service = Service::new_with_config(id, config);
         Ok(service)
     }
 }
@@ -265,13 +278,18 @@ impl Service {
     }
 
     /// Create a new Service with configuration
-    pub fn new_with_config(id: ID, config: ServiceConfiguration) -> Self {
+    pub fn new_with_config(id: ID, mut config: ServiceConfiguration) -> Self {
+        config
+            .prepare()
+            .expect("invalid service configuration: enforce_pqc policy");
+
         let deployment_name = config
             .peers
             .as_ref()
             .map(|p| p.deployment_name.clone())
             .unwrap_or_default();
         let service_id = config.node_id.clone();
+        let enforce_pqc = config.enforce_pqc().is_enforced();
 
         // In full-mesh topology, peers deliver directly (1-hop) so no relay needed.
         // Without peer config (standalone), relay is enabled.
@@ -282,10 +300,11 @@ impl Service {
                 service_id,
                 deployment_name,
                 server,
+                enforce_pqc,
                 relay_peer_publishes,
             )
         } else {
-            MessageProcessor::new_with_service_id(service_id)
+            MessageProcessor::new_with_service_id(service_id, enforce_pqc)
         };
 
         Service {
@@ -572,6 +591,7 @@ impl Service {
             tx_app,
             direction,
             self.id.to_string(),
+            self.config.enforce_pqc().is_enforced(),
         );
 
         // start message processing using the rx channel

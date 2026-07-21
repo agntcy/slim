@@ -120,6 +120,9 @@ where
     /// Service ID propagated into every session span
     service_id: String,
 
+    /// Canonical PQC policy for MLS in every session created by this layer.
+    enforce_pqc: bool,
+
     /// Bounds concurrent identity verifications for messages without a session.
     /// Caps the blast radius of an unknown-session flood with slow verifications.
     pre_session_verify_slots: Arc<Semaphore>,
@@ -143,6 +146,7 @@ where
         tx_app: Sender<Result<Notification, SessionError>>,
         direction: Direction,
         service_id: String,
+        enforce_pqc: bool,
     ) -> Self {
         let (tx_session, rx_session) = tokio::sync::mpsc::channel(16);
 
@@ -163,6 +167,7 @@ where
             direction,
             subscription_manager,
             service_id,
+            enforce_pqc,
             pre_session_verify_slots: Arc::new(Semaphore::new(Self::PRE_SESSION_VERIFY_SLOTS)),
         };
 
@@ -384,6 +389,7 @@ where
                 .with_direction(self.direction)
                 .with_subscription_manager(self.subscription_manager.clone())
                 .with_service_id(self.service_id.clone())
+                .with_enforce_pqc(self.enforce_pqc)
                 .ready()?;
 
             // Perform the async build operation without holding any lock
@@ -766,6 +772,7 @@ mod tests {
             tx_app,
             Direction::Bidirectional,
             "test-service".to_string(),
+            false,
         ));
 
         (session_layer, rx_slim, rx_app)
@@ -1042,6 +1049,7 @@ mod tests {
             tx_app,
             Direction::Bidirectional,
             "test-service".to_string(),
+            false,
         ));
 
         let local_name = make_name(&["local", "app", "v1"]);

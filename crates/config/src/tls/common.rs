@@ -180,6 +180,7 @@ pub enum TlsComponent {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     // Unified TLS source (PEM, File, or SPIRE)
     #[serde(default)]
@@ -199,8 +200,8 @@ pub struct Config {
     // Certificate/key reload interval (None disables reload)
     pub reload_interval: Option<Duration>,
 
-    // If true, Post-Quantum resistant algorithms are used for encryption
-    #[serde(default)]
+    // Set at runtime from dataplane.enforce_pqc; not configurable under tls.*
+    #[serde(skip, default)]
     pub enforce_pqc: bool,
 }
 
@@ -416,12 +417,7 @@ impl Config {
 
     /// PQ hybrid KX is TLS 1.3 only. Reject invalid combos at validate/load time.
     pub(crate) fn validate_pqc(&self) -> Result<(), ConfigError> {
-        if self.enforce_pqc && self.tls_version != "tls1.3" {
-            return Err(ConfigError::InvalidTlsVersion(
-                "enforce_pqc requires tls_version \"tls1.3\"".into(),
-            ));
-        }
-        Ok(())
+        crate::pqc::EnforcePqcPolicy::from(self.enforce_pqc).validate_tls_version(&self.tls_version)
     }
 
     /// Unified presence check for CA / Cert / Key across File, Pem, and Spire sources.

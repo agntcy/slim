@@ -97,6 +97,7 @@ where
             tx_app,
             Direction::Bidirectional,
             service_id,
+            false,
         )
     }
 
@@ -111,6 +112,7 @@ where
         tx_app: mpsc::Sender<Result<Notification, SessionError>>,
         direction: Direction,
         service_id: String,
+        enforce_pqc: bool,
     ) -> Self {
         // Always generate the ID from identity token, ignoring any ID in the provided name
         let app_name_with_id = match identity_provider.get_id() {
@@ -144,6 +146,7 @@ where
             tx_app,
             direction,
             service_id,
+            enforce_pqc,
         ));
 
         // Create a new cancellation token for the app receiver loop

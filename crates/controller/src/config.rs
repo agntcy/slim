@@ -5,6 +5,7 @@ use serde::Deserialize;
 
 use slim_config::client::ClientConfig;
 use slim_config::component::configuration::Configuration;
+use slim_config::pqc::EnforcePqcPolicy;
 use slim_config::server::ServerConfig;
 use slim_datapath::message_processing::MessageProcessor;
 
@@ -15,6 +16,10 @@ use crate::service::{ControlPlane, ControlPlaneSettings, from_server_config};
 #[derive(Debug, Clone, Deserialize, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// Applies to TLS, link negotiation, and MLS for this dataplane.
+    #[serde(default)]
+    pub enforce_pqc: EnforcePqcPolicy,
+
     /// Controller GRPC server settings
     #[serde(default)]
     pub servers: Vec<ServerConfig>,
@@ -36,6 +41,62 @@ impl Config {
 
     pub fn is_default(&self) -> bool {
         self == &Self::default()
+    }
+
+    /// Resolved PQC policy for this dataplane (also written to TLS runtime config on normalize).
+    pub fn enforce_pqc(&self) -> EnforcePqcPolicy {
+        self.enforce_pqc
+    }
+
+    /// Write the dataplane policy to every TLS endpoint runtime config.
+    pub fn normalize_pqc(&mut self) -> Result<(), ControllerError> {
+        self.apply_pqc_policy(self.enforce_pqc)?;
+        Ok(())
+    }
+
+    fn check_pqc_policy(&self) -> Result<(), ControllerError> {
+        self.validate_pqc_for_endpoints(self.enforce_pqc)
+    }
+
+    fn apply_pqc_policy(&mut self, policy: EnforcePqcPolicy) -> Result<(), ControllerError> {
+        for server in &mut self.servers {
+            server.tls_setting.config.enforce_pqc = policy.is_enforced();
+            policy
+                .validate_tls_version(&server.tls_setting.config.tls_version)
+                .map_err(|e| ControllerError::ConfigError(e.into()))?;
+        }
+        for client in &mut self.clients {
+            client.tls_setting.config.enforce_pqc = policy.is_enforced();
+            policy
+                .validate_tls_version(&client.tls_setting.config.tls_version)
+                .map_err(|e| ControllerError::ConfigError(e.into()))?;
+        }
+        for client in &mut self.outbound_clients {
+            client.tls_setting.config.enforce_pqc = policy.is_enforced();
+            policy
+                .validate_tls_version(&client.tls_setting.config.tls_version)
+                .map_err(|e| ControllerError::ConfigError(e.into()))?;
+        }
+        Ok(())
+    }
+
+    fn validate_pqc_for_endpoints(&self, policy: EnforcePqcPolicy) -> Result<(), ControllerError> {
+        for server in &self.servers {
+            policy
+                .validate_tls_version(&server.tls_setting.config.tls_version)
+                .map_err(|e| ControllerError::ConfigError(e.into()))?;
+        }
+        for client in &self.clients {
+            policy
+                .validate_tls_version(&client.tls_setting.config.tls_version)
+                .map_err(|e| ControllerError::ConfigError(e.into()))?;
+        }
+        for client in &self.outbound_clients {
+            policy
+                .validate_tls_version(&client.tls_setting.config.tls_version)
+                .map_err(|e| ControllerError::ConfigError(e.into()))?;
+        }
+        Ok(())
     }
 
     /// Create a new Config instance with the given servers
@@ -89,6 +150,8 @@ impl Configuration for Config {
     type Error = ControllerError;
 
     fn validate(&self) -> Result<(), Self::Error> {
+        self.check_pqc_policy()?;
+
         // Validate client and server configurations
         for server in self.servers.iter() {
             server.validate()?;
@@ -116,6 +179,26 @@ mod tests {
     fn create_test_client_config() -> ClientConfig {
         ClientConfig::with_endpoint("http://127.0.0.1:50051")
             .with_tls_setting(slim_config::tls::client::TlsClientConfig::insecure())
+    }
+
+    fn server_with_pqc(enforced: bool) -> ServerConfig {
+        let mut server = create_test_server_config();
+        server.tls_setting.config.enforce_pqc = enforced;
+        server
+    }
+
+    #[test]
+    fn test_normalize_pqc_propagates_to_tls_runtime_config() {
+        let mut config = Config {
+            enforce_pqc: EnforcePqcPolicy::enforced(),
+            servers: vec![server_with_pqc(false)],
+            ..Config::default()
+        };
+
+        config.normalize_pqc().unwrap();
+
+        assert!(config.enforce_pqc().is_enforced());
+        assert!(config.servers[0].tls_setting.config.enforce_pqc);
     }
 
     #[test]

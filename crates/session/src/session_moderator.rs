@@ -3009,6 +3009,7 @@ mod tests {
             subscription_manager: subscription_manager.clone(),
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            enforce_pqc: false,
         };
 
         let inner = MockInnerHandler::new();

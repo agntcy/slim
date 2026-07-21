@@ -1,0 +1,25 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+tracing:
+  log_level: debug
+
+runtime:
+  n_cores: 0
+  thread_name: "slim-data-plane"
+  drain_timeout: 10s
+
+services:
+  slim/0:
+    dataplane:
+      # Canonical PQC policy: applies to TLS, link negotiation, and MLS.
+      enforce_pqc: true
+      servers:
+        - endpoint: "0.0.0.0:46357"
+          tls:
+            tls_version: "tls1.3"
+            source:
+              type: file
+              cert: ./config/crypto/server-cert.pem
+              key: ./config/crypto/server-key.pem
+      clients: []
