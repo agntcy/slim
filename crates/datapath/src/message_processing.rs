@@ -117,6 +117,8 @@ struct MessageProcessorInternal {
     /// Peer sync component for subscription forwarding and peer lifecycle.
     /// Initialized as standalone; replaced with a peer-aware instance when peers are configured.
     peer_sync: parking_lot::RwLock<crate::sync::PeerSync>,
+
+    server_enforce_pqc: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -150,6 +152,7 @@ impl MessageProcessor {
             service_id,
             String::new(),
             false,
+            false,
             std::time::Duration::from_secs(5),
             false,
         )
@@ -167,6 +170,7 @@ impl MessageProcessor {
             service_id,
             deployment_name,
             server_config.require_header_mac,
+            server_config.tls_setting.config.enforce_pqc,
             std::time::Duration::from_secs(server_config.negotiation_timeout_secs),
             relay_peer_publishes,
         )
@@ -176,6 +180,7 @@ impl MessageProcessor {
         service_id: String,
         deployment_name: String,
         server_require_header_mac: bool,
+        server_enforce_pqc: bool,
         negotiation_timeout: std::time::Duration,
         relay_peer_publishes: bool,
     ) -> Self {
@@ -189,6 +194,7 @@ impl MessageProcessor {
             service_id,
             deployment_name,
             server_require_header_mac,
+            server_enforce_pqc,
             negotiation_timeout,
             relay_peer_publishes,
             peer_sync: parking_lot::RwLock::new(crate::sync::PeerSync::standalone()),
@@ -218,6 +224,14 @@ impl MessageProcessor {
                 configured = config.require_header_mac,
                 processor = self.internal.server_require_header_mac,
                 "server require_header_mac differs from MessageProcessor; inbound connections use the processor value set at construction (prefer MessageProcessor::new_with_server_config)",
+            );
+        }
+
+        if config.tls_setting.config.enforce_pqc != self.internal.server_enforce_pqc {
+            warn!(
+                configured = config.tls_setting.config.enforce_pqc,
+                processor = self.internal.server_enforce_pqc,
+                "server enforce_pqc differs from MessageProcessor; inbound connections use the processor value set at construction"
             );
         }
 
@@ -1484,11 +1498,13 @@ impl MessageProcessor {
         watch: &drain::Watch,
         token: &CancellationToken,
     ) -> Option<(u64, ConnType)> {
+        let enforce_pqc = Self::resolve_enforce_pqc(&connection, &self.internal);
         let timeout = self.internal.negotiation_timeout;
         let params = crate::negotiation::NegotiationParams {
             node_id: &self.internal.service_id,
             deployment_name: &self.internal.deployment_name,
             connection_type: category,
+            enforce_pqc,
         };
 
         let negotiation_result = tokio::select! {
@@ -1888,6 +1904,16 @@ impl MessageProcessor {
     pub(crate) fn peer_sync(&self) -> crate::sync::PeerSync {
         self.internal.peer_sync.read().clone()
     }
+
+    pub fn resolve_enforce_pqc(
+        connection: &Connection,
+        internal: &MessageProcessorInternal,
+    ) -> bool {
+        connection
+            .config_data()
+            .map(|c| c.tls_setting.config.enforce_pqc)
+            .unwrap_or(internal.server_enforce_pqc)
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2062,6 +2088,7 @@ mod tests {
             slim_version: "1.0.0".into(),
             is_reply: false,
             link_ecdh_public_key: vec![],
+            link_kem_payload: None,
             connection_type: 0,
             node_id: String::new(),
             deployment_name: String::new(),

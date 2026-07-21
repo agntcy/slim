@@ -434,6 +434,10 @@ pub struct LinkNegotiationPayload {
     /// upgrading the connection. Empty for non-peer connections.
     #[prost(string, tag = "7")]
     pub deployment_name: ::prost::alloc::string::String,
+    /// ML-KEM-768: initiator sends 1184 byte encapsulation key;
+    /// responder sends 1088 byte ciphertext. Empty = classical encryption only.
+    #[prost(bytes = "vec", optional, tag = "8")]
+    pub link_kem_payload: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

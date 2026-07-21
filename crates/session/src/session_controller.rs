@@ -2085,6 +2085,7 @@ mod tests {
             service_id: String::new(),
             max_seen_control_message_ids_size:
                 crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            enforce_pqc: false,
         };
 
         let needs_drain = Arc::new(AtomicBool::new(true));
@@ -2263,6 +2264,7 @@ mod tests {
             service_id: String::new(),
             max_seen_control_message_ids_size:
                 crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            enforce_pqc: false,
         }
     }
 

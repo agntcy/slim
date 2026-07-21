@@ -25,6 +25,7 @@ use crate::{
     tls::{
         common::{StaticCertResolver, TlsComponent, WatcherCertResolver},
         errors::ConfigError,
+        provider::crypto_provider_for_config,
     },
 };
 
@@ -296,8 +297,11 @@ impl TlsClientConfig {
         // Load CA root store
         let root_store = self.config.load_ca_cert_pool().await?;
 
-        // Base builder
-        let config_builder = RustlsClientConfig::builder_with_protocol_versions(&[tls_version])
+        // Validate TLS version and create base builder
+        self.config.validate_pqc()?;
+        let crypto_provider = crypto_provider_for_config(self.config.enforce_pqc);
+        let config_builder = RustlsClientConfig::builder_with_provider(crypto_provider.clone())
+            .with_protocol_versions(&[tls_version])?
             .with_root_certificates(root_store);
 
         // Build client config including client auth (spire / file / pem)
@@ -352,6 +356,9 @@ impl Configuration for TlsClientConfig {
     type Error = ConfigError;
 
     fn validate(&self) -> Result<(), Self::Error> {
+        // Validate TLS 1.3 for PQC implementation
+        self.config.validate_pqc()?;
+
         // TODO(msardara): validate the configuration
         Ok(())
     }

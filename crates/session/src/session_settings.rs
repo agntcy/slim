@@ -85,4 +85,7 @@ where
 
     /// Seen control messages cache max size (for replay attack prevention)
     pub(crate) max_seen_control_message_ids_size: NonZeroUsize,
+
+    /// Node TLS policy: when true, new MLS groups use hybrid PQ KEM (native only).
+    pub(crate) enforce_pqc: bool,
 }

@@ -13,7 +13,45 @@ use crate::header_mac::{HeaderMacError, HeaderMacSession};
 /// Wire encoding length for an X25519 public key in this protocol.
 pub const X25519_PUBLIC_KEY_LEN: usize = 32;
 
-const HKDF_INFO: &[u8] = b"SLIM-DP-inter-node-hmac-v1";
+pub const ML_KEM768_PUBLIC_KEY_LEN: usize = 1184;
+pub const ML_KEM768_CIPHERTEXT_LEN: usize = 1088;
+
+pub(crate) enum HkdfInfo {
+    Classical,
+    PostQuantum,
+}
+
+pub type MlKem768SecretKey = backend::MlKem768SecretKey;
+
+pub fn generate_mlkem768() -> Result<(MlKem768SecretKey, Vec<u8>), HeaderMacError> {
+    backend::generate_mlkem768()
+}
+
+pub fn encapsulate_mlkem768(pk: &[u8]) -> Result<(Vec<u8>, [u8; 32]), HeaderMacError> {
+    backend::encapsulate_mlkem768(pk)
+}
+
+pub fn decapsulate_mlkem768(sk: MlKem768SecretKey, ct: &[u8]) -> Result<[u8; 32], HeaderMacError> {
+    backend::decapsulate_mlkem768(sk, ct)
+}
+
+pub fn derive_header_mac_hybrid(
+    x25519_sk: EphemeralKey,
+    peer_x25519_pk: &[u8],
+    mlkem_shared: &[u8; 32],
+    link_id: &str,
+) -> Result<HeaderMacSession, HeaderMacError> {
+    backend::derive_hybrid(x25519_sk, peer_x25519_pk, mlkem_shared, link_id)
+}
+
+impl HkdfInfo {
+    pub(crate) const fn as_bytes(self) -> &'static [u8] {
+        match self {
+            Self::Classical => b"SLIM-DP-inter-node-hmac-v1",
+            Self::PostQuantum => b"SLIM-DP-inter-node-hmac-v1-pq",
+        }
+    }
+}
 
 // ECDH + HKDF backend selection. Native uses `aws_lc_rs`; the browser build uses
 // the pure-Rust `x25519-dalek` + `hkdf` + `sha2` crates. Both implement the same

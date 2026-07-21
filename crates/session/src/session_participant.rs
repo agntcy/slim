@@ -97,7 +97,8 @@ where
                 Mls::new(
                     self.common.settings.identity_provider.clone(),
                     self.common.settings.identity_verifier.clone(),
-                ),
+                )
+                .with_enforce_pqc(self.common.settings.enforce_pqc),
                 mls_settings.header_integrity_validation_percent,
             )
             .await
@@ -817,6 +818,7 @@ mod tests {
             service_id: String::new(),
             max_seen_control_message_ids_size:
                 crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            enforce_pqc: false,
         };
 
         let inner = MockInnerHandler::new();

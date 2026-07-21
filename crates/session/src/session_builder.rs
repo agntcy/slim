@@ -129,6 +129,7 @@ where
     direction: Direction,
     subscription_manager: Option<M>,
     service_id: Option<String>,
+    enforce_pqc: Option<bool>,
     _target: PhantomData<Target>,
     _state: PhantomData<State>,
 }
@@ -156,6 +157,7 @@ where
             direction: Direction::Bidirectional,
             subscription_manager: None,
             service_id: None,
+            enforce_pqc: None,
             _target: PhantomData,
             _state: PhantomData,
         }
@@ -255,6 +257,7 @@ where
             direction: self.direction,
             subscription_manager: Some(manager),
             service_id: self.service_id,
+            enforce_pqc: self.enforce_pqc,
             _target: PhantomData,
             _state: PhantomData,
         }
@@ -262,6 +265,11 @@ where
 
     pub fn with_service_id(mut self, service_id: String) -> Self {
         self.service_id = Some(service_id);
+        self
+    }
+
+    pub fn with_enforce_pqc(mut self, enforce_pqc: bool) -> Self {
+        self.enforce_pqc = Some(enforce_pqc);
         self
     }
 
@@ -327,6 +335,7 @@ where
             direction: self.direction,
             subscription_manager: self.subscription_manager,
             service_id: self.service_id,
+            enforce_pqc: self.enforce_pqc,
             _target: PhantomData,
             _state: PhantomData,
         })
@@ -473,6 +482,7 @@ where
             subscription_manager,
             service_id: self.service_id.unwrap_or_default(),
             max_seen_control_message_ids_size,
+            enforce_pqc: self.enforce_pqc.unwrap_or_default(),
         };
 
         let wrapper = wrapper_constructor(inner, settings.clone());

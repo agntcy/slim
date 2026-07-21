@@ -198,6 +198,10 @@ pub struct Config {
 
     // Certificate/key reload interval (None disables reload)
     pub reload_interval: Option<Duration>,
+
+    // If true, Post-Quantum resistant algorithms are used for encryption
+    #[serde(default)]
+    pub enforce_pqc: bool,
 }
 
 // Resolver backed by SPIRE Workload API providing dynamic SVID and bundle refresh.
@@ -290,6 +294,7 @@ impl Default for Config {
             include_system_ca_certs_pool: default_include_system_ca_certs_pool(),
             tls_version: default_tls_version(),
             reload_interval: None,
+            enforce_pqc: false,
         }
     }
 }
@@ -407,6 +412,16 @@ impl Config {
         };
 
         builder.add_source(&self.ca_source).await?.finish()
+    }
+
+    /// PQ hybrid KX is TLS 1.3 only. Reject invalid combos at validate/load time.
+    pub(crate) fn validate_pqc(&self) -> Result<(), ConfigError> {
+        if self.enforce_pqc && self.tls_version != "tls1.3" {
+            return Err(ConfigError::InvalidTlsVersion(
+                "enforce_pqc requires tls_version \"tls1.3\"".into(),
+            ));
+        }
+        Ok(())
     }
 
     /// Unified presence check for CA / Cert / Key across File, Pem, and Spire sources.

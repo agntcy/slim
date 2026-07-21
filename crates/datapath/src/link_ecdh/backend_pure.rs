@@ -11,8 +11,11 @@
 
 use x25519_dalek::{PublicKey, StaticSecret};
 
-use super::{HKDF_INFO, X25519_PUBLIC_KEY_LEN};
-use crate::header_mac::{HeaderMacError, HeaderMacSession};
+use super::X25519_PUBLIC_KEY_LEN;
+use crate::{
+    header_mac::{HeaderMacError, HeaderMacSession},
+    link_ecdh::HkdfInfo,
+};
 
 /// Opaque ephemeral private key, held between [`generate`] and [`derive`].
 pub type EphemeralKey = StaticSecret;
@@ -38,7 +41,7 @@ pub fn derive(
 
     let hk = hkdf::Hkdf::<sha2::Sha256>::new(Some(link_id.as_bytes()), shared.as_bytes());
     let mut okm = [0u8; 32];
-    hk.expand(HKDF_INFO, &mut okm)
+    hk.expand(HkdfInfo::Classical.as_bytes(), &mut okm)
         .map_err(|_| HeaderMacError::KeyAgreement)?;
     HeaderMacSession::new(&okm)
 }
