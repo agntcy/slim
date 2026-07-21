@@ -523,10 +523,13 @@ fn spawn_receive_loop(
             match item {
                 Ok(message) => match message.message_type.as_ref() {
                     Some(MessageType::Publish(_)) => {
-                        if let Err(error) = session_layer.handle_message_from_slim(message).await
-                            && !matches!(error, slim_session::SessionError::SubscriptionNotFound(_))
-                        {
-                            tracing::error!(%error, "failed to handle browser SLIM message");
+                        if let Err(error) = session_layer.handle_message_from_slim(message).await {
+                            match error {
+                                slim_session::SessionError::SubscriptionNotFound(_) => {}
+                                other => {
+                                    tracing::error!(%other, "failed to handle browser SLIM message");
+                                }
+                            }
                         }
                     }
                     Some(MessageType::SubscriptionAck(ack)) => {
