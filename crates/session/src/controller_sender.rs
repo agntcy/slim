@@ -226,8 +226,7 @@ impl ControllerSender {
             | slim_datapath::api::ProtoSessionMessageType::JoinRequest
             | slim_datapath::api::ProtoSessionMessageType::LeaveRequest
             | slim_datapath::api::ProtoSessionMessageType::GroupWelcome
-            | slim_datapath::api::ProtoSessionMessageType::RejoinRequest
-            | slim_datapath::api::ProtoSessionMessageType::RejoinReply => {
+            | slim_datapath::api::ProtoSessionMessageType::RejoinRequest => {
                 if self.draining_state == ControllerSenderDrainStatus::Initiated {
                     // draining period started; reject new messages
                     return Err(SessionError::SessionDrainingDrop);
@@ -252,7 +251,8 @@ impl ControllerSender {
             slim_datapath::api::ProtoSessionMessageType::DiscoveryReply
             | slim_datapath::api::ProtoSessionMessageType::JoinReply
             | slim_datapath::api::ProtoSessionMessageType::LeaveReply
-            | slim_datapath::api::ProtoSessionMessageType::GroupAck => {
+            | slim_datapath::api::ProtoSessionMessageType::GroupAck
+            | slim_datapath::api::ProtoSessionMessageType::RejoinReply => {
                 self.on_reply_message(message);
             }
             slim_datapath::api::ProtoSessionMessageType::GroupNack => {
@@ -415,15 +415,6 @@ impl ControllerSender {
         }
     }
 
-    /// Force sending the heartbeat on the next round.
-    pub fn force_heartbeat(&mut self) {
-        if let Some(hs) = self.heartbeat_state.as_mut() {
-            debug!("force next heartbeat to be sent");
-            hs.force_next_heartbeat = true;
-            hs.postpone_heartbeat = false;
-        }
-    }
-
     /// Notify that we received traffic from a remote participant,
     /// which counts as proof of liveness (same as receiving a heartbeat).
     pub fn notify_received_activity(&mut self, message: &Message) {
@@ -432,6 +423,15 @@ impl ControllerSender {
             "notify received activity, reset missed heartbeat counter"
         );
         self.on_heartbeat_received(message);
+    }
+
+    /// Force sending the heartbeat on the next round.
+    pub fn force_heartbeat(&mut self) {
+        if let Some(hs) = self.heartbeat_state.as_mut() {
+            debug!("force next heartbeat to be sent");
+            hs.force_next_heartbeat = true;
+            hs.postpone_heartbeat = false;
+        }
     }
 
     pub fn is_still_pending(&self, message_id: u32) -> bool {
@@ -513,12 +513,17 @@ impl ControllerSender {
             }
         }
 
-        // Send our heartbeat broadcast only if we didn't already send traffic
+        // Send our heartbeat broadcast only if we didn't already send traffic,
+        // OR if the group_list is empty (meaning all peers were removed due to
+        // missed heartbeats — i.e. we went offline). In that case we MUST always
+        // send heartbeats so that peers can detect us when connectivity returns.
         let mut output = SessionOutput::new();
+        let all_peers_offline = self.group_list.is_empty()
+            || (self.group_list.len() == 1 && self.group_list.contains(&self.local_name));
         let should_send = self
             .heartbeat_state
             .as_ref()
-            .map(|hs| !hs.postpone_heartbeat || hs.force_next_heartbeat)
+            .map(|hs| !hs.postpone_heartbeat || hs.force_next_heartbeat || all_peers_offline)
             .unwrap_or(false);
 
         if should_send && let Some(group_name) = &self.group_name {
