@@ -1465,7 +1465,9 @@ where
         // Extract the rejoin request payload
         let rejoin_payload = msg
             .get_payload()
-            .unwrap()
+            .ok_or(SessionError::MissingPayload {
+                context: "rejoin_request",
+            })?
             .as_command_payload()?
             .as_rejoin_request_payload()?
             .clone();
@@ -1530,14 +1532,14 @@ where
             id = %reply_msg_id,
             "send rejoin reply (welcome) to participant",
         );
-        output.extend(self.common.send_control_message(
+        let reply_msg = self.common.create_control_message(
             &source,
             ProtoSessionMessageType::RejoinReply,
             reply_msg_id,
             reply_payload,
-            None,
             false,
-        )?);
+        )?;
+        output.extend(SessionOutput::to_slim(reply_msg));
 
         // 7. Start the welcome phase in rejoin task
         self.current_task
@@ -1545,9 +1547,14 @@ where
             .unwrap()
             .welcome_start(reply_msg_id)?;
 
-        // Mark participant as online in group list
+        // Mark participant as online and restore the datapath route.
+        // remove_endpoint was called when the participant went offline, so we must
+        // re-add it to sender.group_list (heartbeat tracking / ACK expectations)
+        // and inner.endpoints_list (data delivery).
         if let Some(entry) = self.group_list.get_mut(&name_no_id) {
             entry.status = ParticipantState::Online as i32;
+            let participant = entry.clone();
+            self.add_endpoint(&participant).await?;
         }
 
         // 8. Send GroupUpdate with REJOIN op and MLS commit to all participants

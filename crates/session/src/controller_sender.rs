@@ -226,8 +226,7 @@ impl ControllerSender {
             | slim_datapath::api::ProtoSessionMessageType::JoinRequest
             | slim_datapath::api::ProtoSessionMessageType::LeaveRequest
             | slim_datapath::api::ProtoSessionMessageType::GroupWelcome
-            | slim_datapath::api::ProtoSessionMessageType::RejoinRequest
-            | slim_datapath::api::ProtoSessionMessageType::RejoinReply => {
+            | slim_datapath::api::ProtoSessionMessageType::RejoinRequest => {
                 if self.draining_state == ControllerSenderDrainStatus::Initiated {
                     // draining period started; reject new messages
                     return Err(SessionError::SessionDrainingDrop);
@@ -252,7 +251,8 @@ impl ControllerSender {
             slim_datapath::api::ProtoSessionMessageType::DiscoveryReply
             | slim_datapath::api::ProtoSessionMessageType::JoinReply
             | slim_datapath::api::ProtoSessionMessageType::LeaveReply
-            | slim_datapath::api::ProtoSessionMessageType::GroupAck => {
+            | slim_datapath::api::ProtoSessionMessageType::GroupAck
+            | slim_datapath::api::ProtoSessionMessageType::RejoinReply => {
                 self.on_reply_message(message);
             }
             slim_datapath::api::ProtoSessionMessageType::GroupNack => {
