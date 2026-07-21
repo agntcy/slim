@@ -11,10 +11,10 @@ name = "slim_bindings"
 
 [features]
 default = ["native"]
-# Full desktop/mobile bindings, including services, configuration, and SLIMRPC.
+# Full desktop/mobile bindings, including services, configuration, and SlimRPC.
 native = []
-# Browser-safe UniFFI surface. The web generator builds with default features
-# disabled so native-only service/configuration modules are not exported.
+# Browser-safe UniFFI surface. Mutually exclusive with `native`; do not enable
+# both at once (CI runs native and web clippy as separate `cargo clippy` passes).
 web = []
 
 [dependencies]
@@ -62,7 +62,9 @@ test-fork = { workspace = true }
 [[example]]
 name = "receiver"
 path = "examples/receiver.rs"
+required-features = ["native"]
 
 [[example]]
 name = "sender"
 path = "examples/sender.rs"
+required-features = ["native"]
