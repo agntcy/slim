@@ -50,7 +50,7 @@ pub fn derive(
     agree_ephemeral(my_private, peer, HeaderMacError::KeyAgreement, |secret| {
         let salt = hkdf::Salt::new(hkdf::HKDF_SHA256, link_id.as_bytes());
         let prk = salt.extract(secret);
-        let info = HkdfInfo::Classical.as_bytes();
+        let info = HkdfInfo::Classical.to_bytes();
         let info_arr = [info];
         let out = prk
             .expand(&info_arr, hkdf::HKDF_SHA256)
@@ -113,7 +113,7 @@ pub fn derive_hybrid(
             ikm[32..].copy_from_slice(mlkem_shared);
             let salt = hkdf::Salt::new(hkdf::HKDF_SHA256, link_id.as_bytes());
             let prk = salt.extract(&ikm);
-            let info = HkdfInfo::PostQuantum.as_bytes();
+            let info = HkdfInfo::PostQuantum.to_bytes();
             let info_arr = [info];
             let out = prk
                 .expand(&info_arr, hkdf::HKDF_SHA256)

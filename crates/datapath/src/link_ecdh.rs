@@ -45,7 +45,7 @@ pub fn derive_header_mac_hybrid(
 }
 
 impl HkdfInfo {
-    pub(crate) const fn as_bytes(self) -> &'static [u8] {
+    pub(crate) const fn to_bytes(&self) -> &'static [u8] {
         match self {
             Self::Classical => b"SLIM-DP-inter-node-hmac-v1",
             Self::PostQuantum => b"SLIM-DP-inter-node-hmac-v1-pq",

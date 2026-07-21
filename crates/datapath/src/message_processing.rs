@@ -1905,10 +1905,7 @@ impl MessageProcessor {
         self.internal.peer_sync.read().clone()
     }
 
-    pub fn resolve_enforce_pqc(
-        connection: &Connection,
-        internal: &MessageProcessorInternal,
-    ) -> bool {
+    fn resolve_enforce_pqc(connection: &Connection, internal: &MessageProcessorInternal) -> bool {
         connection
             .config_data()
             .map(|c| c.tls_setting.config.enforce_pqc)

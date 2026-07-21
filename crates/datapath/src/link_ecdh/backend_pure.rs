@@ -41,7 +41,7 @@ pub fn derive(
 
     let hk = hkdf::Hkdf::<sha2::Sha256>::new(Some(link_id.as_bytes()), shared.as_bytes());
     let mut okm = [0u8; 32];
-    hk.expand(HkdfInfo::Classical.as_bytes(), &mut okm)
+    hk.expand(HkdfInfo::Classical.to_bytes(), &mut okm)
         .map_err(|_| HeaderMacError::KeyAgreement)?;
     HeaderMacSession::new(&okm)
 }

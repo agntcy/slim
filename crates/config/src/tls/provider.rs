@@ -31,8 +31,6 @@ pub fn crypto_provider_for_config(enforce_pqc: bool) -> Arc<CryptoProvider> {
 
 #[cfg(test)]
 mod tests {
-    use rustls::crypto::aws_lc_rs::default_provider;
-
     use super::*;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
