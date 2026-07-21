@@ -1214,6 +1214,8 @@ where
         let mut source_no_id = source.clone();
         source_no_id.reset_id();
 
+        debug!("heartbeat received from {}", source);
+
         // Check if the source is in the group list
         let Some(entry) = self.group_list.get_mut(&source_no_id) else {
             debug!(from = %source, "dropping heartbeat from unknown participant");
@@ -1227,10 +1229,12 @@ where
         }
 
         if entry.status == ParticipantState::Online as i32 {
+            debug!(from = %source, "participant is online, forwarding heartbeat to sender");
             // Participant is online, just forward to sender for tracking
             return self.common.sender.on_message(&message);
         }
 
+        debug!(from = %source, "participant is offline, checking MLS epoch");
         // Participant is offline — check if MLS epoch matches
         let heartbeat_payload = message.extract_heartbeat()?;
         let current_epoch = self
@@ -1243,6 +1247,12 @@ where
             None => true, // no MLS, always allow reconnection
         };
 
+        // Received a heartbeat from an offline participant — force sending our
+        // own heartbeat so the remote peer can detect us and bring us back online
+        // in its group list. This also advertises our current MLS epoch, letting
+        // the peer decide whether a rejoin is needed.
+        self.common.sender.force_heartbeat();
+
         if epoch_matches {
             // Epoch matches — bring participant back online
             debug!(from = %source, "participant back online (epoch matches), re-adding endpoint");
@@ -1251,9 +1261,6 @@ where
             self.add_endpoint(&participant).await?;
             self.common.sender.on_message(&message)
         } else {
-            // force haertbeat sending in the next round so the participant that
-            // was offline can see the current epoch and rejoin the session.
-            self.common.sender.force_heartbeat();
             debug!(
                 from = %source,
                 heartbeat_epoch = heartbeat_payload.epoch,

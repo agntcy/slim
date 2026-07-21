@@ -856,6 +856,9 @@ where
         }
 
         if entry.status == ParticipantState::Online as i32 {
+            debug!(
+                "participant is online and epoch matches, forward heartbeat to sender for tracking"
+            );
             // Participant is online and epoch matches, just forward to sender for tracking
             return self.common.sender.on_message(&msg);
         }
@@ -866,6 +869,12 @@ where
             None => true, // no MLS, always allow reconnection
         };
 
+        // Received a heartbeat from an offline participant — force sending our
+        // own heartbeat so the remote peer can detect us and bring us back online
+        // in its group list. This also advertises our current MLS epoch, letting
+        // the peer decide whether a rejoin is needed.
+        self.common.sender.force_heartbeat();
+
         if epoch_matches {
             // Epoch matches — bring participant back online
             debug!(from = %source, "participant back online (epoch matches), re-adding endpoint");
@@ -874,9 +883,6 @@ where
             self.add_endpoint(&participant).await?;
             self.common.sender.on_message(&msg)
         } else {
-            // force haertbeat sending in the next round so the participant that
-            // was offline can see the current epoch and rejoin the session.
-            self.common.sender.force_heartbeat();
             debug!(
                 from = %source,
                 heartbeat_epoch = heartbeat_payload.epoch,
