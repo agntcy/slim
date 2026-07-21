@@ -118,11 +118,7 @@ impl OidcJwksCache {
 
     /// Store JWKS in the cache with custom TTL
     fn store_with_ttl(&self, issuer_url: impl Into<String>, jwks: JwkSet, ttl: Duration) {
-        let entry = JwksCache {
-            jwks,
-            fetched_at: Instant::now(),
-            ttl,
-        };
+        let entry = JwksCache::new(jwks, Instant::now(), ttl);
         self.entries.write().insert(issuer_url.into(), entry);
     }
 
@@ -884,11 +880,7 @@ mod tests {
     fn test_jwks_cache_entry_reuse() {
         // Test that we're using the shared JwksCache struct from resolver.rs
         let jwks = JwkSet { keys: vec![] };
-        let entry = JwksCache {
-            jwks,
-            fetched_at: Instant::now(),
-            ttl: Duration::from_secs(1800),
-        };
+        let entry = JwksCache::new(jwks, Instant::now(), Duration::from_secs(1800));
 
         // Verify the struct has the expected fields
         assert_eq!(entry.ttl, Duration::from_secs(1800));

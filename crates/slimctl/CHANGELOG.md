@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.7](https://github.com/agntcy/slim/compare/slimctl-v2.0.0-alpha.6...slimctl-v2.0.0-alpha.7) - 2026-07-20
+
+### Added
+
+- *(session)* add close and rejoin functions ([#1873](https://github.com/agntcy/slim/pull/1873))
+
 ## [2.0.0-alpha.5](https://github.com/agntcy/slim/compare/slimctl-v2.0.0-alpha.4...slimctl-v2.0.0-alpha.5) - 2026-07-16
 
 ### Other
