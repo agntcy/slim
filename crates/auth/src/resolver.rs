@@ -16,11 +16,36 @@ use url::Url;
 use crate::errors::AuthError;
 
 /// Cache entry for a JWKS.
+///
+/// `by_kid` is a precomputed index (`kid` -> JWK) built once when the entry is
+/// created, so a token that carries a `kid` resolves its key in O(1) instead of
+/// scanning every JWK on each verification.
 #[derive(Clone, Debug)]
 pub struct JwksCache {
     pub jwks: JwkSet,
+    pub by_kid: HashMap<String, Jwk>,
     pub fetched_at: Instant,
     pub ttl: Duration,
+}
+
+impl JwksCache {
+    /// Build a cache entry, indexing keys that declare a `kid` for O(1) lookup.
+    pub fn new(jwks: JwkSet, fetched_at: Instant, ttl: Duration) -> Self {
+        let mut by_kid = HashMap::with_capacity(jwks.keys.len());
+        for key in &jwks.keys {
+            if let Some(kid) = &key.common.key_id {
+                // First writer wins on duplicate kids; duplicates are also still
+                // reachable via the algorithm-scan fallback.
+                by_kid.entry(kid.clone()).or_insert_with(|| key.clone());
+            }
+        }
+        Self {
+            jwks,
+            by_kid,
+            fetched_at,
+            ttl,
+        }
+    }
 }
 
 /// This struct provides methods to resolve JWT decoding keys from various sources.
@@ -79,11 +104,11 @@ impl KeyResolver {
         let mut cache = HashMap::new();
         cache.insert(
             Self::STATIC_JWKS_ENTRY.to_string(),
-            JwksCache {
+            JwksCache::new(
                 jwks,
-                fetched_at: Instant::now(),
-                ttl: Duration::from_secs(u64::MAX), // static JWKS, infinite TTL
-            },
+                Instant::now(),
+                Duration::from_secs(u64::MAX), // static JWKS, infinite TTL
+            ),
         );
 
         let client = ReqwestClient::builder()
@@ -119,22 +144,42 @@ impl KeyResolver {
         issuer: &str,
         token_header: &Header,
     ) -> Result<DecodingKey, AuthError> {
+        // Backwards-compatible single-key accessor: return the first candidate.
+        self.resolve_keys(issuer, token_header)
+            .await?
+            .into_iter()
+            .next()
+            .ok_or(AuthError::JwksNoSuitableKey)
+    }
+
+    /// Resolve every candidate decoding key for a token header.
+    ///
+    /// Unlike [`Self::resolve_key`], this returns *all* keys that could plausibly
+    /// have signed the token (exact `kid` match first, then any key whose
+    /// algorithm matches the token). The caller is expected to try each in turn
+    /// until one verifies the signature. This is what makes a multi-key JWKS
+    /// allow-list usable when tokens carry no `kid`: there is no way to pick the
+    /// right key from the header alone, so the signature itself is the selector.
+    pub async fn resolve_keys(
+        &self,
+        issuer: &str,
+        token_header: &Header,
+    ) -> Result<Vec<DecodingKey>, AuthError> {
         // Check if we have a static JWKS entry
         if let Some(cache_entry) = self.jwks_cache.read().get(Self::STATIC_JWKS_ENTRY) {
             // If we have a static JWKS, use it directly
-            return self.get_decoded_key_from_jwks(&cache_entry.jwks, token_header);
+            return self.candidate_keys_from_cache(cache_entry, token_header);
         }
 
-        // Try to get cached key if available
-        if let Ok(cached_key) = self.get_cached_key(issuer, token_header) {
-            return Ok(cached_key);
+        // Try to get cached keys if available
+        if let Ok(cached_keys) = self.get_cached_keys(issuer, token_header) {
+            return Ok(cached_keys);
         }
 
-        // Try to fetch the keys from the well-known JWKS endpoint
-        let jwks = self.fetch_jwks(issuer).await?;
-
-        // Try to decode the key from the JWKS
-        self.get_decoded_key_from_jwks(&jwks, token_header)
+        // Try to fetch the keys from the well-known JWKS endpoint (also caches it
+        // with its `by_kid` index for subsequent O(1) lookups).
+        self.fetch_jwks(issuer).await?;
+        self.get_cached_keys(issuer, token_header)
     }
 
     /// Convert a JWK to a DecodingKey
@@ -161,52 +206,74 @@ impl KeyResolver {
         }
     }
 
-    fn get_decoded_key_from_jwks(
+    /// Collect the candidate decoding key(s) for a token header, most likely first.
+    ///
+    /// Fast path (O(1)): if the token carries a `kid` and the cache's `by_kid`
+    /// index holds it, that single key is returned directly — one JWK conversion,
+    /// one signature check. slim's signer stamps `kid = sub`, so this is the normal
+    /// case for a multi-member allow-list.
+    ///
+    /// Fallback (O(n)): a `kid` may be absent (legacy tokens) or not match any
+    /// indexed key. Then we return every key whose algorithm matches the token so
+    /// verification can try each until the signature checks out — because the right
+    /// key cannot be chosen from the header alone, the signature itself is the
+    /// selector. The previous behaviour returned only the *first* algorithm match,
+    /// so with a multi-key allow-list every member other than keys[0] failed with
+    /// `InvalidSignature`.
+    fn candidate_keys_from_cache(
         &self,
-        jwks: &JwkSet,
+        cache: &JwksCache,
         token_header: &Header,
-    ) -> Result<DecodingKey, AuthError> {
-        // At this point, we have a valid cache entry
-        if let Some(kid) = &token_header.kid {
-            // Look for a key with a matching ID
-            for key in &jwks.keys {
-                if let Some(id) = &key.common.key_id
-                    && id == kid
-                {
-                    return self.jwk_to_decoding_key(key);
-                }
-            }
-        } else {
-            // If no key ID is specified, use the first suitable key
-            for key in &jwks.keys {
-                if let Some(alg) = &key.common.key_algorithm
-                    && let Ok(algorithm) = self.key_alg_to_algorithm(alg)
-                {
-                    // Check if the algorithm matches the token's algorithm
-                    if algorithm == token_header.alg {
-                        return self.jwk_to_decoding_key(key);
-                    }
-                }
+    ) -> Result<Vec<DecodingKey>, AuthError> {
+        // Fast path: exact `kid` hit via the precomputed index.
+        if let Some(kid) = &token_header.kid
+            && let Some(jwk) = cache.by_kid.get(kid)
+        {
+            return Ok(vec![self.jwk_to_decoding_key(jwk)?]);
+        }
+
+        // Fallback: every key whose algorithm matches the token.
+        let mut candidates = Vec::new();
+        for key in &cache.jwks.keys {
+            if let Some(alg) = &key.common.key_algorithm
+                && let Ok(algorithm) = self.key_alg_to_algorithm(alg)
+                && algorithm == token_header.alg
+            {
+                candidates.push(self.jwk_to_decoding_key(key)?);
             }
         }
 
-        // If no suitable key is found, return an error
-        Err(AuthError::JwksNoSuitableKey)
+        if candidates.is_empty() {
+            return Err(AuthError::JwksNoSuitableKey);
+        }
+        Ok(candidates)
     }
 
-    /// Check the cache for a JWKS entry
+    /// Check the cache for a JWKS entry (single-key, backwards compatible).
     pub fn get_cached_key(
         &self,
         issuer: &str,
         token_header: &Header,
     ) -> Result<DecodingKey, AuthError> {
+        self.get_cached_keys(issuer, token_header)?
+            .into_iter()
+            .next()
+            .ok_or(AuthError::JwksNoSuitableKey)
+    }
+
+    /// Check the cache for a JWKS entry, returning every candidate key.
+    pub fn get_cached_keys(
+        &self,
+        issuer: &str,
+        token_header: &Header,
+    ) -> Result<Vec<DecodingKey>, AuthError> {
         // Check if we have a cached JWKS that's still valid
         let cache = self.jwks_cache.read();
 
         // Check static JWKS entry first
         if let Some(cache_entry) = cache.get(Self::STATIC_JWKS_ENTRY) {
             // no need to check the elapsed time for static JWKS
-            return self.get_decoded_key_from_jwks(&cache_entry.jwks, token_header);
+            return self.candidate_keys_from_cache(cache_entry, token_header);
         }
 
         let cache_entry = cache.get(issuer);
@@ -224,8 +291,8 @@ impl KeyResolver {
             });
         }
 
-        // If we have a valid cache entry, try to decode the key
-        self.get_decoded_key_from_jwks(&cache_entry.jwks, token_header)
+        // If we have a valid cache entry, collect the candidate keys
+        self.candidate_keys_from_cache(cache_entry, token_header)
     }
 
     /// Fetch JWKS from the issuer's endpoint
@@ -242,11 +309,7 @@ impl KeyResolver {
         // Cache the JWKS
         self.jwks_cache.write().insert(
             issuer.to_string(),
-            JwksCache {
-                jwks: jwks.clone(),
-                fetched_at: Instant::now(),
-                ttl: self.default_jwks_ttl,
-            },
+            JwksCache::new(jwks.clone(), Instant::now(), self.default_jwks_ttl),
         );
 
         Ok(jwks)

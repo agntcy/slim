@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0](https://github.com/agntcy/slim/compare/slim-auth-v0.13.1...slim-auth-v0.14.0) - 2026-07-20
+
+### Fixed
+
+- *(auth)* verify JWT against every JWKS candidate key when no `kid` is present ([#1883](https://github.com/agntcy/slim/pull/1883))
+
+## [0.13.1](https://github.com/agntcy/slim/compare/slim-auth-v0.13.0...slim-auth-v0.13.1) - 2026-07-20
+
+### Fixed
+
+- *(auth)* encode WASM MLS signing keys as PKCS ([#1879](https://github.com/agntcy/slim/pull/1879))
+
 ## [0.13.0](https://github.com/agntcy/slim/compare/slim-auth-v0.12.1...slim-auth-v0.13.0) - 2026-07-16
 
 ### Fixed

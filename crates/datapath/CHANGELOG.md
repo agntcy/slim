@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.7](https://github.com/agntcy/slim/compare/slim-datapath-v0.16.6...slim-datapath-v0.16.7) - 2026-07-20
+
+### Added
+
+- *(session)* add close and rejoin functions ([#1873](https://github.com/agntcy/slim/pull/1873))
+- *(session)* Heartbeat-Based Disconnection Detection with Epoch ([#1868](https://github.com/agntcy/slim/pull/1868))
+
+## [0.16.6](https://github.com/agntcy/slim/compare/slim-datapath-v0.16.5...slim-datapath-v0.16.6) - 2026-07-20
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-config, agntcy-slim-proto, agntcy-slim-tracing
+
 ## [0.16.5](https://github.com/agntcy/slim/compare/slim-datapath-v0.16.4...slim-datapath-v0.16.5) - 2026-07-16
 
 ### Other

@@ -29,10 +29,10 @@ pub enum SessionError {
     MessageError(#[from] MessageError),
     #[error("missing removed participant in GroupRemove message")]
     MissingRemovedParticipantInGroupRemove,
+    #[error("missing new participant in GroupAdd message")]
+    MissingNewParticipantInGroupAdd,
     #[error("missing group name in JoinRequest message")]
     MissingGroupNameInJoinRequest,
-    #[error("ping state not initialized")]
-    PingStateNotInitialized,
     #[error("missing channel name for group session")]
     MissingChannelName,
     #[error("session type unknown: {0:?}")]
@@ -105,6 +105,10 @@ pub enum SessionError {
     CannotInviteToP2P,
     #[error("cannot remove participant from point-to-point session")]
     CannotRemoveFromP2P,
+    #[error("cannot close a point-to-point session")]
+    CannotCloseP2P,
+    #[error("cannot rejoin a point-to-point session")]
+    CannotRejoinP2P,
     #[error("only initiator can modify participants")]
     NotInitiator,
 
@@ -127,6 +131,12 @@ pub enum SessionError {
     SessionDrainingDrop,
     #[error("session already closed")]
     SessionAlreadyClosed,
+    #[error("participant is offline")]
+    ParticipantOffLine,
+    #[error("rejoin failed: epoch mismatch")]
+    RejoinFailed,
+    #[error("another status change is already in progress")]
+    StatusChangeInProgress,
     #[error("session cleanup failed: {details}")]
     SessionCleanupFailed { details: String },
     #[error("message send retries exhausted for id={id}")]

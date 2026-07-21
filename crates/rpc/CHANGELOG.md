@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.6](https://github.com/agntcy/slim/compare/slim-rpc-v2.0.0-alpha.5...slim-rpc-v2.0.0-alpha.6) - 2026-07-20
+
+### Fixed
+
+- stream types export async interfaces ([#1880](https://github.com/agntcy/slim/pull/1880))
+
+### Other
+
+- remove slimrpc from bindings ([#1864](https://github.com/agntcy/slim/pull/1864))
+
 ## [2.0.0-alpha.5](https://github.com/agntcy/slim/compare/slim-rpc-v2.0.0-alpha.4...slim-rpc-v2.0.0-alpha.5) - 2026-07-16
 
 ### Other
