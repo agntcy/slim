@@ -428,7 +428,7 @@ impl Participant {
         Self {
             name: Some(name),
             settings: Some(settings),
-            status: ParticipantState::OnLine as i32,
+            status: ParticipantState::Online as i32,
         }
     }
 
@@ -2412,7 +2412,7 @@ mod message_tests {
         assert!(CommandPayload::builder()
             .update_participant_state(
                 ProtoName::from_strings(["org", "ns", "test"]),
-                ParticipantState::OffLine,
+                ParticipantState::Offline,
                 42,
             )
             .as_update_participant_state_payload()

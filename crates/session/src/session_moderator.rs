@@ -293,7 +293,7 @@ where
 
                 // Mark the participant as offline in the local group list
                 if let Some(entry) = self.group_list.get_mut(&participant_no_id) {
-                    entry.status = ParticipantState::OffLine as i32;
+                    entry.status = ParticipantState::Offline as i32;
                 }
 
                 // Remove the endpoint from the sender and inner controller
@@ -452,15 +452,15 @@ where
         if matches!(self.current_task, Some(ModeratorTask::UpdateLocalStatus())) {
             if let Some(pending) = self.common.pending_status_update.take() {
                 match pending.status {
-                    ParticipantState::OnLine => {
+                    ParticipantState::Online => {
                         // Rejoin timeout: participants that didn't reply are offline,
                         // those that replied are online. Notify success to the app.
                         for (_, entry) in self.group_list.iter_mut() {
                             if let Ok(name) = entry.get_name() {
                                 entry.status = if !missing.contains(&name) {
-                                    ParticipantState::OnLine as i32
+                                    ParticipantState::Online as i32
                                 } else {
-                                    ParticipantState::OffLine as i32
+                                    ParticipantState::Offline as i32
                                 };
                             }
                         }
@@ -470,7 +470,7 @@ where
                             let _ = tx.send(Ok(()));
                         }
                     }
-                    ParticipantState::OffLine => {
+                    ParticipantState::Offline => {
                         // move to offline anyway
                         self.common.online = false;
                         self.common.sender.stop_heartbeat();
@@ -1226,7 +1226,7 @@ where
             return Ok(SessionOutput::new());
         }
 
-        if entry.status == ParticipantState::OnLine as i32 {
+        if entry.status == ParticipantState::Online as i32 {
             // Participant is online, just forward to sender for tracking
             return self.common.sender.on_message(&message);
         }
@@ -1246,7 +1246,7 @@ where
         if epoch_matches {
             // Epoch matches — bring participant back online
             debug!(from = %source, "participant back online (epoch matches), re-adding endpoint");
-            entry.status = ParticipantState::OnLine as i32;
+            entry.status = ParticipantState::Online as i32;
             let participant = entry.clone();
             self.add_endpoint(&participant).await?;
             self.common.sender.on_message(&message)
@@ -1304,16 +1304,16 @@ where
         name_no_id.reset_id();
 
         match new_state {
-            ParticipantState::OffLine => {
+            ParticipantState::Offline => {
                 if let Some(entry) = self.group_list.get_mut(&name_no_id) {
-                    if entry.status != ParticipantState::OnLine as i32 {
+                    if entry.status != ParticipantState::Online as i32 {
                         debug!(
                             name = %participant_name,
                             "received offline state for participant already offline",
                         );
                         return Ok(SessionOutput::new());
                     }
-                    entry.status = ParticipantState::OffLine as i32;
+                    entry.status = ParticipantState::Offline as i32;
                 } else {
                     debug!(
                         name = %participant_name,
@@ -1325,7 +1325,7 @@ where
                 self.remove_endpoint(&participant_name);
                 debug!("participant {} is now offline", participant_name);
             }
-            ParticipantState::OnLine => {
+            ParticipantState::Online => {
                 if !self.group_list.contains_key(&name_no_id) {
                     debug!(
                         name = %participant_name,
@@ -1361,7 +1361,7 @@ where
 
                 // Epoch matches (or MLS not enabled): bring participant online
                 let entry = self.group_list.get_mut(&name_no_id).unwrap();
-                entry.status = ParticipantState::OnLine as i32;
+                entry.status = ParticipantState::Online as i32;
                 debug!("participant {} is now online", participant_name);
                 let participant = entry.clone();
                 self.add_endpoint(&participant).await?;
@@ -1412,11 +1412,11 @@ where
             context: "update_participant_state: invalid state",
         })?;
 
-        // On rejoin (OnLine): mark all other participants as offline.
+        // On rejoin (Online): mark all other participants as offline.
         // They will be moved back online as their ACKs arrive.
-        if status == ParticipantState::OnLine {
+        if status == ParticipantState::Online {
             for (_, entry) in self.group_list.iter_mut() {
-                entry.status = ParticipantState::OffLine as i32;
+                entry.status = ParticipantState::Offline as i32;
             }
         }
 
@@ -1480,7 +1480,7 @@ where
             }
         };
 
-        if participant_entry.status != ParticipantState::OffLine as i32 {
+        if participant_entry.status != ParticipantState::Offline as i32 {
             debug!(from = %participant_name, "rejoin request from online participant, ignoring");
             return Ok(SessionOutput::new());
         }
@@ -1540,7 +1540,7 @@ where
 
         // Mark participant as online in group list
         if let Some(entry) = self.group_list.get_mut(&name_no_id) {
-            entry.status = ParticipantState::OnLine as i32;
+            entry.status = ParticipantState::Online as i32;
         }
 
         // 8. Send GroupUpdate with REJOIN op and MLS commit to all participants
@@ -1625,15 +1625,15 @@ where
                     let _ = tx.send(Ok(()));
                 }
                 match pending_update.status {
-                    ParticipantState::OnLine => {
+                    ParticipantState::Online => {
                         debug!("The moderator is back online, mark all participants as online");
                         for (_, entry) in self.group_list.iter_mut() {
-                            entry.status = ParticipantState::OnLine as i32;
+                            entry.status = ParticipantState::Online as i32;
                         }
                         self.common.online = true;
                         self.common.sender.restart_heartbeat();
                     }
-                    ParticipantState::OffLine => {
+                    ParticipantState::Offline => {
                         debug!("The moderator is offline");
                         self.common.online = false;
                         self.common.sender.stop_heartbeat();
@@ -1810,7 +1810,7 @@ mod tests {
     use super::*;
     use crate::Direction;
     use crate::common::OutboundMessage;
-    use crate::session_config::SessionConfig;
+    use crate::session_config::{MlsSettings, SessionConfig};
     use crate::session_settings::{DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE, SessionSettings};
     use crate::test_utils::{MockInnerHandler, MockTokenProvider, MockVerifier};
     use slim_datapath::Status;
@@ -2376,7 +2376,7 @@ mod tests {
         participant_name.reset_id(); // Remove ID before inserting into group_list
         moderator
             .group_list
-            .insert(participant_name.clone(), participant);
+            .insert(participant_name.clone(), participant.clone());
 
         // Verify we have exactly 2 participants (moderator + participant)
         assert_eq!(
@@ -2536,13 +2536,13 @@ mod tests {
 
         moderator
             .group_list
-            .insert(participant1_name.clone(), participant1);
+            .insert(participant1_name.clone(), participant1.clone());
         moderator
             .group_list
-            .insert(participant2_name.clone(), participant2);
+            .insert(participant2_name.clone(), participant2.clone());
         moderator
             .group_list
-            .insert(participant3_name.clone(), participant3);
+            .insert(participant3_name.clone(), participant3.clone());
 
         // Create first leave request coming directly from participant1 with LEAVING_SESSION metadata
         let participant1_with_id = participant1_name.clone().with_id(401);
@@ -2712,7 +2712,7 @@ mod tests {
                 CommandPayload::builder()
                     .update_participant_state(
                         other_name_with_id.clone(),
-                        ParticipantState::OffLine,
+                        ParticipantState::Offline,
                         0,
                     )
                     .as_content(),
@@ -2732,7 +2732,7 @@ mod tests {
         // Participant should be offline
         assert!(
             moderator.group_list.get(&other_key).unwrap().status
-                == ParticipantState::OffLine as i32
+                == ParticipantState::Offline as i32
         );
 
         // Should have sent an ACK
@@ -2762,7 +2762,7 @@ mod tests {
             other_name_with_id.clone(),
             ParticipantSettings::bidirectional(),
         );
-        p.status = ParticipantState::OffLine as i32;
+        p.status = ParticipantState::Offline as i32;
         moderator.group_list.insert(other_key.clone(), p);
 
         // MLS is None in test setup, so epoch check is skipped (always matches)
@@ -2780,7 +2780,7 @@ mod tests {
                 CommandPayload::builder()
                     .update_participant_state(
                         other_name_with_id.clone(),
-                        ParticipantState::OnLine,
+                        ParticipantState::Online,
                         0,
                     )
                     .as_content(),
@@ -2799,7 +2799,7 @@ mod tests {
 
         // Participant should be online now
         assert!(
-            moderator.group_list.get(&other_key).unwrap().status == ParticipantState::OnLine as i32
+            moderator.group_list.get(&other_key).unwrap().status == ParticipantState::Online as i32
         );
 
         // Should have sent an ACK
@@ -2849,7 +2849,7 @@ mod tests {
                 CommandPayload::builder()
                     .update_participant_state(
                         moderator.common.settings.source.clone(),
-                        ParticipantState::OffLine,
+                        ParticipantState::Offline,
                         0,
                     )
                     .as_content(),
@@ -2952,7 +2952,7 @@ mod tests {
                 CommandPayload::builder()
                     .update_participant_state(
                         moderator.common.settings.source.clone(),
-                        ParticipantState::OnLine,
+                        ParticipantState::Online,
                         u64::MAX,
                     )
                     .as_content(),
@@ -2971,10 +2971,10 @@ mod tests {
 
         // All participants should be marked offline after rejoin send
         assert!(
-            moderator.group_list.get(&p1_name).unwrap().status == ParticipantState::OffLine as i32
+            moderator.group_list.get(&p1_name).unwrap().status == ParticipantState::Offline as i32
         );
         assert!(
-            moderator.group_list.get(&p2_name).unwrap().status == ParticipantState::OffLine as i32
+            moderator.group_list.get(&p2_name).unwrap().status == ParticipantState::Offline as i32
         );
 
         let msg_id = moderator
@@ -3034,10 +3034,10 @@ mod tests {
 
         // All participants should be online now
         assert!(
-            moderator.group_list.get(&p1_name).unwrap().status == ParticipantState::OnLine as i32
+            moderator.group_list.get(&p1_name).unwrap().status == ParticipantState::Online as i32
         );
         assert!(
-            moderator.group_list.get(&p2_name).unwrap().status == ParticipantState::OnLine as i32
+            moderator.group_list.get(&p2_name).unwrap().status == ParticipantState::Online as i32
         );
         // Moderator should be online
         assert!(moderator.common.online);
@@ -3073,7 +3073,7 @@ mod tests {
         other_key.reset_id();
         let mut offline_participant =
             Participant::new(other.clone(), ParticipantSettings::bidirectional());
-        offline_participant.status = ParticipantState::OffLine as i32;
+        offline_participant.status = ParticipantState::Offline as i32;
         moderator
             .group_list
             .insert(other_key.clone(), offline_participant);
@@ -3156,7 +3156,7 @@ mod tests {
         // Participant should be marked online
         assert_eq!(
             moderator.group_list.get(&other_key).unwrap().status,
-            ParticipantState::OnLine as i32
+            ParticipantState::Online as i32
         );
     }
 
@@ -3258,7 +3258,7 @@ mod tests {
         other_key.reset_id();
         let mut offline_participant =
             Participant::new(other.clone(), ParticipantSettings::bidirectional());
-        offline_participant.status = ParticipantState::OffLine as i32;
+        offline_participant.status = ParticipantState::Offline as i32;
         moderator
             .group_list
             .insert(other_key.clone(), offline_participant);
@@ -3315,7 +3315,7 @@ mod tests {
         other_key.reset_id();
         let mut offline_participant =
             Participant::new(other.clone(), ParticipantSettings::bidirectional());
-        offline_participant.status = ParticipantState::OffLine as i32;
+        offline_participant.status = ParticipantState::Offline as i32;
         moderator
             .group_list
             .insert(other_key.clone(), offline_participant);
@@ -3371,5 +3371,144 @@ mod tests {
             moderator.current_task,
             Some(ModeratorTask::Rejoin(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn test_update_participant_state_online_epoch_mismatch_sends_nack() {
+        use slim_auth::shared_secret::SharedSecret;
+
+        const SECRET: &str = "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas";
+
+        let source = make_name(&["local", "moderator", "v1"]).with_id(100);
+        let destination = make_name(&["channel", "name", "v1"]).with_id(1);
+        let control = make_name(&["channel", "name", "v1"]).with_id(2);
+
+        let identity_provider = SharedSecret::new("test", SECRET).unwrap();
+        let identity_verifier = SharedSecret::new("test", SECRET).unwrap();
+
+        let (tx_slim, mut rx_slim) = mpsc::channel(16);
+        let (tx_app, _rx_app) = mpsc::unbounded_channel();
+        let (tx_session, _rx_session) = mpsc::channel(16);
+        let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
+
+        let subscription_manager =
+            crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
+
+        let config = SessionConfig {
+            session_type: ProtoSessionType::Multicast,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_settings: Some(MlsSettings {
+                header_integrity_validation_percent: 0,
+                max_seen_control_message_ids_size: None,
+            }),
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        let settings = SessionSettings {
+            id: 1,
+            source,
+            destination: destination.clone(),
+            control,
+            config,
+            direction: Direction::Bidirectional,
+            slim_tx: tx_slim,
+            app_tx: tx_app,
+            tx_session,
+            tx_to_session_layer: tx_session_layer,
+            identity_provider,
+            identity_verifier,
+            graceful_shutdown_timeout: None,
+            subscription_manager: subscription_manager.clone(),
+            service_id: String::new(),
+            max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+        };
+
+        let inner = MockInnerHandler::new();
+        let mut moderator = SessionModerator::new(inner, settings);
+        moderator.init().await.unwrap();
+
+        // Initialize the MLS group so get_epoch() returns Some(1)
+        moderator
+            .mls_state
+            .as_mut()
+            .unwrap()
+            .init_moderator()
+            .await
+            .unwrap();
+
+        let current_epoch = moderator
+            .mls_state
+            .as_ref()
+            .unwrap()
+            .common
+            .mls
+            .get_epoch()
+            .unwrap();
+        assert_eq!(current_epoch, 0);
+
+        let other_name_with_id = make_name(&["other", "participant", "v1"]).with_id(500);
+        let mut other_key = other_name_with_id.clone();
+        other_key.reset_id();
+
+        // Add participant as offline
+        moderator.group_list.insert(
+            other_key.clone(),
+            Participant {
+                name: Some(other_name_with_id.clone()),
+                settings: Some(ParticipantSettings::bidirectional()),
+                status: ParticipantState::Offline as i32,
+            },
+        );
+
+        // Send UpdateParticipantState(Online) with mismatched epoch (99 != 0)
+        let msg = Message::builder()
+            .source(other_name_with_id.clone())
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(1)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::UpdateParticipantState)
+            .session_id(1)
+            .message_id(101)
+            .payload(
+                CommandPayload::builder()
+                    .update_participant_state(
+                        other_name_with_id.clone(),
+                        ParticipantState::Online,
+                        99, // mismatched epoch (0 is current)
+                    )
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let result = run_with_acks(
+            moderator.process_control_message(msg, MessageDirection::North, None),
+            &mut rx_slim,
+            &subscription_manager,
+        )
+        .await;
+        assert!(result.is_ok());
+
+        // Participant should still be offline
+        assert_eq!(
+            moderator.group_list.get(&other_key).unwrap().status,
+            ParticipantState::Offline as i32
+        );
+
+        // Should have sent a NACK (not an ACK)
+        let output = result.unwrap();
+        assert!(!output.is_empty());
+        let nack_msg = match &output.messages[0] {
+            OutboundMessage::ToSlim(m) => m,
+            _ => panic!("Expected ToSlim message"),
+        };
+        assert_eq!(
+            nack_msg.get_session_message_type(),
+            ProtoSessionMessageType::GroupNack
+        );
     }
 }

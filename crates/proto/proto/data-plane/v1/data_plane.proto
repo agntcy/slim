@@ -166,8 +166,8 @@ message CommandPayload {
 }
 
 enum ParticipantState {
-  PARTICIPANT_STATE_ON_LINE = 0;
-  PARTICIPANT_STATE_OFF_LINE = 1;
+  ONLINE = 0;
+  OFFLINE = 1;
 }
 
 message ParticipantSettings {

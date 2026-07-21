@@ -220,11 +220,13 @@ where
                 if message_type.is_command_message() {
                     self.common.sender.on_failure(message_id, message_type);
 
+                    // If this was a rejoin (UpdateParticipantState + OnLine) timeout,
+                    // treat as partial success: non-responders are offline, notify app OK
                     if message_type == ProtoSessionMessageType::UpdateParticipantState
                         && let Some(pending_task) = self.common.pending_status_update.take()
                     {
                         if pending_task.message_id == message_id
-                            && pending_task.status == ParticipantState::OnLine
+                            && pending_task.status == ParticipantState::Online
                         {
                             // If this was a rejoin (UpdateParticipantState + OnLine) timeout,
                             // treat as partial success: non-responders are offline, notify app OK
@@ -244,7 +246,7 @@ where
                                 }
                             }
                         } else if pending_task.message_id == message_id
-                            && pending_task.status == ParticipantState::OffLine
+                            && pending_task.status == ParticipantState::Offline
                         {
                             // close timeout: not all participants acknowledged, the message.
                             // we can still consider the participant as offline and notify success
@@ -309,7 +311,7 @@ where
                     );
 
                     if let Some(entry) = self.group_list.get_mut(&participant_name) {
-                        entry.status = ParticipantState::OffLine as i32;
+                        entry.status = ParticipantState::Offline as i32;
                     }
 
                     self.remove_endpoint(&participant_name);
@@ -581,7 +583,7 @@ where
                         .add_route(name.clone(), msg.get_incoming_conn())
                         .await?;
                 }
-                if p.status == ParticipantState::OnLine as i32 {
+                if p.status == ParticipantState::Online as i32 {
                     self.add_endpoint(p).await?;
                 }
             }
@@ -683,7 +685,7 @@ where
                         self.group_list.clear();
                         for p in &update.participants {
                             let p_name = p.get_name()?;
-                            if p.status == ParticipantState::OffLine as i32 {
+                            if p.status == ParticipantState::Offline as i32 {
                                 self.remove_endpoint(&p_name);
                             } else if p_name != self.common.settings.source {
                                 // Add endpoint for online participants (skip self)
@@ -695,11 +697,11 @@ where
                         debug!("participant rejoined: {}", name);
                         // Another participant rejoined — update their status
                         if let Some(entry) = self.group_list.get_mut(&name) {
-                            entry.status = ParticipantState::OnLine as i32;
+                            entry.status = ParticipantState::Online as i32;
                         } else {
                             // Unknown participant — add them to the group
                             let mut updated = rejoined_participant.clone();
-                            updated.status = ParticipantState::OnLine as i32;
+                            updated.status = ParticipantState::Online as i32;
                             self.group_list.insert(name.clone(), updated);
                             self.common.add_route(name, msg.get_incoming_conn()).await?;
                             self.add_endpoint(rejoined_participant).await?;
@@ -839,7 +841,7 @@ where
                 self.common.pending_status_update = Some(PendingStatusUpdate {
                     message_id: msg_id,
                     message_type: ProtoSessionMessageType::RejoinRequest,
-                    status: ParticipantState::OnLine,
+                    status: ParticipantState::Online,
                     ack_tx: None,
                 });
 
@@ -853,7 +855,7 @@ where
             return Ok(SessionOutput::new());
         }
 
-        if entry.status == ParticipantState::OnLine as i32 {
+        if entry.status == ParticipantState::Online as i32 {
             // Participant is online and epoch matches, just forward to sender for tracking
             return self.common.sender.on_message(&msg);
         }
@@ -867,7 +869,7 @@ where
         if epoch_matches {
             // Epoch matches — bring participant back online
             debug!(from = %source, "participant back online (epoch matches), re-adding endpoint");
-            entry.status = ParticipantState::OnLine as i32;
+            entry.status = ParticipantState::Online as i32;
             let participant = entry.clone();
             self.add_endpoint(&participant).await?;
             self.common.sender.on_message(&msg)
@@ -921,17 +923,17 @@ where
         })?;
 
         match new_state {
-            ParticipantState::OffLine => {
+            ParticipantState::Offline => {
                 // Participant went offline: update state, remove route
                 if let Some(p) = self.group_list.get_mut(&participant_name) {
-                    if p.status == ParticipantState::OffLine as i32 {
+                    if p.status == ParticipantState::Offline as i32 {
                         debug!(
                             name = %participant_name,
                             "received offline state for participant already offline",
                         );
                         return Ok(SessionOutput::new());
                     }
-                    p.status = ParticipantState::OffLine as i32;
+                    p.status = ParticipantState::Offline as i32;
                 } else {
                     debug!(
                         name = %participant_name,
@@ -943,7 +945,7 @@ where
                 self.remove_endpoint(&participant_name);
                 debug!("participant {} is now offline", participant_name);
             }
-            ParticipantState::OnLine => {
+            ParticipantState::Online => {
                 // First check if the participant is in our group
                 if !self.group_list.contains_key(&participant_name) {
                     debug!(
@@ -980,7 +982,7 @@ where
 
                 // Epoch matches (or MLS not enabled): bring participant online
                 let state = self.group_list.get_mut(&participant_name).unwrap();
-                state.status = ParticipantState::OnLine as i32;
+                state.status = ParticipantState::Online as i32;
                 debug!("participant {} is now online", participant_name);
                 let participant = state.clone();
                 self.add_endpoint(&participant).await?;
@@ -1031,9 +1033,9 @@ where
 
         // On rejoin (OnLine): mark all other participants as offline.
         // They will be moved back online as their ACKs arrive.
-        if status == ParticipantState::OnLine {
+        if status == ParticipantState::Online {
             for (_, entry) in self.group_list.iter_mut() {
-                entry.status = ParticipantState::OffLine as i32;
+                entry.status = ParticipantState::Offline as i32;
             }
         }
 
@@ -1102,7 +1104,7 @@ where
         // Notify the application of the result and update local online state
         if let Some(pending_task) = self.common.pending_status_update.take() {
             if pending_task.message_id == message.get_id()
-                && pending_task.status == ParticipantState::OnLine
+                && pending_task.status == ParticipantState::Online
             {
                 if mls_success {
                     if let Some(tx) = pending_task.ack_tx {
@@ -1148,13 +1150,13 @@ where
         );
         self.common.sender.on_message(message)?;
 
-        // If we have a pending rejoin (OnLine), move the ACK sender back online
+        // If we have a pending rejoin (Online), move the ACK sender back online
         if let Some(ref pending_task) = self.common.pending_status_update
             && pending_task.message_id == id
-            && pending_task.status == ParticipantState::OnLine
+            && pending_task.status == ParticipantState::Online
             && let Some(entry) = self.group_list.get_mut(&source)
         {
-            entry.status = ParticipantState::OnLine as i32;
+            entry.status = ParticipantState::Online as i32;
             debug!("participant {} confirmed online via ACK", source);
         }
 
@@ -1167,11 +1169,11 @@ where
                 }
                 // update the local online state
                 match pending_task.status {
-                    ParticipantState::OffLine => {
+                    ParticipantState::Offline => {
                         self.common.online = false;
                         self.common.sender.stop_heartbeat();
                     }
-                    ParticipantState::OnLine => {
+                    ParticipantState::Online => {
                         self.common.online = true;
                         self.common.sender.restart_heartbeat();
                     }
@@ -1192,9 +1194,9 @@ where
             "received group nack message",
         );
 
-        // check that we have a pending status update with matching id and status == OnLine
+        // check that we have a pending status update with matching id and status == Online
         if let Some(pending_task) = self.common.pending_status_update.take() {
-            if pending_task.message_id == id && pending_task.status == ParticipantState::OnLine {
+            if pending_task.message_id == id && pending_task.status == ParticipantState::Online {
                 // remove the pending message from the sender
                 self.common
                     .sender
@@ -1228,7 +1230,7 @@ where
                 self.common.pending_status_update = Some(PendingStatusUpdate {
                     message_id: msg_id,
                     message_type: ProtoSessionMessageType::RejoinRequest,
-                    status: ParticipantState::OnLine,
+                    status: ParticipantState::Online,
                     ack_tx: pending_task.ack_tx,
                 });
 
@@ -2080,7 +2082,7 @@ mod tests {
             .message_id(100)
             .payload(
                 CommandPayload::builder()
-                    .update_participant_state(other.clone(), ParticipantState::OffLine, 0)
+                    .update_participant_state(other.clone(), ParticipantState::Offline, 0)
                     .as_content(),
             )
             .build_publish()
@@ -2098,7 +2100,7 @@ mod tests {
         // Participant should be offline
         assert_eq!(
             participant.group_list.get(&other).unwrap().status,
-            ParticipantState::OffLine as i32
+            ParticipantState::Offline as i32
         );
 
         // Should have sent an ACK
@@ -2124,7 +2126,7 @@ mod tests {
         let other = make_name(&["other", "participant", "v1"]).with_id(500);
         let mut offline_participant =
             Participant::new(other.clone(), ParticipantSettings::bidirectional());
-        offline_participant.status = ParticipantState::OffLine as i32;
+        offline_participant.status = ParticipantState::Offline as i32;
         participant
             .group_list
             .insert(other.clone(), offline_participant);
@@ -2140,7 +2142,7 @@ mod tests {
             .message_id(101)
             .payload(
                 CommandPayload::builder()
-                    .update_participant_state(other.clone(), ParticipantState::OnLine, 0)
+                    .update_participant_state(other.clone(), ParticipantState::Online, 0)
                     .as_content(),
             )
             .build_publish()
@@ -2158,7 +2160,7 @@ mod tests {
         // Participant should be online now
         assert_eq!(
             participant.group_list.get(&other).unwrap().status,
-            ParticipantState::OnLine as i32
+            ParticipantState::Online as i32
         );
 
         // Should have sent an ACK
@@ -2205,7 +2207,7 @@ mod tests {
                 CommandPayload::builder()
                     .update_participant_state(
                         participant.common.settings.source.clone(),
-                        ParticipantState::OffLine,
+                        ParticipantState::Offline,
                         0,
                     )
                     .as_content(),
@@ -2225,12 +2227,12 @@ mod tests {
         // Should have a pending status update
         assert!(participant.common.pending_status_update.is_some());
         let pending = participant.common.pending_status_update.as_ref().unwrap();
-        assert_eq!(pending.status, ParticipantState::OffLine);
+        assert_eq!(pending.status, ParticipantState::Offline);
 
         // Participants should still be online (they change on ACK completion)
         assert_eq!(
             participant.group_list.get(&other).unwrap().status,
-            ParticipantState::OnLine as i32
+            ParticipantState::Online as i32
         );
 
         // ack_rx should not have been notified yet
@@ -2275,7 +2277,7 @@ mod tests {
                 CommandPayload::builder()
                     .update_participant_state(
                         participant.common.settings.source.clone(),
-                        ParticipantState::OnLine,
+                        ParticipantState::Online,
                         u64::MAX,
                     )
                     .as_content(),
@@ -2295,11 +2297,11 @@ mod tests {
         // All participants should be marked offline after rejoin send
         assert_eq!(
             participant.group_list.get(&other1).unwrap().status,
-            ParticipantState::OffLine as i32
+            ParticipantState::Offline as i32
         );
         assert_eq!(
             participant.group_list.get(&other2).unwrap().status,
-            ParticipantState::OffLine as i32
+            ParticipantState::Offline as i32
         );
 
         // Should have a pending status update with OnLine
@@ -2336,7 +2338,7 @@ mod tests {
         assert!(participant.common.pending_status_update.is_some());
         let pending = participant.common.pending_status_update.as_ref().unwrap();
         assert_eq!(pending.message_type, ProtoSessionMessageType::RejoinRequest);
-        assert_eq!(pending.status, ParticipantState::OnLine);
+        assert_eq!(pending.status, ParticipantState::Online);
 
         // The ack_tx should still be held (not resolved yet — waiting for RejoinReply)
         assert!(ack_rx.try_recv().is_err());
@@ -2362,7 +2364,7 @@ mod tests {
         participant.common.pending_status_update = Some(PendingStatusUpdate {
             message_id: 100,
             message_type: ProtoSessionMessageType::UpdateParticipantState,
-            status: ParticipantState::OffLine,
+            status: ParticipantState::Offline,
             ack_tx: None,
         });
 
@@ -2379,7 +2381,7 @@ mod tests {
                 CommandPayload::builder()
                     .update_participant_state(
                         participant.common.settings.source.clone(),
-                        ParticipantState::OnLine,
+                        ParticipantState::Online,
                         0,
                     )
                     .as_content(),
@@ -2414,7 +2416,7 @@ mod tests {
         participant.common.pending_status_update = Some(PendingStatusUpdate {
             message_id: msg_id,
             message_type: ProtoSessionMessageType::RejoinRequest,
-            status: ParticipantState::OnLine,
+            status: ParticipantState::Online,
             ack_tx: Some(ack_tx),
         });
 
@@ -2537,7 +2539,7 @@ mod tests {
         let other = make_name(&["other", "participant", "v1"]).with_id(500);
         let mut offline_participant =
             Participant::new(other.clone(), ParticipantSettings::bidirectional());
-        offline_participant.status = ParticipantState::OffLine as i32;
+        offline_participant.status = ParticipantState::Offline as i32;
         participant
             .group_list
             .insert(other.clone(), offline_participant.clone());
@@ -2577,7 +2579,7 @@ mod tests {
         // Participant should be online now
         assert_eq!(
             participant.group_list.get(&other).unwrap().status,
-            ParticipantState::OnLine as i32
+            ParticipantState::Online as i32
         );
     }
 
@@ -2632,7 +2634,7 @@ mod tests {
         assert!(participant.group_list.contains_key(&unknown));
         assert_eq!(
             participant.group_list.get(&unknown).unwrap().status,
-            ParticipantState::OnLine as i32
+            ParticipantState::Online as i32
         );
 
         // Should have added endpoint
