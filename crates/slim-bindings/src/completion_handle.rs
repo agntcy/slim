@@ -7,6 +7,7 @@
 
 use parking_lot::Mutex;
 
+#[cfg(not(target_arch = "wasm32"))]
 use futures_timer::Delay;
 use slim_session::CompletionHandle as SlimCompletionHandle;
 
@@ -61,7 +62,14 @@ impl CompletionHandle {
     /// * `Ok(())` - Operation completed successfully
     /// * `Err(SlimError)` - Operation failed or handle already consumed
     pub fn wait(self: std::sync::Arc<Self>) -> Result<(), SlimError> {
-        crate::config::get_runtime().block_on(self.wait_async())
+        #[cfg(not(feature = "web"))]
+        {
+            crate::config::get_runtime().block_on(self.wait_async())
+        }
+        #[cfg(feature = "web")]
+        {
+            Err(web_async_required("wait_async"))
+        }
     }
 
     /// Wait for the operation to complete with a timeout (blocking version)
@@ -84,7 +92,15 @@ impl CompletionHandle {
         self: std::sync::Arc<Self>,
         timeout: std::time::Duration,
     ) -> Result<(), SlimError> {
-        crate::config::get_runtime().block_on(self.wait_for_async(timeout))
+        #[cfg(not(feature = "web"))]
+        {
+            crate::config::get_runtime().block_on(self.wait_for_async(timeout))
+        }
+        #[cfg(feature = "web")]
+        {
+            let _ = timeout;
+            Err(web_async_required("wait_for_async"))
+        }
     }
 
     /// Wait for the operation to complete indefinitely (async version)
@@ -138,9 +154,11 @@ impl CompletionHandle {
             })?;
 
         if let Some(duration) = timeout {
-            // Runtime-agnostic timeout using futures-timer
             futures::pin_mut!(receiver);
+            #[cfg(not(target_arch = "wasm32"))]
             let delay = Delay::new(duration);
+            #[cfg(target_arch = "wasm32")]
+            let delay = tokio::time::sleep(duration);
             futures::pin_mut!(delay);
 
             match futures::future::select(receiver, delay).await {
@@ -154,6 +172,13 @@ impl CompletionHandle {
             receiver.await?;
             Ok(())
         }
+    }
+}
+
+#[cfg(feature = "web")]
+fn web_async_required(method: &str) -> SlimError {
+    SlimError::InvalidArgument {
+        message: format!("blocking operations are unavailable in browsers; use {method}"),
     }
 }
 
