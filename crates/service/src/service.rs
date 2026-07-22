@@ -35,7 +35,7 @@ use crate::errors::ServiceError;
 // Session feature imports
 #[cfg(feature = "session")]
 use {
-    crate::app::{bootstrap_app_with_direction, App},
+    crate::app::{App, bootstrap_app_with_direction},
     slim_auth::traits::Verifier,
     slim_datapath::api::ProtoName,
     slim_session::notification::Notification,

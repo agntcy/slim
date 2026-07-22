@@ -403,8 +403,10 @@ impl App {
 
         // Browser: already on the JS event loop; call directly.
         #[cfg(feature = "web")]
-        let (session_ctx, completion) =
-            self.app.create_session(slim_config, slim_dest, None).await?;
+        let (session_ctx, completion) = self
+            .app
+            .create_session(slim_config, slim_dest, None)
+            .await?;
 
         // Create Session and CompletionHandle
         let bindings_ctx = Arc::new(crate::Session::new(session_ctx));
@@ -834,7 +836,8 @@ impl App {
 
         let app = Arc::new(app);
         // Advertise the local name to the upstream server so it can route to us.
-        app.subscribe(app.app_name(), Some(remote_connection)).await?;
+        app.subscribe(app.app_name(), Some(remote_connection))
+            .await?;
 
         Ok(Arc::new(Self {
             app,
