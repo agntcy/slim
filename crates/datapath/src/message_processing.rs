@@ -1907,10 +1907,19 @@ impl MessageProcessor {
     }
 
     fn resolve_enforce_pqc(connection: &Connection, internal: &MessageProcessorInternal) -> bool {
-        connection
-            .config_data()
-            .map(|c| c.tls_setting.config.enforce_pqc)
-            .unwrap_or(internal.server_enforce_pqc)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            connection
+                .config_data()
+                .map(|c| c.tls_setting.config.enforce_pqc)
+                .unwrap_or(internal.server_enforce_pqc)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            // ponytail: wasm has no tls_setting; deployment policy lives on MessageProcessor.
+            let _ = connection;
+            internal.server_enforce_pqc
+        }
     }
 }
 

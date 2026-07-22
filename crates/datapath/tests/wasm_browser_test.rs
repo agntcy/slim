@@ -27,7 +27,11 @@
 
 use slim_datapath::api::proto::dataplane::v1::SlimHeader;
 use slim_datapath::header_mac::{HeaderMacError, HeaderMacSession};
-use slim_datapath::link_ecdh::{derive_header_mac_from_ecdh, generate_x25519_ephemeral};
+use slim_datapath::link_ecdh::{
+    decapsulate_mlkem768, derive_header_mac_from_ecdh, derive_header_mac_hybrid,
+    encapsulate_mlkem768, generate_mlkem768, generate_x25519_ephemeral,
+    ML_KEM768_CIPHERTEXT_LEN, ML_KEM768_PUBLIC_KEY_LEN,
+};
 use slim_datapath::messages::utils::DEFAULT_TTL;
 use slim_datapath::runtime;
 
@@ -119,4 +123,29 @@ fn ecdh_rejects_bad_peer_key() {
     let (sk, _pk) = generate_x25519_ephemeral().expect("keypair");
     let err = derive_header_mac_from_ecdh(sk, &[0u8; 8], LINK_ID).unwrap_err();
     assert!(matches!(err, HeaderMacError::KeyAgreement));
+}
+
+#[wasm_bindgen_test]
+fn hybrid_link_mac_agrees_between_initiator_and_responder() {
+    let link_id = "browser-hybrid-link-id";
+
+    let (init_x_sk, init_x_pk) = generate_x25519_ephemeral().expect("init x25519");
+    let (resp_x_sk, resp_x_pk) = generate_x25519_ephemeral().expect("resp x25519");
+    let (init_ml_sk, init_ml_pk) = generate_mlkem768().expect("init ml-kem");
+    assert_eq!(init_ml_pk.len(), ML_KEM768_PUBLIC_KEY_LEN);
+
+    let (ct, ml_shared) = encapsulate_mlkem768(&init_ml_pk).expect("encapsulate");
+    assert_eq!(ct.len(), ML_KEM768_CIPHERTEXT_LEN);
+
+    let ml_shared_resp = decapsulate_mlkem768(init_ml_sk, &ct).expect("decapsulate");
+    assert_eq!(ml_shared, ml_shared_resp);
+
+    let initiator = derive_header_mac_hybrid(init_x_sk, &resp_x_pk, &ml_shared, link_id)
+        .expect("init hybrid derive");
+    let responder = derive_header_mac_hybrid(resp_x_sk, &init_x_pk, &ml_shared, link_id)
+        .expect("resp hybrid derive");
+
+    let mut hdr = empty_header();
+    initiator.sign_slim_header(&mut hdr, link_id).expect("sign");
+    responder.verify_slim_header(&hdr, link_id).expect("verify");
 }

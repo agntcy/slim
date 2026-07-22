@@ -178,4 +178,49 @@ mod tests {
         let err = backend_pure::derive(sk, &[0u8; 8], "link").unwrap_err();
         assert!(matches!(err, HeaderMacError::KeyAgreement));
     }
+
+    #[test]
+    fn mlkem768_pure_encap_matches_awslc_decap() {
+        use super::backend as backend_awslc;
+
+        let (aws_dk, aws_pk) = backend_awslc::generate_mlkem768().unwrap();
+        assert_eq!(aws_pk.len(), ML_KEM768_PUBLIC_KEY_LEN);
+
+        let (ct, pure_shared) = backend_pure::encapsulate_mlkem768(&aws_pk).unwrap();
+        assert_eq!(ct.len(), ML_KEM768_CIPHERTEXT_LEN);
+
+        let aws_shared = backend_awslc::decapsulate_mlkem768(aws_dk, &ct).unwrap();
+        assert_eq!(pure_shared, aws_shared);
+    }
+
+    #[test]
+    fn mlkem768_awslc_encap_matches_pure_decap() {
+        use super::backend as backend_awslc;
+
+        let (pure_dk, pure_pk) = backend_pure::generate_mlkem768().unwrap();
+        let (ct, aws_shared) = backend_awslc::encapsulate_mlkem768(&pure_pk).unwrap();
+        let pure_shared = backend_pure::decapsulate_mlkem768(pure_dk, &ct).unwrap();
+        assert_eq!(pure_shared, aws_shared);
+    }
+
+    #[test]
+    fn hybrid_link_mac_matches_between_awslc_and_pure() {
+        use super::backend as backend_awslc;
+
+        let link_id = uuid::Uuid::new_v4().to_string();
+        let (init_x_sk, init_x_pk) = backend_pure::generate().unwrap();
+        let (resp_x_sk, resp_x_pk) = backend_awslc::generate().unwrap();
+
+        let (_resp_ml_dk, resp_ml_pk) = backend_awslc::generate_mlkem768().unwrap();
+        let (_ct, ml_shared) = backend_pure::encapsulate_mlkem768(&resp_ml_pk).unwrap();
+
+        let initiator =
+            backend_pure::derive_hybrid(init_x_sk, &resp_x_pk, &ml_shared, &link_id).unwrap();
+        let responder =
+            backend_awslc::derive_hybrid(resp_x_sk, &init_x_pk, &ml_shared, &link_id).unwrap();
+
+        let mut h = empty_header();
+        initiator.sign_slim_header(&mut h, &link_id).unwrap();
+        responder.verify_slim_header(&h, &link_id).unwrap();
+    }
 }

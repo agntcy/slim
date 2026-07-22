@@ -124,6 +124,7 @@ lazy_static = "1.5.0"
 libsqlite3-sys = { version = ">=0.17.2, <0.38.0", features = ["bundled"] }
 lru = "0.18.0"
 maybe-async = "0.2.10"
+ml-kem = { version = "0.3.2", default-features = false, features = ["alloc"] }
 mls-rs = { version = "0.54" }
 mls-rs-core = { version = "0.26" }
 mls-rs-crypto-awslc = { version = "0.23" }
