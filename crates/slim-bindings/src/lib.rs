@@ -46,13 +46,9 @@
 #[cfg(all(feature = "native", feature = "web"))]
 compile_error!("features `native` and `web` are mutually exclusive");
 
-// Web builds expose the same high-level App/Session concepts while replacing
-// the native Service-backed App implementation with a browser WebSocket +
-// SessionLayer implementation.
-#[cfg(not(feature = "web"))]
-mod app;
-#[cfg(feature = "web")]
-#[path = "web/app.rs"]
+// Single entry point for both native and browser (wasm32) builds. The divergent
+// pieces (Service-backed vs WebSocket-backed bootstrap, blocking vs async-only
+// FFI) are feature-gated inside the module rather than forked into a second file.
 mod app;
 mod build_info;
 #[cfg(not(feature = "web"))]
