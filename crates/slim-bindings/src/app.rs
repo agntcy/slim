@@ -6,11 +6,23 @@
 //! This module provides a language-agnostic FFI interface to SLIM using a hybrid approach
 //! that exposes both synchronous (blocking) and asynchronous versions of operations.
 //!
-//! ## Architecture
-//! - **Flexible Authentication**: Uses `AuthProvider`/`AuthVerifier` enums supporting multiple auth types
-//!   (SharedSecret, JWT, SPIRE, StaticToken) instead of generics (UniFFI requirement)
-//! - **Hybrid API**: Both sync (FFI-exposed) and async (internal) methods
-//! - **Runtime management**: Manages Tokio runtime for blocking operations
+//! ## Single entry point for native and browser (wasm32)
+//!
+//! Both builds wrap the same [`slim_service::app::App`]; the divergent pieces
+//! are feature-gated inside this one module instead of forking into a separate
+//! file:
+//!
+//! - **Native** (`not(feature = "web")`): the app is created through the global
+//!   [`slim_service::Service`], authenticates with the `AuthProvider`/
+//!   `AuthVerifier` enums (SharedSecret, JWT, SPIRE, StaticToken), and exposes
+//!   both blocking (FFI) and async methods backed by a managed Tokio runtime.
+//! - **Browser** (`feature = "web"`): the app is bootstrapped over a WebSocket
+//!   [`slim_datapath::message_processing::MessageProcessor`] with shared-secret
+//!   identity, and exposes async-only methods (there is no blocking runtime in
+//!   the browser).
+//!
+//! The session/subscribe/route operations are shared verbatim because they only
+//! delegate to the underlying [`slim_service::app::App`].
 
 use std::sync::Arc;
 
@@ -18,23 +30,38 @@ use tokio::sync::{RwLock, mpsc};
 
 use crate::errors::SlimError;
 use crate::name::Name;
-use crate::{get_global_service, get_runtime};
 
 use crate::session::SessionConfig;
 
-use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-
-use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
-
-use futures_timer::Delay;
 use slim_datapath::api::ProtoName as SlimName;
-use slim_service::Service as SlimService;
 use slim_service::app::App as SlimApp;
 use slim_session::Direction as CoreDirection;
 
 use slim_session::SessionConfig as SlimSessionConfig;
-use slim_session::session_controller::SessionController;
 use slim_session::{Notification, SessionError as SlimSessionError};
+
+// Native-only surface: global Service, the auth enums, identity config records,
+// the runtime-agnostic timer, and the blocking FFI helpers.
+#[cfg(not(feature = "web"))]
+use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
+#[cfg(not(feature = "web"))]
+use crate::{get_global_service, get_runtime};
+// `futures-timer` works on native and on the host metadata build; the browser
+// (wasm32) runtime uses `tokio_with_wasm`'s timer instead.
+#[cfg(not(target_arch = "wasm32"))]
+use futures_timer::Delay;
+#[cfg(not(feature = "web"))]
+use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+#[cfg(not(feature = "web"))]
+use slim_service::Service as SlimService;
+#[cfg(not(feature = "web"))]
+use slim_session::session_controller::SessionController;
+
+// Browser-only surface: shared-secret identity + a WebSocket message processor.
+#[cfg(feature = "web")]
+use slim_auth::shared_secret::SharedSecret;
+#[cfg(feature = "web")]
+use slim_datapath::message_processing::MessageProcessor;
 
 /// Direction enum
 /// Indicates whether the App can send, receive, both, or neither.
@@ -83,24 +110,41 @@ pub struct SessionWithCompletion {
     pub completion: Arc<crate::CompletionHandle>,
 }
 
-/// Adapter that bridges the App API with language-bindings interface
+/// Adapter that bridges the App API with the language-bindings interface.
 ///
-/// This adapter uses enum-based auth types (`AuthProvider`/`AuthVerifier`) instead of generics
-/// to be compatible with UniFFI, supporting multiple authentication mechanisms (SharedSecret,
-/// JWT, SPIRE, StaticToken). It provides both synchronous (blocking) and asynchronous methods
-/// for flexibility.
+/// Both native and browser builds wrap the same [`slim_service::app::App`]; the
+/// auth types and lifecycle handle differ per target:
+///
+/// - Native uses the enum-based `AuthProvider`/`AuthVerifier` (SharedSecret, JWT,
+///   SPIRE, StaticToken) and keeps the owning [`slim_service::Service`] alive.
+/// - Browser (wasm32) uses `SharedSecret` identity and keeps the WebSocket
+///   [`slim_datapath::message_processing::MessageProcessor`] alive together with
+///   the upstream connection id.
 #[derive(uniffi::Object)]
 pub struct App {
-    /// The underlying App instance with enum-based auth types (supports SharedSecret, JWT, SPIRE)
+    /// The underlying core SLIM app.
+    #[cfg(not(feature = "web"))]
     app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
+    #[cfg(feature = "web")]
+    app: Arc<SlimApp<SharedSecret, SharedSecret>>,
 
     /// Channel receiver for notifications from the app
     notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>>,
 
     /// Service instance for lifecycle management (Arc to inner SlimService)
+    #[cfg(not(feature = "web"))]
     service: Arc<SlimService>,
+
+    /// WebSocket message processor kept alive for the browser connection.
+    #[cfg(feature = "web")]
+    processor: MessageProcessor,
+
+    /// Connection id of the upstream browser WebSocket.
+    #[cfg(feature = "web")]
+    remote_connection: u64,
 }
 
+#[cfg(not(feature = "web"))]
 impl App {
     /// Internal constructor from parts
     ///
@@ -226,6 +270,12 @@ impl App {
     }
 }
 
+// Native-only constructors and blocking (FFI) wrappers. These live in their own
+// `#[cfg]`-gated export block because UniFFI only strips whole
+// `#[uniffi::export] impl` blocks (per-method `#[cfg]` leaves dangling
+// scaffolding). The async operations shared with the browser build are defined
+// in the un-gated block further below.
+#[cfg(not(feature = "web"))]
 #[uniffi::export]
 impl App {
     /// Create a new App with identity provider and verifier configurations
@@ -308,7 +358,13 @@ impl App {
         // Delegate to the global service's blocking method
         get_global_service().create_app_with_secret(name, secret)
     }
+}
 
+// Operations shared by native and browser builds. Every method here only
+// delegates to the underlying `slim_service::app::App`, so the same code powers
+// both targets.
+#[uniffi::export]
+impl App {
     /// Get the app ID in UUID format
     pub fn id(&self) -> String {
         self.app.app_name().string_id()
@@ -317,19 +373,6 @@ impl App {
     /// Get the app name
     pub fn name(&self) -> Arc<Name> {
         Arc::new(self.app.app_name().into())
-    }
-
-    /// Create a new session (blocking version for FFI)
-    ///
-    /// Returns a SessionWithCompletion containing the session context and a completion handle.
-    /// Call `.wait()` on the completion handle to wait for session establishment.
-    pub fn create_session(
-        &self,
-        config: SessionConfig,
-        destination: Arc<Name>,
-    ) -> Result<SessionWithCompletion, SlimError> {
-        crate::config::get_runtime()
-            .block_on(async { self.create_session_async(config, destination).await })
     }
 
     /// Create a new session (async version)
@@ -345,16 +388,23 @@ impl App {
     ) -> Result<SessionWithCompletion, SlimError> {
         let slim_config: SlimSessionConfig = config.into();
         let slim_dest: SlimName = destination.as_ref().into();
-        let app = self.app.clone();
-        let runtime = get_runtime();
 
-        // Spawn on the runtime's handle to ensure tokio context is available
-        let handle =
-            runtime.spawn(async move { app.create_session(slim_config, slim_dest, None).await });
+        // Native: spawn on the runtime's handle so a tokio context is available
+        // even when reached from a blocking (`block_on`) FFI caller.
+        #[cfg(not(feature = "web"))]
+        let (session_ctx, completion) = {
+            let app = self.app.clone();
+            let handle = get_runtime()
+                .spawn(async move { app.create_session(slim_config, slim_dest, None).await });
+            handle.await.map_err(|e| SlimError::SessionError {
+                message: format!("Failed to create session: {e}"),
+            })??
+        };
 
-        let (session_ctx, completion) = handle.await.map_err(|e| SlimError::SessionError {
-            message: format!("Failed to create session: {e}"),
-        })??;
+        // Browser: already on the JS event loop; call directly.
+        #[cfg(feature = "web")]
+        let (session_ctx, completion) =
+            self.app.create_session(slim_config, slim_dest, None).await?;
 
         // Create Session and CompletionHandle
         let bindings_ctx = Arc::new(crate::Session::new(session_ctx));
@@ -363,21 +413,6 @@ impl App {
         Ok(SessionWithCompletion {
             session: bindings_ctx,
             completion: completion_handle,
-        })
-    }
-
-    /// Create a new session and wait for completion (blocking version)
-    ///
-    /// This method creates a session and blocks until the session establishment completes.
-    /// Returns only the session context, as the completion has already been awaited.
-    pub fn create_session_and_wait(
-        &self,
-        config: SessionConfig,
-        destination: Arc<Name>,
-    ) -> Result<Arc<crate::Session>, SlimError> {
-        crate::config::get_runtime().block_on(async {
-            self.create_session_and_wait_async(config, destination)
-                .await
         })
     }
 
@@ -393,16 +428,6 @@ impl App {
         let session_with_completion = self.create_session_async(config, destination).await?;
         session_with_completion.completion.wait_async().await?;
         Ok(session_with_completion.session)
-    }
-
-    /// Delete a session (blocking version for FFI)
-    ///
-    /// Returns a completion handle that can be awaited to ensure the deletion completes.
-    pub fn delete_session(
-        &self,
-        session: Arc<crate::Session>,
-    ) -> Result<Arc<crate::CompletionHandle>, SlimError> {
-        crate::config::get_runtime().block_on(async { self.delete_session_async(session).await })
     }
 
     /// Delete a session (async version)
@@ -425,14 +450,6 @@ impl App {
         Ok(Arc::new(crate::CompletionHandle::from(completion)))
     }
 
-    /// Delete a session and wait for completion (blocking version)
-    ///
-    /// This method deletes a session and blocks until the deletion completes.
-    pub fn delete_session_and_wait(&self, session: Arc<crate::Session>) -> Result<(), SlimError> {
-        crate::config::get_runtime()
-            .block_on(async { self.delete_session_and_wait_async(session).await })
-    }
-
     /// Delete a session and wait for completion (async version)
     ///
     /// This method deletes a session and waits until the deletion completes.
@@ -442,12 +459,6 @@ impl App {
     ) -> Result<(), SlimError> {
         let completion_handle = self.delete_session_async(session).await?;
         completion_handle.wait_async().await
-    }
-
-    /// Subscribe to a session name (blocking version for FFI)
-    pub fn subscribe(&self, name: Arc<Name>, connection_id: Option<u64>) -> Result<(), SlimError> {
-        crate::config::get_runtime()
-            .block_on(async { self.subscribe_async(name, connection_id).await })
     }
 
     /// Subscribe to a name (async version)
@@ -461,16 +472,6 @@ impl App {
         Ok(())
     }
 
-    /// Unsubscribe from a name (blocking version for FFI)
-    pub fn unsubscribe(
-        &self,
-        name: Arc<Name>,
-        connection_id: Option<u64>,
-    ) -> Result<(), SlimError> {
-        crate::config::get_runtime()
-            .block_on(async { self.unsubscribe_async(name, connection_id).await })
-    }
-
     /// Unsubscribe from a name (async version)
     pub async fn unsubscribe_async(
         &self,
@@ -480,12 +481,6 @@ impl App {
         let slim_name: SlimName = name.as_ref().into();
         self.app.unsubscribe(&slim_name, connection_id).await?;
         Ok(())
-    }
-
-    /// Set a route to a name for a specific connection (blocking version for FFI)
-    pub fn set_route(&self, name: Arc<Name>, connection_id: u64) -> Result<(), SlimError> {
-        crate::config::get_runtime()
-            .block_on(async { self.set_route_async(name, connection_id).await })
     }
 
     /// Set a route to a name for a specific connection (async version)
@@ -499,12 +494,6 @@ impl App {
         Ok(())
     }
 
-    /// Remove a route (blocking version for FFI)
-    pub fn remove_route(&self, name: Arc<Name>, connection_id: u64) -> Result<(), SlimError> {
-        crate::config::get_runtime()
-            .block_on(async { self.remove_route_async(name, connection_id).await })
-    }
-
     /// Remove a route (async version)
     pub async fn remove_route_async(
         &self,
@@ -516,14 +505,6 @@ impl App {
         Ok(())
     }
 
-    /// Listen for incoming sessions (blocking version for FFI)
-    pub fn listen_for_session(
-        &self,
-        timeout: Option<std::time::Duration>,
-    ) -> Result<Arc<crate::Session>, SlimError> {
-        crate::get_runtime().block_on(async { self.listen_for_session_async(timeout).await })
-    }
-
     /// Listen for incoming sessions (async version)
     pub async fn listen_for_session_async(
         &self,
@@ -533,9 +514,14 @@ impl App {
 
         let recv_fut = rx.recv();
         let notification_opt = if let Some(dur) = timeout {
-            // Runtime-agnostic timeout using futures-timer
-            futures::pin_mut!(recv_fut);
+            // `futures-timer` is used everywhere except the browser runtime,
+            // which relies on `tokio_with_wasm`'s wasm-compatible timer.
+            #[cfg(not(target_arch = "wasm32"))]
             let delay = Delay::new(dur);
+            #[cfg(target_arch = "wasm32")]
+            let delay = tokio::time::sleep(dur);
+
+            futures::pin_mut!(recv_fut);
             futures::pin_mut!(delay);
 
             match futures::future::select(recv_fut, delay).await {
@@ -569,7 +555,97 @@ impl App {
     }
 }
 
+// Native-only blocking (FFI) wrappers. Each simply drives the shared async
+// method above to completion on the managed Tokio runtime; the browser build
+// has no blocking runtime and exposes the async methods directly.
+#[cfg(not(feature = "web"))]
+#[uniffi::export]
+impl App {
+    /// Create a new session (blocking version for FFI)
+    ///
+    /// Returns a SessionWithCompletion containing the session context and a completion handle.
+    /// Call `.wait()` on the completion handle to wait for session establishment.
+    pub fn create_session(
+        &self,
+        config: SessionConfig,
+        destination: Arc<Name>,
+    ) -> Result<SessionWithCompletion, SlimError> {
+        crate::config::get_runtime()
+            .block_on(async { self.create_session_async(config, destination).await })
+    }
+
+    /// Create a new session and wait for completion (blocking version)
+    ///
+    /// This method creates a session and blocks until the session establishment completes.
+    /// Returns only the session context, as the completion has already been awaited.
+    pub fn create_session_and_wait(
+        &self,
+        config: SessionConfig,
+        destination: Arc<Name>,
+    ) -> Result<Arc<crate::Session>, SlimError> {
+        crate::config::get_runtime().block_on(async {
+            self.create_session_and_wait_async(config, destination)
+                .await
+        })
+    }
+
+    /// Delete a session (blocking version for FFI)
+    ///
+    /// Returns a completion handle that can be awaited to ensure the deletion completes.
+    pub fn delete_session(
+        &self,
+        session: Arc<crate::Session>,
+    ) -> Result<Arc<crate::CompletionHandle>, SlimError> {
+        crate::config::get_runtime().block_on(async { self.delete_session_async(session).await })
+    }
+
+    /// Delete a session and wait for completion (blocking version)
+    ///
+    /// This method deletes a session and blocks until the deletion completes.
+    pub fn delete_session_and_wait(&self, session: Arc<crate::Session>) -> Result<(), SlimError> {
+        crate::config::get_runtime()
+            .block_on(async { self.delete_session_and_wait_async(session).await })
+    }
+
+    /// Subscribe to a session name (blocking version for FFI)
+    pub fn subscribe(&self, name: Arc<Name>, connection_id: Option<u64>) -> Result<(), SlimError> {
+        crate::config::get_runtime()
+            .block_on(async { self.subscribe_async(name, connection_id).await })
+    }
+
+    /// Unsubscribe from a name (blocking version for FFI)
+    pub fn unsubscribe(
+        &self,
+        name: Arc<Name>,
+        connection_id: Option<u64>,
+    ) -> Result<(), SlimError> {
+        crate::config::get_runtime()
+            .block_on(async { self.unsubscribe_async(name, connection_id).await })
+    }
+
+    /// Set a route to a name for a specific connection (blocking version for FFI)
+    pub fn set_route(&self, name: Arc<Name>, connection_id: u64) -> Result<(), SlimError> {
+        crate::config::get_runtime()
+            .block_on(async { self.set_route_async(name, connection_id).await })
+    }
+
+    /// Remove a route (blocking version for FFI)
+    pub fn remove_route(&self, name: Arc<Name>, connection_id: u64) -> Result<(), SlimError> {
+        crate::config::get_runtime()
+            .block_on(async { self.remove_route_async(name, connection_id).await })
+    }
+
+    /// Listen for incoming sessions (blocking version for FFI)
+    pub fn listen_for_session(
+        &self,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<Arc<crate::Session>, SlimError> {
+        crate::get_runtime().block_on(async { self.listen_for_session_async(timeout).await })
+    }
+}
+
 // Non-UniFFI methods for internal use (slimrpc)
+#[cfg(not(feature = "web"))]
 impl App {
     /// Get reference to internal app for advanced use cases (slimrpc)
     pub fn inner_app(&self) -> &Arc<SlimApp<AuthProvider, AuthVerifier>> {
@@ -588,6 +664,7 @@ impl App {
 // Internal methods for PyO3 bindings (not exported through UniFFI)
 // ============================================================================
 
+#[cfg(not(feature = "web"))]
 impl App {
     /// Create a new session returning internal Session (for PyO3 bindings)
     ///
@@ -667,10 +744,158 @@ impl App {
 }
 
 // ============================================================================
+// Browser (wasm32) surface
+//
+// These items are only compiled for the `web` feature. The session/subscribe/
+// route operations are shared with the native build above (they merely delegate
+// to `self.app`); only the WebSocket-specific constructor and lifecycle helpers
+// live here.
+// ============================================================================
+
+#[cfg(feature = "web")]
+#[uniffi::export]
+impl App {
+    /// Connect a browser application to a SLIM WebSocket endpoint.
+    ///
+    /// `endpoint` must use `ws://` or `wss://`. When supplied, `token` is
+    /// appended as the `token` query parameter used by the SLIM WebSocket
+    /// server. Browser bindings currently support shared-secret identity, which
+    /// is portable and backed by WebCrypto-compatible SLIM components.
+    #[uniffi::constructor]
+    pub async fn connect_with_secret(
+        endpoint: String,
+        token: Option<String>,
+        name: Arc<Name>,
+        secret: String,
+        direction: Direction,
+    ) -> Result<Arc<Self>, SlimError> {
+        Self::connect_browser(endpoint, token, name, secret, direction).await
+    }
+
+    /// Connection ID of the upstream browser WebSocket.
+    pub fn remote_connection_id(&self) -> u64 {
+        self.remote_connection
+    }
+
+    /// Route traffic for `name` through the application's upstream WebSocket.
+    pub async fn set_route_via_upstream_async(&self, name: Arc<Name>) -> Result<(), SlimError> {
+        self.set_route_async(name, self.remote_connection).await
+    }
+
+    /// Disconnect the upstream WebSocket.
+    pub fn disconnect(&self) -> Result<(), SlimError> {
+        self.processor
+            .disconnect(self.remote_connection)
+            .map(|_| ())
+            .map_err(|error| SlimError::ServiceError {
+                message: format!("failed to disconnect browser WebSocket: {error}"),
+            })
+    }
+}
+
+#[cfg(feature = "web")]
+impl App {
+    /// Establish the WebSocket connection and bootstrap the core app over it.
+    ///
+    /// This performs the browser-specific wiring: it opens the `wss://`/`ws://`
+    /// data-plane connection, bootstraps the same [`slim_service::app::App`] used
+    /// natively via [`slim_service::app::bootstrap_app_with_direction`], and
+    /// advertises the local name upstream so the server can route to it.
+    async fn connect_browser(
+        endpoint: String,
+        token: Option<String>,
+        name: Arc<Name>,
+        secret: String,
+        direction: Direction,
+    ) -> Result<Arc<Self>, SlimError> {
+        use slim_config::client::ClientConfig;
+        use slim_service::app::bootstrap_app_with_direction;
+
+        validate_websocket_endpoint(&endpoint)?;
+        let endpoint = build_endpoint(&endpoint, token.as_deref());
+        let base_name: SlimName = name.as_ref().into();
+        let identity = SharedSecret::new(&name.to_string(), &secret)?;
+        let processor = MessageProcessor::new();
+        let (_connection_handle, remote_connection) = processor
+            .connect(ClientConfig::with_endpoint(&endpoint), None, None)
+            .await
+            .map_err(|error| SlimError::ServiceError {
+                message: format!("failed to connect browser WebSocket: {error}"),
+            })?;
+
+        let (app, notification_rx) = bootstrap_app_with_direction(
+            &processor,
+            "slim/web",
+            &base_name,
+            identity.clone(),
+            identity,
+            direction.into(),
+        )?;
+
+        let app = Arc::new(app);
+        // Advertise the local name to the upstream server so it can route to us.
+        app.subscribe(app.app_name(), Some(remote_connection)).await?;
+
+        Ok(Arc::new(Self {
+            app,
+            notification_rx: Arc::new(RwLock::new(notification_rx)),
+            processor,
+            remote_connection,
+        }))
+    }
+}
+
+#[cfg(feature = "web")]
+fn build_endpoint(endpoint: &str, token: Option<&str>) -> String {
+    match token {
+        Some(token) if !token.is_empty() => {
+            let separator = if endpoint.contains('?') { '&' } else { '?' };
+            format!("{endpoint}{separator}token={token}")
+        }
+        _ => endpoint.to_string(),
+    }
+}
+
+#[cfg(feature = "web")]
+fn validate_websocket_endpoint(endpoint: &str) -> Result<(), SlimError> {
+    if endpoint.starts_with("ws://") || endpoint.starts_with("wss://") {
+        Ok(())
+    } else {
+        Err(SlimError::InvalidArgument {
+            message: format!("browser endpoint must use ws:// or wss://, got {endpoint:?}"),
+        })
+    }
+}
+
+#[cfg(all(test, feature = "web"))]
+mod web_tests {
+    use super::*;
+
+    #[test]
+    fn appends_auth_token_to_websocket_endpoint() {
+        assert_eq!(
+            build_endpoint("wss://slim.example/ws", Some("jwt")),
+            "wss://slim.example/ws?token=jwt"
+        );
+        assert_eq!(
+            build_endpoint("wss://slim.example/ws?x=1", Some("jwt")),
+            "wss://slim.example/ws?x=1&token=jwt"
+        );
+    }
+
+    #[test]
+    fn validates_browser_websocket_schemes() {
+        assert!(validate_websocket_endpoint("ws://localhost:46357").is_ok());
+        assert!(validate_websocket_endpoint("wss://slim.example").is_ok());
+        assert!(validate_websocket_endpoint("http://slim.example").is_err());
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "web")))]
 mod tests {
     use crate::SessionType;
 

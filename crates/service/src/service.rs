@@ -35,13 +35,11 @@ use crate::errors::ServiceError;
 // Session feature imports
 #[cfg(feature = "session")]
 use {
-    crate::app::App,
+    crate::app::{bootstrap_app_with_direction, App},
     slim_auth::traits::Verifier,
     slim_datapath::api::ProtoName,
     slim_session::notification::Notification,
     slim_session::{Direction, SessionError},
-    std::collections::hash_map::DefaultHasher,
-    std::hash::Hash,
     tokio::sync::mpsc,
 };
 
@@ -548,37 +546,14 @@ impl Service {
     {
         debug!(%app_name, "creating app");
 
-        // Create storage path for the app
-        let mut hasher = DefaultHasher::new();
-        app_name.to_string().hash(&mut hasher);
-
-        // Channels to communicate with SLIM
-        let (conn_id, tx_slim, rx_slim) =
-            self.message_processor.register_local_connection(false)?;
-
-        // Channels to communicate with the local app. This will be mainly used to receive notifications about new
-        // sessions opened
-
-        // TODO(msardara): make the buffer size configurable
-        let (tx_app, rx_app) = mpsc::channel(128);
-
-        // create app
-        let app = App::new_with_direction(
+        bootstrap_app_with_direction(
+            &self.message_processor,
+            self.id.to_string(),
             app_name,
             identity_provider,
             identity_verifier,
-            conn_id,
-            tx_slim,
-            tx_app,
             direction,
-            self.id.to_string(),
-        );
-
-        // start message processing using the rx channel
-        app.process_messages(rx_slim);
-
-        // return the app instance and the rx channel
-        Ok((app, rx_app))
+        )
     }
 
     #[tracing::instrument(skip_all, fields(service_id = %self.id))]

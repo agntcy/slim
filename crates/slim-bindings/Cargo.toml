@@ -47,6 +47,7 @@ agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-session = { workspace = true }
+agntcy-slim-service = { workspace = true, features = ["session"] }
 agntcy-slim-version = { workspace = true }
 tokio = { package = "tokio_with_wasm", version = "0.9", features = ["sync", "time"] }
 wasm-bindgen-futures = { workspace = true }

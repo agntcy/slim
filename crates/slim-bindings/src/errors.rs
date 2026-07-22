@@ -4,7 +4,6 @@
 use display_error_chain::ErrorChainExt;
 
 use slim_auth::errors::AuthError;
-#[cfg(not(feature = "web"))]
 use slim_service::errors::ServiceError;
 use slim_session::errors::SessionError;
 
@@ -45,7 +44,6 @@ macro_rules! impl_from_error_for_slim {
     };
 }
 
-#[cfg(not(feature = "web"))]
 impl_from_error_for_slim!(ServiceError, ServiceError);
 impl_from_error_for_slim!(SessionError, SessionError);
 impl_from_error_for_slim!(AuthError, AuthError);
