@@ -28,9 +28,9 @@
 use slim_datapath::api::proto::dataplane::v1::SlimHeader;
 use slim_datapath::header_mac::{HeaderMacError, HeaderMacSession};
 use slim_datapath::link_ecdh::{
-    decapsulate_mlkem768, derive_header_mac_from_ecdh, derive_header_mac_hybrid,
-    encapsulate_mlkem768, generate_mlkem768, generate_x25519_ephemeral,
-    ML_KEM768_CIPHERTEXT_LEN, ML_KEM768_PUBLIC_KEY_LEN,
+    ML_KEM768_CIPHERTEXT_LEN, ML_KEM768_PUBLIC_KEY_LEN, decapsulate_mlkem768,
+    derive_header_mac_from_ecdh, derive_header_mac_hybrid, encapsulate_mlkem768, generate_mlkem768,
+    generate_x25519_ephemeral,
 };
 use slim_datapath::messages::utils::DEFAULT_TTL;
 use slim_datapath::runtime;

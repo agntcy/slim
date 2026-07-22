@@ -291,7 +291,12 @@ where
                         .ok_or(HeaderMacError::KeyAgreement)?;
                     let (ct, mlkem_shared) = link_ecdh::encapsulate_mlkem768(peer_kem_pk)?;
                     reply_kem_payload = Some(ct);
-                    link_ecdh::derive_header_mac_hybrid(server_sk, peer_ecdh, &mlkem_shared, link_id)
+                    link_ecdh::derive_header_mac_hybrid(
+                        server_sk,
+                        peer_ecdh,
+                        &mlkem_shared,
+                        link_id,
+                    )
                 })()
             } else {
                 link_ecdh::derive_header_mac_from_ecdh(server_sk, peer_ecdh, link_id)
