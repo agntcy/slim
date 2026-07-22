@@ -10,6 +10,7 @@ use crate::api::ProtoMessage;
 use crate::api::proto::dataplane::v1::{LinkConnectionType, Message};
 use crate::connection::Connection;
 use crate::errors::DataPathError;
+use crate::header_mac::HeaderMacError;
 use crate::link_ecdh;
 use crate::link_ecdh::{ML_KEM768_CIPHERTEXT_LEN, ML_KEM768_PUBLIC_KEY_LEN, X25519_PUBLIC_KEY_LEN};
 use crate::tables::ConnType;
@@ -280,15 +281,18 @@ where
 
             let hybrid = params.enforce_pqc || kem_len(&payload) == ML_KEM768_PUBLIC_KEY_LEN;
             let derive_result = if hybrid {
-                let peer_kem_pk = payload.link_kem_payload.as_deref().ok_or_else(|| {
-                    DataPathError::NegotiationError("missing initiator ML-KEM public key".into())
-                })?;
-                let (ct, mlkem_shared) =
-                    link_ecdh::encapsulate_mlkem768(peer_kem_pk).map_err(|_| {
-                        DataPathError::NegotiationError("ML-KEM encapsulation failed".into())
-                    })?;
-                reply_kem_payload = Some(ct);
-                link_ecdh::derive_header_mac_hybrid(server_sk, peer_ecdh, &mlkem_shared, link_id)
+                // Use an IIFE so ? propagates into derive_result (-> Err arm of the match
+                // below), letting strict=false deployments skip the header MAC gracefully
+                // instead of hard-rejecting the connection.
+                (|| {
+                    let peer_kem_pk = payload
+                        .link_kem_payload
+                        .as_deref()
+                        .ok_or(HeaderMacError::KeyAgreement)?;
+                    let (ct, mlkem_shared) = link_ecdh::encapsulate_mlkem768(peer_kem_pk)?;
+                    reply_kem_payload = Some(ct);
+                    link_ecdh::derive_header_mac_hybrid(server_sk, peer_ecdh, &mlkem_shared, link_id)
+                })()
             } else {
                 link_ecdh::derive_header_mac_from_ecdh(server_sk, peer_ecdh, link_id)
             };
@@ -310,33 +314,6 @@ where
                     }
                 }
             }
-            // match link_ecdh::generate_x25519_ephemeral() {
-            //     Ok((server_sk, server_pk)) => {
-            //         match link_ecdh::derive_header_mac_from_ecdh(server_sk, peer_ecdh, link_id) {
-            //             Ok(mac) => {
-            //                 connection.install_header_hmac(mac);
-            //                 server_reply_ecdh = Some(server_pk);
-            //             }
-            //             Err(e) => {
-            //                 error!(
-            //                     error = %e,
-            //                     "link ECDH key derivation failed (server path)",
-            //                 );
-            //                 if strict {
-            //                     return Err(DataPathError::NegotiationError(
-            //                         "failed to derive header MAC from link ECDH (server path)"
-            //                             .to_string(),
-            //                     ));
-            //                 }
-            //             }
-            //         }
-            //     }
-            //     Err(_) => {
-            //         return Err(DataPathError::NegotiationError(
-            //             "failed to generate server exchange key".to_string(),
-            //         ));
-            //     }
-            // }
 
             if params.enforce_pqc && connection.header_hmac().is_none() {
                 return Err(DataPathError::NegotiationError(

@@ -148,9 +148,10 @@ impl ServiceConfiguration {
         self.dataplane.enforce_pqc()
     }
 
-    /// Resolve and apply [`EnforcePqcPolicy`] to all dataplane TLS endpoints.
+    /// Resolve and apply [`EnforcePqcPolicy`] to all dataplane and controlplane TLS endpoints.
     pub fn prepare(&mut self) -> Result<(), ServiceError> {
         self.dataplane.normalize_pqc()?;
+        self.controller.normalize_pqc()?;
         Ok(())
     }
 

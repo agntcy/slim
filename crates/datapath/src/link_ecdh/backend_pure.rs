@@ -24,7 +24,14 @@ use crate::{
 };
 
 /// Seeds ML-KEM via the workspace `getrandom` (0.3, `wasm_js` on wasm32).
-struct GetrandomRng;
+///
+/// The ml_kem API requires `TryCryptoRng<Error = Infallible>` (via the `CryptoRng`
+/// blanket impl), so we cannot surface a getrandom failure through the trait.
+/// Instead we store it here and callers check `self.error` after the ml_kem call.
+#[derive(Default)]
+struct GetrandomRng {
+    error: Option<getrandom::Error>,
+}
 
 impl TryRng for GetrandomRng {
     type Error = Infallible;
@@ -42,7 +49,9 @@ impl TryRng for GetrandomRng {
     }
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
-        getrandom::fill(dest).expect("getrandom failed");
+        if let Err(e) = getrandom::fill(dest) {
+            self.error = Some(e);
+        }
         Ok(())
     }
 }
@@ -51,9 +60,6 @@ impl TryCryptoRng for GetrandomRng {}
 
 /// Opaque ephemeral private key, held between [`generate`] and [`derive`].
 pub type EphemeralKey = StaticSecret;
-
-/// Opaque ML-KEM-768 decapsulation key, held between keygen and decapsulation.
-pub type MlKem768SecretKey = DecapsulationKey;
 
 pub fn generate() -> Result<(EphemeralKey, Vec<u8>), HeaderMacError> {
     let mut secret = [0u8; X25519_PUBLIC_KEY_LEN];
@@ -82,8 +88,11 @@ pub fn derive(
 }
 
 pub fn generate_mlkem768() -> Result<(DecapsulationKey, Vec<u8>), HeaderMacError> {
-    let mut rng = GetrandomRng;
+    let mut rng = GetrandomRng::default();
     let dk = DecapsulationKey::generate_from_rng(&mut rng);
+    if let Some(e) = rng.error {
+        return Err(HeaderMacError::KeyGenerationFailed(e.to_string()));
+    }
     let pk = dk.encapsulation_key().to_bytes();
     if pk.len() != ML_KEM768_PUBLIC_KEY_LEN {
         return Err(HeaderMacError::KeyGenerationFailed(
@@ -98,8 +107,11 @@ pub fn encapsulate_mlkem768(pk: &[u8]) -> Result<(Vec<u8>, [u8; 32]), HeaderMacE
         return Err(HeaderMacError::KeyAgreement);
     }
     let ek = EncapsulationKey::new_from_slice(pk).map_err(|_| HeaderMacError::KeyAgreement)?;
-    let mut rng = GetrandomRng;
+    let mut rng = GetrandomRng::default();
     let (ct, shared) = ek.encapsulate_with_rng(&mut rng);
+    if let Some(e) = rng.error {
+        return Err(HeaderMacError::KeyGenerationFailed(e.to_string()));
+    }
     if ct.len() != ML_KEM768_CIPHERTEXT_LEN {
         return Err(HeaderMacError::KeyAgreement);
     }

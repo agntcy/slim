@@ -211,13 +211,18 @@ mod tests {
         let (init_x_sk, init_x_pk) = backend_pure::generate().unwrap();
         let (resp_x_sk, resp_x_pk) = backend_awslc::generate().unwrap();
 
-        let (_resp_ml_dk, resp_ml_pk) = backend_awslc::generate_mlkem768().unwrap();
-        let (_ct, ml_shared) = backend_pure::encapsulate_mlkem768(&resp_ml_pk).unwrap();
+        // Simulate the real wire protocol: responder (awslc) generates the KEM
+        // keypair, initiator (pure) encapsulates, responder decapsulates.
+        let (resp_ml_dk, resp_ml_pk) = backend_awslc::generate_mlkem768().unwrap();
+        let (ct, init_ml_shared) = backend_pure::encapsulate_mlkem768(&resp_ml_pk).unwrap();
+        let resp_ml_shared = backend_awslc::decapsulate_mlkem768(resp_ml_dk, &ct).unwrap();
 
         let initiator =
-            backend_pure::derive_hybrid(init_x_sk, &resp_x_pk, &ml_shared, &link_id).unwrap();
+            backend_pure::derive_hybrid(init_x_sk, &resp_x_pk, &init_ml_shared, &link_id)
+                .unwrap();
         let responder =
-            backend_awslc::derive_hybrid(resp_x_sk, &init_x_pk, &ml_shared, &link_id).unwrap();
+            backend_awslc::derive_hybrid(resp_x_sk, &init_x_pk, &resp_ml_shared, &link_id)
+                .unwrap();
 
         let mut h = empty_header();
         initiator.sign_slim_header(&mut h, &link_id).unwrap();
