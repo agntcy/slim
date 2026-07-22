@@ -105,7 +105,6 @@ dependencies = [
  "tokio",
  "tokio_with_wasm",
  "tracing",
- "twox-hash",
  "uniffi",
  "wasm-bindgen-futures",
 ]

@@ -26,7 +26,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-twox-hash = { workspace = true }
 uniffi = { workspace = true, features = ["cli", "wasm-unstable-single-threaded"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
