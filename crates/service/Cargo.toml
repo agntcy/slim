@@ -15,11 +15,11 @@ kubernetes = ["agntcy-slim-datapath/kubernetes"]
 session = ["agntcy-slim-session", "agntcy-slim-persistence"]
 
 [dependencies]
-agntcy-slim-version = { workspace = true }
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-persistence = { workspace = true, optional = true }
 agntcy-slim-session = { workspace = true, optional = true }
+agntcy-slim-version = { workspace = true }
 display-error-chain = { workspace = true }
 thiserror = { workspace = true }
 tokio-util = { workspace = true }
