@@ -266,7 +266,10 @@ impl ChannelManagerServer {
             }
         };
 
-        let participant_names: Vec<String> = participants.iter().map(|p| p.to_string()).collect();
+        let participant_names: Vec<String> = participants
+            .iter()
+            .map(|(name, _)| name.to_string())
+            .collect();
 
         info!(
             "Listing participants for channel {channel_name}, count: {}",
