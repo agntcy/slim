@@ -23,7 +23,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" --title "$RELEASE_TAG"
+        run: gh release create "$RELEASE_TAG" --title "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"
 
   build-binaries:
     name: "${{ matrix.platform.target }}"
