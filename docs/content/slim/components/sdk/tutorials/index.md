@@ -16,6 +16,7 @@ All tutorials assume you have the SLIM SDK installed. See [Installation](../inst
 | [Creating an App](./tutorial-app.md) | Register a named identity on the SLIM network |
 | [Creating a Session](./tutorial-session.md) | Open P2P and group sessions, send messages, and configure reliability and encryption |
 | [Receiving a Session](./tutorial-receive.md) | Listen for incoming sessions, receive messages, and reply |
+| [Session Persistence and Restore](./tutorial-persistence.md) | Persist session state across restarts and resume group sessions without re-inviting |
 
 ## SLIMRPC Tutorials
 
