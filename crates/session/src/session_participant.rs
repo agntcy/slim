@@ -399,8 +399,15 @@ where
         self.common.processing_state
     }
 
-    fn participants_list(&self) -> Vec<ProtoName> {
-        self.group_list.keys().cloned().collect()
+    fn participants_list(&self) -> Vec<(ProtoName, ParticipantState)> {
+        self.group_list
+            .iter()
+            .map(|(name, entry)| {
+                let status =
+                    ParticipantState::try_from(entry.status).unwrap_or(ParticipantState::Online);
+                (name.clone(), status)
+            })
+            .collect()
     }
 
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {

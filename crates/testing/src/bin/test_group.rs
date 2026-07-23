@@ -303,7 +303,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             assert!(
                 list.iter()
-                    .all(|n| n.str_components() != participants[to_remove].str_components()),
+                    .all(|(n, _)| n.str_components() != participants[to_remove].str_components()),
                 "Participants to remove is still present in the session"
             );
 
@@ -325,7 +325,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             assert!(
                 list.iter()
-                    .any(|n| n.str_components() == participants[to_add].str_components()),
+                    .any(|(n, _)| n.str_components() == participants[to_add].str_components()),
                 "Participants to add is not present in the session"
             );
 

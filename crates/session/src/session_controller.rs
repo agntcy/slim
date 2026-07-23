@@ -522,7 +522,9 @@ impl SessionController {
         self.config.initiator
     }
 
-    pub async fn participants_list(&self) -> Result<Vec<ProtoName>, SessionError> {
+    pub async fn participants_list(
+        &self,
+    ) -> Result<Vec<(ProtoName, ParticipantState)>, SessionError> {
         let (tx, rx) = oneshot::channel();
 
         // Send query to the processing loop

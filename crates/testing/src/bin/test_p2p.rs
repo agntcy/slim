@@ -100,9 +100,9 @@ async fn run_client_task(name: Name, moderator_name: Name, port: u16) -> Result<
                                 println!("Participant {}: session participants: {:?}", name_clone_session, list);
                                 // check participants list
                                 assert_eq!(list.len(), 2, "Expected 2 participants in the session");
-                                assert!(list.iter().any(|n| n.str_components() == name_clone_session.str_components()),
+                                assert!(list.iter().any(|(n, _)| n.str_components() == name_clone_session.str_components()),
                                     "Participants list should contain the client name");
-                                assert!(list.iter().any(|n| n.str_components() == moderator_name.str_components()),
+                                assert!(list.iter().any(|(n, _)| n.str_components() == moderator_name.str_components()),
                                     "Participants list should contain the moderator name");
 
                                 session_ctx.spawn_receiver(move |mut rx, weak| async move {
@@ -287,13 +287,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             assert!(
                 list.iter()
-                    .any(|n| n.str_components() == moderator_name.str_components()),
+                    .any(|(n, _)| n.str_components() == moderator_name.str_components()),
                 "Participants list should contain the moderator name"
             );
             assert!(
-                list.iter()
-                    .any(|n| n.str_components() == client_1_name.str_components()
-                        || n.str_components() == client_2_name.str_components()),
+                list.iter().any(
+                    |(n, _)| n.str_components() == client_1_name.str_components()
+                        || n.str_components() == client_2_name.str_components()
+                ),
                 "Participants list should contain the client name"
             );
         } else {
@@ -305,12 +306,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             assert!(
                 list.iter()
-                    .any(|n| n.str_components() == moderator_name.str_components()),
+                    .any(|(n, _)| n.str_components() == moderator_name.str_components()),
                 "Participants list should contain the moderator name"
             );
             assert!(
                 list.iter()
-                    .any(|n| n.str_components() == client_1_name.str_components()),
+                    .any(|(n, _)| n.str_components() == client_1_name.str_components()),
                 "Participants list should contain the client-1 name"
             );
         }

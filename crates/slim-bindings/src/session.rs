@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use slim_datapath::api::ParticipantState as SlimParticipantState;
 use slim_session::CompletionHandle as SlimCompletionHandle;
 use slim_session::session_controller::SessionController;
 use std::collections::HashMap;
@@ -73,6 +74,29 @@ impl From<slim_session::session_config::MlsSettings> for MlsSettings {
             header_integrity_validation_percent: s.header_integrity_validation_percent,
         }
     }
+}
+
+/// Online/offline status of a session participant
+#[derive(Debug, Clone, PartialEq, uniffi::Enum)]
+pub enum ParticipantStatus {
+    Online,
+    Offline,
+}
+
+impl From<SlimParticipantState> for ParticipantStatus {
+    fn from(s: SlimParticipantState) -> Self {
+        match s {
+            SlimParticipantState::Online => ParticipantStatus::Online,
+            SlimParticipantState::Offline => ParticipantStatus::Offline,
+        }
+    }
+}
+
+/// A participant in a session together with their current status
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ParticipantInfo {
+    pub name: Arc<Name>,
+    pub status: ParticipantStatus,
 }
 
 /// Session configuration
@@ -608,6 +632,73 @@ impl Session {
         completion_handle.wait_async().await
     }
 
+    /// Notify the group that this participant is going offline (blocking version).
+    ///
+    /// Only valid for Group sessions; returns an error for PointToPoint sessions.
+    /// Returns a completion handle that resolves when ACKs are collected or on timeout.
+    /// After the handle completes the caller should persist the session state and may
+    /// later rejoin with `rejoin()`.
+    pub fn close(&self) -> Result<Arc<CompletionHandle>, SlimError> {
+        crate::config::get_runtime().block_on(async { self.close_async().await })
+    }
+
+    /// Notify the group that this participant is going offline (async version).
+    pub async fn close_async(&self) -> Result<Arc<CompletionHandle>, SlimError> {
+        let session = self
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        let completion = session.close().await?;
+        Ok(Arc::new(CompletionHandle::from(completion)))
+    }
+
+    /// Notify the group that this participant is going offline and wait for completion (blocking version).
+    pub fn close_and_wait(&self) -> Result<(), SlimError> {
+        crate::config::get_runtime().block_on(async { self.close_and_wait_async().await })
+    }
+
+    /// Notify the group that this participant is going offline and wait for completion (async version).
+    pub async fn close_and_wait_async(&self) -> Result<(), SlimError> {
+        let completion_handle = self.close_async().await?;
+        completion_handle.wait_async().await
+    }
+
+    /// Notify the group that this participant is back online (blocking version).
+    ///
+    /// Only valid for Group sessions; returns an error for PointToPoint sessions.
+    /// Returns a completion handle that resolves when ACKs/NACKs are collected.
+    /// If any participant NACKs due to an MLS epoch mismatch, the rejoin fails.
+    pub fn rejoin(&self) -> Result<Arc<CompletionHandle>, SlimError> {
+        crate::config::get_runtime().block_on(async { self.rejoin_async().await })
+    }
+
+    /// Notify the group that this participant is back online (async version).
+    pub async fn rejoin_async(&self) -> Result<Arc<CompletionHandle>, SlimError> {
+        let session = self
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        let completion = session.rejoin().await?;
+        Ok(Arc::new(CompletionHandle::from(completion)))
+    }
+
+    /// Notify the group that this participant is back online and wait for completion (blocking version).
+    pub fn rejoin_and_wait(&self) -> Result<(), SlimError> {
+        crate::config::get_runtime().block_on(async { self.rejoin_and_wait_async().await })
+    }
+
+    /// Notify the group that this participant is back online and wait for completion (async version).
+    pub async fn rejoin_and_wait_async(&self) -> Result<(), SlimError> {
+        let completion_handle = self.rejoin_async().await?;
+        completion_handle.wait_async().await
+    }
+
     /// Get the destination name for this session
     pub fn destination(&self) -> Result<Name, SlimError> {
         let session = self
@@ -697,8 +788,8 @@ impl Session {
         Ok(session.session_config().into())
     }
 
-    /// Get list of participants in the session
-    pub async fn participants_list_async(&self) -> Result<Vec<Arc<Name>>, SlimError> {
+    /// Get list of participants in the session with their online/offline status (async version)
+    pub async fn participants_list_async(&self) -> Result<Vec<ParticipantInfo>, SlimError> {
         let session = self
             .session
             .upgrade()
@@ -707,11 +798,17 @@ impl Session {
             })?;
 
         let list = session.participants_list().await?;
-        Ok(list.into_iter().map(|n| Arc::new(Name::from(n))).collect())
+        Ok(list
+            .into_iter()
+            .map(|(name, state)| ParticipantInfo {
+                name: Arc::new(Name::from(name)),
+                status: ParticipantStatus::from(state),
+            })
+            .collect())
     }
 
-    /// Get list of participants in the session (blocking version for FFI)
-    pub fn participants_list(&self) -> Result<Vec<Arc<Name>>, SlimError> {
+    /// Get list of participants in the session with their online/offline status (blocking version for FFI)
+    pub fn participants_list(&self) -> Result<Vec<ParticipantInfo>, SlimError> {
         crate::config::get_runtime().block_on(async { self.participants_list_async().await })
     }
 }
@@ -722,7 +819,8 @@ mod tests {
     use crate::Name as FfiName;
     use crate::errors::SlimError;
     use slim_datapath::api::{
-        ApplicationPayload, ProtoMessage, ProtoPublish, ProtoPublishType, SessionHeader, SlimHeader,
+        ApplicationPayload, ParticipantState as SlimParticipantState, ProtoMessage, ProtoPublish,
+        ProtoPublishType, SessionHeader, SlimHeader,
     };
     use slim_session::SessionError;
     use std::time::Duration;
@@ -1285,6 +1383,52 @@ mod tests {
             }
             _ => panic!("Expected SessionError"),
         }
+    }
+
+    // ==================== ParticipantStatus Conversion Tests ====================
+
+    #[test]
+    fn test_participant_status_from_online() {
+        assert_eq!(
+            ParticipantStatus::from(SlimParticipantState::Online),
+            ParticipantStatus::Online
+        );
+    }
+
+    #[test]
+    fn test_participant_status_from_offline() {
+        assert_eq!(
+            ParticipantStatus::from(SlimParticipantState::Offline),
+            ParticipantStatus::Offline
+        );
+    }
+
+    // ==================== Close/Rejoin Tests (Session Missing) ====================
+
+    #[tokio::test]
+    async fn test_close_async_session_missing() {
+        let (ctx, _tx) = make_context();
+        let result = ctx.close_async().await;
+        assert!(result.is_err_and(|e| {
+            if let SlimError::SessionError { message } = e {
+                message.contains("closed") || message.contains("dropped")
+            } else {
+                false
+            }
+        }));
+    }
+
+    #[tokio::test]
+    async fn test_rejoin_async_session_missing() {
+        let (ctx, _tx) = make_context();
+        let result = ctx.rejoin_async().await;
+        assert!(result.is_err_and(|e| {
+            if let SlimError::SessionError { message } = e {
+                message.contains("closed") || message.contains("dropped")
+            } else {
+                false
+            }
+        }));
     }
 
     // ==================== Publish Internal with Metadata Tests ====================

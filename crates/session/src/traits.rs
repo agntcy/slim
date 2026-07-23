@@ -72,9 +72,14 @@ pub trait MessageHandler {
         async { Ok(()) }
     }
 
-    /// Get the current participants list (participants in the session)
+    /// Get the current participants list with their online/offline status.
     /// Default implementation returns an empty list.
-    fn participants_list(&self) -> Vec<slim_datapath::api::ProtoName> {
+    fn participants_list(
+        &self,
+    ) -> Vec<(
+        slim_datapath::api::ProtoName,
+        slim_datapath::api::ParticipantState,
+    )> {
         vec![]
     }
 
