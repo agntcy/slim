@@ -6,7 +6,7 @@ tracing:
 services:
   slim/node-spire:
     node_id: node-spire
-    group_name: deployment-spire
+    domain_name: deployment-spire
     auth:
       type: shared_secret
       secret: "secret-for-deployment-spire-abcdefghi-1234567890"

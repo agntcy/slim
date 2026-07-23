@@ -5,7 +5,7 @@ tracing:
 services:
   slim/node-c:
     node_id: node-c
-    group_name: deployment-c
+    domain_name: deployment-c
     auth:
       type: shared_secret
       secret: "secret-for-deployment-c-abcdefghi-1234567890"

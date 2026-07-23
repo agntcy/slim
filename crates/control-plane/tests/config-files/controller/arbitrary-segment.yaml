@@ -21,9 +21,9 @@ topology:
   segments:
     - name: segment-1
       links:
-        - group: group-1
-          neighbors: [group-2]
+        - domain: domain-1
+          neighbors: [domain-2]
     - name: segment-2
       links:
-        - group: group-3
-          neighbors: [group-4]
+        - domain: domain-3
+          neighbors: [domain-4]

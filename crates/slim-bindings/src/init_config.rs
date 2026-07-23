@@ -165,12 +165,12 @@ pub fn new_service_config() -> ServiceConfig {
 #[uniffi::export]
 pub fn new_service_config_with(
     node_id: Option<String>,
-    group_name: Option<String>,
+    domain_name: Option<String>,
     dataplane: DataplaneConfig,
 ) -> ServiceConfig {
     ServiceConfig {
         node_id,
-        group_name,
+        domain_name,
         dataplane,
     }
 }
@@ -238,14 +238,14 @@ mod tests {
     fn test_service_configuration_default() {
         let config = ServiceConfig::default();
         assert!(config.node_id.is_none());
-        assert!(config.group_name.is_none());
+        assert!(config.domain_name.is_none());
     }
 
     #[test]
     fn test_service_configuration_roundtrip() {
         let config = ServiceConfig {
             node_id: Some("test-node".to_string()),
-            group_name: Some("test-group".to_string()),
+            domain_name: Some("test-domain".to_string()),
             dataplane: DataplaneConfig::default(),
         };
 
@@ -253,7 +253,7 @@ mod tests {
         let back: ServiceConfig = core.into();
 
         assert_eq!(back.node_id, config.node_id);
-        assert_eq!(back.group_name, config.group_name);
+        assert_eq!(back.domain_name, config.domain_name);
     }
 
     #[test]
@@ -284,10 +284,10 @@ mod tests {
 
         let service_custom = new_service_config_with(
             Some("node-1".to_string()),
-            Some("group-1".to_string()),
+            Some("domain-1".to_string()),
             DataplaneConfig::default(),
         );
         assert_eq!(service_custom.node_id, Some("node-1".to_string()));
-        assert_eq!(service_custom.group_name, Some("group-1".to_string()));
+        assert_eq!(service_custom.domain_name, Some("domain-1".to_string()));
     }
 }

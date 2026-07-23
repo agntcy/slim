@@ -578,7 +578,7 @@ mod tests {
         // Just verify we can access the config fields
         assert!(!service_config.is_empty());
         let _ = &service_config[0].node_id;
-        let _ = &service_config[0].group_name;
+        let _ = &service_config[0].domain_name;
     }
 
     #[test]
@@ -595,7 +595,7 @@ mod tests {
         // Service config should have default values
         assert!(!service_config.is_empty());
         assert!(!service_config[0].node_id.is_empty());
-        assert!(service_config[0].group_name.is_none());
+        assert!(service_config[0].domain_name.is_none());
     }
 
     #[tokio::test]
@@ -660,7 +660,7 @@ mod tests {
         let tracing_config = new_tracing_config();
         let service_config = new_service_config_with(
             Some("test-node".to_string()),
-            Some("test-group".to_string()),
+            Some("test-domain".to_string()),
             DataplaneConfig::default(),
         );
 
@@ -673,7 +673,7 @@ mod tests {
         // Note: The actual values may differ if already initialized by another test
         assert!(!retrieved_service_config.is_empty());
         let _ = &retrieved_service_config[0].node_id;
-        let _ = &retrieved_service_config[0].group_name;
+        let _ = &retrieved_service_config[0].domain_name;
     }
 
     #[test_fork::fork]
@@ -690,17 +690,17 @@ mod tests {
         let service_configs = vec![
             new_service_config_with(
                 Some("service-0".to_string()),
-                Some("group-0".to_string()),
+                Some("domain-0".to_string()),
                 DataplaneConfig::default(),
             ),
             new_service_config_with(
                 Some("service-1".to_string()),
-                Some("group-1".to_string()),
+                Some("domain-1".to_string()),
                 DataplaneConfig::default(),
             ),
             new_service_config_with(
                 Some("service-2".to_string()),
-                Some("group-2".to_string()),
+                Some("domain-2".to_string()),
                 DataplaneConfig::default(),
             ),
         ];
@@ -752,22 +752,22 @@ mod tests {
         let service_configs = vec![
             new_service_config_with(
                 Some("async-service-0".to_string()),
-                Some("async-group-0".to_string()),
+                Some("async-domain-0".to_string()),
                 DataplaneConfig::default(),
             ),
             new_service_config_with(
                 Some("async-service-1".to_string()),
-                Some("async-group-1".to_string()),
+                Some("async-domain-1".to_string()),
                 DataplaneConfig::default(),
             ),
             new_service_config_with(
                 Some("async-service-2".to_string()),
-                Some("async-group-2".to_string()),
+                Some("async-domain-2".to_string()),
                 DataplaneConfig::default(),
             ),
             new_service_config_with(
                 Some("async-service-3".to_string()),
-                Some("async-group-3".to_string()),
+                Some("async-domain-3".to_string()),
                 DataplaneConfig::default(),
             ),
         ];
@@ -777,9 +777,9 @@ mod tests {
             .iter()
             .map(|sc| sc.node_id.clone().unwrap())
             .collect();
-        let expected_group_names: Vec<String> = service_configs
+        let expected_domain_names: Vec<String> = service_configs
             .iter()
-            .map(|sc| sc.group_name.clone().unwrap())
+            .map(|sc| sc.domain_name.clone().unwrap())
             .collect();
 
         // Initialize with the configs from async context
@@ -802,12 +802,12 @@ mod tests {
                 idx, expected_node_ids[idx], config.node_id
             );
             assert_eq!(
-                config.group_name.as_ref().unwrap(),
-                &expected_group_names[idx],
-                "Config at index {} should have group_name '{}', but got '{:?}'",
+                config.domain_name.as_ref().unwrap(),
+                &expected_domain_names[idx],
+                "Config at index {} should have domain_name '{}', but got '{:?}'",
                 idx,
-                expected_group_names[idx],
-                config.group_name
+                expected_domain_names[idx],
+                config.domain_name
             );
         }
 
@@ -1106,7 +1106,7 @@ runtime:
 services:
   test-service:
     node_id: "test-node"
-    group_name: "test-group"
+    domain_name: "test-domain"
     dataplane:
       servers: []
       clients: []
@@ -1155,7 +1155,7 @@ runtime:
 services:
     test-service:
         node_id: "test-node"
-        group_name: "test-group"
+        domain_name: "test-domain"
         dataplane:
             servers: []
             clients: []

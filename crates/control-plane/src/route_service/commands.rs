@@ -51,8 +51,8 @@ impl super::RouteService {
             None
         };
 
-        // Resolve groups for route record.
-        let source_group = if source_node_id == ALL_NODES_ID {
+        // Resolve domains for route record.
+        let source_domain = if source_node_id == ALL_NODES_ID {
             ALL_NODES_ID.to_string()
         } else {
             self.0
@@ -61,20 +61,21 @@ impl super::RouteService {
                 .await
                 .ok()
                 .flatten()
-                .and_then(|n| n.group_name)
+                .and_then(|n| n.domain_name)
                 .unwrap_or_default()
         };
-        let dest_group = self
+        let dest_domain = self
             .0
             .db
             .get_node(dest_node_id)
             .await
             .ok()
             .flatten()
-            .and_then(|n| n.group_name)
+            .and_then(|n| n.domain_name)
             .unwrap_or_default();
 
-        let db_route = route.to_db_route(source_node_id, &source_group, dest_node_id, &dest_group);
+        let db_route =
+            route.to_db_route(source_node_id, &source_domain, dest_node_id, &dest_domain);
         let route_id = self.add_single_route(db_route).await?;
 
         if source_node_id == ALL_NODES_ID {
@@ -177,25 +178,25 @@ impl super::RouteService {
         let link_id = match route.link_id.as_deref().filter(|s| !s.is_empty()) {
             Some(id) => id.to_string(),
             None => {
-                let src_group = self
+                let src_domain = self
                     .0
                     .db
                     .get_node(source_node_id)
                     .await
                     .ok()
                     .flatten()
-                    .and_then(|n| n.group_name)
+                    .and_then(|n| n.domain_name)
                     .unwrap_or_default();
-                let dst_group = self
+                let dst_domain = self
                     .0
                     .db
                     .get_node(dest_node_id)
                     .await
                     .ok()
                     .flatten()
-                    .and_then(|n| n.group_name)
+                    .and_then(|n| n.domain_name)
                     .unwrap_or_default();
-                self.find_matching_link(source_node_id, &src_group, dest_node_id, &dst_group)
+                self.find_matching_link(source_node_id, &src_domain, dest_node_id, &dst_domain)
                     .await?
             }
         };
@@ -266,9 +267,9 @@ impl super::RouteService {
     /// Called when a node reports it received an incoming connection (after the
     /// data-plane link negotiation). Claims the unclaimed link for this node.
     pub async fn connection_received(&self, node_id: &str, link_id: &str) {
-        // Determine the node's group.
-        let node_group = match self.0.db.get_node(node_id).await {
-            Ok(Some(n)) => n.group_name.unwrap_or_default(),
+        // Determine the node's domain.
+        let node_domain = match self.0.db.get_node(node_id).await {
+            Ok(Some(n)) => n.domain_name.unwrap_or_default(),
             Ok(None) => {
                 tracing::warn!(
                     "connection_received: node {node_id} not found, ignoring claim for {link_id}"
@@ -281,14 +282,14 @@ impl super::RouteService {
             }
         };
 
-        if node_group.is_empty() {
+        if node_domain.is_empty() {
             tracing::warn!(
-                "connection_received: node {node_id} has no group, cannot claim link {link_id}"
+                "connection_received: node {node_id} has no domain, cannot claim link {link_id}"
             );
             return;
         }
 
-        match self.0.db.claim_link(link_id, &node_group, node_id).await {
+        match self.0.db.claim_link(link_id, &node_domain, node_id).await {
             Ok(Some(claimed)) => {
                 tracing::info!(
                     "connection_received: node {node_id} claimed link {link_id} from {}",

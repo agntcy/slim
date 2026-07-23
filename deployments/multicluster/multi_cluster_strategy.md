@@ -277,7 +277,7 @@ task slim:deploy
 <details>
 <summary>More Details on Multi-Cluster SLIM Deployment</summary>
 
-SLIM is deployed on both workload clusters with specific multi-cluster configurations. Key differences from single-cluster deployment is setting `group_name` local and external endpoints and trust domains:
+SLIM is deployed on both workload clusters with specific multi-cluster configurations. Key differences from single-cluster deployment is setting `domain_name` local and external endpoints and trust domains:
 
 **External Endpoint Configuration:**
 
@@ -285,7 +285,7 @@ SLIM is deployed on both workload clusters with specific multi-cluster configura
 services:
   slim/0:
     node_id: ${env:SLIM_SVC_ID}
-    group_name: "cluster-a.example"
+    domain_name: "cluster-a.example"
     dataplane:
       servers:
         - endpoint: "0.0.0.0:{{ (index .Values.slim.service.data 0).port }}"
@@ -469,7 +469,7 @@ task sudo multi-cluster:lb:down
 | **External Endpoint Configuration** | Uses internal service names only. | Requires `external_endpoint` metadata for cross-cluster access. |
 | **Trust Domain Configuration** | No `trustedDomains` needed. | Must specify `trustedDomains` for all federated clusters (admin + workload clusters). |
 | **Service Types** | Can use `ClusterIP` services. | Requires `LoadBalancer` services for external access. |
-| **Group Names** | Optional group identification. | Required `group_name` for cluster identification. |
+| **Domain Names** | Optional group identification. | Required `domain_name` for cluster identification. |
 | **Federation Complexity** | No federation required. | Full mesh federation between admin cluster and all workload clusters. |
 
 ### Federation Requirements

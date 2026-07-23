@@ -3,9 +3,9 @@
 
 //! Group authentication for node registration.
 //!
-//! The [`GroupAuthenticator`] enum defines how the control plane verifies
-//! that a node is authorized to join its claimed group. The default
-//! [`Noop`](GroupAuthenticator::Noop) variant accepts all registrations
+//! The [`DomainAuthenticator`] enum defines how the control plane verifies
+//! that a node is authorized to join its claimed domain. The default
+//! [`Noop`](DomainAuthenticator::Noop) variant accepts all registrations
 //! (backward-compatible behavior when no auth is configured).
 
 use std::collections::HashMap;
@@ -16,25 +16,25 @@ use slim_auth::auth_provider::AuthVerifier;
 use slim_auth::traits::Verifier;
 use tonic::Status;
 
-/// Shared map of group name → verifier. Used by both southbound (read) and
+/// Shared map of domain name → verifier. Used by both southbound (read) and
 /// northbound (write) services concurrently.
 pub type SharedVerifiers = Arc<RwLock<HashMap<String, AuthVerifier>>>;
 
-/// Verifies that a node's credentials authorize it to join a group.
+/// Verifies that a node's credentials authorize it to join a domain.
 #[derive(Clone, Default)]
-pub enum GroupAuthenticator {
+pub enum DomainAuthenticator {
     /// Accepts all registrations unconditionally.
     #[default]
     Noop,
-    /// Per-group shared secret verification.
+    /// Per-domain shared secret verification.
     SharedSecret {
-        /// Shared map of group name → verifier (built from the per-group secret).
+        /// Shared map of domain name → verifier (built from the per-domain secret).
         verifiers: SharedVerifiers,
     },
     /// SPIRE JWT SVID verification.
     /// Validates the JWT SVID against trust bundles provided by the local SPIRE agent
     /// (works with both centralized nested SPIRE and federated deployments).
-    /// Convention: trust domain = group name (each cluster has its own trust domain).
+    /// Convention: trust domain = domain name (each cluster has its own trust domain).
     #[cfg(not(target_family = "windows"))]
     Spire {
         /// Verifier that validates JWT SVIDs against available trust bundles.
@@ -44,46 +44,46 @@ pub enum GroupAuthenticator {
     },
 }
 
-impl std::fmt::Debug for GroupAuthenticator {
+impl std::fmt::Debug for DomainAuthenticator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Noop => write!(f, "GroupAuthenticator::Noop"),
+            Self::Noop => write!(f, "DomainAuthenticator::Noop"),
             Self::SharedSecret { verifiers } => f
-                .debug_struct("GroupAuthenticator::SharedSecret")
-                .field("groups", &verifiers.read().keys().collect::<Vec<_>>())
+                .debug_struct("DomainAuthenticator::SharedSecret")
+                .field("domains", &verifiers.read().keys().collect::<Vec<_>>())
                 .finish(),
             #[cfg(not(target_family = "windows"))]
-            Self::Spire { .. } => write!(f, "GroupAuthenticator::Spire"),
+            Self::Spire { .. } => write!(f, "DomainAuthenticator::Spire"),
         }
     }
 }
 
-impl GroupAuthenticator {
-    /// Verify that `credentials` prove membership in `claimed_group`.
+impl DomainAuthenticator {
+    /// Verify that `credentials` prove membership in `claimed_domain`.
     ///
     /// For `Noop`, always succeeds (credentials are ignored).
     /// For `SharedSecret`/`Spire`, credentials must be non-empty and valid.
     ///
     /// Returns `Ok(())` on success, or a `PERMISSION_DENIED` status on failure.
-    pub async fn verify_group_membership(
+    pub async fn verify_domain_membership(
         &self,
         credentials: &str,
-        claimed_group: &str,
+        claimed_domain: &str,
         node_id: &str,
     ) -> Result<(), Status> {
         match self {
-            GroupAuthenticator::Noop => Ok(()),
+            DomainAuthenticator::Noop => Ok(()),
             _ if credentials.is_empty() => Err(Status::permission_denied(
                 "credentials required but not provided",
             )),
-            GroupAuthenticator::SharedSecret { verifiers } => {
+            DomainAuthenticator::SharedSecret { verifiers } => {
                 let verifier_clone = {
                     let map = verifiers.read();
-                    map.get(claimed_group).cloned()
+                    map.get(claimed_domain).cloned()
                 };
                 let verifier = verifier_clone.ok_or_else(|| {
                     Status::permission_denied(format!(
-                        "no auth configured for group '{claimed_group}'"
+                        "no auth configured for domain '{claimed_domain}'"
                     ))
                 })?;
 
@@ -93,11 +93,11 @@ impl GroupAuthenticator {
                         Status::permission_denied(format!("token verification failed: {e}"))
                     })?;
 
-                // The "sub" field contains "group/node-id" or "group/node-id_RANDOM_SUFFIX".
+                // The "sub" field contains "domain/node-id" or "domain/node-id_RANDOM_SUFFIX".
                 // Use exact match or "_" separator to prevent prefix impersonation
                 // (e.g., node-10 impersonating node-1).
                 let sub = claims.get("sub").and_then(|v| v.as_str()).unwrap_or("");
-                let expected_prefix = format!("{claimed_group}/{node_id}");
+                let expected_prefix = format!("{claimed_domain}/{node_id}");
                 let valid =
                     sub == expected_prefix || sub.starts_with(&format!("{expected_prefix}_"));
                 if !valid {
@@ -109,7 +109,7 @@ impl GroupAuthenticator {
                 Ok(())
             }
             #[cfg(not(target_family = "windows"))]
-            GroupAuthenticator::Spire { verifier } => {
+            DomainAuthenticator::Spire { verifier } => {
                 // Verify JWT SVID and extract claims (includes "sub" = SPIFFE ID).
                 let claims: serde_json::Value =
                     verifier.try_get_claims(credentials).map_err(|e| {
@@ -117,7 +117,7 @@ impl GroupAuthenticator {
                     })?;
 
                 // Extract trust domain from the "sub" claim (SPIFFE ID).
-                // Convention: trust_domain == group_name.
+                // Convention: trust_domain == domain_name.
                 let sub = claims
                     .get("sub")
                     .and_then(|v| v.as_str())
@@ -127,9 +127,9 @@ impl GroupAuthenticator {
                     Status::permission_denied(format!("failed to extract trust domain: {e}"))
                 })?;
 
-                if trust_domain != claimed_group {
+                if trust_domain != claimed_domain {
                     return Err(Status::permission_denied(format!(
-                        "trust domain '{trust_domain}' does not match claimed group '{claimed_group}'"
+                        "trust domain '{trust_domain}' does not match claimed domain '{claimed_domain}'"
                     )));
                 }
 
@@ -143,19 +143,19 @@ impl GroupAuthenticator {
         matches!(self, Self::SharedSecret { .. })
     }
 
-    /// Add a verifier for a group (shared secret mode only).
+    /// Add a verifier for a domain (shared secret mode only).
     /// Builds the verifier from the raw secret string and inserts it.
     /// Returns an error if this is not the `SharedSecret` variant.
-    pub fn add_verifier(&self, group_name: &str, secret: &str) -> Result<(), Status> {
+    pub fn add_verifier(&self, domain_name: &str, secret: &str) -> Result<(), Status> {
         match self {
             Self::SharedSecret { verifiers } => {
                 let verifier =
-                    AuthVerifier::shared_secret_from_str(group_name, secret).map_err(|e| {
+                    AuthVerifier::shared_secret_from_str(domain_name, secret).map_err(|e| {
                         Status::internal(format!(
-                            "failed to build verifier for group '{group_name}': {e}"
+                            "failed to build verifier for domain '{domain_name}': {e}"
                         ))
                     })?;
-                verifiers.write().insert(group_name.to_string(), verifier);
+                verifiers.write().insert(domain_name.to_string(), verifier);
                 Ok(())
             }
             _ => Err(Status::unimplemented(
@@ -164,11 +164,11 @@ impl GroupAuthenticator {
         }
     }
 
-    /// Remove the verifier for a group (shared secret mode only).
-    pub fn remove_verifier(&self, group_name: &str) -> Result<(), Status> {
+    /// Remove the verifier for a domain (shared secret mode only).
+    pub fn remove_verifier(&self, domain_name: &str) -> Result<(), Status> {
         match self {
             Self::SharedSecret { verifiers } => {
-                verifiers.write().remove(group_name);
+                verifiers.write().remove(domain_name);
                 Ok(())
             }
             _ => Err(Status::unimplemented(
@@ -177,9 +177,9 @@ impl GroupAuthenticator {
         }
     }
 
-    /// Return the list of configured group names from the live verifiers map.
+    /// Return the list of configured domain names from the live verifiers map.
     /// For `Noop` and `Spire`, returns an empty list.
-    pub fn configured_groups(&self) -> Vec<String> {
+    pub fn configured_domains(&self) -> Vec<String> {
         match self {
             Self::SharedSecret { verifiers } => verifiers.read().keys().cloned().collect(),
             _ => Vec::new(),
@@ -226,20 +226,20 @@ mod tests {
 
     const TEST_SECRET: &str = "test-secret-0123456789-abcdefghijk";
 
-    fn make_shared_secret_authenticator(group: &str, secret: &str) -> GroupAuthenticator {
-        let verifier = AuthVerifier::shared_secret_from_str(group, secret).unwrap();
+    fn make_shared_secret_authenticator(domain: &str, secret: &str) -> DomainAuthenticator {
+        let verifier = AuthVerifier::shared_secret_from_str(domain, secret).unwrap();
         let mut verifiers = HashMap::new();
-        verifiers.insert(group.to_string(), verifier);
-        GroupAuthenticator::SharedSecret {
+        verifiers.insert(domain.to_string(), verifier);
+        DomainAuthenticator::SharedSecret {
             verifiers: Arc::new(RwLock::new(verifiers)),
         }
     }
 
     #[tokio::test]
     async fn noop_accepts_everything() {
-        let auth = GroupAuthenticator::Noop;
+        let auth = DomainAuthenticator::Noop;
         assert!(
-            auth.verify_group_membership("", "any-group", "any-node")
+            auth.verify_domain_membership("", "any-domain", "any-node")
                 .await
                 .is_ok()
         );
@@ -254,7 +254,7 @@ mod tests {
         let token = provider.get_token().unwrap();
 
         let result = auth
-            .verify_group_membership(&token, "cluster-a", "node-1")
+            .verify_domain_membership(&token, "cluster-a", "node-1")
             .await;
         assert!(result.is_ok());
     }
@@ -270,7 +270,7 @@ mod tests {
         let token = provider.get_token().unwrap();
 
         let result = auth
-            .verify_group_membership(&token, "cluster-a", "node-1")
+            .verify_domain_membership(&token, "cluster-a", "node-1")
             .await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().code(), tonic::Code::PermissionDenied);
@@ -281,7 +281,7 @@ mod tests {
         let auth = make_shared_secret_authenticator("cluster-a", TEST_SECRET);
 
         let result = auth
-            .verify_group_membership("", "cluster-a", "node-1")
+            .verify_domain_membership("", "cluster-a", "node-1")
             .await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().code(), tonic::Code::PermissionDenied);
@@ -295,7 +295,7 @@ mod tests {
         let token = provider.get_token().unwrap();
 
         let result = auth
-            .verify_group_membership(&token, "cluster-b", "node-1")
+            .verify_domain_membership(&token, "cluster-b", "node-1")
             .await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().code(), tonic::Code::PermissionDenied);
@@ -310,7 +310,7 @@ mod tests {
         let token = provider.get_token().unwrap();
 
         let result = auth
-            .verify_group_membership(&token, "cluster-a", "node-2")
+            .verify_domain_membership(&token, "cluster-a", "node-2")
             .await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().code(), tonic::Code::PermissionDenied);
@@ -325,7 +325,7 @@ mod tests {
         let token = provider.get_token().unwrap();
 
         let result = auth
-            .verify_group_membership(&token, "cluster-a", "node-1")
+            .verify_domain_membership(&token, "cluster-a", "node-1")
             .await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().code(), tonic::Code::PermissionDenied);
@@ -343,7 +343,7 @@ mod tests {
         let token = provider.get_token().unwrap();
 
         let result = auth
-            .verify_group_membership(&token, "cluster-a", "node-1")
+            .verify_domain_membership(&token, "cluster-a", "node-1")
             .await;
         assert!(result.is_err(), "node-10 must not impersonate node-1");
         assert_eq!(result.unwrap_err().code(), tonic::Code::PermissionDenied);

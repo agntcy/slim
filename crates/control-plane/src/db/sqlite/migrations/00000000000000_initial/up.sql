@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS nodes (
     id TEXT NOT NULL PRIMARY KEY,
-    group_name TEXT,
+    domain_name TEXT,
     conn_details TEXT NOT NULL,
     created_at BIGINT NOT NULL,
     last_updated BIGINT NOT NULL
@@ -9,9 +9,9 @@ CREATE TABLE IF NOT EXISTS nodes (
 CREATE TABLE IF NOT EXISTS routes (
     id TEXT NOT NULL PRIMARY KEY,
     source_node_id TEXT NOT NULL,
-    source_group TEXT NOT NULL DEFAULT '',
+    source_domain TEXT NOT NULL DEFAULT '',
     dest_node_id TEXT NOT NULL,
-    dest_group TEXT NOT NULL DEFAULT '',
+    dest_domain TEXT NOT NULL DEFAULT '',
     link_id TEXT,
     component0 TEXT NOT NULL,
     component1 TEXT NOT NULL,
@@ -26,9 +26,9 @@ CREATE TABLE IF NOT EXISTS routes (
 CREATE TABLE IF NOT EXISTS links (
     link_id TEXT NOT NULL,
     source_node_id TEXT NOT NULL,
-    source_group TEXT NOT NULL DEFAULT '',
+    source_domain TEXT NOT NULL DEFAULT '',
     dest_node_id TEXT NOT NULL,
-    dest_group TEXT NOT NULL,
+    dest_domain TEXT NOT NULL,
     dest_endpoint TEXT NOT NULL,
     conn_config_data TEXT NOT NULL,
     status INTEGER NOT NULL,
@@ -82,9 +82,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_links_unique_active_pair
         CASE WHEN source_node_id < dest_node_id THEN dest_node_id ELSE source_node_id END
     ) WHERE status != 4 AND dest_node_id != '';
 
--- At most one unclaimed link per (source_node_id, dest_group) pair.
+-- At most one unclaimed link per (source_node_id, dest_domain) pair.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_links_unique_unclaimed
-    ON links (source_node_id, dest_group)
+    ON links (source_node_id, dest_domain)
     WHERE status != 4 AND dest_node_id = '';
 
 -- ─── Topology tables (API-managed mode) ──────────────────────────────────────
@@ -97,13 +97,13 @@ CREATE TABLE IF NOT EXISTS topology_segments (
 
 CREATE TABLE IF NOT EXISTS topology_segment_links (
     segment_id TEXT NOT NULL REFERENCES topology_segments(id) ON DELETE CASCADE,
-    source_group TEXT NOT NULL,
-    dest_group TEXT NOT NULL,
-    PRIMARY KEY (segment_id, source_group, dest_group)
+    source_domain TEXT NOT NULL,
+    dest_domain TEXT NOT NULL,
+    PRIMARY KEY (segment_id, source_domain, dest_domain)
 );
 
 CREATE TABLE IF NOT EXISTS registration_secrets (
-    group_name TEXT NOT NULL PRIMARY KEY,
+    domain_name TEXT NOT NULL PRIMARY KEY,
     secret TEXT NOT NULL,
     created_at BIGINT NOT NULL
 );

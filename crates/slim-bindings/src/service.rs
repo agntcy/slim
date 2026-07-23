@@ -71,7 +71,7 @@ pub struct ServiceConfig {
     pub node_id: Option<String>,
 
     /// Optional group name for the service
-    pub group_name: Option<String>,
+    pub domain_name: Option<String>,
 
     /// DataPlane configuration (servers and clients)
     pub dataplane: DataplaneConfig,
@@ -81,7 +81,7 @@ impl ServiceConfig {
     pub fn new() -> Self {
         Self {
             node_id: None,
-            group_name: None,
+            domain_name: None,
             dataplane: DataplaneConfig::default(),
         }
     }
@@ -93,7 +93,7 @@ impl From<ServiceConfig> for SlimServiceConfiguration {
         if let Some(node_id) = config.node_id {
             core_config.node_id = node_id;
         }
-        core_config.group_name = config.group_name;
+        core_config.domain_name = config.domain_name;
         core_config.dataplane = config.dataplane.into();
         core_config
     }
@@ -103,7 +103,7 @@ impl From<SlimServiceConfiguration> for ServiceConfig {
     fn from(config: SlimServiceConfiguration) -> Self {
         Self {
             node_id: Some(config.node_id),
-            group_name: config.group_name,
+            domain_name: config.domain_name,
             dataplane: config.dataplane.into(),
         }
     }
@@ -113,7 +113,7 @@ impl From<&SlimServiceConfiguration> for ServiceConfig {
     fn from(config: &SlimServiceConfiguration) -> Self {
         Self {
             node_id: Some(config.node_id.clone()),
-            group_name: config.group_name.clone(),
+            domain_name: config.domain_name.clone(),
             dataplane: config.dataplane.clone().into(),
         }
     }
@@ -593,7 +593,7 @@ mod tests {
     fn test_service_configuration_new() {
         let config = ServiceConfig::new();
         assert!(config.node_id.is_none());
-        assert!(config.group_name.is_none());
+        assert!(config.domain_name.is_none());
         assert!(config.dataplane.servers.is_empty());
         assert!(config.dataplane.clients.is_empty());
     }
@@ -602,50 +602,50 @@ mod tests {
     fn test_service_configuration_default() {
         let config = ServiceConfig::default();
         assert!(config.node_id.is_none());
-        assert!(config.group_name.is_none());
+        assert!(config.domain_name.is_none());
     }
 
     #[test]
     fn test_service_configuration_with_values() {
         let config = ServiceConfig {
             node_id: Some("node-123".to_string()),
-            group_name: Some("test-group".to_string()),
+            domain_name: Some("test-domain".to_string()),
             dataplane: DataplaneConfig::default(),
         };
 
         assert_eq!(config.node_id.as_deref(), Some("node-123"));
-        assert_eq!(config.group_name.as_deref(), Some("test-group"));
+        assert_eq!(config.domain_name.as_deref(), Some("test-domain"));
     }
 
     #[test]
     fn test_service_configuration_to_core_conversion() {
         let config = ServiceConfig {
             node_id: Some("node-456".to_string()),
-            group_name: Some("group-abc".to_string()),
+            domain_name: Some("domain-abc".to_string()),
             dataplane: DataplaneConfig::default(),
         };
 
         let core_config: SlimServiceConfiguration = config.clone().into();
         assert_eq!(core_config.node_id, "node-456");
-        assert_eq!(core_config.group_name.as_deref(), Some("group-abc"));
+        assert_eq!(core_config.domain_name.as_deref(), Some("domain-abc"));
     }
 
     #[test]
     fn test_service_configuration_from_core_conversion() {
         let mut core_config = SlimServiceConfiguration::new();
         core_config.node_id = "core-node".to_string();
-        core_config.group_name = Some("core-group".to_string());
+        core_config.domain_name = Some("core-domain".to_string());
 
         let config: ServiceConfig = core_config.into();
         assert_eq!(config.node_id.as_deref(), Some("core-node"));
-        assert_eq!(config.group_name.as_deref(), Some("core-group"));
+        assert_eq!(config.domain_name.as_deref(), Some("core-domain"));
     }
 
     #[test]
     fn test_service_configuration_roundtrip() {
         let original = ServiceConfig {
             node_id: Some("roundtrip-node".to_string()),
-            group_name: Some("roundtrip-group".to_string()),
+            domain_name: Some("roundtrip-domain".to_string()),
             dataplane: DataplaneConfig::default(),
         };
 
@@ -653,7 +653,7 @@ mod tests {
         let roundtrip: ServiceConfig = core.into();
 
         assert_eq!(original.node_id, roundtrip.node_id);
-        assert_eq!(original.group_name, roundtrip.group_name);
+        assert_eq!(original.domain_name, roundtrip.domain_name);
     }
 
     // ========================================================================
@@ -671,7 +671,7 @@ mod tests {
     fn test_service_new_with_config() {
         let config = ServiceConfig {
             node_id: Some("test-node".to_string()),
-            group_name: Some("test-group".to_string()),
+            domain_name: Some("test-domain".to_string()),
             dataplane: DataplaneConfig::default(),
         };
 
@@ -679,7 +679,7 @@ mod tests {
         let retrieved_config = service.config();
 
         assert_eq!(retrieved_config.node_id, config.node_id);
-        assert_eq!(retrieved_config.group_name, config.group_name);
+        assert_eq!(retrieved_config.domain_name, config.domain_name);
     }
 
     #[test]
@@ -1006,7 +1006,7 @@ mod tests {
     fn test_new_service_configuration() {
         let config = new_service_configuration();
         assert!(config.node_id.is_none());
-        assert!(config.group_name.is_none());
+        assert!(config.domain_name.is_none());
     }
 
     #[test]
@@ -1026,7 +1026,7 @@ mod tests {
     fn test_create_service_with_config() {
         let config = ServiceConfig {
             node_id: Some("factory-node".to_string()),
-            group_name: Some("factory-group".to_string()),
+            domain_name: Some("factory-domain".to_string()),
             dataplane: DataplaneConfig::default(),
         };
 
@@ -1096,7 +1096,7 @@ mod tests {
 
         let service_config = ServiceConfig {
             node_id: Some("multi-config-node".to_string()),
-            group_name: Some("multi-config-group".to_string()),
+            domain_name: Some("multi-config-domain".to_string()),
             dataplane,
         };
 
@@ -1111,7 +1111,7 @@ mod tests {
     fn test_service_config_mutation_isolation() {
         let config = ServiceConfig {
             node_id: Some("original-node".to_string()),
-            group_name: Some("original-group".to_string()),
+            domain_name: Some("original-domain".to_string()),
             dataplane: DataplaneConfig::default(),
         };
 
