@@ -69,6 +69,21 @@ A SLIMRPC channel wraps the SLIM session layer. Pass it the remote server's SLIM
     var client = new TestClient(channel);
     ```
 
+=== "Rust"
+
+    ```rust
+    use slim_rpc::Channel;
+
+    // app, conn_id, and remote_name come from the prerequisite tutorials
+    let channel = Channel::new_with_members_internal(
+        app.clone(),
+        vec![remote_name.clone()],
+        false,
+        Some(conn_id),
+        tokio::runtime::Handle::current(),
+    )?;
+    ```
+
 ## Unary-Unary
 
 Send a single request and receive a single response.
@@ -144,6 +159,22 @@ Send a single request and receive a single response.
     Console.WriteLine($"Response: {response.ExampleString} {response.ExampleInteger}");
     ```
 
+=== "Rust"
+
+    ```rust
+    use example_service::{ExampleRequest, ExampleResponse};
+
+    let request = ExampleRequest {
+        example_string: "world".to_string(),
+        example_integer: 42,
+    };
+
+    let response: ExampleResponse = channel
+        .unary("example_service.Test", "ExampleUnaryUnary", request, None, None)
+        .await?;
+    println!("Response: {} {}", response.example_string, response.example_integer);
+    ```
+
 ## Unary-Stream
 
 Send a single request and iterate over a stream of responses from the server.
@@ -200,6 +231,19 @@ Send a single request and iterate over a stream of responses from the server.
     await foreach (var response in client.ExampleUnaryStream(request, timeout: TimeSpan.FromSeconds(5)))
     {
         Console.WriteLine($"Stream response: {response.ExampleString} {response.ExampleInteger}");
+    }
+    ```
+
+=== "Rust"
+
+    ```rust
+    let mut stream = channel
+        .unary_stream("example_service.Test", "ExampleUnaryStream", request, None, None)
+        .await?;
+
+    while let Some(response) = stream.next().await {
+        let resp: ExampleResponse = response?;
+        println!("Stream response: {} {}", resp.example_string, resp.example_integer);
     }
     ```
 
@@ -287,6 +331,22 @@ Stream a sequence of requests to the server and receive a single response.
 
     var response = await client.ExampleStreamUnary(GetRequests(), timeout: TimeSpan.FromSeconds(5));
     Console.WriteLine($"Response: {response.ExampleString} {response.ExampleInteger}");
+    ```
+
+=== "Rust"
+
+    ```rust
+    let requests: Vec<ExampleRequest> = (0..5)
+        .map(|i| ExampleRequest {
+            example_string: format!("req_{i}"),
+            example_integer: i,
+        })
+        .collect();
+
+    let response: ExampleResponse = channel
+        .stream_unary("example_service.Test", "ExampleStreamUnary", requests, None, None)
+        .await?;
+    println!("Response: {} {}", response.example_string, response.example_integer);
     ```
 
 ## Stream-Stream
@@ -378,6 +438,19 @@ Stream requests to the server and receive a stream of responses simultaneously.
     }
     ```
 
+=== "Rust"
+
+    ```rust
+    let mut stream = channel
+        .stream_stream("example_service.Test", "ExampleStreamStream", requests, None, None)
+        .await?;
+
+    while let Some(response) = stream.next().await {
+        let resp: ExampleResponse = response?;
+        println!("Stream response: {} {}", resp.example_string, resp.example_integer);
+    }
+    ```
+
 ## Close the Channel
 
 When finished, close the channel to release the underlying SLIM session.
@@ -410,6 +483,12 @@ When finished, close the channel to release the underlying SLIM session.
 
     ```csharp
     channel.Dispose();
+    ```
+
+=== "Rust"
+
+    ```rust
+    channel.close().await?;
     ```
 
 ## Runnable Examples

@@ -86,6 +86,22 @@ The receiving side does not call `create_session`. Instead it calls `listen_for_
     console.log("Session received");
     ```
 
+=== "Rust"
+
+    ```rust
+    use slim_session::Notification;
+
+    // The notification receiver rx comes from service.create_app(...)
+    // Wait for an incoming session invitation
+    while let Some(Ok(notification)) = rx.recv().await {
+        if let Notification::NewSession(ctx) = notification {
+            println!("Session received");
+            // ctx is used in the Receive Messages step below
+            break;
+        }
+    }
+    ```
+
 ## Receive Messages
 
 Once the session is established, call `get_message_async` in a loop to receive messages. The call blocks until a message arrives or the timeout expires.
@@ -203,6 +219,26 @@ Once the session is established, call `get_message_async` in a loop to receive m
     }
     ```
 
+=== "Rust"
+
+    ```rust
+    // Spawn a receiver task on the session context
+    ctx.spawn_receiver(|mut msg_rx, _| async move {
+        loop {
+            match msg_rx.recv().await {
+                Some(Ok(msg)) => {
+                    println!("Received: {}", String::from_utf8_lossy(msg.payload()));
+                }
+                Some(Err(e)) => {
+                    eprintln!("Session error: {e}");
+                    break;
+                }
+                None => break, // Session closed
+            }
+        }
+    });
+    ```
+
 ## Reply to Messages
 
 There are two ways to reply:
@@ -294,6 +330,18 @@ There are two ways to reply:
     // Reply only to the sender
     const reply = new Uint8Array("hello back".split('').map(c => c.charCodeAt(0)));
     await session.publishToAndWaitAsync(msg.context, reply, undefined, undefined);
+    ```
+
+=== "Rust"
+
+    ```rust
+    let session = ctx.session_arc().unwrap();
+
+    // Broadcast to all participants
+    session.publish(&channel_name, b"hello everyone".to_vec(), None, None).await?;
+
+    // Reply only to the sender (using the source from a received message)
+    session.publish_to(msg.source(), b"hello back".to_vec(), None, None).await?;
     ```
 
 ## Next Steps
