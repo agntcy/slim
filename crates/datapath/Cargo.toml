@@ -65,10 +65,15 @@ gloo-net = { workspace = true }
 hkdf = { workspace = true }
 hmac = { workspace = true }
 ml-kem = { workspace = true }
-rand_core = "0.10"
+rand_core = { workspace = true }
 semver = { workspace = true }
 sha2 = { workspace = true }
-tokio = { package = "tokio_with_wasm", version = "0.9", features = ["sync", "macros", "rt", "time"] }
+tokio = { package = "tokio_with_wasm", version = "0.9", features = [
+  "sync",
+  "macros",
+  "rt",
+  "time",
+] }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 # `tonic` (transport disabled) only for `tonic::Status`, matching the native

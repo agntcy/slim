@@ -279,11 +279,7 @@ impl Service {
     }
 
     /// Create a new Service with configuration
-    pub fn new_with_config(id: ID, mut config: ServiceConfiguration) -> Self {
-        config
-            .prepare()
-            .expect("invalid service configuration: enforce_pqc policy");
-
+    pub fn new_with_config(id: ID, config: ServiceConfiguration) -> Self {
         let deployment_name = config
             .peers
             .as_ref()

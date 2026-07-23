@@ -300,7 +300,7 @@ impl TlsClientConfig {
         // Validate TLS version and create base builder
         self.config.validate_pqc()?;
         let crypto_provider = crypto_provider_for_config(self.config.enforce_pqc);
-        let config_builder = RustlsClientConfig::builder_with_provider(crypto_provider.clone())
+        let config_builder = RustlsClientConfig::builder_with_provider(crypto_provider)
             .with_protocol_versions(&[tls_version])?
             .with_root_certificates(root_store);
 
