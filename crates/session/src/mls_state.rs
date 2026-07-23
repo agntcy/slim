@@ -128,15 +128,9 @@ where
                 ProtoSessionMessageType::GroupProposal => {
                     self.process_proposal_message(msg, local_name).await?;
                 }
-                ProtoSessionMessageType::GroupAdd => {
-                    let payload = msg.extract_group_add()?;
-                    let mls_payload = payload.mls.as_ref().ok_or(MlsError::NoGroupAddPayload)?;
-                    self.process_commit_message(mls_payload).await?;
-                }
-                ProtoSessionMessageType::GroupRemove => {
-                    let payload = msg.extract_group_remove()?;
-                    let mls_payload = payload.mls.as_ref().ok_or(MlsError::NoGroupRemovePayload)?;
-
+                ProtoSessionMessageType::GroupUpdate => {
+                    let payload = msg.extract_group_update()?;
+                    let mls_payload = payload.mls.as_ref().ok_or(MlsError::NoGroupUpdatePayload)?;
                     self.process_commit_message(mls_payload).await?;
                 }
                 _type => {
@@ -210,20 +204,12 @@ where
         let command_payload = msg.extract_command_payload()?;
 
         let commit_id = match msg.get_session_header().session_message_type() {
-            ProtoSessionMessageType::GroupAdd => {
+            ProtoSessionMessageType::GroupUpdate => {
                 command_payload
-                    .as_group_add_payload()?
+                    .as_group_update_payload()?
                     .mls
                     .as_ref()
-                    .ok_or(MlsError::NoGroupAddPayload)?
-                    .commit_id
-            }
-            ProtoSessionMessageType::GroupRemove => {
-                command_payload
-                    .as_group_remove_payload()?
-                    .mls
-                    .as_ref()
-                    .ok_or(MlsError::NoGroupRemovePayload)?
+                    .ok_or(MlsError::NoGroupUpdatePayload)?
                     .commit_id
             }
             _ => {
@@ -510,6 +496,30 @@ where
         Ok(ret)
     }
 
+    /// Rejoin a participant: remove them from the MLS group and re-add with a fresh key package.
+    /// Returns the commit message (to broadcast to all) and the welcome message (for the rejoining participant).
+    pub(crate) async fn rejoin_participant(
+        &mut self,
+        name: &ProtoName,
+        key_package: &[u8],
+    ) -> Result<(CommitMsg, WelcomeMsg), SessionError> {
+        debug!("Rejoin participant in the MLS group (remove + re-add)");
+        let id = match self.participants.get(name) {
+            Some(id) => id,
+            None => {
+                error!("the name does not exist in the group");
+                return Err(SessionError::ParticipantNotFound(name.clone()));
+            }
+        };
+
+        let ret = self.common.mls.rejoin_member(id, key_package).await?;
+
+        // Update the participant's identity (may have changed with new key package)
+        self.participants.insert(name.clone(), ret.member_identity);
+
+        Ok((ret.commit_message, ret.welcome_message))
+    }
+
     #[allow(dead_code)]
     pub(crate) async fn process_proposal_message(
         &mut self,
@@ -534,6 +544,7 @@ where
 mod tests {
     use super::*;
     use slim_auth::shared_secret::SharedSecret;
+    use slim_datapath::api::GroupUpdateOp;
     use slim_testing::utils::TEST_VALID_SECRET;
 
     #[tokio::test]
@@ -1072,30 +1083,23 @@ mod tests {
         slim_datapath::api::ProtoName::from_strings(["org", "default", leaf])
     }
 
-    /// Build a GroupAdd/GroupRemove control message carrying an MLS payload
+    /// Build a GroupUpdate control message carrying an MLS payload
     /// with the given `commit_id` (the MLS content itself is empty, which is
     /// fine because the ordering checks never inspect it).
-    fn control_msg(msg_type: ProtoSessionMessageType, commit_id: u32) -> Message {
+    fn control_msg(commit_id: u32, op: GroupUpdateOp) -> Message {
         use slim_datapath::api::{CommandPayload, Participant, ParticipantSettings};
 
         let mls = Some(MlsPayload {
             commit_id,
             mls_content: vec![],
         });
-        let payload = match msg_type {
-            ProtoSessionMessageType::GroupRemove => CommandPayload::builder()
-                .group_remove(test_name("rem"), vec![], mls)
-                .as_content(),
-            _ => {
-                let participant = Participant::new(
-                    test_name("new").with_id(9),
-                    ParticipantSettings::bidirectional(),
-                );
-                CommandPayload::builder()
-                    .group_add(participant, vec![], mls)
-                    .as_content()
-            }
-        };
+        let participant = Participant::new(
+            test_name("new").with_id(9),
+            ParticipantSettings::bidirectional(),
+        );
+        let payload = CommandPayload::builder()
+            .group_update(op, participant, vec![], mls)
+            .as_content();
 
         Message::builder()
             .source(test_name("mod").with_id(1))
@@ -1103,7 +1107,7 @@ mod tests {
             .session_id(1)
             .message_id(1)
             .session_type(slim_datapath::api::ProtoSessionType::Multicast)
-            .session_message_type(msg_type)
+            .session_message_type(ProtoSessionMessageType::GroupUpdate)
             .payload(payload)
             .build_publish()
             .unwrap()
@@ -1115,7 +1119,7 @@ mod tests {
         // must be dropped (it cannot be applied without the group state).
         let mut state = new_test_mls_state().await;
         let local = test_name("bob");
-        let msg = control_msg(ProtoSessionMessageType::GroupAdd, 5);
+        let msg = control_msg(5, GroupUpdateOp::Add);
 
         let processed = state.process_control_message(msg, &local).unwrap();
 
@@ -1130,7 +1134,7 @@ mod tests {
         let mut state = new_test_mls_state().await;
         state.last_mls_msg_id = 10;
         let local = test_name("bob");
-        let msg = control_msg(ProtoSessionMessageType::GroupRemove, 5);
+        let msg = control_msg(5, GroupUpdateOp::Remove);
 
         let processed = state.process_control_message(msg, &local).unwrap();
 
@@ -1145,7 +1149,7 @@ mod tests {
         let mut state = new_test_mls_state().await;
         state.last_mls_msg_id = 1;
         let local = test_name("bob");
-        let msg = control_msg(ProtoSessionMessageType::GroupAdd, 3);
+        let msg = control_msg(3, GroupUpdateOp::Add);
 
         let processed = state.process_control_message(msg.clone(), &local).unwrap();
         assert!(processed);
@@ -1211,20 +1215,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_moderator_remove_participant_not_found() {
-        use slim_datapath::api::CommandPayload;
+        use slim_datapath::api::{CommandPayload, Participant, ParticipantSettings};
 
         let mut moderator = MlsModeratorState::new(new_test_mls_state().await);
         let ghost = test_name("ghost");
+        let ghost_participant =
+            Participant::new(ghost.clone(), ParticipantSettings::bidirectional());
         let msg = Message::builder()
             .source(test_name("mod").with_id(1))
             .destination(ghost.clone())
             .session_id(1)
             .message_id(1)
             .session_type(slim_datapath::api::ProtoSessionType::Multicast)
-            .session_message_type(ProtoSessionMessageType::GroupRemove)
+            .session_message_type(ProtoSessionMessageType::GroupUpdate)
             .payload(
                 CommandPayload::builder()
-                    .group_remove(ghost, vec![], None)
+                    .group_update(GroupUpdateOp::Remove, ghost_participant, vec![], None)
                     .as_content(),
             )
             .build_publish()
@@ -1238,7 +1244,7 @@ mod tests {
     async fn test_build_aad_falls_back_to_empty_payload_type() {
         // A control message has no application payload, so build_aad must use
         // an empty payload_type rather than panicking.
-        let msg = control_msg(ProtoSessionMessageType::GroupAdd, 1);
+        let msg = control_msg(1, GroupUpdateOp::Add);
 
         let aad = build_aad(&msg);
 

@@ -34,10 +34,8 @@ pub enum MlsError {
     GroupNotExists,
 
     // Payload expectations
-    #[error("no mls add payload found")]
-    NoGroupAddPayload,
-    #[error("no mls remove payload found")]
-    NoGroupRemovePayload,
+    #[error("no mls update payload found")]
+    NoGroupUpdatePayload,
     #[error("no welcome message generated")]
     NoWelcomeMessage,
     #[error("unknown payload type")]
