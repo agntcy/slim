@@ -127,6 +127,24 @@ async fn wait_for_message(sink: &Arc<Mutex<Vec<String>>>, expected: &str, timeou
     }
 }
 
+/// Wait until `sink` contains any message matching `pred`, or fail after `timeout`.
+async fn wait_for_any_message<F>(sink: &Arc<Mutex<Vec<String>>>, pred: F, timeout: Duration)
+where
+    F: Fn(&str) -> bool,
+{
+    let poll = async {
+        while !sink.lock().iter().any(|m| pred(m.as_str())) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    };
+    if tokio::time::timeout(timeout, poll).await.is_err() {
+        panic!(
+            "timed out waiting for a matching message; got {:?}",
+            sink.lock()
+        );
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multicast_mls_session_restore() {
     // 1. Start the SLIM node.
@@ -616,4 +634,209 @@ async fn test_participant_rejoin_after_epoch_advance() {
         .await
         .expect("post-rejoin publish failed");
     wait_for_message(&member2_messages, "after-rejoin", Duration::from_secs(10)).await;
+}
+
+/// Same scenario as `test_participant_rejoin_after_epoch_advance` but member2
+/// fully disconnects (app + service dropped) and is recreated from persistence.
+///
+/// After the restore, member2's MLS state has the old epoch (before member3 was
+/// invited). The epoch-mismatch rejoin is triggered automatically by the next
+/// heartbeat from the moderator (~10 s interval), so the test keeps publishing
+/// every second and waits for the first message member2 can actually decrypt.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_participant_rejoin_after_epoch_advance_with_persistence() {
+    // 1. Start SLIM node.
+    let port = reserve_local_port();
+    tokio::spawn(async move {
+        let _ = run_slim_node(port).await;
+    });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let moderator_name = Name::from_strings(["org", "ns", "moderator3"]);
+    let member1_name = Name::from_strings(["org", "ns", "member1p"]);
+    let member2_name = Name::from_strings(["org", "ns", "member2p"]);
+    let member3_name = Name::from_strings(["org", "ns", "member3p"]);
+    let channel = Name::from_strings(["channel", "rejoin", "persist"]);
+
+    let member2_dir = tempfile::tempdir().unwrap();
+
+    // 2. Create apps. Member2 is persistent so it can be restored later.
+    let (moderator_app, _mod_rx, mod_conn, _mod_svc) = create_app(
+        port,
+        &moderator_name,
+        SharedSecret::new("mod3", TEST_VALID_SECRET).unwrap(),
+    )
+    .await;
+    let (_member1_app, mut member1_rx, _m1_conn, _m1_svc) = create_app(
+        port,
+        &member1_name,
+        SharedSecret::new("member1p", TEST_VALID_SECRET).unwrap(),
+    )
+    .await;
+    let member2_secret = SharedSecret::new("member2p", TEST_VALID_SECRET).unwrap();
+    let (member2_app, mut member2_rx, _m2_conn, member2_svc) = create_persistent_app(
+        port,
+        &member2_name,
+        member2_secret.clone(),
+        member2_dir.path(),
+    )
+    .await;
+    let (_member3_app, mut member3_rx, _m3_conn, _m3_svc) = create_app(
+        port,
+        &member3_name,
+        SharedSecret::new("member3p", TEST_VALID_SECRET).unwrap(),
+    )
+    .await;
+
+    // 3. Routes from moderator to all members.
+    for name in [&member1_name, &member2_name, &member3_name] {
+        moderator_app
+            .set_route(name, mod_conn)
+            .await
+            .expect("set_route failed");
+    }
+
+    // 4. Create the multicast MLS session.
+    let config = SessionConfig {
+        session_type: slim_datapath::api::ProtoSessionType::Multicast,
+        max_retries: Some(10),
+        interval: Some(Duration::from_secs(1)),
+        mls_settings: Some(MlsSettings::default()),
+        initiator: true,
+        metadata: Default::default(),
+    };
+    let (session_ctx, completion) = moderator_app
+        .create_session(config, channel.clone(), None)
+        .await
+        .expect("create_session failed");
+    completion.await.expect("session establishment failed");
+    let session = session_ctx.session_arc().expect("no session arc");
+
+    // 5. Set up listeners and invite member1 + member2.
+    let member2_messages = Arc::new(Mutex::new(Vec::<String>::new()));
+
+    tokio::spawn(async move {
+        while let Some(Ok(Notification::NewSession(_ctx))) = member1_rx.recv().await {}
+    });
+    tokio::spawn(async move {
+        while let Some(Ok(Notification::NewSession(_ctx))) = member3_rx.recv().await {}
+    });
+
+    let m2_sink = member2_messages.clone();
+    tokio::spawn(async move {
+        while let Some(Ok(Notification::NewSession(ctx))) = member2_rx.recv().await {
+            collect_messages(ctx, m2_sink.clone());
+        }
+    });
+
+    session
+        .invite_participant(&member1_name)
+        .await
+        .expect("invite member1 failed")
+        .await
+        .expect("invite member1 completion failed");
+
+    session
+        .invite_participant(&member2_name)
+        .await
+        .expect("invite member2 failed")
+        .await
+        .expect("invite member2 completion failed");
+
+    // 6. Baseline: member2 receives a message.
+    session
+        .publish_with_flags(
+            &channel,
+            SlimHeaderFlags::new(10, None, None, None, None),
+            b"before-disconnect".to_vec(),
+            None,
+            None,
+        )
+        .await
+        .expect("baseline publish failed");
+    wait_for_message(
+        &member2_messages,
+        "before-disconnect",
+        Duration::from_secs(10),
+    )
+    .await;
+
+    // 7. Member2 crashes (process restart without graceful close). The moderator
+    //    still considers member2 ONLINE; with MLS enabled the moderator will
+    //    accept the subsequent RejoinRequest from the restored instance because
+    //    on_rejoin_request processes online participants when an epoch mismatch
+    //    is detected (see session_moderator.rs: on_rejoin_request).
+    drop(member2_app);
+    drop(member2_svc);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // 8. Moderator invites member3 — the MLS epoch advances while member2 is down.
+    //    Ignore the completion result: member2 is offline so its GroupUpdate ACK
+    //    never arrives and the handle may time out, but the commit was sent and
+    //    member3 joined; member2 will catch up via the rejoin flow on reconnect.
+    let _ = session
+        .invite_participant(&member3_name)
+        .await
+        .expect("invite member3 send failed")
+        .await;
+
+    // 9. Restore member2 from persistence. Its MLS state has the old epoch.
+    let (member2_app2, _member2_rx2, conn2, _member2_svc2) = create_persistent_app(
+        port,
+        &member2_name,
+        SharedSecret::new("member2p", TEST_VALID_SECRET).unwrap(),
+        member2_dir.path(),
+    )
+    .await;
+
+    let restored = member2_app2
+        .restore_sessions(conn2)
+        .await
+        .expect("restore_sessions failed");
+    assert_eq!(restored.len(), 1, "exactly one session should be restored");
+
+    let m2_sink2 = member2_messages.clone();
+    collect_messages(restored.into_iter().next().unwrap(), m2_sink2);
+
+    // Re-establish route to moderator so RejoinRequest can be delivered.
+    member2_app2
+        .set_route(&moderator_name, conn2)
+        .await
+        .expect("set_route to moderator failed");
+
+    // Give re-subscription time to propagate.
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    // 10. Keep publishing every second. Member2 cannot decrypt messages that were
+    //     encrypted with the new epoch until the heartbeat-triggered rejoin
+    //     completes. wait_for_any_message polls every 50 ms for up to 30 s, which
+    //     comfortably covers the 10 s heartbeat interval + rejoin round-trip.
+    let session_clone = session.clone();
+    let channel_clone = channel.clone();
+    let publisher = tokio::spawn(async move {
+        let mut i: u32 = 0;
+        loop {
+            i += 1;
+            let msg = format!("post-restore-{i}");
+            let _ = session_clone
+                .publish_with_flags(
+                    &channel_clone,
+                    SlimHeaderFlags::new(10, None, None, None, None),
+                    msg.into_bytes(),
+                    None,
+                    None,
+                )
+                .await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    });
+
+    wait_for_any_message(
+        &member2_messages,
+        |m| m.starts_with("post-restore-"),
+        Duration::from_secs(30),
+    )
+    .await;
+
+    publisher.abort();
 }
