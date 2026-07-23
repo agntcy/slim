@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use slim_auth::errors::AuthError;
-use slim_config::component::id::IdError;
 use thiserror::Error;
 
 #[cfg(feature = "session")]
@@ -16,12 +15,14 @@ pub enum ServiceError {
     // Configuration / setup
     #[error("no server or client configured")]
     NoServerOrClientConfigured,
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("grpc configuration error")]
     ConfigError(#[from] slim_config::errors::ConfigError),
     #[error("invalid configuration: {0}")]
     InvalidConfig(String),
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("id error")]
-    IdError(#[from] IdError),
+    IdError(#[from] slim_config::component::id::IdError),
 
     // App construction
     #[error("application name missing")]
@@ -94,6 +95,7 @@ pub enum ServiceError {
     SessionError(Box<SessionErrorType>),
 
     // Controller / datapath typed propagation
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("controller error")]
     Controller(#[from] slim_controller::errors::ControllerError),
     #[error("datapath error")]

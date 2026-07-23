@@ -18,6 +18,7 @@ use slim_datapath::Status;
 use slim_datapath::api::MessageType;
 use slim_datapath::api::ProtoMessage as Message;
 use slim_datapath::api::ProtoName;
+use slim_datapath::message_processing::MessageProcessor;
 use slim_datapath::messages::utils::SlimHeaderFlags;
 
 use slim_session::{SessionConfig, session_controller::SessionController};
@@ -70,6 +71,45 @@ where
         // cancel the app receiver loop
         self.cancel_token.cancel();
     }
+}
+
+/// Bootstrap an [`App`] from an existing [`MessageProcessor`].
+///
+/// Registers a local connection, wires the session layer, and starts the SLIM
+/// receive loop. Browser clients connect over WebSocket; native clients use
+/// [`Service::create_app_with_direction`] (native targets only).
+pub fn bootstrap_app_with_direction<P, V>(
+    message_processor: &MessageProcessor,
+    service_id: impl Into<String>,
+    app_name: &ProtoName,
+    identity_provider: P,
+    identity_verifier: V,
+    direction: Direction,
+) -> Result<
+    (
+        App<P, V>,
+        mpsc::Receiver<Result<Notification, SessionError>>,
+    ),
+    ServiceError,
+>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    let (conn_id, tx_slim, rx_slim) = message_processor.register_local_connection(false)?;
+    let (tx_app, rx_app) = mpsc::channel(128);
+    let app = App::new_with_direction(
+        app_name,
+        identity_provider,
+        identity_verifier,
+        conn_id,
+        tx_slim,
+        tx_app,
+        direction,
+        service_id.into(),
+    );
+    app.process_messages(rx_slim);
+    Ok((app, rx_app))
 }
 
 impl<P, V> App<P, V>
@@ -343,7 +383,7 @@ where
             service_id = %service_id,
         );
 
-        tokio::spawn(async move {
+        slim_datapath::runtime::spawn(async move {
             debug!("starting message processing loop");
 
             // Initiate self-subscription via the subscription manager so the ACK

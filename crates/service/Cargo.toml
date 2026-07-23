@@ -15,26 +15,29 @@ kubernetes = ["agntcy-slim-datapath/kubernetes"]
 session = ["agntcy-slim-session"]
 
 [dependencies]
-agntcy-slim-version = { workspace = true }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim-auth = { workspace = true }
-agntcy-slim-config = { workspace = true }
-agntcy-slim-controller = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
-agntcy-slim-mls = { workspace = true }
 agntcy-slim-session = { workspace = true, optional = true }
-async-trait = { workspace = true }
+agntcy-slim-version = { workspace = true }
 display-error-chain = { workspace = true }
-futures = { workspace = true }
-parking_lot = { workspace = true }
-serde = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 twox-hash = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+agntcy-slim-config = { workspace = true }
+agntcy-slim-controller = { workspace = true }
+agntcy-slim-mls = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
 uuid = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { package = "tokio_with_wasm", version = "0.9", features = ["sync", "macros", "rt", "time"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim-testing = { workspace = true }

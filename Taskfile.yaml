@@ -210,7 +210,11 @@ tasks:
     deps:
       - task: check
     cmds:
-      - cargo clippy {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}} -- -D warnings
+      # agntcy-slim-bindings `native` and `web` are mutually exclusive; skip it
+      # in the workspace `--all-features` pass and lint each mode separately.
+      - cargo clippy {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}} --exclude agntcy-slim-bindings -- -D warnings
+      - cargo clippy -p agntcy-slim-bindings --all-targets --locked -- -D warnings
+      - cargo clippy -p agntcy-slim-bindings --all-targets --locked --no-default-features --features web -- -D warnings
     vars:
       ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
@@ -290,7 +294,9 @@ tasks:
   test:
     desc: "Run the tests"
     cmds:
-      - ulimit -n 4096 2>/dev/null || true; cargo test {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
+      - ulimit -n 4096 2>/dev/null || true; cargo test {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}} --exclude agntcy-slim-bindings
+      - ulimit -n 4096 2>/dev/null || true; cargo test -p agntcy-slim-bindings {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} --all-targets --locked
+      - ulimit -n 4096 2>/dev/null || true; cargo test -p agntcy-slim-bindings {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} --all-targets --locked --no-default-features --features web
     vars:
       ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
@@ -299,7 +305,9 @@ tasks:
     deps:
       - task: install-target
     cmds:
-      - ulimit -n 4096 2>/dev/null || true; cargo test --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
+      - ulimit -n 4096 2>/dev/null || true; cargo test --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}} --exclude agntcy-slim-bindings
+      - ulimit -n 4096 2>/dev/null || true; cargo test -p agntcy-slim-bindings --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} --all-targets --locked
+      - ulimit -n 4096 2>/dev/null || true; cargo test -p agntcy-slim-bindings --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} --all-targets --locked --no-default-features --features web
     vars:
       ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 

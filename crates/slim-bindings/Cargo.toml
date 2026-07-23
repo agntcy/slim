@@ -9,7 +9,26 @@ description = "UniFFI bindings and FFI adapter for SLIM data plane - enables lan
 [lib]
 name = "slim_bindings"
 
+[features]
+default = ["native"]
+# Full desktop/mobile bindings, including services, configuration, and SlimRPC.
+native = []
+# Browser-safe UniFFI surface. Mutually exclusive with `native`; do not enable
+# both at once (CI runs native and web clippy as separate `cargo clippy` passes).
+web = []
+
 [dependencies]
+display-error-chain = { workspace = true }
+futures = { workspace = true }
+futures-timer = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uniffi = { workspace = true, features = ["cli", "wasm-unstable-single-threaded"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim = { workspace = true }
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
@@ -20,17 +39,17 @@ agntcy-slim-session = { workspace = true }
 agntcy-slim-signal = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 agntcy-slim-version = { workspace = true }
-
-display-error-chain = { workspace = true }
-futures = { workspace = true }
-futures-timer = { workspace = true }
-parking_lot = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
 tokio = { workspace = true }
-tracing = { workspace = true }
-uniffi = { workspace = true, features = ["cli"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+agntcy-slim-auth = { workspace = true }
+agntcy-slim-config = { workspace = true }
+agntcy-slim-datapath = { workspace = true }
+agntcy-slim-service = { workspace = true, features = ["session"] }
+agntcy-slim-session = { workspace = true }
+agntcy-slim-version = { workspace = true }
+tokio = { package = "tokio_with_wasm", version = "0.9", features = ["sync", "time"] }
+wasm-bindgen-futures = { workspace = true }
 
 [build-dependencies]
 agntcy-slim-version = { workspace = true }
@@ -43,7 +62,9 @@ test-fork = { workspace = true }
 [[example]]
 name = "receiver"
 path = "examples/receiver.rs"
+required-features = ["native"]
 
 [[example]]
 name = "sender"
 path = "examples/sender.rs"
+required-features = ["native"]

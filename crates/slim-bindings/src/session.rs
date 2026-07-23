@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+#[cfg(not(target_arch = "wasm32"))]
 use futures_timer::Delay;
 use slim_datapath::api::ProtoName as SlimName;
 use slim_datapath::api::ProtoSessionType;
@@ -48,12 +49,16 @@ impl From<ProtoSessionType> for SessionType {
 pub struct MlsSettings {
     /// 0 = disable header-integrity checks; 1–100 = percent of messages to verify after decrypt.
     pub header_integrity_validation_percent: u32,
+    /// Maximum remembered control-message IDs used for replay protection.
+    /// `None` uses the SLIM core default.
+    pub max_seen_control_message_ids_size: Option<u64>,
 }
 
 impl Default for MlsSettings {
     fn default() -> Self {
         Self {
             header_integrity_validation_percent: 100,
+            max_seen_control_message_ids_size: None,
         }
     }
 }
@@ -62,7 +67,9 @@ impl From<MlsSettings> for slim_session::session_config::MlsSettings {
     fn from(s: MlsSettings) -> Self {
         Self {
             header_integrity_validation_percent: s.header_integrity_validation_percent.min(100),
-            max_seen_control_message_ids_size: None,
+            max_seen_control_message_ids_size: s
+                .max_seen_control_message_ids_size
+                .and_then(|value| usize::try_from(value).ok()),
         }
     }
 }
@@ -71,6 +78,9 @@ impl From<slim_session::session_config::MlsSettings> for MlsSettings {
     fn from(s: slim_session::session_config::MlsSettings) -> Self {
         Self {
             header_integrity_validation_percent: s.header_integrity_validation_percent,
+            max_seen_control_message_ids_size: s
+                .max_seen_control_message_ids_size
+                .and_then(|value| u64::try_from(value).ok()),
         }
     }
 }
@@ -142,6 +152,7 @@ impl Session {
     }
 
     /// Get the runtime (for internal use)
+    #[cfg(not(feature = "web"))]
     pub fn runtime(&self) -> tokio::runtime::Handle {
         crate::config::get_runtime()
     }
@@ -256,9 +267,11 @@ impl Session {
         };
 
         if let Some(timeout_duration) = timeout {
-            // Runtime-agnostic timeout using futures-timer
             futures::pin_mut!(recv_future);
+            #[cfg(not(target_arch = "wasm32"))]
             let delay = Delay::new(timeout_duration);
+            #[cfg(target_arch = "wasm32")]
+            let delay = tokio::time::sleep(timeout_duration);
             futures::pin_mut!(delay);
 
             match futures::future::select(recv_future, delay).await {
@@ -301,8 +314,16 @@ impl Session {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<Arc<CompletionHandle>, SlimError> {
-        crate::config::get_runtime()
-            .block_on(async { self.publish_async(data, payload_type, metadata).await })
+        #[cfg(not(feature = "web"))]
+        {
+            crate::config::get_runtime()
+                .block_on(async { self.publish_async(data, payload_type, metadata).await })
+        }
+        #[cfg(feature = "web")]
+        {
+            let _ = (data, payload_type, metadata);
+            Err(web_async_required("publish_async"))
+        }
     }
 
     /// Publish a message to the session's destination (async version)
@@ -346,10 +367,18 @@ impl Session {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<(), SlimError> {
-        crate::config::get_runtime().block_on(async {
-            self.publish_and_wait_async(data, payload_type, metadata)
-                .await
-        })
+        #[cfg(not(feature = "web"))]
+        {
+            crate::config::get_runtime().block_on(async {
+                self.publish_and_wait_async(data, payload_type, metadata)
+                    .await
+            })
+        }
+        #[cfg(feature = "web")]
+        {
+            let _ = (data, payload_type, metadata);
+            Err(web_async_required("publish_and_wait_async"))
+        }
     }
 
     /// Publish a message and wait for completion (async version)
@@ -389,10 +418,18 @@ impl Session {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<Arc<CompletionHandle>, SlimError> {
-        crate::config::get_runtime().block_on(async {
-            self.publish_to_async(message_context, data, payload_type, metadata)
-                .await
-        })
+        #[cfg(not(feature = "web"))]
+        {
+            crate::config::get_runtime().block_on(async {
+                self.publish_to_async(message_context, data, payload_type, metadata)
+                    .await
+            })
+        }
+        #[cfg(feature = "web")]
+        {
+            let _ = (message_context, data, payload_type, metadata);
+            Err(web_async_required("publish_to_async"))
+        }
     }
 
     /// Publish a reply message (async version)
@@ -422,10 +459,18 @@ impl Session {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<(), SlimError> {
-        crate::config::get_runtime().block_on(async {
-            self.publish_to_and_wait_async(message_context, data, payload_type, metadata)
-                .await
-        })
+        #[cfg(not(feature = "web"))]
+        {
+            crate::config::get_runtime().block_on(async {
+                self.publish_to_and_wait_async(message_context, data, payload_type, metadata)
+                    .await
+            })
+        }
+        #[cfg(feature = "web")]
+        {
+            let _ = (message_context, data, payload_type, metadata);
+            Err(web_async_required("publish_to_and_wait_async"))
+        }
     }
 
     /// Publish a reply message and wait for completion (async version)
@@ -465,17 +510,32 @@ impl Session {
         payload_type: Option<String>,
         metadata: Option<HashMap<String, String>>,
     ) -> Result<(), SlimError> {
-        crate::config::get_runtime().block_on(async {
-            self.publish_with_params_async(
+        #[cfg(not(feature = "web"))]
+        {
+            crate::config::get_runtime().block_on(async {
+                self.publish_with_params_async(
+                    destination,
+                    fanout,
+                    data,
+                    connection_out,
+                    payload_type,
+                    metadata,
+                )
+                .await
+            })
+        }
+        #[cfg(feature = "web")]
+        {
+            let _ = (
                 destination,
                 fanout,
                 data,
                 connection_out,
                 payload_type,
                 metadata,
-            )
-            .await
-        })
+            );
+            Err(web_async_required("publish_with_params_async"))
+        }
     }
 
     /// Low-level publish with full control (async version)
@@ -516,7 +576,15 @@ impl Session {
         &self,
         timeout: Option<std::time::Duration>,
     ) -> Result<ReceivedMessage, SlimError> {
-        crate::config::get_runtime().block_on(async { self.get_message_async(timeout).await })
+        #[cfg(not(feature = "web"))]
+        {
+            crate::config::get_runtime().block_on(async { self.get_message_async(timeout).await })
+        }
+        #[cfg(feature = "web")]
+        {
+            let _ = timeout;
+            Err(web_async_required("get_message_async"))
+        }
     }
 
     /// Receive a message from the session (async version)
@@ -536,7 +604,15 @@ impl Session {
     ///
     /// Returns a completion handle that can be awaited to ensure the invitation completes.
     pub fn invite(&self, participant: Arc<Name>) -> Result<Arc<CompletionHandle>, SlimError> {
-        crate::config::get_runtime().block_on(async { self.invite_async(participant).await })
+        #[cfg(not(feature = "web"))]
+        {
+            crate::config::get_runtime().block_on(async { self.invite_async(participant).await })
+        }
+        #[cfg(feature = "web")]
+        {
+            let _ = participant;
+            Err(web_async_required("invite_async"))
+        }
     }
 
     /// Invite a participant to the session (async version)
@@ -558,8 +634,16 @@ impl Session {
     ///
     /// This method invites a participant and blocks until the invitation completes.
     pub fn invite_and_wait(&self, participant: Arc<Name>) -> Result<(), SlimError> {
-        crate::config::get_runtime()
-            .block_on(async { self.invite_and_wait_async(participant).await })
+        #[cfg(not(feature = "web"))]
+        {
+            crate::config::get_runtime()
+                .block_on(async { self.invite_and_wait_async(participant).await })
+        }
+        #[cfg(feature = "web")]
+        {
+            let _ = participant;
+            Err(web_async_required("invite_and_wait_async"))
+        }
     }
 
     /// Invite a participant and wait for completion (async version)
@@ -574,7 +658,15 @@ impl Session {
     ///
     /// Returns a completion handle that can be awaited to ensure the removal completes.
     pub fn remove(&self, participant: Arc<Name>) -> Result<Arc<CompletionHandle>, SlimError> {
-        crate::config::get_runtime().block_on(async { self.remove_async(participant).await })
+        #[cfg(not(feature = "web"))]
+        {
+            crate::config::get_runtime().block_on(async { self.remove_async(participant).await })
+        }
+        #[cfg(feature = "web")]
+        {
+            let _ = participant;
+            Err(web_async_required("remove_async"))
+        }
     }
 
     /// Remove a participant from the session (async version)
@@ -596,8 +688,16 @@ impl Session {
     ///
     /// This method removes a participant and blocks until the removal completes.
     pub fn remove_and_wait(&self, participant: Arc<Name>) -> Result<(), SlimError> {
-        crate::config::get_runtime()
-            .block_on(async { self.remove_and_wait_async(participant).await })
+        #[cfg(not(feature = "web"))]
+        {
+            crate::config::get_runtime()
+                .block_on(async { self.remove_and_wait_async(participant).await })
+        }
+        #[cfg(feature = "web")]
+        {
+            let _ = participant;
+            Err(web_async_required("remove_and_wait_async"))
+        }
     }
 
     /// Remove a participant and wait for completion (async version)
@@ -712,7 +812,21 @@ impl Session {
 
     /// Get list of participants in the session (blocking version for FFI)
     pub fn participants_list(&self) -> Result<Vec<Arc<Name>>, SlimError> {
-        crate::config::get_runtime().block_on(async { self.participants_list_async().await })
+        #[cfg(not(feature = "web"))]
+        {
+            crate::config::get_runtime().block_on(async { self.participants_list_async().await })
+        }
+        #[cfg(feature = "web")]
+        {
+            Err(web_async_required("participants_list_async"))
+        }
+    }
+}
+
+#[cfg(feature = "web")]
+fn web_async_required(method: &str) -> SlimError {
+    SlimError::InvalidArgument {
+        message: format!("blocking operations are unavailable in browsers; use {method}"),
     }
 }
 
@@ -1477,6 +1591,7 @@ mod tests {
     // ==================== get_message Duration Tests ====================
 
     /// Test get_message blocking version with Duration timeout
+    #[cfg(not(feature = "web"))]
     #[test]
     fn test_get_message_blocking_with_duration() {
         let (ctx, tx) = make_context();
@@ -1598,6 +1713,7 @@ mod tests {
     }
 
     /// Test blocking get_message with timeout
+    #[cfg(not(feature = "web"))]
     #[test]
     fn test_get_message_blocking_timeout() {
         let (ctx, _tx) = make_context();

@@ -102,8 +102,10 @@ dependencies = [
  "test-fork",
  "thiserror 2.0.18",
  "tokio",
+ "tokio_with_wasm",
  "tracing",
  "uniffi",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
@@ -409,6 +411,7 @@ dependencies = [
  "tokio",
  "tokio-test",
  "tokio-util",
+ "tokio_with_wasm",
  "tracing",
  "tracing-test",
  "twox-hash",
