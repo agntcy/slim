@@ -564,12 +564,12 @@ impl ControlPlaneService for NorthboundApiService {
 
         // Also include domains from DB secrets (API mode — may have domains not yet
         // loaded into the authenticator on error, or for consistency).
-        let auth_groups = self
+        let auth_domains = self
             .db
-            .list_registration_secret_groups()
+            .list_registration_secret_domains()
             .await
             .map_err(|e| Status::internal(format!("failed to list domains: {e}")))?;
-        for g in auth_groups {
+        for g in auth_domains {
             domains.entry(g).or_default();
         }
 
@@ -664,13 +664,13 @@ impl ControlPlaneService for NorthboundApiService {
             .list_nodes()
             .await
             .map_err(|e| Status::internal(format!("failed to list nodes: {e}")))?;
-        let group_nodes: Vec<_> = nodes
+        let domain_nodes: Vec<_> = nodes
             .iter()
             .filter(|n| n.domain_name.as_deref() == Some(&req.domain_name))
             .collect();
 
         // Disconnect and deregister each existing node in the domain.
-        for node in &group_nodes {
+        for node in &domain_nodes {
             self.cmd_handler.force_remove_stream(&node.id).await;
             self.route_service.node_deregistered(&node.id).await;
         }
@@ -678,7 +678,7 @@ impl ControlPlaneService for NorthboundApiService {
         tracing::info!(
             "remove_domain: removed domain '{}' ({} node(s) disconnected)",
             req.domain_name,
-            group_nodes.len()
+            domain_nodes.len()
         );
         Ok(Response::new(RemoveDomainResponse {}))
     }
@@ -772,7 +772,7 @@ mod tests {
     }
 
     #[test]
-    fn build_link_peer_map_empty_group() {
+    fn build_link_peer_map_empty_domain() {
         // Empty dest_domain — should return dest_node_id as-is
         let links = vec![make_link("l1", "node-a", "domain-a", "node-b", "")];
         let map = NorthboundApiService::build_link_peer_map("node-a", &links);
@@ -844,7 +844,7 @@ mod tests {
         .expect("add_domain should succeed");
 
         // Verify it persisted in DB.
-        let domains = svc.db.list_registration_secret_groups().await.unwrap();
+        let domains = svc.db.list_registration_secret_domains().await.unwrap();
         assert!(domains.contains(&"new-domain".to_string()));
 
         // Verify the verifier was added (the authenticator can verify for this domain).
@@ -920,7 +920,7 @@ mod tests {
         }
 
         // Secret should be removed from DB.
-        let domains = svc.db.list_registration_secret_groups().await.unwrap();
+        let domains = svc.db.list_registration_secret_domains().await.unwrap();
         assert!(!domains.contains(&"my-domain".to_string()));
     }
 

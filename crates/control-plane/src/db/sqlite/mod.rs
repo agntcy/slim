@@ -1245,9 +1245,9 @@ impl DataAccess for SqliteDb {
 
     // ── Registration Secrets ───────────────────────────────────────────────
 
-    async fn list_registration_secret_groups(&self) -> Result<Vec<String>> {
+    async fn list_registration_secret_domains(&self) -> Result<Vec<String>> {
         let mut conn = self.pool.get().await.map_err(|e| Error::DbError {
-            context: "list_registration_secret_groups pool",
+            context: "list_registration_secret_domains pool",
             msg: e.to_string(),
         })?;
         registration_secrets::table
@@ -1255,7 +1255,7 @@ impl DataAccess for SqliteDb {
             .load::<String>(&mut conn)
             .await
             .map_err(|e| Error::DbError {
-                context: "list_registration_secret_groups",
+                context: "list_registration_secret_domains",
                 msg: e.to_string(),
             })
     }

@@ -270,10 +270,10 @@ impl RouteService {
         // Only call ensure_links for one node per domain to avoid creating
         // duplicate inter-domain links (the gateway pattern: one link per domain pair).
         // Re-read links after each call so the next domain sees newly created links.
-        let mut seen_groups: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut seen_domains: std::collections::HashSet<String> = std::collections::HashSet::new();
         for node in &all_nodes {
             let domain = node.domain_name.as_deref().unwrap_or("").to_string();
-            if !seen_groups.insert(domain) {
+            if !seen_domains.insert(domain) {
                 continue;
             }
             let node_links: Vec<_> = current_links
@@ -556,7 +556,7 @@ mod topology_mutation_tests {
     }
 
     /// Helper to register nodes so domain validation passes.
-    async fn register_groups(svc: &super::RouteService, domains: &[&str]) {
+    async fn register_domains(svc: &super::RouteService, domains: &[&str]) {
         for (i, domain) in domains.iter().enumerate() {
             let node = Node {
                 id: format!("{domain}/node-{i}"),
@@ -623,7 +623,7 @@ mod topology_mutation_tests {
     async fn add_topology_link_succeeds() {
         let svc = api_managed_service();
         svc.add_segment("prod").await.unwrap();
-        register_groups(&svc, &["cloud", "customer-a"]).await;
+        register_domains(&svc, &["cloud", "customer-a"]).await;
         svc.add_topology_link("cloud", "customer-a", "prod")
             .await
             .unwrap();
@@ -638,7 +638,7 @@ mod topology_mutation_tests {
     #[tokio::test]
     async fn add_topology_link_segment_not_found() {
         let svc = api_managed_service();
-        register_groups(&svc, &["cloud", "customer-a"]).await;
+        register_domains(&svc, &["cloud", "customer-a"]).await;
         let err = svc
             .add_topology_link("cloud", "customer-a", "nonexistent")
             .await
@@ -650,7 +650,7 @@ mod topology_mutation_tests {
     async fn add_topology_link_idempotent() {
         let svc = api_managed_service();
         svc.add_segment("prod").await.unwrap();
-        register_groups(&svc, &["cloud", "customer-a"]).await;
+        register_domains(&svc, &["cloud", "customer-a"]).await;
         svc.add_topology_link("cloud", "customer-a", "prod")
             .await
             .unwrap();
@@ -664,7 +664,7 @@ mod topology_mutation_tests {
     async fn remove_topology_link_succeeds() {
         let svc = api_managed_service();
         svc.add_segment("prod").await.unwrap();
-        register_groups(&svc, &["cloud", "customer-a"]).await;
+        register_domains(&svc, &["cloud", "customer-a"]).await;
         svc.add_topology_link("cloud", "customer-a", "prod")
             .await
             .unwrap();
@@ -690,7 +690,7 @@ mod topology_mutation_tests {
     async fn add_topology_link_warns_on_missing_group() {
         let svc = api_managed_service();
         svc.add_segment("prod").await.unwrap();
-        register_groups(&svc, &["cloud"]).await;
+        register_domains(&svc, &["cloud"]).await;
         let warnings = svc
             .add_topology_link("cloud", "nonexistent", "prod")
             .await

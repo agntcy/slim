@@ -64,24 +64,24 @@ impl super::RouteService {
             return false;
         }
 
-        let new_groups: HashSet<&str> = nodes
+        let new_domains: HashSet<&str> = nodes
             .iter()
             .map(|n| n.domain_name.as_deref().unwrap_or(""))
             .collect();
 
         let snapshot = {
             let mut current_segments = self.0.segment_graphs.write().await;
-            let current_groups: HashSet<&str> = current_segments
+            let current_domains: HashSet<&str> = current_segments
                 .iter()
                 .flat_map(|(_, g)| g.node_indices().map(|idx| g[idx].as_str()))
                 .collect();
 
-            if new_groups == current_groups {
+            if new_domains == current_domains {
                 return false;
             }
 
-            let group_vec: Vec<&str> = new_groups.into_iter().collect();
-            *current_segments = self.0.topology.build_graph(&group_vec);
+            let domain_vec: Vec<&str> = new_domains.into_iter().collect();
+            *current_segments = self.0.topology.build_graph(&domain_vec);
             current_segments.clone()
             // write guard dropped here
         };
@@ -313,7 +313,7 @@ impl super::RouteService {
                     continue;
                 }
 
-                let child_group = &graph[orig_idx];
+                let child_domain = &graph[orig_idx];
 
                 // Find the parent domain in the directed tree (incoming edge = from parent).
                 let parent_tree_idx = match spt
@@ -324,19 +324,19 @@ impl super::RouteService {
                     Some(edge) => edge.source(),
                     None => continue,
                 };
-                let parent_group = &spt.tree[parent_tree_idx];
+                let parent_domain = &spt.tree[parent_tree_idx];
 
                 // Find the inter-domain link from pre-loaded links (O(n) scan, no DB query).
                 let (source_node_id, link_id) = match Self::find_inter_domain_link_from_cache(
-                    child_group,
-                    parent_group,
+                    child_domain,
+                    parent_domain,
                     all_nodes,
                     all_links,
                 ) {
                     Some(pair) => pair,
                     None => {
                         tracing::debug!(
-                            "expand_route_via_spt: no link between '{child_group}' and '{parent_group}', skipping"
+                            "expand_route_via_spt: no link between '{child_domain}' and '{parent_domain}', skipping"
                         );
                         continue;
                     }
@@ -345,7 +345,7 @@ impl super::RouteService {
                 // Create the per-gateway route pointing toward the parent domain.
                 let per_node = build_route_for_gateway(
                     &source_node_id,
-                    child_group,
+                    child_domain,
                     dest_node_id,
                     dest_domain,
                     link_id,
@@ -379,13 +379,13 @@ impl super::RouteService {
         all_nodes: &[crate::db::Node],
         all_links: &[crate::db::Link],
     ) {
-        let root_group = all_nodes
+        let root_domain = all_nodes
             .iter()
             .find(|n| n.id == root_node_id)
             .and_then(|n| n.domain_name.as_deref())
             .unwrap_or("");
 
-        let announcer_group = all_nodes
+        let announcer_domain = all_nodes
             .iter()
             .find(|n| n.id == new_announcer_node_id)
             .and_then(|n| n.domain_name.as_deref())
@@ -397,7 +397,7 @@ impl super::RouteService {
 
         // If root and announcer are in the same domain, the data plane handles
         // routing within that domain — nothing for the control plane to do.
-        if root_group == announcer_group {
+        if root_domain == announcer_domain {
             return;
         }
 
@@ -406,13 +406,13 @@ impl super::RouteService {
                 continue;
             }
 
-            let root_idx = match graph.node_indices().find(|&idx| graph[idx] == root_group) {
+            let root_idx = match graph.node_indices().find(|&idx| graph[idx] == root_domain) {
                 Some(idx) => idx,
                 None => continue,
             };
             let announcer_idx = match graph
                 .node_indices()
-                .find(|&idx| graph[idx] == announcer_group)
+                .find(|&idx| graph[idx] == announcer_domain)
             {
                 Some(idx) => idx,
                 None => continue,
@@ -441,21 +441,21 @@ impl super::RouteService {
                     None => break,
                 };
 
-                let parent_group = &spt.tree[parent_tree_idx];
-                let child_group = &spt.tree[current];
+                let parent_domain = &spt.tree[parent_tree_idx];
+                let child_domain = &spt.tree[current];
 
                 // Install route on the parent domain's gateway pointing toward child.
                 if let Some((gateway_node_id, link_id)) = Self::find_inter_domain_link_from_cache(
-                    parent_group,
-                    child_group,
+                    parent_domain,
+                    child_domain,
                     all_nodes,
                     all_links,
                 ) {
                     let per_node = build_route_for_gateway(
                         &gateway_node_id,
-                        parent_group,
+                        parent_domain,
                         new_announcer_node_id,
-                        announcer_group,
+                        announcer_domain,
                         link_id,
                         component0,
                         component1,
@@ -469,7 +469,7 @@ impl super::RouteService {
                     }
                 } else {
                     tracing::debug!(
-                        "install_downward_path: no link between '{parent_group}' and '{child_group}', skipping"
+                        "install_downward_path: no link between '{parent_domain}' and '{child_domain}', skipping"
                     );
                 }
 
@@ -909,7 +909,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rebuild_link_graph_returns_false_when_groups_unchanged() {
+    async fn rebuild_link_graph_returns_false_when_domains_unchanged() {
         let db = InMemoryDb::shared();
         let node_a = make_node("node-a", Some("domain-a"), vec![]);
         let node_b = make_node("node-b", Some("domain-b"), vec![]);
@@ -1231,7 +1231,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn segments_group_template_expands_and_isolates() {
+    async fn segments_domain_template_expands_and_isolates() {
         // Same isolation test but using $domain template config.
         let db = InMemoryDb::shared();
         db.save_node(make_node("hub", Some("platform"), vec![]))

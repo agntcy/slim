@@ -165,7 +165,7 @@ pub trait DataAccess: Send + Sync {
     // ── Registration Secrets ───────────────────────────────────────────────
 
     /// List all domain names that have a stored registration secret.
-    async fn list_registration_secret_groups(&self) -> Result<Vec<String>>;
+    async fn list_registration_secret_domains(&self) -> Result<Vec<String>>;
     /// Get the secret for a specific domain, if stored.
     async fn get_registration_secret(&self, domain_name: &str) -> Result<Option<String>>;
     /// Upsert a registration secret for a domain.

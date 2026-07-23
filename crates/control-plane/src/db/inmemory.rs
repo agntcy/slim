@@ -946,7 +946,7 @@ impl DataAccess for InMemoryDb {
 
     // ── Registration Secrets ───────────────────────────────────────────────
 
-    async fn list_registration_secret_groups(&self) -> Result<Vec<String>> {
+    async fn list_registration_secret_domains(&self) -> Result<Vec<String>> {
         Ok(self.registration_secrets.read().keys().cloned().collect())
     }
 

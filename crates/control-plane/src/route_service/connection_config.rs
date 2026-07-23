@@ -74,8 +74,8 @@ pub(super) fn select_connection<'a>(
         "select_connection called with empty conn_details for node {}",
         dst_node.id
     );
-    let same_group = dst_node.domain_name == src_node.domain_name;
-    if same_group {
+    let same_domain = dst_node.domain_name == src_node.domain_name;
+    if same_domain {
         return (&dst_node.conn_details[0], true);
     }
     for conn in &dst_node.conn_details {
@@ -208,7 +208,7 @@ mod tests {
     use slim_config::client::RequiredAuthMethod;
 
     #[test]
-    fn select_connection_same_group_returns_first() {
+    fn select_connection_same_domain_returns_first() {
         let dst = make_node(
             "dst",
             Some("grp"),
@@ -325,7 +325,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_client_config_same_group_local() {
+    async fn get_client_config_same_domain_local() {
         let db = InMemoryDb::shared();
         let dst = crate::db::Node {
             id: "dst".to_string(),

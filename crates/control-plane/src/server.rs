@@ -68,7 +68,7 @@ impl ControlPlane {
 
         // In API mode, restore DB-persisted secrets into the live authenticator.
         if is_api_managed && authenticator.is_shared_secret() {
-            let domains = db.list_registration_secret_groups().await?;
+            let domains = db.list_registration_secret_domains().await?;
             let mut restored = 0;
             for domain in &domains {
                 let secret = match db.get_registration_secret(domain).await? {

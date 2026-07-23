@@ -37,7 +37,7 @@ impl super::RouteService {
                 .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
                 .clone()
         };
-        let _group_guard = domain_lock.lock().await;
+        let _domain_guard = domain_lock.lock().await;
 
         // Build the set of link IDs the DP still has active.
         let active_link_ids: HashSet<String> = dp_connections
