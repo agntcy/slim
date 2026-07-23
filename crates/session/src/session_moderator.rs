@@ -363,7 +363,7 @@ where
         self.common.processing_state
     }
 
-    fn participants_list(&self) -> Vec<ProtoName> {
+    fn participants_list(&self) -> Vec<(ProtoName, ParticipantState)> {
         self.group_list
             .iter()
             .map(|(name, entry)| {
@@ -372,7 +372,9 @@ where
                     .as_ref()
                     .map(|n| n.id())
                     .unwrap_or(NameId::NULL_COMPONENT); // the name should always be present
-                name.clone().with_id(id)
+                let status =
+                    ParticipantState::try_from(entry.status).unwrap_or(ParticipantState::Online);
+                (name.clone().with_id(id), status)
             })
             .collect()
     }
