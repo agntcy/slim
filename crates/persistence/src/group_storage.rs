@@ -11,7 +11,7 @@
 //!   is the default and the only option on `wasm32` (no filesystem).
 //! * **SQLite** (native only) — a plain, statically-bundled SQLite database
 //!   whose stored snapshot/epoch blobs are encrypted with AES-256-GCM
-//!   ([`crate::cipher`]). State survives a restart, so a session can rejoin its
+//!   (`crate::cipher`). State survives a restart, so a session can rejoin its
 //!   MLS group without repeating the invite/welcome handshake.
 
 use mls_rs::storage_provider::in_memory::InMemoryGroupStateStorage;
@@ -32,8 +32,14 @@ use std::sync::Arc;
 /// Encryption key for the at-rest store.
 ///
 /// A deliberately provider-agnostic key type so callers do not depend on the
-/// crypto crate directly. When no key is supplied, one is derived from the
-/// endpoint identity (see [`crate::cipher`]).
+/// crypto crate directly. Supplying one of these variants (via
+/// [`crate::PersistenceConfig::with_key`]) is what gives the store real
+/// confidentiality.
+///
+/// When no key is supplied the store still encrypts, but with a key derived
+/// from the **public app name** rather than a secret — see
+/// [`crate::PersistenceConfig::encryption_key`] for the security implications
+/// of that fallback.
 #[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MlsEncryptionKey {
     /// A passphrase; a 256-bit key is derived from it via HKDF-SHA256.

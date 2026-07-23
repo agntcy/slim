@@ -12,6 +12,20 @@
 //!
 //! Each ciphertext is `nonce (12 bytes) || AES-256-GCM(ciphertext||tag)`. Nonces
 //! are generated randomly per encryption by `aws-lc-rs`.
+//!
+//! # Key source & confidentiality
+//!
+//! The 256-bit AEAD key comes from [`ValueCipher::derive`]:
+//!
+//! * With a caller-supplied [`MlsEncryptionKey`] (raw key or passphrase) the key
+//!   is a **secret**, so the store is genuinely confidential.
+//! * With **no** key the fallback derives the AEAD key (HKDF-SHA256) from the
+//!   `identity` string — which is the app's *public* local name (also stored in
+//!   the clear as the file name and record keys). That still yields tamper
+//!   detection and a key that is stable across restarts, but it provides **no
+//!   confidentiality**: anyone who can read the file and knows the app name can
+//!   re-derive the key. Callers should set an explicit key unless the filesystem
+//!   itself is the trust boundary — see [`crate::PersistenceConfig::encryption_key`].
 
 use std::sync::Arc;
 
@@ -39,8 +53,12 @@ pub(crate) struct ValueCipher {
 }
 
 impl ValueCipher {
-    /// Derive a cipher from the configured key, or from the endpoint identity
-    /// when no explicit key is given.
+    /// Derive a cipher from the configured key, or — when no explicit key is
+    /// given — from the (public) `identity` string.
+    ///
+    /// The `None` branch is a convenience fallback that is **not confidential**;
+    /// see the module-level "Key source & confidentiality" note. Prefer passing
+    /// an explicit [`MlsEncryptionKey`].
     pub(crate) fn derive(
         key: Option<MlsEncryptionKey>,
         identity: &str,

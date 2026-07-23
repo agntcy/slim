@@ -248,3 +248,169 @@ async fn test_multicast_mls_session_restore() {
     )
     .await;
 }
+
+/// End-to-end: restart the **moderator** and have it publish again.
+///
+/// Exercises two things a restored *sender* needs:
+/// 1. Repopulating the session sender's endpoint list (`restore_reconnect` now
+///    calls `add_endpoint`), so the restored publish actually reaches the peer.
+/// 2. Resuming the outbound data-message sequence — the sender persists
+///    `next_id` per publish and reloads it on restore, so post-restart messages
+///    carry ids *after* the ones the still-live participant already saw. Without
+///    this the participant dedups them ("possibly DUP … drop it") and the fresh
+///    message never surfaces.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_multicast_mls_moderator_restart_republish() {
+    // 1. Start the SLIM node.
+    let port = reserve_local_port();
+    tokio::spawn(async move {
+        let _ = run_slim_node(port).await;
+    });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let moderator_name = Name::from_strings(["org", "ns", "moderator"]);
+    let participant_name = Name::from_strings(["org", "ns", "participant"]);
+    let channel = Name::from_strings(["channel", "restart", "test"]);
+
+    let moderator_dir = tempfile::tempdir().unwrap();
+    let participant_dir = tempfile::tempdir().unwrap();
+
+    let moderator_secret = SharedSecret::new("moderator-identity", TEST_VALID_SECRET).unwrap();
+    let participant_secret = SharedSecret::new("participant-identity", TEST_VALID_SECRET).unwrap();
+
+    // 2. Participant app — stays alive for the whole test, collecting every
+    //    decrypted message across its session's lifetime.
+    let (_participant_app, mut participant_rx, _participant_conn, _participant_svc) =
+        create_persistent_app(
+            port,
+            &participant_name,
+            participant_secret,
+            participant_dir.path(),
+        )
+        .await;
+
+    let received = Arc::new(Mutex::new(Vec::<String>::new()));
+    let received_sink = received.clone();
+    let _participant_listener = tokio::spawn(async move {
+        while let Some(Ok(Notification::NewSession(ctx))) = participant_rx.recv().await {
+            collect_messages(ctx, received_sink.clone());
+        }
+    });
+
+    // 3. Moderator (first run): create the multicast MLS session + invite.
+    let (moderator_app, _moderator_rx, moderator_conn, moderator_svc) = create_persistent_app(
+        port,
+        &moderator_name,
+        moderator_secret,
+        moderator_dir.path(),
+    )
+    .await;
+
+    let config = SessionConfig {
+        session_type: slim_datapath::api::ProtoSessionType::Multicast,
+        max_retries: Some(10),
+        interval: Some(Duration::from_secs(1)),
+        mls_settings: Some(MlsSettings::default()),
+        initiator: true,
+        metadata: Default::default(),
+    };
+    let (session_ctx, completion) = moderator_app
+        .create_session(config, channel.clone(), None)
+        .await
+        .expect("failed to create session");
+    completion.await.expect("session establishment failed");
+
+    moderator_app
+        .set_route(&participant_name, moderator_conn)
+        .await
+        .expect("failed to set route to participant");
+
+    let session = session_ctx.session_arc().expect("no session arc");
+    session
+        .invite_participant(&participant_name)
+        .await
+        .expect("invite failed")
+        .await
+        .expect("invite completion failed");
+
+    // 4. Baseline: moderator publishes, participant receives.
+    session
+        .publish_with_flags(
+            &channel,
+            SlimHeaderFlags::new(10, None, None, None, None),
+            b"before-moderator-restart".to_vec(),
+            None,
+            None,
+        )
+        .await
+        .expect("publish #1 failed");
+    wait_for_message(
+        &received,
+        "before-moderator-restart",
+        Duration::from_secs(10),
+    )
+    .await;
+
+    // 5. Restart the moderator: drop its session, app and service.
+    drop(session);
+    drop(session_ctx);
+    drop(moderator_app);
+    drop(moderator_svc);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // 6. Recreate the moderator (same name + secret + persistence dir, fresh id
+    //    and MLS keypair as after a real restart) and restore its session.
+    let restarted_secret = SharedSecret::new("moderator-identity", TEST_VALID_SECRET).unwrap();
+    let (moderator_app2, _moderator_rx2, conn2, _moderator_svc2) = create_persistent_app(
+        port,
+        &moderator_name,
+        restarted_secret,
+        moderator_dir.path(),
+    )
+    .await;
+
+    // Re-establish the app-level route to the participant (as an app does on
+    // startup) before restoring.
+    moderator_app2
+        .set_route(&participant_name, conn2)
+        .await
+        .expect("failed to set route to participant after restart");
+
+    let restored = moderator_app2
+        .restore_sessions(conn2)
+        .await
+        .expect("restore_sessions failed");
+    assert_eq!(
+        restored.len(),
+        1,
+        "the moderator session should be restored"
+    );
+
+    // Give the re-subscription/routing time to propagate to the node.
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    // 7. The restored moderator publishes again; the still-live participant must
+    //    receive it — i.e. the restored session actually fans out to its member.
+    let restored_session = restored
+        .into_iter()
+        .next()
+        .unwrap()
+        .session_arc()
+        .expect("no session arc on restored moderator session");
+    restored_session
+        .publish_with_flags(
+            &channel,
+            SlimHeaderFlags::new(10, None, None, None, None),
+            b"after-moderator-restart".to_vec(),
+            None,
+            None,
+        )
+        .await
+        .expect("publish #2 (after restart) failed");
+    wait_for_message(
+        &received,
+        "after-moderator-restart",
+        Duration::from_secs(10),
+    )
+    .await;
+}

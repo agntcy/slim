@@ -6,7 +6,7 @@
 //!
 //! [`PersistentStore::open`] builds a single plain SQLite database
 //! (`slim-<hex(identity)>.db`) whose stored values are AES-256-GCM encrypted
-//! ([`crate::cipher`]), and returns both a [`SlimGroupStateStorage`] (for the
+//! (`crate::cipher`), and returns both a [`SlimGroupStateStorage`] (for the
 //! MLS layer) and a [`SlimKvStore`] (for session records) over it, sharing one
 //! cipher. The two use separate tables in the same file, so one key, one file,
 //! and one lifecycle cover all of a session's restorable state.
@@ -34,15 +34,41 @@ pub struct PersistenceConfig {
     /// identity is kept here.
     pub path: std::path::PathBuf,
 
-    /// Optional explicit encryption key. When `None`, the key is derived from
-    /// the endpoint identity — convenient and stable across restarts, but only
-    /// as secret as the identity id; supply an explicit key for strong
-    /// confidentiality.
+    /// Encryption key for the at-rest store. **You should set this.**
+    ///
+    /// The store holds sensitive material — MLS group snapshots and epoch
+    /// secrets — encrypted with AES-256-GCM. The key that protects it comes
+    /// from here:
+    ///
+    /// * `Some(key)` — a caller-supplied passphrase or raw 32-byte key. This is
+    ///   the only configuration that provides real **confidentiality**: the key
+    ///   is a secret the caller controls, so an attacker with read access to the
+    ///   database file cannot recover the plaintext without it.
+    ///
+    /// * `None` (fallback) — the key is derived (HKDF-SHA256) from the **app's
+    ///   local name**, which is *not* secret (it is the public routing identity,
+    ///   also stored in plaintext as the file name and record keys). This still
+    ///   gives tamper detection and a key that is stable across restarts, but it
+    ///   offers **no confidentiality**: anyone who knows the app name can
+    ///   re-derive the key and decrypt the file. Use this only when the file
+    ///   system itself is your trust boundary (e.g. an OS-encrypted disk / an
+    ///   enclave the attacker cannot read), never as protection against someone
+    ///   who can read the store.
+    ///
+    /// Prefer [`PersistenceConfig::with_key`] and supply a key from your own
+    /// secret store; reach for [`PersistenceConfig::new`] (the `None` fallback)
+    /// only when you have accepted the caveat above.
     pub encryption_key: Option<MlsEncryptionKey>,
 }
 
 impl PersistenceConfig {
-    /// Persist under `path`, deriving the encryption key from the identity.
+    /// Persist under `path` **without an explicit encryption key**: the key is
+    /// derived from the (public) app name.
+    ///
+    /// Convenient and stable across restarts, but it provides **no
+    /// confidentiality** — see [`PersistenceConfig::encryption_key`]. Prefer
+    /// [`PersistenceConfig::with_key`] whenever the store may be read by anyone
+    /// you don't trust.
     pub fn new(path: impl Into<std::path::PathBuf>) -> Self {
         Self {
             path: path.into(),
@@ -50,7 +76,9 @@ impl PersistenceConfig {
         }
     }
 
-    /// Persist under `path` using an explicit encryption key.
+    /// Persist under `path` using an explicit encryption key. This is the
+    /// **recommended** constructor: only a caller-supplied key gives the store
+    /// real confidentiality (see [`PersistenceConfig::encryption_key`]).
     pub fn with_key(path: impl Into<std::path::PathBuf>, key: MlsEncryptionKey) -> Self {
         Self {
             path: path.into(),

@@ -77,6 +77,12 @@ pub struct SessionSender {
 
     /// oneshot senders to signal when network acks are received for each message
     ack_notifiers: HashMap<u32, oneshot::Sender<Result<(), SessionError>>>,
+
+    /// Optional persistence for `next_id` (KV store + key). When set, the
+    /// outbound sequence is loaded on attach and checkpointed on each sequential
+    /// publish, so a restored session resumes its sequence instead of restarting
+    /// at 0 (which the peer's receiver would dedup as already-seen ids).
+    seq_persist: Option<(slim_persistence::SlimKvStore, String)>,
 }
 
 impl SessionSender {
@@ -108,7 +114,29 @@ impl SessionSender {
             to_flush: false,
             draining_state: SenderDrainStatus::NotDraining,
             ack_notifiers: HashMap::new(),
+            seq_persist: None,
         }
+    }
+
+    /// Attach persistence for the outbound sequence counter.
+    ///
+    /// Loads the last persisted `next_id` so a restored session resumes its
+    /// sequence (a fresh store yields 0, i.e. current behavior), and persists it
+    /// on every subsequent sequential publish. Cheap KV write per message; the
+    /// value is a plain `u32`.
+    pub fn attach_seq_persistence(&mut self, kv: slim_persistence::SlimKvStore, key: String) {
+        match kv.get(&key) {
+            Ok(Some(bytes)) => match <[u8; 4]>::try_from(bytes.as_slice()) {
+                Ok(arr) => {
+                    self.next_id = u32::from_le_bytes(arr);
+                    debug!(next_id = self.next_id, "restored outbound sequence counter");
+                }
+                Err(_) => tracing::warn!("persisted sequence has unexpected size; starting at 0"),
+            },
+            Ok(None) => {}
+            Err(e) => tracing::warn!(%e, "failed to load persisted sequence; starting at 0"),
+        }
+        self.seq_persist = Some((kv, key));
     }
 
     /// Send a message with optional acknowledgment notification
@@ -233,6 +261,12 @@ impl SessionSender {
         // is MAX_PUBLISH_ID. after that we wrap to 0.
         self.next_id = (self.next_id + 1) % (MAX_PUBLISH_ID + 1);
         let id = self.next_id;
+
+        // Checkpoint the sequence so a restart resumes contiguously instead of
+        // restarting at 0 (which the peer would treat as duplicates).
+        if let Some((kv, key)) = &self.seq_persist {
+            let _ = kv.put(key, &self.next_id.to_le_bytes());
+        }
 
         let fanout = match self.session_type {
             ProtoSessionType::Multicast => Self::MAX_FANOUT,

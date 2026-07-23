@@ -5,7 +5,7 @@
 //! records), used to restore sessions on restart.
 //!
 //! Native only in practice: the store is a plain-SQLite database whose values
-//! are AES-256-GCM encrypted ([`crate::cipher`]); keys (`session:<id>`) are
+//! are AES-256-GCM encrypted (`crate::cipher`); keys (`session:<id>`) are
 //! plaintext, only values are encrypted. There is no in-memory backend — an
 //! in-memory KV would not survive a restart, which defeats the purpose. On
 //! `wasm32` the type is uninhabited (there is no durable store in a browser), so

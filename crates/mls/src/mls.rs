@@ -475,11 +475,20 @@ where
     ) -> Result<Vec<u8>, MlsError> {
         debug!("Encrypting MLS message");
 
-        let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
+        let msg = {
+            let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
+            let encrypted_msg = group.encrypt_application_message(message, aad).await?;
+            encrypted_msg.to_bytes()?
+        };
 
-        let encrypted_msg = group.encrypt_application_message(message, aad).await?;
+        // Encrypting advanced this sender's message-key ratchet (its
+        // *generation*) inside the current epoch — the epoch itself is
+        // unchanged. Persist the snapshot so that after a restart the sender
+        // resumes at the correct generation instead of regressing to the
+        // epoch's generation 0 and reusing keys the receivers have already
+        // ratcheted past (which fails to decrypt as "key not available").
+        self.persist_if_enabled().await?;
 
-        let msg = encrypted_msg.to_bytes()?;
         Ok(msg)
     }
 
@@ -748,6 +757,68 @@ mod tests {
 
         // The restored moderator can encrypt and Bob (original) can decrypt.
         let msg = b"hello after restart";
+        let encrypted = alice_restored.encrypt_message(msg, vec![])?;
+        let (decrypted, _) = bob.decrypt_message(&encrypted)?;
+        assert_eq!(decrypted, msg);
+
+        Ok(())
+    }
+
+    /// Regression: application messages sent BEFORE a restart advance the
+    /// sender's per-sender message-key ratchet (its *generation*) inside the
+    /// current epoch — the epoch itself does NOT change. If that ratchet
+    /// position is not persisted, a restored sender reloads the last snapshot
+    /// (taken at the epoch boundary, generation 0) and re-encrypts at a
+    /// generation the receiver already ratcheted past and discarded, producing
+    /// "key not available, invalid generation N" on decrypt.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_persist_and_restore_group_after_sending() -> Result<(), Box<dyn std::error::Error>>
+    {
+        use slim_persistence::SlimGroupStateStorage;
+
+        let dir = tempfile::tempdir().unwrap();
+
+        let storage = SlimGroupStateStorage::open_sqlite(dir.path(), "alice", None)?;
+        let mut alice = Mls::new(
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+        )
+        .with_group_state_storage(storage);
+        alice.initialize().await?;
+        let group_id = alice.create_group()?;
+
+        let mut bob = Mls::new(
+            SharedSecret::new("bob", SHARED_SECRET).unwrap(),
+            SharedSecret::new("bob", SHARED_SECRET).unwrap(),
+        );
+        bob.initialize().await?;
+        let bob_kp = bob.generate_key_package()?;
+        let add = alice.add_member(&bob_kp)?;
+        bob.process_welcome(&add.welcome_message)?;
+
+        // Alice sends several messages BEFORE restarting: her send ratchet
+        // advances and Bob ratchets forward to match (deleting past keys).
+        for i in 0..3u8 {
+            let m = [b'm', i];
+            let ct = alice.encrypt_message(&m, vec![])?;
+            let (pt, _) = bob.decrypt_message(&ct)?;
+            assert_eq!(pt, m);
+        }
+
+        // Restart Alice from the persisted snapshot.
+        drop(alice);
+        let reopened = SlimGroupStateStorage::open_sqlite(dir.path(), "alice", None)?;
+        let mut alice_restored = Mls::new(
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+        )
+        .with_group_state_storage(reopened);
+        alice_restored.load(&group_id).await?;
+
+        // Alice must resume at her advanced generation, not regress to 0, so
+        // Bob (already ratcheted forward) can still decrypt.
+        let msg = b"hello after sending then restart";
         let encrypted = alice_restored.encrypt_message(msg, vec![])?;
         let (decrypted, _) = bob.decrypt_message(&encrypted)?;
         assert_eq!(decrypted, msg);

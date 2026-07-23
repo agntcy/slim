@@ -142,6 +142,20 @@ where
         service_id: String,
         persistence: Option<slim_persistence::PersistenceConfig>,
     ) -> Self {
+        // Open the persistent store (if configured) and restore the app identity
+        // through it BEFORE deriving the app id. The id is a hash of the identity
+        // token, so deriving it from the fresh (pre-restore) identity would yield
+        // a different id on every restart and diverge from the persisted session
+        // source, breaking unicast delivery to the restored endpoint. Opening
+        // here once also lets us hand the store handles straight to the layer,
+        // avoiding a second open of the same database.
+        let (identity_provider, group_storage, kv_store) =
+            SessionLayer::<P, V>::open_persistent_store(
+                app_name,
+                identity_provider,
+                persistence.as_ref(),
+            );
+
         // Always generate the ID from identity token, ignoring any ID in the provided name
         let app_name_with_id = match identity_provider.get_id() {
             Ok(token_id) => {
@@ -163,9 +177,9 @@ where
             }
         };
 
-        // Create the session layer
+        // Create the session layer from the already-opened store handles.
         let service_id_clone = service_id.clone();
-        let session_layer = Arc::new(SessionLayer::new_with_persistence(
+        let session_layer = Arc::new(SessionLayer::new_with_storage(
             app_name_with_id.clone(),
             identity_provider,
             identity_verifier,
@@ -174,7 +188,8 @@ where
             tx_app,
             direction,
             service_id,
-            persistence,
+            group_storage,
+            kv_store,
         ));
 
         // Create a new cancellation token for the app receiver loop
@@ -334,18 +349,35 @@ where
         Ok(())
     }
 
-    /// Set a route towards another app
+    /// Set a route towards another app.
+    ///
+    /// Waits for the datapath to ACK the route before returning, so once this
+    /// resolves the forwarding table is guaranteed to be updated. Without the
+    /// ACK the route install is asynchronous and a publish issued right after
+    /// `set_route` can race ahead of it and be dropped at the node. The ACK is
+    /// produced by the datapath for `recv_from` route subscriptions coming from
+    /// a local connection (see `message_processing`). Mirrors [`Self::subscribe`].
     pub async fn set_route(&self, name: &ProtoName, conn: u64) -> Result<(), ServiceError> {
         debug!(%name, %conn, "set route");
 
+        let (ack_id, ack_rx) = self.subscription_manager.register_ack();
         let msg = Message::builder()
             .source(self.app_name.clone())
             .destination(name.clone())
             .flags(SlimHeaderFlags::default().with_recv_from(conn))
+            .subscription_id(ack_id)
             .build_subscribe()
             .unwrap();
 
-        self.send_message_without_context(msg).await
+        if let Err(e) = self.send_message_without_context(msg).await {
+            self.subscription_manager.cancel_ack(ack_id);
+            return Err(e);
+        }
+
+        SubscriptionManager::await_ack(ack_rx)
+            .await
+            .map_err(ServiceError::SubscriptionError)?;
+        Ok(())
     }
 
     /// Remove a route towards another app

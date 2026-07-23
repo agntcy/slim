@@ -1392,6 +1392,14 @@ where
             return Ok(SessionOutput::new());
         }
 
+        // The sender may have reconnected over a new connection (e.g. after a
+        // restart + rejoin), so refresh the reverse route to it before replying —
+        // otherwise our ACK/NACK takes the stale path and never arrives, and the
+        // sender retries until it times out.
+        if let Some(in_conn) = message.try_get_incoming_conn() {
+            self.common.add_route(message.get_source(), in_conn).await?;
+        }
+
         let new_state = ParticipantState::try_from(payload.new_state).map_err(|_| {
             SessionError::MissingPayload {
                 context: "update_participant_state: invalid participant state",
@@ -1856,20 +1864,28 @@ where
             self.common
                 .add_subscription(destination.clone(), conn)
                 .await?;
+            self.common.add_subscription(control.clone(), conn).await?;
             self.common.add_route(destination, conn).await?;
             self.common.add_route(control, conn).await?;
 
-            // Routes to each participant (addressable name), skipping ourselves.
+            // For each participant (skipping ourselves): re-add its route AND
+            // re-register it with the session sender. The restored roster alone
+            // does not repopulate the sender's endpoint list, so without this the
+            // moderator has no endpoints to fan out to and every publish is
+            // buffered ("no remote endpoint connected to the session").
             let mut local_no_id = self.common.settings.source.clone();
             local_no_id.reset_id();
-            let routes: Vec<ProtoName> = self
+            let participants: Vec<Participant> = self
                 .group_list
                 .iter()
                 .filter(|(name, _)| **name != local_no_id)
-                .filter_map(|(_, p)| p.get_name().ok())
+                .map(|(_, p)| p.clone())
                 .collect();
-            for pname in routes {
-                self.common.add_route(pname, conn).await?;
+            for p in &participants {
+                if let Ok(pname) = p.get_name() {
+                    self.common.add_route(pname, conn).await?;
+                }
+                self.add_endpoint(p).await?;
             }
         }
 

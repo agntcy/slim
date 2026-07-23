@@ -6,7 +6,7 @@
 //! The database is plain (unencrypted) SQLite — statically bundled, so nothing
 //! is linked against a system `libsqlite3`. Confidentiality/integrity of the
 //! stored blobs is provided at the value level with `aws-lc-rs` (see
-//! [`crate::cipher`]), which avoids linking OpenSSL/SQLCipher. Native only;
+//! `crate::cipher`), which avoids linking OpenSSL/SQLCipher. Native only;
 //! there is no SQLite on `wasm32`.
 
 use std::path::Path;

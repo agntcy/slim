@@ -593,13 +593,20 @@ where
             .unwrap_or(crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE);
 
         // Create the base Session layer
-        let inner = crate::session::Session::new(
+        let mut inner = crate::session::Session::new(
             self.id.unwrap(),
             config.clone(),
             &self.source.clone().unwrap(),
             tx_session.clone(),
             self.direction,
         );
+
+        // With persistence enabled, checkpoint the outbound data-message sequence
+        // so a restored session resumes it (fresh store loads 0). Keyed
+        // separately from the session record (`seq:<id>`).
+        if let Some(kv) = self.kv_store.clone() {
+            inner.attach_seq_persistence(kv, format!("seq:{}", self.id.unwrap()));
+        }
 
         let slim_tx = self.slim_tx.unwrap();
         let app_tx = self.app_tx.unwrap();

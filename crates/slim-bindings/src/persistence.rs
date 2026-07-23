@@ -34,9 +34,14 @@ pub struct PersistenceConfig {
     /// Directory holding the encrypted store (one file per identity).
     pub path: String,
 
-    /// Optional passphrase. When `None`, the encryption key is derived from the
-    /// endpoint identity — stable across restarts but only as secret as the
-    /// identity id; supply a passphrase for strong confidentiality.
+    /// Passphrase protecting the store. **Set this.**
+    ///
+    /// When `Some`, a 256-bit AES key is derived from it and the store is
+    /// genuinely confidential. When `None`, the key is instead derived from the
+    /// app's **public** name: the store still detects tampering and is stable
+    /// across restarts, but it offers **no confidentiality** — anyone who can
+    /// read the database file and knows the app name can decrypt it. Only rely
+    /// on the `None` fallback when the filesystem itself is your trust boundary.
     pub passphrase: Option<String>,
 }
 

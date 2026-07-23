@@ -491,6 +491,7 @@ dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
  "agntcy-slim-datapath",
+ "agntcy-slim-persistence",
  "agntcy-slim-service",
  "agntcy-slim-session",
  "agntcy-slim-tracing",

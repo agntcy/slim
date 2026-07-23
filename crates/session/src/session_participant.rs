@@ -1008,6 +1008,14 @@ where
             }
         })?;
 
+        // The sender (moderator or peer) may have reconnected over a new
+        // connection (e.g. after a restart + rejoin), so refresh the reverse
+        // route before replying — otherwise our ACK/NACK takes the stale path and
+        // never arrives, and the sender retries until it times out.
+        if let Some(in_conn) = message.try_get_incoming_conn() {
+            self.common.add_route(message.get_source(), in_conn).await?;
+        }
+
         match new_state {
             ParticipantState::Offline => {
                 // Participant went offline: update state, remove route
@@ -1355,16 +1363,23 @@ where
         self.common.add_route(control.clone(), conn).await?;
         self.common.add_subscription(control, conn).await?;
 
-        // Routes to each other group member (moderator included), skipping self.
+        // For each other group member (moderator included), skipping self:
+        // re-add its route AND re-register it with the session sender. Without
+        // re-registering, the restored roster does not repopulate the sender's
+        // endpoint list, so the participant's replies are buffered instead of
+        // sent ("no remote endpoint connected to the session").
         let local = self.common.settings.source.clone();
-        let names: Vec<ProtoName> = self
+        let participants: Vec<Participant> = self
             .group_list
-            .keys()
-            .filter(|n| **n != local)
-            .cloned()
+            .iter()
+            .filter(|(name, _)| **name != local)
+            .map(|(_, p)| p.clone())
             .collect();
-        for name in names {
-            self.common.add_route(name, conn).await?;
+        for p in &participants {
+            if let Ok(pname) = p.get_name() {
+                self.common.add_route(pname, conn).await?;
+            }
+            self.add_endpoint(p).await?;
         }
 
         Ok(())

@@ -41,6 +41,7 @@ agntcy-slim = { workspace = true }
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
+agntcy-slim-persistence = { workspace = true }
 agntcy-slim-service = { workspace = true, features = ["session"] }
 agntcy-slim-session = { workspace = true }
 agntcy-slim-tracing = { workspace = true }

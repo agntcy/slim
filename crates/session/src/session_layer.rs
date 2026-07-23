@@ -189,33 +189,47 @@ where
         service_id: String,
         persistence: Option<PersistenceConfig>,
     ) -> Self {
+        // Open the store (restoring/persisting the app identity through it) and
+        // build the layer from the resulting handles.
+        let (identity_provider, group_storage, kv_store) =
+            Self::open_persistent_store(&app_name, identity_provider, persistence.as_ref());
+        Self::new_with_storage(
+            app_name,
+            identity_provider,
+            identity_verifier,
+            conn_id,
+            tx_slim,
+            tx_app,
+            direction,
+            service_id,
+            group_storage,
+            kv_store,
+        )
+    }
+
+    /// Build a session layer from already-opened persistence handles (or `None`
+    /// for no persistence).
+    ///
+    /// This is the single-open seam: a caller (e.g. `App`) can open the store
+    /// once via [`Self::open_persistent_store`], restore the app identity and
+    /// derive the app id from it, then hand the handles in here — avoiding a
+    /// second open of the same database.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_storage(
+        app_name: ProtoName,
+        identity_provider: P,
+        identity_verifier: V,
+        conn_id: u64,
+        tx_slim: SlimChannelSender,
+        tx_app: Sender<Result<Notification, SessionError>>,
+        direction: Direction,
+        service_id: String,
+        group_storage: Option<SlimGroupStateStorage>,
+        kv_store: Option<SlimKvStore>,
+    ) -> Self {
         let (tx_session, rx_session) = tokio::sync::mpsc::channel(16);
 
         let subscription_manager = SubscriptionManager::new(tx_slim.clone());
-
-        // Open the unified encrypted store once (both handles share one DB file),
-        // keyed by the app name so a restart reopens it, and restore or persist
-        // the app identity through it. Any failure degrades to no persistence
-        // rather than blocking startup.
-        //
-        // Native only: on wasm32 a page reload discards the WebAssembly memory,
-        // so there is no durable store to restore from — persistence is a no-op.
-        #[cfg(not(target_arch = "wasm32"))]
-        let (identity_provider, group_storage, kv_store) =
-            Self::open_persistent_store(&app_name, identity_provider, persistence.as_ref());
-        #[cfg(target_arch = "wasm32")]
-        let (identity_provider, group_storage, kv_store): (
-            P,
-            Option<SlimGroupStateStorage>,
-            Option<SlimKvStore>,
-        ) = {
-            if persistence.is_some() {
-                tracing::warn!(
-                    "session persistence is not supported on wasm32 (state is lost on reload); ignoring"
-                );
-            }
-            (identity_provider, None, None)
-        };
 
         let initial_key = Self::name_to_key(&app_name);
         let sl = SessionLayer {
@@ -263,13 +277,17 @@ where
         self.app_id
     }
 
-    /// Open the app's persistent store (keyed by the stable app name) and adopt
-    /// or persist the app identity through it. Returns the (possibly restored)
-    /// identity provider plus the group-state and session-record handles.
-    /// Degrades to no persistence (provider unchanged) on failure or when
-    /// persistence is disabled.
+    /// Open the app's persistent store (keyed by the stable, id-less app name)
+    /// and adopt or persist the app identity through it. Returns the (possibly
+    /// restored) identity provider plus the group-state and session-record
+    /// handles. Degrades to no persistence (provider unchanged) on failure or
+    /// when persistence is disabled; on wasm32 it is always a no-op.
+    ///
+    /// Public so a caller (`App`) can open **once**, derive the app id from the
+    /// restored identity, then hand the handles to [`Self::new_with_storage`] —
+    /// avoiding a second open of the same database.
     #[cfg(not(target_arch = "wasm32"))]
-    fn open_persistent_store(
+    pub fn open_persistent_store(
         app_name: &ProtoName,
         identity_provider: P,
         persistence: Option<&PersistenceConfig>,
@@ -288,6 +306,23 @@ where
                 (identity_provider, None, None)
             }
         }
+    }
+
+    /// wasm32: persistence is unsupported (a reload discards memory), so this is
+    /// a no-op that returns the provider unchanged and no handles.
+    #[cfg(target_arch = "wasm32")]
+    pub fn open_persistent_store(
+        app_name: &ProtoName,
+        identity_provider: P,
+        persistence: Option<&PersistenceConfig>,
+    ) -> (P, Option<SlimGroupStateStorage>, Option<SlimKvStore>) {
+        let _ = app_name;
+        if persistence.is_some() {
+            tracing::warn!(
+                "session persistence is not supported on wasm32 (state is lost on reload); ignoring"
+            );
+        }
+        (identity_provider, None, None)
     }
 
     /// Stable per-app store key derived from the app name (org/ns/type),
@@ -662,6 +697,36 @@ where
                 return Err(SessionError::SessionIdAlreadyUsed(session_id));
             }
             pool.insert(session_id, controller.clone());
+        }
+        // Pool insertion must precede the rejoin: the online announcement's
+        // acks/NACKs are routed back to the controller through the pool.
+
+        // Announce that we are back online, but do NOT block restore on the
+        // group's acknowledgement. While we were down the group may have
+        // heartbeat-marked us offline and stopped including us, so we re-announce
+        // (with our epoch) to be brought back in. Both roles do this: a
+        // participant is re-included by the moderator, and a moderator's online
+        // announcement brings participants' view of it back live.
+        //
+        // We fire the announcement and return: the restored session is already
+        // usable (it defaults to online and its routes were re-registered above),
+        // so there is nothing to wait for. Awaiting the ack here would stall
+        // restore for the full rejoin retry budget (max_retries × interval,
+        // e.g. 10 s) whenever the group is momentarily unresponsive or down.
+        // Correctness is preserved asynchronously: `rejoin()` records the pending
+        // status update before returning, so a later GroupAck confirms us and a
+        // GroupNack (the group's membership/epoch advanced while we were gone)
+        // drives the participant's rekey-based rejoin — and the heartbeat
+        // re-announces us if this single send is lost. P2P sessions have no
+        // rejoin. Only a failure to *send* is fatal to the restore.
+        match controller.rejoin().await {
+            Ok(_handle) => {}
+            Err(SessionError::CannotRejoinP2P) => {}
+            Err(e) => {
+                warn!(%session_id, error = %e.chain(), "failed to send rejoin after restore; dropping session");
+                self.pool.write().remove(&session_id);
+                return Err(e);
+            }
         }
 
         Ok(SessionContext::new(controller, app_rx))
