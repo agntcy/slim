@@ -218,6 +218,7 @@ nav:
                   - Creating an App: slim/components/sdk/tutorials/tutorial-app.md
                   - Creating a Session: slim/components/sdk/tutorials/tutorial-session.md
                   - Receiving a Session: slim/components/sdk/tutorials/tutorial-receive.md
+                  - Session Persistence and Restore: slim/components/sdk/tutorials/tutorial-persistence.md
                   - Serving a SLIMRPC Server: slim/components/sdk/tutorials/slimrpc/tutorial-serve.md
                   - Using a SLIMRPC Server: slim/components/sdk/tutorials/slimrpc/tutorial-client.md
                   - Multicast SLIMRPC: slim/components/sdk/tutorials/slimrpc/tutorial-multicast.md
