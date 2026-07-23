@@ -131,6 +131,32 @@ Create a `buf.gen.yaml` to generate SLIMRPC stubs alongside the standard protobu
 
     This generates the C# protobuf classes and `example_slimrpc.cs` containing `TestClient`, `ITestServer`, `UnimplementedTestServer`, and `TestServerRegistration`.
 
+=== "Rust"
+
+    In Rust, SLIMRPC handlers are registered as closures directly on the server — no SLIMRPC compiler or generated stub files are needed.
+
+    You still generate the protobuf message types from your `.proto` file. Add `prost` to your `Cargo.toml` and a `build.rs`:
+
+    ```toml
+    # Cargo.toml
+    [dependencies]
+    prost = "0.13"
+    agntcy-slim = "2.0.0-alpha.7"
+    tokio = { version = "1", features = ["full"] }
+
+    [build-dependencies]
+    prost-build = "0.13"
+    ```
+
+    ```rust
+    // build.rs
+    fn main() {
+        prost_build::compile_protos(&["proto/example.proto"], &["proto/"]).unwrap();
+    }
+    ```
+
+    This generates Rust structs for `ExampleRequest` and `ExampleResponse`. Handler registration is shown in Step 4.
+
 Run code generation:
 
 ```bash
@@ -449,6 +475,29 @@ Implement each RPC method defined in your proto. Extend the generated base class
     }
     ```
 
+=== "Rust"
+
+    In Rust, service logic is written as async closures passed to the server at registration time (Step 4). Each handler receives a typed request and returns a typed response — no base class to extend.
+
+    ```rust
+    // include! the prost-generated types at the top of your file:
+    // mod example_service { include!(concat!(env!("OUT_DIR"), "/example_service.rs")); }
+    use example_service::{ExampleRequest, ExampleResponse};
+
+    // Handlers are closures — shown registered in Step 4 below.
+    // ExampleUnaryUnary:
+    //   |req: ExampleRequest, _ctx| async move { Ok(ExampleResponse { ... }) }
+    //
+    // ExampleUnaryStream:
+    //   |req: ExampleRequest, _ctx| async move { Ok(vec![ExampleResponse { ... }]) }
+    //
+    // ExampleStreamUnary:
+    //   |reqs: Vec<ExampleRequest>, _ctx| async move { Ok(ExampleResponse { ... }) }
+    //
+    // ExampleStreamStream:
+    //   |reqs: Vec<ExampleRequest>, _ctx| async move { Ok(reqs.into_iter().map(|r| ...).collect()) }
+    ```
+
 ## Step 4: Create the Server and Serve
 
 Create a SLIMRPC server, register your implementation, and start serving. The server blocks (or runs asynchronously) until stopped.
@@ -519,6 +568,78 @@ Create a SLIMRPC server, register your implementation, and start serving. The se
 
     Console.WriteLine("Serving...");
     await slimServer.ServeAsync();
+    ```
+
+=== "Rust"
+
+    ```rust
+    use slim_rpc::Server;
+    use example_service::{ExampleRequest, ExampleResponse};
+
+    // app, conn_id, and rx (notification receiver) come from the prerequisite tutorials
+    let server = Server::new_with_connection_and_runtime(
+        app,
+        local_name,
+        Some(conn_id),
+        rx,
+        None,
+    );
+
+    // Register each RPC method as a typed async closure
+    server.register_unary_unary_internal(
+        "example_service.Test",
+        "ExampleUnaryUnary",
+        |req: ExampleRequest, _ctx| async move {
+            Ok(ExampleResponse {
+                example_string: format!("hello {}", req.example_string),
+                example_integer: req.example_integer + 1,
+            })
+        },
+    );
+
+    server.register_unary_stream_internal(
+        "example_service.Test",
+        "ExampleUnaryStream",
+        |req: ExampleRequest, _ctx| async move {
+            let responses = (0..5)
+                .map(|i| ExampleResponse {
+                    example_string: format!("hello {} {i}", req.example_string),
+                    example_integer: req.example_integer + i,
+                })
+                .collect::<Vec<_>>();
+            Ok(responses)
+        },
+    );
+
+    server.register_stream_unary_internal(
+        "example_service.Test",
+        "ExampleStreamUnary",
+        |reqs: Vec<ExampleRequest>, _ctx| async move {
+            let count = reqs.len() as i64;
+            Ok(ExampleResponse {
+                example_string: format!("received {count} requests"),
+                example_integer: count,
+            })
+        },
+    );
+
+    server.register_stream_stream_internal(
+        "example_service.Test",
+        "ExampleStreamStream",
+        |reqs: Vec<ExampleRequest>, _ctx| async move {
+            let responses = reqs
+                .into_iter()
+                .map(|req| ExampleResponse {
+                    example_string: format!("echo: {}", req.example_string),
+                    example_integer: req.example_integer,
+                })
+                .collect::<Vec<_>>();
+            Ok(responses)
+        },
+    );
+
+    println!("Serving...");
+    server.serve().await?;
     ```
 
 ## Runnable Examples

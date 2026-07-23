@@ -234,6 +234,45 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
     Console.WriteLine($"App ready with persistence: {localName}");
     ```
 
+=== "Rust"
+
+    ```rust
+    use slim_service::ServiceConfiguration;
+    use slim_service::config::{ClientConfig, TlsClientConfig};
+    use slim_auth::shared_secret::SharedSecret;
+    use slim_datapath::api::{ID, ProtoName};
+    use slim_persistence::PersistenceConfig;
+    use slim_session::Direction;
+
+    #[tokio::main]
+    async fn main() -> anyhow::Result<()> {
+        let mut config = ServiceConfiguration::new();
+        config.with_dataplane_client(vec![
+            ClientConfig::with_endpoint("http://127.0.0.1:46357")
+                .with_tls_setting(TlsClientConfig::default().with_insecure(true)),
+        ]);
+        let service = config.build_server(ID::new_with_str("slim/0")?)?;
+        service.run().await?;
+        let conn_id = service.get_connection_id("http://127.0.0.1:46357").unwrap();
+
+        let name = ProtoName::from_strings(["myorg", "default", "my-service"]);
+        let provider = SharedSecret::new("myorg/default/my-service", "my-shared-secret")?;
+        let verifier = SharedSecret::new("myorg/default/my-service", "my-shared-secret")?;
+
+        let (app, _rx) = service.create_app_with_direction_and_persistence(
+            &name,
+            provider,
+            verifier,
+            Direction::Bidirectional,
+            Some(PersistenceConfig::new("./slim-state")),
+        )?;
+        app.subscribe(&name, Some(conn_id)).await?;
+        println!("App ready with persistence: myorg/default/my-service");
+
+        Ok(())
+    }
+    ```
+
 ## Step 2: Use the Session Normally
 
 Create a group session and exchange messages exactly as shown in [Creating a Session](./tutorial-session.md). The session layer silently checkpoints MLS state and membership to the store as the session progresses — no additional calls required.
@@ -370,6 +409,29 @@ On the next startup, create a new app using the **same name, secret, store path,
     foreach (var session in sessions)
     {
         await session.PublishAsync("back online");
+    }
+    ```
+
+=== "Rust"
+
+    ```rust
+    // After restart — same name, secret, and store path as before
+    let (app, _rx) = service.create_app_with_direction_and_persistence(
+        &name,
+        provider,
+        verifier,
+        Direction::Bidirectional,
+        Some(PersistenceConfig::new("./slim-state")),
+    )?;
+    app.subscribe(&name, Some(conn_id)).await?;
+
+    // Restore all previously active sessions
+    let sessions = app.restore_sessions(conn_id).await?;
+    println!("Restored {} session(s)", sessions.len());
+
+    // Each restored session is immediately usable
+    for session in &sessions {
+        session.publish(&channel_name, b"back online".to_vec(), None, None).await?;
     }
     ```
 
