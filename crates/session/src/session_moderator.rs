@@ -1659,12 +1659,12 @@ where
         // already Online and its endpoint/heartbeat tracking is intact — calling
         // add_endpoint again would reset the missed-heartbeat counter and
         // potentially trigger a spurious flush of the send buffer.
-        if participant_entry.status == ParticipantState::Offline as i32 {
-            if let Some(entry) = self.group_list.get_mut(&name_no_id) {
-                entry.status = ParticipantState::Online as i32;
-                let participant = entry.clone();
-                self.add_endpoint(&participant).await?;
-            }
+        if participant_entry.status == ParticipantState::Offline as i32
+            && let Some(entry) = self.group_list.get_mut(&name_no_id)
+        {
+            entry.status = ParticipantState::Online as i32;
+            let participant = entry.clone();
+            self.add_endpoint(&participant).await?;
         }
 
         // 8. Send GroupUpdate with REJOIN op and MLS commit to all participants
