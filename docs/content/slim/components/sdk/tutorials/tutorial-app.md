@@ -22,6 +22,25 @@ See [Naming](../../../architecture/naming.md) for full details on the naming sch
 
 Pass the `service` obtained from initialisation to create an app bound to a name. The shared secret seeds the MLS cryptographic identity — use a long, random value in production.
 
+=== "Rust"
+
+    ```rust
+    use slim_auth::shared_secret::SharedSecret;
+    use slim_datapath::api::ProtoName;
+
+    // Define the application name (org / namespace / service)
+    // The client ID is assigned by SLIM based on the cryptographic identity
+    let name = ProtoName::from_strings(["myorg", "default", "my-service"]);
+
+    // Shared-secret identity — use a long, random value in production
+    let provider = SharedSecret::new("myorg/default/my-service", "my-shared-secret")?;
+    let verifier = SharedSecret::new("myorg/default/my-service", "my-shared-secret")?;
+
+    // Create the app — returns the app handle and a notification receiver
+    let (app, _rx) = service.create_app(&name, provider, verifier)?;
+    println!("App created");
+    ```
+
 === "Python"
 
     ```python
@@ -118,28 +137,17 @@ Pass the `service` obtained from initialisation to create an app bound to a name
     console.log(`App created, id=${app.id()}`);
     ```
 
-=== "Rust"
-
-    ```rust
-    use slim_auth::shared_secret::SharedSecret;
-    use slim_datapath::api::ProtoName;
-
-    // Define the application name (org / namespace / service)
-    // The client ID is assigned by SLIM based on the cryptographic identity
-    let name = ProtoName::from_strings(["myorg", "default", "my-service"]);
-
-    // Shared-secret identity — use a long, random value in production
-    let provider = SharedSecret::new("myorg/default/my-service", "my-shared-secret")?;
-    let verifier = SharedSecret::new("myorg/default/my-service", "my-shared-secret")?;
-
-    // Create the app — returns the app handle and a notification receiver
-    let (app, _rx) = service.create_app(&name, provider, verifier)?;
-    println!("App created");
-    ```
-
 ## Step 2: Subscribe to Receive Messages
 
 Subscribing tells the SLIM node to route inbound messages for this name to your application. Pass the `conn_id` returned by `connect_async` in the previous tutorial.
+
+=== "Rust"
+
+    ```rust
+    // Subscribe — the SLIM node will now deliver messages for name to this app
+    app.subscribe(&name, Some(conn_id)).await?;
+    println!("Subscribed as: myorg/default/my-service");
+    ```
 
 === "Python"
 
@@ -206,17 +214,17 @@ Subscribing tells the SLIM node to route inbound messages for this name to your 
     console.log(`Subscribed as: ${localName}`);
     ```
 
-=== "Rust"
-
-    ```rust
-    // Subscribe — the SLIM node will now deliver messages for name to this app
-    app.subscribe(&name, Some(conn_id)).await?;
-    println!("Subscribed as: myorg/default/my-service");
-    ```
-
 ## Step 3: Set a Route (Optional)
 
 Before establishing a session to a remote application, your local SLIM node must know how to route messages to it. In most deployments this is managed automatically. For development or when running without a Controller, add the route manually:
+
+=== "Rust"
+
+    ```rust
+    // Tell the local SLIM node how to reach the remote service
+    let remote_name = ProtoName::from_strings(["myorg", "default", "other-service"]);
+    app.set_route(&remote_name, conn_id).await?;
+    ```
 
 === "Python"
 
@@ -281,15 +289,35 @@ Before establishing a session to a remote application, your local SLIM node must
     await app.setRoute(remoteName, connId);
     ```
 
+## Putting It Together
+
 === "Rust"
 
     ```rust
-    // Tell the local SLIM node how to reach the remote service
-    let remote_name = ProtoName::from_strings(["myorg", "default", "other-service"]);
-    app.set_route(&remote_name, conn_id).await?;
-    ```
+    use slim_service::Service;
+    use slim_service::config::ClientConfig;
+    use slim_auth::shared_secret::SharedSecret;
+    use slim_datapath::api::ProtoName;
 
-## Putting It Together
+    #[tokio::main]
+    async fn main() -> anyhow::Result<()> {
+        let service = Service::builder().build("slim/0")?;
+        service.run().await?;
+        let conn_id = service.connect(ClientConfig::with_endpoint("http://127.0.0.1:46357")).await?;
+
+        let name = ProtoName::from_strings(["myorg", "default", "my-service"]);
+        let provider = SharedSecret::new("myorg/default/my-service", "my-shared-secret")?;
+        let verifier = SharedSecret::new("myorg/default/my-service", "my-shared-secret")?;
+
+        let (app, _rx) = service.create_app(&name, provider, verifier)?;
+        app.subscribe(&name, Some(conn_id)).await?;
+
+        println!("App ready: myorg/default/my-service");
+        // app and conn_id are passed to create_session in the next tutorial
+
+        Ok(())
+    }
+    ```
 
 === "Python"
 
@@ -460,34 +488,6 @@ Before establishing a session to a remote application, your local SLIM node must
 
     console.log(`App ready: ${localName}, id=${app.id()}`);
     // app and connId are passed to createSession in the next tutorial
-    ```
-
-=== "Rust"
-
-    ```rust
-    use slim_service::Service;
-    use slim_service::config::ClientConfig;
-    use slim_auth::shared_secret::SharedSecret;
-    use slim_datapath::api::ProtoName;
-
-    #[tokio::main]
-    async fn main() -> anyhow::Result<()> {
-        let service = Service::builder().build("slim/0")?;
-        service.run().await?;
-        let conn_id = service.connect(ClientConfig::with_endpoint("http://127.0.0.1:46357")).await?;
-
-        let name = ProtoName::from_strings(["myorg", "default", "my-service"]);
-        let provider = SharedSecret::new("myorg/default/my-service", "my-shared-secret")?;
-        let verifier = SharedSecret::new("myorg/default/my-service", "my-shared-secret")?;
-
-        let (app, _rx) = service.create_app(&name, provider, verifier)?;
-        app.subscribe(&name, Some(conn_id)).await?;
-
-        println!("App ready: myorg/default/my-service");
-        // app and conn_id are passed to create_session in the next tutorial
-
-        Ok(())
-    }
     ```
 
 ## Next Steps

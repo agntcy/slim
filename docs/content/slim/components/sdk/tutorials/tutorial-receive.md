@@ -10,6 +10,22 @@ This tutorial shows how to receive an incoming session, read messages from it, a
 
 The receiving side does not call `create_session`. Instead it calls `listen_for_session_async`, which blocks until the remote peer initiates a session (either a point-to-point connection or a group invitation).
 
+=== "Rust"
+
+    ```rust
+    use slim_session::Notification;
+
+    // The notification receiver rx comes from service.create_app(...)
+    // Wait for an incoming session invitation
+    while let Some(Ok(notification)) = rx.recv().await {
+        if let Notification::NewSession(ctx) = notification {
+            println!("Session received");
+            // ctx is used in the Receive Messages step below
+            break;
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -86,25 +102,29 @@ The receiving side does not call `create_session`. Instead it calls `listen_for_
     console.log("Session received");
     ```
 
-=== "Rust"
-
-    ```rust
-    use slim_session::Notification;
-
-    // The notification receiver rx comes from service.create_app(...)
-    // Wait for an incoming session invitation
-    while let Some(Ok(notification)) = rx.recv().await {
-        if let Notification::NewSession(ctx) = notification {
-            println!("Session received");
-            // ctx is used in the Receive Messages step below
-            break;
-        }
-    }
-    ```
-
 ## Receive Messages
 
 Once the session is established, call `get_message_async` in a loop to receive messages. The call blocks until a message arrives or the timeout expires.
+
+=== "Rust"
+
+    ```rust
+    // Spawn a receiver task on the session context
+    ctx.spawn_receiver(|mut msg_rx, _| async move {
+        loop {
+            match msg_rx.recv().await {
+                Some(Ok(msg)) => {
+                    println!("Received: {}", String::from_utf8_lossy(msg.payload()));
+                }
+                Some(Err(e)) => {
+                    eprintln!("Session error: {e}");
+                    break;
+                }
+                None => break, // Session closed
+            }
+        }
+    });
+    ```
 
 === "Python"
 
@@ -219,32 +239,24 @@ Once the session is established, call `get_message_async` in a loop to receive m
     }
     ```
 
-=== "Rust"
-
-    ```rust
-    // Spawn a receiver task on the session context
-    ctx.spawn_receiver(|mut msg_rx, _| async move {
-        loop {
-            match msg_rx.recv().await {
-                Some(Ok(msg)) => {
-                    println!("Received: {}", String::from_utf8_lossy(msg.payload()));
-                }
-                Some(Err(e)) => {
-                    eprintln!("Session error: {e}");
-                    break;
-                }
-                None => break, // Session closed
-            }
-        }
-    });
-    ```
-
 ## Reply to Messages
 
 There are two ways to reply:
 
 - **Broadcast** (`publish_async` / `PublishAndWaitAsync`) — sends to all current session participants. For point-to-point sessions this is just the remote peer; for group sessions every member receives it.
 - **Direct reply** (`publish_to_async` / `PublishToAndWaitAsync` / `ReplyAsync`) — uses the context from the received message to send back only to the original sender. Other group participants do not see the reply.
+
+=== "Rust"
+
+    ```rust
+    let session = ctx.session_arc().unwrap();
+
+    // Broadcast to all participants
+    session.publish(&channel_name, b"hello everyone".to_vec(), None, None).await?;
+
+    // Reply only to the sender (using the source from a received message)
+    session.publish_to(msg.source(), b"hello back".to_vec(), None, None).await?;
+    ```
 
 === "Python"
 
@@ -330,18 +342,6 @@ There are two ways to reply:
     // Reply only to the sender
     const reply = new Uint8Array("hello back".split('').map(c => c.charCodeAt(0)));
     await session.publishToAndWaitAsync(msg.context, reply, undefined, undefined);
-    ```
-
-=== "Rust"
-
-    ```rust
-    let session = ctx.session_arc().unwrap();
-
-    // Broadcast to all participants
-    session.publish(&channel_name, b"hello everyone".to_vec(), None, None).await?;
-
-    // Reply only to the sender (using the source from a received message)
-    session.publish_to(msg.source(), b"hello back".to_vec(), None, None).await?;
     ```
 
 ## Next Steps

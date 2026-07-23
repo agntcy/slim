@@ -12,6 +12,28 @@ This tutorial shows how to fan out a single RPC call to multiple servers simulta
 
 A group channel wraps a SLIM group session that spans all the servers you want to call. Pass a list of remote server names instead of a single name.
 
+=== "Rust"
+
+    ```rust
+    use slim_rpc::Channel;
+    use slim_datapath::api::ProtoName;
+
+    // server_names is a Vec<ProtoName> of all servers to fan out to
+    let server_names = vec![
+        ProtoName::from_strings(["myorg", "default", "server-1"]),
+        ProtoName::from_strings(["myorg", "default", "server-2"]),
+    ];
+
+    // A group channel fans out every call to all members
+    let channel = Channel::new_with_members_internal(
+        app.clone(),
+        server_names,
+        true, // group = true for multicast
+        Some(conn_id),
+        tokio::runtime::Handle::current(),
+    )?;
+    ```
+
 === "Python"
 
     ```python
@@ -94,33 +116,32 @@ A group channel wraps a SLIM group session that spans all the servers you want t
     var client = new TestGroupClient(channel);
     ```
 
-=== "Rust"
-
-    ```rust
-    use slim_rpc::Channel;
-    use slim_datapath::api::ProtoName;
-
-    // server_names is a Vec<ProtoName> of all servers to fan out to
-    let server_names = vec![
-        ProtoName::from_strings(["myorg", "default", "server-1"]),
-        ProtoName::from_strings(["myorg", "default", "server-2"]),
-    ];
-
-    // A group channel fans out every call to all members
-    let channel = Channel::new_with_members_internal(
-        app.clone(),
-        server_names,
-        true, // group = true for multicast
-        Some(conn_id),
-        tokio::runtime::Handle::current(),
-    )?;
-    ```
-
 ## Send a Multicast Request
 
 Call any RPC method on the group client. The call fans out to every server in the group. Responses arrive as a stream — one response per server, in arrival order.
 
 Each response item carries both the response payload and the context identifying which server it came from.
+
+=== "Rust"
+
+    ```rust
+    use example_service::{ExampleRequest, ExampleResponse};
+
+    let request = ExampleRequest {
+        example_string: "world".to_string(),
+        example_integer: 42,
+    };
+
+    // Responses arrive as a stream — one per server, in arrival order
+    let mut stream = channel
+        .multicast_unary("example_service.Test", "ExampleUnaryUnary", request, None, None)
+        .await?;
+
+    while let Some(item) = stream.next().await {
+        let (source, response): (ProtoName, ExampleResponse) = item?;
+        println!("Response from {source:?}: {}", response.example_string);
+    }
+    ```
 
 === "Python"
 
@@ -207,27 +228,6 @@ Each response item carries both the response payload and the context identifying
     await foreach (var item in client.ExampleUnaryUnary(request, timeout: TimeSpan.FromSeconds(5)))
     {
         Console.WriteLine($"Response from {item.Context.SourceName}: {item.Value.ExampleString}");
-    }
-    ```
-
-=== "Rust"
-
-    ```rust
-    use example_service::{ExampleRequest, ExampleResponse};
-
-    let request = ExampleRequest {
-        example_string: "world".to_string(),
-        example_integer: 42,
-    };
-
-    // Responses arrive as a stream — one per server, in arrival order
-    let mut stream = channel
-        .multicast_unary("example_service.Test", "ExampleUnaryUnary", request, None, None)
-        .await?;
-
-    while let Some(item) = stream.next().await {
-        let (source, response): (ProtoName, ExampleResponse) = item?;
-        println!("Response from {source:?}: {}", response.example_string);
     }
     ```
 

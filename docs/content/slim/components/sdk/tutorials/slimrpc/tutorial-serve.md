@@ -41,6 +41,32 @@ The server subscribes to a single SLIM base name. The service (`{package}.{Servi
 
 Create a `buf.gen.yaml` to generate SLIMRPC stubs alongside the standard protobuf types, then run `buf generate`.
 
+=== "Rust"
+
+    In Rust, SLIMRPC handlers are registered as closures directly on the server — no SLIMRPC compiler or generated stub files are needed.
+
+    You still generate the protobuf message types from your `.proto` file. Add `prost` to your `Cargo.toml` and a `build.rs`:
+
+    ```toml
+    # Cargo.toml
+    [dependencies]
+    prost = "0.13"
+    agntcy-slim = "2.0.0-alpha.7"
+    tokio = { version = "1", features = ["full"] }
+
+    [build-dependencies]
+    prost-build = "0.13"
+    ```
+
+    ```rust
+    // build.rs
+    fn main() {
+        prost_build::compile_protos(&["proto/example.proto"], &["proto/"]).unwrap();
+    }
+    ```
+
+    This generates Rust structs for `ExampleRequest` and `ExampleResponse`. Handler registration is shown in Step 4.
+
 === "Python"
 
     ```yaml
@@ -131,32 +157,6 @@ Create a `buf.gen.yaml` to generate SLIMRPC stubs alongside the standard protobu
 
     This generates the C# protobuf classes and `example_slimrpc.cs` containing `TestClient`, `ITestServer`, `UnimplementedTestServer`, and `TestServerRegistration`.
 
-=== "Rust"
-
-    In Rust, SLIMRPC handlers are registered as closures directly on the server — no SLIMRPC compiler or generated stub files are needed.
-
-    You still generate the protobuf message types from your `.proto` file. Add `prost` to your `Cargo.toml` and a `build.rs`:
-
-    ```toml
-    # Cargo.toml
-    [dependencies]
-    prost = "0.13"
-    agntcy-slim = "2.0.0-alpha.7"
-    tokio = { version = "1", features = ["full"] }
-
-    [build-dependencies]
-    prost-build = "0.13"
-    ```
-
-    ```rust
-    // build.rs
-    fn main() {
-        prost_build::compile_protos(&["proto/example.proto"], &["proto/"]).unwrap();
-    }
-    ```
-
-    This generates Rust structs for `ExampleRequest` and `ExampleResponse`. Handler registration is shown in Step 4.
-
 Run code generation:
 
 ```bash
@@ -166,6 +166,29 @@ buf generate
 ## Step 3: Implement the Servicer
 
 Implement each RPC method defined in your proto. Extend the generated base class or implement the interface:
+
+=== "Rust"
+
+    In Rust, service logic is written as async closures passed to the server at registration time (Step 4). Each handler receives a typed request and returns a typed response — no base class to extend.
+
+    ```rust
+    // include! the prost-generated types at the top of your file:
+    // mod example_service { include!(concat!(env!("OUT_DIR"), "/example_service.rs")); }
+    use example_service::{ExampleRequest, ExampleResponse};
+
+    // Handlers are closures — shown registered in Step 4 below.
+    // ExampleUnaryUnary:
+    //   |req: ExampleRequest, _ctx| async move { Ok(ExampleResponse { ... }) }
+    //
+    // ExampleUnaryStream:
+    //   |req: ExampleRequest, _ctx| async move { Ok(vec![ExampleResponse { ... }]) }
+    //
+    // ExampleStreamUnary:
+    //   |reqs: Vec<ExampleRequest>, _ctx| async move { Ok(ExampleResponse { ... }) }
+    //
+    // ExampleStreamStream:
+    //   |reqs: Vec<ExampleRequest>, _ctx| async move { Ok(reqs.into_iter().map(|r| ...).collect()) }
+    ```
 
 === "Python"
 
@@ -475,100 +498,9 @@ Implement each RPC method defined in your proto. Extend the generated base class
     }
     ```
 
-=== "Rust"
-
-    In Rust, service logic is written as async closures passed to the server at registration time (Step 4). Each handler receives a typed request and returns a typed response — no base class to extend.
-
-    ```rust
-    // include! the prost-generated types at the top of your file:
-    // mod example_service { include!(concat!(env!("OUT_DIR"), "/example_service.rs")); }
-    use example_service::{ExampleRequest, ExampleResponse};
-
-    // Handlers are closures — shown registered in Step 4 below.
-    // ExampleUnaryUnary:
-    //   |req: ExampleRequest, _ctx| async move { Ok(ExampleResponse { ... }) }
-    //
-    // ExampleUnaryStream:
-    //   |req: ExampleRequest, _ctx| async move { Ok(vec![ExampleResponse { ... }]) }
-    //
-    // ExampleStreamUnary:
-    //   |reqs: Vec<ExampleRequest>, _ctx| async move { Ok(ExampleResponse { ... }) }
-    //
-    // ExampleStreamStream:
-    //   |reqs: Vec<ExampleRequest>, _ctx| async move { Ok(reqs.into_iter().map(|r| ...).collect()) }
-    ```
-
 ## Step 4: Create the Server and Serve
 
 Create a SLIMRPC server, register your implementation, and start serving. The server blocks (or runs asynchronously) until stopped.
-
-=== "Python"
-
-    ```python
-    import slim_bindings
-    from types.example_pb2_slimrpc import add_TestServicer_to_server
-
-    # app and conn_id come from the prerequisite tutorials
-    rpc_server = slim_bindings.Server.new_with_connection(app, local_name, conn_id)
-    add_TestServicer_to_server(TestService(), rpc_server)
-
-    print("Serving...")
-    await rpc_server.serve_async()
-    ```
-
-=== "Go"
-
-    ```go
-    import slim "github.com/agntcy/slim-bindings-go"
-
-    // app and connId come from the prerequisite tutorials
-    server := slim.ServerNewWithConnection(app, localName, &connId)
-    pb.RegisterTestServer(server, &TestServiceImpl{})
-
-    fmt.Println("Serving...")
-    server.Serve()
-    ```
-
-=== "Java"
-
-    ```java
-    import io.agntcy.slim.bindings.Server;
-
-    // app and connId come from the prerequisite tutorials
-    Server rpcServer = Server.newWithConnection(app, localName, connId);
-    TestSlimrpc.registerTestServer(rpcServer, new TestServerImpl());
-
-    System.out.println("Serving...");
-    rpcServer.serve();
-    ```
-
-=== "Kotlin"
-
-    ```kotlin
-    import io.agntcy.slim.bindings.Server
-    import kotlinx.coroutines.runBlocking
-
-    // app and connId come from the prerequisite tutorials
-    val rpcServer = Server.newWithConnection(app, localName, connId)
-    TestSlimrpc.registerTestServer(rpcServer, TestServiceImpl())
-
-    println("Serving...")
-    runBlocking { rpcServer.serve() }
-    ```
-
-=== ".NET"
-
-    ```csharp
-    using Agntcy.Slim.Rpc;
-    using ExampleService;
-
-    // app and connId come from the prerequisite tutorials
-    var slimServer = SlimRpcServerFactory.CreateServer(app, localName, connId);
-    TestServerRegistration.RegisterTestServer(slimServer, new TestServerImpl());
-
-    Console.WriteLine("Serving...");
-    await slimServer.ServeAsync();
-    ```
 
 === "Rust"
 
@@ -640,6 +572,74 @@ Create a SLIMRPC server, register your implementation, and start serving. The se
 
     println!("Serving...");
     server.serve().await?;
+    ```
+
+=== "Python"
+
+    ```python
+    import slim_bindings
+    from types.example_pb2_slimrpc import add_TestServicer_to_server
+
+    # app and conn_id come from the prerequisite tutorials
+    rpc_server = slim_bindings.Server.new_with_connection(app, local_name, conn_id)
+    add_TestServicer_to_server(TestService(), rpc_server)
+
+    print("Serving...")
+    await rpc_server.serve_async()
+    ```
+
+=== "Go"
+
+    ```go
+    import slim "github.com/agntcy/slim-bindings-go"
+
+    // app and connId come from the prerequisite tutorials
+    server := slim.ServerNewWithConnection(app, localName, &connId)
+    pb.RegisterTestServer(server, &TestServiceImpl{})
+
+    fmt.Println("Serving...")
+    server.Serve()
+    ```
+
+=== "Java"
+
+    ```java
+    import io.agntcy.slim.bindings.Server;
+
+    // app and connId come from the prerequisite tutorials
+    Server rpcServer = Server.newWithConnection(app, localName, connId);
+    TestSlimrpc.registerTestServer(rpcServer, new TestServerImpl());
+
+    System.out.println("Serving...");
+    rpcServer.serve();
+    ```
+
+=== "Kotlin"
+
+    ```kotlin
+    import io.agntcy.slim.bindings.Server
+    import kotlinx.coroutines.runBlocking
+
+    // app and connId come from the prerequisite tutorials
+    val rpcServer = Server.newWithConnection(app, localName, connId)
+    TestSlimrpc.registerTestServer(rpcServer, TestServiceImpl())
+
+    println("Serving...")
+    runBlocking { rpcServer.serve() }
+    ```
+
+=== ".NET"
+
+    ```csharp
+    using Agntcy.Slim.Rpc;
+    using ExampleService;
+
+    // app and connId come from the prerequisite tutorials
+    var slimServer = SlimRpcServerFactory.CreateServer(app, localName, connId);
+    TestServerRegistration.RegisterTestServer(slimServer, new TestServerImpl());
+
+    Console.WriteLine("Serving...");
+    await slimServer.ServeAsync();
     ```
 
 ## Runnable Examples

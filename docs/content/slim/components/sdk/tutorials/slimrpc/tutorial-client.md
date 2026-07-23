@@ -12,6 +12,21 @@ This tutorial shows how to connect to a running SLIMRPC server, create a channel
 
 A SLIMRPC channel wraps the SLIM session layer. Pass it the remote server's SLIM name and the connection ID from `connect_async`.
 
+=== "Rust"
+
+    ```rust
+    use slim_rpc::Channel;
+
+    // app, conn_id, and remote_name come from the prerequisite tutorials
+    let channel = Channel::new_with_members_internal(
+        app.clone(),
+        vec![remote_name.clone()],
+        false,
+        Some(conn_id),
+        tokio::runtime::Handle::current(),
+    )?;
+    ```
+
 === "Python"
 
     ```python
@@ -69,24 +84,25 @@ A SLIMRPC channel wraps the SLIM session layer. Pass it the remote server's SLIM
     var client = new TestClient(channel);
     ```
 
-=== "Rust"
-
-    ```rust
-    use slim_rpc::Channel;
-
-    // app, conn_id, and remote_name come from the prerequisite tutorials
-    let channel = Channel::new_with_members_internal(
-        app.clone(),
-        vec![remote_name.clone()],
-        false,
-        Some(conn_id),
-        tokio::runtime::Handle::current(),
-    )?;
-    ```
-
 ## Unary-Unary
 
 Send a single request and receive a single response.
+
+=== "Rust"
+
+    ```rust
+    use example_service::{ExampleRequest, ExampleResponse};
+
+    let request = ExampleRequest {
+        example_string: "world".to_string(),
+        example_integer: 42,
+    };
+
+    let response: ExampleResponse = channel
+        .unary("example_service.Test", "ExampleUnaryUnary", request, None, None)
+        .await?;
+    println!("Response: {} {}", response.example_string, response.example_integer);
+    ```
 
 === "Python"
 
@@ -159,25 +175,22 @@ Send a single request and receive a single response.
     Console.WriteLine($"Response: {response.ExampleString} {response.ExampleInteger}");
     ```
 
-=== "Rust"
-
-    ```rust
-    use example_service::{ExampleRequest, ExampleResponse};
-
-    let request = ExampleRequest {
-        example_string: "world".to_string(),
-        example_integer: 42,
-    };
-
-    let response: ExampleResponse = channel
-        .unary("example_service.Test", "ExampleUnaryUnary", request, None, None)
-        .await?;
-    println!("Response: {} {}", response.example_string, response.example_integer);
-    ```
-
 ## Unary-Stream
 
 Send a single request and iterate over a stream of responses from the server.
+
+=== "Rust"
+
+    ```rust
+    let mut stream = channel
+        .unary_stream("example_service.Test", "ExampleUnaryStream", request, None, None)
+        .await?;
+
+    while let Some(response) = stream.next().await {
+        let resp: ExampleResponse = response?;
+        println!("Stream response: {} {}", resp.example_string, resp.example_integer);
+    }
+    ```
 
 === "Python"
 
@@ -234,22 +247,25 @@ Send a single request and iterate over a stream of responses from the server.
     }
     ```
 
-=== "Rust"
-
-    ```rust
-    let mut stream = channel
-        .unary_stream("example_service.Test", "ExampleUnaryStream", request, None, None)
-        .await?;
-
-    while let Some(response) = stream.next().await {
-        let resp: ExampleResponse = response?;
-        println!("Stream response: {} {}", resp.example_string, resp.example_integer);
-    }
-    ```
-
 ## Stream-Unary
 
 Stream a sequence of requests to the server and receive a single response.
+
+=== "Rust"
+
+    ```rust
+    let requests: Vec<ExampleRequest> = (0..5)
+        .map(|i| ExampleRequest {
+            example_string: format!("req_{i}"),
+            example_integer: i,
+        })
+        .collect();
+
+    let response: ExampleResponse = channel
+        .stream_unary("example_service.Test", "ExampleStreamUnary", requests, None, None)
+        .await?;
+    println!("Response: {} {}", response.example_string, response.example_integer);
+    ```
 
 === "Python"
 
@@ -333,25 +349,22 @@ Stream a sequence of requests to the server and receive a single response.
     Console.WriteLine($"Response: {response.ExampleString} {response.ExampleInteger}");
     ```
 
-=== "Rust"
-
-    ```rust
-    let requests: Vec<ExampleRequest> = (0..5)
-        .map(|i| ExampleRequest {
-            example_string: format!("req_{i}"),
-            example_integer: i,
-        })
-        .collect();
-
-    let response: ExampleResponse = channel
-        .stream_unary("example_service.Test", "ExampleStreamUnary", requests, None, None)
-        .await?;
-    println!("Response: {} {}", response.example_string, response.example_integer);
-    ```
-
 ## Stream-Stream
 
 Stream requests to the server and receive a stream of responses simultaneously.
+
+=== "Rust"
+
+    ```rust
+    let mut stream = channel
+        .stream_stream("example_service.Test", "ExampleStreamStream", requests, None, None)
+        .await?;
+
+    while let Some(response) = stream.next().await {
+        let resp: ExampleResponse = response?;
+        println!("Stream response: {} {}", resp.example_string, resp.example_integer);
+    }
+    ```
 
 === "Python"
 
@@ -438,22 +451,15 @@ Stream requests to the server and receive a stream of responses simultaneously.
     }
     ```
 
-=== "Rust"
-
-    ```rust
-    let mut stream = channel
-        .stream_stream("example_service.Test", "ExampleStreamStream", requests, None, None)
-        .await?;
-
-    while let Some(response) = stream.next().await {
-        let resp: ExampleResponse = response?;
-        println!("Stream response: {} {}", resp.example_string, resp.example_integer);
-    }
-    ```
-
 ## Close the Channel
 
 When finished, close the channel to release the underlying SLIM session.
+
+=== "Rust"
+
+    ```rust
+    channel.close().await?;
+    ```
 
 === "Python"
 
@@ -483,12 +489,6 @@ When finished, close the channel to release the underlying SLIM session.
 
     ```csharp
     channel.Dispose();
-    ```
-
-=== "Rust"
-
-    ```rust
-    channel.close().await?;
     ```
 
 ## Runnable Examples

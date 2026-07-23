@@ -16,6 +16,40 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
 !!! warning "Passphrase"
     Always set a passphrase in production. Without one, the store is authenticated but not confidential — anyone who can read the database file and knows the app name can decrypt it.
 
+=== "Rust"
+
+    ```rust
+    use slim_service::Service;
+    use slim_service::config::ClientConfig;
+    use slim_auth::shared_secret::SharedSecret;
+    use slim_datapath::api::ProtoName;
+    use slim_persistence::PersistenceConfig;
+    use slim_session::Direction;
+
+    #[tokio::main]
+    async fn main() -> anyhow::Result<()> {
+        let service = Service::builder().build("slim/0")?;
+        service.run().await?;
+        let conn_id = service.connect(ClientConfig::with_endpoint("http://127.0.0.1:46357")).await?;
+
+        let name = ProtoName::from_strings(["myorg", "default", "my-service"]);
+        let provider = SharedSecret::new("myorg/default/my-service", "my-shared-secret")?;
+        let verifier = SharedSecret::new("myorg/default/my-service", "my-shared-secret")?;
+
+        let (app, _rx) = service.create_app_with_direction_and_persistence(
+            &name,
+            provider,
+            verifier,
+            Direction::Bidirectional,
+            Some(PersistenceConfig::new("./slim-state")),
+        )?;
+        app.subscribe(&name, Some(conn_id)).await?;
+        println!("App ready with persistence: myorg/default/my-service");
+
+        Ok(())
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -234,40 +268,6 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
     Console.WriteLine($"App ready with persistence: {localName}");
     ```
 
-=== "Rust"
-
-    ```rust
-    use slim_service::Service;
-    use slim_service::config::ClientConfig;
-    use slim_auth::shared_secret::SharedSecret;
-    use slim_datapath::api::ProtoName;
-    use slim_persistence::PersistenceConfig;
-    use slim_session::Direction;
-
-    #[tokio::main]
-    async fn main() -> anyhow::Result<()> {
-        let service = Service::builder().build("slim/0")?;
-        service.run().await?;
-        let conn_id = service.connect(ClientConfig::with_endpoint("http://127.0.0.1:46357")).await?;
-
-        let name = ProtoName::from_strings(["myorg", "default", "my-service"]);
-        let provider = SharedSecret::new("myorg/default/my-service", "my-shared-secret")?;
-        let verifier = SharedSecret::new("myorg/default/my-service", "my-shared-secret")?;
-
-        let (app, _rx) = service.create_app_with_direction_and_persistence(
-            &name,
-            provider,
-            verifier,
-            Direction::Bidirectional,
-            Some(PersistenceConfig::new("./slim-state")),
-        )?;
-        app.subscribe(&name, Some(conn_id)).await?;
-        println!("App ready with persistence: myorg/default/my-service");
-
-        Ok(())
-    }
-    ```
-
 ## Step 2: Use the Session Normally
 
 Create a group session and exchange messages exactly as shown in [Creating a Session](./tutorial-session.md). The session layer silently checkpoints MLS state and membership to the store as the session progresses — no additional calls required.
@@ -275,6 +275,29 @@ Create a group session and exchange messages exactly as shown in [Creating a Ses
 ## Step 3: Restore Sessions After a Restart
 
 On the next startup, create a new app using the **same name, secret, store path, and passphrase**, then call `restore_sessions`. The session layer reads the persisted state, re-establishes routing, and rejoins the MLS group without repeating the full handshake.
+
+=== "Rust"
+
+    ```rust
+    // After restart — same name, secret, and store path as before
+    let (app, _rx) = service.create_app_with_direction_and_persistence(
+        &name,
+        provider,
+        verifier,
+        Direction::Bidirectional,
+        Some(PersistenceConfig::new("./slim-state")),
+    )?;
+    app.subscribe(&name, Some(conn_id)).await?;
+
+    // Restore all previously active sessions
+    let sessions = app.restore_sessions(conn_id).await?;
+    println!("Restored {} session(s)", sessions.len());
+
+    // Each restored session is immediately usable
+    for session in &sessions {
+        session.publish(&channel_name, b"back online".to_vec(), None, None).await?;
+    }
+    ```
 
 === "Python"
 
@@ -404,29 +427,6 @@ On the next startup, create a new app using the **same name, secret, store path,
     foreach (var session in sessions)
     {
         await session.PublishAsync("back online");
-    }
-    ```
-
-=== "Rust"
-
-    ```rust
-    // After restart — same name, secret, and store path as before
-    let (app, _rx) = service.create_app_with_direction_and_persistence(
-        &name,
-        provider,
-        verifier,
-        Direction::Bidirectional,
-        Some(PersistenceConfig::new("./slim-state")),
-    )?;
-    app.subscribe(&name, Some(conn_id)).await?;
-
-    // Restore all previously active sessions
-    let sessions = app.restore_sessions(conn_id).await?;
-    println!("Restored {} session(s)", sessions.len());
-
-    // Each restored session is immediately usable
-    for session in &sessions {
-        session.publish(&channel_name, b"back online".to_vec(), None, None).await?;
     }
     ```
 
