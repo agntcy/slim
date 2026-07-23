@@ -1590,8 +1590,15 @@ where
         };
 
         if participant_entry.status != ParticipantState::Offline as i32 {
-            debug!(from = %participant_name, "rejoin request from online participant, ignoring");
-            return Ok(SessionOutput::new());
+            // A RejoinRequest from an online participant is only sent when the
+            // participant detected an epoch mismatch (heartbeat with a higher
+            // epoch, or a NACK for UpdateParticipantState(Online)). Without MLS
+            // there is no epoch to mismatch, so ignore; with MLS, process it.
+            if self.mls_state.is_none() {
+                debug!(from = %participant_name, "rejoin request from online participant (no MLS), ignoring");
+                return Ok(SessionOutput::new());
+            }
+            debug!(from = %participant_name, "rejoin request from online participant — epoch mismatch implied by key_package, processing");
         }
 
         // 2. Check if there is a current task
@@ -1647,11 +1654,14 @@ where
             .unwrap()
             .welcome_start(reply_msg_id)?;
 
-        // Mark participant as online and restore the datapath route.
-        // remove_endpoint was called when the participant went offline, so we must
-        // re-add it to sender.group_list (heartbeat tracking / ACK expectations)
-        // and inner.endpoints_list (data delivery).
-        if let Some(entry) = self.group_list.get_mut(&name_no_id) {
+        // Only restore the datapath route and mark the participant Online when it
+        // was previously Offline. For an epoch-mismatch rejoin the participant is
+        // already Online and its endpoint/heartbeat tracking is intact — calling
+        // add_endpoint again would reset the missed-heartbeat counter and
+        // potentially trigger a spurious flush of the send buffer.
+        if participant_entry.status == ParticipantState::Offline as i32
+            && let Some(entry) = self.group_list.get_mut(&name_no_id)
+        {
             entry.status = ParticipantState::Online as i32;
             let participant = entry.clone();
             self.add_endpoint(&participant).await?;
@@ -3439,10 +3449,126 @@ mod tests {
         .await;
         assert!(result.is_ok());
 
-        // Should produce no output (ignored — participant is already online)
+        // Without MLS there is no epoch to mismatch, so the request is ignored.
         let output = result.unwrap();
         assert!(output.is_empty());
         assert!(moderator.current_task.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_on_rejoin_request_online_participant_with_mls_processes_rejoin() {
+        // When MLS is enabled an online participant sending a RejoinRequest signals
+        // an epoch mismatch (e.g. crash-restore). The moderator must process the
+        // request instead of silently dropping it.
+        use slim_auth::shared_secret::SharedSecret;
+
+        const SECRET: &str = "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas";
+
+        let source = make_name(&["local", "moderator", "v1"]).with_id(100);
+        let destination = make_name(&["channel", "name", "v1"]).with_id(1);
+        let control = make_name(&["channel", "name", "v1"]).with_id(2);
+
+        let identity_provider = SharedSecret::new("test", SECRET).unwrap();
+        let identity_verifier = SharedSecret::new("test", SECRET).unwrap();
+
+        let (tx_slim, mut rx_slim) = mpsc::channel(16);
+        let (tx_app, _rx_app) = mpsc::unbounded_channel();
+        let (tx_session, _rx_session) = mpsc::channel(16);
+        let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
+
+        let subscription_manager =
+            crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
+
+        let config = SessionConfig {
+            session_type: ProtoSessionType::Multicast,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_settings: Some(MlsSettings {
+                header_integrity_validation_percent: 0,
+                max_seen_control_message_ids_size: None,
+            }),
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        let settings = SessionSettings {
+            id: 1,
+            source,
+            destination: destination.clone(),
+            control,
+            config,
+            direction: Direction::Bidirectional,
+            slim_tx: tx_slim,
+            app_tx: tx_app,
+            tx_session,
+            tx_to_session_layer: tx_session_layer,
+            identity_provider,
+            identity_verifier,
+            graceful_shutdown_timeout: None,
+            subscription_manager: subscription_manager.clone(),
+            service_id: String::new(),
+            max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            kv_store: None,
+            group_storage: None,
+        };
+
+        let inner = MockInnerHandler::new();
+        let mut moderator = SessionModerator::new(inner, settings);
+        moderator.init().await.unwrap();
+
+        moderator
+            .mls_state
+            .as_mut()
+            .unwrap()
+            .init_moderator()
+            .await
+            .unwrap();
+
+        // Add the participant as ONLINE (not offline)
+        let other = make_name(&["other", "participant", "v1"]).with_id(500);
+        let mut other_key = other.clone();
+        other_key.reset_id();
+        moderator.group_list.insert(
+            other_key.clone(),
+            Participant::new(other.clone(), ParticipantSettings::bidirectional()),
+        );
+
+        let msg = Message::builder()
+            .source(other.clone())
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(1)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::RejoinRequest)
+            .session_id(1)
+            .message_id(100)
+            .payload(
+                CommandPayload::builder()
+                    .rejoin_request(other.clone(), vec![1, 2, 3])
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            moderator.process_control_message(msg, MessageDirection::North, None),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+
+        // The participant only sends a RejoinRequest when it has detected an
+        // epoch mismatch, so a key_package being present implies the mismatch.
+        // The moderator must process it (not silently drop it): with a fake key
+        // package the MLS library returns an error, proving the online-guard
+        // was bypassed.
+        assert!(
+            result.is_err(),
+            "expected MLS error from invalid key package, got: {:?}",
+            result
+        );
     }
 
     #[tokio::test]
