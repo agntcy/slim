@@ -83,7 +83,7 @@ struct Args {
 
     /// Group session name (only used for group sessions)
     #[arg(short, long, default_value = "agntcy/slim/test-app-channel")]
-    domain_name: String,
+    group_name: String,
 
     /// List of participant identities (format: organization/namespace/application)
     /// For p2p: exactly 1 participant
@@ -183,7 +183,7 @@ async fn run_sender(args: Args) -> Result<()> {
     // For p2p, destination is the single participant
     // For group, destination is the group name (configurable via --group-name)
     let destination = if session_type == ProtoSessionType::Multicast {
-        ProtoName::parse_name(&args.domain_name).map_err(|e| anyhow!("invalid group name: {e}"))?
+        ProtoName::parse_name(&args.group_name).map_err(|e| anyhow!("invalid group name: {e}"))?
     } else {
         participant_names[0].clone()
     };
