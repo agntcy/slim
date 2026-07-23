@@ -6,7 +6,7 @@ tracing:
 services:
   slim/node-tls:
     node_id: node-tls
-    group_name: deployment-tls
+    domain_name: deployment-tls
     auth:
       type: shared_secret
       secret: "secret-for-deployment-tls-abcdefghi-1234567890"

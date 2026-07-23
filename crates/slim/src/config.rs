@@ -309,8 +309,8 @@ mod tests {
         // Verify the configuration was successfully parsed
         assert!(!config.node_id.is_empty(), "node_id field should be set");
         assert!(
-            config.group_name.is_none() || config.group_name.is_some(),
-            "group_name field exists"
+            config.domain_name.is_none() || config.domain_name.is_some(),
+            "domain_name field exists"
         );
 
         // Verify that services were NOT built (services cache should still be None)
@@ -332,8 +332,8 @@ mod tests {
             "node_id should match"
         );
         assert_eq!(
-            config.group_name, service_config.group_name,
-            "group_name should match"
+            config.domain_name, service_config.domain_name,
+            "domain_name should match"
         );
     }
 

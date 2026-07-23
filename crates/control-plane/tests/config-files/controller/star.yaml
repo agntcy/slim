@@ -1,4 +1,4 @@
-# Star topology: hub group links to all spokes, spokes link only to hub.
+# Star topology: hub domain links to all spokes, spokes link only to hub.
 # SPT handles transit routing automatically — spokes reach each other
 # through the hub without needing explicit routing_policy.
 
@@ -20,5 +20,5 @@ database:
 
 topology:
   links:
-    - group: group-1
+    - domain: domain-1
       neighbors: ["*"]

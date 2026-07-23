@@ -21,23 +21,23 @@ impl super::RouteService {
     pub async fn node_registered(
         &self,
         node_id: &str,
-        group_name: &str,
+        domain_name: &str,
         conn_details_updated: bool,
         dp_connections: Vec<crate::api::proto::controller::proto::v1::ConnectionEntry>,
         dp_routes: Vec<crate::api::proto::controller::proto::v1::Route>,
     ) {
         // Serialize link creation and lifecycle operations across all nodes in the
-        // same group. This prevents: (1) concurrent registrations from creating
-        // duplicate inter-group links, and (2) a rapid disconnect-reconnect race
+        // same domain. This prevents: (1) concurrent registrations from creating
+        // duplicate inter-domain links, and (2) a rapid disconnect-reconnect race
         // from leaving stale link records.
-        let group_lock = {
-            let mut locks = self.0.group_locks.lock().await;
+        let domain_lock = {
+            let mut locks = self.0.domain_locks.lock().await;
             locks
-                .entry(group_name.to_string())
+                .entry(domain_name.to_string())
                 .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
                 .clone()
         };
-        let _group_guard = group_lock.lock().await;
+        let _domain_guard = domain_lock.lock().await;
 
         // Build the set of link IDs the DP still has active.
         let active_link_ids: HashSet<String> = dp_connections
@@ -337,7 +337,7 @@ impl super::RouteService {
 
     /// Called when a node disconnects ungracefully (stream error, crash).
     /// Unlike `node_deregistered`, keeps the node record (expecting reconnection)
-    /// and attempts gateway failover for inter-group links.
+    /// and attempts gateway failover for inter-domain links.
     pub async fn node_disconnected(&self, node_id: &str) {
         // Serialize with node_registered/node_deregistered for the same node.
         let node_lock = {
@@ -421,8 +421,8 @@ impl super::RouteService {
         }
     }
 
-    /// Handle inter-group links for a departing node. If other connected nodes
-    /// exist in the group, reassigns links to a new gateway. Otherwise
+    /// Handle inter-domain links for a departing node. If other connected nodes
+    /// exist in the domain, reassigns links to a new gateway. Otherwise
     /// soft-deletes links and rebuilds the link graph.
     async fn handle_links_for_departing_node(&self, node_id: &str) {
         let links: Vec<crate::db::Link> = self
@@ -445,14 +445,14 @@ impl super::RouteService {
             return;
         }
 
-        // Determine the group from the link records (node may already be deleted).
-        let group = links
+        // Determine the domain from the link records (node may already be deleted).
+        let domain = links
             .iter()
             .map(|l| {
                 if l.source_node_id == node_id {
-                    l.source_group.as_str()
+                    l.source_domain.as_str()
                 } else {
-                    l.dest_group.as_str()
+                    l.dest_domain.as_str()
                 }
             })
             .next()
@@ -463,21 +463,21 @@ impl super::RouteService {
             vec![]
         });
         let other_nodes = self
-            .find_connected_nodes_in_group(group, node_id, &all_nodes)
+            .find_connected_nodes_in_domain(domain, node_id, &all_nodes)
             .await;
 
         if other_nodes.is_empty() {
-            self.handle_last_node_in_group(&links, node_id).await;
+            self.handle_last_node_in_domain(&links, node_id).await;
         } else {
             self.reassign_gateway_links(node_id, &links, &other_nodes, &all_nodes)
                 .await;
         }
     }
 
-    /// Find connected nodes in a group, excluding a specific node.
-    async fn find_connected_nodes_in_group(
+    /// Find connected nodes in a domain, excluding a specific node.
+    async fn find_connected_nodes_in_domain(
         &self,
-        group: &str,
+        domain: &str,
         exclude_node: &str,
         all_nodes: &[crate::db::Node],
     ) -> Vec<String> {
@@ -486,7 +486,7 @@ impl super::RouteService {
             if node.id == exclude_node {
                 continue;
             }
-            if node.group_name.as_deref() == Some(group)
+            if node.domain_name.as_deref() == Some(domain)
                 && self.0.cmd_handler.get_connection_status(&node.id).await == NodeStatus::Connected
             {
                 result.push(node.id.clone());
@@ -495,8 +495,8 @@ impl super::RouteService {
         result
     }
 
-    /// Reassign inter-group links from a departing node to another connected
-    /// node in the same group.
+    /// Reassign inter-domain links from a departing node to another connected
+    /// node in the same domain.
     async fn reassign_gateway_links(
         &self,
         departing_node: &str,
@@ -682,10 +682,10 @@ impl super::RouteService {
             .await;
     }
 
-    /// Last node in group — soft-delete all links, rebuild graph, re-expand routes.
-    async fn handle_last_node_in_group(&self, links: &[crate::db::Link], node_id: &str) {
+    /// Last node in domain — soft-delete all links, rebuild graph, re-expand routes.
+    async fn handle_last_node_in_domain(&self, links: &[crate::db::Link], node_id: &str) {
         tracing::info!(
-            "handle_last_node_in_group: soft-deleting {} links",
+            "handle_last_node_in_domain: soft-deleting {} links",
             links.len()
         );
 
@@ -695,7 +695,7 @@ impl super::RouteService {
                 // "delete connection" command, so hard-delete the record now.
                 if let Err(e) = self.0.db.delete_link(link).await {
                     tracing::warn!(
-                        "handle_last_node_in_group: failed to delete link {}: {e}",
+                        "handle_last_node_in_domain: failed to delete link {}: {e}",
                         link.link_id
                     );
                 }
@@ -707,7 +707,7 @@ impl super::RouteService {
                 updated.last_updated = SystemTime::now();
                 if let Err(e) = self.0.db.update_link(updated).await {
                     tracing::warn!(
-                        "handle_last_node_in_group: failed to mark link {} deleted: {e}",
+                        "handle_last_node_in_domain: failed to mark link {} deleted: {e}",
                         link.link_id
                     );
                 }
@@ -719,8 +719,8 @@ impl super::RouteService {
             tracing::error!("failed to list remaining nodes: {e}");
             vec![]
         });
-        let groups_changed = self.rebuild_link_graph(&remaining_nodes).await;
-        if groups_changed {
+        let domains_changed = self.rebuild_link_graph(&remaining_nodes).await;
+        if domains_changed {
             let all_links = self.0.db.list_all_links().await.unwrap_or_else(|e| {
                 tracing::error!("failed to list links for route expansion: {e}");
                 vec![]

@@ -14,10 +14,10 @@ use super::connection_config::{
     ReportedConnection, compute_client_config, find_reported_connection_for_dest,
 };
 impl super::RouteService {
-    /// Ensure inter-group links exist between `node_id` and nodes in other
-    /// groups allowed by the topology link policy. Same-group connectivity
+    /// Ensure inter-domain links exist between `node_id` and nodes in other
+    /// domains allowed by the topology link policy. Same-domain connectivity
     /// is handled by the data plane.
-    /// `allowed_pairs` is a pre-computed set of (group_a, group_b) pairs that
+    /// `allowed_pairs` is a pre-computed set of (domain_a, domain_b) pairs that
     /// are allowed to link (derived from the runtime segment graphs).
     /// Returns (affected_node_ids, newly_created_links).
     pub(super) async fn ensure_links_for_node(
@@ -51,20 +51,20 @@ impl super::RouteService {
             })
             .collect();
 
-        // Track which destination groups already have an active inter-group link
-        // from or to the source group (across ALL nodes in the group, not just this one).
-        let src_group = src_node.group_name.as_deref().unwrap_or("");
-        let mut linked_groups: HashSet<String> = all_links
+        // Track which destination domains already have an active inter-domain link
+        // from or to the source domain (across ALL nodes in the domain, not just this one).
+        let src_domain = src_node.domain_name.as_deref().unwrap_or("");
+        let mut linked_domains: HashSet<String> = all_links
             .iter()
             .filter(|l| l.status != LinkStatus::Deleted)
             .filter_map(|l| {
-                let dg = l.dest_group.as_str();
-                let src_grp = l.source_group.as_str();
-                // Outgoing link from any node in src_group to another group.
-                if src_grp == src_group && !dg.is_empty() && dg != src_group {
+                let dg = l.dest_domain.as_str();
+                let src_grp = l.source_domain.as_str();
+                // Outgoing link from any node in src_domain to another domain.
+                if src_grp == src_domain && !dg.is_empty() && dg != src_domain {
                     Some(dg.to_string())
-                } else if dg == src_group && !src_grp.is_empty() && src_grp != src_group {
-                    // Incoming link targeting src_group from another group.
+                } else if dg == src_domain && !src_grp.is_empty() && src_grp != src_domain {
+                    // Incoming link targeting src_domain from another domain.
                     Some(src_grp.to_string())
                 } else {
                     None
@@ -79,7 +79,7 @@ impl super::RouteService {
                 .unwrap_or(false)
         });
 
-        // Shuffle nodes to randomly distribute the gateway role across group members.
+        // Shuffle nodes to randomly distribute the gateway role across domain members.
         let mut candidates: Vec<_> = all_nodes.to_vec();
         candidates.shuffle(&mut rand::rng());
 
@@ -90,19 +90,19 @@ impl super::RouteService {
             if connected_peers.contains(&other.id) {
                 continue;
             }
-            // Same-group links are handled by the data plane automatically.
-            let dst_group = other.group_name.as_deref().unwrap_or("");
-            if src_group == dst_group {
+            // Same-domain links are handled by the data plane automatically.
+            let dst_domain = other.domain_name.as_deref().unwrap_or("");
+            if src_domain == dst_domain {
                 continue;
             }
-            // Only one link per group pair.
-            if linked_groups.contains(dst_group) {
+            // Only one link per domain pair.
+            if linked_domains.contains(dst_domain) {
                 continue;
             }
-            // Topology policy: skip link creation if the groups are not allowed to link.
-            if !allowed_pairs.contains(&(src_group.to_string(), dst_group.to_string())) {
+            // Topology policy: skip link creation if the domains are not allowed to link.
+            if !allowed_pairs.contains(&(src_domain.to_string(), dst_domain.to_string())) {
                 tracing::debug!(
-                    "topology policy: skipping link between {node_id} ({src_group}) and {} ({dst_group})",
+                    "topology policy: skipping link between {node_id} ({src_domain}) and {} ({dst_domain})",
                     other.id
                 );
                 continue;
@@ -120,7 +120,7 @@ impl super::RouteService {
                 {
                     affected.insert(src);
                     new_links.extend(link);
-                    linked_groups.insert(dst_group.to_string());
+                    linked_domains.insert(dst_domain.to_string());
                 }
                 continue;
             }
@@ -131,7 +131,7 @@ impl super::RouteService {
                 {
                     affected.insert(src);
                     new_links.extend(link);
-                    linked_groups.insert(dst_group.to_string());
+                    linked_domains.insert(dst_domain.to_string());
                 }
                 continue;
             }
@@ -143,10 +143,10 @@ impl super::RouteService {
         (affected.into_iter().collect(), new_links)
     }
 
-    /// Ensure an inter-group link exists between src_node and a node in the
-    /// destination group. The `dest_node_id` is left empty because the actual
+    /// Ensure an inter-domain link exists between src_node and a node in the
+    /// destination domain. The `dest_node_id` is left empty because the actual
     /// destination node is unknown until the remote side claims the link.
-    /// `dst_node` is used only to derive the dest_group and endpoint.
+    /// `dst_node` is used only to derive the dest_domain and endpoint.
     async fn ensure_link_internal(
         &self,
         src_node: &crate::db::Node,
@@ -154,7 +154,7 @@ impl super::RouteService {
         reported: &[ReportedConnection],
         reuse_existing_link_id: bool,
     ) -> Option<(String, Option<crate::db::Link>)> {
-        let dest_group = dst_node.group_name.clone().unwrap_or_default();
+        let dest_domain = dst_node.domain_name.clone().unwrap_or_default();
 
         let (endpoint, config_data, link_id, status) =
             if let Some(rc) = find_reported_connection_for_dest(reported, dst_node) {
@@ -186,7 +186,7 @@ impl super::RouteService {
                         .await
                         .ok()
                         .flatten()
-                        .filter(|l| l.dest_group == dest_group)
+                        .filter(|l| l.dest_domain == dest_domain)
                         .map(|l| l.link_id)
                         .unwrap_or_else(|| Uuid::new_v4().to_string())
                 } else {
@@ -198,10 +198,10 @@ impl super::RouteService {
         let link = crate::db::Link {
             link_id,
             source_node_id: src_node.id.clone(),
-            source_group: src_node.group_name.clone().unwrap_or_default(),
+            source_domain: src_node.domain_name.clone().unwrap_or_default(),
             // dest_node_id is left empty — resolved when the remote node claims the link.
             dest_node_id: String::new(),
-            dest_group,
+            dest_domain,
             dest_endpoint: endpoint,
             conn_config_data: config_data,
             status,
@@ -220,9 +220,9 @@ impl super::RouteService {
             }
             Err(e) => {
                 tracing::error!(
-                    "ensure_link: failed to ensure link {}->dest_group({}):  {e}",
+                    "ensure_link: failed to ensure link {}->dest_domain({}):  {e}",
                     src_node.id,
-                    dst_node.group_name.as_deref().unwrap_or("")
+                    dst_node.domain_name.as_deref().unwrap_or("")
                 );
                 None
             }
@@ -232,9 +232,9 @@ impl super::RouteService {
     pub(super) async fn find_matching_link(
         &self,
         source: &str,
-        source_group: &str,
+        source_domain: &str,
         dest: &str,
-        dest_group: &str,
+        dest_domain: &str,
     ) -> Result<String> {
         // First try exact node-to-node match (legacy / direct links).
         if let Some(l) = self.0.db.find_link_between_nodes(source, dest).await?
@@ -243,12 +243,12 @@ impl super::RouteService {
             return Ok(l.link_id);
         }
 
-        // For inter-group links: find a link between the groups of source and dest.
-        if source_group != dest_group
+        // For inter-domain links: find a link between the domains of source and dest.
+        if source_domain != dest_domain
             && let Some(link) = self
                 .0
                 .db
-                .find_link_between_groups(source_group, dest_group)
+                .find_link_between_domains(source_domain, dest_domain)
                 .await?
         {
             return Ok(link.link_id);
@@ -298,17 +298,17 @@ mod tests {
             .ensure_links_for_node("spoke-a", &[], &all_nodes, &[], &[], &allowed_pairs)
             .await;
 
-        // spoke-a should link to hub's group (platform) but NOT to spoke-b's group
+        // spoke-a should link to hub's domain (platform) but NOT to spoke-b's domain
         assert!(affected.contains(&"spoke-a".to_string()));
         assert!(
             new_links
                 .iter()
-                .any(|l| l.dest_group == "platform" || l.source_node_id == "hub-node")
+                .any(|l| l.dest_domain == "platform" || l.source_node_id == "hub-node")
         );
         assert!(
             !new_links
                 .iter()
-                .any(|l| l.dest_group == "customer-b" || l.source_node_id == "spoke-b")
+                .any(|l| l.dest_domain == "customer-b" || l.source_node_id == "spoke-b")
         );
     }
 
@@ -317,17 +317,17 @@ mod tests {
         let db = InMemoryDb::shared();
         let node_a = make_node(
             "node-a",
-            Some("group-a"),
+            Some("domain-a"),
             vec![make_conn_details("a:8080", Some("a-ext:9090"))],
         );
         let node_b = make_node(
             "node-b",
-            Some("group-b"),
+            Some("domain-b"),
             vec![make_conn_details("b:8080", Some("b-ext:9090"))],
         );
         let node_c = make_node(
             "node-c",
-            Some("group-c"),
+            Some("domain-c"),
             vec![make_conn_details("c:8080", Some("c-ext:9090"))],
         );
         db.save_node(node_a.clone()).await.unwrap();
@@ -376,14 +376,14 @@ mod tests {
             SegmentConfig {
                 name: "seg-a".to_string(),
                 links: vec![AdjacencyEntry {
-                    group: "platform".to_string(),
+                    domain: "platform".to_string(),
                     neighbors: vec!["customer-a".to_string()],
                 }],
             },
             SegmentConfig {
                 name: "seg-b".to_string(),
                 links: vec![AdjacencyEntry {
-                    group: "platform".to_string(),
+                    domain: "platform".to_string(),
                     neighbors: vec!["customer-b".to_string()],
                 }],
             },
@@ -415,13 +415,13 @@ mod tests {
         assert!(
             spoke_a_links
                 .iter()
-                .all(|l| l.dest_group == "platform" || l.source_node_id == "hub-node"),
-            "spoke-a link should be to platform group"
+                .all(|l| l.dest_domain == "platform" || l.source_node_id == "hub-node"),
+            "spoke-a link should be to platform domain"
         );
         assert!(
             !spoke_a_links
                 .iter()
-                .any(|l| l.dest_group == "customer-b" || l.source_node_id == "spoke-b"),
+                .any(|l| l.dest_domain == "customer-b" || l.source_node_id == "spoke-b"),
             "spoke-a should NOT link to customer-b"
         );
     }
