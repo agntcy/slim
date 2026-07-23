@@ -23,6 +23,30 @@ use slim_mls::{
     errors::MlsError,
     mls::{CommitMsg, KeyPackageMsg, Mls, MlsIdentity, ProposalMsg, WelcomeMsg},
 };
+use slim_persistence::SlimGroupStateStorage;
+
+/// Build an [`Mls`] instance for a session over the given group-state store.
+///
+/// When `group_storage` is `Some` (persistence enabled) the MLS group is backed
+/// by that shared, encrypted store so it survives a restart and can be restored
+/// without repeating the invite/welcome handshake. When `None`, the group lives
+/// in memory only. The returned `Mls` is not yet initialized — the caller passes
+/// it to [`MlsState::new`], which runs `initialize`.
+pub(crate) fn build_mls<P, V>(
+    identity_provider: P,
+    identity_verifier: V,
+    group_storage: Option<SlimGroupStateStorage>,
+) -> Mls<P, V>
+where
+    P: TokenProvider + Send + Sync + Clone + 'static,
+    V: Verifier + Send + Sync + Clone + 'static,
+{
+    let mut mls = Mls::new(identity_provider, identity_verifier);
+    if let Some(storage) = group_storage {
+        mls = mls.with_group_state_storage(storage);
+    }
+    mls
+}
 
 #[derive(Debug)]
 pub struct MlsState<P, V>
@@ -63,6 +87,26 @@ where
             mls,
             group: vec![],
             last_mls_msg_id: 0,
+            stored_commits_proposals: BTreeMap::new(),
+            header_integrity_validation_percent,
+        })
+    }
+
+    /// Rebuild an `MlsState` from a persisted MLS group, restoring the group
+    /// (including its signer/epoch secrets) via `Mls::load` and the
+    /// last-applied control-message id. Skips the invite/welcome handshake.
+    pub(crate) async fn restore(
+        mut mls: Mls<P, V>,
+        group_id: &[u8],
+        last_mls_msg_id: u32,
+        header_integrity_validation_percent: u32,
+    ) -> Result<Self, SessionError> {
+        mls.load(group_id).await?;
+
+        Ok(MlsState {
+            mls,
+            group: group_id.to_vec(),
+            last_mls_msg_id,
             stored_commits_proposals: BTreeMap::new(),
             header_integrity_validation_percent,
         })
@@ -438,6 +482,20 @@ where
             common: mls,
             participants: HashMap::new(),
             next_msg_id: 0,
+        }
+    }
+
+    /// Rebuild a moderator MLS state from a restored `MlsState` plus the
+    /// persisted participant→identity map and commit counter.
+    pub(crate) fn restore(
+        mls: MlsState<P, V>,
+        participants: HashMap<ProtoName, MlsIdentity>,
+        next_msg_id: u32,
+    ) -> Self {
+        MlsModeratorState {
+            common: mls,
+            participants,
+            next_msg_id,
         }
     }
 

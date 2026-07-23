@@ -99,6 +99,26 @@ pub trait Signer {
     fn sign_standard_claims(&self) -> Result<String, AuthError>;
 }
 
+/// A provider's persistable identity, captured so an app can be restored
+/// verbatim across a restart.
+///
+/// Providers that support full-identity persistence return this from
+/// [`TokenProvider::export_identity`] and accept it in
+/// [`TokenProvider::with_restored_identity`]. `credential` is opaque,
+/// provider-specific material (for `SharedSecret`, the shared secret bytes) and
+/// is sensitive — persist it only in an encrypted store.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ExportedIdentity {
+    /// Stable identity string (e.g. `SharedSecret`'s `<base_id>_<suffix>`).
+    pub id: String,
+    /// Provider credential material (e.g. the shared secret). Sensitive.
+    pub credential: Vec<u8>,
+    /// MLS signature secret key bytes.
+    pub signature_secret_key: Vec<u8>,
+    /// MLS signature public key bytes.
+    pub signature_public_key: Vec<u8>,
+}
+
 /// Trait for providing JWT claims
 #[trait_variant::make(Send)]
 pub trait TokenProvider {
@@ -156,6 +176,27 @@ pub trait TokenProvider {
         private_key: Vec<u8>,
         public_key: Vec<u8>,
     ) -> Result<(), AuthError>;
+
+    /// Export the provider's persistable identity (stable id, credential, MLS
+    /// keypair), or `None` if this provider does not support full-identity
+    /// persistence. Used to save an app's identity so it can be restored
+    /// verbatim after a restart.
+    fn export_identity(&self) -> Option<ExportedIdentity> {
+        None
+    }
+
+    /// Rebuild this provider from a previously [`export_identity`]-ed identity,
+    /// so it presents the same id and MLS keys as before a restart. The default
+    /// returns `self` unchanged (providers without persistable identity). MLS
+    /// keys installed this way count as installed
+    /// ([`mls_signature_keys_installed`] becomes true).
+    fn with_restored_identity(self, identity: ExportedIdentity) -> Result<Self, AuthError>
+    where
+        Self: Sized,
+    {
+        let _ = identity;
+        Ok(self)
+    }
 }
 
 #[cfg(test)]

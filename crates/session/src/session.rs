@@ -76,6 +76,19 @@ impl Session {
         }
     }
 
+    /// Attach outbound-sequence persistence to this session's sender, so a
+    /// restored session resumes its data-message sequence instead of restarting
+    /// at 0. No-op for receive-only sessions (no sender).
+    pub(crate) fn attach_seq_persistence(
+        &mut self,
+        kv: slim_persistence::SlimKvStore,
+        key: String,
+    ) {
+        if let Some(sender) = self.sender.as_mut() {
+            sender.attach_seq_persistence(kv, key);
+        }
+    }
+
     pub fn on_message(&mut self, message: SessionMessage) -> Result<SessionOutput, SessionError> {
         match message {
             SessionMessage::OnMessage {

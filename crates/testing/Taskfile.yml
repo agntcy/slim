@@ -83,6 +83,33 @@ tasks:
           ARGS: ""
           BIN_ARGS: "--config $CONFIG_CLIENT --name org/ns/t2/1 --moderator-name org/ns/moderator/1 --mls-disabled"
 
+  channel-example:moderator:persist:
+    desc: "start moderator with persistence (kill & relaunch to test restore)"
+    cmds:
+      - task: testing:run
+        vars:
+          BIN: "channel"
+          ARGS: ""
+          BIN_ARGS: "--config $CONFIG_CLIENT --name org/ns/moderator/1 --is-moderator --participants org/ns/t1 org/ns/t2 --persistence-dir /tmp/slim-persist/moderator"
+
+  channel-example:participant-1:persist:
+    desc: "start participant-1 with persistence (kill & relaunch to test restore)"
+    cmds:
+      - task: testing:run
+        vars:
+          BIN: "channel"
+          ARGS: ""
+          BIN_ARGS: "--config $CONFIG_CLIENT --name org/ns/t1/1 --moderator-name org/ns/moderator/1 --persistence-dir /tmp/slim-persist/t1"
+
+  channel-example:participant-2:persist:
+    desc: "start participant-2 with persistence (kill & relaunch to test restore)"
+    cmds:
+      - task: testing:run
+        vars:
+          BIN: "channel"
+          ARGS: ""
+          BIN_ARGS: "--config $CONFIG_CLIENT --name org/ns/t2/1 --moderator-name org/ns/moderator/1 --persistence-dir /tmp/slim-persist/t2"
+
   test:group-session:
     desc: "start MLS dynamic group test"
     cmds:
