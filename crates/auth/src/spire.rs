@@ -77,7 +77,7 @@ use tracing::{Instrument, debug, info, warn};
 use crate::errors::AuthError;
 use crate::identity_claims::IdentityClaims;
 use crate::metadata::MetadataMap;
-use crate::traits::{TokenProvider, Verifier};
+use crate::traits::{ExportedIdentity, TokenProvider, Verifier};
 use crate::utils::bytes_to_pem;
 
 /// Helper for encoding/decoding custom claims in JWT audiences
@@ -685,6 +685,30 @@ impl TokenProvider for SpireIdentityManager {
 
         Ok(())
     }
+
+    fn export_identity(&self) -> Option<ExportedIdentity> {
+        // The SPIRE credential (SVID) is externally managed and re-fetched from
+        // the agent, so it is not persisted; only the MLS keypair is (always
+        // present, since keys are generated at construction).
+        Some(ExportedIdentity {
+            // Informational only — the id is re-derived from the fresh SVID on
+            // restore, not adopted from the snapshot.
+            id: self.get_id().unwrap_or_default(),
+            credential: Vec::new(),
+            signature_secret_key: self.signature_keys.0.clone(),
+            signature_public_key: self.signature_keys.1.clone(),
+        })
+    }
+
+    fn with_restored_identity(mut self, identity: ExportedIdentity) -> Result<Self, AuthError> {
+        // Reinstall the persisted MLS keypair so the restored MLS group's signer
+        // matches; the SPIRE identity itself is re-fetched from the agent, not
+        // restored. Installing the keys here (before `initialize`) makes the SVID
+        // audience embed the restored pubkey, since `initialize` derives the
+        // audience from `signature_keys`.
+        self.signature_keys = (identity.signature_secret_key, identity.signature_public_key);
+        Ok(self)
+    }
 }
 
 // Decode JWT expiry (seconds since epoch) without verifying signature and audience.
@@ -1111,5 +1135,38 @@ mod tests {
             "backoff should be close to 90% of remaining lifetime, got {:?}",
             next_backoff
         );
+    }
+
+    #[tokio::test]
+    async fn test_spire_exports_and_restores_mls_keys() {
+        use super::SpireIdentityManager;
+        use crate::traits::TokenProvider;
+
+        let mut original = SpireIdentityManager::builder().build().unwrap();
+
+        // Override the construction-time keypair with a known one.
+        let sk = vec![3u8; 32];
+        let pk = vec![5u8; 32];
+        original
+            .set_signature_keys(sk.clone(), pk.clone())
+            .await
+            .unwrap();
+
+        let exported = original
+            .export_identity()
+            .expect("SPIRE exports its MLS keypair");
+        // The SVID credential is externally managed, not persisted.
+        assert!(exported.credential.is_empty());
+        assert_eq!(exported.signature_secret_key, sk);
+        assert_eq!(exported.signature_public_key, pk);
+
+        // Restore into a fresh manager (with its own construction-time keys) and
+        // confirm it adopts the persisted keypair.
+        let fresh = SpireIdentityManager::builder().build().unwrap();
+        let restored = fresh.with_restored_identity(exported).unwrap();
+        assert!(restored.mls_signature_keys_installed());
+        let (rsk, rpk) = restored.get_signature_keys().unwrap();
+        assert_eq!(rsk, sk);
+        assert_eq!(rpk, pk);
     }
 }

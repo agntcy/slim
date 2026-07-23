@@ -70,7 +70,7 @@ use serde::{Deserialize, Serialize};
 use crate::errors::AuthError;
 use crate::jwt::{SignerJwt, StaticTokenProvider, VerifierJwt};
 use crate::shared_secret::SharedSecret;
-use crate::traits::{TokenProvider, Verifier};
+use crate::traits::{ExportedIdentity, TokenProvider, Verifier};
 
 /// Unified enum for all authentication token providers
 ///
@@ -274,6 +274,43 @@ impl TokenProvider for AuthProvider {
             #[cfg(not(target_family = "windows"))]
             AuthProvider::Spire(spire) => spire.set_signature_keys(private_key, public_key).await,
         }
+    }
+
+    fn export_identity(&self) -> Option<ExportedIdentity> {
+        // Delegate to the inner provider. `SharedSecret` exports its full
+        // identity; `JwtSigner` and `Spire` export just their MLS keypair (the
+        // JWT signing key / SVID credential is re-established from app config or
+        // re-fetched from the agent). `StaticToken` (no MLS keys) falls back to
+        // the `None` default.
+        match self {
+            AuthProvider::JwtSigner(signer) => signer.export_identity(),
+            AuthProvider::StaticToken(provider) => provider.export_identity(),
+            AuthProvider::SharedSecret(secret) => secret.export_identity(),
+            #[cfg(not(target_family = "windows"))]
+            AuthProvider::Spire(spire) => spire.export_identity(),
+        }
+    }
+
+    fn with_restored_identity(self, identity: ExportedIdentity) -> Result<Self, AuthError> {
+        // Restore into the inner provider and re-wrap in the same variant, so an
+        // `AuthProvider`-wrapped provider (e.g. `SharedSecret`) is restored
+        // verbatim. Providers without a persistable identity use the trait
+        // default (unchanged), matching `export_identity` returning `None`.
+        Ok(match self {
+            AuthProvider::JwtSigner(signer) => {
+                AuthProvider::JwtSigner(signer.with_restored_identity(identity)?)
+            }
+            AuthProvider::StaticToken(provider) => {
+                AuthProvider::StaticToken(provider.with_restored_identity(identity)?)
+            }
+            AuthProvider::SharedSecret(secret) => {
+                AuthProvider::SharedSecret(secret.with_restored_identity(identity)?)
+            }
+            #[cfg(not(target_family = "windows"))]
+            AuthProvider::Spire(spire) => {
+                AuthProvider::Spire(spire.with_restored_identity(identity)?)
+            }
+        })
     }
 }
 
@@ -687,5 +724,73 @@ mod tests {
         let verifier = AuthVerifier::shared_secret_from_str("test-id", TEST_SECRET).unwrap();
         let token = provider.get_token().unwrap();
         let _claims: serde_json::Value = verifier.get_claims(&token).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_auth_provider_export_restore_delegates_to_inner() {
+        // A SharedSecret-backed AuthProvider exports and restores its identity
+        // verbatim through the enum.
+        let mut original = AuthProvider::shared_secret_from_str("app", TEST_SECRET).unwrap();
+        original
+            .set_signature_keys(vec![7u8; 32], vec![9u8; 32])
+            .await
+            .unwrap();
+
+        let exported = original
+            .export_identity()
+            .expect("SharedSecret-backed AuthProvider exports its identity");
+        assert_eq!(exported.id, original.get_id().unwrap());
+
+        // A fresh provider has a different random id...
+        let fresh = AuthProvider::shared_secret_from_str("app", TEST_SECRET).unwrap();
+        assert_ne!(fresh.get_id().unwrap(), original.get_id().unwrap());
+
+        // ...but restored from the export it adopts the original identity + keys
+        // and stays the same variant.
+        let restored = fresh.with_restored_identity(exported).unwrap();
+        assert!(matches!(restored, AuthProvider::SharedSecret(_)));
+        assert_eq!(restored.get_id().unwrap(), original.get_id().unwrap());
+        let (rsk, rpk) = restored.get_signature_keys().unwrap();
+        assert_eq!(rsk, vec![7u8; 32]);
+        assert_eq!(rpk, vec![9u8; 32]);
+    }
+
+    #[tokio::test]
+    async fn test_auth_provider_jwt_signer_exports_mls_keys() {
+        let signer = JwtBuilder::new()
+            .issuer("iss")
+            .audience(&["aud"])
+            .subject("sub")
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Data("secret-key".into()),
+            })
+            .build()
+            .unwrap();
+        let mut provider = AuthProvider::jwt_signer(signer);
+
+        // Override the construction-time keypair with a known one.
+        let sk = vec![1u8; 32];
+        let pk = vec![2u8; 32];
+        provider
+            .set_signature_keys(sk.clone(), pk.clone())
+            .await
+            .unwrap();
+
+        // Only the MLS keypair is exported; the JWT signing key is not persisted
+        // (it comes from app config).
+        let exported = provider
+            .export_identity()
+            .expect("JwtSigner exports its MLS keypair");
+        assert!(exported.credential.is_empty());
+        assert_eq!(exported.signature_secret_key, sk);
+        assert_eq!(exported.signature_public_key, pk);
+
+        let restored = provider.clone().with_restored_identity(exported).unwrap();
+        assert!(matches!(restored, AuthProvider::JwtSigner(_)));
+        let (rsk, rpk) = restored.get_signature_keys().unwrap();
+        assert_eq!(rsk, sk);
+        assert_eq!(rpk, pk);
     }
 }

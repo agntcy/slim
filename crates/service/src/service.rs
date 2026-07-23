@@ -546,7 +546,43 @@ impl Service {
         P: TokenProvider + Send + Sync + Clone + 'static,
         V: Verifier + Send + Sync + Clone + 'static,
     {
-        debug!(%app_name, "creating app");
+        // Persistence is opt-in; use `create_app_with_direction_and_persistence`
+        // to enable it.
+        self.create_app_with_direction_and_persistence(
+            app_name,
+            identity_provider,
+            identity_verifier,
+            direction,
+            None,
+        )
+    }
+
+    /// Create an app with an explicit persistence configuration.
+    ///
+    /// `persistence` enables restorable MLS/session state (encrypted at rest);
+    /// `None` disables it. Persistence must be enabled explicitly here — there
+    /// is no implicit/environment activation.
+    #[cfg(feature = "session")]
+    #[tracing::instrument(skip_all, fields(service_id = %self.id))]
+    pub fn create_app_with_direction_and_persistence<P, V>(
+        &self,
+        app_name: &ProtoName,
+        identity_provider: P,
+        identity_verifier: V,
+        direction: Direction,
+        persistence: Option<slim_persistence::PersistenceConfig>,
+    ) -> Result<
+        (
+            App<P, V>,
+            mpsc::Receiver<Result<Notification, SessionError>>,
+        ),
+        ServiceError,
+    >
+    where
+        P: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
+        debug!(%app_name, persistence = persistence.is_some(), "creating app");
 
         // Create storage path for the app
         let mut hasher = DefaultHasher::new();
@@ -563,7 +599,7 @@ impl Service {
         let (tx_app, rx_app) = mpsc::channel(128);
 
         // create app
-        let app = App::new_with_direction(
+        let app = App::new_with_direction_and_persistence(
             app_name,
             identity_provider,
             identity_verifier,
@@ -572,6 +608,7 @@ impl Service {
             tx_app,
             direction,
             self.id.to_string(),
+            persistence,
         );
 
         // start message processing using the rx channel

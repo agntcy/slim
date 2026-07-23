@@ -85,4 +85,12 @@ where
 
     /// Seen control messages cache max size (for replay attack prevention)
     pub(crate) max_seen_control_message_ids_size: NonZeroUsize,
+
+    /// Encrypted store for persisting this session's record (for restore on
+    /// restart). `None` when session persistence is disabled.
+    pub(crate) kv_store: Option<slim_persistence::SlimKvStore>,
+
+    /// Shared MLS group-state store (same encrypted DB as `kv_store`). `None`
+    /// when persistence is disabled, in which case MLS state is in-memory.
+    pub(crate) group_storage: Option<slim_persistence::SlimGroupStateStorage>,
 }

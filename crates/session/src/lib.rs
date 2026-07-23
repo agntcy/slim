@@ -10,6 +10,7 @@ pub mod errors;
 pub mod mls_state;
 mod moderator_task;
 pub mod notification;
+mod persistence;
 pub mod producer_buffer;
 pub mod receiver_buffer;
 pub mod session;

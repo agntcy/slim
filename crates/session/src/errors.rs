@@ -84,6 +84,16 @@ pub enum SessionError {
     #[error("mls operation error")]
     MlsOp(#[from] MlsError),
 
+    // Persistence / restore
+    #[error("persistence store error")]
+    Persistence(#[from] slim_persistence::PersistenceError),
+    #[error("failed to (de)serialize session persistence record")]
+    PersistenceSerde(#[from] serde_json::Error),
+    #[error("failed to decode persisted field: {0}")]
+    PersistenceDecode(String),
+    #[error("persisted session schema mismatch: expected {expected}, got {got}")]
+    PersistenceSchemaMismatch { expected: u32, got: u32 },
+
     // Authorization and roles
     #[error("auth error: {0}")]
     Auth(#[from] AuthError),

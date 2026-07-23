@@ -71,6 +71,12 @@ pub struct Args {
     /// Maximum number of packets to send. used only by the moderator
     #[arg(short = 'm', long, value_name = "MAX_PACKETS", required = false)]
     max_packets: Option<u64>,
+
+    /// Directory for encrypted, restorable session state. When set, the endpoint
+    /// persists its MLS/session state here and restores it on restart (so it can
+    /// be killed and relaunched without repeating the invite/welcome handshake).
+    #[arg(long, value_name = "PERSISTENCE_DIR", required = false)]
+    persistence_dir: Option<String>,
 }
 
 impl Args {
@@ -105,6 +111,10 @@ impl Args {
     pub fn max_packets(&self) -> &Option<u64> {
         &self.max_packets
     }
+
+    pub fn persistence_dir(&self) -> &Option<String> {
+        &self.persistence_dir
+    }
 }
 
 fn parse_string_name(name: String) -> Name {
@@ -131,6 +141,65 @@ fn parse_string_type(name: String) -> Name {
     ])
 }
 
+/// Spawn the participant-side receiver on a session: log received messages and
+/// reply to the moderator. Shared by freshly-joined sessions and sessions
+/// restored from persistence.
+fn spawn_participant_receiver(
+    session_ctx: slim_session::context::SessionContext,
+    moderator: Name,
+    channel_name: Name,
+    msg_payload_str: String,
+) {
+    session_ctx.spawn_receiver(move |mut rx, weak| async move {
+        loop {
+            match rx.recv().await {
+                None => {
+                    println!("Session receiver: end of stream");
+                    break;
+                }
+                Some(Ok(msg)) => {
+                    let publisher = msg.get_slim_header().get_source();
+                    let msg_id = msg.get_id();
+                    let payload = if let Some(slim_datapath::api::ProtoPublishType(publish)) =
+                        msg.message_type.as_ref()
+                    {
+                        let blob = &publish.get_payload().as_application_payload().unwrap().blob;
+                        match String::from_utf8(blob.to_vec()) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                error!("error while parsing the message {}", e.to_string());
+                                String::new()
+                            }
+                        }
+                    } else {
+                        String::new()
+                    };
+                    info!(%payload, "received message");
+                    if publisher == moderator {
+                        info!(%msg_id, "reply to moderator");
+                        let mut pstr = msg_payload_str.clone();
+                        pstr.push_str(&msg_id.to_string());
+                        let p = pstr.as_bytes().to_vec();
+                        let flags = SlimHeaderFlags::new(10, None, None, None, None);
+                        if let Some(session_arc) = weak.upgrade()
+                            && session_arc
+                                .publish_with_flags(&channel_name, flags, p, None, None)
+                                .await
+                                .is_err()
+                        {
+                            panic!("an error occurred sending publication from moderator");
+                        }
+                    }
+                }
+                Some(Err(e)) => {
+                    println!("Session receiver: error {:?}", e);
+                    break;
+                }
+            }
+        }
+    });
+}
+
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
@@ -143,6 +212,7 @@ async fn main() {
     let moderator_name = args.moderator_name().clone();
     let max_packets = args.max_packets;
     let participants_str = args.participants().clone();
+    let persistence_dir = args.persistence_dir().clone();
     let mut participants = vec![];
 
     let msg_payload_str = if is_moderator {
@@ -170,15 +240,29 @@ async fn main() {
 
     let channel_name = Name::from_strings(["channel", "channel", "channel"]);
 
-    let (app, mut rx) = svc
-        .create_app(
-            &local_name,
-            SharedSecret::new(&local_name_str, slim_testing::utils::TEST_VALID_SECRET)
-                .expect("Failed to create SharedSecret"),
-            SharedSecret::new(&local_name_str, slim_testing::utils::TEST_VALID_SECRET)
-                .expect("Failed to create SharedSecret"),
-        )
-        .expect("failed to create app");
+    let provider = SharedSecret::new(&local_name_str, slim_testing::utils::TEST_VALID_SECRET)
+        .expect("Failed to create SharedSecret");
+    let verifier = SharedSecret::new(&local_name_str, slim_testing::utils::TEST_VALID_SECRET)
+        .expect("Failed to create SharedSecret");
+
+    // Enable persistence when --persistence-dir is set, so the app's MLS/session
+    // state survives a restart and can be restored below.
+    let (app, mut rx) = match &persistence_dir {
+        Some(dir) => {
+            info!(dir, "persistence enabled");
+            svc.create_app_with_direction_and_persistence(
+                &local_name,
+                provider,
+                verifier,
+                slim_session::Direction::Bidirectional,
+                Some(slim_persistence::PersistenceConfig::new(dir)),
+            )
+            .expect("failed to create app")
+        }
+        None => svc
+            .create_app(&local_name, provider, verifier)
+            .expect("failed to create app"),
+    };
 
     // run the service - this will create all the connections provided via the config file.
     svc.run().await.unwrap();
@@ -214,37 +298,56 @@ async fn main() {
     // wait for the connection to be established
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    if is_moderator {
-        // create session
-        let config = SessionConfig {
-            session_type: slim_datapath::api::ProtoSessionType::Multicast,
-            max_retries: Some(10),
-            interval: Some(Duration::from_secs(1)),
-            mls_settings: if mls_enabled {
-                Some(MlsSettings::default())
-            } else {
-                None
-            },
-            initiator: true,
-            metadata: HashMap::new(),
-        };
-        let (session_ctx, completion_handle) = app
-            .create_session(config, channel_name.clone(), Some(12345))
+    // Restore any persisted sessions (no-op when persistence is disabled). A
+    // restored endpoint rejoins its existing MLS group instead of starting a
+    // fresh invite/welcome handshake.
+    let mut restored = if persistence_dir.is_some() {
+        let sessions = app
+            .restore_sessions(conn_id)
             .await
-            .expect("error creating session");
+            .expect("error restoring persisted sessions");
+        info!(count = sessions.len(), "restored persisted sessions");
+        sessions
+    } else {
+        Vec::new()
+    };
 
-        completion_handle.await.expect("error establishing session");
-
-        // invite all participants
-        for p in participants {
-            info!(participant = %p, "Invite participant");
-            session_ctx
-                .session_arc()
-                .unwrap()
-                .invite_participant(&p)
+    if is_moderator {
+        let session_ctx = if let Some(ctx) = restored.pop() {
+            info!("resuming moderator session from persistence (skipping create + invite)");
+            ctx
+        } else {
+            // create session
+            let config = SessionConfig {
+                session_type: slim_datapath::api::ProtoSessionType::Multicast,
+                max_retries: Some(10),
+                interval: Some(Duration::from_secs(1)),
+                mls_settings: if mls_enabled {
+                    Some(MlsSettings::default())
+                } else {
+                    None
+                },
+                initiator: true,
+                metadata: HashMap::new(),
+            };
+            let (ctx, completion_handle) = app
+                .create_session(config, channel_name.clone(), Some(12345))
                 .await
-                .expect("error sending invite message");
-        }
+                .expect("error creating session");
+
+            completion_handle.await.expect("error establishing session");
+
+            // invite all participants
+            for p in participants {
+                info!(participant = %p, "Invite participant");
+                ctx.session_arc()
+                    .unwrap()
+                    .invite_participant(&p)
+                    .await
+                    .expect("error sending invite message");
+            }
+            ctx
+        };
 
         tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
@@ -278,10 +381,10 @@ async fn main() {
         });
 
         for i in 0..max_packets.unwrap_or(u64::MAX) {
-            info!(%i, "moderator: send message");
             // create payload
             let mut pstr = msg_payload_str.clone();
             pstr.push_str(&i.to_string());
+            info!(payload = %pstr, "moderator: send message");
             let p = pstr.as_bytes().to_vec();
 
             // set fanout > 1 to send the message in broadcast
@@ -300,12 +403,23 @@ async fn main() {
         }
     } else {
         // participant
-        if moderator_name.is_empty() && !is_moderator {
+        if moderator_name.is_empty() {
             panic!("missing moderator name in the configuration")
         }
         let moderator = parse_string_name(moderator_name);
 
-        // listen for sessions and messages
+        // Resume any sessions restored from persistence right away.
+        for session_ctx in restored {
+            info!("resuming participant session from persistence");
+            spawn_participant_receiver(
+                session_ctx,
+                moderator.clone(),
+                channel_name.clone(),
+                msg_payload_str.clone(),
+            );
+        }
+
+        // listen for new sessions and messages
         loop {
             match rx.recv().await {
                 None => {
@@ -316,57 +430,12 @@ async fn main() {
                     Ok(notification) => match notification {
                         Notification::NewSession(session_ctx) => {
                             println!("received a new session");
-                            let moderator_clone = moderator.clone();
-                            let channel_name_clone = channel_name.clone();
-                            let msg_payload_str_clone = msg_payload_str.clone();
-                            session_ctx.spawn_receiver(move |mut rx, weak| async move {
-                                loop {
-                                    match rx.recv().await {
-                                        None => {
-                                            println!("Session receiver: end of stream");
-                                            break;
-                                        }
-                                        Some(Ok(msg)) => {
-                                            let publisher = msg.get_slim_header().get_source();
-                                            let msg_id = msg.get_id();
-                                            let payload = if let Some(slim_datapath::api::ProtoPublishType(publish)) =
-                                                msg.message_type.as_ref()
-                                            {
-                                                let blob = &publish.get_payload().as_application_payload().unwrap().blob;
-                                                match String::from_utf8(blob.to_vec()) {
-                                                    Ok(p) => p,
-                                                    Err(e) => {
-                                                        error!("error while parsing the message {}", e.to_string());
-                                                        String::new()
-                                                    }
-                                                }
-                                            } else {
-                                                String::new()
-                                            };
-                                            info!(%payload, "received message");
-                                            if publisher == moderator_clone {
-                                                info!(%msg_id, "reply to moderator");
-                                                let mut pstr = msg_payload_str_clone.clone();
-                                                pstr.push_str(&msg_id.to_string());
-                                                let p = pstr.as_bytes().to_vec();
-                                                let flags = SlimHeaderFlags::new(10, None, None, None, None);
-                                                if let Some(session_arc) = weak.upgrade()
-                                                    && session_arc
-                                                        .publish_with_flags(&channel_name_clone, flags, p, None, None)
-                                                        .await
-                                                        .is_err()
-                                                    {
-                                                        panic!("an error occurred sending publication from moderator");
-                                                    }
-                                            }
-                                        }
-                                        Some(Err(e)) => {
-                                            println!("Session receiver: error {:?}", e);
-                                            break;
-                                        }
-                                    }
-                                }
-                            });
+                            spawn_participant_receiver(
+                                session_ctx,
+                                moderator.clone(),
+                                channel_name.clone(),
+                                msg_payload_str.clone(),
+                            );
                         }
                         _ => {
                             println!("Unexpected notification type");

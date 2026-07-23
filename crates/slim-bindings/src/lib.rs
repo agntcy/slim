@@ -55,6 +55,7 @@ mod identity_config;
 mod init_config;
 mod message_context;
 mod name;
+mod persistence;
 mod server_config;
 mod service;
 mod session;
@@ -89,6 +90,7 @@ pub use init_config::{
 };
 pub use message_context::{MessageContext, ReceivedMessage};
 pub use name::Name;
+pub use persistence::PersistenceConfig;
 pub use server_config::{
     KeepaliveServerParameters, ServerConfig, new_insecure_server_config, new_server_config,
 };
