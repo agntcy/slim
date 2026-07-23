@@ -33,6 +33,31 @@ use slim_testing::build_client_service;
 use slim_testing::common::{reserve_local_port, run_slim_node};
 use slim_testing::utils::TEST_VALID_SECRET;
 
+/// Create a non-persistent client app on `port`, subscribed to its own name.
+async fn create_app(
+    port: u16,
+    name: &Name,
+    secret: SharedSecret,
+) -> (
+    TestApp,
+    tokio::sync::mpsc::Receiver<Result<Notification, slim_session::SessionError>>,
+    u64,
+    Service,
+) {
+    let svc = build_client_service(port, name);
+    let (app, rx) = svc
+        .create_app(name, secret.clone(), secret)
+        .expect("failed to create app");
+    svc.run().await.expect("failed to run service");
+    let conn_id = svc
+        .get_connection_id(&svc.config().dataplane_clients()[0].endpoint)
+        .expect("no connection id");
+    app.subscribe(name, Some(conn_id))
+        .await
+        .expect("failed to subscribe");
+    (app, rx, conn_id, svc)
+}
+
 type TestApp = App<SharedSecret, SharedSecret>;
 
 /// Create a client app connected to the node on `port`, backed by an encrypted
@@ -413,4 +438,182 @@ async fn test_multicast_mls_moderator_restart_republish() {
         Duration::from_secs(10),
     )
     .await;
+}
+
+/// Moderator invites two members, member2 goes offline (close), moderator then
+/// invites a third member (advancing the MLS epoch), and member2 rejoins.
+/// Because the epoch has moved on, the initial rejoin is NACKed and member2
+/// automatically sends a RejoinRequest; after the moderator processes it and
+/// sends a welcome, member2 should be able to decrypt fresh publishes.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_participant_rejoin_after_epoch_advance() {
+    // 1. Start SLIM node.
+    let port = reserve_local_port();
+    tokio::spawn(async move {
+        let _ = run_slim_node(port).await;
+    });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let moderator_name = Name::from_strings(["org", "ns", "moderator2"]);
+    let member1_name = Name::from_strings(["org", "ns", "member1"]);
+    let member2_name = Name::from_strings(["org", "ns", "member2"]);
+    let member3_name = Name::from_strings(["org", "ns", "member3"]);
+    let channel = Name::from_strings(["channel", "rejoin", "epoch"]);
+
+    // 2. Create all four apps (no persistence needed — close/rejoin is in-memory).
+    let (moderator_app, _mod_rx, mod_conn, _mod_svc) = create_app(
+        port,
+        &moderator_name,
+        SharedSecret::new("mod2", TEST_VALID_SECRET).unwrap(),
+    )
+    .await;
+    let (_member1_app, mut member1_rx, _m1_conn, _m1_svc) = create_app(
+        port,
+        &member1_name,
+        SharedSecret::new("member1", TEST_VALID_SECRET).unwrap(),
+    )
+    .await;
+    let (_member2_app, mut member2_rx, _m2_conn, _m2_svc) = create_app(
+        port,
+        &member2_name,
+        SharedSecret::new("member2", TEST_VALID_SECRET).unwrap(),
+    )
+    .await;
+    let (_member3_app, mut member3_rx, _m3_conn, _m3_svc) = create_app(
+        port,
+        &member3_name,
+        SharedSecret::new("member3", TEST_VALID_SECRET).unwrap(),
+    )
+    .await;
+
+    // 3. Set routes from the moderator to every member.
+    for name in [&member1_name, &member2_name, &member3_name] {
+        moderator_app
+            .set_route(name, mod_conn)
+            .await
+            .expect("set_route failed");
+    }
+
+    // 4. Create the multicast MLS session.
+    let config = SessionConfig {
+        session_type: slim_datapath::api::ProtoSessionType::Multicast,
+        max_retries: Some(10),
+        interval: Some(Duration::from_secs(1)),
+        mls_settings: Some(MlsSettings::default()),
+        initiator: true,
+        metadata: Default::default(),
+    };
+    let (session_ctx, completion) = moderator_app
+        .create_session(config, channel.clone(), None)
+        .await
+        .expect("create_session failed");
+    completion.await.expect("session establishment failed");
+    let session = session_ctx.session_arc().expect("no session arc");
+
+    // 5. Invite member1 and member2.
+    let member1_joined = Arc::new(Mutex::new(Vec::<String>::new()));
+    let member2_messages = Arc::new(Mutex::new(Vec::<String>::new()));
+
+    // member1 listener: just collect messages.
+    let m1_sink = member1_joined.clone();
+    tokio::spawn(async move {
+        while let Some(Ok(Notification::NewSession(ctx))) = member1_rx.recv().await {
+            collect_messages(ctx, m1_sink.clone());
+        }
+    });
+
+    // member2 listener: save the session arc before spawning the collector so we
+    // can call close()/rejoin() on it later.
+    let m2_sink = member2_messages.clone();
+    let (member2_arc_tx, member2_arc_rx) = tokio::sync::oneshot::channel();
+    let mut member2_arc_tx = Some(member2_arc_tx);
+    tokio::spawn(async move {
+        while let Some(Ok(Notification::NewSession(ctx))) = member2_rx.recv().await {
+            // Send the session arc to the test body before spawning the receiver.
+            if let (Some(arc), Some(tx)) = (ctx.session_arc(), member2_arc_tx.take()) {
+                let _ = tx.send(arc);
+            }
+            collect_messages(ctx, m2_sink.clone());
+        }
+    });
+
+    // member3 listener: only needed so the invite completes; discard messages.
+    tokio::spawn(async move {
+        while let Some(Ok(Notification::NewSession(_ctx))) = member3_rx.recv().await {}
+    });
+
+    session
+        .invite_participant(&member1_name)
+        .await
+        .expect("invite member1 failed")
+        .await
+        .expect("invite member1 completion failed");
+
+    session
+        .invite_participant(&member2_name)
+        .await
+        .expect("invite member2 failed")
+        .await
+        .expect("invite member2 completion failed");
+
+    // Retrieve member2's session arc (sent by the listener above).
+    let member2_session = tokio::time::timeout(Duration::from_secs(10), member2_arc_rx)
+        .await
+        .expect("timed out waiting for member2 session arc")
+        .expect("member2 arc channel dropped");
+
+    // 6. Baseline: moderator publishes; member2 must receive it.
+    session
+        .publish_with_flags(
+            &channel,
+            SlimHeaderFlags::new(10, None, None, None, None),
+            b"before-close".to_vec(),
+            None,
+            None,
+        )
+        .await
+        .expect("baseline publish failed");
+    wait_for_message(&member2_messages, "before-close", Duration::from_secs(10)).await;
+
+    // 7. Member2 goes offline.
+    member2_session
+        .close()
+        .await
+        .expect("close failed")
+        .await
+        .expect("close completion failed");
+
+    // 8. Moderator invites member3, advancing the MLS epoch.
+    session
+        .invite_participant(&member3_name)
+        .await
+        .expect("invite member3 failed")
+        .await
+        .expect("invite member3 completion failed");
+
+    // 9. Member2 rejoins. Because the epoch has advanced the first attempt is
+    //    NACKed; the participant layer automatically sends a RejoinRequest and the
+    //    completion handle resolves only after the welcome is processed.
+    member2_session
+        .rejoin()
+        .await
+        .expect("rejoin failed")
+        .await
+        .expect("rejoin completion failed");
+
+    // Give re-subscription time to propagate.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // 10. Moderator publishes again; member2 must decrypt it with the new epoch.
+    session
+        .publish_with_flags(
+            &channel,
+            SlimHeaderFlags::new(10, None, None, None, None),
+            b"after-rejoin".to_vec(),
+            None,
+            None,
+        )
+        .await
+        .expect("post-rejoin publish failed");
+    wait_for_message(&member2_messages, "after-rejoin", Duration::from_secs(10)).await;
 }
