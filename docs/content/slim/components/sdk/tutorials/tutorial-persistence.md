@@ -237,23 +237,18 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
 === "Rust"
 
     ```rust
-    use slim_service::ServiceConfiguration;
-    use slim_service::config::{ClientConfig, TlsClientConfig};
+    use slim_service::Service;
+    use slim_service::config::ClientConfig;
     use slim_auth::shared_secret::SharedSecret;
-    use slim_datapath::api::{ID, ProtoName};
+    use slim_datapath::api::ProtoName;
     use slim_persistence::PersistenceConfig;
     use slim_session::Direction;
 
     #[tokio::main]
     async fn main() -> anyhow::Result<()> {
-        let mut config = ServiceConfiguration::new();
-        config.with_dataplane_client(vec![
-            ClientConfig::with_endpoint("http://127.0.0.1:46357")
-                .with_tls_setting(TlsClientConfig::default().with_insecure(true)),
-        ]);
-        let service = config.build_server(ID::new_with_str("slim/0")?)?;
+        let service = Service::builder().build("slim/0")?;
         service.run().await?;
-        let conn_id = service.get_connection_id("http://127.0.0.1:46357").unwrap();
+        let conn_id = service.connect(ClientConfig::with_endpoint("http://127.0.0.1:46357")).await?;
 
         let name = ProtoName::from_strings(["myorg", "default", "my-service"]);
         let provider = SharedSecret::new("myorg/default/my-service", "my-shared-secret")?;

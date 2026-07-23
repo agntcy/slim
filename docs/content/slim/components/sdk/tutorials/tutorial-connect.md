@@ -131,12 +131,11 @@ The SLIM service is the global runtime that manages connections and application 
 === "Rust"
 
     ```rust
-    use slim_service::ServiceConfiguration;
+    use slim_service::Service;
 
-    // In Rust, service configuration and connection are combined in one step.
-    // Create the configuration — the endpoint is added before building.
-    let config = ServiceConfiguration::new();
-    // See Step 2 for connecting and starting the service.
+    // Build the service — the ID "slim/0" identifies this instance
+    let service = Service::builder().build("slim/0")?;
+    service.run().await?;
     ```
 
 ## Step 2: Connect to a SLIM Node
@@ -238,23 +237,13 @@ With the service initialised, connect to a SLIM node. The connection returns a `
 === "Rust"
 
     ```rust
-    use slim_service::ServiceConfiguration;
-    use slim_service::config::{ClientConfig, TlsClientConfig};
-    use slim_datapath::api::ID;
+    use slim_service::config::ClientConfig;
 
-    // Configure the service with the SLIM node endpoint
-    let mut config = ServiceConfiguration::new();
-    config.with_dataplane_client(vec![
-        ClientConfig::with_endpoint("http://127.0.0.1:46357")
-            .with_tls_setting(TlsClientConfig::default().with_insecure(true)),
-    ]);
+    // Build a client config pointing at your SLIM node
+    let client_config = ClientConfig::with_endpoint("http://127.0.0.1:46357");
 
-    // Build and start the service
-    let service = config.build_server(ID::new_with_str("slim/0")?)?;
-    service.run().await?;
-
-    // Retrieve the connection ID for this node endpoint
-    let conn_id = service.get_connection_id("http://127.0.0.1:46357").unwrap();
+    // Connect — returns a connection ID used in later calls
+    let conn_id = service.connect(client_config).await?;
     println!("Connected, conn_id={conn_id}");
     ```
 
@@ -398,22 +387,16 @@ With the service initialised, connect to a SLIM node. The connection returns a `
 === "Rust"
 
     ```rust
-    use slim_service::ServiceConfiguration;
-    use slim_service::config::{ClientConfig, TlsClientConfig};
-    use slim_datapath::api::ID;
+    use slim_service::Service;
+    use slim_service::config::ClientConfig;
 
     #[tokio::main]
     async fn main() -> anyhow::Result<()> {
-        let mut config = ServiceConfiguration::new();
-        config.with_dataplane_client(vec![
-            ClientConfig::with_endpoint("http://127.0.0.1:46357")
-                .with_tls_setting(TlsClientConfig::default().with_insecure(true)),
-        ]);
-
-        let service = config.build_server(ID::new_with_str("slim/0")?)?;
+        let service = Service::builder().build("slim/0")?;
         service.run().await?;
 
-        let conn_id = service.get_connection_id("http://127.0.0.1:46357").unwrap();
+        let client_config = ClientConfig::with_endpoint("http://127.0.0.1:46357");
+        let conn_id = service.connect(client_config).await?;
         println!("Connected, conn_id={conn_id}");
         // service and conn_id are passed to create_app in the next tutorial
 
