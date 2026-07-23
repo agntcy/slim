@@ -7,7 +7,8 @@ use std::{
 };
 
 use slim_datapath::api::{
-    CommandPayload, ProtoMessage as Message, ProtoName, ProtoSessionMessageType, ProtoSessionType,
+    CommandPayload, GroupUpdateOp, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
+    ProtoSessionType,
 };
 use tokio::sync::mpsc::Sender;
 use tracing::debug;
@@ -54,6 +55,12 @@ struct HeartbeatState {
     /// When true, skip sending the next heartbeat because we already
     /// sent other traffic during this interval. Reset to false on each tick.
     postpone_heartbeat: bool,
+
+    /// When true, force the sending of the next heartbeat even if
+    /// postpone_heartbeat is set. This is used when we detect someone
+    /// that comes back online using the heartbeat mechanism.
+    /// in this way the participant can check the current epoch
+    force_next_heartbeat: bool,
 
     /// The periodic heartbeat timer
     heartbeat_timer: Timer,
@@ -129,6 +136,7 @@ impl ControllerSender {
             Some(HeartbeatState {
                 missed_heartbeats: HashMap::new(),
                 postpone_heartbeat: false,
+                force_next_heartbeat: false,
                 heartbeat_timer,
                 heartbeat_timer_factory,
             })
@@ -217,7 +225,8 @@ impl ControllerSender {
             slim_datapath::api::ProtoSessionMessageType::DiscoveryRequest
             | slim_datapath::api::ProtoSessionMessageType::JoinRequest
             | slim_datapath::api::ProtoSessionMessageType::LeaveRequest
-            | slim_datapath::api::ProtoSessionMessageType::GroupWelcome => {
+            | slim_datapath::api::ProtoSessionMessageType::GroupWelcome
+            | slim_datapath::api::ProtoSessionMessageType::RejoinRequest => {
                 if self.draining_state == ControllerSenderDrainStatus::Initiated {
                     // draining period started; reject new messages
                     return Err(SessionError::SessionDrainingDrop);
@@ -242,7 +251,8 @@ impl ControllerSender {
             slim_datapath::api::ProtoSessionMessageType::DiscoveryReply
             | slim_datapath::api::ProtoSessionMessageType::JoinReply
             | slim_datapath::api::ProtoSessionMessageType::LeaveReply
-            | slim_datapath::api::ProtoSessionMessageType::GroupAck => {
+            | slim_datapath::api::ProtoSessionMessageType::GroupAck
+            | slim_datapath::api::ProtoSessionMessageType::RejoinReply => {
                 self.on_reply_message(message);
             }
             slim_datapath::api::ProtoSessionMessageType::GroupNack => {
@@ -254,7 +264,7 @@ impl ControllerSender {
             slim_datapath::api::ProtoSessionMessageType::Heartbeat => {
                 self.on_heartbeat_received(message);
             }
-            slim_datapath::api::ProtoSessionMessageType::GroupAdd => {
+            slim_datapath::api::ProtoSessionMessageType::GroupUpdate => {
                 // compute the list of participants that needs to send an ack
                 // remove the local name as we are not waiting for any reply from the local name
                 // remove also the new participant as it will not receive the message
@@ -265,36 +275,24 @@ impl ControllerSender {
                     .cloned()
                     .collect::<HashSet<_>>();
 
-                // remove the new participant also from the missing replies
-                let payload = message.extract_group_add()?;
-
-                let to_remove = payload
-                    .new_participant
-                    .as_ref()
-                    .ok_or(SessionError::MissingNewParticipantInGroupAdd)?
-                    .get_name()?
-                    .clone();
-
-                missing_replies.remove(&to_remove);
+                let payload = message.extract_group_update()?;
+                if payload.op == GroupUpdateOp::Add as i32 {
+                    // remove also new participant from the missing replies
+                    let to_remove = payload
+                        .participant
+                        .as_ref()
+                        .ok_or(SessionError::MissingNewParticipantInGroupAdd)?
+                        .get_name()?
+                        .clone();
+                    missing_replies.remove(&to_remove);
+                }
 
                 debug!(
-                    "send group add with message id {}, expected acks from {:?}",
+                    "send group update ({}) with message id {}, expected acks from {:?}",
+                    payload.op,
                     message.get_id(),
                     missing_replies
                 );
-
-                output.extend(self.on_send_message(message, missing_replies)?);
-            }
-            slim_datapath::api::ProtoSessionMessageType::GroupRemove => {
-                // compute the list of participants that needs to send an ack
-                // the participant that we are removing will get the update
-                // so we can use the group list as is, removing only the local name
-                let missing_replies = self
-                    .group_list
-                    .iter()
-                    .filter(|name| *name != &self.local_name)
-                    .cloned()
-                    .collect::<HashSet<_>>();
 
                 output.extend(self.on_send_message(message, missing_replies)?);
             }
@@ -427,6 +425,15 @@ impl ControllerSender {
         self.on_heartbeat_received(message);
     }
 
+    /// Force sending the heartbeat on the next round.
+    pub fn force_heartbeat(&mut self) {
+        if let Some(hs) = self.heartbeat_state.as_mut() {
+            debug!("force next heartbeat to be sent");
+            hs.force_next_heartbeat = true;
+            hs.postpone_heartbeat = false;
+        }
+    }
+
     pub fn is_still_pending(&self, message_id: u32) -> bool {
         self.pending_replies.contains_key(&message_id)
     }
@@ -506,18 +513,20 @@ impl ControllerSender {
             }
         }
 
-        // Send our heartbeat broadcast only if we didn't already send traffic
+        // Send our heartbeat broadcast only if we didn't already send traffic,
+        // OR if the group_list is empty (meaning all peers were removed due to
+        // missed heartbeats — i.e. we went offline). In that case we MUST always
+        // send heartbeats so that peers can detect us when connectivity returns.
         let mut output = SessionOutput::new();
+        let all_peers_offline = self.group_list.is_empty()
+            || (self.group_list.len() == 1 && self.group_list.contains(&self.local_name));
         let should_send = self
             .heartbeat_state
             .as_ref()
-            .map(|hs| !hs.postpone_heartbeat)
+            .map(|hs| !hs.postpone_heartbeat || hs.force_next_heartbeat || all_peers_offline)
             .unwrap_or(false);
 
-        if should_send
-            && self.group_list.len() > 1
-            && let Some(group_name) = &self.group_name
-        {
+        if should_send && let Some(group_name) = &self.group_name {
             let heartbeat_id = rand::random::<u32>();
             let mut builder = Message::builder()
                 .source(self.local_name.clone())
@@ -537,12 +546,13 @@ impl ControllerSender {
             debug!(id = %heartbeat_id, "send heartbeat");
             output.push_slim(heartbeat_msg);
         } else {
-            debug!("skip sending heartbeat (traffic sent or no other participants)");
+            debug!("skip sending heartbeat (traffic sent or no group name)");
         }
 
-        // Always reset the flag for the next interval
+        // Always reset the flags for the next interval
         if let Some(hs) = self.heartbeat_state.as_mut() {
             hs.postpone_heartbeat = false;
+            hs.force_next_heartbeat = false;
         }
 
         Ok(output)
@@ -594,7 +604,8 @@ mod tests {
     use super::*;
     use crate::common::{OutboundMessage, SessionOutput};
     use slim_datapath::api::{
-        CommandPayload, Participant, ParticipantSettings, ProtoSessionMessageType, ProtoSessionType,
+        CommandPayload, GroupUpdateOp, Participant, ParticipantSettings, ProtoSessionMessageType,
+        ProtoSessionType,
     };
     use std::time::Duration;
     use tokio::time::timeout;
@@ -931,7 +942,7 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn test_on_group_add_message() {
+    async fn test_on_group_update_add_message() {
         let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(3);
         let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
 
@@ -958,12 +969,13 @@ mod tests {
             .destination(group.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
-            .session_message_type(ProtoSessionMessageType::GroupAdd)
+            .session_message_type(ProtoSessionMessageType::GroupUpdate)
             .session_id(session_id)
             .message_id(1)
             .payload(
                 CommandPayload::builder()
-                    .group_add(
+                    .group_update(
+                        GroupUpdateOp::Add,
                         Participant::new(
                             participant1.clone(),
                             ParticipantSettings::bidirectional(),
@@ -992,11 +1004,11 @@ mod tests {
         let (message_id, message_type) =
             expect_timeout(&mut rx_signal, Duration::from_millis(300)).await;
         assert_eq!(message_id, 1);
-        assert_eq!(message_type, ProtoSessionMessageType::GroupAdd);
+        assert_eq!(message_type, ProtoSessionMessageType::GroupUpdate);
 
         let resent = single_slim_message(
             sender
-                .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd, None)
+                .on_timer_timeout(1, ProtoSessionMessageType::GroupUpdate, None)
                 .expect("error re-sending the add"),
         );
         assert_eq!(resent, update);
@@ -1064,12 +1076,13 @@ mod tests {
             .destination(remote.clone())
             .identity("")
             .session_type(ProtoSessionType::Multicast)
-            .session_message_type(ProtoSessionMessageType::GroupAdd)
+            .session_message_type(ProtoSessionMessageType::GroupUpdate)
             .session_id(session_id)
             .message_id(1)
             .payload(
                 CommandPayload::builder()
-                    .group_add(
+                    .group_update(
+                        GroupUpdateOp::Add,
                         Participant::new(
                             participant1.clone(),
                             ParticipantSettings::bidirectional(),
@@ -1098,11 +1111,11 @@ mod tests {
         let (message_id, message_type) =
             expect_timeout(&mut rx_signal, Duration::from_millis(300)).await;
         assert_eq!(message_id, 1);
-        assert_eq!(message_type, ProtoSessionMessageType::GroupAdd);
+        assert_eq!(message_type, ProtoSessionMessageType::GroupUpdate);
 
         let resent = single_slim_message(
             sender
-                .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd, None)
+                .on_timer_timeout(1, ProtoSessionMessageType::GroupUpdate, None)
                 .expect("error re-sending the add"),
         );
         assert_eq!(resent, update);
@@ -1131,11 +1144,11 @@ mod tests {
         let (message_id, message_type) =
             expect_timeout(&mut rx_signal, Duration::from_millis(300)).await;
         assert_eq!(message_id, 1);
-        assert_eq!(message_type, ProtoSessionMessageType::GroupAdd);
+        assert_eq!(message_type, ProtoSessionMessageType::GroupUpdate);
 
         let retransmitted = single_slim_message(
             sender
-                .on_timer_timeout(1, ProtoSessionMessageType::GroupAdd, None)
+                .on_timer_timeout(1, ProtoSessionMessageType::GroupUpdate, None)
                 .expect("error re-sending the add"),
         );
         assert_eq!(retransmitted, update);
@@ -1367,39 +1380,6 @@ mod tests {
             ProtoSessionMessageType::Heartbeat
         );
         assert_eq!(heartbeat_msg.get_dst(), remote);
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn test_heartbeat_no_send_when_alone() {
-        let settings = TimerSettings::constant(Duration::from_millis(400)).with_max_retries(3);
-        let heartbeat_interval = Duration::from_millis(500);
-        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(100);
-
-        let source = ProtoName::from_strings(["org", "ns", "source"]);
-        let session_id = 1;
-
-        let mut sender = ControllerSender::new(
-            settings,
-            source.clone(),
-            ProtoSessionType::Multicast,
-            session_id,
-            Some(heartbeat_interval),
-            false,
-            tx_signal,
-        );
-
-        sender.group_name = Some(ProtoName::from_strings(["org", "ns", "group"]));
-
-        // Wait for timer tick — should produce no outbound messages (alone in group)
-        let (timer_id, message_type) =
-            expect_timeout(&mut rx_signal, Duration::from_millis(600)).await;
-        assert_eq!(message_type, ProtoSessionMessageType::Heartbeat);
-
-        let output = sender
-            .on_timer_timeout(timer_id, ProtoSessionMessageType::Heartbeat, Some(50))
-            .expect("error handling heartbeat timeout");
-        assert_no_messages(output);
     }
 
     #[tokio::test]
