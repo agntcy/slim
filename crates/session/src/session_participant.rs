@@ -283,6 +283,22 @@ where
                         }
                     }
                 } else {
+                    // here we are missing an ack from some one in the group, so we move it
+                    // offline (if not yet) and notify the inner layer that the message failed to be delivered
+                    let missing = self.inner.missing_acks_for(message_id);
+                    for participant_name in &missing {
+                        debug!(
+                            %message_id,
+                            %participant_name,
+                            "timer failure: participant did not ack, marking offline",
+                        );
+                        if let Some(entry) = self.group_list.get_mut(participant_name)
+                            && entry.status == ParticipantState::Online as i32
+                        {
+                            entry.status = ParticipantState::Offline as i32;
+                            self.remove_endpoint(participant_name);
+                        }
+                    }
                     output.extend(
                         self.inner
                             .on_message(SessionMessage::TimerFailure {

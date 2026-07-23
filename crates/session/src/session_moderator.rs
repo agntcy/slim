@@ -278,6 +278,8 @@ where
                     )
                     .await?;
                 } else {
+                    let missing = self.inner.missing_acks_for(message_id);
+                    self.mark_missing_offline(&missing);
                     output.extend(
                         self.inner
                             .on_message(SessionMessage::TimerFailure {
@@ -577,11 +579,35 @@ where
         if let Some(task) = self.current_task.as_mut()
             && let Some(ack_tx) = task.ack_tx_take()
         {
-            let _ = ack_tx.send(Err(task.failure_message(error)));
+            // check it the task was partially successful. if yes send ok to the app and
+            // put offline all the participant that did not ack
+            if task.partial_success() {
+                self.mark_missing_offline(&missing);
+                let _ = ack_tx.send(Ok(()));
+            } else {
+                let _ = ack_tx.send(Err(task.failure_message(error)));
+            }
         }
 
         self.current_task = None;
         self.pop_task().await
+    }
+
+    fn mark_missing_offline(&mut self, missing: &[ProtoName]) {
+        for participant in missing {
+            debug!(
+                %participant,
+                "participant did not ack, marking offline",
+            );
+            let mut participant_no_id = participant.clone();
+            participant_no_id.reset_id();
+            if let Some(entry) = self.group_list.get_mut(&participant_no_id)
+                && entry.status == ParticipantState::Online as i32
+            {
+                entry.status = ParticipantState::Offline as i32;
+                self.remove_endpoint(participant);
+            }
+        }
     }
 
     /// Helper method to handle errors after task creation
