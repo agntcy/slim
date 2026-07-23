@@ -15,6 +15,35 @@ A point-to-point session connects your application to a single remote instance. 
 
 ### Create the Session
 
+=== "Rust"
+
+    ```rust
+    use slim_session::{SessionConfig, Notification};
+    use slim_session::session_config::MlsSettings;
+    use slim_datapath::api::{ProtoName, ProtoSessionType};
+    use std::time::Duration;
+    use std::collections::HashMap;
+
+    let remote_name = ProtoName::from_strings(["myorg", "default", "other-service"]);
+
+    let session_config = SessionConfig {
+        session_type: ProtoSessionType::PointToPoint,
+        max_retries: Some(5),
+        interval: Some(Duration::from_secs(5)),
+        mls_settings: Some(MlsSettings::default()),
+        initiator: true,
+        metadata: HashMap::new(),
+    };
+
+    // Create the session — discovery happens automatically
+    let (ctx, completion) = app.create_session(session_config, remote_name.clone(), None).await?;
+    // Wait until the session is fully established
+    completion.await?;
+
+    let session = ctx.session_arc().unwrap();
+    println!("Point-to-point session established");
+    ```
+
 === "Python"
 
     ```python
@@ -184,19 +213,19 @@ A point-to-point session connects your application to a single remote instance. 
     console.log("Point-to-point session established");
     ```
 
+## Group Session
+
+A group session enables many-to-many communication on a named channel. Every message sent to the channel is delivered to all current participants.
+
+### Create the Session
+
 === "Rust"
 
     ```rust
-    use slim_session::{SessionConfig, Notification};
-    use slim_session::session_config::MlsSettings;
-    use slim_datapath::api::{ProtoName, ProtoSessionType};
-    use std::time::Duration;
-    use std::collections::HashMap;
-
-    let remote_name = ProtoName::from_strings(["myorg", "default", "other-service"]);
+    let channel_name = ProtoName::from_strings(["myorg", "default", "my-group"]);
 
     let session_config = SessionConfig {
-        session_type: ProtoSessionType::PointToPoint,
+        session_type: ProtoSessionType::Multicast,
         max_retries: Some(5),
         interval: Some(Duration::from_secs(5)),
         mls_settings: Some(MlsSettings::default()),
@@ -204,20 +233,13 @@ A point-to-point session connects your application to a single remote instance. 
         metadata: HashMap::new(),
     };
 
-    // Create the session — discovery happens automatically
-    let (ctx, completion) = app.create_session(session_config, remote_name.clone(), None).await?;
-    // Wait until the session is fully established
+    // Create the group session on the given channel
+    let (ctx, completion) = app.create_session(session_config, channel_name.clone(), None).await?;
     completion.await?;
 
     let session = ctx.session_arc().unwrap();
-    println!("Point-to-point session established");
+    println!("Group session created on channel: myorg/default/my-group");
     ```
-
-## Group Session
-
-A group session enables many-to-many communication on a named channel. Every message sent to the channel is delivered to all current participants.
-
-### Create the Session
 
 === "Python"
 
@@ -363,31 +385,22 @@ A group session enables many-to-many communication on a named channel. Every mes
     console.log(`Group session created on channel: ${channelName}`);
     ```
 
-=== "Rust"
-
-    ```rust
-    let channel_name = ProtoName::from_strings(["myorg", "default", "my-group"]);
-
-    let session_config = SessionConfig {
-        session_type: ProtoSessionType::Multicast,
-        max_retries: Some(5),
-        interval: Some(Duration::from_secs(5)),
-        mls_settings: Some(MlsSettings::default()),
-        initiator: true,
-        metadata: HashMap::new(),
-    };
-
-    // Create the group session on the given channel
-    let (ctx, completion) = app.create_session(session_config, channel_name.clone(), None).await?;
-    completion.await?;
-
-    let session = ctx.session_arc().unwrap();
-    println!("Group session created on channel: myorg/default/my-group");
-    ```
-
 ### Invite a Participant
 
 The session creator acts as a moderator and can invite other applications to join:
+
+=== "Rust"
+
+    ```rust
+    let participant_name = ProtoName::from_strings(["myorg", "default", "participant"]);
+
+    // Set the route to the participant first
+    app.set_route(&participant_name, conn_id).await?;
+
+    // Invite — performs discovery + MLS key exchange
+    session.invite_participant(&participant_name).await?;
+    println!("Invited participant to the group");
+    ```
 
 === "Python"
 
@@ -486,22 +499,15 @@ The session creator acts as a moderator and can invite other applications to joi
     console.log(`Invited ${inviteName} to the group`);
     ```
 
-=== "Rust"
-
-    ```rust
-    let participant_name = ProtoName::from_strings(["myorg", "default", "participant"]);
-
-    // Set the route to the participant first
-    app.set_route(&participant_name, conn_id).await?;
-
-    // Invite — performs discovery + MLS key exchange
-    session.invite_participant(&participant_name).await?;
-    println!("Invited participant to the group");
-    ```
-
 ## Send a Message
 
 `publish_async` / `PublishAndWaitAsync` delivers the message to all current session participants. For point-to-point sessions this is just the single remote peer; for group sessions every member receives it.
+
+=== "Rust"
+
+    ```rust
+    session.publish(&channel_name, b"hello".to_vec(), None, None).await?;
+    ```
 
 === "Python"
 
@@ -553,15 +559,20 @@ The session creator acts as a moderator and can invite other applications to joi
     await session.publishAndWaitAsync(payload, undefined, undefined);
     ```
 
-=== "Rust"
-
-    ```rust
-    session.publish(&channel_name, b"hello".to_vec(), None, None).await?;
-    ```
-
 ## Listen for a Reply
 
 After sending, call `get_message_async` to wait for an inbound message on the same session.
+
+=== "Rust"
+
+    ```rust
+    // Messages arrive via spawn_receiver on the session context
+    ctx.spawn_receiver(|mut msg_rx, _| async move {
+        if let Some(Ok(msg)) = msg_rx.recv().await {
+            println!("Received: {}", String::from_utf8_lossy(msg.payload()));
+        }
+    });
+    ```
 
 === "Python"
 
@@ -627,20 +638,16 @@ After sending, call `get_message_async` to wait for an inbound message on the sa
     console.log("Received:", text);
     ```
 
-=== "Rust"
-
-    ```rust
-    // Messages arrive via spawn_receiver on the session context
-    ctx.spawn_receiver(|mut msg_rx, _| async move {
-        if let Some(Ok(msg)) = msg_rx.recv().await {
-            println!("Received: {}", String::from_utf8_lossy(msg.payload()));
-        }
-    });
-    ```
-
 ## Send to a Specific Participant
 
 In a group session, `publish_to_async` / `PublishToAndWaitAsync` sends to a single participant using the context from a previously received message. Other group members do not see the message.
+
+=== "Rust"
+
+    ```rust
+    // Use the source context from a received message to send directly to that participant
+    session.publish_to(msg.source(), b"private reply".to_vec(), None, None).await?;
+    ```
 
 === "Python"
 
@@ -702,13 +709,6 @@ In a group session, `publish_to_async` / `PublishToAndWaitAsync` sends to a sing
     // msg is obtained from session.getMessageAsync(...)
     const payload = new Uint8Array("private reply".split('').map(c => c.charCodeAt(0)));
     await session.publishToAndWaitAsync(msg.context, payload, undefined, undefined);
-    ```
-
-=== "Rust"
-
-    ```rust
-    // Use the source context from a received message to send directly to that participant
-    session.publish_to(msg.source(), b"private reply".to_vec(), None, None).await?;
     ```
 
 ## Advanced Session Config

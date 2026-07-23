@@ -11,6 +11,16 @@ This tutorial walks through the two steps required before your application can s
 
 The SLIM service is the global runtime that manages connections and application state. It must be initialised once per process before any other SLIM calls.
 
+=== "Rust"
+
+    ```rust
+    use slim_service::Service;
+
+    // Build the service — the ID "slim/0" identifies this instance
+    let service = Service::builder().build("slim/0")?;
+    service.run().await?;
+    ```
+
 === "Python"
 
     The simplest initialisation uses `initialize_with_defaults()`, which sets up the runtime with sensible defaults for tracing and threading:
@@ -128,19 +138,22 @@ The SLIM service is the global runtime that manages connections and application 
     const service = slimBindings.getGlobalService();
     ```
 
-=== "Rust"
-
-    ```rust
-    use slim_service::Service;
-
-    // Build the service — the ID "slim/0" identifies this instance
-    let service = Service::builder().build("slim/0")?;
-    service.run().await?;
-    ```
-
 ## Step 2: Connect to a SLIM Node
 
 With the service initialised, connect to a SLIM node. The connection returns a `conn_id` that is used in subsequent calls to identify which node an app or subscription is associated with.
+
+=== "Rust"
+
+    ```rust
+    use slim_service::config::ClientConfig;
+
+    // Build a client config pointing at your SLIM node
+    let client_config = ClientConfig::with_endpoint("http://127.0.0.1:46357");
+
+    // Connect — returns a connection ID used in later calls
+    let conn_id = service.connect(client_config).await?;
+    println!("Connected, conn_id={conn_id}");
+    ```
 
 === "Python"
 
@@ -234,23 +247,30 @@ With the service initialised, connect to a SLIM node. The connection returns a `
     console.log(`Connected, connId=${connId}`);
     ```
 
-=== "Rust"
-
-    ```rust
-    use slim_service::config::ClientConfig;
-
-    // Build a client config pointing at your SLIM node
-    let client_config = ClientConfig::with_endpoint("http://127.0.0.1:46357");
-
-    // Connect — returns a connection ID used in later calls
-    let conn_id = service.connect(client_config).await?;
-    println!("Connected, conn_id={conn_id}");
-    ```
-
 !!! note "TLS in Production"
     `new_insecure_client_config` skips TLS verification and is for development only. See [Authentication](../../../architecture/authentication.md) for production TLS, mTLS, and JWT options.
 
 ## Putting It Together
+
+=== "Rust"
+
+    ```rust
+    use slim_service::Service;
+    use slim_service::config::ClientConfig;
+
+    #[tokio::main]
+    async fn main() -> anyhow::Result<()> {
+        let service = Service::builder().build("slim/0")?;
+        service.run().await?;
+
+        let client_config = ClientConfig::with_endpoint("http://127.0.0.1:46357");
+        let conn_id = service.connect(client_config).await?;
+        println!("Connected, conn_id={conn_id}");
+        // service and conn_id are passed to create_app in the next tutorial
+
+        Ok(())
+    }
+    ```
 
 === "Python"
 
@@ -382,26 +402,6 @@ With the service initialised, connect to a SLIM node. The connection returns a `
 
     console.log(`Connected, connId=${connId}`);
     // service and connId are passed to createApp in the next tutorial
-    ```
-
-=== "Rust"
-
-    ```rust
-    use slim_service::Service;
-    use slim_service::config::ClientConfig;
-
-    #[tokio::main]
-    async fn main() -> anyhow::Result<()> {
-        let service = Service::builder().build("slim/0")?;
-        service.run().await?;
-
-        let client_config = ClientConfig::with_endpoint("http://127.0.0.1:46357");
-        let conn_id = service.connect(client_config).await?;
-        println!("Connected, conn_id={conn_id}");
-        // service and conn_id are passed to create_app in the next tutorial
-
-        Ok(())
-    }
     ```
 
 ## Next Steps
