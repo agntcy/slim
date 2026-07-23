@@ -119,15 +119,16 @@ enum SessionMessageType {
   SESSION_MESSAGE_TYPE_JOIN_REPLY = 8;
   SESSION_MESSAGE_TYPE_LEAVE_REQUEST = 9;
   SESSION_MESSAGE_TYPE_LEAVE_REPLY = 10;
-  SESSION_MESSAGE_TYPE_GROUP_ADD = 11;
-  SESSION_MESSAGE_TYPE_GROUP_REMOVE = 12;
-  SESSION_MESSAGE_TYPE_GROUP_WELCOME = 13;
-  SESSION_MESSAGE_TYPE_GROUP_CLOSE = 14;
-  SESSION_MESSAGE_TYPE_GROUP_PROPOSAL = 15;
-  SESSION_MESSAGE_TYPE_GROUP_ACK = 16;
-  SESSION_MESSAGE_TYPE_GROUP_NACK = 17;
-  SESSION_MESSAGE_TYPE_HEARTBEAT = 18;
-  SESSION_MESSAGE_TYPE_UPDATE_PARTICIPANT_STATE = 19;
+  SESSION_MESSAGE_TYPE_GROUP_UPDATE = 11;
+  SESSION_MESSAGE_TYPE_GROUP_WELCOME = 12;
+  SESSION_MESSAGE_TYPE_GROUP_CLOSE = 13;
+  SESSION_MESSAGE_TYPE_GROUP_PROPOSAL = 14;
+  SESSION_MESSAGE_TYPE_GROUP_ACK = 15;
+  SESSION_MESSAGE_TYPE_GROUP_NACK = 16;
+  SESSION_MESSAGE_TYPE_HEARTBEAT = 17;
+  SESSION_MESSAGE_TYPE_UPDATE_PARTICIPANT_STATE = 18;
+  SESSION_MESSAGE_TYPE_REJOIN_REQUEST = 19;
+  SESSION_MESSAGE_TYPE_REJOIN_REPLY = 20;
 }
 
 // SLIM message content
@@ -151,26 +152,33 @@ message CommandPayload {
     JoinReplyPayload join_reply = 4;
     LeaveRequestPayload leave_request = 5;
     LeaveReplyPayload leave_reply = 6;
-    GroupAddPayload group_add = 7;
-    GroupRemovePayload group_remove = 8;
-    GroupWelcomePayload group_welcome = 9;
-    GroupClosePayload group_close = 10;
-    GroupProposalPayload group_proposal = 11;
-    GroupAckPayload group_ack = 12;
-    GroupNackPayload group_nack = 13;
-    HeartbeatPayload heartbeat = 14;
-    UpdateParticipantStatePayload update_participant_state = 15;
+    GroupUpdatePayload group_update = 7;
+    GroupWelcomePayload group_welcome = 8;
+    GroupClosePayload group_close = 9;
+    GroupProposalPayload group_proposal = 10;
+    GroupAckPayload group_ack = 11;
+    GroupNackPayload group_nack = 12;
+    HeartbeatPayload heartbeat = 13;
+    UpdateParticipantStatePayload update_participant_state = 14;
+    RejoinRequestPayload rejoin_request = 15;
+    RejoinReplyPayload rejoin_reply = 16;
   }
 }
 
-message Participant {
-  Name name = 1;
-  ParticipantSettings settings = 2;
+enum ParticipantState {
+  ONLINE = 0;
+  OFFLINE = 1;
 }
 
 message ParticipantSettings {
   bool sends_data = 1; // participant produces data messages
   bool receives_data = 2; // participant consumes data messages
+}
+
+message Participant {
+  Name name = 1;
+  ParticipantSettings settings = 2;
+  ParticipantState status = 3;
 }
 
 // Payloads for Command messages
@@ -244,26 +252,24 @@ message HeaderIntegrityAad {
   string payload_type = 9;
 }
 
-// Group Add Payload
-// sent when a new participant is added
-message GroupAddPayload {
-  // new participant to add
-  Participant new_participant = 1;
-  // new list of participants
-  repeated Participant participants = 2;
-  // used only when MLS is enabled
-  optional MlsPayload mls = 3;
+enum GroupUpdateOp {
+  ADD = 0;
+  REMOVE = 1;
+  REJOIN = 2;
 }
 
-// Group Remove Payload
-// sent when a participant is removed
-message GroupRemovePayload {
-  // new participant to add
-  Name removed_participant = 1;
-  // new list of participants
-  repeated Name participants = 2;
+// Group Update Payload
+// sent when participant is added, removed
+// or is rejoining the group
+message GroupUpdatePayload {
+  // operation to perform (add/rm/rejoin)
+  GroupUpdateOp op = 1;
+  // participant that triggered the add/rm/rejoin
+  Participant participant = 2;
+  // updated list of participants and their status
+  repeated Participant participants = 3;
   // used only when MLS is enabled
-  optional MlsPayload mls = 3;
+  optional MlsPayload mls = 4;
 }
 
 // Group Welcome
@@ -305,11 +311,6 @@ message HeartbeatPayload {
   uint64 epoch = 1;
 }
 
-enum ParticipantState {
-  ONLINE = 0;
-  OFFLINE = 1;
-}
-
 // Message to broadcast a participant state change (online/offline).
 // Sent to the group channel and expects GroupAck from all receivers.
 // On rejoin (ONLINE), includes the sender's MLS epoch so receivers
@@ -318,6 +319,24 @@ message UpdateParticipantStatePayload {
   Name participant = 1;
   ParticipantState new_state = 2;
   uint64 epoch = 3;
+}
+
+// sent by participants to the moderator when a NACK is received
+// as reply for UpdateParticipantStatePayload(online). This means
+// that the epoch changed while the participant was offline and
+// we need to create a new key for MLS
+message RejoinRequestPayload {
+  Name participant = 1;
+  bytes key_package = 2;
+}
+
+// reply from the moderator that contains the
+// welcome commit triggered buy the rejoin request
+message RejoinReplyPayload {
+  // the last commit id send by the moderator
+  uint32 commit_id = 1;
+  // welcome mls message
+  bytes mls_content = 2;
 }
 
 // SubscriptionAck is delivered directly to the requesting connection in response

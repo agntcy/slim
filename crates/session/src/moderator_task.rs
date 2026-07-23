@@ -37,6 +37,7 @@ fn unsupported_phase() -> SessionError {
 pub enum ModeratorTask {
     Add(AddParticipant),
     Remove(RemoveParticipant),
+    Rejoin(RejoinParticipant),
     // this task is used both on session close
     // and on disconnection detection. in both cases
     // we need to notify all the participant in the
@@ -60,6 +61,7 @@ impl ModeratorTask {
             ModeratorTask::CloseOrDisconnect(t) => t.ack_tx.take(),
             ModeratorTask::Update(t) => t.ack_tx.take(),
             ModeratorTask::UpdateLocalStatus() => None,
+            ModeratorTask::Rejoin(_) => None,
         }
     }
 
@@ -128,6 +130,7 @@ impl TaskUpdate for ModeratorTask {
     fn welcome_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
         match self {
             ModeratorTask::Add(task) => task.welcome_start(timer_id),
+            ModeratorTask::Rejoin(task) => task.welcome_start(timer_id),
             _ => Err(unsupported_phase()),
         }
     }
@@ -138,6 +141,7 @@ impl TaskUpdate for ModeratorTask {
             ModeratorTask::Remove(task) => task.commit_start(timer_id),
             ModeratorTask::Update(task) => task.commit_start(timer_id),
             ModeratorTask::CloseOrDisconnect(task) => task.commit_start(timer_id),
+            ModeratorTask::Rejoin(task) => task.commit_start(timer_id),
             _ => Err(unsupported_phase()),
         }
     }
@@ -155,6 +159,7 @@ impl TaskUpdate for ModeratorTask {
             ModeratorTask::Remove(task) => task.update_phase_completed(timer_id),
             ModeratorTask::Update(task) => task.update_phase_completed(timer_id),
             ModeratorTask::CloseOrDisconnect(task) => task.update_phase_completed(timer_id),
+            ModeratorTask::Rejoin(task) => task.update_phase_completed(timer_id),
             _ => Err(unsupported_phase()),
         }
     }
@@ -165,6 +170,7 @@ impl TaskUpdate for ModeratorTask {
             ModeratorTask::Remove(task) => task.task_complete(),
             ModeratorTask::Update(task) => task.task_complete(),
             ModeratorTask::CloseOrDisconnect(task) => task.task_complete(),
+            ModeratorTask::Rejoin(task) => task.task_complete(),
             ModeratorTask::UpdateLocalStatus() => true,
         }
     }
@@ -556,6 +562,89 @@ impl TaskUpdate for UpdateParticipant {
 
     fn task_complete(&self) -> bool {
         self.proposal.received && self.commit.received
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct RejoinParticipant {
+    welcome: State,
+    commit: State,
+}
+
+impl RejoinParticipant {
+    pub(crate) fn new() -> Self {
+        Self {
+            welcome: Default::default(),
+            commit: Default::default(),
+        }
+    }
+}
+
+impl TaskUpdate for RejoinParticipant {
+    fn discovery_start(&mut self, _timer_id: u32) -> Result<(), SessionError> {
+        Err(unsupported_phase())
+    }
+
+    fn discovery_complete(&mut self, _timer_id: u32) -> Result<(), SessionError> {
+        Err(unsupported_phase())
+    }
+
+    fn join_start(&mut self, _timer_id: u32) -> Result<(), SessionError> {
+        Err(unsupported_phase())
+    }
+
+    fn join_complete(&mut self, _timer_id: u32) -> Result<(), SessionError> {
+        Err(unsupported_phase())
+    }
+
+    fn leave_start(&mut self, _timer_id: u32) -> Result<(), SessionError> {
+        Err(unsupported_phase())
+    }
+
+    fn leave_complete(&mut self, _timer_id: u32) -> Result<(), SessionError> {
+        Err(unsupported_phase())
+    }
+
+    fn welcome_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
+        debug!(%timer_id, "start welcome on RejoinParticipant task");
+        self.welcome.received = false;
+        self.welcome.timer_id = timer_id;
+        Ok(())
+    }
+
+    fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError> {
+        debug!(%timer_id, "start commit on RejoinParticipant task");
+        self.commit.received = false;
+        self.commit.timer_id = timer_id;
+        Ok(())
+    }
+
+    fn proposal_start(&mut self, _timer_id: u32) -> Result<(), SessionError> {
+        Err(unsupported_phase())
+    }
+
+    fn update_phase_completed(&mut self, timer_id: u32) -> Result<(), SessionError> {
+        if self.welcome.timer_id == timer_id {
+            self.welcome.received = true;
+            debug!(
+                %timer_id,
+                "welcome completed on RejoinParticipant task",
+            );
+        } else if self.commit.timer_id == timer_id {
+            self.commit.received = true;
+            debug!(
+                %timer_id,
+                "commit completed on RejoinParticipant task",
+            );
+        } else {
+            return Err(SessionError::ModeratorTaskUnexpectedTimerId(timer_id));
+        }
+
+        Ok(())
+    }
+
+    fn task_complete(&self) -> bool {
+        self.welcome.received && self.commit.received
     }
 }
 
