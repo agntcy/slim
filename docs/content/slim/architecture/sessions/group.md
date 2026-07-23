@@ -133,6 +133,36 @@ Groups optionally use the [MLS protocol](https://www.rfc-editor.org/rfc/rfc9420.
 
 When MLS is disabled, the group still has consistent membership state and reliable delivery, but messages are not end-to-end encrypted beyond whatever transport-layer TLS is in use.
 
+## Participant Liveness and Disconnection Detection
+
+Group participants have two states: **online** and **offline**. Online participants are active members of the group — they are expected to acknowledge messages sent to the channel and are included in MLS key material. Offline participants remain on the group roster and hold a valid slot in the group, but are not currently participating and are excluded from message acknowledgement and key rotations. An offline participant can come back online at any time without being reinvited.
+
+This is distinct from being removed from the group, which is a moderator-initiated operation that permanently revokes roster membership and requires a new invite to return.
+
+### Graceful offline transition
+
+A participant that wants to stop participating temporarily can broadcast an `OFFLINE` state update to the group channel. Other members mark it as offline, stop expecting acknowledgements from it, and exclude it from future MLS key material — but do not remove it from the roster. When the participant is ready to resume, it broadcasts an `ONLINE` state update and the group performs an MLS re-key to include it in new key material.
+
+### Crash and unexpected disconnection
+
+The graceful path requires the participant to be running in order to broadcast the state update. To protect against participants that crash, lose network connectivity, or otherwise go offline without sending an `OFFLINE` update, SLIM uses a decentralised heartbeat mechanism. Each online member periodically broadcasts a one-way heartbeat to the group channel. Every other member independently tracks liveness by counting consecutive missed heartbeat intervals per peer. Once the threshold is exceeded, the peer is considered offline locally — no moderator coordination is required.
+
+When a participant that was marked offline via the heartbeat mechanism later sends a message or heartbeat, the remaining members re-include it automatically.
+
+### Rejoining
+
+If a participant's local MLS epoch is out of sync with the current group epoch when it comes back online, the re-key protocol reconciles the mismatch automatically before messaging resumes. For participants that need to survive restarts without epoch loss, see [Session State Persistence](#session-state-persistence).
+
+## Session State Persistence
+
+Group sessions can be configured to persist their state to an encrypted, SQLite-backed key-value store (provided by the `agntcy-slim-persistence` crate). When persistence is enabled:
+
+- MLS group state and session metadata survive application restarts
+- On restart, the session layer restores from the store and the participant can re-enter the group without repeating the discovery, invite, and welcome handshake
+- The state store is encrypted at rest; the encryption key is derived from the application's identity material
+
+Persistence is optional and configured at the app level when building the session. When disabled (the default), all session state is in-memory and lost on process exit.
+
 ## Use Cases
 
 **Multi-agent task groups** — A coordinator agent creates a group and invites specialist agents to collaborate on a task. The coordinator holds the moderator role and controls which agents participate at each stage.

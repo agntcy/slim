@@ -4,8 +4,8 @@ This document provides comprehensive documentation for configuring the SLIM data
 
 This documentation corresponds to the JSON schemas in the SLIM repository:
   
-- [Client Configuration Schema](https://github.com/agntcy/slim/blob/slim-v1.1.0/data-plane/core/config/src/grpc/schema/client-config.schema.json)
-- [Server Configuration Schema](https://github.com/agntcy/slim/blob/slim-v1.1.0/data-plane/core/config/src/grpc/schema/server-config.schema.json)
+- [Client Configuration Schema](https://github.com/agntcy/slim/blob/slim-v2.0.0-alpha.7/data-plane/core/config/src/grpc/schema/client-config.schema.json)
+- [Server Configuration Schema](https://github.com/agntcy/slim/blob/slim-v2.0.0-alpha.7/data-plane/core/config/src/grpc/schema/server-config.schema.json)
 
 ## Configuration Structure Overview
 

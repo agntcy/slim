@@ -27,8 +27,8 @@ By the end of this guide you will have a SLIM node running locally and a Python 
 === "macOS (Apple Silicon)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl_1.2.0_darwin_arm64.tar.gz
-    tar -xzf slimctl_1.2.0_darwin_arm64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl_2.0.0-alpha.7_darwin_arm64.tar.gz
+    tar -xzf slimctl_2.0.0-alpha.7_darwin_arm64.tar.gz
     sudo mv slimctl /usr/local/bin/
     ```
 
@@ -41,24 +41,24 @@ By the end of this guide you will have a SLIM node running locally and a Python 
 === "macOS (Intel)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl_1.2.0_darwin_amd64.tar.gz
-    tar -xzf slimctl_1.2.0_darwin_amd64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl_2.0.0-alpha.7_darwin_amd64.tar.gz
+    tar -xzf slimctl_2.0.0-alpha.7_darwin_amd64.tar.gz
     sudo mv slimctl /usr/local/bin/
     ```
 
 === "Linux (AMD64)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl_1.2.0_linux_amd64.tar.gz
-    tar -xzf slimctl_1.2.0_linux_amd64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl_2.0.0-alpha.7_linux_amd64.tar.gz
+    tar -xzf slimctl_2.0.0-alpha.7_linux_amd64.tar.gz
     sudo mv slimctl /usr/local/bin/
     ```
 
 === "Linux (ARM64)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl_1.2.0_linux_arm64.tar.gz
-    tar -xzf slimctl_1.2.0_linux_arm64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl_2.0.0-alpha.7_linux_arm64.tar.gz
+    tar -xzf slimctl_2.0.0-alpha.7_linux_arm64.tar.gz
     sudo mv slimctl /usr/local/bin/
     ```
 
@@ -102,7 +102,7 @@ Install the SLIM bindings for your language:
 === "Go"
 
     ```bash
-    go get github.com/agntcy/slim-bindings-go@v1.1.0
+    go get github.com/agntcy/slim-bindings-go@v2.0.0-alpha.9
     # Run the setup tool to download the native library
     go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup
     ```

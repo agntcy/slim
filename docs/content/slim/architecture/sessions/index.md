@@ -10,6 +10,7 @@ The session layer is responsible for four concerns:
 - **Reliable delivery**: Sessions can be configured with acknowledgement and retry logic. Each message must be acknowledged by the recipient; unacknowledged messages are retried up to a configurable limit.
 - **Session establishment**: The session layer handles the protocol exchange required to bind two or more endpoints together before messages flow, including discovery, key exchange, and MLS group setup.
 - **Channel management**: For group sessions, the session layer manages membership — tracking who is in the group, coordinating additions and removals, and distributing updated key material.
+- **Session persistence**: Group session state (MLS key material and membership) can optionally be persisted to an encrypted store so sessions survive application restarts and participants can rejoin without repeating the full handshake.
 
 ## Session Properties
 

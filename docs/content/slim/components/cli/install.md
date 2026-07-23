@@ -9,8 +9,8 @@ Download the binary for your platform from the [GitHub releases page](https://gi
 === "macOS (Apple Silicon)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl_1.2.0_darwin_arm64.tar.gz
-    tar -xzf slimctl_1.2.0_darwin_arm64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl_2.0.0-alpha.7_darwin_arm64.tar.gz
+    tar -xzf slimctl_2.0.0-alpha.7_darwin_arm64.tar.gz
     sudo mv slimctl /usr/local/bin/slimctl
     sudo chmod +x /usr/local/bin/slimctl
     ```
@@ -27,8 +27,8 @@ Download the binary for your platform from the [GitHub releases page](https://gi
 === "macOS (Intel)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl_1.2.0_darwin_amd64.tar.gz
-    tar -xzf slimctl_1.2.0_darwin_amd64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl_2.0.0-alpha.7_darwin_amd64.tar.gz
+    tar -xzf slimctl_2.0.0-alpha.7_darwin_amd64.tar.gz
     sudo mv slimctl /usr/local/bin/slimctl
     sudo chmod +x /usr/local/bin/slimctl
     ```
@@ -36,8 +36,8 @@ Download the binary for your platform from the [GitHub releases page](https://gi
 === "Linux (AMD64)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl_1.2.0_linux_amd64.tar.gz
-    tar -xzf slimctl_1.2.0_linux_amd64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl_2.0.0-alpha.7_linux_amd64.tar.gz
+    tar -xzf slimctl_2.0.0-alpha.7_linux_amd64.tar.gz
     sudo mv slimctl /usr/local/bin/slimctl
     sudo chmod +x /usr/local/bin/slimctl
     ```
@@ -45,8 +45,8 @@ Download the binary for your platform from the [GitHub releases page](https://gi
 === "Linux (ARM64)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl_1.2.0_linux_arm64.tar.gz
-    tar -xzf slimctl_1.2.0_linux_arm64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl_2.0.0-alpha.7_linux_arm64.tar.gz
+    tar -xzf slimctl_2.0.0-alpha.7_linux_arm64.tar.gz
     sudo mv slimctl /usr/local/bin/slimctl
     sudo chmod +x /usr/local/bin/slimctl
     ```
@@ -54,24 +54,24 @@ Download the binary for your platform from the [GitHub releases page](https://gi
 === "Windows (AMD64)"
 
     ```powershell
-    Invoke-WebRequest -Uri "https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl-windows-amd64.zip" -OutFile "slimctl.zip"
+    Invoke-WebRequest -Uri "https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl-windows-amd64.zip" -OutFile "slimctl.zip"
     Expand-Archive -Path "slimctl.zip" -DestinationPath "."
 
     # Move to a directory in your PATH (e.g., C:\Program Files\slimctl\)
     ```
 
-    Alternatively, download directly from the [releases page](https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl-windows-amd64.zip).
+    Alternatively, download directly from the [releases page](https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl-windows-amd64.zip).
 
 === "Windows (ARM64)"
 
     ```powershell
-    Invoke-WebRequest -Uri "https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl-windows-arm64.zip" -OutFile "slimctl.zip"
+    Invoke-WebRequest -Uri "https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl-windows-arm64.zip" -OutFile "slimctl.zip"
     Expand-Archive -Path "slimctl.zip" -DestinationPath "."
 
     # Move to a directory in your PATH (e.g., C:\Program Files\slimctl\)
     ```
 
-    Alternatively, download directly from the [releases page](https://github.com/agntcy/slim/releases/download/slimctl-v1.2.0/slimctl-windows-arm64.zip).
+    Alternatively, download directly from the [releases page](https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl-windows-arm64.zip).
 
 ## Homebrew (macOS)
 
