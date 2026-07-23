@@ -10,7 +10,7 @@ The SLIM Data Plane is the core routing and forwarding component. Install it usi
 Pull the SLIM container image and run it with a configuration file:
 
 ```bash
-docker pull ghcr.io/agntcy/slim:1.0.0
+docker pull ghcr.io/agntcy/slim:2.0.0-alpha.7
 ```
 
 Create a minimal configuration file:
@@ -43,7 +43,7 @@ Run the container:
 ```bash
 docker run -it \
     -v ./config.yaml:/config.yaml -p 46357:46357 \
-    ghcr.io/agntcy/slim:1.0.0 /slim --config /config.yaml
+    ghcr.io/agntcy/slim:2.0.0-alpha.7 /slim --config /config.yaml
 ```
 
 ## Cargo
@@ -65,11 +65,11 @@ Create a configuration file (see the Docker example above), then run SLIM:
 For Kubernetes deployments, use the official Helm chart:
 
 ```bash
-helm pull oci://ghcr.io/agntcy/slim/helm/slim --version v1.1.0
+helm pull oci://ghcr.io/agntcy/slim/helm/slim --version v2.0.0-alpha.7
 ```
 
 !!! note "Configuration"
-    For detailed Helm configuration options, see the [values.yaml](https://github.com/agntcy/slim/blob/slim-v1.1.0/charts/slim/values.yaml) in the repository.
+    For detailed Helm configuration options, see the [values.yaml](https://github.com/agntcy/slim/blob/slim-v2.0.0-alpha.7/charts/slim/values.yaml) in the repository.
 
 ## CLI Binary (`slimctl`)
 

@@ -10,7 +10,7 @@ The SLIM Controller is the management component for SLIM infrastructure. Install
 Pull the controller image:
 
 ```bash
-docker pull ghcr.io/agntcy/slim/control-plane:1.0.0
+docker pull ghcr.io/agntcy/slim/control-plane:2.0.0-alpha.7
 ```
 
 Create a configuration file:
@@ -46,7 +46,7 @@ Run the controller:
 docker run -it \
     -v ./slim-control-plane.yaml:/config.yaml -v .:/db \
     -p 50051:50051 -p 50052:50052                      \
-    ghcr.io/agntcy/slim/control-plane:1.0.0           \
+    ghcr.io/agntcy/slim/control-plane:2.0.0-alpha.7           \
     -config /config.yaml
 ```
 
@@ -55,7 +55,7 @@ docker run -it \
 For Kubernetes deployments:
 
 ```bash
-helm pull oci://ghcr.io/agntcy/slim/helm/slim-control-plane --version v1.1.0
+helm pull oci://ghcr.io/agntcy/slim/helm/slim-control-plane --version v2.0.0-alpha.7
 ```
 
 ## Building from Source
