@@ -33,6 +33,8 @@ struct GetrandomRng {
     error: Option<getrandom::Error>,
 }
 
+// `TryRng` requires `Result<_, Infallible>`, so these methods always return `Ok`.
+// Callers must check [`GetrandomRng::error`] after any `ml_kem` call that used this RNG.
 impl TryRng for GetrandomRng {
     type Error = Infallible;
 
@@ -48,6 +50,7 @@ impl TryRng for GetrandomRng {
         Ok(u64::from_le_bytes(buf))
     }
 
+    /// Always returns `Ok(())`; on `getrandom` failure sets [`Self::error`] instead.
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
         if let Err(e) = getrandom::fill(dest) {
             self.error = Some(e);
