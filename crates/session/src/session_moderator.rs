@@ -6,8 +6,6 @@ use std::{
     time::Duration,
 };
 
-use display_error_chain::ErrorChainExt;
-
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -406,8 +404,9 @@ where
         // Shutdown inner layer
         MessageHandler::on_shutdown(&mut self.inner).await?;
 
-        self.send_close_signal().await;
-
+        // Note: signalling the session layer to delete the session is done
+        // uniformly for both roles in the controller's processing loop after
+        // `on_shutdown`, so there is nothing role-specific to do here.
         Ok(())
     }
 }
@@ -1963,24 +1962,6 @@ where
     #[allow(dead_code)]
     async fn on_mls_proposal(&mut self, _msg: Message) -> Result<(), SessionError> {
         todo!()
-    }
-
-    async fn send_close_signal(&mut self) {
-        debug!("Signal session layer to close the session, all tasks are done");
-
-        // notify the session layer
-        let res = self
-            .common
-            .settings
-            .tx_to_session_layer
-            .send(Ok(SessionMessage::DeleteSession {
-                session_id: self.common.settings.id,
-            }))
-            .await;
-
-        if let Err(e) = res {
-            tracing::error!(error = %e.chain(), "an error occurred while signaling session close");
-        }
     }
 }
 
