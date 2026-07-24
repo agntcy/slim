@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.7.2](https://github.com/agntcy/slim/compare/slim-testutils-v0.7.1...slim-testutils-v0.7.2) (2026-07-24)
+
+
+### Features
+
+* add header integrity check and replay protection to control messages ([#1740](https://github.com/agntcy/slim/issues/1740)) ([07440be](https://github.com/agntcy/slim/commit/07440be908cfb443ac6b8f01d8d0dbf84ad31b29))
+* add websocket supports for the browser ([#1775](https://github.com/agntcy/slim/issues/1775)) ([2dbdb0c](https://github.com/agntcy/slim/commit/2dbdb0c504d6af09f89725f5a486d17b08d3c9c7))
+* **bindings:** expose session close/rejoin ([#1896](https://github.com/agntcy/slim/issues/1896)) ([c8fa51f](https://github.com/agntcy/slim/commit/c8fa51f789b72ea91f3664cd81d67b1c9ab24357))
+* **session:** encrypted MLS + session state persistence and restore ([#1820](https://github.com/agntcy/slim/issues/1820)) ([bf06ac1](https://github.com/agntcy/slim/commit/bf06ac1ae80fdc3918605637e4b8a36cdf4e5b08))
+
 ## [0.7.1](https://github.com/agntcy/slim/compare/slim-testutils-v0.7.0...slim-testutils-v0.7.1) (2025-11-21)
 
 
