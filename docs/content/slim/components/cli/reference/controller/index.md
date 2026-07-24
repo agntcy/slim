@@ -1,6 +1,6 @@
 # slimctl controller
 
-Interact with the SLIM Control Plane to manage nodes, routes, connections, links, groups, and network segments across your SLIM deployment.
+Interact with the SLIM Control Plane to manage nodes, routes, connections, links, domains, and network segments across your SLIM deployment.
 
 **Aliases:** `c`, `ctrl`
 
@@ -20,7 +20,7 @@ slimctl controller <COMMAND>
 | [`connection`](./connection/index.md) | `conn` | List active connections via the Controller |
 | [`route`](./route/index.md) | — | Manage routes via the Controller |
 | [`link`](./link/index.md) | — | List inter-node links |
-| [`group`](./group/index.md) | — | List routing groups |
+| [`domain`](./domain/index.md) | — | List routing domains |
 | [`segment`](./segment/index.md) | — | List network segments |
 
 ## Inherited Options

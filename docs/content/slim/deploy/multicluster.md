@@ -35,14 +35,14 @@ Each cluster runs its own SPIRE server with a unique trust domain. SPIRE federat
 
 ## Key Configuration Concepts
 
-### `group_name`
+### `domain_name`
 
-Every SLIM node is assigned a `group_name` that identifies which cluster it belongs to. The Controller uses this to group nodes and propagate routes between clusters.
+Every SLIM node is assigned a `domain_name` that identifies which cluster it belongs to. The Controller uses this to group nodes and propagate routes between clusters.
 
 ```yaml
 services:
   slim/0:
-    group_name: "cluster-a.example"
+    domain_name: "cluster-a.example"
 ```
 
 ### `local_endpoint` and `external_endpoint`
@@ -131,7 +131,7 @@ slim:
     services:
       slim/0:
         node_id: ${env:SLIM_SVC_ID}
-        group_name: "cluster-a.example"
+        domain_name: "cluster-a.example"
         dataplane:
           servers:
             - endpoint: "0.0.0.0:46357"
@@ -223,7 +223,7 @@ slim:
   config:
     services:
       slim/0:
-        group_name: "cluster-a.example"
+        domain_name: "cluster-a.example"
         dataplane:
           servers:
             # Internal port — in-cluster traffic
@@ -291,7 +291,7 @@ slim:
   config:
     services:
       slim/0:
-        group_name: "cluster-b.example"
+        domain_name: "cluster-b.example"
         dataplane:
           servers:
             - endpoint: "0.0.0.0:46357"

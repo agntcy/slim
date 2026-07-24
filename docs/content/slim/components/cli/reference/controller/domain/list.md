@@ -1,19 +1,19 @@
-# slimctl controller group list
+# slimctl controller domain list
 
-List all routing groups and the nodes they contain.
+List all routing domains and the nodes they contain.
 
 **Aliases:** `ls`
 
 ## Usage
 
 ```
-slimctl controller group list
+slimctl controller domain list
 ```
 
 ## Examples
 
 ```bash
-slimctl controller group list
+slimctl controller domain list
 ```
 
 ## Options
@@ -22,7 +22,7 @@ No options.
 
 ## Inherited Options
 
-Options inherited from [`slimctl controller group`](./index.md), [`slimctl controller`](../index.md), and [`slimctl`](../../index.md):
+Options inherited from [`slimctl controller domain`](./index.md), [`slimctl controller`](../index.md), and [`slimctl`](../../index.md):
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
