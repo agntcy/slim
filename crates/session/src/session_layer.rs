@@ -734,7 +734,9 @@ where
             Err(SessionError::CannotRejoinP2P) => {}
             Err(e) => {
                 warn!(%session_id, error = %e.chain(), "failed to send rejoin after restore; dropping session");
-                self.pool.write().remove(&session_id);
+                // Route removal through DeleteSession (the single pool-removal
+                // path) by terminating the just-restored controller.
+                let _ = controller.terminate();
                 return Err(e);
             }
         }
@@ -747,6 +749,9 @@ where
         mut rx_session: tokio::sync::mpsc::Receiver<Result<SessionMessage, SessionError>>,
     ) {
         let pool_clone = self.pool.clone();
+        // Cloned so a session teardown can also drop its persisted footprint.
+        let kv_store = self.kv_store.clone();
+        let group_storage = self.group_storage.clone();
         let sessions_span = tracing::info_span!(parent: None, "listen_from_sessions", service_id = %self.service_id);
 
         tokio::spawn(async move {
@@ -758,6 +763,30 @@ where
                                 debug!(%session_id, "received closing signal, cancel session from the pool");
                                 if pool_clone.write().remove(&session_id).is_none() {
                                     warn!(%session_id, "requested to delete unknown session");
+                                }
+                                // A DeleteSession is only sent on a permanent
+                                // teardown (hard close or group leave), never on
+                                // a graceful shutdown, so it is safe to drop the
+                                // session's whole persistent footprint here — its
+                                // MLS group state and its session record — so it
+                                // is not restored on the next start.
+                                if let Some(kv) = &kv_store {
+                                    let key = crate::persistence::session_key(session_id);
+                                    // Delete the MLS group state first: the group
+                                    // id lives in the session record we are about
+                                    // to remove, so read it before deleting.
+                                    if let Some(gs) = &group_storage
+                                        && let Ok(Some(bytes)) = kv.get(&key)
+                                        && let Ok(record) =
+                                            crate::persistence::PersistedSession::from_bytes(&bytes)
+                                        && let Some(group_id) = record.group_id
+                                        && let Err(e) = gs.delete_group(&group_id)
+                                    {
+                                        warn!(%session_id, error = %e.chain(), "failed to delete MLS group state");
+                                    }
+                                    if let Err(e) = kv.delete(&key) {
+                                        warn!(%session_id, error = %e.chain(), "failed to delete persisted session record");
+                                    }
                                 }
                             }
                             Some(Ok(m)) => {
@@ -791,19 +820,15 @@ where
 
     /// Clear all sessions and return completion handles to await on
     pub fn clear_all_sessions(&self) -> HashMap<u32, Result<CompletionHandle, SessionError>> {
-        let pool = {
-            let mut pool = self.pool.write();
-            let copy = pool.clone();
-            pool.clear();
-            copy
-        };
-
-        // Leave all sessions and return completion handles
-        pool.iter()
-            .map(|(id, session)| {
-                let result = session.terminate();
-                (*id, result)
-            })
+        // Terminate each session. Terminating cancels the processing loop, which
+        // emits `DeleteSession` — the single path that removes a session from the
+        // pool (and deletes its persisted footprint); we do not touch the pool
+        // directly here. `terminate` is synchronous and never re-enters the pool
+        // lock, so iterating under the read lock is safe.
+        self.pool
+            .read()
+            .iter()
+            .map(|(id, session)| (*id, session.terminate()))
             .collect()
     }
 
@@ -1048,6 +1073,16 @@ where
     /// Get a session from the pool (for testing purposes)
     pub fn get_session(&self, id: u32) -> Option<Arc<SessionController>> {
         self.pool.read().get(&id).cloned()
+    }
+
+    /// The MLS group ids currently held in the group store (for testing /
+    /// introspection). Empty when persistence/MLS storage is disabled.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn stored_mls_group_ids(&self) -> Vec<Vec<u8>> {
+        self.group_storage
+            .as_ref()
+            .and_then(|g| g.stored_groups().ok())
+            .unwrap_or_default()
     }
 }
 
