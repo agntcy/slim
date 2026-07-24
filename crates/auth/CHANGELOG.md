@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.1](https://github.com/agntcy/slim/compare/slim-auth-v0.14.0...slim-auth-v0.14.1) - 2026-07-24
+
+### Added
+
+- *(session)* encrypted MLS + session state persistence and restore ([#1820](https://github.com/agntcy/slim/pull/1820))
+
 ## [0.14.0](https://github.com/agntcy/slim/compare/slim-auth-v0.13.1...slim-auth-v0.14.0) - 2026-07-20
 
 ### Fixed

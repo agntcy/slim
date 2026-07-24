@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0](https://github.com/agntcy/slim/compare/slim-config-v0.12.6...slim-config-v0.13.0) - 2026-07-24
+
+### Added
+
+- increase post-quantum crypto coverage for wasm and add hybrid key exchange ([#1887](https://github.com/agntcy/slim/pull/1887))
+
 ## [0.12.6](https://github.com/agntcy/slim/compare/slim-config-v0.12.5...slim-config-v0.12.6) - 2026-07-20
 
 ### Other

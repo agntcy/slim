@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.8](https://github.com/agntcy/slim/compare/slim-control-plane-v2.0.0-alpha.7...slim-control-plane-v2.0.0-alpha.8) - 2026-07-24
+
+### Fixed
+
+- link recreation after node restart ([#1898](https://github.com/agntcy/slim/pull/1898))
+
+### Other
+
+- rename group in domain ([#1891](https://github.com/agntcy/slim/pull/1891))
+
 ## [2.0.0-alpha.5](https://github.com/agntcy/slim/compare/slim-control-plane-v2.0.0-alpha.4...slim-control-plane-v2.0.0-alpha.5) - 2026-07-16
 
 ### Other

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/agntcy/slim/compare/slim-proto-v0.4.0...slim-proto-v0.5.0) - 2026-07-24
+
+### Added
+
+- increase post-quantum crypto coverage for wasm and add hybrid key exchange ([#1887](https://github.com/agntcy/slim/pull/1887))
+- *(session)* add mls re-key on rejon ([#1875](https://github.com/agntcy/slim/pull/1875))
+
+### Other
+
+- rename group in domain ([#1891](https://github.com/agntcy/slim/pull/1891))
+
 ## [0.4.0](https://github.com/agntcy/slim/compare/slim-proto-v0.3.4...slim-proto-v0.4.0) - 2026-07-20
 
 ### Added

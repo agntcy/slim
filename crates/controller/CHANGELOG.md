@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0](https://github.com/agntcy/slim/compare/slim-controller-v0.11.5...slim-controller-v0.12.0) - 2026-07-24
+
+### Added
+
+- increase post-quantum crypto coverage for wasm and add hybrid key exchange ([#1887](https://github.com/agntcy/slim/pull/1887))
+
+### Other
+
+- rename group in domain ([#1891](https://github.com/agntcy/slim/pull/1891))
+
 ## [0.11.5](https://github.com/agntcy/slim/compare/slim-controller-v0.11.4...slim-controller-v0.11.5) - 2026-07-20
 
 ### Other
