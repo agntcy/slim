@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.10](https://github.com/agntcy/slim/compare/slim-bindings-v2.0.0-alpha.9...slim-bindings-v2.0.0-alpha.10) - 2026-07-24
+
+### Added
+
+- increase post-quantum crypto coverage for wasm and add hybrid key exchange ([#1887](https://github.com/agntcy/slim/pull/1887))
+- *(bindings)* expose session close/rejoin ([#1896](https://github.com/agntcy/slim/pull/1896))
+- *(session)* encrypted MLS + session state persistence and restore ([#1820](https://github.com/agntcy/slim/pull/1820))
+
+### Other
+
+- *(session)* unify close into close() + close_with_mode(CloseMode) ([#1900](https://github.com/agntcy/slim/pull/1900))
+- rename group in domain ([#1891](https://github.com/agntcy/slim/pull/1891))
+
 ## [2.0.0-alpha.9](https://github.com/agntcy/slim/compare/slim-bindings-v2.0.0-alpha.8...slim-bindings-v2.0.0-alpha.9) - 2026-07-20
 
 ### Other

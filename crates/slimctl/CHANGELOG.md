@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.8](https://github.com/agntcy/slim/compare/slimctl-v2.0.0-alpha.7...slimctl-v2.0.0-alpha.8) - 2026-07-24
+
+### Other
+
+- *(session)* unify close into close() + close_with_mode(CloseMode) ([#1900](https://github.com/agntcy/slim/pull/1900))
+- rename group in domain ([#1891](https://github.com/agntcy/slim/pull/1891))
+
 ## [2.0.0-alpha.7](https://github.com/agntcy/slim/compare/slimctl-v2.0.0-alpha.6...slimctl-v2.0.0-alpha.7) - 2026-07-20
 
 ### Added

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.8](https://github.com/agntcy/slim/compare/slim-channel-manager-v2.0.0-alpha.7...slim-channel-manager-v2.0.0-alpha.8) - 2026-07-24
+
+### Added
+
+- *(bindings)* expose session close/rejoin ([#1896](https://github.com/agntcy/slim/pull/1896))
+
 ## [2.0.0-alpha.5](https://github.com/agntcy/slim/compare/slim-channel-manager-v2.0.0-alpha.4...slim-channel-manager-v2.0.0-alpha.5) - 2026-07-16
 
 ### Other
