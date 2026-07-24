@@ -430,17 +430,132 @@ On the next startup, create a new app using the **same name, secret, store path,
     }
     ```
 
-## Close and Rejoin (Coming Soon)
+## Close and Rejoin
 
-!!! note "Not yet available in SDK bindings"
-    The `close` and `rejoin` operations — which let a participant explicitly go offline and return without a restart — exist in the Rust session layer but are not yet surfaced in the SDK language bindings. They will be added in a future release.
+Call `close` to broadcast an `OFFLINE` state update and pause participation. Other group members stop expecting acknowledgements from this participant and exclude it from future MLS key material — but do not remove it from the roster. Call `rejoin` when ready to resume; the session layer broadcasts an `ONLINE` update and performs an MLS re-key to include the participant in new key material.
 
-    Once available, the flow will be:
+!!! note "Group sessions only"
+    `close` and `rejoin` are only valid for group sessions. Calling either on a point-to-point session returns an error.
 
-    1. Call `session.close()` to broadcast an `OFFLINE` state update and pause participation. Other group members stop expecting acknowledgements from this participant and rotate them out of MLS key material.
-    2. Call `session.rejoin()` to broadcast an `ONLINE` state update and re-enter the group. The session layer performs an MLS re-key to include the participant in new key material.
+### Close
 
-    Until then, use the restart-and-restore flow described above for any scenario requiring a participant to temporarily leave a session.
+=== "Rust"
+
+    ```rust
+    // Broadcast OFFLINE and wait for acknowledgements
+    session.close().await?.await?;
+    println!("Offline — other members will stop expecting acks from us");
+    ```
+
+=== "Python"
+
+    ```python
+    # Broadcast OFFLINE and wait for acknowledgements
+    await session.close_and_wait_async()
+    print("Offline — other members will stop expecting acks from us")
+    ```
+
+=== "Go"
+
+    ```go
+    // Broadcast OFFLINE and wait for acknowledgements
+    if err := session.CloseAndWaitAsync(); err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println("Offline — other members will stop expecting acks from us")
+    ```
+
+=== "Java"
+
+    ```java
+    // Broadcast OFFLINE and wait for acknowledgements
+    session.closeAndWait();
+    System.out.println("Offline — other members will stop expecting acks from us");
+    ```
+
+=== "Kotlin"
+
+    ```kotlin
+    // Broadcast OFFLINE and wait for acknowledgements
+    session.closeAndWaitAsync()
+    println("Offline — other members will stop expecting acks from us")
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    // Broadcast OFFLINE and wait for acknowledgements
+    await session.closeAndWaitAsync();
+    console.log("Offline — other members will stop expecting acks from us");
+    ```
+
+=== ".NET"
+
+    ```csharp
+    // Broadcast OFFLINE and wait for acknowledgements
+    await session.CloseAndWaitAsync();
+    Console.WriteLine("Offline — other members will stop expecting acks from us");
+    ```
+
+### Rejoin
+
+=== "Rust"
+
+    ```rust
+    // Broadcast ONLINE and wait for acknowledgements
+    session.rejoin().await?.await?;
+    println!("Back online — MLS re-key complete");
+    ```
+
+=== "Python"
+
+    ```python
+    # Broadcast ONLINE and wait for acknowledgements
+    await session.rejoin_and_wait_async()
+    print("Back online — MLS re-key complete")
+    ```
+
+=== "Go"
+
+    ```go
+    // Broadcast ONLINE and wait for acknowledgements
+    if err := session.RejoinAndWaitAsync(); err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println("Back online — MLS re-key complete")
+    ```
+
+=== "Java"
+
+    ```java
+    // Broadcast ONLINE and wait for acknowledgements
+    session.rejoinAndWait();
+    System.out.println("Back online — MLS re-key complete");
+    ```
+
+=== "Kotlin"
+
+    ```kotlin
+    // Broadcast ONLINE and wait for acknowledgements
+    session.rejoinAndWaitAsync()
+    println("Back online — MLS re-key complete")
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    // Broadcast ONLINE and wait for acknowledgements
+    await session.rejoinAndWaitAsync();
+    console.log("Back online — MLS re-key complete");
+    ```
+
+=== ".NET"
+
+    ```csharp
+    // Broadcast ONLINE and wait for acknowledgements
+    await session.RejoinAndWaitAsync();
+    Console.WriteLine("Back online — MLS re-key complete");
+    ```
 
 ## Next Steps
 
