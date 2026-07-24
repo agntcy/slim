@@ -228,6 +228,9 @@ async fn run_receiver(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             },
             _ = signal::ctrl_c() => {
                 println!("\n[{full_name}] Received Ctrl+C, shutting down gracefully...");
+                if let Err(e) = session.close_and_wait_async().await {
+                    println!("[{full_name}] Warning: failed to send offline notification: {e}");
+                }
                 println!("[{full_name}] Session state persisted — restart with --rejoin to resume.");
                 break;
             }
