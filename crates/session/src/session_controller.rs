@@ -129,6 +129,19 @@ where
     Ok(())
 }
 
+/// How a session should be closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseMode {
+    /// Soft close: notify the group that this participant is going offline so it
+    /// can be brought back later via [`SessionController::rejoin`]. This is an
+    /// in-memory group operation; if the session is also persisted it survives a
+    /// process restart, but persistence is not required. Not valid for
+    /// point-to-point sessions.
+    Soft,
+    /// Hard close: terminate the session permanently (cancel the processing loop).
+    Hard,
+}
+
 pub struct SessionController {
     /// session id
     pub(crate) id: u32,
@@ -585,23 +598,31 @@ impl SessionController {
             .map_err(|_e| SessionError::SessionControllerSendFailed)
     }
 
-    /// Leave the session: cancels the controller and returns the join handle.
-    /// This terminates the session permanently.
-    pub fn leave(&self) -> Result<tokio::task::JoinHandle<()>, SessionError> {
-        self.cancellation_token.cancel();
-
-        self.handle
-            .lock()
-            .take()
-            .ok_or(SessionError::SessionAlreadyClosed)
+    /// Hard-close the session: terminate it permanently by cancelling the
+    /// processing loop (this is what `leave()` used to do). Convenience wrapper
+    /// for [`Self::close_with_mode`] with [`CloseMode::Hard`].
+    pub fn close(&self) -> Result<CompletionHandle, SessionError> {
+        self.terminate()
     }
 
-    /// Close the session: notifies the group that this participant is going offline.
-    /// The returned CompletionHandle resolves when ACKs are collected or on timeout
-    /// (callers should not assume all participants have acknowledged).
-    /// After completion, the caller should persist the session state and may
-    /// later rejoin using `rejoin()`.
-    pub async fn close(&self) -> Result<CompletionHandle, SessionError> {
+    /// Close the session with an explicit [`CloseMode`].
+    ///
+    /// * [`CloseMode::Soft`] — notify the group that this participant is going
+    ///   offline (`UpdateParticipantState(Offline)`). The session state stays
+    ///   persisted and can be brought back later via [`Self::rejoin`]. The
+    ///   returned handle resolves when the group's ACKs are collected or on
+    ///   timeout (callers should not assume every participant acknowledged).
+    ///   This is an in-memory group operation and does not require persistence.
+    ///   Not valid for point-to-point sessions (returns `CannotCloseP2P`).
+    ///
+    /// * [`CloseMode::Hard`] — terminate the session permanently by cancelling
+    ///   the processing loop. The returned handle wraps the loop's join handle
+    ///   and resolves once it has stopped.
+    pub async fn close_with_mode(&self, mode: CloseMode) -> Result<CompletionHandle, SessionError> {
+        if mode == CloseMode::Hard {
+            return self.terminate();
+        }
+
         if self.session_type() == ProtoSessionType::PointToPoint {
             return Err(SessionError::CannotCloseP2P);
         }
@@ -626,6 +647,19 @@ impl SessionController {
             .build_publish()?;
 
         self.publish_message(msg).await
+    }
+
+    /// Hard teardown: cancel the processing loop and hand back its join handle.
+    /// Shared by the hard path of [`Self::close`] and the session layer's
+    /// synchronous removal paths (`remove_session` / `clear_all_sessions`).
+    pub(crate) fn terminate(&self) -> Result<CompletionHandle, SessionError> {
+        self.cancellation_token.cancel();
+        let handle = self
+            .handle
+            .lock()
+            .take()
+            .ok_or(SessionError::SessionAlreadyClosed)?;
+        Ok(CompletionHandle::from_join_handle(handle))
     }
 
     /// Rejoin the session: notifies the group that this participant is back online.
@@ -1548,7 +1582,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_leave_success() {
+    async fn test_close_success() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_graceful_shutdown_timeout(std::time::Duration::from_secs(2))
             .build();
@@ -1556,7 +1590,7 @@ mod tests {
         let token = controller.cancellation_token.clone();
         assert!(!token.is_cancelled());
 
-        let handle = controller.leave();
+        let handle = controller.close();
         assert!(handle.is_ok(), "got error {}", handle.unwrap_err());
         assert!(token.is_cancelled());
 
@@ -1568,11 +1602,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_leave_already_closed() {
+    async fn test_close_already_closed() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
 
         // Leave once - should succeed
-        let handle = controller.leave();
+        let handle = controller.close();
         assert!(handle.is_ok());
         handle
             .unwrap()
@@ -1580,7 +1614,7 @@ mod tests {
             .expect("processing task should complete");
 
         // Leave again - should fail with appropriate error
-        let result = controller.leave();
+        let result = controller.close();
         assert!(result.is_err());
         match result {
             Err(SessionError::SessionAlreadyClosed) => {
@@ -1591,16 +1625,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_leave_cancels_token_immediately() {
+    async fn test_close_cancels_token_immediately() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
 
         let token = controller.cancellation_token.clone();
 
-        // Verify token is not cancelled before leave
+        // Verify token is not cancelled before close
         assert!(!token.is_cancelled());
 
         // Leave returns immediately after cancelling token
-        let handle = controller.leave();
+        let handle = controller.close();
         assert!(handle.is_ok());
 
         // Token should be cancelled immediately

@@ -1374,6 +1374,14 @@ where
 
         let destination = self.common.settings.destination.clone();
         let control = self.common.settings.control.clone();
+
+        // Restore the control sender's group name so heartbeats resume after a
+        // restart, matching what `on_join_request` does for a fresh join.
+        // Without it a restored session that then sits idle emits no heartbeats
+        // and the moderator eventually marks it offline. For multicast the
+        // heartbeat/control traffic uses the control name.
+        self.common.sender.set_group_name(control.clone());
+
         self.common.add_route(destination.clone(), conn).await?;
         self.common.add_subscription(destination, conn).await?;
         self.common.add_route(control.clone(), conn).await?;
@@ -2795,5 +2803,27 @@ mod tests {
         // Should have added endpoint
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         assert_eq!(participant.inner.get_endpoints_added_count().await, 1);
+    }
+
+    /// Regression test: a restored multicast session must re-establish the
+    /// control sender's group name so heartbeats resume after a restart.
+    #[tokio::test]
+    async fn test_restore_reconnect_sets_group_name_for_heartbeats() {
+        let (mut participant, mut rx_slim, _rx_session_layer, _rx_session) =
+            setup_participant(ProtoSessionType::Multicast);
+
+        // Freshly built (not yet joined/restored): no group name, so the
+        // heartbeat timer would have nothing to broadcast to.
+        assert!(participant.common.sender.group_name().is_none());
+
+        let control = participant.common.settings.control.clone();
+        let sub_mgr = participant.common.settings.subscription_manager.clone();
+        run_with_acks(participant.restore_reconnect(42), &mut rx_slim, &sub_mgr)
+            .await
+            .unwrap();
+
+        // After restore the group name is the control channel, matching a fresh
+        // join, so the heartbeat timer resumes broadcasting.
+        assert_eq!(participant.common.sender.group_name(), Some(&control));
     }
 }
