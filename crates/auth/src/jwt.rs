@@ -23,7 +23,7 @@ use crate::errors::AuthError;
 use crate::file_watcher::FileWatcher;
 use crate::metadata::MetadataMap;
 use crate::resolver::KeyResolver;
-use crate::traits::{Signer, StandardClaims, TokenProvider, Verifier};
+use crate::traits::{ExportedIdentity, Signer, StandardClaims, TokenProvider, Verifier};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -646,6 +646,29 @@ impl TokenProvider for SignerJwt {
     ) -> Result<(), AuthError> {
         self.signature_keys = (private_key, public_key);
         Ok(())
+    }
+
+    fn export_identity(&self) -> Option<ExportedIdentity> {
+        // The JWT signing key is supplied by app config and re-established at
+        // construction, so it is not persisted; only the MLS keypair is (always
+        // present, since keys are generated at construction).
+        Some(ExportedIdentity {
+            // Informational: the subject/id comes from the app config, not the
+            // snapshot; it is not adopted on restore.
+            id: self.get_id().unwrap_or_default(),
+            credential: Vec::new(),
+            signature_secret_key: self.signature_keys.0.clone(),
+            signature_public_key: self.signature_keys.1.clone(),
+        })
+    }
+
+    fn with_restored_identity(mut self, identity: ExportedIdentity) -> Result<Self, AuthError> {
+        // Reinstall the persisted MLS keypair so the restored MLS group's signer
+        // matches. The JWT signing key comes from the app config at
+        // construction; `get_token` reads the MLS pubkey live, so no refresh is
+        // needed.
+        self.signature_keys = (identity.signature_secret_key, identity.signature_public_key);
+        Ok(self)
     }
 }
 

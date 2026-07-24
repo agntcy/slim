@@ -10,6 +10,7 @@ members = [
   "crates/examples",
   "crates/mls",
   "crates/proto",
+  "crates/persistence",
   "crates/rpc",
   "crates/service",
   "crates/session",
@@ -48,6 +49,7 @@ agntcy-slim-control-plane = { path = "crates/control-plane", version = "2.0.0-al
 agntcy-slim-controller = { path = "crates/controller", version = "0.11.5" }
 agntcy-slim-datapath = { path = "crates/datapath", version = "0.16.7" }
 agntcy-slim-mls = { path = "crates/mls", version = "0.2.6" }
+agntcy-slim-persistence = { path = "crates/persistence", version = "0.1.0" }
 agntcy-slim-proto = { path = "crates/proto", version = "0.4.0" }
 agntcy-slim-rpc = { path = "crates/rpc", version = "2.0.0-alpha.7" }
 agntcy-slim-service = { path = "crates/service", version = "0.11.6", default-features = false }
@@ -132,6 +134,11 @@ mls-rs-core = { version = "0.26" }
 mls-rs-crypto-awslc = { version = "0.23" }
 # wasm32-only MLS crypto provider (browser SubtleCrypto, async-only).
 mls-rs-crypto-webcrypto = { version = "0.14" }
+# Plain (statically-bundled) SQLite backend for the persistence crate; values
+# are encrypted by us via aws-lc-rs, so no SQLCipher/OpenSSL is linked.
+mls-rs-provider-sqlite = { version = "0.22", default-features = false, features = [
+    "sqlite-bundled",
+] }
 notify = "8.0.0"
 num_cpus = "1.16"
 oauth2 = { version = "5", default-features = false, features = ["reqwest"] }
@@ -219,9 +226,8 @@ web-time = "1"
 wiremock = "0.6"
 # Pure-Rust X25519 ECDH for the wasm32 inter-node link negotiation (aws-lc-rs is
 # native-only). `static_secrets` exposes the bytes we need for HKDF.
-x25519-dalek = { version = "2", default-features = false, features = [
-  "static_secrets",
-] }
+x25519-dalek = { version = "2", default-features = false, features = ["static_secrets"] }
+zeroize = "1.9"
 
 [workspace.package]
 version = "2.0.0-alpha.7"
@@ -231,19 +237,20 @@ repository = "https://github.com/agntcy/slim"
 
 [workspace.metadata.cargo-machete]
 ignored = [
-  "agntcy-slim",
-  "agntcy-slim-auth",
-  "agntcy-slim-bindings",
-  "agntcy-slim-config",
-  "agntcy-slim-controller",
-  "agntcy-slim-datapath",
-  "agntcy-slim-mls",
-  "agntcy-slim-rpc",
-  "agntcy-slim-service",
-  "agntcy-slim-session",
-  "agntcy-slim-signal",
-  "agntcy-slim-testing",
-  "agntcy-slim-tracing",
-  "agntcy-slim-version",
-  "agntcy-slimctl",
+    "agntcy-slim",
+    "agntcy-slim-auth",
+    "agntcy-slim-bindings",
+    "agntcy-slim-config",
+    "agntcy-slim-controller",
+    "agntcy-slim-datapath",
+    "agntcy-slim-mls",
+    "agntcy-slim-persistence",
+    "agntcy-slim-rpc",
+    "agntcy-slim-service",
+    "agntcy-slim-session",
+    "agntcy-slim-signal",
+    "agntcy-slim-testing",
+    "agntcy-slim-tracing",
+    "agntcy-slim-version",
+    "agntcy-slimctl",
 ]

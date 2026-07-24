@@ -277,6 +277,7 @@ fn default_filter() -> Vec<String> {
         "slim_examples".to_string(),
         "sdk_mock".to_string(),
         "client".to_string(),
+        "channel".to_string(),
     ]
 }
 

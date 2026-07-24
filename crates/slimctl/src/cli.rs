@@ -190,7 +190,7 @@ mod tests {
     use crate::commands::channel_manager::ChannelManagerCommand;
     use crate::commands::config_cmd::{ConfigCommand, SetCommand};
     use crate::commands::controller::{
-        ControllerCommand, ControllerConnectionCommand, ControllerGroupCommand,
+        ControllerCommand, ControllerConnectionCommand, ControllerDomainCommand,
         ControllerNodeCommand, ControllerRouteCommand, ControllerSegmentCommand,
     };
     use crate::commands::node::{NodeCommand, NodeConnectionCommand, NodeRouteCommand};
@@ -432,15 +432,15 @@ mod tests {
     }
 
     #[test]
-    fn parse_controller_group_list() {
-        let cli = parse_ok(&["slimctl", "controller", "group", "list"]);
+    fn parse_controller_domain_list() {
+        let cli = parse_ok(&["slimctl", "controller", "domain", "list"]);
         let Commands::Controller(args) = cli.command else {
             panic!()
         };
-        let ControllerCommand::Group(a) = args.command else {
+        let ControllerCommand::Domain(a) = args.command else {
             panic!()
         };
-        assert!(matches!(a.command, ControllerGroupCommand::List));
+        assert!(matches!(a.command, ControllerDomainCommand::List));
     }
 
     #[test]

@@ -90,8 +90,12 @@ pub trait DataAccess: Send + Sync {
         source_node_id: &str,
         dest_node_id: &str,
     ) -> Result<Option<Link>>;
-    /// Find a non-deleted link between two groups (in either direction).
-    async fn find_link_between_groups(&self, group_a: &str, group_b: &str) -> Result<Option<Link>>;
+    /// Find a non-deleted link between two domains (in either direction).
+    async fn find_link_between_domains(
+        &self,
+        domain_a: &str,
+        domain_b: &str,
+    ) -> Result<Option<Link>>;
 
     /// Atomically check for an existing non-deleted link between the two nodes
     /// (in either direction) and insert `link` only if none exists.
@@ -120,7 +124,7 @@ pub trait DataAccess: Send + Sync {
     /// Atomically claim an unclaimed link for a destination node.
     ///
     /// Succeeds only if the link exists with `dest_node_id == ""` and
-    /// `dest_group == dest_group`. On success, sets `dest_node_id` to
+    /// `dest_domain == dest_domain`. On success, sets `dest_node_id` to
     /// `claimant_node_id` and `status` to `Applied`.
     ///
     /// Returns `Ok(Some(link))` if claimed, `Ok(None)` if already claimed or
@@ -128,7 +132,7 @@ pub trait DataAccess: Send + Sync {
     async fn claim_link(
         &self,
         link_id: &str,
-        dest_group: &str,
+        dest_domain: &str,
         claimant_node_id: &str,
     ) -> Result<Option<Link>>;
 
@@ -141,14 +145,14 @@ pub trait DataAccess: Send + Sync {
     async fn add_link_to_segment(
         &self,
         segment_id: &str,
-        source_group: &str,
-        dest_group: &str,
+        source_domain: &str,
+        dest_domain: &str,
     ) -> Result<()>;
     async fn delete_link_from_segment(
         &self,
         segment_id: &str,
-        source_group: &str,
-        dest_group: &str,
+        source_domain: &str,
+        dest_domain: &str,
     ) -> Result<()>;
     async fn get_links_for_segment(&self, segment_id: &str) -> Result<Vec<(String, String)>>;
     /// Wipe runtime state (nodes, links, routes) but keep topology config.
@@ -160,14 +164,14 @@ pub trait DataAccess: Send + Sync {
 
     // ── Registration Secrets ───────────────────────────────────────────────
 
-    /// List all group names that have a stored registration secret.
-    async fn list_registration_secret_groups(&self) -> Result<Vec<String>>;
-    /// Get the secret for a specific group, if stored.
-    async fn get_registration_secret(&self, group_name: &str) -> Result<Option<String>>;
-    /// Upsert a registration secret for a group.
-    async fn upsert_registration_secret(&self, group_name: &str, secret: &str) -> Result<()>;
-    /// Delete the registration secret for a group.
-    async fn delete_registration_secret(&self, group_name: &str) -> Result<()>;
+    /// List all domain names that have a stored registration secret.
+    async fn list_registration_secret_domains(&self) -> Result<Vec<String>>;
+    /// Get the secret for a specific domain, if stored.
+    async fn get_registration_secret(&self, domain_name: &str) -> Result<Option<String>>;
+    /// Upsert a registration secret for a domain.
+    async fn upsert_registration_secret(&self, domain_name: &str, secret: &str) -> Result<()>;
+    /// Delete the registration secret for a domain.
+    async fn delete_registration_secret(&self, domain_name: &str) -> Result<()>;
     /// Delete all registration secrets.
     async fn delete_all_registration_secrets(&self) -> Result<()>;
 }

@@ -14,6 +14,8 @@ use tokio::sync::Semaphore;
 use tokio::sync::mpsc::Sender;
 use tracing::{Instrument, debug, error, warn};
 
+#[cfg(not(target_arch = "wasm32"))]
+use slim_auth::traits::ExportedIdentity;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{
     EncodedName, NameId, ParticipantSettings, ProtoMessage as Message, ProtoName,
@@ -26,6 +28,10 @@ use crate::notification::Notification;
 use crate::session_config::SessionConfig;
 use crate::session_controller::SessionController;
 use crate::subscription_manager::SubscriptionManager;
+use slim_persistence::{PersistenceConfig, SlimGroupStateStorage, SlimKvStore};
+// Durable persistence is native-only; on wasm32 there is no restorable store.
+#[cfg(not(target_arch = "wasm32"))]
+use slim_persistence::PersistentStore;
 
 // Local crate
 use super::context::SessionContext;
@@ -34,7 +40,7 @@ use super::{SESSION_RANGE, SlimChannelSender};
 use super::{SessionError, session_controller::handle_channel_discovery_message};
 /// Direction enum for session creation
 /// Indicates whether the session can send, receive, both, or neither data messages.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
     Send,          // Can only send data messages (shutdown_send: false, shutdown_receive: true)
     Recv,          // Can only receive data messages (shutdown_send: true, shutdown_receive: false)
@@ -126,6 +132,14 @@ where
     /// Bounds concurrent identity verifications for messages without a session.
     /// Caps the blast radius of an unknown-session flood with slow verifications.
     pre_session_verify_slots: Arc<Semaphore>,
+
+    /// Encrypted session-record store, opened once at construction and shared
+    /// (cloned) into every persistent session; also used by `restore_sessions`.
+    kv_store: Option<SlimKvStore>,
+
+    /// Shared MLS group-state store over the same encrypted DB file as
+    /// `kv_store`, cloned into every persistent session.
+    group_storage: Option<SlimGroupStateStorage>,
 }
 
 impl<P, V> SessionLayer<P, V>
@@ -148,6 +162,75 @@ where
         service_id: String,
         enforce_pqc: bool,
     ) -> Self {
+        Self::new_with_persistence(
+            app_name,
+            identity_provider,
+            identity_verifier,
+            conn_id,
+            tx_slim,
+            tx_app,
+            direction,
+            service_id,
+            None,
+        )
+    }
+
+    /// Create a new SessionLayer with optional MLS/session persistence.
+    ///
+    /// When `persistence` is set, the encrypted session store is opened up front
+    /// (keyed by the app identity) so both new sessions and `restore_sessions`
+    /// share it. Opening failures are logged and degrade to no persistence
+    /// rather than preventing the layer from starting.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_persistence(
+        app_name: ProtoName,
+        identity_provider: P,
+        identity_verifier: V,
+        conn_id: u64,
+        tx_slim: SlimChannelSender,
+        tx_app: Sender<Result<Notification, SessionError>>,
+        direction: Direction,
+        service_id: String,
+        persistence: Option<PersistenceConfig>,
+    ) -> Self {
+        // Open the store (restoring/persisting the app identity through it) and
+        // build the layer from the resulting handles.
+        let (identity_provider, group_storage, kv_store) =
+            Self::open_persistent_store(&app_name, identity_provider, persistence.as_ref());
+        Self::new_with_storage(
+            app_name,
+            identity_provider,
+            identity_verifier,
+            conn_id,
+            tx_slim,
+            tx_app,
+            direction,
+            service_id,
+            group_storage,
+            kv_store,
+        )
+    }
+
+    /// Build a session layer from already-opened persistence handles (or `None`
+    /// for no persistence).
+    ///
+    /// This is the single-open seam: a caller (e.g. `App`) can open the store
+    /// once via [`Self::open_persistent_store`], restore the app identity and
+    /// derive the app id from it, then hand the handles in here — avoiding a
+    /// second open of the same database.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_storage(
+        app_name: ProtoName,
+        identity_provider: P,
+        identity_verifier: V,
+        conn_id: u64,
+        tx_slim: SlimChannelSender,
+        tx_app: Sender<Result<Notification, SessionError>>,
+        direction: Direction,
+        service_id: String,
+        group_storage: Option<SlimGroupStateStorage>,
+        kv_store: Option<SlimKvStore>,
+    ) -> Self {
         let (tx_session, rx_session) = tokio::sync::mpsc::channel(16);
 
         let subscription_manager = SubscriptionManager::new(tx_slim.clone());
@@ -169,6 +252,8 @@ where
             service_id,
             enforce_pqc,
             pre_session_verify_slots: Arc::new(Semaphore::new(Self::PRE_SESSION_VERIFY_SLOTS)),
+            kv_store,
+            group_storage,
         };
 
         sl.listen_from_sessions(rx_session);
@@ -195,6 +280,103 @@ where
 
     pub fn app_id(&self) -> u128 {
         self.app_id
+    }
+
+    /// Open the app's persistent store (keyed by the stable, id-less app name)
+    /// and adopt or persist the app identity through it. Returns the (possibly
+    /// restored) identity provider plus the group-state and session-record
+    /// handles. Degrades to no persistence (provider unchanged) on failure or
+    /// when persistence is disabled; on wasm32 it is always a no-op.
+    ///
+    /// Public so a caller (`App`) can open **once**, derive the app id from the
+    /// restored identity, then hand the handles to [`Self::new_with_storage`] —
+    /// avoiding a second open of the same database.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn open_persistent_store(
+        app_name: &ProtoName,
+        identity_provider: P,
+        persistence: Option<&PersistenceConfig>,
+    ) -> (P, Option<SlimGroupStateStorage>, Option<SlimKvStore>) {
+        let Some(p) = persistence else {
+            return (identity_provider, None, None);
+        };
+        let store_key = Self::app_store_key(app_name);
+        match PersistentStore::open(&p.path, &store_key, p.encryption_key.clone()) {
+            Ok((group, kv)) => {
+                let identity_provider = Self::restore_app_identity(identity_provider, &kv);
+                (identity_provider, Some(group), Some(kv))
+            }
+            Err(e) => {
+                error!(error = %e, "failed to open persistence store; persistence disabled");
+                (identity_provider, None, None)
+            }
+        }
+    }
+
+    /// wasm32: persistence is unsupported (a reload discards memory), so this is
+    /// a no-op that returns the provider unchanged and no handles.
+    #[cfg(target_arch = "wasm32")]
+    pub fn open_persistent_store(
+        app_name: &ProtoName,
+        identity_provider: P,
+        persistence: Option<&PersistenceConfig>,
+    ) -> (P, Option<SlimGroupStateStorage>, Option<SlimKvStore>) {
+        let _ = app_name;
+        if persistence.is_some() {
+            tracing::warn!(
+                "session persistence is not supported on wasm32 (state is lost on reload); ignoring"
+            );
+        }
+        (identity_provider, None, None)
+    }
+
+    /// Stable per-app store key derived from the app name (org/ns/type),
+    /// ignoring the per-instance id, so a restarted app reopens the same store.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn app_store_key(app_name: &ProtoName) -> String {
+        let k = Self::name_to_key(app_name);
+        format!(
+            "{:016x}{:016x}{:016x}",
+            k.component_0, k.component_1, k.component_2
+        )
+    }
+
+    /// Adopt the persisted app identity into `identity_provider`, if one is
+    /// stored. The identity is *saved* later — alongside session state, once the
+    /// MLS layer has installed its ciphersuite-correct keypair (see
+    /// `persist_app_identity`) — so we never persist the provider's initial
+    /// placeholder keys here. Providers without a persistable identity, or a
+    /// missing/corrupt record, leave the provider unchanged.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn restore_app_identity(identity_provider: P, kv: &SlimKvStore) -> P {
+        match kv.get(crate::persistence::APP_IDENTITY_KEY) {
+            Ok(Some(bytes)) => match serde_json::from_slice::<ExportedIdentity>(&bytes) {
+                Ok(identity) => {
+                    // `with_restored_identity` consumes the provider; keep a
+                    // clone to fall back to if restore fails.
+                    let fallback = identity_provider.clone();
+                    match identity_provider.with_restored_identity(identity) {
+                        Ok(restored) => {
+                            debug!("restored persisted app identity");
+                            restored
+                        }
+                        Err(e) => {
+                            error!(error = %e, "failed to restore app identity; keeping current");
+                            fallback
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!(error = %e, "failed to decode app identity; keeping current");
+                    identity_provider
+                }
+            },
+            Ok(None) => identity_provider,
+            Err(e) => {
+                error!(error = %e, "failed to read app identity; keeping current");
+                identity_provider
+            }
+        }
     }
 
     /// Build the HashMap key (EncodedName with null component_3) from a ProtoName.
@@ -374,8 +556,10 @@ where
             // Create app channel for this session
             let (app_tx, app_rx) = tokio::sync::mpsc::unbounded_channel();
 
-            // Build the session controller with pre-computed destination and control names
-            let builder = SessionController::builder()
+            // Build the session controller with pre-computed destination and control names.
+            // The builder forces DATA_CHANNEL_ID for multicast destinations. Async build,
+            // so no locks are held.
+            let mut builder = SessionController::builder()
                 .with_id(session_id)
                 .with_source(local_name.clone())
                 .with_destination(destination.clone())
@@ -391,6 +575,16 @@ where
                 .with_service_id(self.service_id.clone())
                 .with_enforce_pqc(self.enforce_pqc)
                 .ready()?;
+
+            // Share the persistence handles so the session can save its state.
+            if let Some(store) = &self.kv_store {
+                builder = builder.with_kv_store(store.clone());
+            }
+            if let Some(group) = &self.group_storage {
+                builder = builder.with_group_storage(group.clone());
+            }
+
+            let builder = builder.ready()?;
 
             // Perform the async build operation without holding any lock
             let session_controller = Arc::new(builder.build()?);
@@ -421,6 +615,128 @@ where
 
             return Ok(SessionContext::new(session_controller, app_rx));
         }
+    }
+
+    /// Restore all persisted sessions from the encrypted store.
+    ///
+    /// Rebuilds each session's controller with its loaded MLS group and roster,
+    /// re-establishes routing over `conn_id` — which must be the **live upstream
+    /// connection** to the node (e.g. `Service::get_connection_id`), not the
+    /// app's local connection — and inserts it into the pool, returning the
+    /// restored session contexts. No-op (empty) when persistence is disabled.
+    /// Individual failures are logged and skipped so one bad record does not
+    /// block the rest.
+    pub async fn restore_sessions(
+        &self,
+        conn_id: u64,
+    ) -> Result<Vec<SessionContext>, SessionError> {
+        let Some(kv) = self.kv_store.as_ref() else {
+            return Ok(Vec::new());
+        };
+
+        let records = kv.list_prefix(crate::persistence::SESSION_KEY_PREFIX)?;
+        let mut restored = Vec::with_capacity(records.len());
+
+        for (key, bytes) in records {
+            let record = match crate::persistence::PersistedSession::from_bytes(&bytes) {
+                Ok(r) => r,
+                Err(e) => {
+                    error!(%key, error = %e.chain(), "skipping unreadable session record");
+                    continue;
+                }
+            };
+            let session_id = record.session_id;
+            match self.restore_one(record, conn_id).await {
+                Ok(ctx) => restored.push(ctx),
+                Err(e) => error!(%session_id, error = %e.chain(), "failed to restore session"),
+            }
+        }
+
+        Ok(restored)
+    }
+
+    /// Rebuild and register a single session from its persisted record,
+    /// re-establishing routing over the live upstream connection `conn_id`.
+    async fn restore_one(
+        &self,
+        record: crate::persistence::PersistedSession,
+        conn_id: u64,
+    ) -> Result<SessionContext, SessionError> {
+        use crate::persistence::{decode_direction, decode_name};
+
+        let session_id = record.session_id;
+        let source = decode_name(&record.source)?;
+        let destination = decode_name(&record.destination)?;
+        let control = decode_name(&record.control)?;
+        let direction = decode_direction(record.direction);
+        let config = record.config.clone().into_config();
+
+        // App channel for this restored session.
+        let (app_tx, app_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        let mut builder = SessionController::builder()
+            .with_id(session_id)
+            .with_source(source)
+            .with_destination(destination)
+            .with_control(control)
+            .with_config(config)
+            .with_identity_provider(self.identity_provider.clone())
+            .with_identity_verifier(self.identity_verifier.clone())
+            .with_slim_tx(self.tx_slim.clone())
+            .with_app_tx(app_tx)
+            .with_tx_to_session_layer(self.tx_session.clone())
+            .with_direction(direction)
+            .with_subscription_manager(self.subscription_manager.clone())
+            .with_service_id(self.service_id.clone());
+        if let Some(store) = &self.kv_store {
+            builder = builder.with_kv_store(store.clone());
+        }
+        if let Some(group) = &self.group_storage {
+            builder = builder.with_group_storage(group.clone());
+        }
+        let builder = builder.ready()?;
+
+        let controller = Arc::new(builder.build_restored(&record, conn_id).await?);
+
+        {
+            let mut pool = self.pool.write();
+            if pool.contains_key(&session_id) {
+                return Err(SessionError::SessionIdAlreadyUsed(session_id));
+            }
+            pool.insert(session_id, controller.clone());
+        }
+        // Pool insertion must precede the rejoin: the online announcement's
+        // acks/NACKs are routed back to the controller through the pool.
+
+        // Announce that we are back online, but do NOT block restore on the
+        // group's acknowledgement. While we were down the group may have
+        // heartbeat-marked us offline and stopped including us, so we re-announce
+        // (with our epoch) to be brought back in. Both roles do this: a
+        // participant is re-included by the moderator, and a moderator's online
+        // announcement brings participants' view of it back live.
+        //
+        // We fire the announcement and return: the restored session is already
+        // usable (it defaults to online and its routes were re-registered above),
+        // so there is nothing to wait for. Awaiting the ack here would stall
+        // restore for the full rejoin retry budget (max_retries × interval,
+        // e.g. 10 s) whenever the group is momentarily unresponsive or down.
+        // Correctness is preserved asynchronously: `rejoin()` records the pending
+        // status update before returning, so a later GroupAck confirms us and a
+        // GroupNack (the group's membership/epoch advanced while we were gone)
+        // drives the participant's rekey-based rejoin — and the heartbeat
+        // re-announces us if this single send is lost. P2P sessions have no
+        // rejoin. Only a failure to *send* is fatal to the restore.
+        match controller.rejoin().await {
+            Ok(_handle) => {}
+            Err(SessionError::CannotRejoinP2P) => {}
+            Err(e) => {
+                warn!(%session_id, error = %e.chain(), "failed to send rejoin after restore; dropping session");
+                self.pool.write().remove(&session_id);
+                return Err(e);
+            }
+        }
+
+        Ok(SessionContext::new(controller, app_rx))
     }
 
     pub fn listen_from_sessions(
@@ -785,6 +1101,75 @@ mod tests {
         assert_eq!(session_layer.app_id(), 0);
         assert_eq!(session_layer.conn_id(), 12345);
         assert!(session_layer.is_pool_empty());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_restore_sessions_from_store() {
+        use crate::persistence::{PersistedRole, PersistedSession, new_record, session_key};
+        use slim_persistence::PersistenceConfig;
+
+        let dir = tempfile::tempdir().unwrap();
+        let (tx_slim, _rx_slim) = mpsc::channel(16);
+        let (tx_app, _rx_app) = mpsc::channel(16);
+
+        let layer = Arc::new(SessionLayer::new_with_persistence(
+            make_name(&["test", "app", "v1"]),
+            MockTokenProvider,
+            MockVerifier,
+            999,
+            tx_slim,
+            tx_app,
+            Direction::Bidirectional,
+            "test".to_string(),
+            Some(PersistenceConfig::new(dir.path())),
+        ));
+
+        // A P2P participant record (no MLS, no subscriptions on restore).
+        let source = make_name(&["bob", "app", "v1"]).with_id(5);
+        let dest = make_name(&["alice", "app", "v1"]).with_id(6);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            initiator: false,
+            ..Default::default()
+        };
+        let record = new_record(
+            4242,
+            &source,
+            &dest,
+            &dest,
+            Direction::Bidirectional,
+            &config,
+            None,
+            0,
+            Some(7),
+            PersistedRole::Participant {
+                moderator_name: None,
+                group_list: vec![],
+            },
+        );
+
+        layer
+            .kv_store
+            .as_ref()
+            .unwrap()
+            .put(&session_key(4242), &record.to_bytes().unwrap())
+            .unwrap();
+
+        // A fresh handle over the same store must reload the record; the bytes
+        // round-trip too.
+        let restored = layer.restore_sessions(layer.conn_id()).await.unwrap();
+        assert_eq!(restored.len(), 1);
+        assert!(layer.pool.read().contains_key(&4242));
+
+        let raw = layer
+            .kv_store
+            .as_ref()
+            .unwrap()
+            .get(&session_key(4242))
+            .unwrap()
+            .unwrap();
+        assert_eq!(PersistedSession::from_bytes(&raw).unwrap().session_id, 4242);
     }
 
     #[tokio::test]

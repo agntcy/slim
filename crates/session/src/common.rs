@@ -8,7 +8,7 @@ use smallvec::SmallVec;
 use tonic::Status;
 
 use slim_datapath::api::{
-    EncodedName, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
+    EncodedName, ParticipantState, ProtoMessage as Message, ProtoName, ProtoSessionMessageType,
 };
 
 // Local crate
@@ -139,7 +139,7 @@ pub enum SessionMessage {
     DeleteSession { session_id: u32 },
     /// Query the participants list from the handler
     GetParticipantsList {
-        tx: tokio::sync::oneshot::Sender<Vec<ProtoName>>,
+        tx: tokio::sync::oneshot::Sender<Vec<(ProtoName, ParticipantState)>>,
     },
     /// Deferred cleanup after leave reply has been dispatched.
     /// Performs route/subscription cleanup that must happen after the LeaveReply

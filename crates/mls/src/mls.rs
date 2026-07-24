@@ -16,6 +16,24 @@ use slim_auth::traits::{TokenProvider, Verifier};
 
 use crate::errors::MlsError;
 use crate::identity_provider::SlimIdentityProvider;
+use slim_persistence::SlimGroupStateStorage;
+
+/// Concrete `mls-rs` client configuration used by [`Mls`].
+///
+/// It layers, on top of `mls-rs`' [`BaseConfig`](mls_rs::client_builder::BaseConfig)
+/// (in-memory key-package/PSK stores and default MLS rules), our SLIM identity
+/// provider, the per-target crypto provider, and a [`SlimGroupStateStorage`] so
+/// the MLS group can be mirrored to disk and reloaded via [`Mls::load`].
+type SlimClientConfig<V> = mls_rs::client_builder::WithGroupStateStorage<
+    SlimGroupStateStorage,
+    mls_rs::client_builder::WithIdentityProvider<
+        SlimIdentityProvider<V>,
+        mls_rs::client_builder::WithCryptoProvider<
+            CryptoProviderImpl,
+            mls_rs::client_builder::BaseConfig,
+        >,
+    >,
+>;
 
 // Default cipher suite is P256_AES128 (NIST P-256 + ECDSA-P256 + AES-128-GCM)
 // so that native and WASM peers can interoperate in the same MLS group:
@@ -49,28 +67,11 @@ where
 {
     identity: Option<String>,
     stored_identity: Option<InMemoryIdentity>,
-    client: Option<
-        Client<
-            mls_rs::client_builder::WithIdentityProvider<
-                SlimIdentityProvider<V>,
-                mls_rs::client_builder::WithCryptoProvider<
-                    CryptoProviderImpl,
-                    mls_rs::client_builder::BaseConfig,
-                >,
-            >,
-        >,
-    >,
-    group: Option<
-        Group<
-            mls_rs::client_builder::WithIdentityProvider<
-                SlimIdentityProvider<V>,
-                mls_rs::client_builder::WithCryptoProvider<
-                    CryptoProviderImpl,
-                    mls_rs::client_builder::BaseConfig,
-                >,
-            >,
-        >,
-    >,
+    client: Option<Client<SlimClientConfig<V>>>,
+    group: Option<Group<SlimClientConfig<V>>>,
+    /// Group state storage. In-memory by default; disk-backed when constructed
+    /// with [`Mls::with_group_state_storage`] so the group survives a restart.
+    storage: SlimGroupStateStorage,
     identity_provider: P,
     identity_verifier: V,
     enforce_pqc: bool,
@@ -130,6 +131,7 @@ where
             stored_identity: None,
             client: None,
             group: None,
+            storage: SlimGroupStateStorage::in_memory(),
             identity_provider,
             identity_verifier,
             enforce_pqc: false,
@@ -139,6 +141,21 @@ where
     pub fn with_enforce_pqc(mut self, enforce_pqc: bool) -> Self {
         self.enforce_pqc = enforce_pqc;
         self
+    }
+
+    /// Use `storage` for group state instead of the default in-memory store.
+    ///
+    /// Must be called before [`Self::initialize`] / [`Self::load`], since the
+    /// storage is baked into the `mls-rs` client at build time. Pass a
+    /// disk-backed [`SlimGroupStateStorage::open`] handle to enable persistence.
+    pub fn with_group_state_storage(mut self, storage: SlimGroupStateStorage) -> Self {
+        self.storage = storage;
+        self
+    }
+
+    /// The group state storage backing this instance.
+    pub fn group_state_storage(&self) -> &SlimGroupStateStorage {
+        &self.storage
     }
 
     /// Identity provider whose MLS signature keys were installed during
@@ -234,7 +251,23 @@ where
             "MLS group created successfully",
         );
 
+        self.persist_if_enabled().await?;
+
         Ok(group_id)
+    }
+
+    /// Mirror the current group snapshot to storage when persistence is enabled.
+    ///
+    /// `mls-rs` never writes to storage on its own — it only does so on an
+    /// explicit `write_to_storage()`. Calling this after every state-advancing
+    /// operation keeps the on-disk snapshot in step with the in-memory group so
+    /// it can be reloaded with [`Self::load`]. It is a cheap no-op when the
+    /// store is in-memory.
+    async fn persist_if_enabled(&mut self) -> Result<(), MlsError> {
+        if self.storage.is_persistent() {
+            self.write_to_storage().await?;
+        }
+        Ok(())
     }
 
     pub async fn generate_key_package(&self) -> Result<KeyPackageMsg, MlsError> {
@@ -304,6 +337,9 @@ where
             commit_message: commit_msg,
             member_identity: new_id,
         };
+
+        self.persist_if_enabled().await?;
+
         Ok(ret)
     }
 
@@ -319,6 +355,8 @@ where
         let commit_msg = commit.commit_message.to_bytes()?;
 
         group.apply_pending_commit().await?;
+
+        self.persist_if_enabled().await?;
 
         Ok(commit_msg)
     }
@@ -376,6 +414,9 @@ where
 
         // process an incoming commit message
         group.process_incoming_message(commit).await?;
+
+        self.persist_if_enabled().await?;
+
         Ok(())
     }
 
@@ -393,6 +434,8 @@ where
             id = %hex::encode(&group_id),
             "Successfully joined MLS group",
         );
+
+        self.persist_if_enabled().await?;
 
         Ok(group_id)
     }
@@ -420,6 +463,9 @@ where
 
         // return the commit message
         let commit_msg = commit.commit_message.to_bytes()?;
+
+        self.persist_if_enabled().await?;
+
         Ok(commit_msg)
     }
 
@@ -434,6 +480,9 @@ where
 
         // return the commit message
         let commit_msg = commit.commit_message.to_bytes()?;
+
+        self.persist_if_enabled().await?;
+
         Ok(commit_msg)
     }
 
@@ -444,11 +493,20 @@ where
     ) -> Result<Vec<u8>, MlsError> {
         debug!("Encrypting MLS message");
 
-        let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
+        let msg = {
+            let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
+            let encrypted_msg = group.encrypt_application_message(message, aad).await?;
+            encrypted_msg.to_bytes()?
+        };
 
-        let encrypted_msg = group.encrypt_application_message(message, aad).await?;
+        // Encrypting advanced this sender's message-key ratchet (its
+        // *generation*) inside the current epoch — the epoch itself is
+        // unchanged. Persist the snapshot so that after a restart the sender
+        // resumes at the correct generation instead of regressing to the
+        // epoch's generation 0 and reusing keys the receivers have already
+        // ratcheted past (which fails to decrypt as "key not available").
+        self.persist_if_enabled().await?;
 
-        let msg = encrypted_msg.to_bytes()?;
         Ok(msg)
     }
 
@@ -551,9 +609,15 @@ where
         Ok(update_proposal.to_bytes()?)
     }
 
-    pub async fn initialize(&mut self) -> Result<(), MlsError> {
-        debug!("Initializing MLS");
-
+    /// Establish the local identity and build the `mls-rs` client that backs
+    /// all group operations, wiring in the configured [`SlimGroupStateStorage`].
+    ///
+    /// Shared by [`Self::initialize`] (fresh session) and [`Self::load`]
+    /// (restore). The client always needs a signing identity to be built; for
+    /// a loaded group the actual signer is taken from the persisted snapshot,
+    /// so the freshly generated keys installed here only serve as the client's
+    /// default for any new group it might create.
+    async fn build_client(&mut self) -> Result<Client<SlimClientConfig<V>>, MlsError> {
         self.identity = Some(self.identity_provider.get_id()?);
 
         let stored_identity = InMemoryIdentity {
@@ -592,11 +656,47 @@ where
         let client = Client::builder()
             .identity_provider(identity_provider)
             .crypto_provider(crypto_provider)
+            .group_state_storage(self.storage.clone())
             .signing_identity(signing_identity, private_key, ciphersuite)
             .build();
 
+        Ok(client)
+    }
+
+    pub async fn initialize(&mut self) -> Result<(), MlsError> {
+        debug!("Initializing MLS");
+
+        let client = self.build_client().await?;
+
         self.client = Some(client);
         debug!("MLS client initialization completed successfully");
+        Ok(())
+    }
+
+    /// Restore a previously persisted MLS group from the configured storage.
+    ///
+    /// Rebuilds the client (like [`Self::initialize`]) and then loads the group
+    /// identified by `group_id` from the [`SlimGroupStateStorage`], skipping the
+    /// invite/welcome handshake entirely. The reloaded group carries its own
+    /// signer, ratchet tree and epoch secrets from the snapshot, so it is ready
+    /// to encrypt/decrypt immediately.
+    ///
+    /// Requires a persistent storage handle configured via
+    /// [`Self::with_group_state_storage`]; loading from the default in-memory
+    /// store only succeeds within the same process lifetime.
+    pub async fn load(&mut self, group_id: &[u8]) -> Result<(), MlsError> {
+        debug!(group = %hex::encode(group_id), "Restoring MLS group from storage");
+
+        let client = self.build_client().await?;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let group = client.load_group(group_id)?;
+        #[cfg(target_arch = "wasm32")]
+        let group = client.load_group(group_id).await?;
+
+        self.group = Some(group);
+        self.client = Some(client);
+        debug!("MLS group restored successfully");
         Ok(())
     }
 
@@ -628,6 +728,136 @@ mod tests {
     use std::time::Duration;
 
     const SHARED_SECRET: &str = "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas";
+
+    /// A moderator with disk-backed storage must be able to restart, reload its
+    /// MLS group from disk via `load`, and keep talking to a member that joined
+    /// before the restart — without any re-invite.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_persist_and_restore_group() -> Result<(), Box<dyn std::error::Error>> {
+        use slim_persistence::SlimGroupStateStorage;
+
+        let dir = tempfile::tempdir().unwrap();
+
+        // Alice is the group creator, backed by an encrypted SQLite store.
+        let storage = SlimGroupStateStorage::open_sqlite(dir.path(), "alice", None)?;
+        let mut alice = Mls::new(
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+        )
+        .with_group_state_storage(storage);
+        alice.initialize().await?;
+        let group_id = alice.create_group()?;
+
+        // Bob joins the group (in-memory is fine for the peer).
+        let mut bob = Mls::new(
+            SharedSecret::new("bob", SHARED_SECRET).unwrap(),
+            SharedSecret::new("bob", SHARED_SECRET).unwrap(),
+        );
+        bob.initialize().await?;
+        let bob_kp = bob.generate_key_package()?;
+        let add = alice.add_member(&bob_kp)?;
+        let bob_group_id = bob.process_welcome(&add.welcome_message)?;
+        assert_eq!(group_id, bob_group_id);
+
+        // The group state (post-add) is now on disk. Simulate a restart: drop
+        // Alice and rebuild her purely from the persisted snapshot.
+        drop(alice);
+
+        let reopened = SlimGroupStateStorage::open_sqlite(dir.path(), "alice", None)?;
+        assert_eq!(reopened.stored_groups()?, vec![group_id.clone()]);
+
+        let mut alice_restored = Mls::new(
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+        )
+        .with_group_state_storage(reopened);
+        alice_restored.load(&group_id).await?;
+        assert_eq!(alice_restored.get_group_id().unwrap(), group_id);
+
+        // The restored moderator can encrypt and Bob (original) can decrypt.
+        let msg = b"hello after restart";
+        let encrypted = alice_restored.encrypt_message(msg, vec![])?;
+        let (decrypted, _) = bob.decrypt_message(&encrypted)?;
+        assert_eq!(decrypted, msg);
+
+        Ok(())
+    }
+
+    /// Regression: application messages sent BEFORE a restart advance the
+    /// sender's per-sender message-key ratchet (its *generation*) inside the
+    /// current epoch — the epoch itself does NOT change. If that ratchet
+    /// position is not persisted, a restored sender reloads the last snapshot
+    /// (taken at the epoch boundary, generation 0) and re-encrypts at a
+    /// generation the receiver already ratcheted past and discarded, producing
+    /// "key not available, invalid generation N" on decrypt.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_persist_and_restore_group_after_sending() -> Result<(), Box<dyn std::error::Error>>
+    {
+        use slim_persistence::SlimGroupStateStorage;
+
+        let dir = tempfile::tempdir().unwrap();
+
+        let storage = SlimGroupStateStorage::open_sqlite(dir.path(), "alice", None)?;
+        let mut alice = Mls::new(
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+        )
+        .with_group_state_storage(storage);
+        alice.initialize().await?;
+        let group_id = alice.create_group()?;
+
+        let mut bob = Mls::new(
+            SharedSecret::new("bob", SHARED_SECRET).unwrap(),
+            SharedSecret::new("bob", SHARED_SECRET).unwrap(),
+        );
+        bob.initialize().await?;
+        let bob_kp = bob.generate_key_package()?;
+        let add = alice.add_member(&bob_kp)?;
+        bob.process_welcome(&add.welcome_message)?;
+
+        // Alice sends several messages BEFORE restarting: her send ratchet
+        // advances and Bob ratchets forward to match (deleting past keys).
+        for i in 0..3u8 {
+            let m = [b'm', i];
+            let ct = alice.encrypt_message(&m, vec![])?;
+            let (pt, _) = bob.decrypt_message(&ct)?;
+            assert_eq!(pt, m);
+        }
+
+        // Restart Alice from the persisted snapshot.
+        drop(alice);
+        let reopened = SlimGroupStateStorage::open_sqlite(dir.path(), "alice", None)?;
+        let mut alice_restored = Mls::new(
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+        )
+        .with_group_state_storage(reopened);
+        alice_restored.load(&group_id).await?;
+
+        // Alice must resume at her advanced generation, not regress to 0, so
+        // Bob (already ratcheted forward) can still decrypt.
+        let msg = b"hello after sending then restart";
+        let encrypted = alice_restored.encrypt_message(msg, vec![])?;
+        let (decrypted, _) = bob.decrypt_message(&encrypted)?;
+        assert_eq!(decrypted, msg);
+
+        Ok(())
+    }
+
+    /// Loading a group that was never persisted (default in-memory storage)
+    /// must fail rather than silently returning an empty group.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_load_missing_group_fails() {
+        let mut mls = Mls::new(
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+        );
+        let err = mls.load(b"does-not-exist").await;
+        assert!(err.is_err(), "loading an unknown group must fail");
+    }
 
     /// The default ciphersuite must be P256_AES128 so that native and WASM
     /// peers can join the same MLS group. Operators that explicitly opt in

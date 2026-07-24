@@ -522,7 +522,9 @@ impl SessionController {
         self.config.initiator
     }
 
-    pub async fn participants_list(&self) -> Result<Vec<ProtoName>, SessionError> {
+    pub async fn participants_list(
+        &self,
+    ) -> Result<Vec<(ProtoName, ParticipantState)>, SessionError> {
         let (tx, rx) = oneshot::channel();
 
         // Send query to the processing loop
@@ -2177,6 +2179,8 @@ mod tests {
             max_seen_control_message_ids_size:
                 crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
             enforce_pqc: false,
+            kv_store: None,
+            group_storage: None,
         };
 
         let needs_drain = Arc::new(AtomicBool::new(true));
@@ -2356,6 +2360,8 @@ mod tests {
             max_seen_control_message_ids_size:
                 crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
             enforce_pqc: false,
+            kv_store: None,
+            group_storage: None,
         }
     }
 

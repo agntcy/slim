@@ -26,7 +26,7 @@ pub struct NodeEntry {
     #[prost(enumeration = "NodeStatus", tag = "4")]
     pub status: i32,
     #[prost(string, tag = "5")]
-    pub group: ::prost::alloc::string::String,
+    pub domain: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NodeListResponse {
@@ -127,23 +127,23 @@ pub struct LinkListResponse {
 /// Request to list segments
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SegmentListRequest {}
-/// A segment with its member groups and adjacency edges
+/// A segment with its member domains and adjacency edges
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SegmentEntry {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
     #[prost(string, repeated, tag = "2")]
-    pub groups: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    pub domains: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(message, repeated, tag = "3")]
     pub edges: ::prost::alloc::vec::Vec<SegmentEdge>,
 }
-/// An edge in the segment graph (bidirectional link between two groups)
+/// An edge in the segment graph (bidirectional link between two domains)
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct SegmentEdge {
     #[prost(string, tag = "1")]
-    pub group_a: ::prost::alloc::string::String,
+    pub domain_a: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub group_b: ::prost::alloc::string::String,
+    pub domain_b: ::prost::alloc::string::String,
 }
 /// Response containing a list of segments
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -159,7 +159,7 @@ pub struct AddSegmentRequest {
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AddSegmentResponse {}
-/// Remove a segment by name, cascading deletion of groups and links
+/// Remove a segment by name, cascading deletion of domains and links
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RemoveSegmentRequest {
     #[prost(string, tag = "1")]
@@ -167,32 +167,32 @@ pub struct RemoveSegmentRequest {
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RemoveSegmentResponse {}
-/// Add a bidirectional link between two groups within a segment.
+/// Add a bidirectional link between two domains within a segment.
 /// The segment must already exist. If segment is empty, defaults to "default".
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AddTopologyLinkRequest {
     #[prost(string, tag = "1")]
-    pub group_a: ::prost::alloc::string::String,
+    pub domain_a: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub group_b: ::prost::alloc::string::String,
+    pub domain_b: ::prost::alloc::string::String,
     /// optional, defaults to "default"
     #[prost(string, tag = "3")]
     pub segment: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AddTopologyLinkResponse {
-    /// Warnings about missing groups (link stored but no physical link created yet).
+    /// Warnings about missing domains (link stored but no physical link created yet).
     #[prost(string, repeated, tag = "1")]
     pub warnings: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
-/// Remove a bidirectional link between two groups within a segment.
+/// Remove a bidirectional link between two domains within a segment.
 /// If segment is empty, defaults to "default".
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RemoveTopologyLinkRequest {
     #[prost(string, tag = "1")]
-    pub group_a: ::prost::alloc::string::String,
+    pub domain_a: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub group_b: ::prost::alloc::string::String,
+    pub domain_b: ::prost::alloc::string::String,
     /// optional, defaults to "default"
     #[prost(string, tag = "3")]
     pub segment: ::prost::alloc::string::String,
@@ -200,36 +200,36 @@ pub struct RemoveTopologyLinkRequest {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct RemoveTopologyLinkResponse {}
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct ListGroupsRequest {}
+pub struct ListDomainsRequest {}
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListGroupsResponse {
+pub struct ListDomainsResponse {
     #[prost(message, repeated, tag = "1")]
-    pub groups: ::prost::alloc::vec::Vec<GroupEntry>,
+    pub domains: ::prost::alloc::vec::Vec<DomainEntry>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct GroupEntry {
+pub struct DomainEntry {
     #[prost(string, tag = "1")]
-    pub group_name: ::prost::alloc::string::String,
-    /// Node IDs currently connected in this group (empty if no nodes connected yet).
+    pub domain_name: ::prost::alloc::string::String,
+    /// Node IDs currently connected in this domain (empty if no nodes connected yet).
     #[prost(string, repeated, tag = "2")]
     pub nodes: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct AddGroupRequest {
+pub struct AddDomainRequest {
     #[prost(string, tag = "1")]
-    pub group_name: ::prost::alloc::string::String,
+    pub domain_name: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub secret: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct AddGroupResponse {}
+pub struct AddDomainResponse {}
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct RemoveGroupRequest {
+pub struct RemoveDomainRequest {
     #[prost(string, tag = "1")]
-    pub group_name: ::prost::alloc::string::String,
+    pub domain_name: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct RemoveGroupResponse {}
+pub struct RemoveDomainResponse {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum NodeStatus {
@@ -571,7 +571,7 @@ pub mod control_plane_service_client {
                 );
             self.inner.server_streaming(req, path, codec).await
         }
-        /// List segments (expanded routing domains) with the groups in each segment
+        /// List segments (expanded routing domains) with the domains in each segment
         pub async fn list_segments(
             &mut self,
             request: impl tonic::IntoRequest<super::SegmentListRequest>,
@@ -632,7 +632,7 @@ pub mod control_plane_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Remove a segment by name. Deletes all associated group memberships and links.
+        /// Remove a segment by name. Deletes all associated domain memberships and links.
         /// Returns NOT_FOUND if the segment does not exist.
         pub async fn remove_segment(
             &mut self,
@@ -663,7 +663,7 @@ pub mod control_plane_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Add a bidirectional link between two groups within a segment.
+        /// Add a bidirectional link between two domains within a segment.
         /// The segment must already exist. Idempotent — succeeds if the link already exists.
         pub async fn add_topology_link(
             &mut self,
@@ -694,7 +694,7 @@ pub mod control_plane_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Remove a bidirectional link between two groups within a segment.
+        /// Remove a bidirectional link between two domains within a segment.
         /// Returns NOT_FOUND if the segment or link does not exist.
         pub async fn remove_topology_link(
             &mut self,
@@ -725,15 +725,15 @@ pub mod control_plane_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// List registered auth groups. Works in both config and API mode.
-        /// In shared_secret mode: returns groups with configured/stored secrets.
-        /// In SPIRE mode: returns groups of currently connected nodes.
+        /// List registered auth domains. Works in both config and API mode.
+        /// In shared_secret mode: returns domains with configured/stored secrets.
+        /// In SPIRE mode: returns domains of currently connected nodes.
         /// When auth is disabled: returns empty list.
-        pub async fn list_groups(
+        pub async fn list_domains(
             &mut self,
-            request: impl tonic::IntoRequest<super::ListGroupsRequest>,
+            request: impl tonic::IntoRequest<super::ListDomainsRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::ListGroupsResponse>,
+            tonic::Response<super::ListDomainsResponse>,
             tonic::Status,
         > {
             self.inner
@@ -746,26 +746,26 @@ pub mod control_plane_service_client {
                 })?;
             let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/controlplane.proto.v1.ControlPlaneService/ListGroups",
+                "/controlplane.proto.v1.ControlPlaneService/ListDomains",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "controlplane.proto.v1.ControlPlaneService",
-                        "ListGroups",
+                        "ListDomains",
                     ),
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Add a group with a shared secret (API mode + shared_secret only).
+        /// Add a domain with a shared secret (API mode + shared_secret only).
         /// Returns FAILED_PRECONDITION if in config mode.
         /// Returns UNIMPLEMENTED if auth mode is SPIRE or disabled.
-        pub async fn add_group(
+        pub async fn add_domain(
             &mut self,
-            request: impl tonic::IntoRequest<super::AddGroupRequest>,
+            request: impl tonic::IntoRequest<super::AddDomainRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::AddGroupResponse>,
+            tonic::Response<super::AddDomainResponse>,
             tonic::Status,
         > {
             self.inner
@@ -778,25 +778,25 @@ pub mod control_plane_service_client {
                 })?;
             let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/controlplane.proto.v1.ControlPlaneService/AddGroup",
+                "/controlplane.proto.v1.ControlPlaneService/AddDomain",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "controlplane.proto.v1.ControlPlaneService",
-                        "AddGroup",
+                        "AddDomain",
                     ),
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// Remove a group. Disconnects all nodes in that group (API mode only).
+        /// Remove a domain. Disconnects all nodes in that domain (API mode only).
         /// Returns FAILED_PRECONDITION if in config mode.
-        pub async fn remove_group(
+        pub async fn remove_domain(
             &mut self,
-            request: impl tonic::IntoRequest<super::RemoveGroupRequest>,
+            request: impl tonic::IntoRequest<super::RemoveDomainRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::RemoveGroupResponse>,
+            tonic::Response<super::RemoveDomainResponse>,
             tonic::Status,
         > {
             self.inner
@@ -809,14 +809,14 @@ pub mod control_plane_service_client {
                 })?;
             let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/controlplane.proto.v1.ControlPlaneService/RemoveGroup",
+                "/controlplane.proto.v1.ControlPlaneService/RemoveDomain",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "controlplane.proto.v1.ControlPlaneService",
-                        "RemoveGroup",
+                        "RemoveDomain",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -887,7 +887,7 @@ pub mod control_plane_service_server {
             &self,
             request: tonic::Request<super::LinkListRequest>,
         ) -> std::result::Result<tonic::Response<Self::ListLinksStream>, tonic::Status>;
-        /// List segments (expanded routing domains) with the groups in each segment
+        /// List segments (expanded routing domains) with the domains in each segment
         async fn list_segments(
             &self,
             request: tonic::Request<super::SegmentListRequest>,
@@ -904,7 +904,7 @@ pub mod control_plane_service_server {
             tonic::Response<super::AddSegmentResponse>,
             tonic::Status,
         >;
-        /// Remove a segment by name. Deletes all associated group memberships and links.
+        /// Remove a segment by name. Deletes all associated domain memberships and links.
         /// Returns NOT_FOUND if the segment does not exist.
         async fn remove_segment(
             &self,
@@ -913,7 +913,7 @@ pub mod control_plane_service_server {
             tonic::Response<super::RemoveSegmentResponse>,
             tonic::Status,
         >;
-        /// Add a bidirectional link between two groups within a segment.
+        /// Add a bidirectional link between two domains within a segment.
         /// The segment must already exist. Idempotent — succeeds if the link already exists.
         async fn add_topology_link(
             &self,
@@ -922,7 +922,7 @@ pub mod control_plane_service_server {
             tonic::Response<super::AddTopologyLinkResponse>,
             tonic::Status,
         >;
-        /// Remove a bidirectional link between two groups within a segment.
+        /// Remove a bidirectional link between two domains within a segment.
         /// Returns NOT_FOUND if the segment or link does not exist.
         async fn remove_topology_link(
             &self,
@@ -931,34 +931,34 @@ pub mod control_plane_service_server {
             tonic::Response<super::RemoveTopologyLinkResponse>,
             tonic::Status,
         >;
-        /// List registered auth groups. Works in both config and API mode.
-        /// In shared_secret mode: returns groups with configured/stored secrets.
-        /// In SPIRE mode: returns groups of currently connected nodes.
+        /// List registered auth domains. Works in both config and API mode.
+        /// In shared_secret mode: returns domains with configured/stored secrets.
+        /// In SPIRE mode: returns domains of currently connected nodes.
         /// When auth is disabled: returns empty list.
-        async fn list_groups(
+        async fn list_domains(
             &self,
-            request: tonic::Request<super::ListGroupsRequest>,
+            request: tonic::Request<super::ListDomainsRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::ListGroupsResponse>,
+            tonic::Response<super::ListDomainsResponse>,
             tonic::Status,
         >;
-        /// Add a group with a shared secret (API mode + shared_secret only).
+        /// Add a domain with a shared secret (API mode + shared_secret only).
         /// Returns FAILED_PRECONDITION if in config mode.
         /// Returns UNIMPLEMENTED if auth mode is SPIRE or disabled.
-        async fn add_group(
+        async fn add_domain(
             &self,
-            request: tonic::Request<super::AddGroupRequest>,
+            request: tonic::Request<super::AddDomainRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::AddGroupResponse>,
+            tonic::Response<super::AddDomainResponse>,
             tonic::Status,
         >;
-        /// Remove a group. Disconnects all nodes in that group (API mode only).
+        /// Remove a domain. Disconnects all nodes in that domain (API mode only).
         /// Returns FAILED_PRECONDITION if in config mode.
-        async fn remove_group(
+        async fn remove_domain(
             &self,
-            request: tonic::Request<super::RemoveGroupRequest>,
+            request: tonic::Request<super::RemoveDomainRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::RemoveGroupResponse>,
+            tonic::Response<super::RemoveDomainResponse>,
             tonic::Status,
         >;
     }
@@ -1509,25 +1509,25 @@ pub mod control_plane_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/controlplane.proto.v1.ControlPlaneService/ListGroups" => {
+                "/controlplane.proto.v1.ControlPlaneService/ListDomains" => {
                     #[allow(non_camel_case_types)]
-                    struct ListGroupsSvc<T: ControlPlaneService>(pub Arc<T>);
+                    struct ListDomainsSvc<T: ControlPlaneService>(pub Arc<T>);
                     impl<
                         T: ControlPlaneService,
-                    > tonic::server::UnaryService<super::ListGroupsRequest>
-                    for ListGroupsSvc<T> {
-                        type Response = super::ListGroupsResponse;
+                    > tonic::server::UnaryService<super::ListDomainsRequest>
+                    for ListDomainsSvc<T> {
+                        type Response = super::ListDomainsResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::ListGroupsRequest>,
+                            request: tonic::Request<super::ListDomainsRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ControlPlaneService>::list_groups(&inner, request)
+                                <T as ControlPlaneService>::list_domains(&inner, request)
                                     .await
                             };
                             Box::pin(fut)
@@ -1539,7 +1539,7 @@ pub mod control_plane_service_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = ListGroupsSvc(inner);
+                        let method = ListDomainsSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -1555,25 +1555,26 @@ pub mod control_plane_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/controlplane.proto.v1.ControlPlaneService/AddGroup" => {
+                "/controlplane.proto.v1.ControlPlaneService/AddDomain" => {
                     #[allow(non_camel_case_types)]
-                    struct AddGroupSvc<T: ControlPlaneService>(pub Arc<T>);
+                    struct AddDomainSvc<T: ControlPlaneService>(pub Arc<T>);
                     impl<
                         T: ControlPlaneService,
-                    > tonic::server::UnaryService<super::AddGroupRequest>
-                    for AddGroupSvc<T> {
-                        type Response = super::AddGroupResponse;
+                    > tonic::server::UnaryService<super::AddDomainRequest>
+                    for AddDomainSvc<T> {
+                        type Response = super::AddDomainResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::AddGroupRequest>,
+                            request: tonic::Request<super::AddDomainRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ControlPlaneService>::add_group(&inner, request).await
+                                <T as ControlPlaneService>::add_domain(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -1584,7 +1585,7 @@ pub mod control_plane_service_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = AddGroupSvc(inner);
+                        let method = AddDomainSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -1600,25 +1601,25 @@ pub mod control_plane_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/controlplane.proto.v1.ControlPlaneService/RemoveGroup" => {
+                "/controlplane.proto.v1.ControlPlaneService/RemoveDomain" => {
                     #[allow(non_camel_case_types)]
-                    struct RemoveGroupSvc<T: ControlPlaneService>(pub Arc<T>);
+                    struct RemoveDomainSvc<T: ControlPlaneService>(pub Arc<T>);
                     impl<
                         T: ControlPlaneService,
-                    > tonic::server::UnaryService<super::RemoveGroupRequest>
-                    for RemoveGroupSvc<T> {
-                        type Response = super::RemoveGroupResponse;
+                    > tonic::server::UnaryService<super::RemoveDomainRequest>
+                    for RemoveDomainSvc<T> {
+                        type Response = super::RemoveDomainResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::RemoveGroupRequest>,
+                            request: tonic::Request<super::RemoveDomainRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ControlPlaneService>::remove_group(&inner, request)
+                                <T as ControlPlaneService>::remove_domain(&inner, request)
                                     .await
                             };
                             Box::pin(fut)
@@ -1630,7 +1631,7 @@ pub mod control_plane_service_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = RemoveGroupSvc(inner);
+                        let method = RemoveDomainSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

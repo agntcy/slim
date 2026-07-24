@@ -166,7 +166,7 @@ pub enum AuthMethod {
 #[diesel(table_name = nodes)]
 pub struct Node {
     pub id: String,
-    pub group_name: Option<String>,
+    pub domain_name: Option<String>,
     #[diesel(deserialize_as = ConnDetailsJson, serialize_as = ConnDetailsJson)]
     pub conn_details: Vec<ConnectionDetails>,
     #[diesel(deserialize_as = DbTimestamp, serialize_as = DbTimestamp)]
@@ -263,9 +263,9 @@ where
 pub struct Route {
     pub id: String,
     pub source_node_id: String,
-    pub source_group: String,
+    pub source_domain: String,
     pub dest_node_id: String,
-    pub dest_group: String,
+    pub dest_domain: String,
     pub link_id: Option<String>,
     pub component0: String,
     pub component1: String,
@@ -366,9 +366,9 @@ where
 pub struct Link {
     pub link_id: String,
     pub source_node_id: String,
-    pub source_group: String,
+    pub source_domain: String,
     pub dest_node_id: String,
-    pub dest_group: String,
+    pub dest_domain: String,
     pub dest_endpoint: String,
     #[diesel(deserialize_as = DbServerConnectionConfig, serialize_as = DbServerConnectionConfig)]
     pub conn_config_data: ServerConnectionConfig,
@@ -414,8 +414,8 @@ pub struct TopologySegment {
 #[diesel(table_name = topology_segment_links)]
 pub struct TopologySegmentLink {
     pub segment_id: String,
-    pub source_group: String,
-    pub dest_group: String,
+    pub source_domain: String,
+    pub dest_domain: String,
 }
 
 #[cfg(test)]
@@ -436,9 +436,9 @@ mod tests {
         Route {
             id: String::new(),
             source_node_id: src.to_string(),
-            source_group: String::new(),
+            source_domain: String::new(),
             dest_node_id: dest.to_string(),
-            dest_group: String::new(),
+            dest_domain: String::new(),
             link_id: Some(link.to_string()),
             component0: "org".to_string(),
             component1: "ns".to_string(),
@@ -555,9 +555,9 @@ mod tests {
         let link = Link {
             link_id: "lid".to_string(),
             source_node_id: "src".to_string(),
-            source_group: "grp".to_string(),
+            source_domain: "grp".to_string(),
             dest_node_id: "dst".to_string(),
-            dest_group: "grp".to_string(),
+            dest_domain: "grp".to_string(),
             dest_endpoint: "ep:9000".to_string(),
             conn_config_data: ServerConnectionConfig::default(),
             status: LinkStatus::Pending,
@@ -573,9 +573,9 @@ mod tests {
         let link = Link {
             link_id: "lid".to_string(),
             source_node_id: "src".to_string(),
-            source_group: "grp".to_string(),
+            source_domain: "grp".to_string(),
             dest_node_id: "dst".to_string(),
-            dest_group: "grp".to_string(),
+            dest_domain: "grp".to_string(),
             dest_endpoint: "ep:9000".to_string(),
             conn_config_data: ServerConnectionConfig::default(),
             status: LinkStatus::Applied,

@@ -1,4 +1,4 @@
-# Star topology: hub group links to all spokes, spokes link only to hub.
+# Star topology: hub domain links to all spokes, spokes link only to hub.
 # SPT handles transit routing automatically — spokes reach each other
 # through the hub without needing explicit routing_policy.
 
@@ -26,9 +26,9 @@ topology:
   registration_auth:
     type: shared_secret
     secrets:
-      group-1: "secret-for-group-1-abcdefghi-1234567890"
-      group-2: "secret-for-group-2-abcdefghi-1234567890"
-      group-3: "secret-for-group-3-abcdefghi-1234567890"
+      domain-1: "secret-for-domain-1-abcdefghi-1234567890"
+      domain-2: "secret-for-domain-2-abcdefghi-1234567890"
+      domain-3: "secret-for-domain-3-abcdefghi-1234567890"
       deployment-a: "secret-for-deployment-a-abcdefghi-1234567890"
       deployment-b: "secret-for-deployment-b-abcdefghi-1234567890"
       deployment-c: "secret-for-deployment-c-abcdefghi-1234567890"
@@ -42,7 +42,7 @@ topology:
   #   socket_path: "/run/spire/agent-sockets/api.sock"
 
   segments:
-    - name: segment-$group
+    - name: segment-$domain
       links:
-        - group: group-1
-          neighbors: [$group]
+        - domain: domain-1
+          neighbors: [$domain]

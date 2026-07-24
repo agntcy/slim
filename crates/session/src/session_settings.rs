@@ -88,4 +88,11 @@ where
 
     /// Node TLS policy: when true, new MLS groups use hybrid PQ KEM (native only).
     pub(crate) enforce_pqc: bool,
+    /// Encrypted store for persisting this session's record (for restore on
+    /// restart). `None` when session persistence is disabled.
+    pub(crate) kv_store: Option<slim_persistence::SlimKvStore>,
+
+    /// Shared MLS group-state store (same encrypted DB as `kv_store`). `None`
+    /// when persistence is disabled, in which case MLS state is in-memory.
+    pub(crate) group_storage: Option<slim_persistence::SlimGroupStateStorage>,
 }

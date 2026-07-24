@@ -109,3 +109,8 @@ publish = true
 release = true
 changelog_update = true
 
+[[package]]
+name = "agntcy-slim-persistence"
+publish = true
+release = true
+changelog_update = true

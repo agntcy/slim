@@ -11,6 +11,8 @@ use crate::{
     Direction, SlimChannelSender,
     common::{AppChannelSender, SessionMessage},
     errors::SessionError,
+    mls_state::{MlsModeratorState, MlsState},
+    persistence::{self, PersistedRole, PersistedSession},
     session_config::SessionConfig,
     session_controller::SessionController,
     session_moderator::SessionModerator,
@@ -130,6 +132,8 @@ where
     subscription_manager: Option<M>,
     service_id: Option<String>,
     enforce_pqc: Option<bool>,
+    kv_store: Option<slim_persistence::SlimKvStore>,
+    group_storage: Option<slim_persistence::SlimGroupStateStorage>,
     _target: PhantomData<Target>,
     _state: PhantomData<State>,
 }
@@ -158,6 +162,8 @@ where
             subscription_manager: None,
             service_id: None,
             enforce_pqc: None,
+            kv_store: None,
+            group_storage: None,
             _target: PhantomData,
             _state: PhantomData,
         }
@@ -258,6 +264,8 @@ where
             subscription_manager: Some(manager),
             service_id: self.service_id,
             enforce_pqc: self.enforce_pqc,
+            kv_store: self.kv_store,
+            group_storage: self.group_storage,
             _target: PhantomData,
             _state: PhantomData,
         }
@@ -270,6 +278,24 @@ where
 
     pub fn with_enforce_pqc(mut self, enforce_pqc: bool) -> Self {
         self.enforce_pqc = Some(enforce_pqc);
+    /// Provide the encrypted record store so the session persists its state.
+    ///
+    /// Crate-internal: persistence is enabled only at the app level (the
+    /// `SessionLayer` injects its shared store), never per session by callers.
+    pub(crate) fn with_kv_store(mut self, kv_store: slim_persistence::SlimKvStore) -> Self {
+        self.kv_store = Some(kv_store);
+        self
+    }
+
+    /// Provide the shared MLS group-state store (same encrypted DB as the
+    /// record store) so the session's MLS group is persisted/restorable.
+    ///
+    /// Crate-internal: see [`Self::with_kv_store`].
+    pub(crate) fn with_group_storage(
+        mut self,
+        group_storage: slim_persistence::SlimGroupStateStorage,
+    ) -> Self {
+        self.group_storage = Some(group_storage);
         self
     }
 
@@ -336,6 +362,8 @@ where
             subscription_manager: self.subscription_manager,
             service_id: self.service_id,
             enforce_pqc: self.enforce_pqc,
+            kv_store: self.kv_store,
+            group_storage: self.group_storage,
             _target: PhantomData,
             _state: PhantomData,
         })
@@ -423,6 +451,126 @@ where
         Ok(session_controller)
     }
 
+    /// Build a `SessionController` from a persisted record, restoring the MLS
+    /// group and roster and re-establishing routing over `conn`, without the
+    /// discovery/invite/welcome handshake.
+    pub(crate) async fn build_restored(
+        self,
+        record: &PersistedSession,
+        conn: u64,
+    ) -> Result<SessionController, SessionError> {
+        let id = self.id.unwrap();
+        let source = self.source.clone().unwrap();
+        let destination = self.destination.clone().unwrap();
+        let config = self.config.clone().unwrap();
+        let identity_provider = self.identity_provider.clone().unwrap();
+        let identity_verifier = self.identity_verifier.clone().unwrap();
+        let group_storage = self.group_storage.clone();
+
+        // Rebuild the MLS group (loaded from the shared persistent store) if this
+        // session used MLS and a group id was recorded.
+        let mls_state = match (&record.group_id, config.mls_settings.as_ref()) {
+            (Some(group_id), Some(mls_settings)) => {
+                let mls = crate::mls_state::build_mls(
+                    identity_provider.clone(),
+                    identity_verifier.clone(),
+                    group_storage.clone(),
+                );
+                Some(
+                    MlsState::restore(
+                        mls,
+                        group_id,
+                        record.last_mls_msg_id,
+                        mls_settings.header_integrity_validation_percent,
+                    )
+                    .await?,
+                )
+            }
+            _ => None,
+        };
+
+        let controller = match &record.role {
+            PersistedRole::Moderator {
+                group_list,
+                mls_participants,
+                next_msg_id,
+            } => {
+                // Rehydrate the roster and moderator MLS bookkeeping.
+                let mut roster = std::collections::HashMap::new();
+                for bytes in group_list {
+                    let participant = persistence::decode_participant(bytes)?;
+                    let mut key = participant.get_name()?;
+                    key.reset_id();
+                    roster.insert(key, participant);
+                }
+
+                let moderator_mls = match mls_state {
+                    Some(common) => {
+                        let mut participants = std::collections::HashMap::new();
+                        for (name_bytes, identity) in mls_participants {
+                            participants
+                                .insert(persistence::decode_name(name_bytes)?, identity.clone());
+                        }
+                        Some(MlsModeratorState::restore(
+                            common,
+                            participants,
+                            *next_msg_id,
+                        ))
+                    }
+                    None => None,
+                };
+
+                let (mut wrapper, tx, rx, settings) =
+                    self.build_session_stack(move |inner, settings| {
+                        SessionModerator::restore(inner, settings, moderator_mls, roster)
+                    })?;
+                wrapper.restore_reconnect(conn).await?;
+                SessionController::from_parts(
+                    id,
+                    source,
+                    destination,
+                    config,
+                    settings,
+                    tx,
+                    rx,
+                    wrapper,
+                )
+            }
+            PersistedRole::Participant {
+                moderator_name,
+                group_list,
+            } => {
+                let mut roster = std::collections::HashMap::new();
+                for bytes in group_list {
+                    let participant = persistence::decode_participant(bytes)?;
+                    roster.insert(participant.get_name()?, participant);
+                }
+                let moderator = match moderator_name {
+                    Some(bytes) => Some(persistence::decode_name(bytes)?),
+                    None => None,
+                };
+
+                let (mut wrapper, tx, rx, settings) =
+                    self.build_session_stack(move |inner, settings| {
+                        SessionParticipant::restore(inner, settings, mls_state, moderator, roster)
+                    })?;
+                wrapper.restore_reconnect(conn).await?;
+                SessionController::from_parts(
+                    id,
+                    source,
+                    destination,
+                    config,
+                    settings,
+                    tx,
+                    rx,
+                    wrapper,
+                )
+            }
+        };
+
+        Ok(controller)
+    }
+
     /// Generic helper function to build session stacks, eliminating code duplication
     /// between moderator and participant stack building.
     fn build_session_stack<W>(
@@ -451,13 +599,20 @@ where
             .unwrap_or(crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE);
 
         // Create the base Session layer
-        let inner = crate::session::Session::new(
+        let mut inner = crate::session::Session::new(
             self.id.unwrap(),
             config.clone(),
             &self.source.clone().unwrap(),
             tx_session.clone(),
             self.direction,
         );
+
+        // With persistence enabled, checkpoint the outbound data-message sequence
+        // so a restored session resumes it (fresh store loads 0). Keyed
+        // separately from the session record (`seq:<id>`).
+        if let Some(kv) = self.kv_store.clone() {
+            inner.attach_seq_persistence(kv, format!("seq:{}", self.id.unwrap()));
+        }
 
         let slim_tx = self.slim_tx.unwrap();
         let app_tx = self.app_tx.unwrap();
@@ -483,6 +638,8 @@ where
             service_id: self.service_id.unwrap_or_default(),
             max_seen_control_message_ids_size,
             enforce_pqc: self.enforce_pqc.unwrap_or_default(),
+            kv_store: self.kv_store,
+            group_storage: self.group_storage,
         };
 
         let wrapper = wrapper_constructor(inner, settings.clone());

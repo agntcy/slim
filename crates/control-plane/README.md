@@ -8,7 +8,7 @@ information is propagated to data-plane instances, and how failures are handled.
 ## Table of Contents
 
 1. [System Overview](#system-overview)
-   - [Group-Based Routing](#group-based-routing)
+   - [Domain-Based Routing](#domain-based-routing)
    - [Topology](#topology)
      - [Config mode](#config-mode-topology-section-present)
      - [API mode](#api-mode-topology-section-absent-or-empty)
@@ -50,19 +50,19 @@ data-plane (DP) nodes. It maintains the desired state of inter-node connections
 reconciliation loop to converge the actual state of each DP node toward the
 desired state.
 
-### Group-Based Routing
+### Domain-Based Routing
 
-The CP operates on **groups** (also called deployments), not individual nodes.
-Each DP node belongs to exactly one group. Intra-group connectivity is handled
-by the data plane directly (nodes within the same group discover each other). 
-The CP is responsible only for **inter-group** connectivity:
-creating links between groups and expanding routes across group boundaries.
+The CP operates on **domains** (also called deployments), not individual nodes.
+Each DP node belongs to exactly one domain. Intra-domain connectivity is handled
+by the data plane directly (nodes within the same domain discover each other). 
+The CP is responsible only for **inter-domain** connectivity:
+creating links between domains and expanding routes across domain boundaries.
 
-Within a group, one node is randomly selected as the **gateway** — the node
-that holds the inter-group link and forwards traffic between its group and
-other groups. Gateway selection is randomized to distribute load across group
+Within a domain, one node is randomly selected as the **gateway** — the node
+that holds the inter-domain link and forwards traffic between its domain and
+other domains. Gateway selection is randomized to distribute load across domain
 members. If the gateway crashes, the CP reassigns the link to a randomly
-chosen sibling node in the same group (see [Gateway Failover](#gateway-failover)).
+chosen sibling node in the same domain (see [Gateway Failover](#gateway-failover)).
 
 ### Topology
 
@@ -72,10 +72,10 @@ determined by whether the config file contains a `topology` section:
 #### Config mode (topology section present)
 
 The config file is the **single source of truth**. The topology is expressed
-as an **adjacency list**: each entry declares a group and the neighbors it
+as an **adjacency list**: each entry declares a domain and the neighbors it
 connects to. All links are **bidirectional** (if A lists B, then B↔A).
 
-The wildcard `"*"` matches all registered groups and is resolved dynamically
+The wildcard `"*"` matches all registered domains and is resolved dynamically
 at node registration time.
 
 On restart, all state is wiped and rebuilt from the config file.
@@ -89,8 +89,8 @@ via `slimctl` commands or gRPC APIs:
 ```
 slimctl controller segment add <NAME>
 slimctl controller segment remove <NAME>
-slimctl controller link add --segment <S> <GROUP_A> <GROUP_B>
-slimctl controller link remove --segment <S> <GROUP_A> <GROUP_B>
+slimctl controller link add --segment <S> <DOMAIN_A> <DOMAIN_B>
+slimctl controller link remove --segment <S> <DOMAIN_A> <DOMAIN_B>
 ```
 
 On restart, runtime state (nodes, links, routes) is cleared — nodes
@@ -101,12 +101,12 @@ Use `topology: {}` in the config file to enable API mode.
 
 #### Examples (config mode)
 
-**Full mesh** (all groups interconnect):
+**Full mesh** (all domains interconnect):
 
 ```yaml
 topology:
   links:
-    - group: "*"
+    - domain: "*"
       neighbors: ["*"]
 ```
 
@@ -115,16 +115,16 @@ topology:
 ```yaml
 topology:
   links:
-    - group: cloud
+    - domain: cloud
       neighbors: ["*"]
 ```
 
-**Explicit pairs** (customer groups reach cloud but not each other):
+**Explicit pairs** (customer domains reach cloud but not each other):
 
 ```yaml
 topology:
   links:
-    - group: cloud
+    - domain: cloud
       neighbors: [customer-a, customer-b]
 ```
 
@@ -133,17 +133,17 @@ topology:
 ```yaml
 topology:
   links:
-    - group: group-a
-      neighbors: [group-b]
-    - group: group-b
-      neighbors: [group-c]
-    - group: group-c
-      neighbors: [group-d]
+    - domain: domain-a
+      neighbors: [domain-b]
+    - domain: domain-b
+      neighbors: [domain-c]
+    - domain: domain-c
+      neighbors: [domain-d]
 ```
 
 The topology is enforced during link creation.
 The SPT routing algorithm uses the topology graph to compute
-shortest paths for route expansion across non-adjacent groups.
+shortest paths for route expansion across non-adjacent domains.
 
 #### Segments (route isolation)
 
@@ -152,25 +152,25 @@ Agents registered in one segment are **invisible** to agents in other
 segments — routes are only expanded within the segment's topology graph.
 
 Each segment has its own `links` adjacency list. The special token
-`$group` is a **template variable** that causes the segment definition
-to be **instantiated once per registered group**. For each group, `$group`
-is replaced with that group's name — it does not expand to a list of
-all groups simultaneously.
+`$domain` is a **template variable** that causes the segment definition
+to be **instantiated once per registered domain**. For each domain, `$domain`
+is replaced with that domain's name — it does not expand to a list of
+all domains simultaneously.
 
-**Per-group isolation** (each customer reaches cloud but not other customers):
+**Per-domain isolation** (each customer reaches cloud but not other customers):
 
 ```yaml
 topology:
   segments:
-    - name: segment-$group
+    - name: segment-$domain
       links:
-        - group: cloud
-          neighbors: [$group]
+        - domain: cloud
+          neighbors: [$domain]
 ```
 
-Because `$group` is a template, this produces one segment per group
+Because `$domain` is a template, this produces one segment per domain
 (e.g. `segment-customer-a`, `segment-customer-b`). In each generated
-segment the `cloud` group links only to that single customer group.
+segment the `cloud` domain links only to that single customer domain.
 Agents in `customer-a` can communicate with agents in `cloud`
 and vice versa, but `customer-a` cannot see `customer-b`.
 
@@ -181,11 +181,11 @@ topology:
   segments:
     - name: customer-1
       links:
-        - group: cloud
+        - domain: cloud
           neighbors: [cluster-a]
     - name: customer-2
       links:
-        - group: cloud
+        - domain: cloud
           neighbors: [cluster-b, cluster-c]
 ```
 
@@ -247,8 +247,8 @@ sequenceDiagram
     DP->>CP: OpenControlChannel
     CP-->>DP: Initial ACK
 
-    DP->>CP: RegisterNodeRequest {node_id, group_name, credentials, connection_details[], connections[]}
-    Note right of CP: verify_group_membership(credentials, group_name, node_id)
+    DP->>CP: RegisterNodeRequest {node_id, domain_name, credentials, connection_details[], connections[]}
+    Note right of CP: verify_domain_membership(credentials, domain_name, node_id)
     Note right of CP: 15 s timeout
     Note right of CP: save_node(Node)<br/>add_stream(node_id, tx)
     CP-->>DP: Registration ACK
@@ -267,8 +267,8 @@ sequenceDiagram
     end
 ```
 
-**Node ID construction.** If the node provides a `group_name`, the effective
-node ID becomes `{group_name}/{node_id}`. Otherwise, the bare `node_id` is
+**Node ID construction.** If the node provides a `domain_name`, the effective
+node ID becomes `{domain_name}/{node_id}`. Otherwise, the bare `node_id` is
 used.
 
 **`node_registered` orchestration.** After saving the node and registering
@@ -287,19 +287,19 @@ the stream, the route service performs several operations:
      destination endpoint and connection config in the link record.
 
 2. **Ensure links exist** (`ensure_links_for_node`). For every other
-   registered node in a **different group** that does not yet have a link
-   to/from this node's group:
-   - Create a group link using the `external_endpoint`. The node with the
+   registered node in a **different domain** that does not yet have a link
+   to/from this node's domain:
+   - Create a domain link using the `external_endpoint`. The node with the
      external endpoint becomes the destination.
-   - The target node within the remote group is chosen randomly to distribute
+   - The target node within the remote domain is chosen randomly to distribute
      gateway load.
-   - If neither node has an external endpoint, log an error (cross-group
+   - If neither node has an external endpoint, log an error (cross-domain
      connectivity requires at least one external endpoint).
-   - Same-group connectivity is handled by the data plane (not the CP).
+   - Same-domain connectivity is handled by the data plane (not the CP).
 
 3. **Expand routes via SPT** (`expand_all_wildcard_routes`). For each unique
    name with wildcard route templates, compute the SPT rooted at the first
-   announcer's group. Install upward routes (child→parent) for the root's
+   announcer's domain. Install upward routes (child→parent) for the root's
    tree and downward routes (parent→child) for subsequent announcers. See
    [Wildcard Routes](#wildcard-routes) for details.
 
@@ -309,7 +309,7 @@ the stream, the route service performs several operations:
 ### Registration Authentication
 
 The CP can optionally verify that a node is authorized to join its claimed
-group. This prevents rogue nodes from declaring arbitrary group membership.
+domain. This prevents rogue nodes from declaring arbitrary domain membership.
 
 **How it works:**
 
@@ -319,18 +319,18 @@ group. This prevents rogue nodes from declaring arbitrary group membership.
 3. The CP's `GroupAuthenticator` verifies the credentials before allowing
    registration:
    - `Noop` (default): accepts all nodes (backward compatible)
-   - `SharedSecret`: per-group HMAC verification — each group has its own
-     secret, and the token's identity must match `{group_name}/{node_id}`
+   - `SharedSecret`: per-domain HMAC verification — each domain has its own
+     secret, and the token's identity must match `{domain_name}/{node_id}`
    - `Spire`: validates the JWT SVID signature via trust bundles and asserts
-     the trust domain in the SPIFFE ID equals the claimed `group_name`
+     the trust domain in the SPIFFE ID equals the claimed `domain_name`
 
-**Identity derivation:** The node always uses `{group_name}/{node_id}` as its
+**Identity derivation:** The node always uses `{domain_name}/{node_id}` as its
 token identity, regardless of any `id` field in the config. This prevents
 typo-based authentication failures.
 
 **Failure modes:**
 - If auth is configured but the node sends empty credentials → `PERMISSION_DENIED`
-- If the node has no `group_name` but auth is required → rejected
+- If the node has no `domain_name` but auth is required → rejected
 - If `get_token()` fails on the node side → registration attempt is aborted
   (not sent with empty credentials)
 
@@ -341,8 +341,8 @@ stream. The CP sends a `DeregisterNodeResponse` *before* removing the stream
 (critical ordering -- once the stream is removed, sends fail). Then:
 
 1. **Gateway failover** (`handle_links_for_departing_node`): if the node held
-   inter-group links and siblings exist, reassigns them to a random sibling.
-   If this was the last node in the group, all links are soft-deleted.
+   inter-domain links and siblings exist, reassigns them to a random sibling.
+   If this was the last node in the domain, all links are soft-deleted.
 2. **Route cleanup** (`cleanup_routes_for_node`):
    - Source routes: hard-delete.
    - Destination routes: mark-delete and enqueue source nodes for route
@@ -359,7 +359,7 @@ network failure), the stream read loop exits. The CP:
    response waiters immediately (they receive a channel-closed error
    instead of blocking until the 90 s timeout).
 2. Calls `node_disconnected` which:
-   - **Gateway failover**: if the node held inter-group links, reassigns
+   - **Gateway failover**: if the node held inter-domain links, reassigns
      them to a randomly chosen sibling (see [Gateway Failover](#gateway-failover)).
    - **Route cleanup**: deletes source routes, mark-deletes destination
      routes, and deletes wildcard templates targeting this node.
@@ -369,7 +369,7 @@ network failure), the stream read loop exits. The CP:
 
 ### Gateway Failover
 
-When a node that serves as a group's gateway (the node holding inter-group
+When a node that serves as a domain's gateway (the node holding inter-domain
 links) departs, the CP performs gateway failover to maintain connectivity.
 The new gateway is chosen **randomly** from connected siblings to distribute load.
 
@@ -387,9 +387,9 @@ The new gateway is chosen **randomly** from connected siblings to distribute loa
 4. After the new link is claimed, `expand_all_wildcard_routes` re-creates
    the routes with the correct new `link_id`.
 
-**Single-node groups**: If the departing node is the last in its group, no
+**Single-node domains**: If the departing node is the last in its domain, no
 failover is possible. All links are soft-deleted and routes are cleaned up.
-When a new node joins the group later, links and routes are recreated from
+When a new node joins the domain later, links and routes are recreated from
 scratch.
 
 ## Link Management
@@ -404,21 +404,21 @@ Links are created during node registration (`ensure_links_for_node`).
 Each link gets a unique `link_id` (UUID) and is stored
 with status `Pending`. 
 
-**Connection detail selection.** For cross-group links, the
+**Connection detail selection.** For cross-domain links, the
 `external_endpoint` is used with mTLS (SPIRE-based), and additional settings
 (backoff, keepalive, SPIRE socket path) are injected into the config.
 
-**Link claim mechanism.** Inter-group links use a two-phase creation process
+**Link claim mechanism.** Inter-domain links use a two-phase creation process
 because the source node typically connects to a shared ingress (load balancer)
 rather than a specific destination node — the CP cannot know in advance which
 node will receive the connection:
 
-1. The CP creates the link record with `dest_node_id` empty and `dest_group`
+1. The CP creates the link record with `dest_node_id` empty and `dest_domain`
    set. The reconciler pushes the connection config to the source node.
 2. The source node establishes the gRPC connection to the dest endpoint.
 3. The dest node receives the connection and reports it back to the CP via
    `ConfigCommand` (with the `link_id` embedded in the connection metadata).
-4. The CP calls `claim_link`: it matches the `link_id` + `dest_group` and
+4. The CP calls `claim_link`: it matches the `link_id` + `dest_domain` and
    fills in `dest_node_id` with the claiming node. The link is now fully
    established (`Applied`).
 5. After claim, `expand_all_wildcard_routes` is triggered to create routes
@@ -480,19 +480,19 @@ should be able to reach this name." The CP uses a Shortest Path Tree (SPT)
 to expand them efficiently without creating loops.
 
 **Single-tree model.** For each unique name, only **one** SPT exists, rooted
-at the group of the first node to announce that name. Subsequent announcers
+at the domain of the first node to announce that name. Subsequent announcers
 join the existing tree rather than creating new ones.
 
 **Expansion logic:**
 
 - **First announcer** (no existing wildcard for this name): computes the SPT
-  rooted at the announcer's group. For each non-root group in the tree,
-  installs an *upward* route on that group's gateway node pointing toward
-  the parent group (toward root).
+  rooted at the announcer's domain. For each non-root domain in the tree,
+  installs an *upward* route on that domain's gateway node pointing toward
+  the parent domain (toward root).
 - **Subsequent announcers** (wildcard already exists for this name): walks
-  from the new announcer's group up to the root in the SPT and installs
+  from the new announcer's domain up to the root in the SPT and installs
   *downward* routes on each intermediate parent pointing toward the child
-  group (away from root, toward the new announcer).
+  domain (away from root, toward the new announcer).
 
 This produces a loop-free forwarding tree where:
 - Upward routes bring traffic from any node toward the root (first announcer).
@@ -709,33 +709,33 @@ southbound:
 database:
   type: in_memory  # or: type: sqlite, path: "/var/lib/slim/cp.db"
 
-# Topology section controls how groups are connected.
+# Topology section controls how domains are connected.
 # Present = config mode (config is source of truth, mutation APIs disabled).
 # Absent or empty = API mode (DB is source of truth, use slimctl to manage).
 
 # Config mode example (star topology):
 topology:
   links:
-    - group: cloud
-      neighbors: ["*"]  # cloud connects to all groups
+    - domain: cloud
+      neighbors: ["*"]  # cloud connects to all domains
   # Optional: segments for route isolation (see Topology section above)
   # segments:
-  #   - name: segment-$group
+  #   - name: segment-$domain
   #     links:
-  #       - group: cloud
-  #         neighbors: [$group]
+  #       - domain: cloud
+  #         neighbors: [$domain]
   # Registration authentication (optional).
-  # When configured, nodes must prove group membership to register.
+  # When configured, nodes must prove domain membership to register.
   # Omit entirely to accept all nodes (default).
   #
-  # Shared secret example (one secret per group):
+  # Shared secret example (one secret per domain):
   # registration_auth:
   #   type: shared_secret
   #   secrets:
   #     cluster-a: "secret-for-cluster-a-min-32-bytes-long"
   #     cluster-b: "secret-for-cluster-b-min-32-bytes-long"
   #
-  # SPIRE example (trust domain = group name):
+  # SPIRE example (trust domain = domain name):
   # registration_auth:
   #   type: spire
   #   socket_path: "/run/spire/agent-sockets/api.sock"

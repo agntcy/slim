@@ -17,7 +17,6 @@ use slim_datapath::{
     },
     messages::utils::{DELETE_GROUP, LEAVE_REPLY_SENT, LEAVING_SESSION, TRUE_VAL},
 };
-use slim_mls::mls::Mls;
 use tokio::sync::oneshot;
 
 use tracing::debug;
@@ -30,6 +29,7 @@ use crate::{
         AddParticipant, ModeratorTask, NotifyParticipants, RejoinParticipant, RemoveParticipant,
         TaskUpdate,
     },
+    persistence,
     runtime::maybe_await,
     session_controller::{PendingStatusUpdate, SessionControllerCommon, sign_control_messages},
     session_settings::SessionSettings,
@@ -97,6 +97,30 @@ where
             inner,
         }
     }
+
+    /// Construct a moderator from restored state (already-loaded MLS group and
+    /// roster). `init()` will not overwrite the provided `mls_state`. Call
+    /// [`Self::restore_reconnect`] afterwards to re-establish routing.
+    pub(crate) fn restore(
+        inner: I,
+        settings: SessionSettings<P, V, M>,
+        mls_state: Option<MlsModeratorState<P, V>>,
+        group_list: HashMap<ProtoName, Participant>,
+    ) -> Self {
+        let common = SessionControllerCommon::new(settings);
+
+        SessionModerator {
+            tasks_todo: vec![].into(),
+            current_task: None,
+            mls_state,
+            group_list,
+            common,
+            postponed_message: None,
+            subscribed: false,
+            conn_id: None,
+            inner,
+        }
+    }
 }
 
 /// Implementation of MessageHandler trait for SessionModerator
@@ -109,22 +133,26 @@ where
     M: SubscriptionOps,
 {
     async fn init(&mut self) -> Result<(), SessionError> {
-        // Initialize MLS
-        self.mls_state = if let Some(mls_settings) = &self.common.settings.config.mls_settings {
-            let mls_state = MlsState::new(
-                Mls::new(
+        // Initialize MLS. Skip when already populated: a restored moderator
+        // carries a loaded MLS group (see `restore`), which must not be
+        // overwritten by a fresh, empty state.
+        if self.mls_state.is_none() {
+            self.mls_state = if let Some(mls_settings) = &self.common.settings.config.mls_settings {
+                let mls = crate::mls_state::build_mls(
                     self.common.settings.identity_provider.clone(),
                     self.common.settings.identity_verifier.clone(),
+                    self.common.settings.group_storage.clone(),
                 )
-                .with_enforce_pqc(self.common.settings.enforce_pqc),
-                mls_settings.header_integrity_validation_percent,
-            )
-            .await
-            .expect("failed to create MLS state");
-            Some(MlsModeratorState::new(mls_state))
-        } else {
-            None
-        };
+                .with_enforce_pqc(self.common.settings.enforce_pqc);
+                let mls_state =
+                    MlsState::new(mls, mls_settings.header_integrity_validation_percent)
+                        .await
+                        .expect("failed to create MLS state");
+                Some(MlsModeratorState::new(mls_state))
+            } else {
+                None
+            };
+        }
 
         Ok(())
     }
@@ -336,7 +364,7 @@ where
         self.common.processing_state
     }
 
-    fn participants_list(&self) -> Vec<ProtoName> {
+    fn participants_list(&self) -> Vec<(ProtoName, ParticipantState)> {
         self.group_list
             .iter()
             .map(|(name, entry)| {
@@ -345,7 +373,9 @@ where
                     .as_ref()
                     .map(|n| n.id())
                     .unwrap_or(NameId::NULL_COMPONENT); // the name should always be present
-                name.clone().with_id(id)
+                let status =
+                    ParticipantState::try_from(entry.status).unwrap_or(ParticipantState::Online);
+                (name.clone().with_id(id), status)
             })
             .collect()
     }
@@ -389,6 +419,64 @@ where
     I: MessageHandler + Send + Sync + 'static,
     M: SubscriptionOps,
 {
+    /// Snapshot the moderator's session + MLS state to the persistence store so
+    /// it can be restored after a restart. No-op when persistence is disabled.
+    /// Failures are logged, never propagated — persistence must not break the
+    /// live session.
+    fn persist_state(&self) {
+        let Some(kv) = self.common.settings.kv_store.as_ref() else {
+            return;
+        };
+
+        let (group_id, last_mls_msg_id, mls_participants, next_msg_id) =
+            match self.mls_state.as_ref() {
+                Some(m) => (
+                    m.common.mls.get_group_id(),
+                    m.common.last_mls_msg_id,
+                    m.participants
+                        .iter()
+                        .map(|(n, id)| (persistence::encode_name(n), id.clone()))
+                        .collect(),
+                    m.next_msg_id,
+                ),
+                None => (None, 0, Vec::new(), 0),
+            };
+
+        let group_list = self
+            .group_list
+            .values()
+            .map(persistence::encode_participant)
+            .collect();
+
+        let record = persistence::new_record(
+            self.common.settings.id,
+            &self.common.settings.source,
+            &self.common.settings.destination,
+            &self.common.settings.control,
+            self.common.settings.direction,
+            &self.common.settings.config,
+            group_id,
+            last_mls_msg_id,
+            self.conn_id,
+            persistence::PersistedRole::Moderator {
+                group_list,
+                mls_participants,
+                next_msg_id,
+            },
+        );
+
+        if let Err(e) = record
+            .to_bytes()
+            .and_then(|bytes| Ok(kv.put(&persistence::session_key(record.session_id), &bytes)?))
+        {
+            tracing::error!(error = %e, session_id = self.common.settings.id, "failed to persist moderator session state");
+        }
+
+        // Save the app identity (now carrying the MLS-installed keypair) so a
+        // restart restores the exact identity this session was built with.
+        persistence::persist_app_identity(kv, &self.common.settings.identity_provider);
+    }
+
     #[maybe_async::maybe_async]
     async fn encrypt_output(&mut self, output: &mut SessionOutput) -> Result<(), SessionError> {
         let mut identity_provider = self.common.settings.identity_provider.clone();
@@ -579,6 +667,9 @@ where
             }
             None => None,
         };
+
+        // Roster + MLS state advanced: persist so the session can be restored.
+        self.persist_state();
 
         Ok((removed_participant, participants_vec, mls_payload))
     }
@@ -943,6 +1034,9 @@ where
             .unwrap()
             .welcome_start(welcome_msg_id)?;
 
+        // Roster + MLS state advanced: persist so the session can be restored.
+        self.persist_state();
+
         Ok(output)
     }
 
@@ -1301,6 +1395,14 @@ where
             return Ok(SessionOutput::new());
         }
 
+        // The sender may have reconnected over a new connection (e.g. after a
+        // restart + rejoin), so refresh the reverse route to it before replying —
+        // otherwise our ACK/NACK takes the stale path and never arrives, and the
+        // sender retries until it times out.
+        if let Some(in_conn) = message.try_get_incoming_conn() {
+            self.common.add_route(message.get_source(), in_conn).await?;
+        }
+
         let new_state = ParticipantState::try_from(payload.new_state).map_err(|_| {
             SessionError::MissingPayload {
                 context: "update_participant_state: invalid participant state",
@@ -1491,8 +1593,15 @@ where
         };
 
         if participant_entry.status != ParticipantState::Offline as i32 {
-            debug!(from = %participant_name, "rejoin request from online participant, ignoring");
-            return Ok(SessionOutput::new());
+            // A RejoinRequest from an online participant is only sent when the
+            // participant detected an epoch mismatch (heartbeat with a higher
+            // epoch, or a NACK for UpdateParticipantState(Online)). Without MLS
+            // there is no epoch to mismatch, so ignore; with MLS, process it.
+            if self.mls_state.is_none() {
+                debug!(from = %participant_name, "rejoin request from online participant (no MLS), ignoring");
+                return Ok(SessionOutput::new());
+            }
+            debug!(from = %participant_name, "rejoin request from online participant — epoch mismatch implied by key_package, processing");
         }
 
         // 2. Check if there is a current task
@@ -1548,11 +1657,14 @@ where
             .unwrap()
             .welcome_start(reply_msg_id)?;
 
-        // Mark participant as online and restore the datapath route.
-        // remove_endpoint was called when the participant went offline, so we must
-        // re-add it to sender.group_list (heartbeat tracking / ACK expectations)
-        // and inner.endpoints_list (data delivery).
-        if let Some(entry) = self.group_list.get_mut(&name_no_id) {
+        // Only restore the datapath route and mark the participant Online when it
+        // was previously Offline. For an epoch-mismatch rejoin the participant is
+        // already Online and its endpoint/heartbeat tracking is intact — calling
+        // add_endpoint again would reset the missed-heartbeat counter and
+        // potentially trigger a spurious flush of the send buffer.
+        if participant_entry.status == ParticipantState::Offline as i32
+            && let Some(entry) = self.group_list.get_mut(&name_no_id)
+        {
             entry.status = ParticipantState::Online as i32;
             let participant = entry.clone();
             self.add_endpoint(&participant).await?;
@@ -1751,6 +1863,48 @@ where
         Ok(())
     }
 
+    /// Re-establish routing for a restored moderator over the current
+    /// connection `conn`, mirroring the subscriptions/routes that `join` and
+    /// `on_discovery_reply` set up during a live session. Does not touch MLS or
+    /// the roster (already restored).
+    pub(crate) async fn restore_reconnect(&mut self, conn: u64) -> Result<(), SessionError> {
+        self.subscribed = true;
+        self.conn_id = Some(conn);
+
+        if self.common.settings.config.session_type == ProtoSessionType::Multicast {
+            let destination = self.common.settings.destination.clone();
+            let control = self.common.settings.control.clone();
+            self.common
+                .add_subscription(destination.clone(), conn)
+                .await?;
+            self.common.add_subscription(control.clone(), conn).await?;
+            self.common.add_route(destination, conn).await?;
+            self.common.add_route(control, conn).await?;
+
+            // For each participant (skipping ourselves): re-add its route AND
+            // re-register it with the session sender. The restored roster alone
+            // does not repopulate the sender's endpoint list, so without this the
+            // moderator has no endpoints to fan out to and every publish is
+            // buffered ("no remote endpoint connected to the session").
+            let mut local_no_id = self.common.settings.source.clone();
+            local_no_id.reset_id();
+            let participants: Vec<Participant> = self
+                .group_list
+                .iter()
+                .filter(|(name, _)| **name != local_no_id)
+                .map(|(_, p)| p.clone())
+                .collect();
+            for p in &participants {
+                if let Ok(pname) = p.get_name() {
+                    self.common.add_route(pname, conn).await?;
+                }
+                self.add_endpoint(p).await?;
+            }
+        }
+
+        Ok(())
+    }
+
     async fn join(&mut self, remote: ProtoName, conn: u64) -> Result<(), SessionError> {
         if self.subscribed {
             return Ok(());
@@ -1787,6 +1941,8 @@ where
         let participant = Participant::new(local_name.clone(), settings);
         local_name.reset_id();
         self.group_list.insert(local_name, participant);
+
+        self.persist_state();
 
         Ok(())
     }
@@ -1909,6 +2065,8 @@ mod tests {
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
             enforce_pqc: false,
+            kv_store: None,
+            group_storage: None,
         };
 
         let inner = MockInnerHandler::new();
@@ -2149,6 +2307,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_moderator_persists_state_on_join() {
+        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+
+        // Attach an encrypted persistence store, then drive the moderator to
+        // establish its group.
+        let dir = tempfile::tempdir().unwrap();
+        let kv = slim_persistence::SlimKvStore::open_sqlite(dir.path(), "moderator", None).unwrap();
+        moderator.common.settings.kv_store = Some(kv.clone());
+        moderator.init().await.unwrap();
+
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        let remote = make_name(&["remote", "app", "v1"]).with_id(200);
+        run_with_acks(moderator.join(remote, 12345), &mut rx_slim, &sub_mgr)
+            .await
+            .unwrap();
+
+        // A session record must now exist, decoding as a moderator whose roster
+        // includes itself.
+        let records = kv.list_prefix(persistence::SESSION_KEY_PREFIX).unwrap();
+        assert_eq!(records.len(), 1);
+
+        let record = persistence::PersistedSession::from_bytes(&records[0].1).unwrap();
+        assert_eq!(record.session_id, moderator.common.settings.id);
+        match record.role {
+            persistence::PersistedRole::Moderator { group_list, .. } => {
+                assert_eq!(group_list.len(), 1, "moderator should be in its own roster");
+            }
+            _ => panic!("expected a moderator record"),
+        }
+    }
+
+    #[tokio::test]
     async fn test_moderator_on_shutdown() {
         let (mut moderator, _rx_slim, mut _rx_session_layer) = setup_moderator();
         moderator.init().await.unwrap();
@@ -2283,6 +2473,8 @@ mod tests {
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
             enforce_pqc: false,
+            kv_store: None,
+            group_storage: None,
         };
 
         let inner = MockInnerHandler::new();
@@ -2365,6 +2557,8 @@ mod tests {
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
             enforce_pqc: false,
+            kv_store: None,
+            group_storage: None,
         };
 
         let inner = MockInnerHandler::new();
@@ -2515,6 +2709,8 @@ mod tests {
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
             enforce_pqc: false,
+            kv_store: None,
+            group_storage: None,
         };
 
         let inner = MockInnerHandler::new();
@@ -3260,10 +3456,126 @@ mod tests {
         .await;
         assert!(result.is_ok());
 
-        // Should produce no output (ignored — participant is already online)
+        // Without MLS there is no epoch to mismatch, so the request is ignored.
         let output = result.unwrap();
         assert!(output.is_empty());
         assert!(moderator.current_task.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_on_rejoin_request_online_participant_with_mls_processes_rejoin() {
+        // When MLS is enabled an online participant sending a RejoinRequest signals
+        // an epoch mismatch (e.g. crash-restore). The moderator must process the
+        // request instead of silently dropping it.
+        use slim_auth::shared_secret::SharedSecret;
+
+        const SECRET: &str = "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas";
+
+        let source = make_name(&["local", "moderator", "v1"]).with_id(100);
+        let destination = make_name(&["channel", "name", "v1"]).with_id(1);
+        let control = make_name(&["channel", "name", "v1"]).with_id(2);
+
+        let identity_provider = SharedSecret::new("test", SECRET).unwrap();
+        let identity_verifier = SharedSecret::new("test", SECRET).unwrap();
+
+        let (tx_slim, mut rx_slim) = mpsc::channel(16);
+        let (tx_app, _rx_app) = mpsc::unbounded_channel();
+        let (tx_session, _rx_session) = mpsc::channel(16);
+        let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
+
+        let subscription_manager =
+            crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
+
+        let config = SessionConfig {
+            session_type: ProtoSessionType::Multicast,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_settings: Some(MlsSettings {
+                header_integrity_validation_percent: 0,
+                max_seen_control_message_ids_size: None,
+            }),
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        let settings = SessionSettings {
+            id: 1,
+            source,
+            destination: destination.clone(),
+            control,
+            config,
+            direction: Direction::Bidirectional,
+            slim_tx: tx_slim,
+            app_tx: tx_app,
+            tx_session,
+            tx_to_session_layer: tx_session_layer,
+            identity_provider,
+            identity_verifier,
+            graceful_shutdown_timeout: None,
+            subscription_manager: subscription_manager.clone(),
+            service_id: String::new(),
+            max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            kv_store: None,
+            group_storage: None,
+        };
+
+        let inner = MockInnerHandler::new();
+        let mut moderator = SessionModerator::new(inner, settings);
+        moderator.init().await.unwrap();
+
+        moderator
+            .mls_state
+            .as_mut()
+            .unwrap()
+            .init_moderator()
+            .await
+            .unwrap();
+
+        // Add the participant as ONLINE (not offline)
+        let other = make_name(&["other", "participant", "v1"]).with_id(500);
+        let mut other_key = other.clone();
+        other_key.reset_id();
+        moderator.group_list.insert(
+            other_key.clone(),
+            Participant::new(other.clone(), ParticipantSettings::bidirectional()),
+        );
+
+        let msg = Message::builder()
+            .source(other.clone())
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(1)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::RejoinRequest)
+            .session_id(1)
+            .message_id(100)
+            .payload(
+                CommandPayload::builder()
+                    .rejoin_request(other.clone(), vec![1, 2, 3])
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            moderator.process_control_message(msg, MessageDirection::North, None),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+
+        // The participant only sends a RejoinRequest when it has detected an
+        // epoch mismatch, so a key_package being present implies the mismatch.
+        // The moderator must process it (not silently drop it): with a fake key
+        // package the MLS library returns an error, proving the online-guard
+        // was bypassed.
+        assert!(
+            result.is_err(),
+            "expected MLS error from invalid key package, got: {:?}",
+            result
+        );
     }
 
     #[tokio::test]
@@ -3443,6 +3755,8 @@ mod tests {
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
             enforce_pqc: false,
+            kv_store: None,
+            group_storage: None,
         };
 
         let inner = MockInnerHandler::new();

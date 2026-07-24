@@ -82,7 +82,7 @@ pub struct ServiceConfiguration {
     pub service_id: String,
 
     /// Optional name of the group for the service.
-    pub group_name: Option<String>,
+    pub domain_name: Option<String>,
 
     /// Optional authentication configuration for control plane registration.
     /// When set, the node will generate and send credentials to prove
@@ -106,7 +106,7 @@ impl Default for ServiceConfiguration {
         Self {
             service_id: node_id.clone(),
             node_id,
-            group_name: None,
+            domain_name: None,
             auth: None,
             dataplane: DataplaneConfig::default(),
             controller: ControllerConfig::default(),
@@ -239,7 +239,7 @@ impl std::fmt::Debug for Service {
             .field("id", &self.id)
             .field("dataplane_servers", &self.config.dataplane_servers())
             .field("dataplane_clients", &self.config.dataplane_clients())
-            .field("group_name", &self.config.group_name)
+            .field("domain_name", &self.config.domain_name)
             .field("controller", &self.config.controller)
             .finish()
     }
@@ -361,11 +361,11 @@ impl Service {
 
         // Build auth provider if configured
         let auth_provider = if let Some(auth_config) = &self.config.auth {
-            // Both group_name and node_id are required when auth is configured —
+            // Both domain_name and node_id are required when auth is configured —
             // the CP verifier expects the token subject to be "{group}/{node_id}".
-            let group = self.config.group_name.as_ref().ok_or_else(|| {
+            let group = self.config.domain_name.as_ref().ok_or_else(|| {
                 ServiceError::InvalidConfig(
-                    "group_name must be set when auth is configured".to_string(),
+                    "domain_name must be set when auth is configured".to_string(),
                 )
             })?;
             if self.config.node_id.is_empty() {
@@ -389,7 +389,7 @@ impl Service {
 
         let mut controller = self.config.controller.into_service(
             self.config.node_id.clone(),
-            self.config.group_name.clone(),
+            self.config.domain_name.clone(),
             self.message_processor.clone(),
             self.config.dataplane_servers(),
             auth_provider,
@@ -562,7 +562,43 @@ impl Service {
         P: TokenProvider + Send + Sync + Clone + 'static,
         V: Verifier + Send + Sync + Clone + 'static,
     {
-        debug!(%app_name, "creating app");
+        // Persistence is opt-in; use `create_app_with_direction_and_persistence`
+        // to enable it.
+        self.create_app_with_direction_and_persistence(
+            app_name,
+            identity_provider,
+            identity_verifier,
+            direction,
+            None,
+        )
+    }
+
+    /// Create an app with an explicit persistence configuration.
+    ///
+    /// `persistence` enables restorable MLS/session state (encrypted at rest);
+    /// `None` disables it. Persistence must be enabled explicitly here — there
+    /// is no implicit/environment activation.
+    #[cfg(feature = "session")]
+    #[tracing::instrument(skip_all, fields(service_id = %self.id))]
+    pub fn create_app_with_direction_and_persistence<P, V>(
+        &self,
+        app_name: &ProtoName,
+        identity_provider: P,
+        identity_verifier: V,
+        direction: Direction,
+        persistence: Option<slim_persistence::PersistenceConfig>,
+    ) -> Result<
+        (
+            App<P, V>,
+            mpsc::Receiver<Result<Notification, SessionError>>,
+        ),
+        ServiceError,
+    >
+    where
+        P: TokenProvider + Send + Sync + Clone + 'static,
+        V: Verifier + Send + Sync + Clone + 'static,
+    {
+        debug!(%app_name, persistence = persistence.is_some(), "creating app");
 
         // Create storage path for the app
         let mut hasher = DefaultHasher::new();
@@ -579,7 +615,7 @@ impl Service {
         let (tx_app, rx_app) = mpsc::channel(128);
 
         // create app
-        let app = App::new_with_direction(
+        let app = App::new_with_direction_and_persistence(
             app_name,
             identity_provider,
             identity_verifier,
@@ -589,6 +625,7 @@ impl Service {
             direction,
             self.id.to_string(),
             self.config.enforce_pqc().is_enforced(),
+            persistence,
         );
 
         // start message processing using the rx channel

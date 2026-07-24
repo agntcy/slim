@@ -1,0 +1,46 @@
+[package]
+name = "agntcy-slim-persistence"
+edition = { workspace = true }
+license = { workspace = true }
+version = "0.1.0"
+description = "Encrypted, disk-backed persistence for SLIM MLS group and session state."
+
+[lib]
+name = "slim_persistence"
+
+[dependencies]
+hex = "0.4"
+mls-rs = { workspace = true }
+mls-rs-core = { workspace = true }
+# Config-file embedding: `PersistenceConfig`/`MlsEncryptionKey` are (de)serializable
+# so persistence can be a section of the app/node config.
+serde = { workspace = true, features = ["derive"] }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+zeroize = { workspace = true }
+
+# The `GroupStateStorage` trait is sync on native (`is_sync`) and async on
+# wasm32 (`mls_build_async`); `maybe-async` selects the right shape per target.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Value-level encryption (AES-256-GCM) for the at-rest store — reuses the same
+# aws-lc-rs crypto stack as the MLS layer, so no OpenSSL/SQLCipher is linked.
+aws-lc-rs = { workspace = true }
+maybe-async = { workspace = true, features = ["is_sync"] }
+# Plain (bundled, statically-linked) SQLite. Native only: no wasm32 target,
+# where we fall back to in-memory storage. Encryption is applied by us to the
+# stored values (see `cipher`), not by the database engine.
+mls-rs-provider-sqlite = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# On wasm32 the `GroupStateStorage` trait is async (`mls_build_async`); the
+# `maybe_async::must_be_async` impl expands to an `async-trait` impl.
+async-trait = { workspace = true }
+maybe-async = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.3"
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ["cfg(mls_build_async)"]
