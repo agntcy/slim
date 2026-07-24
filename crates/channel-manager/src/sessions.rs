@@ -9,7 +9,7 @@ use std::sync::{Arc, Weak};
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_service::app::App;
 use slim_session::context::SessionContext;
-use slim_session::session_controller::SessionController;
+use slim_session::session_controller::{CloseMode, SessionController};
 use slim_session::{AppChannelReceiver, SessionError};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
@@ -119,7 +119,7 @@ impl SessionsList {
             let Some(session) = weak.upgrade() else {
                 continue;
             };
-            match session.close().await {
+            match session.close_with_mode(CloseMode::Soft).await {
                 Ok(completion) => {
                     if tokio::time::timeout(std::time::Duration::from_secs(5), completion)
                         .await
