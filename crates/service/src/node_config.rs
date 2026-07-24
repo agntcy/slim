@@ -194,42 +194,6 @@ fn expand_tilde_in_tls(tls: &mut TlsClientConfig) {
 }
 
 // ============================================================================
-// Cache management
-// ============================================================================
-
-/// Load the Ed25519 signature key pair from the cache directory.
-///
-/// Returns `None` if either key file is missing or unreadable.
-pub fn load_signature_keys(cache_dir: &Path) -> Option<(Vec<u8>, Vec<u8>)> {
-    let priv_path = cache_dir.join("signature_private.key");
-    let pub_path = cache_dir.join("signature_public.key");
-    if priv_path.is_file() && pub_path.is_file() {
-        let priv_key = std::fs::read(&priv_path).ok()?;
-        let pub_key = std::fs::read(&pub_path).ok()?;
-        if priv_key.is_empty() || pub_key.is_empty() {
-            return None;
-        }
-        debug!("Loaded signature keys from cache");
-        Some((priv_key, pub_key))
-    } else {
-        None
-    }
-}
-
-/// Persist the Ed25519 signature key pair to the cache directory.
-pub fn save_signature_keys(
-    cache_dir: &Path,
-    priv_key: &[u8],
-    pub_key: &[u8],
-) -> Result<(), ServiceError> {
-    std::fs::create_dir_all(cache_dir)?;
-    std::fs::write(cache_dir.join("signature_private.key"), priv_key)?;
-    std::fs::write(cache_dir.join("signature_public.key"), pub_key)?;
-    debug!("Saved signature keys to cache");
-    Ok(())
-}
-
-// ============================================================================
 // Public entry point
 // ============================================================================
 
@@ -466,22 +430,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_save_and_load_signature_keys() {
-        let tmp = TempDir::new().unwrap();
-        let priv_key = vec![0xde, 0xad, 0xbe, 0xef];
-        let pub_key = vec![0xca, 0xfe, 0xba, 0xbe];
-
-        save_signature_keys(tmp.path(), &priv_key, &pub_key).unwrap();
-
-        let loaded = load_signature_keys(tmp.path()).unwrap();
-        assert_eq!(loaded.0, priv_key);
-        assert_eq!(loaded.1, pub_key);
-    }
-
-    #[test]
-    fn test_load_signature_keys_missing_returns_none() {
-        let tmp = TempDir::new().unwrap();
-        assert!(load_signature_keys(tmp.path()).is_none());
-    }
 }
