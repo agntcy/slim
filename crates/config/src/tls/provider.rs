@@ -1,7 +1,9 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Once;
+use std::sync::{Arc, Once};
+
+use rustls::crypto::CryptoProvider;
 
 static RUSTLS: Once = Once::new();
 
@@ -17,6 +19,14 @@ pub fn initialize_crypto_provider() {
             .install_default()
             .expect("Failed to install default crypto provider");
     });
+}
+
+pub fn crypto_provider_for_config(enforce_pqc: bool) -> Arc<CryptoProvider> {
+    let mut provider = rustls::crypto::aws_lc_rs::default_provider();
+    if enforce_pqc {
+        provider.kx_groups = vec![rustls::crypto::aws_lc_rs::kx_group::X25519MLKEM768];
+    }
+    Arc::new(provider)
 }
 
 #[cfg(test)]
@@ -180,5 +190,18 @@ mod tests {
                 "Crypto provider should work after each initialization"
             );
         }
+    }
+
+    #[test]
+    fn test_crypto_provider_enforced_is_hybrid_only() {
+        let p = crypto_provider_for_config(true);
+        assert_eq!(p.kx_groups.len(), 1);
+    }
+
+    #[test]
+    fn test_crypto_provider_default_preserves_aws_lc_groups() {
+        let default_provider = rustls::crypto::aws_lc_rs::default_provider();
+        let p = crypto_provider_for_config(false);
+        assert_eq!(p.kx_groups.len(), default_provider.kx_groups.len());
     }
 }

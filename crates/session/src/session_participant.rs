@@ -124,7 +124,8 @@ where
                     self.common.settings.identity_provider.clone(),
                     self.common.settings.identity_verifier.clone(),
                     self.common.settings.group_storage.clone(),
-                );
+                )
+                .with_enforce_pqc(self.common.settings.enforce_pqc);
                 let mls_state =
                     MlsState::new(mls, mls_settings.header_integrity_validation_percent)
                         .await
@@ -1594,6 +1595,7 @@ mod tests {
             service_id: String::new(),
             max_seen_control_message_ids_size:
                 crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            enforce_pqc: false,
             kv_store: None,
             group_storage: None,
         };

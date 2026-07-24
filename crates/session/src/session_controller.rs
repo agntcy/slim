@@ -2178,6 +2178,7 @@ mod tests {
             service_id: String::new(),
             max_seen_control_message_ids_size:
                 crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            enforce_pqc: false,
             kv_store: None,
             group_storage: None,
         };
@@ -2358,6 +2359,7 @@ mod tests {
             service_id: String::new(),
             max_seen_control_message_ids_size:
                 crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            enforce_pqc: false,
             kv_store: None,
             group_storage: None,
         }

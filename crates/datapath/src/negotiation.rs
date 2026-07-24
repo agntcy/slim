@@ -10,8 +10,9 @@ use crate::api::ProtoMessage;
 use crate::api::proto::dataplane::v1::{LinkConnectionType, Message};
 use crate::connection::Connection;
 use crate::errors::DataPathError;
+use crate::header_mac::HeaderMacError;
 use crate::link_ecdh;
-use crate::link_ecdh::X25519_PUBLIC_KEY_LEN;
+use crate::link_ecdh::{ML_KEM768_CIPHERTEXT_LEN, ML_KEM768_PUBLIC_KEY_LEN, X25519_PUBLIC_KEY_LEN};
 use crate::tables::ConnType;
 
 fn local_version() -> &'static str {
@@ -26,6 +27,8 @@ pub(crate) struct NegotiationParams<'a> {
     pub deployment_name: &'a str,
     /// The connection type the local side wants to advertise to the remote.
     pub connection_type: ConnType,
+    /// When true, link negotiation must use hybrid X25519 + ML-KEM-768 key agreement.
+    pub enforce_pqc: bool,
 }
 
 /// Result of a successful negotiation.
@@ -58,11 +61,8 @@ where
     let is_client = connection.is_outgoing();
     let strict = connection.require_header_mac();
 
-    // Client side: initiate the negotiation by sending the request.
-    // The ECDH private key is kept local — it's only needed to derive the
-    // HMAC when the reply arrives.
     let mut client_ecdh_private = None;
-
+    let mut client_mlkem_private = None;
     if is_client {
         let (sk, pk) = link_ecdh::generate_x25519_ephemeral().map_err(|_| {
             DataPathError::NegotiationError(
@@ -70,6 +70,17 @@ where
             )
         })?;
         client_ecdh_private = Some(sk);
+        let mut kem_payload = None;
+
+        if params.enforce_pqc {
+            let (mlkem_sk, mlkem_pk) = link_ecdh::generate_mlkem768().map_err(|_| {
+                DataPathError::NegotiationError(
+                    "failed to generate ML-KEM-768 key pair for link negotiation".to_string(),
+                )
+            })?;
+            client_mlkem_private = Some(mlkem_sk);
+            kem_payload = Some(mlkem_pk);
+        }
 
         let link_id = connection.link_id().unwrap_or_default();
 
@@ -78,10 +89,12 @@ where
             local_version(),
             false,
             Some(pk),
+            kem_payload,
             conn_type_to_link(params.connection_type),
             params.node_id,
             params.deployment_name,
         );
+
         connection.send(negotiation_msg).await.map_err(|e| {
             DataPathError::NegotiationError(format!(
                 "failed to send link negotiation request: {}",
@@ -119,6 +132,17 @@ where
 
     let link_id = &payload.link_id;
     let remote_version = &payload.slim_version;
+
+    if is_client && params.enforce_pqc && kem_len(&payload) != ML_KEM768_CIPHERTEXT_LEN {
+        return Err(DataPathError::NegotiationError(
+            "enforce_pqc: responder did not return ML-KEM-768 ciphertext".into(),
+        ));
+    }
+    if !is_client && params.enforce_pqc && kem_len(&payload) != ML_KEM768_PUBLIC_KEY_LEN {
+        return Err(DataPathError::NegotiationError(
+            "enforce_pqc: initiator did not send ML-KEM-768 public key".into(),
+        ));
+    }
 
     debug!(
         %link_id,
@@ -179,11 +203,31 @@ where
         if payload.link_ecdh_public_key.len() == X25519_PUBLIC_KEY_LEN
             && let Some(sk) = client_ecdh_private.take()
         {
-            match link_ecdh::derive_header_mac_from_ecdh(
-                sk,
-                payload.link_ecdh_public_key.as_slice(),
-                link_id,
-            ) {
+            let derive_result = if params.enforce_pqc {
+                let ct = payload.link_kem_payload.as_deref().ok_or_else(|| {
+                    DataPathError::NegotiationError("missing ML-KEM ciphertext".into())
+                })?;
+                let mlkem_sk = client_mlkem_private.take().ok_or_else(|| {
+                    DataPathError::NegotiationError("missing local ML-KEM secret".into())
+                })?;
+                let mlkem_shared = link_ecdh::decapsulate_mlkem768(mlkem_sk, ct).map_err(|_| {
+                    DataPathError::NegotiationError("ML-KEM decapsulation failed".into())
+                })?;
+                link_ecdh::derive_header_mac_hybrid(
+                    sk,
+                    payload.link_ecdh_public_key.as_slice(),
+                    &mlkem_shared,
+                    link_id,
+                )
+            } else {
+                link_ecdh::derive_header_mac_from_ecdh(
+                    sk,
+                    payload.link_ecdh_public_key.as_slice(),
+                    link_id,
+                )
+            };
+
+            match derive_result {
                 Ok(mac) => connection.install_header_hmac(mac),
                 Err(e) => {
                     error!(
@@ -195,6 +239,12 @@ where
                     ));
                 }
             }
+        }
+
+        if params.enforce_pqc && connection.header_hmac().is_none() {
+            return Err(DataPathError::NegotiationError(
+                "enforce_pqc: hybrid link HMAC session is not installed".into(),
+            ));
         }
 
         if strict && connection.header_hmac().is_none() {
@@ -223,33 +273,57 @@ where
 
         let peer_ecdh = payload.link_ecdh_public_key.as_slice();
         let mut server_reply_ecdh: Option<Vec<u8>> = None;
+        let mut reply_kem_payload: Option<Vec<u8>> = None;
         if peer_ecdh.len() == X25519_PUBLIC_KEY_LEN {
-            match link_ecdh::generate_x25519_ephemeral() {
-                Ok((server_sk, server_pk)) => {
-                    match link_ecdh::derive_header_mac_from_ecdh(server_sk, peer_ecdh, link_id) {
-                        Ok(mac) => {
-                            connection.install_header_hmac(mac);
-                            server_reply_ecdh = Some(server_pk);
-                        }
-                        Err(e) => {
-                            error!(
-                                error = %e,
-                                "link ECDH key derivation failed (server path)",
-                            );
-                            if strict {
-                                return Err(DataPathError::NegotiationError(
-                                    "failed to derive header MAC from link ECDH (server path)"
-                                        .to_string(),
-                                ));
-                            }
-                        }
+            let (server_sk, server_pk) = link_ecdh::generate_x25519_ephemeral().map_err(|_| {
+                DataPathError::NegotiationError("failed to generate server exchange key".into())
+            })?;
+
+            let hybrid = params.enforce_pqc || kem_len(&payload) == ML_KEM768_PUBLIC_KEY_LEN;
+            let derive_result = if hybrid {
+                // Use an IIFE so ? propagates into derive_result (-> Err arm of the match
+                // below), letting strict=false deployments skip the header MAC gracefully
+                // instead of hard-rejecting the connection.
+                (|| {
+                    let peer_kem_pk = payload
+                        .link_kem_payload
+                        .as_deref()
+                        .ok_or(HeaderMacError::KeyAgreement)?;
+                    let (ct, mlkem_shared) = link_ecdh::encapsulate_mlkem768(peer_kem_pk)?;
+                    reply_kem_payload = Some(ct);
+                    link_ecdh::derive_header_mac_hybrid(
+                        server_sk,
+                        peer_ecdh,
+                        &mlkem_shared,
+                        link_id,
+                    )
+                })()
+            } else {
+                link_ecdh::derive_header_mac_from_ecdh(server_sk, peer_ecdh, link_id)
+            };
+
+            match derive_result {
+                Ok(mac) => {
+                    connection.install_header_hmac(mac);
+                    server_reply_ecdh = Some(server_pk);
+                }
+                Err(e) => {
+                    error!(
+                        error = %e,
+                        "link ECDH key derivation failed (server path)",
+                    );
+                    if strict {
+                        return Err(DataPathError::NegotiationError(
+                            "failed to derive header MAC from link ECDH (server path)".to_string(),
+                        ));
                     }
                 }
-                Err(_) => {
-                    return Err(DataPathError::NegotiationError(
-                        "failed to generate server exchange key".to_string(),
-                    ));
-                }
+            }
+
+            if params.enforce_pqc && connection.header_hmac().is_none() {
+                return Err(DataPathError::NegotiationError(
+                    "enforce_pqc: hybrid link HMAC session is not installed".into(),
+                ));
             }
         }
 
@@ -270,6 +344,7 @@ where
             local_version(),
             true,
             server_reply_ecdh,
+            reply_kem_payload,
             reply_conn_type,
             params.node_id,
             params.deployment_name,
@@ -297,4 +372,8 @@ fn conn_type_to_link(ct: ConnType) -> LinkConnectionType {
         ConnType::Edge => LinkConnectionType::Edge,
         _ => LinkConnectionType::Remote,
     }
+}
+
+fn kem_len(payload: &crate::api::LinkNegotiationPayload) -> usize {
+    payload.link_kem_payload.as_ref().map_or(0, |b| b.len())
 }

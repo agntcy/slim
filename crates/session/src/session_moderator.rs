@@ -142,7 +142,8 @@ where
                     self.common.settings.identity_provider.clone(),
                     self.common.settings.identity_verifier.clone(),
                     self.common.settings.group_storage.clone(),
-                );
+                )
+                .with_enforce_pqc(self.common.settings.enforce_pqc);
                 let mls_state =
                     MlsState::new(mls, mls_settings.header_integrity_validation_percent)
                         .await
@@ -2089,6 +2090,7 @@ mod tests {
             subscription_manager,
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            enforce_pqc: false,
             kv_store: None,
             group_storage: None,
         };
@@ -2496,6 +2498,7 @@ mod tests {
             subscription_manager,
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            enforce_pqc: false,
             kv_store: None,
             group_storage: None,
         };
@@ -2579,6 +2582,7 @@ mod tests {
             subscription_manager,
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            enforce_pqc: false,
             kv_store: None,
             group_storage: None,
         };
@@ -2730,6 +2734,7 @@ mod tests {
             subscription_manager,
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            enforce_pqc: false,
             kv_store: None,
             group_storage: None,
         };
@@ -3538,6 +3543,7 @@ mod tests {
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
             kv_store: None,
             group_storage: None,
+            enforce_pqc: false,
         };
 
         let inner = MockInnerHandler::new();
@@ -3775,6 +3781,7 @@ mod tests {
             subscription_manager: subscription_manager.clone(),
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            enforce_pqc: false,
             kv_store: None,
             group_storage: None,
         };

@@ -97,6 +97,7 @@ where
             tx_app,
             Direction::Bidirectional,
             service_id,
+            false,
         )
     }
 
@@ -111,6 +112,7 @@ where
         tx_app: mpsc::Sender<Result<Notification, SessionError>>,
         direction: Direction,
         service_id: String,
+        enforce_pqc: bool,
     ) -> Self {
         Self::new_with_direction_and_persistence(
             app_name,
@@ -122,6 +124,7 @@ where
             direction,
             service_id,
             None,
+            enforce_pqc,
         )
     }
 
@@ -141,6 +144,7 @@ where
         direction: Direction,
         service_id: String,
         persistence: Option<slim_persistence::PersistenceConfig>,
+        enforce_pqc: bool,
     ) -> Self {
         // Open the persistent store (if configured) and restore the app identity
         // through it BEFORE deriving the app id. The id is a hash of the identity
@@ -190,6 +194,7 @@ where
             service_id,
             group_storage,
             kv_store,
+            enforce_pqc,
         ));
 
         // Create a new cancellation token for the app receiver loop
