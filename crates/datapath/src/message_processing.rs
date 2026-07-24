@@ -1693,13 +1693,23 @@ impl MessageProcessor {
                                             && !from_control_plane
                                             && let Some(txcp) = &tx_cp
                                         {
-                                            match msg.get_type() {
-                                                PublishType(_) | LinkType(_) | SubscriptionAckType(_) => {/* do nothing */}
-                                                _ => {
-                                                    // send subscriptions and unsubscriptions
-                                                    // to the control plane
-                                                    let _ = txcp.send(Ok(msg.clone())).await;
-                                                }
+                                            let cp_msg = match msg.get_type() {
+                                                // send subscription and unsubscription required
+                                                // header params to the control-plane
+                                                SubscribeType(_) => ProtoMessage::builder()
+                                                    .source(msg.get_source())
+                                                    .destination(msg.get_dst())
+                                                    .build_subscribe()
+                                                    .ok(),
+                                                UnsubscribeType(_) => ProtoMessage::builder()
+                                                    .source(msg.get_source())
+                                                    .destination(msg.get_dst())
+                                                    .build_unsubscribe()
+                                                    .ok(),
+                                                PublishType(_) | LinkType(_) | SubscriptionAckType(_) => None
+                                            };
+                                            if let Some(m) = cp_msg {
+                                                let _ = txcp.send(Ok(m)).await;
                                             }
                                         }
 
