@@ -429,5 +429,4 @@ mod tests {
             other => panic!("Expected SharedSecret, got {other:?}"),
         }
     }
-
 }

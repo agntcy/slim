@@ -63,18 +63,16 @@ fn ffi_app_to_core(app: SlimAppConfig) -> core_node_config::SlimAppConfig {
     use slim_config::auth::identity::IdentityVerifierConfig as CoreIdV;
     core_node_config::SlimAppConfig {
         name: app.name,
-        identity: CoreIdP::from(IdentityProviderConfig::from(app.identity)),
-        identity_verifier: CoreIdV::from(IdentityVerifierConfig::from(app.identity_verifier)),
+        identity: CoreIdP::from(app.identity),
+        identity_verifier: CoreIdV::from(app.identity_verifier),
     }
 }
 
 fn core_app_to_ffi(app: core_node_config::SlimAppConfig) -> SlimAppConfig {
-    use slim_config::auth::identity::IdentityProviderConfig as CoreIdP;
-    use slim_config::auth::identity::IdentityVerifierConfig as CoreIdV;
     SlimAppConfig {
         name: app.name,
-        identity: IdentityProviderConfig::from(CoreIdP::from(app.identity)),
-        identity_verifier: IdentityVerifierConfig::from(CoreIdV::from(app.identity_verifier)),
+        identity: IdentityProviderConfig::from(app.identity),
+        identity_verifier: IdentityVerifierConfig::from(app.identity_verifier),
     }
 }
 

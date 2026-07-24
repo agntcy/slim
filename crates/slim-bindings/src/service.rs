@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-
 use crate::client_config::ClientConfig;
 use crate::errors::SlimError;
 use crate::get_runtime;
