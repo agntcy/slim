@@ -1881,6 +1881,14 @@ where
         if self.common.settings.config.session_type == ProtoSessionType::Multicast {
             let destination = self.common.settings.destination.clone();
             let control = self.common.settings.control.clone();
+
+            // Restore the control sender's group name so heartbeats resume after
+            // a restart, matching what `on_join_request` does for a fresh join.
+            // Without it a restored session that then sits idle emits no
+            // heartbeats. For multicast the heartbeat/control traffic uses the
+            // control name.
+            self.common.sender.set_group_name(control.clone());
+
             self.common
                 .add_subscription(destination.clone(), conn)
                 .await?;
