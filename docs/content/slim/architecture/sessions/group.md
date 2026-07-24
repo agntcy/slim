@@ -139,6 +139,11 @@ Group participants have two states: **online** and **offline**. Online participa
 
 This is distinct from being removed from the group, which is a moderator-initiated operation that permanently revokes roster membership and requires a new invite to return.
 
+Offline membership is particularly useful for participants that are not continuously running:
+
+- **Event-emitting participants** — an agent that wakes up, publishes a message to the channel, then shuts down. Because it transitions offline rather than being removed, it can reconnect and rejoin the live group on its next run without any moderator involvement.
+- **Transient clients and CLI tools** — a short-lived process such as a CLI command or one-shot script that interacts with a channel without a persistent daemon. It joins, does its work, goes offline, and resumes later without consuming a permanent roster slot or triggering the full invite handshake each time.
+
 ### Graceful offline transition
 
 A participant that wants to stop participating temporarily can broadcast an `OFFLINE` state update to the group channel. Other members mark it as offline, stop expecting acknowledgements from it, and exclude it from future MLS key material — but do not remove it from the roster. When the participant is ready to resume, it broadcasts an `ONLINE` state update and the group performs an MLS re-key to include it in new key material. See [Close and Rejoin](../../components/sdk/tutorials/tutorial-persistence.md#close-and-rejoin) for the SDK API.
