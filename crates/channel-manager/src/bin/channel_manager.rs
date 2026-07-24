@@ -21,6 +21,7 @@ use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_config::component::ComponentBuilder;
 use slim_datapath::api::{ProtoName, ProtoSessionType};
+use slim_persistence::{MlsEncryptionKey, PersistenceConfig};
 use slim_service::app::App;
 use slim_session::{Direction, SessionConfig, session_config::MlsSettings};
 use slim_tracing::TracingConfiguration;
@@ -44,6 +45,12 @@ async fn create_channels_from_config(
     config: &Config,
 ) -> anyhow::Result<()> {
     for channel_cfg in &config.manager.channels {
+        // Skip channels already restored from persistent storage.
+        if sessions.get_session(&channel_cfg.name).await.is_some() {
+            info!(channel = %channel_cfg.name, "Channel already restored from persistent storage, skipping");
+            continue;
+        }
+
         let channel_name =
             ProtoName::parse_name(&channel_cfg.name).map_err(|e| anyhow::anyhow!("{e}"))?;
 
@@ -185,8 +192,25 @@ async fn main() -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("failed to initialize identity verifier: {e}"))?;
 
-    let (app, _rx) =
-        service.create_app_with_direction(&app_name, provider, verifier, Direction::None)?;
+    let persistence = config
+        .manager
+        .persistence
+        .as_ref()
+        .map(|p| match &p.encryption_passphrase {
+            Some(passphrase) => PersistenceConfig::with_key(
+                &p.path,
+                MlsEncryptionKey::Passphrase(passphrase.clone()),
+            ),
+            None => PersistenceConfig::new(&p.path),
+        });
+
+    let (app, _rx) = service.create_app_with_direction_and_persistence(
+        &app_name,
+        provider,
+        verifier,
+        Direction::None,
+        persistence,
+    )?;
 
     // Subscribe to the local name
     app.subscribe(app.app_name(), Some(conn_id))
@@ -201,6 +225,36 @@ async fn main() -> anyhow::Result<()> {
     // Create sessions list
     let sessions = Arc::new(SessionsList::new());
     let arc_app = Arc::new(app);
+
+    // Restore sessions persisted by a previous run (no-op when persistence is disabled).
+    match arc_app.restore_sessions(conn_id).await {
+        Ok(restored) => {
+            info!(
+                count = restored.len(),
+                "Sessions found in persistent storage"
+            );
+            for ctx in restored {
+                match ctx.session_arc() {
+                    None => warn!("Restored session context has no live session arc; skipping"),
+                    Some(session) => {
+                        let dst = session.dst();
+                        if dst.str_name.is_none() {
+                            warn!("Skipping restored session with no string name in destination");
+                            continue;
+                        }
+                        let (c0, c1, c2) = dst.str_components();
+                        let channel_name = format!("{c0}/{c1}/{c2}");
+                        if let Err(e) = sessions.add_session(channel_name.clone(), ctx).await {
+                            warn!(channel = %channel_name, "failed to restore session: {e}");
+                        } else {
+                            info!(channel = %channel_name, "Restored session from persistent storage");
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => warn!("Failed to restore sessions: {e}"),
+    }
 
     // Create channels from configuration
     if let Err(e) = create_channels_from_config(&arc_app, conn_id, &sessions, &config).await {
@@ -235,11 +289,24 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Cleanup with timeout to avoid hanging on shutdown
+    // Cleanup: either delete sessions from SLIM or just go offline, depending on config.
     info!("Shutting down...");
-    match tokio::time::timeout(Duration::from_secs(5), sessions.delete_all(&arc_app)).await {
-        Ok(()) => info!("All sessions cleaned up"),
-        Err(_) => warn!("Session cleanup timed out, forcing shutdown"),
+    let delete_on_shutdown = config
+        .manager
+        .persistence
+        .as_ref()
+        .map(|p| p.delete_sessions_on_shutdown)
+        .unwrap_or(true);
+    if delete_on_shutdown {
+        match tokio::time::timeout(Duration::from_secs(5), sessions.delete_all(&arc_app)).await {
+            Ok(()) => info!("All sessions deleted"),
+            Err(_) => warn!("Session deletion timed out, forcing shutdown"),
+        }
+    } else {
+        match tokio::time::timeout(Duration::from_secs(5), sessions.close_all()).await {
+            Ok(()) => info!("All sessions closed gracefully"),
+            Err(_) => warn!("Session close timed out, forcing shutdown"),
+        }
     }
     service
         .shutdown()

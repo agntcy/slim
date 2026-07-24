@@ -806,7 +806,8 @@ where
         }.instrument(sessions_span));
     }
 
-    /// Remove a session from the pool and return a handle to optionally wait on
+    /// Remove a session from the pool and return a handle to optionally wait on.
+    /// Also removes the persisted session record from the KV store (if any).
     #[tracing::instrument(skip_all, fields(service_id = %self.service_id, session_id = id))]
     pub fn remove_session(&self, id: u32) -> Result<CompletionHandle, SessionError> {
         debug!(%id, "try to remove session");

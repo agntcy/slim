@@ -9,7 +9,7 @@ use std::sync::{Arc, Weak};
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_service::app::App;
 use slim_session::context::SessionContext;
-use slim_session::session_controller::SessionController;
+use slim_session::session_controller::{CloseMode, SessionController};
 use slim_session::{AppChannelReceiver, SessionError};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
@@ -66,17 +66,11 @@ impl SessionsList {
         channel_name: &str,
         app: &App<AuthProvider, AuthVerifier>,
     ) -> anyhow::Result<()> {
-        // Remove from map and release the lock before the potentially slow SLIM call
-        let session = {
-            let mut channels = self.channels.write().await;
-            let channel = channels
-                .remove(channel_name)
-                .ok_or_else(|| anyhow::anyhow!("channel {channel_name} not found"))?;
-            channel.monitor.abort();
-            channel.session
-        };
+        let session = self
+            .take_channel(channel_name)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("channel {channel_name} not found"))?;
 
-        // Delete the SLIM session with a timeout to avoid hanging
         let s = session
             .upgrade()
             .ok_or_else(|| anyhow::anyhow!("session already closed"))?;
@@ -87,18 +81,12 @@ impl SessionsList {
         match tokio::time::timeout(std::time::Duration::from_secs(5), completion).await {
             Ok(Ok(())) => Ok(()),
             Ok(Err(e)) => {
-                warn!(
-                    channel = %channel_name,
-                    "Session deletion completed with error: {e}"
-                );
-                Ok(()) // Session was already removed from the map
+                warn!(channel = %channel_name, "Session deletion completed with error: {e}");
+                Ok(())
             }
             Err(_) => {
-                warn!(
-                    channel = %channel_name,
-                    "Session deletion did not complete in time"
-                );
-                Ok(()) // Session was already removed from the map
+                warn!(channel = %channel_name, "Session deletion did not complete in time");
+                Ok(())
             }
         }
     }
@@ -109,15 +97,51 @@ impl SessionsList {
         channels.keys().cloned().collect()
     }
 
-    /// Delete all sessions (used during shutdown)
+    /// Delete all sessions from SLIM (used on shutdown when persistence is disabled
+    /// or `delete-sessions-on-shutdown` is true).
     pub async fn delete_all(&self, app: &App<AuthProvider, AuthVerifier>) {
-        let names: Vec<String> = self.list_channel_names().await;
-        for name in names {
+        for name in self.list_channel_names().await {
             match self.remove_session(&name, app).await {
-                Ok(()) => info!("Deleted session for channel {name}"),
+                Ok(()) => info!(channel = %name, "Session deleted"),
                 Err(e) => warn!("{e}"),
             }
         }
+    }
+
+    /// Close all sessions gracefully (send Offline) without deleting them from
+    /// the persistence store. Use this on clean shutdown when sessions should be
+    /// restored on next startup (`delete-sessions-on-shutdown: false`).
+    pub async fn close_all(&self) {
+        for name in self.list_channel_names().await {
+            let Some(weak) = self.take_channel(&name).await else {
+                continue;
+            };
+            let Some(session) = weak.upgrade() else {
+                continue;
+            };
+            match session.close_with_mode(CloseMode::Soft).await {
+                Ok(completion) => {
+                    if tokio::time::timeout(std::time::Duration::from_secs(5), completion)
+                        .await
+                        .is_err()
+                    {
+                        warn!(channel = %name, "Timed out waiting for session close confirmation");
+                    } else {
+                        info!(channel = %name, "Session closed gracefully");
+                    }
+                }
+                Err(e) => warn!(channel = %name, "Failed to close session: {e}"),
+            }
+        }
+    }
+
+    /// Remove a channel from the map and abort its monitor, returning the session weak ref.
+    async fn take_channel(&self, channel_name: &str) -> Option<Weak<SessionController>> {
+        let mut channels = self.channels.write().await;
+        channels.remove(channel_name).map(|ch| {
+            ch.monitor.abort();
+            ch.session
+        })
     }
 }
 
