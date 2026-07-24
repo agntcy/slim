@@ -215,6 +215,13 @@ impl ControllerSender {
         self.group_name = Some(name);
     }
 
+    /// The group name heartbeats are broadcast to, if set. `None` until the
+    /// session is joined or restored.
+    #[cfg(test)]
+    pub(crate) fn group_name(&self) -> Option<&ProtoName> {
+        self.group_name.as_ref()
+    }
+
     pub fn on_message(&mut self, message: &Message) -> Result<SessionOutput, SessionError> {
         if self.draining_state == ControllerSenderDrainStatus::Completed {
             return Err(SessionError::SessionDrainingDrop);
