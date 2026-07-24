@@ -454,7 +454,7 @@ impl SessionSender {
     pub fn on_failure(
         &mut self,
         id: u32,
-        _error: SessionError,
+        error: SessionError,
     ) -> Result<SessionOutput, SessionError> {
         // remove all the state related to this timer
         if let Some((gt, _)) = self.pending_acks.get_mut(&id) {
@@ -468,11 +468,15 @@ impl SessionSender {
 
         self.pending_acks.remove(&id);
 
-        // Signal success: the message reached all reachable participants. Non-replying
-        // participants are marked offline (in participant or moderator), so a
-        // missing ack means the peer was unreachable, not that the send failed.
+        // Signal success or unexpected error. Non-replying participants are marked
+        // offline (in participant or moderator), so a missing ack means the peer
+        // was unreachable, not that the send failed.
         if let Some(tx) = self.ack_notifiers.remove(&id) {
-            let _ = tx.send(Ok(()));
+            if matches!(error, SessionError::UnexpectedError { .. }) {
+                let _ = tx.send(Err(error));
+            } else {
+                let _ = tx.send(Ok(()));
+            }
         }
 
         Ok(SessionOutput::new())

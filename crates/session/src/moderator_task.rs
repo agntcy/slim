@@ -29,7 +29,7 @@ pub(crate) trait TaskUpdate {
     fn task_complete(&self) -> bool;
     // this returns true if the main goal of the task was achieved but not all the phases
     // were completed. for example in add participant the task partially succeed if the welcome
-    // message if received but some ack for the update group is not received. this may happen
+    // message is received but some ack for the update group is not received. this may happen
     // because some of the participant may be offline and we don't know it yet.
     fn partial_success(&self) -> bool;
 }
@@ -320,10 +320,7 @@ impl TaskUpdate for AddParticipant {
     }
 
     fn partial_success(&self) -> bool {
-        self.discovery.received
-            && self.join.received
-            && self.welcome.received
-            && self.commit.received
+        self.discovery.received && self.join.received && self.welcome.received
     }
 }
 
@@ -596,6 +593,7 @@ impl TaskUpdate for UpdateParticipant {
     }
 
     fn partial_success(&self) -> bool {
+        // this is intentionally the same as task_complete, because we don't consider a partial success for an update task.
         self.proposal.received && self.commit.received
     }
 }

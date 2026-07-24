@@ -31,7 +31,9 @@ use crate::{
     },
     persistence,
     runtime::maybe_await,
-    session_controller::{PendingStatusUpdate, SessionControllerCommon, sign_control_messages},
+    session_controller::{
+        PendingStatusUpdate, SessionControllerCommon, mark_missing_offline, sign_control_messages,
+    },
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
     traits::{MessageHandler, ProcessingState},
@@ -280,7 +282,9 @@ where
                     .await?;
                 } else {
                     let missing = self.inner.missing_acks_for(message_id);
-                    self.mark_missing_offline(&missing);
+                    for p in mark_missing_offline(&mut self.group_list, &missing, true) {
+                        self.remove_endpoint(&p);
+                    }
                     output.extend(
                         self.inner
                             .on_message(SessionMessage::TimerFailure {
@@ -582,10 +586,12 @@ where
         if let Some(task) = self.current_task.as_mut()
             && let Some(ack_tx) = task.ack_tx_take()
         {
-            // check it the task was partially successful. if yes send ok to the app and
-            // put offline all the participant that did not ack
+            // check if the task was partially successful. if yes send ok to the app and
+            // put offline all the participants that did not ack
             if task.partial_success() {
-                self.mark_missing_offline(&missing);
+                for p in mark_missing_offline(&mut self.group_list, &missing, true) {
+                    self.remove_endpoint(&p);
+                }
                 let _ = ack_tx.send(Ok(()));
             } else {
                 let _ = ack_tx.send(Err(task.failure_message(error)));
@@ -594,23 +600,6 @@ where
 
         self.current_task = None;
         self.pop_task().await
-    }
-
-    fn mark_missing_offline(&mut self, missing: &[ProtoName]) {
-        for participant in missing {
-            debug!(
-                %participant,
-                "participant did not ack, marking offline",
-            );
-            let mut participant_no_id = participant.clone();
-            participant_no_id.reset_id();
-            if let Some(entry) = self.group_list.get_mut(&participant_no_id)
-                && entry.status == ParticipantState::Online as i32
-            {
-                entry.status = ParticipantState::Offline as i32;
-                self.remove_endpoint(participant);
-            }
-        }
     }
 
     /// Helper method to handle errors after task creation

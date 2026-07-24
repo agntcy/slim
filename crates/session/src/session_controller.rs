@@ -16,8 +16,8 @@ use serde_json::Value;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
-        CommandPayload, Content, GroupUpdateOp, NameId, ParticipantState, ProtoMessage as Message,
-        ProtoName, ProtoSessionMessageType, ProtoSessionType, SlimHeader,
+        CommandPayload, Content, GroupUpdateOp, NameId, Participant, ParticipantState,
+        ProtoMessage as Message, ProtoName, ProtoSessionMessageType, ProtoSessionType, SlimHeader,
     },
     messages::utils::SlimHeaderFlags,
 };
@@ -1108,6 +1108,37 @@ where
         }
         self.sender.on_message(&msg)
     }
+}
+
+/// Mark participants that failed to ack as offline and return the list of
+/// endpoints that the caller must remove via `remove_endpoint`.
+///
+/// When `reset_id` is true the participant name is stripped of its instance ID
+/// before the `group_list` lookup (required by the moderator, which stores
+/// names without an ID).
+pub(crate) fn mark_missing_offline(
+    group_list: &mut HashMap<ProtoName, Participant>,
+    missing: &[ProtoName],
+    reset_id: bool,
+) -> Vec<ProtoName> {
+    let mut to_remove = Vec::new();
+    for participant in missing {
+        debug!(%participant, "participant did not ack, marking offline");
+        let key = if reset_id {
+            let mut name = participant.clone();
+            name.reset_id();
+            name
+        } else {
+            participant.clone()
+        };
+        if let Some(entry) = group_list.get_mut(&key)
+            && entry.status == ParticipantState::Online as i32
+        {
+            entry.status = ParticipantState::Offline as i32;
+            to_remove.push(participant.clone());
+        }
+    }
+    to_remove
 }
 
 #[cfg(test)]
