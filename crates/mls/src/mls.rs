@@ -39,16 +39,6 @@ type SlimClientConfig<V> = mls_rs::client_builder::WithGroupStateStorage<
 // so that native and WASM peers can interoperate in the same MLS group:
 // browser WebCrypto (used by the `wasm` backend) does not support
 // Curve25519, but it does support P-256.
-//
-// Operators that do not need browser interoperability can opt in to the
-// stronger CURVE25519_AES128 ciphersuite by enabling the crate's
-// `curve25519` feature. This only takes effect on the `native` backend
-// because the `wasm` backend cannot service it at runtime.
-#[cfg(all(not(target_arch = "wasm32"), feature = "curve25519"))]
-const CIPHERSUITE: CipherSuite = CipherSuite::CURVE25519_AES128;
-#[cfg(not(all(not(target_arch = "wasm32"), feature = "curve25519")))]
-const CIPHERSUITE: CipherSuite = CipherSuite::P256_AES128;
-
 pub type CommitMsg = Vec<u8>;
 pub type WelcomeMsg = Vec<u8>;
 pub type ProposalMsg = Vec<u8>;
@@ -84,6 +74,7 @@ where
     storage: SlimGroupStateStorage,
     identity_provider: P,
     identity_verifier: V,
+    enforce_pqc: bool,
 }
 
 impl<P, V> std::fmt::Debug for Mls<P, V>
@@ -108,6 +99,27 @@ where
     }
 }
 
+fn ciphersuite_for(enforce_pqc: bool) -> Result<CipherSuite, MlsError> {
+    #[cfg(target_arch = "wasm32")]
+    if enforce_pqc {
+        return Err(MlsError::CryptoProviderError(
+            "enforce_pqc MLS is not supported on wasm32".into(),
+        ));
+    }
+    Ok(if enforce_pqc {
+        CipherSuite::ML_KEM_768_X25519
+    } else {
+        #[cfg(all(not(target_arch = "wasm32"), feature = "curve25519"))]
+        {
+            CipherSuite::CURVE25519_AES128
+        }
+        #[cfg(not(all(not(target_arch = "wasm32"), feature = "curve25519")))]
+        {
+            CipherSuite::P256_AES128
+        }
+    })
+}
+
 impl<P, V> Mls<P, V>
 where
     P: TokenProvider + Send + Sync + Clone + 'static,
@@ -122,7 +134,13 @@ where
             storage: SlimGroupStateStorage::in_memory(),
             identity_provider,
             identity_verifier,
+            enforce_pqc: false,
         }
+    }
+
+    pub fn with_enforce_pqc(mut self, enforce_pqc: bool) -> Self {
+        self.enforce_pqc = enforce_pqc;
+        self
     }
 
     /// Use `storage` for group state instead of the default in-memory store.
@@ -633,11 +651,13 @@ where
 
         let identity_provider = SlimIdentityProvider::new(self.identity_verifier.clone());
 
+        let ciphersuite = ciphersuite_for(self.enforce_pqc)?;
+
         let client = Client::builder()
             .identity_provider(identity_provider)
             .crypto_provider(crypto_provider)
             .group_state_storage(self.storage.clone())
-            .signing_identity(signing_identity, private_key, CIPHERSUITE)
+            .signing_identity(signing_identity, private_key, ciphersuite)
             .build();
 
         Ok(client)
@@ -847,14 +867,14 @@ mod tests {
     fn test_default_ciphersuite_is_p256() {
         #[cfg(not(all(not(target_arch = "wasm32"), feature = "curve25519")))]
         assert_eq!(
-            CIPHERSUITE,
+            ciphersuite_for(false).unwrap(),
             CipherSuite::P256_AES128,
             "Default ciphersuite must be P256_AES128 for browser interop",
         );
 
         #[cfg(all(not(target_arch = "wasm32"), feature = "curve25519"))]
         assert_eq!(
-            CIPHERSUITE,
+            ciphersuite_for(false).unwrap(),
             CipherSuite::CURVE25519_AES128,
             "`curve25519` feature must select CURVE25519_AES128",
         );
@@ -1408,7 +1428,11 @@ mod tests {
         let client = Client::builder()
             .identity_provider(identity_provider)
             .crypto_provider(crypto_provider)
-            .signing_identity(fake_identity, attacker_priv.clone(), CIPHERSUITE)
+            .signing_identity(
+                fake_identity,
+                attacker_priv.clone(),
+                ciphersuite_for(false).unwrap(),
+            )
             .build();
 
         // Operations expected to fail

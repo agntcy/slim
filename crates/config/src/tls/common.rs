@@ -180,6 +180,7 @@ pub enum TlsComponent {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     // Unified TLS source (PEM, File, or SPIRE)
     #[serde(default)]
@@ -198,6 +199,10 @@ pub struct Config {
 
     // Certificate/key reload interval (None disables reload)
     pub reload_interval: Option<Duration>,
+
+    // Set at runtime from dataplane.enforce_pqc; not configurable under tls.*
+    #[serde(skip, default)]
+    pub enforce_pqc: bool,
 }
 
 // Resolver backed by SPIRE Workload API providing dynamic SVID and bundle refresh.
@@ -290,6 +295,7 @@ impl Default for Config {
             include_system_ca_certs_pool: default_include_system_ca_certs_pool(),
             tls_version: default_tls_version(),
             reload_interval: None,
+            enforce_pqc: false,
         }
     }
 }
@@ -407,6 +413,11 @@ impl Config {
         };
 
         builder.add_source(&self.ca_source).await?.finish()
+    }
+
+    /// PQ hybrid KX is TLS 1.3 only. Reject invalid combos at validate/load time.
+    pub(crate) fn validate_pqc(&self) -> Result<(), ConfigError> {
+        crate::pqc::EnforcePqcPolicy::from(self.enforce_pqc).validate_tls_version(&self.tls_version)
     }
 
     /// Unified presence check for CA / Cert / Key across File, Pem, and Spire sources.

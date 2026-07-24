@@ -190,6 +190,7 @@ impl From<TlsClientConfig> for CoreTlsClientConfig {
                 include_system_ca_certs_pool: config.include_system_ca_certs_pool,
                 tls_version: config.tls_version,
                 reload_interval: None,
+                enforce_pqc: false,
             },
             insecure: config.insecure,
             insecure_skip_verify: config.insecure_skip_verify,
@@ -254,6 +255,7 @@ impl From<TlsServerConfig> for CoreTlsServerConfig {
                     .tls_version
                     .unwrap_or(core_defaults.config.tls_version),
                 reload_interval: None,
+                enforce_pqc: false,
             },
             insecure: config.insecure,
             client_ca: config.client_ca.into(),

@@ -11,6 +11,7 @@ cfg_if::cfg_if! {
         pub mod component;
         pub mod errors;
         pub mod grpc;
+        pub mod pqc;
         pub mod provider;
         pub mod server;
         pub mod server_handler;
@@ -25,6 +26,7 @@ cfg_if::cfg_if! {
         #[cfg(test)]
         mod test_env;
 
+        pub use pqc::EnforcePqcPolicy;
         pub use server_handler::ServerHandler;
 
         pub const CLIENT_CONFIG_SCHEMA_JSON: &str =

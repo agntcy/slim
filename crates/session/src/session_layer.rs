@@ -126,6 +126,9 @@ where
     /// Service ID propagated into every session span
     service_id: String,
 
+    /// Canonical PQC policy for MLS in every session created by this layer.
+    enforce_pqc: bool,
+
     /// Bounds concurrent identity verifications for messages without a session.
     /// Caps the blast radius of an unknown-session flood with slow verifications.
     pre_session_verify_slots: Arc<Semaphore>,
@@ -157,6 +160,7 @@ where
         tx_app: Sender<Result<Notification, SessionError>>,
         direction: Direction,
         service_id: String,
+        enforce_pqc: bool,
     ) -> Self {
         Self::new_with_persistence(
             app_name,
@@ -168,6 +172,7 @@ where
             direction,
             service_id,
             None,
+            enforce_pqc,
         )
     }
 
@@ -188,6 +193,7 @@ where
         direction: Direction,
         service_id: String,
         persistence: Option<PersistenceConfig>,
+        enforce_pqc: bool,
     ) -> Self {
         // Open the store (restoring/persisting the app identity through it) and
         // build the layer from the resulting handles.
@@ -204,6 +210,7 @@ where
             service_id,
             group_storage,
             kv_store,
+            enforce_pqc,
         )
     }
 
@@ -226,6 +233,7 @@ where
         service_id: String,
         group_storage: Option<SlimGroupStateStorage>,
         kv_store: Option<SlimKvStore>,
+        enforce_pqc: bool,
     ) -> Self {
         let (tx_session, rx_session) = tokio::sync::mpsc::channel(16);
 
@@ -246,6 +254,7 @@ where
             direction,
             subscription_manager,
             service_id,
+            enforce_pqc,
             pre_session_verify_slots: Arc::new(Semaphore::new(Self::PRE_SESSION_VERIFY_SLOTS)),
             kv_store,
             group_storage,
@@ -567,7 +576,8 @@ where
                 .with_tx_to_session_layer(self.tx_session.clone())
                 .with_direction(self.direction)
                 .with_subscription_manager(self.subscription_manager.clone())
-                .with_service_id(self.service_id.clone());
+                .with_service_id(self.service_id.clone())
+                .with_enforce_pqc(self.enforce_pqc);
 
             // Share the persistence handles so the session can save its state.
             if let Some(store) = &self.kv_store {
@@ -1081,6 +1091,7 @@ mod tests {
             tx_app,
             Direction::Bidirectional,
             "test-service".to_string(),
+            false,
         ));
 
         (session_layer, rx_slim, rx_app)
@@ -1115,6 +1126,7 @@ mod tests {
             Direction::Bidirectional,
             "test".to_string(),
             Some(PersistenceConfig::new(dir.path())),
+            false,
         ));
 
         // A P2P participant record (no MLS, no subscriptions on restore).
@@ -1426,6 +1438,7 @@ mod tests {
             tx_app,
             Direction::Bidirectional,
             "test-service".to_string(),
+            false,
         ));
 
         let local_name = make_name(&["local", "app", "v1"]);
