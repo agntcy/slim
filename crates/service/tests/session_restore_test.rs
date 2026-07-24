@@ -28,7 +28,7 @@ use slim_persistence::PersistenceConfig;
 use slim_service::app::App;
 use slim_service::{Service, SlimHeaderFlags};
 use slim_session::session_config::MlsSettings;
-use slim_session::{Direction, Notification, SessionConfig};
+use slim_session::{CloseMode, Direction, Notification, SessionConfig};
 use slim_testing::build_client_service;
 use slim_testing::common::{reserve_local_port, run_slim_node};
 use slim_testing::utils::TEST_VALID_SECRET;
@@ -593,9 +593,9 @@ async fn test_participant_rejoin_after_epoch_advance() {
         .expect("baseline publish failed");
     wait_for_message(&member2_messages, "before-close", Duration::from_secs(10)).await;
 
-    // 7. Member2 goes offline.
+    // 7. Member2 goes offline (soft close — in-memory, no persistence needed).
     member2_session
-        .close()
+        .close_with_mode(CloseMode::Soft)
         .await
         .expect("close failed")
         .await

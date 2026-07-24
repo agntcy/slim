@@ -45,6 +45,27 @@ impl From<ProtoSessionType> for SessionType {
     }
 }
 
+/// How a session should be closed.
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Enum)]
+pub enum CloseMode {
+    /// Soft close: go offline so the session can be brought back later with
+    /// `rejoin()`. This is an in-memory group operation and does not require
+    /// persistence (though a persisted session also survives a process restart).
+    /// Not valid for point-to-point sessions.
+    Soft,
+    /// Hard close: terminate the session permanently.
+    Hard,
+}
+
+impl From<CloseMode> for slim_session::CloseMode {
+    fn from(mode: CloseMode) -> Self {
+        match mode {
+            CloseMode::Soft => slim_session::CloseMode::Soft,
+            CloseMode::Hard => slim_session::CloseMode::Hard,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct MlsSettings {
     /// 0 = disable header-integrity checks; 1–100 = percent of messages to verify after decrypt.
@@ -632,17 +653,13 @@ impl Session {
         completion_handle.wait_async().await
     }
 
-    /// Notify the group that this participant is going offline (blocking version).
-    ///
-    /// Only valid for Group sessions; returns an error for PointToPoint sessions.
-    /// Returns a completion handle that resolves when ACKs are collected or on timeout.
-    /// After the handle completes the caller should persist the session state and may
-    /// later rejoin with `rejoin()`.
+    /// Hard-close the session (blocking version): terminate it permanently.
+    /// For a soft, restorable close use [`Self::close_with_mode`].
     pub fn close(&self) -> Result<Arc<CompletionHandle>, SlimError> {
         crate::config::get_runtime().block_on(async { self.close_async().await })
     }
 
-    /// Notify the group that this participant is going offline (async version).
+    /// Hard-close the session (async version). See [`Self::close`].
     pub async fn close_async(&self) -> Result<Arc<CompletionHandle>, SlimError> {
         let session = self
             .session
@@ -651,18 +668,58 @@ impl Session {
                 message: "Session already closed or dropped".to_string(),
             })?;
 
-        let completion = session.close().await?;
+        let completion = session.close()?;
         Ok(Arc::new(CompletionHandle::from(completion)))
     }
 
-    /// Notify the group that this participant is going offline and wait for completion (blocking version).
+    /// Hard-close the session and wait for completion (blocking version). See [`Self::close`].
     pub fn close_and_wait(&self) -> Result<(), SlimError> {
         crate::config::get_runtime().block_on(async { self.close_and_wait_async().await })
     }
 
-    /// Notify the group that this participant is going offline and wait for completion (async version).
+    /// Hard-close the session and wait for completion (async version). See [`Self::close`].
     pub async fn close_and_wait_async(&self) -> Result<(), SlimError> {
         let completion_handle = self.close_async().await?;
+        completion_handle.wait_async().await
+    }
+
+    /// Close the session with an explicit [`CloseMode`] (blocking version).
+    ///
+    /// [`CloseMode::Soft`] notifies the group that this participant is going
+    /// offline so it can be brought back with `rejoin()` (an in-memory group
+    /// operation; persistence is not required). Only valid for Group sessions;
+    /// returns an error for PointToPoint sessions. [`CloseMode::Hard`] terminates
+    /// the session permanently. Returns a completion handle that resolves when
+    /// ACKs are collected or on timeout.
+    pub fn close_with_mode(&self, mode: CloseMode) -> Result<Arc<CompletionHandle>, SlimError> {
+        crate::config::get_runtime().block_on(async { self.close_with_mode_async(mode).await })
+    }
+
+    /// Close the session with an explicit [`CloseMode`] (async version). See [`Self::close_with_mode`].
+    pub async fn close_with_mode_async(
+        &self,
+        mode: CloseMode,
+    ) -> Result<Arc<CompletionHandle>, SlimError> {
+        let session = self
+            .session
+            .upgrade()
+            .ok_or_else(|| SlimError::SessionError {
+                message: "Session already closed or dropped".to_string(),
+            })?;
+
+        let completion = session.close_with_mode(mode.into()).await?;
+        Ok(Arc::new(CompletionHandle::from(completion)))
+    }
+
+    /// Close the session with an explicit [`CloseMode`] and wait for completion (blocking version).
+    pub fn close_with_mode_and_wait(&self, mode: CloseMode) -> Result<(), SlimError> {
+        crate::config::get_runtime()
+            .block_on(async { self.close_with_mode_and_wait_async(mode).await })
+    }
+
+    /// Close the session with an explicit [`CloseMode`] and wait for completion (async version).
+    pub async fn close_with_mode_and_wait_async(&self, mode: CloseMode) -> Result<(), SlimError> {
+        let completion_handle = self.close_with_mode_async(mode).await?;
         completion_handle.wait_async().await
     }
 
