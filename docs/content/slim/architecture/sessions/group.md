@@ -141,7 +141,7 @@ This is distinct from being removed from the group, which is a moderator-initiat
 
 ### Graceful offline transition
 
-A participant that wants to stop participating temporarily can broadcast an `OFFLINE` state update to the group channel. Other members mark it as offline, stop expecting acknowledgements from it, and exclude it from future MLS key material — but do not remove it from the roster. When the participant is ready to resume, it broadcasts an `ONLINE` state update and the group performs an MLS re-key to include it in new key material.
+A participant that wants to stop participating temporarily can broadcast an `OFFLINE` state update to the group channel. Other members mark it as offline, stop expecting acknowledgements from it, and exclude it from future MLS key material — but do not remove it from the roster. When the participant is ready to resume, it broadcasts an `ONLINE` state update and the group performs an MLS re-key to include it in new key material. See [Close and Rejoin](../../components/sdk/tutorials/tutorial-persistence.md#close-and-rejoin) for the SDK API.
 
 ### Crash and unexpected disconnection
 
