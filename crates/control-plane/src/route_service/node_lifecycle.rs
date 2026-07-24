@@ -518,8 +518,15 @@ impl super::RouteService {
             if link.source_node_id == departing_node {
                 // Outgoing link: move source to new gateway, reset to Pending
                 // so reconciler re-establishes the connection from new node.
+                //
+                // Clear dest_node_id so the destination group can re-claim the
+                // link. claim_link only matches unclaimed links (dest_node_id
+                // == ""); if we keep the old claimant here the sibling connects
+                // but the dest side's claim is rejected as "already claimed",
+                // leaving the link Pending forever and no routes expand over it.
                 let mut updated = link.clone();
                 updated.source_node_id = new_gateway.clone();
+                updated.dest_node_id = String::new();
                 updated.status = LinkStatus::Pending;
                 updated.last_updated = SystemTime::now();
 
