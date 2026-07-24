@@ -82,6 +82,12 @@ pub trait MessageHandler {
     )> {
         vec![]
     }
+
+    /// Returns the names of participants that have not yet acked the given message id.
+    /// Default implementation returns an empty list.
+    fn missing_acks_for(&self, _id: u32) -> Vec<slim_datapath::api::ProtoName> {
+        vec![]
+    }
 }
 
 pub trait MlsStateSelector<P, V>: Send + Sync

@@ -310,6 +310,13 @@ impl MessageHandler for Session {
         self.processing_state
     }
 
+    fn missing_acks_for(&self, id: u32) -> Vec<slim_datapath::api::ProtoName> {
+        self.sender
+            .as_ref()
+            .map(|s| s.missing_acks_for(id))
+            .unwrap_or_default()
+    }
+
     async fn on_shutdown(&mut self) -> Result<(), SessionError> {
         self.close();
         Ok(())

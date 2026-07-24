@@ -31,7 +31,9 @@ use crate::{
     },
     persistence,
     runtime::maybe_await,
-    session_controller::{PendingStatusUpdate, SessionControllerCommon, sign_control_messages},
+    session_controller::{
+        PendingStatusUpdate, SessionControllerCommon, mark_missing_offline, sign_control_messages,
+    },
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
     traits::{MessageHandler, ProcessingState},
@@ -279,6 +281,10 @@ where
                     )
                     .await?;
                 } else {
+                    let missing = self.inner.missing_acks_for(message_id);
+                    for p in mark_missing_offline(&mut self.group_list, &missing, true) {
+                        self.remove_endpoint(&p);
+                    }
                     output.extend(
                         self.inner
                             .on_message(SessionMessage::TimerFailure {
@@ -580,7 +586,16 @@ where
         if let Some(task) = self.current_task.as_mut()
             && let Some(ack_tx) = task.ack_tx_take()
         {
-            let _ = ack_tx.send(Err(task.failure_message(error)));
+            // check if the task was partially successful. if yes send ok to the app and
+            // put offline all the participants that did not ack
+            if task.partial_success() {
+                for p in mark_missing_offline(&mut self.group_list, &missing, true) {
+                    self.remove_endpoint(&p);
+                }
+                let _ = ack_tx.send(Ok(()));
+            } else {
+                let _ = ack_tx.send(Err(task.failure_message(error)));
+            }
         }
 
         self.current_task = None;

@@ -20,7 +20,9 @@ use crate::{
     mls_state::MlsState,
     persistence,
     runtime::maybe_await,
-    session_controller::{PendingStatusUpdate, SessionControllerCommon, sign_control_messages},
+    session_controller::{
+        PendingStatusUpdate, SessionControllerCommon, mark_missing_offline, sign_control_messages,
+    },
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
     traits::{MessageHandler, ProcessingState},
@@ -284,6 +286,12 @@ where
                         }
                     }
                 } else {
+                    // here we are missing an ack from some one in the group, so we move it
+                    // offline (if not yet) and notify the inner layer that the message failed to be delivered
+                    let missing = self.inner.missing_acks_for(message_id);
+                    for p in mark_missing_offline(&mut self.group_list, &missing, false) {
+                        self.remove_endpoint(&p);
+                    }
                     output.extend(
                         self.inner
                             .on_message(SessionMessage::TimerFailure {
