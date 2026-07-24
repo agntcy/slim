@@ -86,15 +86,22 @@ impl Name {
         component1: String,
         component2: String,
         id: String,
-    ) -> Self {
-        let id: u128 = NameId::try_from(id)
-            .unwrap_or_else(|_| panic!("invalid ID format: expected UUID string"))
+    ) -> Result<Self, crate::errors::SlimError> {
+        let id_val: u128 = NameId::try_from(id.clone())
+            .map_err(|_| crate::errors::SlimError::InvalidArgument {
+                message: format!("invalid ID format: expected UUID string, got {id:?}"),
+            })?
             .into();
-        if NameId::is_reserved_id(id) {
-            panic!("id {id:#x} is a reserved value and cannot be used as a name id");
+        if NameId::is_reserved_id(id_val) {
+            return Err(crate::errors::SlimError::InvalidArgument {
+                message: format!(
+                    "id {id_val:#x} is a reserved value and cannot be used as a name id"
+                ),
+            });
         }
-        let inner = ProtoName::from_strings([component0, component1, component2]).with_id(id);
-        Name { inner }
+        let inner =
+            ProtoName::from_strings([component0, component1, component2]).with_id(id_val);
+        Ok(Name { inner })
     }
 
     /// Get the name components as a vector of strings
@@ -137,7 +144,8 @@ mod tests {
             "namespace".to_string(),
             "app".to_string(),
             "00000000-0000-0000-0000-000000012345".to_string(),
-        );
+        )
+        .unwrap();
 
         let proto_name: ProtoName = name.into();
         let (c0, c1, c2) = proto_name.str_components();
@@ -197,7 +205,8 @@ mod tests {
             "namespace".to_string(),
             "app".to_string(),
             "00000000-0000-0000-0000-0000000186a0".to_string(),
-        );
+        )
+        .unwrap();
 
         let proto_name: ProtoName = original.clone().into();
         let converted = Name::from(&proto_name);
@@ -218,7 +227,8 @@ mod tests {
             "b".to_string(),
             "c".to_string(),
             "00000000-0000-0000-0000-000000000064".to_string(),
-        );
+        )
+        .unwrap();
         let name2 = name1.clone();
 
         // PartialEq
@@ -230,7 +240,8 @@ mod tests {
             "y".to_string(),
             "z".to_string(),
             "00000000-0000-0000-0000-0000000000c8".to_string(),
-        );
+        )
+        .unwrap();
         assert_ne!(name1, name3);
 
         // Debug
@@ -247,7 +258,8 @@ mod tests {
             "namespace".to_string(),
             "app".to_string(),
             "00000000-0000-0000-0000-00000000007b".to_string(),
-        );
+        )
+        .unwrap();
         let display_str = format!("{name}");
 
         // Should display the ProtoName format
@@ -262,7 +274,8 @@ mod tests {
             "ns".to_string(),
             "app".to_string(),
             "00000000-0000-0000-0000-00000000002a".to_string(),
-        );
+        )
+        .unwrap();
         assert_eq!(
             name_with_id.id(),
             "00000000-0000-0000-0000-00000000002a".to_string()

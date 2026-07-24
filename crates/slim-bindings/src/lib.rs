@@ -59,6 +59,7 @@ mod persistence;
 mod server_config;
 mod service;
 mod session;
+mod slim_node_config;
 mod transport_protocol;
 
 // Public re-exports
@@ -95,9 +96,10 @@ pub use server_config::{
     KeepaliveServerParameters, ServerConfig, new_insecure_server_config, new_server_config,
 };
 pub use service::{
-    DataplaneConfig, Service, ServiceConfig, create_service, create_service_with_config,
-    new_dataplane_config, new_service_configuration,
+    DataplaneConfig, Service, ServiceConfig, SlimAppHandle, create_service,
+    create_service_with_config, new_dataplane_config, new_service_configuration,
 };
+pub use slim_node_config::{SlimAppConfig, SlimConfig, load_slim_config};
 pub use session::{MlsSettings, Session, SessionConfig, SessionType};
 pub use transport_protocol::TransportProtocol;
 pub use transport_protocol::TransportProtocol as ClientTransportProtocol;

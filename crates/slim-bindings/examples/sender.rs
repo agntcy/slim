@@ -9,6 +9,13 @@
 //! 3. Sends messages at regular intervals
 //! 4. Receives and validates replies from participants
 //!
+//! ## Keep-alive / broadcast mode
+//!
+//! Pass `--keep-alive` (group sessions only) to broadcast indefinitely until
+//! Ctrl+C. The session is **not** deleted on exit so receivers can persist and
+//! rejoin after restarting. Combine with `--slim-config` on the receiver side
+//! to demo the full persist-and-rejoin flow.
+//!
 //! Usage:
 //! ```bash
 //! # Point-to-point
@@ -18,12 +25,21 @@
 //!   --session-type p2p \
 //!   --participants agntcy/ns/alice
 //!
-//! # Group
+//! # Group (bounded)
 //! cargo run --example sender -- \
 //!   --local agntcy/ns/bob \
 //!   --shared-secret a-very-long-shared-secret-abcdef1234567890 \
 //!   --session-type group \
 //!   --participants agntcy/ns/alice agntcy/ns/charlie
+//!
+//! # Group broadcast — keep sending until Ctrl+C, leave session open for rejoin
+//! cargo run --example sender -- \
+//!   --local agntcy/ns/bob \
+//!   --shared-secret a-very-long-shared-secret-abcdef1234567890 \
+//!   --session-type group \
+//!   --participants agntcy/ns/alice \
+//!   --interval-ms 1000 \
+//!   --keep-alive
 //! ```
 
 use std::collections::HashMap;
@@ -35,6 +51,7 @@ use slim_bindings::{
     MlsSettings, Name, SessionConfig, SessionType, get_global_service, initialize_with_defaults,
     new_insecure_client_config, shutdown,
 };
+use tokio::signal;
 
 /// Command-line arguments for the sender application
 #[derive(Parser, Debug)]
@@ -61,13 +78,20 @@ struct Args {
     #[arg(long, required = true, num_args = 1..)]
     participants: Vec<String>,
 
-    /// Number of messages to send
+    /// Number of messages to send (ignored in --keep-alive mode after initial burst)
     #[arg(long, default_value = "10")]
     count: usize,
 
     /// Interval between messages in milliseconds
     #[arg(long, default_value = "100")]
     interval_ms: u64,
+
+    /// Keep broadcasting indefinitely after --count messages until Ctrl+C.
+    ///
+    /// Only valid with --session-type group. The session is NOT deleted on
+    /// exit so receivers can persist their state and rejoin after a restart.
+    #[arg(long, default_value = "false")]
+    keep_alive: bool,
 }
 
 /// Parse a name string in format "org/namespace/app" into a Name object
@@ -107,6 +131,10 @@ async fn run_sender(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     if args.participants.is_empty() {
         return Err("At least 1 participant is required".into());
+    }
+
+    if args.keep_alive && session_type != SessionType::Group {
+        return Err("--keep-alive is only valid with --session-type group".into());
     }
 
     // Parse the local identity
@@ -188,19 +216,24 @@ async fn run_sender(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let interval = Duration::from_millis(args.interval_ms);
-    let expected_replies_per_message = participant_names.len();
+
+    // In keep-alive mode replies are fire-and-forget (receivers may come and go).
+    // In bounded mode we track expected replies to know when we're done.
+    let expected_replies_per_message = if args.keep_alive {
+        0
+    } else {
+        participant_names.len()
+    };
     let total_expected_replies = args.count * expected_replies_per_message;
 
-    println!(
-        "[{}] Sending {} messages with {}ms interval...",
-        full_name, args.count, args.interval_ms
-    );
-
-    // Spawn a background task to collect replies
+    // Spawn a background task to collect replies.
+    // In keep-alive mode: log every reply but never exit early.
+    // In bounded mode: exit once all expected replies arrive.
     let session_clone = session.clone();
     let full_name_clone = full_name.clone();
+    let keep_alive = args.keep_alive;
     let reply_task = tokio::spawn(async move {
-        let mut total_replies_received = 0;
+        let mut total_replies_received = 0usize;
 
         loop {
             match session_clone
@@ -215,18 +248,23 @@ async fn run_sender(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
                     total_replies_received += 1;
 
-                    // Stop if we've received all expected replies
-                    if total_replies_received >= total_expected_replies {
+                    // In bounded mode stop once all replies are in.
+                    if !keep_alive && total_replies_received >= total_expected_replies {
                         break;
                     }
                 }
                 Err(e) => {
                     let error_msg = e.to_string().to_lowercase();
                     if error_msg.contains("timeout") {
-                        // Continue waiting
+                        // Expected — no reply within the window, keep waiting.
                         continue;
                     } else {
-                        println!("[{full_name_clone}] Error receiving reply: {e}");
+                        // In keep-alive mode a receiver going offline produces
+                        // transient errors; log and continue rather than abort.
+                        println!("[{full_name_clone}] Reply channel error (continuing): {e}");
+                        if keep_alive {
+                            continue;
+                        }
                         break;
                     }
                 }
@@ -236,57 +274,104 @@ async fn run_sender(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         total_replies_received
     });
 
-    // Send messages at fixed intervals
-    for i in 0..args.count {
-        let message = format!("Message {}", i + 1);
-        println!("[{full_name}] Sending: {message}");
-
-        if let Err(e) = session
-            .publish_and_wait_async(message.as_bytes().to_vec(), None, None)
-            .await
-        {
-            println!("[{full_name}] Error sending message: {e}");
-        }
-
-        tokio::time::sleep(interval).await;
-    }
-
-    println!("[{full_name}] Finished sending messages, waiting for remaining replies...");
-
-    // Wait for reply collection task to finish or timeout
-    let total_replies_received = tokio::select! {
-        result = reply_task => {
-            match result {
-                Ok(data) => data,
-                Err(e) => {
-                    println!("[{full_name}] Reply collection task error: {e}");
-                    0
-                }
-            }
-        }
-        _ = tokio::time::sleep(Duration::from_secs(30)) => {
-            println!("[{full_name}] Timeout waiting for replies");
-            0
-        }
-    };
-
-    // Summary
-    println!("\n[{full_name}] === Summary ===");
-    println!("[{full_name}] Replies received: {total_replies_received}/{total_expected_replies}");
-
-    if total_replies_received == total_expected_replies {
-        println!("[{full_name}] ✓ All participants replied correctly");
+    if args.keep_alive {
+        println!(
+            "[{full_name}] Keep-alive mode: broadcasting every {}ms. Press Ctrl+C to stop.",
+            args.interval_ms
+        );
     } else {
         println!(
-            "[{}] ✗ Missing {} replies",
-            full_name,
-            total_expected_replies - total_replies_received
+            "[{}] Sending {} messages with {}ms interval...",
+            full_name, args.count, args.interval_ms
         );
     }
 
-    // Delete session
-    println!("[{full_name}] Deleting session...");
-    app.delete_session_and_wait_async(session).await?;
+    // Send loop — bounded or indefinite depending on --keep-alive.
+    let mut msg_index: usize = 0;
+    let mut shutdown_requested = false;
+
+    loop {
+        if !args.keep_alive && msg_index >= args.count {
+            break;
+        }
+
+        msg_index += 1;
+        let message = format!("Message {msg_index}");
+        println!("[{full_name}] Sending: {message}");
+
+        tokio::select! {
+            result = session.publish_and_wait_async(message.as_bytes().to_vec(), None, None) => {
+                if let Err(e) = result {
+                    println!("[{full_name}] Error sending message: {e}");
+                }
+            }
+            _ = signal::ctrl_c() => {
+                println!("\n[{full_name}] Received Ctrl+C, stopping broadcast...");
+                shutdown_requested = true;
+                break;
+            }
+        }
+
+        // Sleep between messages, also interruptible by Ctrl+C.
+        tokio::select! {
+            _ = tokio::time::sleep(interval) => {}
+            _ = signal::ctrl_c() => {
+                println!("\n[{full_name}] Received Ctrl+C, stopping broadcast...");
+                shutdown_requested = true;
+                break;
+            }
+        }
+    }
+
+    if !args.keep_alive {
+        println!("[{full_name}] Finished sending messages, waiting for remaining replies...");
+    }
+
+    // Wait for reply collection task to finish or timeout.
+    // In keep-alive mode we just abort the background task.
+    let total_replies_received = if args.keep_alive || shutdown_requested {
+        reply_task.abort();
+        0
+    } else {
+        tokio::select! {
+            result = reply_task => {
+                match result {
+                    Ok(data) => data,
+                    Err(e) => {
+                        println!("[{full_name}] Reply collection task error: {e}");
+                        0
+                    }
+                }
+            }
+            _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                println!("[{full_name}] Timeout waiting for replies");
+                0
+            }
+        }
+    };
+
+    // Summary (bounded mode only)
+    if !args.keep_alive {
+        println!("\n[{full_name}] === Summary ===");
+        println!("[{full_name}] Replies received: {total_replies_received}/{total_expected_replies}");
+
+        if total_replies_received == total_expected_replies {
+            println!("[{full_name}] ✓ All participants replied correctly");
+        } else {
+            println!(
+                "[{}] ✗ Missing {} replies",
+                full_name,
+                total_expected_replies - total_replies_received
+            );
+        }
+
+        // Delete session only in bounded mode — in keep-alive mode the session
+        // is left open so receivers can persist and rejoin after a restart.
+        println!("[{full_name}] Deleting session...");
+        app.delete_session_and_wait_async(session).await?;
+    } else {
+        println!("[{full_name}] Session left open for receiver rejoin.");
+    }
 
     // Cleanup
     shutdown().await?;

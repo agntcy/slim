@@ -9,11 +9,38 @@
 //! 3. Receives messages from that session
 //! 4. Replies to each message using publish_to
 //!
-//! Usage:
+//! ## Modes
+//!
+//! **Config-based (recommended):** Supply `--slim-config` with a path to a `slim.yaml`
+//! file, or omit it to use hierarchical discovery (walks up from CWD, then
+//! `~/.slim/config.yaml`).
+//!
+//! ```bash
+//! cargo run --example receiver -- --slim-config /path/to/slim.yaml
+//! cargo run --example receiver  # discovery mode — needs slim.yaml in CWD or above
+//! ```
+//!
+//! **Manual:** Supply `--local` and `--shared-secret` (legacy, backward-compatible).
+//!
 //! ```bash
 //! cargo run --example receiver -- \
 //!   --local agntcy/ns/alice \
 //!   --shared-secret a-very-long-shared-secret-abcdef1234567890
+//! ```
+//!
+//! ## Rejoin mode
+//!
+//! After receiving some messages, press Ctrl+C to shut down the receiver. The
+//! MLS session state is persisted (requires config mode so the cache directory
+//! is known). Restart with `--rejoin` to restore the session and continue:
+//!
+//! ```bash
+//! # First run — join and receive
+//! cargo run --example receiver -- --slim-config /path/to/slim.yaml
+//! # ... Ctrl+C to stop ...
+//!
+//! # Second run — rejoin the persisted session
+//! cargo run --example receiver -- --slim-config /path/to/slim.yaml --rejoin
 //! ```
 
 use std::sync::Arc;
@@ -21,24 +48,40 @@ use std::time::Duration;
 
 use clap::Parser;
 use slim_bindings::{
-    Name, get_global_service, initialize_with_defaults, new_insecure_client_config, shutdown,
+    Name, get_global_service, initialize_with_defaults, load_slim_config,
+    new_insecure_client_config, shutdown,
 };
 use tokio::signal;
 
 /// Command-line arguments for the receiver application
 #[derive(Parser, Debug)]
 struct Args {
-    /// Local identity in format: organization/namespace/application
+    /// Path to a slim.yaml config file. When absent the receiver searches
+    /// upward from the current directory (then ~/.slim/config.yaml).
+    /// Mutually exclusive with --local / --shared-secret.
     #[arg(long)]
-    local: String,
+    slim_config: Option<String>,
 
-    /// Shared secret for authentication
+    /// Local identity in format: organization/namespace/application (manual mode)
     #[arg(long)]
-    shared_secret: String,
+    local: Option<String>,
 
-    /// SLIM control plane endpoint
+    /// Shared secret for authentication (manual mode)
+    #[arg(long)]
+    shared_secret: Option<String>,
+
+    /// SLIM node endpoint (manual mode only, ignored when --slim-config is used)
     #[arg(long, default_value = "http://localhost:46357")]
     slim: String,
+
+    /// Rejoin a previously persisted group session instead of waiting for a
+    /// new invitation.
+    ///
+    /// Requires config mode (slim.yaml provides a stable cache directory for
+    /// MLS state persistence). The receiver must have joined the session in a
+    /// prior run before `--rejoin` can be used.
+    #[arg(long, default_value = "false")]
+    rejoin: bool,
 }
 
 /// Parse a name string in format "org/namespace/app" into a Name object
@@ -60,38 +103,90 @@ fn parse_name(id: &str) -> Result<Name, Box<dyn std::error::Error>> {
 
 /// Main receiver loop
 async fn run_receiver(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    // Parse the local identity
-    let local_name = parse_name(&args.local)?;
-    let local_name_arc = Arc::new(local_name);
-
     // Initialize SLIM with default configuration
     initialize_with_defaults();
 
-    // Get the global service and connect to the control plane
     let service = get_global_service();
-    let client_config = new_insecure_client_config(args.slim);
-    let conn_id = service.connect_async(client_config).await?;
 
-    println!("Connected to control plane with connection ID: {conn_id}");
+    // --rejoin requires config mode for stable identity + persistent cache dir.
+    if args.rejoin && (args.local.is_some() || args.shared_secret.is_some()) {
+        println!(
+            "Warning: --rejoin requires config mode. Ignoring --local / --shared-secret."
+        );
+    }
 
-    // Create the slim application using global service with shared secret
-    let app = service
-        .create_app_with_secret_async(local_name_arc.clone(), args.shared_secret)
-        .await?;
+    // Determine which mode to use.
+    // --rejoin forces config mode; otherwise the existing heuristic applies.
+    let use_slim_config = args.rejoin
+        || args.slim_config.is_some()
+        || (args.local.is_none() && args.shared_secret.is_none());
 
-    let full_name = app.name();
+    let (app, full_name, conn_id) = if use_slim_config {
+        // ── Config-based mode ─────────────────────────────────────────────
+        // load_slim_config discovers slim.yaml (or uses the explicit path),
+        // applies env-var overrides, then create_app_from_slim_config does
+        // connect + create_app + subscribe in one call.
+        let config = load_slim_config(args.slim_config.clone()).map_err(|e| {
+            format!(
+                "Failed to load SLIM config{}: {e}",
+                args.slim_config
+                    .as_deref()
+                    .map(|p| format!(" from '{p}'"))
+                    .unwrap_or_default()
+            )
+        })?;
 
-    // Subscribe to local name
-    app.subscribe_async(local_name_arc, Some(conn_id)).await?;
+        let handle = service.create_app_from_slim_config_async(config).await?;
+        let full_name = handle.name.to_string();
+        let conn_id = handle.conn_id;
+        println!("Connected via slim.yaml (app: {full_name}, conn: {conn_id})");
+        (handle.app, full_name, conn_id)
+    } else {
+        // ── Manual mode (legacy) ──────────────────────────────────────────
+        let local = args.local.ok_or("--local is required in manual mode")?;
+        let secret = args.shared_secret.ok_or("--shared-secret is required in manual mode")?;
 
-    println!("[{full_name}] Waiting for incoming session...");
+        let local_name = parse_name(&local)?;
+        let local_name_arc = Arc::new(local_name);
 
-    // Wait for one incoming session (no timeout)
-    let session = app.listen_for_session_async(None).await?;
+        let client_config = new_insecure_client_config(args.slim);
+        let conn_id = service.connect_async(client_config).await?;
 
-    let session_id = session.session_id()?;
-    let destination = session.destination()?;
-    println!("[{full_name}] New session {session_id} established from {destination}");
+        println!("Connected to control plane with connection ID: {conn_id}");
+
+        let app = service
+            .create_app_with_secret_async(local_name_arc.clone(), secret)
+            .await?;
+
+        let full_name = app.name().to_string();
+
+        app.subscribe_async(local_name_arc, Some(conn_id)).await?;
+        (app, full_name, conn_id)
+    };
+
+    // Obtain the active session — either by restoring a persisted one or by
+    // waiting for a new invitation from the sender.
+    let session = if args.rejoin {
+        println!("[{full_name}] Restoring persisted session...");
+
+        let mut sessions = app.restore_sessions_async(conn_id).await?;
+        let session = sessions.pop().ok_or(
+            "No persisted session found. Run without --rejoin first to join a group session.",
+        )?;
+
+        let session_id = session.session_id()?;
+        println!("[{full_name}] Rejoined session {session_id}");
+        session
+    } else {
+        println!("[{full_name}] Waiting for incoming session...");
+
+        let session = app.listen_for_session_async(None).await?;
+
+        let session_id = session.session_id()?;
+        let destination = session.destination()?;
+        println!("[{full_name}] New session {session_id} established from {destination}");
+        session
+    };
 
     // Loop to receive messages and reply
     loop {
@@ -133,12 +228,16 @@ async fn run_receiver(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             },
             _ = signal::ctrl_c() => {
                 println!("\n[{full_name}] Received Ctrl+C, shutting down gracefully...");
+                if let Err(e) = session.close_and_wait_async().await {
+                    println!("[{full_name}] Warning: failed to send offline notification: {e}");
+                }
+                println!("[{full_name}] Session state persisted — restart with --rejoin to resume.");
                 break;
             }
         }
     }
 
-    // Cleanup
+    // Cleanup — do NOT delete the session so it can be restored on rejoin.
     shutdown().await?;
     println!("[{full_name}] Receiver stopped");
 
