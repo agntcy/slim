@@ -16,6 +16,11 @@ channel-manager:
 
   auth:
     type: shared_secret
-    secret: "a-very-long-shared-secret-abcdef1234567890"
+    secret: "1234567890-1234567890-1234567890-123456"
 
   channels: []
+
+  persistence:
+    path: /tmp/slim/channel-manager
+    encryption-passphrase: "a-strong-passphrase"
+    delete-sessions-on-shutdown: false

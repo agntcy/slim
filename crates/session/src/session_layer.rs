@@ -777,7 +777,8 @@ where
         }.instrument(sessions_span));
     }
 
-    /// Remove a session from the pool and return a handle to optionally wait on
+    /// Remove a session from the pool and return a handle to optionally wait on.
+    /// Also removes the persisted session record from the KV store (if any).
     #[tracing::instrument(skip_all, fields(service_id = %self.service_id, session_id = id))]
     pub fn remove_session(&self, id: u32) -> Result<CompletionHandle, SessionError> {
         debug!(%id, "try to remove session");
@@ -787,6 +788,15 @@ where
 
         // leave the session and get the join handle
         let join_handle = session.leave()?;
+
+        // Remove the persisted record so a restart does not attempt to restore
+        // a session that no longer exists in SLIM.
+        if let Some(kv) = &self.kv_store {
+            let key = crate::persistence::session_key(id);
+            if let Err(e) = kv.delete(&key) {
+                warn!(%id, error = %e, "failed to delete persisted session record");
+            }
+        }
 
         // Return a CompletionHandle wrapping the oneshot receiver
         Ok(CompletionHandle::from_join_handle(join_handle))

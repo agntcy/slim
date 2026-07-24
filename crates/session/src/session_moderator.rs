@@ -152,6 +152,13 @@ where
             } else {
                 None
             };
+
+            // Persist the initial session record so the channel survives a
+            // crash even before the first participant joins. The MLS group is
+            // not initialized yet (that happens in join()); persist_state()
+            // handles the None-group case and the record is overwritten with
+            // the full state when join() fires.
+            self.persist_state();
         }
 
         Ok(())

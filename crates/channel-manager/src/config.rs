@@ -26,9 +26,17 @@
 //!         - "agntcy/otel/exporter"
 //!         - "agntcy/otel/receiver"
 //!       mls-enabled: true
+//!   # Optional: persist sessions so they survive a restart.
+//!   # Omit this section entirely to keep everything in memory (default).
+//!   persistence:
+//!     path: /var/lib/slim/channel-manager
+//!     encryption-passphrase: "a-strong-passphrase"  # recommended
+//!     # Set to false to keep sessions in the store on clean shutdown so they
+//!     # are restored on next startup. Default is true (sessions are deleted).
+//!     delete-sessions-on-shutdown: false
 //! ```
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use serde::Deserialize;
@@ -42,6 +50,35 @@ pub struct Config {
     /// Channel manager settings
     #[serde(rename = "channel-manager")]
     pub manager: ManagerConfig,
+}
+
+/// Persistence configuration for the channel manager.
+///
+/// When present, session state survives restarts: the session layer stores MLS
+/// group state and session records in an encrypted SQLite database, and the
+/// channel manager restores all previously-known sessions on startup.
+#[derive(Clone, Debug, Deserialize)]
+pub struct PersistenceConfig {
+    /// Directory where the SQLite database will be written.
+    pub path: PathBuf,
+
+    /// Optional passphrase used to derive the AES-256 encryption key.
+    /// Without one, values are still encrypted but the key is derived from
+    /// the (public) app name — adequate for at-rest protection but not a
+    /// strong secret.
+    #[serde(default, rename = "encryption-passphrase")]
+    pub encryption_passphrase: Option<String>,
+
+    /// Controls what happens to sessions when the channel manager shuts down.
+    ///
+    /// - `true` (default): sessions are fully deleted from SLIM on shutdown.
+    /// - `false`: sessions are closed (participants notified offline) but kept
+    ///   in the persistence store, so they are restored on the next startup.
+    #[serde(
+        default = "default_delete_sessions_on_shutdown",
+        rename = "delete-sessions-on-shutdown"
+    )]
+    pub delete_sessions_on_shutdown: bool,
 }
 
 /// Channel manager service configuration
@@ -68,6 +105,11 @@ pub struct ManagerConfig {
     /// Channels to create on startup
     #[serde(default)]
     pub channels: Vec<ChannelConfig>,
+
+    /// Optional persistence configuration.  When set, sessions survive a
+    /// channel-manager restart and are automatically restored on startup.
+    #[serde(default)]
+    pub persistence: Option<PersistenceConfig>,
 }
 
 /// Configuration for a single channel
@@ -85,6 +127,10 @@ pub struct ChannelConfig {
 }
 
 fn default_mls_enabled() -> bool {
+    true
+}
+
+fn default_delete_sessions_on_shutdown() -> bool {
     true
 }
 
@@ -121,6 +167,12 @@ impl Config {
 
         // Validate auth configuration
         self.manager.auth.validate()?;
+
+        if let Some(p) = &self.manager.persistence
+            && p.path.as_os_str().is_empty()
+        {
+            bail!("persistence.path cannot be empty");
+        }
 
         for (i, channel) in self.manager.channels.iter().enumerate() {
             if channel.name.is_empty() {
@@ -598,6 +650,56 @@ channel-manager:
             }
             _ => panic!("expected SharedSecret"),
         }
+    }
+
+    // ── Persistence config ───────────────────────────────────────────────
+
+    #[test]
+    fn test_persistence_config_parsed() {
+        let yaml = base_yaml(
+            r#"  persistence:
+    path: /var/lib/slim/channel-manager
+    encryption-passphrase: "secret""#,
+        );
+        let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert!(cfg.validate().is_ok());
+        let p = cfg.manager.persistence.unwrap();
+        assert_eq!(
+            p.path,
+            std::path::PathBuf::from("/var/lib/slim/channel-manager")
+        );
+        assert_eq!(p.encryption_passphrase.as_deref(), Some("secret"));
+    }
+
+    #[test]
+    fn test_persistence_config_without_passphrase() {
+        let yaml = base_yaml(
+            r#"  persistence:
+    path: /var/lib/slim/channel-manager"#,
+        );
+        let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert!(cfg.validate().is_ok());
+        let p = cfg.manager.persistence.unwrap();
+        assert!(p.encryption_passphrase.is_none());
+    }
+
+    #[test]
+    fn test_persistence_absent_by_default() {
+        let yaml = base_yaml("");
+        let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert!(cfg.validate().is_ok());
+        assert!(cfg.manager.persistence.is_none());
+    }
+
+    #[test]
+    fn test_persistence_empty_path_fails() {
+        let yaml = base_yaml(
+            r#"  persistence:
+    path: """#,
+        );
+        let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
+        let err = cfg.validate().unwrap_err().to_string();
+        assert!(err.contains("persistence.path"), "got: {err}");
     }
 
     // ── Config::load from file ───────────────────────────────────────────
