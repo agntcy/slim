@@ -1,18 +1,18 @@
-# slimctl controller group
+# slimctl controller domain
 
-List routing groups and the nodes they contain.
+List routing domains and the nodes they contain.
 
 ## Usage
 
 ```
-slimctl controller group <COMMAND>
+slimctl controller domain <COMMAND>
 ```
 
 ## Subcommands
 
 | Command | Aliases | Description |
 |---------|---------|-------------|
-| [`list`](./list.md) | `ls` | List all routing groups |
+| [`list`](./list.md) | `ls` | List all routing domains |
 
 ## Inherited Options
 

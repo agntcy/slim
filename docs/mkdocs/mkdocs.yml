@@ -99,6 +99,8 @@ plugins:
       slim/slim-sdk-tutorial-session.md: slim/components/sdk/tutorials/tutorial-session.md
       slim/slim-group-tutorial.md: slim/components/sdk/tutorials/tutorial-receive.md
       slim/components/sdk/tutorial-group.md: slim/components/sdk/tutorials/tutorial-receive.md
+      slim/components/cli/reference/controller/group/index.md: slim/components/cli/reference/controller/domain/index.md
+      slim/components/cli/reference/controller/group/list.md: slim/components/cli/reference/controller/domain/list.md
       slim/components/sdk/tutorial-connect.md: slim/components/sdk/tutorials/tutorial-connect.md
       slim/components/sdk/tutorial-app.md: slim/components/sdk/tutorials/tutorial-app.md
       slim/components/sdk/tutorial-session.md: slim/components/sdk/tutorials/tutorial-session.md
@@ -179,9 +181,9 @@ nav:
                       - link:
                           - slim/components/cli/reference/controller/link/index.md
                           - list: slim/components/cli/reference/controller/link/list.md
-                      - group:
-                          - slim/components/cli/reference/controller/group/index.md
-                          - list: slim/components/cli/reference/controller/group/list.md
+                      - domain:
+                          - slim/components/cli/reference/controller/domain/index.md
+                          - list: slim/components/cli/reference/controller/domain/list.md
                       - segment:
                           - slim/components/cli/reference/controller/segment/index.md
                           - list: slim/components/cli/reference/controller/segment/list.md

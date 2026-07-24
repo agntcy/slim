@@ -1,6 +1,6 @@
 # slimctl controller segment
 
-List network segments (routing domains) and the groups they contain.
+List network segments (routing domains) and the domains they contain.
 
 ## Usage
 

@@ -1,33 +1,33 @@
 # Routing
 
-SLIM uses a group-based routing model managed by the SLIM Controller. The Controller maintains the desired connectivity between groups of SLIM nodes and propagates routing information to the data plane using a declarative reconciliation loop. This page explains the three core concepts — **groups**, **links**, and **segments** — and how they combine to form flexible network topologies.
+SLIM uses a domain-based routing model managed by the SLIM Controller. The Controller maintains the desired connectivity between domains of SLIM nodes and propagates routing information to the data plane using a declarative reconciliation loop. This page explains the three core concepts — **domains**, **links**, and **segments** — and how they combine to form flexible network topologies.
 
-## Groups
+## Domains
 
-A **group** is a set of SLIM data plane nodes that share a common identity — typically all nodes within a single deployment or Kubernetes cluster. Each node belongs to exactly one group, declared in its configuration:
+A **domain** is a set of SLIM data plane nodes that share a common identity — typically all nodes within a single deployment or Kubernetes cluster. Each node belongs to exactly one domain, declared in its configuration:
 
 ```yaml
 services:
   slim/0:
-    group_name: "cluster-a.example"
+    domain_name: "cluster-a.example"
 ```
 
-**Intra-group connectivity** is handled automatically by the data plane: nodes in the same group discover each other via peer discovery and route messages between themselves without Controller involvement.
+**Intra-domain connectivity** is handled automatically by the data plane: nodes in the same domain discover each other via peer discovery and route messages between themselves without Controller involvement.
 
-**Inter-group connectivity** is managed by the Controller. When nodes from different groups register, the Controller creates links between them and installs route subscriptions so messages can flow across group boundaries.
+**Inter-domain connectivity** is managed by the Controller. When nodes from different domains register, the Controller creates links between them and installs route subscriptions so messages can flow across domain boundaries.
 
-Within each group, one node is selected at random as the **gateway** — the node that holds the inter-group link and forwards traffic to and from other groups. If the gateway node crashes or deregisters, the Controller performs **gateway failover**: it reassigns the inter-group link to a sibling node in the same group, maintaining connectivity without operator intervention.
+Within each domain, one node is selected at random as the **gateway** — the node that holds the inter-domain link and forwards traffic to and from other domains. If the gateway node crashes or deregisters, the Controller performs **gateway failover**: it reassigns the inter-domain link to a sibling node in the same domain, maintaining connectivity without operator intervention.
 
 ## Links
 
-A **link** is a directed gRPC connection between two nodes in different groups. The source node initiates the connection to the destination node's `external_endpoint`. Links are created and managed entirely by the Controller — application code and data plane nodes do not create links directly.
+A **link** is a directed gRPC connection between two nodes in different domains. The source node initiates the connection to the destination node's `external_endpoint`. Links are created and managed entirely by the Controller — application code and data plane nodes do not create links directly.
 
 ```mermaid
 graph LR
-    subgraph "Group A"
+    subgraph "Domain A"
         gw-a["Node A\n(gateway)"]
     end
-    subgraph "Group B"
+    subgraph "Domain B"
         gw-b["Node B\n(gateway)"]
     end
     gw-a -- "link (gRPC)" --> gw-b
@@ -53,25 +53,25 @@ Once a link reaches `Applied`, the Controller installs route subscriptions over 
 ### Inspecting Links
 
 ```bash
-# List all inter-group links
+# List all inter-domain links
 slimctl controller link list
 
 # List routes (subscriptions installed over links)
 slimctl controller route list
 
-# List nodes and their group assignment
+# List nodes and their domain assignment
 slimctl controller node list
 ```
 
 ## Topology
 
-The **topology** configuration in the Controller defines which groups are allowed to form inter-group links. It is expressed as an adjacency list: each entry declares a group name and the groups it connects to. All links are bidirectional — if group A lists group B as a neighbour, the link between them is established in both directions.
+The **topology** configuration in the Controller defines which domains are allowed to form inter-domain links. It is expressed as an adjacency list: each entry declares a domain name and the domains it connects to. All links are bidirectional — if domain A lists domain B as a neighbour, the link between them is established in both directions.
 
-The wildcard `"*"` matches all registered groups and is resolved at runtime when new nodes register.
+The wildcard `"*"` matches all registered domains and is resolved at runtime when new nodes register.
 
 ### Full Mesh (Default)
 
-If no topology is configured, the Controller defaults to full mesh: every group is linked to every other group.
+If no topology is configured, the Controller defaults to full mesh: every domain is linked to every other domain.
 
 ```yaml
 topology: {}
@@ -81,7 +81,7 @@ Use full mesh when all deployments need to communicate with each other and there
 
 ### Star Topology
 
-A hub group connects to all others; spoke groups can only reach each other by routing through the hub.
+A hub domain connects to all others; spoke domains can only reach each other by routing through the hub.
 
 ```yaml
 topology:
@@ -94,7 +94,7 @@ Use a star topology when you have a central service (e.g. a cloud-hosted coordin
 
 ### Explicit Pairs
 
-Only specific group pairs are allowed to form links:
+Only specific domain pairs are allowed to form links:
 
 ```yaml
 topology:
@@ -109,24 +109,24 @@ topology:
 
 ### Chain Topology
 
-Groups form a linear chain; multi-hop routing via the Shortest Path Tree algorithm handles transit automatically:
+Domains form a linear chain; multi-hop routing via the Shortest Path Tree algorithm handles transit automatically:
 
 ```yaml
 topology:
   links:
-    - name: group-a
-      neighbors: [group-b]
-    - name: group-b
-      neighbors: [group-a, group-c]
-    - name: group-c
-      neighbors: [group-b, group-d]
-    - name: group-d
-      neighbors: [group-c]
+    - name: domain-a
+      neighbors: [domain-b]
+    - name: domain-b
+      neighbors: [domain-a, domain-c]
+    - name: domain-c
+      neighbors: [domain-b, domain-d]
+    - name: domain-d
+      neighbors: [domain-c]
 ```
 
 ## Segments
 
-**Segments** partition the network into independent routing domains. Nodes in one segment are completely invisible to nodes in other segments — routes are only expanded within a segment's topology graph, and no links are created between groups that do not share an edge in any segment.
+**Segments** partition the network into independent routing domains. Nodes in one segment are completely invisible to nodes in other segments — routes are only expanded within a segment's topology graph, and no links are created between domains that do not share an edge in any segment.
 
 Segments are used to enforce **multi-tenant isolation**: different customers or deployments can share the same SLIM infrastructure while being unable to route messages to each other.
 
@@ -151,53 +151,53 @@ topology:
 
 In this example, `cluster-a` can route to `cloud` (and vice versa), but `cluster-a` cannot reach `cluster-b` or `cluster-c` at all — they are in separate routing domains.
 
-### Template Segments with `$group`
+### Template Segments with `$domain`
 
-The special token `$group` causes a segment definition to be **instantiated once per registered group**. This enables dynamic per-tenant isolation without manually listing every group:
+The special token `$domain` causes a segment definition to be **instantiated once per registered domain**. This enables dynamic per-tenant isolation without manually listing every domain:
 
 ```yaml
 topology:
   segments:
-    - name: segment-$group
+    - name: segment-$domain
       links:
         - name: cloud
-          neighbors: [$group]
+          neighbors: [$domain]
 ```
 
-When a node from `customer-a` registers, the Controller instantiates a segment named `segment-customer-a` with links `cloud <-> customer-a`. When a node from `customer-b` registers, another segment `segment-customer-b` is instantiated with `cloud <-> customer-b`. Because each customer group exists in its own segment, `customer-a` and `customer-b` cannot route to each other even though they both connect to `cloud`.
+When a node from `customer-a` registers, the Controller instantiates a segment named `segment-customer-a` with links `cloud <-> customer-a`. When a node from `customer-b` registers, another segment `segment-customer-b` is instantiated with `cloud <-> customer-b`. Because each customer domain exists in its own segment, `customer-a` and `customer-b` cannot route to each other even though they both connect to `cloud`.
 
 ### Inspecting Segments
 
 ```bash
-# List all segments and their group membership
+# List all segments and their domain membership
 slimctl controller segment list
 ```
 
-The output shows each segment's name, the groups it contains, and the edges (links) in its adjacency graph.
+The output shows each segment's name, the domains it contains, and the edges (links) in its adjacency graph.
 
 ## Shortest Path Tree Routing
 
-When a SLIM application subscribes to a name, the Controller installs route subscriptions on data plane nodes using a **Shortest Path Tree (SPT)** algorithm. The SPT computes a loop-free forwarding tree rooted at the first group that announced the name:
+When a SLIM application subscribes to a name, the Controller installs route subscriptions on data plane nodes using a **Shortest Path Tree (SPT)** algorithm. The SPT computes a loop-free forwarding tree rooted at the first domain that announced the name:
 
-- **Upward routes**: installed on non-root group gateways, pointing toward the root — used to deliver messages from any group to the first announcer
-- **Downward routes**: installed when additional groups announce the same name, pointing away from the root toward the new announcers — used to fan out messages to all subscribers
+- **Upward routes**: installed on non-root domain gateways, pointing toward the root — used to deliver messages from any domain to the first announcer
+- **Downward routes**: installed when additional domains announce the same name, pointing away from the root toward the new announcers — used to fan out messages to all subscribers
 
-This ensures that multi-hop routing (e.g. spoke-a → hub → spoke-b in a star topology) works correctly without creating forwarding loops, even across non-directly-connected groups.
+This ensures that multi-hop routing (e.g. spoke-a → hub → spoke-b in a star topology) works correctly without creating forwarding loops, even across non-directly-connected domains.
 
 ## Choosing a Topology
 
 | Topology | When to use |
 |----------|-------------|
-| Full mesh | All groups communicate freely; simple deployments |
+| Full mesh | All domains communicate freely; simple deployments |
 | Star (hub + `"*"`) | Hub-and-spoke; edge deployments connect via a central service |
-| Explicit pairs | Controlled access; specific groups should reach specific others |
+| Explicit pairs | Controlled access; specific domains should reach specific others |
 | Chain | Linear pipelines; multi-hop routing handled automatically |
 | Segments | Multi-tenant isolation; customers must not route to each other |
-| `$group` template | Dynamic per-tenant segments; groups register without pre-configuration |
+| `$domain` template | Dynamic per-tenant segments; domains register without pre-configuration |
 
 ## Related
 
-- [SLIM Controller Overview](../components/controller/index.md) — The component that manages groups, links, and segments
+- [SLIM Controller Overview](../components/controller/index.md) — The component that manages domains, links, and segments
 - [Controller Configuration Reference](../components/controller/config.md) — Full topology configuration options
 - [Naming](./naming.md) — How client and channel names work in SLIM
-- [Groups](./sessions/group.md) — Group sessions for multi-agent communication (distinct from routing groups)
+- [Groups](./sessions/group.md) — Group sessions for multi-agent communication (distinct from routing domains)
