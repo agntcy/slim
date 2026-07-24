@@ -93,7 +93,9 @@ futures-timer = "3.0.3"
 
 getrandom = { version = "0.3", features = ["wasm_js"] }
 # Browser WebSocket transport for the wasm32 build of the data plane.
-gloo-net = { version = "0.6", default-features = false, features = ["websocket"] }
+gloo-net = { version = "0.6", default-features = false, features = [
+    "websocket",
+] }
 h2 = "0.4.7"
 headers = "0.4.1"
 hex = "0.4.3"
@@ -126,6 +128,7 @@ lazy_static = "1.5.0"
 libsqlite3-sys = { version = ">=0.17.2, <0.38.0", features = ["bundled"] }
 lru = "0.18.0"
 maybe-async = "0.2.10"
+ml-kem = { version = "0.3.2", default-features = false, features = ["alloc"] }
 mls-rs = { version = "0.54" }
 mls-rs-core = { version = "0.26" }
 mls-rs-crypto-awslc = { version = "0.23" }
@@ -163,6 +166,7 @@ prost-types = "0.14"
 
 protoc-bin-vendored = "3.1.0"
 rand = "0.9.0"
+rand_core = "0.10"
 regex = "1.11.1"
 
 reqwest = { version = "0.12", features = [

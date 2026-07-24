@@ -376,6 +376,9 @@ message LinkNegotiationPayload {
   // the server verifies both sides belong to the same peer group before
   // upgrading the connection. Empty for non-peer connections.
   string deployment_name = 7;
+  // ML-KEM-768: initiator sends 1184 byte encapsulation key;
+  // responder sends 1088 byte ciphertext. Empty = classical encryption only.
+  optional bytes link_kem_payload = 8;
 }
 
 // Connection type for link negotiation.

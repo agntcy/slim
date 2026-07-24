@@ -131,6 +131,7 @@ where
     direction: Direction,
     subscription_manager: Option<M>,
     service_id: Option<String>,
+    enforce_pqc: Option<bool>,
     kv_store: Option<slim_persistence::SlimKvStore>,
     group_storage: Option<slim_persistence::SlimGroupStateStorage>,
     _target: PhantomData<Target>,
@@ -160,6 +161,7 @@ where
             direction: Direction::Bidirectional,
             subscription_manager: None,
             service_id: None,
+            enforce_pqc: None,
             kv_store: None,
             group_storage: None,
             _target: PhantomData,
@@ -261,6 +263,7 @@ where
             direction: self.direction,
             subscription_manager: Some(manager),
             service_id: self.service_id,
+            enforce_pqc: self.enforce_pqc,
             kv_store: self.kv_store,
             group_storage: self.group_storage,
             _target: PhantomData,
@@ -270,6 +273,11 @@ where
 
     pub fn with_service_id(mut self, service_id: String) -> Self {
         self.service_id = Some(service_id);
+        self
+    }
+
+    pub fn with_enforce_pqc(mut self, enforce_pqc: bool) -> Self {
+        self.enforce_pqc = Some(enforce_pqc);
         self
     }
 
@@ -356,6 +364,7 @@ where
             direction: self.direction,
             subscription_manager: self.subscription_manager,
             service_id: self.service_id,
+            enforce_pqc: self.enforce_pqc,
             kv_store: self.kv_store,
             group_storage: self.group_storage,
             _target: PhantomData,
@@ -631,6 +640,7 @@ where
             subscription_manager,
             service_id: self.service_id.unwrap_or_default(),
             max_seen_control_message_ids_size,
+            enforce_pqc: self.enforce_pqc.unwrap_or_default(),
             kv_store: self.kv_store,
             group_storage: self.group_storage,
         };

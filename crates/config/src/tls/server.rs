@@ -19,6 +19,7 @@ use crate::{
         RootStoreBuilder,
         common::{CaSource, StaticCertResolver, WatcherCertResolver},
         errors::ConfigError,
+        provider::crypto_provider_for_config,
     },
 };
 
@@ -236,7 +237,10 @@ impl TlsServerConfig {
             _ => return Err(InvalidTlsVersion(self.config.tls_version.clone())),
         };
 
-        let config_builder = RustlsServerConfig::builder_with_protocol_versions(&[tls_version]);
+        self.config.validate_pqc()?;
+        let crypto_provider = crypto_provider_for_config(self.config.enforce_pqc);
+        let config_builder = RustlsServerConfig::builder_with_provider(crypto_provider)
+            .with_protocol_versions(&[tls_version])?;
 
         // Unified handling based on TlsSource enum
         let resolver: Arc<dyn ResolvesServerCert> = match &self.config.source {
@@ -294,6 +298,9 @@ impl Configuration for TlsServerConfig {
     type Error = ConfigError;
 
     fn validate(&self) -> Result<(), Self::Error> {
+        // Validate TLS 1.3 for PQC implementation
+        self.config.validate_pqc()?;
+
         // TODO(msardara): validate the configuration
         Ok(())
     }

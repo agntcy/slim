@@ -13,7 +13,45 @@ use crate::header_mac::{HeaderMacError, HeaderMacSession};
 /// Wire encoding length for an X25519 public key in this protocol.
 pub const X25519_PUBLIC_KEY_LEN: usize = 32;
 
-const HKDF_INFO: &[u8] = b"SLIM-DP-inter-node-hmac-v1";
+pub const ML_KEM768_PUBLIC_KEY_LEN: usize = 1184;
+pub const ML_KEM768_CIPHERTEXT_LEN: usize = 1088;
+
+pub(crate) enum HkdfInfo {
+    Classical,
+    PostQuantum,
+}
+
+pub type MlKem768SecretKey = backend::MlKem768SecretKey;
+
+pub fn generate_mlkem768() -> Result<(MlKem768SecretKey, Vec<u8>), HeaderMacError> {
+    backend::generate_mlkem768()
+}
+
+pub fn encapsulate_mlkem768(pk: &[u8]) -> Result<(Vec<u8>, [u8; 32]), HeaderMacError> {
+    backend::encapsulate_mlkem768(pk)
+}
+
+pub fn decapsulate_mlkem768(sk: MlKem768SecretKey, ct: &[u8]) -> Result<[u8; 32], HeaderMacError> {
+    backend::decapsulate_mlkem768(sk, ct)
+}
+
+pub fn derive_header_mac_hybrid(
+    x25519_sk: EphemeralKey,
+    peer_x25519_pk: &[u8],
+    mlkem_shared: &[u8; 32],
+    link_id: &str,
+) -> Result<HeaderMacSession, HeaderMacError> {
+    backend::derive_hybrid(x25519_sk, peer_x25519_pk, mlkem_shared, link_id)
+}
+
+impl HkdfInfo {
+    pub(crate) const fn to_bytes(&self) -> &'static [u8] {
+        match self {
+            Self::Classical => b"SLIM-DP-inter-node-hmac-v1",
+            Self::PostQuantum => b"SLIM-DP-inter-node-hmac-v1-pq",
+        }
+    }
+}
 
 // ECDH + HKDF backend selection. Native uses `aws_lc_rs`; the browser build uses
 // the pure-Rust `x25519-dalek` + `hkdf` + `sha2` crates. Both implement the same
@@ -139,5 +177,53 @@ mod tests {
         let (sk, _pk) = backend_pure::generate().unwrap();
         let err = backend_pure::derive(sk, &[0u8; 8], "link").unwrap_err();
         assert!(matches!(err, HeaderMacError::KeyAgreement));
+    }
+
+    #[test]
+    fn mlkem768_pure_encap_matches_awslc_decap() {
+        use super::backend as backend_awslc;
+
+        let (aws_dk, aws_pk) = backend_awslc::generate_mlkem768().unwrap();
+        assert_eq!(aws_pk.len(), ML_KEM768_PUBLIC_KEY_LEN);
+
+        let (ct, pure_shared) = backend_pure::encapsulate_mlkem768(&aws_pk).unwrap();
+        assert_eq!(ct.len(), ML_KEM768_CIPHERTEXT_LEN);
+
+        let aws_shared = backend_awslc::decapsulate_mlkem768(aws_dk, &ct).unwrap();
+        assert_eq!(pure_shared, aws_shared);
+    }
+
+    #[test]
+    fn mlkem768_awslc_encap_matches_pure_decap() {
+        use super::backend as backend_awslc;
+
+        let (pure_dk, pure_pk) = backend_pure::generate_mlkem768().unwrap();
+        let (ct, aws_shared) = backend_awslc::encapsulate_mlkem768(&pure_pk).unwrap();
+        let pure_shared = backend_pure::decapsulate_mlkem768(pure_dk, &ct).unwrap();
+        assert_eq!(pure_shared, aws_shared);
+    }
+
+    #[test]
+    fn hybrid_link_mac_matches_between_awslc_and_pure() {
+        use super::backend as backend_awslc;
+
+        let link_id = uuid::Uuid::new_v4().to_string();
+        let (init_x_sk, init_x_pk) = backend_pure::generate().unwrap();
+        let (resp_x_sk, resp_x_pk) = backend_awslc::generate().unwrap();
+
+        // Simulate the real wire protocol: responder (awslc) generates the KEM
+        // keypair, initiator (pure) encapsulates, responder decapsulates.
+        let (resp_ml_dk, resp_ml_pk) = backend_awslc::generate_mlkem768().unwrap();
+        let (ct, init_ml_shared) = backend_pure::encapsulate_mlkem768(&resp_ml_pk).unwrap();
+        let resp_ml_shared = backend_awslc::decapsulate_mlkem768(resp_ml_dk, &ct).unwrap();
+
+        let initiator =
+            backend_pure::derive_hybrid(init_x_sk, &resp_x_pk, &init_ml_shared, &link_id).unwrap();
+        let responder =
+            backend_awslc::derive_hybrid(resp_x_sk, &init_x_pk, &resp_ml_shared, &link_id).unwrap();
+
+        let mut h = empty_header();
+        initiator.sign_slim_header(&mut h, &link_id).unwrap();
+        responder.verify_slim_header(&h, &link_id).unwrap();
     }
 }
