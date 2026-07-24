@@ -675,47 +675,26 @@ impl Service {
         let name = ProtoName::parse_name(&app_cfg.name)
             .map_err(|e| ServiceError::InvalidConfig(format!("app.name: {e}")))?;
 
-        let mut identity_provider: AuthProvider = app_cfg
+        let identity_provider: AuthProvider = app_cfg
             .identity
             .build_auth_provider()
             .map_err(|e| ServiceError::InvalidConfig(format!("identity provider: {e}")))?;
 
-        let mut identity_verifier: AuthVerifier = app_cfg
+        let identity_verifier: AuthVerifier = app_cfg
             .identity_verifier
             .build_auth_verifier()
             .map_err(|e| ServiceError::InvalidConfig(format!("identity verifier: {e}")))?;
 
-        // Restore signature keys from cache (stable identity across restarts)
-        if let Some(ref cache_dir) = config.cache_dir {
-            let p = std::path::Path::new(cache_dir);
-            if let Some((priv_key, pub_key)) = crate::node_config::load_signature_keys(p) {
-                info!(cache_dir, "restoring signature keys from cache");
-                identity_provider
-                    .set_signature_keys(priv_key, pub_key)
-                    .await
-                    .map_err(|e| ServiceError::InvalidConfig(format!("restore keys: {e}")))?;
-            }
-        }
+        let persistence = config.cache_dir.as_deref().map(|dir| {
+            slim_persistence::PersistenceConfig::new(std::path::Path::new(dir).join("mls"))
+        });
 
-        identity_provider.initialize().await?;
-        identity_verifier.initialize().await?;
-        let _ = identity_provider.get_token()?;
-
-        // Persist updated signature keys
-        if let Some(ref cache_dir) = config.cache_dir {
-            let p = std::path::Path::new(cache_dir);
-            if let Ok((priv_key, pub_key)) = identity_provider.get_signature_keys() {
-                if !priv_key.is_empty() {
-                    let _ = crate::node_config::save_signature_keys(p, &priv_key, &pub_key);
-                }
-            }
-        }
-
-        let (app, notification_rx) = self.create_app_with_direction(
+        let (app, notification_rx) = self.create_app_with_direction_and_persistence(
             &name,
             identity_provider,
             identity_verifier,
             Direction::Bidirectional,
+            persistence,
         )?;
 
         let conn_id = self.connect(&config.node).await?;
