@@ -374,7 +374,6 @@ html [data-md-color-primary=black] .md-nav--primary .md-nav__source {
 }
 
 .md-sidebar--primary .md-nav__link {
-  padding-left: 10px;
   padding-top: 5px;
   padding-bottom: 5px;
 }
@@ -479,7 +478,7 @@ html [data-md-color-primary=black] .md-nav--primary .md-nav__source {
 /* Landing and community pages */
 
 .md-grid {
-  max-width: 80%;
+  max-width: 1920px;
 }
 
 h1#agent-directory-service {
