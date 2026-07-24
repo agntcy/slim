@@ -786,20 +786,8 @@ where
         let binding = self.pool.read();
         let session = binding.get(&id).ok_or(SessionError::SessionNotFound(id))?;
 
-        // leave the session and get the join handle
-        let join_handle = session.leave()?;
-
-        // Remove the persisted record so a restart does not attempt to restore
-        // a session that no longer exists in SLIM.
-        if let Some(kv) = &self.kv_store {
-            let key = crate::persistence::session_key(id);
-            if let Err(e) = kv.delete(&key) {
-                warn!(%id, error = %e, "failed to delete persisted session record");
-            }
-        }
-
-        // Return a CompletionHandle wrapping the oneshot receiver
-        Ok(CompletionHandle::from_join_handle(join_handle))
+        // hard close: cancel the processing loop and return a handle to wait on
+        session.terminate()
     }
 
     /// Clear all sessions and return completion handles to await on
@@ -814,7 +802,7 @@ where
         // Leave all sessions and return completion handles
         pool.iter()
             .map(|(id, session)| {
-                let result = session.leave().map(CompletionHandle::from_join_handle);
+                let result = session.terminate();
                 (*id, result)
             })
             .collect()
