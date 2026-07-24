@@ -3517,6 +3517,7 @@ mod tests {
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
             kv_store: None,
             group_storage: None,
+            enforce_pqc: false,
         };
 
         let inner = MockInnerHandler::new();

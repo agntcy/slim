@@ -124,6 +124,7 @@ where
             direction,
             service_id,
             None,
+            enforce_pqc,
         )
     }
 
@@ -143,6 +144,7 @@ where
         direction: Direction,
         service_id: String,
         persistence: Option<slim_persistence::PersistenceConfig>,
+        enforce_pqc: bool,
     ) -> Self {
         // Open the persistent store (if configured) and restore the app identity
         // through it BEFORE deriving the app id. The id is a hash of the identity
@@ -190,9 +192,9 @@ where
             tx_app,
             direction,
             service_id,
-            enforce_pqc,
             group_storage,
             kv_store,
+            enforce_pqc,
         ));
 
         // Create a new cancellation token for the app receiver loop

@@ -278,6 +278,9 @@ where
 
     pub fn with_enforce_pqc(mut self, enforce_pqc: bool) -> Self {
         self.enforce_pqc = Some(enforce_pqc);
+        self
+    }
+
     /// Provide the encrypted record store so the session persists its state.
     ///
     /// Crate-internal: persistence is enabled only at the app level (the

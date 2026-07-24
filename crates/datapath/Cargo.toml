@@ -69,10 +69,10 @@ rand_core = { workspace = true }
 semver = { workspace = true }
 sha2 = { workspace = true }
 tokio = { package = "tokio_with_wasm", version = "0.9", features = [
-  "sync",
-  "macros",
-  "rt",
-  "time",
+    "sync",
+    "macros",
+    "rt",
+    "time",
 ] }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }

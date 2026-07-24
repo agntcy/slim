@@ -172,6 +172,7 @@ where
             direction,
             service_id,
             None,
+            enforce_pqc,
         )
     }
 
@@ -192,6 +193,7 @@ where
         direction: Direction,
         service_id: String,
         persistence: Option<PersistenceConfig>,
+        enforce_pqc: bool,
     ) -> Self {
         // Open the store (restoring/persisting the app identity through it) and
         // build the layer from the resulting handles.
@@ -208,6 +210,7 @@ where
             service_id,
             group_storage,
             kv_store,
+            enforce_pqc,
         )
     }
 
@@ -230,6 +233,7 @@ where
         service_id: String,
         group_storage: Option<SlimGroupStateStorage>,
         kv_store: Option<SlimKvStore>,
+        enforce_pqc: bool,
     ) -> Self {
         let (tx_session, rx_session) = tokio::sync::mpsc::channel(16);
 
@@ -573,8 +577,7 @@ where
                 .with_direction(self.direction)
                 .with_subscription_manager(self.subscription_manager.clone())
                 .with_service_id(self.service_id.clone())
-                .with_enforce_pqc(self.enforce_pqc)
-                .ready()?;
+                .with_enforce_pqc(self.enforce_pqc);
 
             // Share the persistence handles so the session can save its state.
             if let Some(store) = &self.kv_store {
@@ -1123,6 +1126,7 @@ mod tests {
             Direction::Bidirectional,
             "test".to_string(),
             Some(PersistenceConfig::new(dir.path())),
+            false,
         ));
 
         // A P2P participant record (no MLS, no subscriptions on restore).

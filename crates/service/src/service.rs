@@ -624,8 +624,8 @@ impl Service {
             tx_app,
             direction,
             self.id.to_string(),
-            self.config.enforce_pqc().is_enforced(),
             persistence,
+            self.config.enforce_pqc().is_enforced(),
         );
 
         // start message processing using the rx channel
