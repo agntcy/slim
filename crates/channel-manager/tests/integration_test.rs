@@ -151,7 +151,7 @@ async fn start_channel_manager(
 
     // Create sessions list and gRPC server
     let sessions = Arc::new(SessionsList::new());
-    let server = ChannelManagerServer::new(app.clone(), conn_id, sessions.clone());
+    let server = ChannelManagerServer::new(app.clone(), conn_id, sessions.clone(), false);
     let svc = ChannelManagerServiceServer::new(server);
 
     // Start gRPC server using ServerConfig

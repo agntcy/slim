@@ -121,13 +121,15 @@ impl SessionsList {
             };
             match session.close_with_mode(CloseMode::Soft).await {
                 Ok(completion) => {
-                    if tokio::time::timeout(std::time::Duration::from_secs(5), completion)
-                        .await
-                        .is_err()
+                    match tokio::time::timeout(std::time::Duration::from_secs(5), completion).await
                     {
-                        warn!(channel = %name, "Timed out waiting for session close confirmation");
-                    } else {
-                        info!(channel = %name, "Session closed gracefully");
+                        Ok(Ok(())) => info!(channel = %name, "Session closed gracefully"),
+                        Ok(Err(e)) => {
+                            warn!(channel = %name, "Session close completed with error: {e}")
+                        }
+                        Err(_) => {
+                            warn!(channel = %name, "Timed out waiting for session close confirmation")
+                        }
                     }
                 }
                 Err(e) => warn!(channel = %name, "Failed to close session: {e}"),

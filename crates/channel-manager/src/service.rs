@@ -27,19 +27,43 @@ pub struct ChannelManagerServer {
     app: Arc<App<AuthProvider, AuthVerifier>>,
     conn_id: u64,
     sessions: Arc<SessionsList>,
+    /// When true, channels are owned by the config file and mutating APIs are disabled.
+    config_mode: bool,
 }
 
 impl ChannelManagerServer {
-    /// Create a new server instance
+    /// Create a new server instance.
+    ///
+    /// Set `config_mode` to `true` when the config file defines channels; this
+    /// makes all write operations return `FAILED_PRECONDITION` so the config
+    /// file remains the single source of truth.
     pub fn new(
         app: Arc<App<AuthProvider, AuthVerifier>>,
         conn_id: u64,
         sessions: Arc<SessionsList>,
+        config_mode: bool,
     ) -> Self {
         Self {
             app,
             conn_id,
             sessions,
+            config_mode,
+        }
+    }
+
+    /// Guard for mutating operations: returns an error response when the server
+    /// is running in config mode (channels are owned by the config file).
+    fn ensure_api_mode(&self) -> Option<CommandResponse> {
+        if self.config_mode {
+            Some(
+                self.error_response(
+                    "channel manager is running in config mode; \
+                 modify the config file and restart to change channels or participants"
+                        .to_string(),
+                ),
+            )
+        } else {
+            None
         }
     }
 
@@ -71,6 +95,9 @@ impl ChannelManagerServer {
     }
 
     async fn handle_create_channel(&self, req: CreateChannelRequest) -> CommandResponse {
+        if let Some(err) = self.ensure_api_mode() {
+            return err;
+        }
         let channel_name = &req.channel_name;
 
         // Check if the channel already exists before doing expensive SLIM work
@@ -138,6 +165,9 @@ impl ChannelManagerServer {
     }
 
     async fn handle_delete_channel(&self, req: DeleteChannelRequest) -> CommandResponse {
+        if let Some(err) = self.ensure_api_mode() {
+            return err;
+        }
         let channel_name = &req.channel_name;
 
         if let Err(e) = self.sessions.remove_session(channel_name, &self.app).await {
@@ -150,6 +180,9 @@ impl ChannelManagerServer {
     }
 
     async fn handle_add_participant(&self, req: AddParticipantRequest) -> CommandResponse {
+        if let Some(err) = self.ensure_api_mode() {
+            return err;
+        }
         let channel_name = &req.channel_name;
         let participant_name_str = &req.participant_name;
 
@@ -192,6 +225,9 @@ impl ChannelManagerServer {
     }
 
     async fn handle_delete_participant(&self, req: DeleteParticipantRequest) -> CommandResponse {
+        if let Some(err) = self.ensure_api_mode() {
+            return err;
+        }
         let channel_name = &req.channel_name;
         let participant_name_str = &req.participant_name;
 

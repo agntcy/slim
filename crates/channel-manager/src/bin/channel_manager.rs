@@ -37,55 +37,132 @@ struct Args {
     config_file: PathBuf,
 }
 
-/// Create channels from the configuration file
+/// Reconcile channels defined in the config file against the live session state.
+///
+/// For each channel in the config:
+/// - If restored from DB: perform a full roster reconciliation against the config —
+///   remove participants no longer in the config, invite participants not yet in the
+///   session. The channel-manager's own identity is always in the roster and is skipped.
+/// - If freshly created: invite all configured participants; any error is fatal.
 async fn create_channels_from_config(
     app: &Arc<App<AuthProvider, AuthVerifier>>,
     conn_id: u64,
     sessions: &Arc<SessionsList>,
     config: &Config,
 ) -> anyhow::Result<()> {
+    // 3-component key of the channel-manager itself — always present in every roster,
+    // never a user-configured participant, so excluded from all reconciliation checks.
+    let self_key = {
+        let n = app.app_name();
+        let (c0, c1, c2) = n.str_components();
+        format!("{c0}/{c1}/{c2}")
+    };
+
     for channel_cfg in &config.manager.channels {
-        // Skip channels already restored from persistent storage.
-        if sessions.get_session(&channel_cfg.name).await.is_some() {
-            info!(channel = %channel_cfg.name, "Channel already restored from persistent storage, skipping");
-            continue;
-        }
+        let (controller, restored) = if let Some(ctrl) =
+            sessions.get_session(&channel_cfg.name).await
+        {
+            info!(channel = %channel_cfg.name, "Channel restored from DB; reconciling participants");
+            (ctrl, true)
+        } else {
+            let channel_name =
+                ProtoName::parse_name(&channel_cfg.name).map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        let channel_name =
-            ProtoName::parse_name(&channel_cfg.name).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let session_config = SessionConfig {
+                session_type: ProtoSessionType::Multicast,
+                mls_settings: if channel_cfg.mls_enabled {
+                    Some(MlsSettings::default())
+                } else {
+                    None
+                },
+                max_retries: Some(10),
+                interval: Some(Duration::from_millis(1000)),
+                initiator: true,
+                metadata: std::collections::HashMap::new(),
+            };
 
-        // Create a new session for the channel
-        let session_config = SessionConfig {
-            session_type: ProtoSessionType::Multicast,
-            mls_settings: if channel_cfg.mls_enabled {
-                Some(MlsSettings::default())
-            } else {
-                None
-            },
-            max_retries: Some(10),
-            interval: Some(Duration::from_millis(1000)),
-            initiator: true,
-            metadata: std::collections::HashMap::new(),
+            let (session, completion) = app
+                .create_session(session_config, channel_name, None)
+                .await
+                .map_err(|e| {
+                    anyhow::anyhow!("failed to create session for {}: {e}", channel_cfg.name)
+                })?;
+            completion.await.map_err(|e| {
+                anyhow::anyhow!("session creation failed for {}: {e}", channel_cfg.name)
+            })?;
+
+            let ctrl = session.session_arc().ok_or_else(|| {
+                anyhow::anyhow!("session already closed for {}", channel_cfg.name)
+            })?;
+
+            sessions
+                .add_session(channel_cfg.name.clone(), session)
+                .await?;
+
+            info!(channel = %channel_cfg.name, "Created channel");
+            (ctrl, false)
         };
 
-        let (session, completion) = app
-            .create_session(session_config, channel_name, None)
-            .await
-            .map_err(|e| {
-                anyhow::anyhow!("failed to create session for {}: {e}", channel_cfg.name)
-            })?;
-        completion.await.map_err(|e| {
-            anyhow::anyhow!("session creation failed for {}: {e}", channel_cfg.name)
-        })?;
+        // Build the set of 3-component names declared in the config for this channel.
+        let config_set: std::collections::HashSet<String> = channel_cfg
+            .participants
+            .iter()
+            .filter_map(|p| ProtoName::parse_name(p).ok())
+            .map(|n| {
+                let (c0, c1, c2) = n.str_components();
+                format!("{c0}/{c1}/{c2}")
+            })
+            .collect();
 
-        // Get the session controller for participant invitations
-        let controller = session
-            .session_arc()
-            .ok_or_else(|| anyhow::anyhow!("session already closed for {}", channel_cfg.name))?;
+        // For restored sessions: build the roster map and reconcile.
+        // roster_set holds the 3-component keys of participants already in the session
+        // (excluding the channel-manager itself) so we can skip redundant invites.
+        let roster_set: std::collections::HashSet<String> = if restored {
+            let roster = controller.participants_list().await.unwrap_or_default();
 
+            // Remove participants no longer in the config (skip self).
+            for (name, _) in &roster {
+                let (c0, c1, c2) = name.str_components();
+                let key = format!("{c0}/{c1}/{c2}");
+                if key == self_key || config_set.contains(&key) {
+                    continue;
+                }
+                info!(channel = %channel_cfg.name, participant = %name, "Removing participant no longer in config");
+                match controller.remove_participant(name).await {
+                    Ok(completion) => {
+                        if let Err(e) = completion.await {
+                            warn!(channel = %channel_cfg.name, participant = %name, "Failed to remove participant: {e}");
+                        }
+                    }
+                    Err(e) => {
+                        warn!(channel = %channel_cfg.name, participant = %name, "Failed to remove participant: {e}");
+                    }
+                }
+            }
+
+            roster
+                .into_iter()
+                .filter_map(|(name, _)| {
+                    let (c0, c1, c2) = name.str_components();
+                    let key = format!("{c0}/{c1}/{c2}");
+                    if key == self_key { None } else { Some(key) }
+                })
+                .collect()
+        } else {
+            std::collections::HashSet::new()
+        };
+
+        // Invite participants declared in config that are not already in the session.
         for participant in &channel_cfg.participants {
             let participant_name =
                 ProtoName::parse_name(participant).map_err(|e| anyhow::anyhow!("{e}"))?;
+
+            let (c0, c1, c2) = participant_name.str_components();
+            let key = format!("{c0}/{c1}/{c2}");
+            if roster_set.contains(&key) {
+                tracing::debug!(channel = %channel_cfg.name, participant = %participant, "Participant already in session, skipping invite");
+                continue;
+            }
 
             app.set_route(&participant_name, conn_id)
                 .await
@@ -97,7 +174,7 @@ async fn create_channels_from_config(
                     )
                 })?;
 
-            controller
+            let completion = controller
                 .invite_participant(&participant_name)
                 .await
                 .map_err(|e| {
@@ -106,26 +183,34 @@ async fn create_channels_from_config(
                         participant,
                         channel_cfg.name
                     )
-                })?
-                .await
-                .map_err(|e| {
-                    anyhow::anyhow!(
-                        "failed to invite {} to channel {}: {e}",
-                        participant,
-                        channel_cfg.name
-                    )
                 })?;
+            completion.await.map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to invite {} to channel {}: {e}",
+                    participant,
+                    channel_cfg.name
+                )
+            })?;
         }
-
-        sessions
-            .add_session(channel_cfg.name.clone(), session)
-            .await?;
 
         info!(
             channel = %channel_cfg.name,
             participants = ?channel_cfg.participants,
-            "Created channel and invited participants"
+            "Channel ready"
         );
+    }
+
+    // Delete sessions that exist in the DB but are no longer in the config.
+    // Config is the source of truth in config mode.
+    let config_channels: std::collections::HashSet<&str> =
+        config.manager.channels.iter().map(|c| c.name.as_str()).collect();
+    for name in sessions.list_channel_names().await {
+        if !config_channels.contains(name.as_str()) {
+            info!(channel = %name, "Channel removed from config; deleting session");
+            if let Err(e) = sessions.remove_session(&name, app).await {
+                warn!(channel = %name, "Failed to delete removed channel: {e}");
+            }
+        }
     }
 
     Ok(())
@@ -256,14 +341,19 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => warn!("Failed to restore sessions: {e}"),
     }
 
-    // Create channels from configuration
-    if let Err(e) = create_channels_from_config(&arc_app, conn_id, &sessions, &config).await {
-        error!("Failed to create channels from config: {e}");
+    // Config mode: channels section is non-empty → config is the source of truth.
+    // API mode:    channels section is empty → DB (restored above) is the source of truth.
+    let config_mode = !config.manager.channels.is_empty();
+
+    if config_mode
+        && let Err(e) = create_channels_from_config(&arc_app, conn_id, &sessions, &config).await
+    {
+        error!("Failed to reconcile channels from config: {e}");
         return Err(e);
     }
 
     // Create gRPC server
-    let server = ChannelManagerServer::new(arc_app.clone(), conn_id, sessions.clone());
+    let server = ChannelManagerServer::new(arc_app.clone(), conn_id, sessions.clone(), config_mode);
     let svc = ChannelManagerServiceServer::new(server);
 
     info!(
@@ -298,15 +388,11 @@ async fn main() -> anyhow::Result<()> {
         .map(|p| p.delete_sessions_on_shutdown)
         .unwrap_or(true);
     if delete_on_shutdown {
-        match tokio::time::timeout(Duration::from_secs(5), sessions.delete_all(&arc_app)).await {
-            Ok(()) => info!("All sessions deleted"),
-            Err(_) => warn!("Session deletion timed out, forcing shutdown"),
-        }
+        sessions.delete_all(&arc_app).await;
+        info!("All sessions deleted");
     } else {
-        match tokio::time::timeout(Duration::from_secs(5), sessions.close_all()).await {
-            Ok(()) => info!("All sessions closed gracefully"),
-            Err(_) => warn!("Session close timed out, forcing shutdown"),
-        }
+        sessions.close_all().await;
+        info!("All sessions closed");
     }
     service
         .shutdown()
