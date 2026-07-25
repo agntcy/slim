@@ -202,8 +202,12 @@ async fn create_channels_from_config(
 
     // Delete sessions that exist in the DB but are no longer in the config.
     // Config is the source of truth in config mode.
-    let config_channels: std::collections::HashSet<&str> =
-        config.manager.channels.iter().map(|c| c.name.as_str()).collect();
+    let config_channels: std::collections::HashSet<&str> = config
+        .manager
+        .channels
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect();
     for name in sessions.list_channel_names().await {
         if !config_channels.contains(name.as_str()) {
             info!(channel = %name, "Channel removed from config; deleting session");

@@ -27,6 +27,11 @@ pub(crate) trait TaskUpdate {
     fn proposal_start(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn update_phase_completed(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn task_complete(&self) -> bool;
+    // this returns true if the main goal of the task was achieved but not all the phases
+    // were completed. for example in add participant the task partially succeed if the welcome
+    // message is received but some ack for the update group is not received. this may happen
+    // because some of the participant may be offline and we don't know it yet.
+    fn partial_success(&self) -> bool;
 }
 
 fn unsupported_phase() -> SessionError {
@@ -174,6 +179,17 @@ impl TaskUpdate for ModeratorTask {
             ModeratorTask::UpdateLocalStatus() => true,
         }
     }
+
+    fn partial_success(&self) -> bool {
+        match self {
+            ModeratorTask::Add(task) => task.partial_success(),
+            ModeratorTask::Remove(task) => task.partial_success(),
+            ModeratorTask::Update(task) => task.partial_success(),
+            ModeratorTask::CloseOrDisconnect(task) => task.partial_success(),
+            ModeratorTask::Rejoin(task) => task.partial_success(),
+            ModeratorTask::UpdateLocalStatus() => true,
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -302,6 +318,10 @@ impl TaskUpdate for AddParticipant {
             && self.welcome.received
             && self.commit.received
     }
+
+    fn partial_success(&self) -> bool {
+        self.discovery.received && self.join.received && self.welcome.received
+    }
 }
 
 #[derive(Debug, Default)]
@@ -402,6 +422,10 @@ impl TaskUpdate for RemoveParticipant {
     fn task_complete(&self) -> bool {
         self.commit.received && self.leave.received
     }
+
+    fn partial_success(&self) -> bool {
+        self.leave.received
+    }
 }
 
 #[derive(Debug, Default)]
@@ -482,6 +506,10 @@ impl TaskUpdate for NotifyParticipants {
     fn task_complete(&self) -> bool {
         self.notify.received
     }
+
+    fn partial_success(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Debug, Default)]
@@ -561,6 +589,11 @@ impl TaskUpdate for UpdateParticipant {
     }
 
     fn task_complete(&self) -> bool {
+        self.proposal.received && self.commit.received
+    }
+
+    fn partial_success(&self) -> bool {
+        // this is intentionally the same as task_complete, because we don't consider a partial success for an update task.
         self.proposal.received && self.commit.received
     }
 }
@@ -645,6 +678,10 @@ impl TaskUpdate for RejoinParticipant {
 
     fn task_complete(&self) -> bool {
         self.welcome.received && self.commit.received
+    }
+
+    fn partial_success(&self) -> bool {
+        self.welcome.received
     }
 }
 

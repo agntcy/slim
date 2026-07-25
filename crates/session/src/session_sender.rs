@@ -468,9 +468,15 @@ impl SessionSender {
 
         self.pending_acks.remove(&id);
 
-        // Signal failure to the ack notifier if present
+        // Signal success or unexpected error. Non-replying participants are marked
+        // offline (in participant or moderator), so a missing ack means the peer
+        // was unreachable, not that the send failed.
         if let Some(tx) = self.ack_notifiers.remove(&id) {
-            let _ = tx.send(Err(error));
+            if matches!(error, SessionError::UnexpectedError { .. }) {
+                let _ = tx.send(Err(error));
+            } else {
+                let _ = tx.send(Ok(()));
+            }
         }
 
         Ok(SessionOutput::new())
@@ -587,6 +593,18 @@ impl SessionSender {
 
     pub fn participants_list(&self) -> Vec<ProtoName> {
         self.endpoints_list.values().cloned().collect()
+    }
+
+    pub fn missing_acks_for(&self, id: u32) -> Vec<ProtoName> {
+        self.pending_acks
+            .get(&id)
+            .map(|(gt, _)| {
+                gt.missing_timers
+                    .iter()
+                    .filter_map(|enc| self.endpoints_list.get(enc).cloned())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     pub fn close(&mut self) {
