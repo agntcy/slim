@@ -504,6 +504,19 @@ impl SessionController {
         if let Err(e) = inner.on_shutdown().await {
             tracing::error!(error = %e.chain(), "error during shutdown of session");
         }
+
+        // Signal the session layer that this session is done, so it removes it
+        // from the pool and deletes its persisted footprint (record + MLS
+        // state). Done here — once, for both moderator and participant — so the
+        // teardown is uniform regardless of role. On a graceful process
+        // shutdown the layer's receiver is already gone, so the signal is a
+        // no-op and the persisted state is preserved for restore.
+        let _ = settings
+            .tx_to_session_layer
+            .send(Ok(SessionMessage::DeleteSession {
+                session_id: settings.id,
+            }))
+            .await;
     }
 
     /// getters

@@ -249,6 +249,20 @@ where
         self.session_layer.remove_session(session.id())
     }
 
+    /// Look up a session by id in the layer pool, if still present. Returns
+    /// `None` once the session has been closed/removed. Primarily for tests and
+    /// introspection.
+    pub fn get_session(&self, id: u32) -> Option<std::sync::Arc<SessionController>> {
+        self.session_layer.get_session(id)
+    }
+
+    /// The MLS group ids currently held in the group store (for tests /
+    /// introspection).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn stored_mls_group_ids(&self) -> Vec<Vec<u8>> {
+        self.session_layer.stored_mls_group_ids()
+    }
+
     /// Get the app name
     ///
     /// Returns a reference to the name that was provided when the App was created.

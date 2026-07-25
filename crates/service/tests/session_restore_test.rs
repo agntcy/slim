@@ -458,6 +458,258 @@ async fn test_multicast_mls_moderator_restart_republish() {
     .await;
 }
 
+/// A hard `close()` must delete the session's persisted record, so it is NOT
+/// restored on a subsequent restart. This is the mirror of
+/// `test_multicast_mls_moderator_restart_republish`, where a graceful drop
+/// preserves the record and restore finds it.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_hard_close_deletes_persisted_session() {
+    // 1. Start the SLIM node.
+    let port = reserve_local_port();
+    tokio::spawn(async move {
+        let _ = run_slim_node(port).await;
+    });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let moderator_name = Name::from_strings(["org", "ns", "moderator"]);
+    let participant_name = Name::from_strings(["org", "ns", "participant"]);
+    let channel = Name::from_strings(["channel", "hardclose", "test"]);
+
+    let moderator_dir = tempfile::tempdir().unwrap();
+    let participant_dir = tempfile::tempdir().unwrap();
+
+    let moderator_secret = SharedSecret::new("moderator-identity", TEST_VALID_SECRET).unwrap();
+    let participant_secret = SharedSecret::new("participant-identity", TEST_VALID_SECRET).unwrap();
+
+    // 2. Participant (kept alive so the invite completes) + moderator, persistent.
+    let (_participant_app, mut participant_rx, _participant_conn, _participant_svc) =
+        create_persistent_app(
+            port,
+            &participant_name,
+            participant_secret,
+            participant_dir.path(),
+        )
+        .await;
+    let _participant_listener = tokio::spawn(async move {
+        while let Some(Ok(Notification::NewSession(_ctx))) = participant_rx.recv().await {}
+    });
+
+    let (moderator_app, _moderator_rx, moderator_conn, moderator_svc) = create_persistent_app(
+        port,
+        &moderator_name,
+        moderator_secret,
+        moderator_dir.path(),
+    )
+    .await;
+
+    // 3. Moderator creates a multicast MLS session and invites the participant,
+    //    which persists the moderator's session record.
+    let config = SessionConfig {
+        session_type: slim_datapath::api::ProtoSessionType::Multicast,
+        max_retries: Some(10),
+        interval: Some(Duration::from_secs(1)),
+        mls_settings: Some(MlsSettings::default()),
+        initiator: true,
+        metadata: Default::default(),
+    };
+    let (session_ctx, completion) = moderator_app
+        .create_session(config, channel.clone(), None)
+        .await
+        .expect("failed to create session");
+    completion.await.expect("session establishment failed");
+
+    moderator_app
+        .set_route(&participant_name, moderator_conn)
+        .await
+        .expect("failed to set route to participant");
+
+    let session = session_ctx.session_arc().expect("no session arc");
+    let session_id = session.id();
+    session
+        .invite_participant(&participant_name)
+        .await
+        .expect("invite failed")
+        .await
+        .expect("invite completion failed");
+
+    // Before closing: the session is in the layer pool and its MLS group is
+    // stored.
+    assert!(
+        moderator_app.get_session(session_id).is_some(),
+        "session should be in the pool before close"
+    );
+    assert!(
+        !moderator_app.stored_mls_group_ids().is_empty(),
+        "the MLS group should be stored before close"
+    );
+
+    // 4. Hard close the moderator session (CloseMode::Hard, via close()). This
+    //    should drop the persisted record and remove it from the layer pool.
+    session
+        .close()
+        .expect("hard close failed")
+        .await
+        .expect("close completion failed");
+    drop(session);
+    drop(session_ctx);
+    // Let the DeleteSession signal reach the layer, remove the pool entry and
+    // delete the record.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // The hard close removed the session from the layer pool and deleted its
+    // MLS group state.
+    assert!(
+        moderator_app.get_session(session_id).is_none(),
+        "a hard-closed session must be removed from the layer pool"
+    );
+    assert!(
+        moderator_app.stored_mls_group_ids().is_empty(),
+        "a hard-closed session's MLS group state must be deleted"
+    );
+
+    drop(moderator_app);
+    drop(moderator_svc);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // 5. Restart the moderator against the same persistence dir. The record was
+    //    deleted by the hard close, so nothing should be restored.
+    let restarted_secret = SharedSecret::new("moderator-identity", TEST_VALID_SECRET).unwrap();
+    let (moderator_app2, _moderator_rx2, conn2, _moderator_svc2) = create_persistent_app(
+        port,
+        &moderator_name,
+        restarted_secret,
+        moderator_dir.path(),
+    )
+    .await;
+
+    let restored = moderator_app2
+        .restore_sessions(conn2)
+        .await
+        .expect("restore_sessions failed");
+    assert_eq!(
+        restored.len(),
+        0,
+        "a hard-closed session must not be restored"
+    );
+}
+
+/// The same teardown must work for a participant: when a participant hard-closes
+/// its own session, its pool entry, persisted record and MLS group state are all
+/// removed (the `DeleteSession` signal is emitted uniformly by the controller for
+/// both roles).
+#[tokio::test(flavor = "multi_thread")]
+async fn test_participant_hard_close_deletes_persisted_session() {
+    // 1. Start the SLIM node.
+    let port = reserve_local_port();
+    tokio::spawn(async move {
+        let _ = run_slim_node(port).await;
+    });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let moderator_name = Name::from_strings(["org", "ns", "moderator"]);
+    let participant_name = Name::from_strings(["org", "ns", "participant"]);
+    let channel = Name::from_strings(["channel", "phardclose", "test"]);
+
+    let moderator_dir = tempfile::tempdir().unwrap();
+    let participant_dir = tempfile::tempdir().unwrap();
+
+    let moderator_secret = SharedSecret::new("moderator-identity", TEST_VALID_SECRET).unwrap();
+    let participant_secret = SharedSecret::new("participant-identity", TEST_VALID_SECRET).unwrap();
+
+    let (moderator_app, _moderator_rx, moderator_conn, _moderator_svc) = create_persistent_app(
+        port,
+        &moderator_name,
+        moderator_secret,
+        moderator_dir.path(),
+    )
+    .await;
+    let (participant_app, mut participant_rx, _participant_conn, _participant_svc) =
+        create_persistent_app(
+            port,
+            &participant_name,
+            participant_secret,
+            participant_dir.path(),
+        )
+        .await;
+
+    // Capture the participant's own session controller when it is created.
+    let (arc_tx, arc_rx) = tokio::sync::oneshot::channel();
+    let mut arc_tx = Some(arc_tx);
+    let _participant_listener = tokio::spawn(async move {
+        while let Some(Ok(Notification::NewSession(ctx))) = participant_rx.recv().await {
+            if let (Some(arc), Some(tx)) = (ctx.session_arc(), arc_tx.take()) {
+                let _ = tx.send(arc);
+            }
+        }
+    });
+
+    // 2. Moderator creates a multicast MLS session and invites the participant,
+    //    which persists the participant's session record + MLS group.
+    let config = SessionConfig {
+        session_type: slim_datapath::api::ProtoSessionType::Multicast,
+        max_retries: Some(10),
+        interval: Some(Duration::from_secs(1)),
+        mls_settings: Some(MlsSettings::default()),
+        initiator: true,
+        metadata: Default::default(),
+    };
+    let (session_ctx, completion) = moderator_app
+        .create_session(config, channel.clone(), None)
+        .await
+        .expect("failed to create session");
+    completion.await.expect("session establishment failed");
+
+    moderator_app
+        .set_route(&participant_name, moderator_conn)
+        .await
+        .expect("failed to set route to participant");
+
+    let moderator_session = session_ctx.session_arc().expect("no session arc");
+    moderator_session
+        .invite_participant(&participant_name)
+        .await
+        .expect("invite failed")
+        .await
+        .expect("invite completion failed");
+
+    // 3. Grab the participant's session controller.
+    let participant_session = tokio::time::timeout(Duration::from_secs(10), arc_rx)
+        .await
+        .expect("timed out waiting for participant session arc")
+        .expect("participant arc channel dropped");
+    let session_id = participant_session.id();
+
+    // Before closing: the participant has the session in its pool and its MLS
+    // group is stored.
+    assert!(
+        participant_app.get_session(session_id).is_some(),
+        "participant session should be in the pool before close"
+    );
+    assert!(
+        !participant_app.stored_mls_group_ids().is_empty(),
+        "the participant's MLS group should be stored before close"
+    );
+
+    // 4. The participant hard-closes its own session.
+    participant_session
+        .close()
+        .expect("participant hard close failed")
+        .await
+        .expect("close completion failed");
+    drop(participant_session);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // 5. The participant's pool entry and MLS group state are gone.
+    assert!(
+        participant_app.get_session(session_id).is_none(),
+        "a hard-closed participant session must be removed from the pool"
+    );
+    assert!(
+        participant_app.stored_mls_group_ids().is_empty(),
+        "a hard-closed participant session's MLS group state must be deleted"
+    );
+}
+
 /// Moderator invites two members, member2 goes offline (close), moderator then
 /// invites a third member (advancing the MLS epoch), and member2 rejoins.
 /// Because the epoch has moved on, the initial rejoin is NACKed and member2

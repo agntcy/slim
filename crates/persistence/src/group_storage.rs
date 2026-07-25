@@ -109,6 +109,23 @@ impl SlimGroupStateStorage {
             SlimGroupStateStorage::Sqlite(_) => true,
         }
     }
+
+    /// Delete a group's stored MLS state so it can no longer be loaded. Used
+    /// when a session is permanently closed, so its MLS group is not left behind
+    /// in the store. Deleting an unknown group is a no-op.
+    pub fn delete_group(&self, group_id: &[u8]) -> Result<(), PersistenceError> {
+        match self {
+            SlimGroupStateStorage::InMemory(s) => {
+                s.delete_group(group_id);
+                Ok(())
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            SlimGroupStateStorage::Sqlite(s) => s
+                .inner
+                .delete_group(group_id)
+                .map_err(|e| PersistenceError::Storage(e.to_string())),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
