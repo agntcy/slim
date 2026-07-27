@@ -68,6 +68,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::errors::AuthError;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::jwt::{SignerJwt, StaticTokenProvider, VerifierJwt};
 use crate::shared_secret::SharedSecret;
 use crate::traits::{ExportedIdentity, TokenProvider, Verifier};
@@ -105,16 +106,18 @@ use crate::traits::{ExportedIdentity, TokenProvider, Verifier};
 #[derive(Clone)]
 pub enum AuthProvider {
     /// JWT-based token provider using signing keys
+    #[cfg(not(target_arch = "wasm32"))]
     JwtSigner(SignerJwt),
 
     /// Static token provider that reads tokens from files
+    #[cfg(not(target_arch = "wasm32"))]
     StaticToken(StaticTokenProvider),
 
     /// Shared secret-based token provider
     SharedSecret(SharedSecret),
 
     /// SPIRE-based identity manager providing SPIFFE JWT SVID tokens
-    #[cfg(not(target_family = "windows"))]
+    #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
     Spire(crate::spire::SpireIdentityManager),
 }
 
@@ -158,20 +161,23 @@ pub enum AuthProvider {
 #[allow(clippy::large_enum_variant)]
 pub enum AuthVerifier {
     /// JWT-based token verifier using verification keys
+    #[cfg(not(target_arch = "wasm32"))]
     JwtVerifier(VerifierJwt),
 
     /// Shared secret-based token verifier
     SharedSecret(SharedSecret),
 
     /// SPIRE-based token verifier using SPIRE Workload API bundles
-    #[cfg(not(target_family = "windows"))]
+    #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
     Spire(crate::spire::SpireIdentityManager),
 }
 
 impl std::fmt::Debug for AuthProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::JwtSigner(_) => f.debug_tuple("JwtSigner").field(&"<SignerJwt>").finish(),
+            #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::StaticToken(_) => f
                 .debug_tuple("StaticToken")
                 .field(&"<StaticTokenProvider>")
@@ -179,7 +185,7 @@ impl std::fmt::Debug for AuthProvider {
             AuthProvider::SharedSecret(secret) => {
                 f.debug_tuple("SharedSecret").field(secret).finish()
             }
-            #[cfg(not(target_family = "windows"))]
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(_) => f
                 .debug_tuple("Spire")
                 .field(&"<SpireIdentityManager>")
@@ -191,11 +197,12 @@ impl std::fmt::Debug for AuthProvider {
 impl std::fmt::Debug for AuthVerifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
             AuthVerifier::JwtVerifier(_) => f
                 .debug_tuple("JwtVerifier")
                 .field(&"<VerifierJwt>")
                 .finish(),
-            #[cfg(not(target_family = "windows"))]
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthVerifier::Spire(_) => f
                 .debug_tuple("Spire")
                 .field(&"<SpireIdentityManager>")
@@ -210,50 +217,60 @@ impl std::fmt::Debug for AuthVerifier {
 impl TokenProvider for AuthProvider {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::JwtSigner(signer) => signer.initialize().await,
+            #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::StaticToken(provider) => provider.initialize().await,
             AuthProvider::SharedSecret(secret) => TokenProvider::initialize(secret).await,
-            #[cfg(not(target_family = "windows"))]
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.initialize().await,
         }
     }
 
     fn get_token(&self) -> Result<String, AuthError> {
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::JwtSigner(signer) => signer.get_token(),
+            #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::StaticToken(provider) => provider.get_token(),
             AuthProvider::SharedSecret(secret) => secret.get_token(),
-            #[cfg(not(target_family = "windows"))]
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.get_token(),
         }
     }
 
     fn get_id(&self) -> Result<String, AuthError> {
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::JwtSigner(signer) => signer.get_id(),
+            #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::StaticToken(provider) => provider.get_id(),
             AuthProvider::SharedSecret(secret) => secret.get_id(),
-            #[cfg(not(target_family = "windows"))]
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.get_id(),
         }
     }
 
     fn get_signature_keys(&self) -> Result<(Vec<u8>, Vec<u8>), AuthError> {
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::JwtSigner(signer) => signer.get_signature_keys(),
+            #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::StaticToken(provider) => provider.get_signature_keys(),
             AuthProvider::SharedSecret(secret) => secret.get_signature_keys(),
-            #[cfg(not(target_family = "windows"))]
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.get_signature_keys(),
         }
     }
 
     fn mls_signature_keys_installed(&self) -> bool {
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::JwtSigner(signer) => signer.mls_signature_keys_installed(),
+            #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::StaticToken(provider) => provider.mls_signature_keys_installed(),
             AuthProvider::SharedSecret(secret) => secret.mls_signature_keys_installed(),
-            #[cfg(not(target_family = "windows"))]
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.mls_signature_keys_installed(),
         }
     }
@@ -264,49 +281,46 @@ impl TokenProvider for AuthProvider {
         public_key: Vec<u8>,
     ) -> Result<(), AuthError> {
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::JwtSigner(signer) => {
                 signer.set_signature_keys(private_key, public_key).await
             }
+            #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::StaticToken(_provider) => Err(AuthError::MlsNotSupported),
             AuthProvider::SharedSecret(secret) => {
                 secret.set_signature_keys(private_key, public_key).await
             }
-            #[cfg(not(target_family = "windows"))]
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.set_signature_keys(private_key, public_key).await,
         }
     }
 
     fn export_identity(&self) -> Option<ExportedIdentity> {
-        // Delegate to the inner provider. `SharedSecret` exports its full
-        // identity; `JwtSigner` and `Spire` export just their MLS keypair (the
-        // JWT signing key / SVID credential is re-established from app config or
-        // re-fetched from the agent). `StaticToken` (no MLS keys) falls back to
-        // the `None` default.
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::JwtSigner(signer) => signer.export_identity(),
+            #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::StaticToken(provider) => provider.export_identity(),
             AuthProvider::SharedSecret(secret) => secret.export_identity(),
-            #[cfg(not(target_family = "windows"))]
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.export_identity(),
         }
     }
 
     fn with_restored_identity(self, identity: ExportedIdentity) -> Result<Self, AuthError> {
-        // Restore into the inner provider and re-wrap in the same variant, so an
-        // `AuthProvider`-wrapped provider (e.g. `SharedSecret`) is restored
-        // verbatim. Providers without a persistable identity use the trait
-        // default (unchanged), matching `export_identity` returning `None`.
         Ok(match self {
+            #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::JwtSigner(signer) => {
                 AuthProvider::JwtSigner(signer.with_restored_identity(identity)?)
             }
+            #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::StaticToken(provider) => {
                 AuthProvider::StaticToken(provider.with_restored_identity(identity)?)
             }
             AuthProvider::SharedSecret(secret) => {
                 AuthProvider::SharedSecret(secret.with_restored_identity(identity)?)
             }
-            #[cfg(not(target_family = "windows"))]
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => {
                 AuthProvider::Spire(spire.with_restored_identity(identity)?)
             }
@@ -317,17 +331,19 @@ impl TokenProvider for AuthProvider {
 impl Verifier for AuthVerifier {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
             AuthVerifier::JwtVerifier(signer) => signer.initialize().await,
             AuthVerifier::SharedSecret(secret) => Verifier::initialize(secret).await,
-            #[cfg(not(target_family = "windows"))]
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthVerifier::Spire(spire) => spire.initialize().await,
         }
     }
 
     async fn verify(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError> {
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
             AuthVerifier::JwtVerifier(verifier) => verifier.verify(token).await,
-            #[cfg(not(target_family = "windows"))]
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthVerifier::Spire(spire) => spire.verify(token).await,
             AuthVerifier::SharedSecret(secret) => secret.verify(token).await,
         }
@@ -335,8 +351,9 @@ impl Verifier for AuthVerifier {
 
     fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
             AuthVerifier::JwtVerifier(verifier) => verifier.try_verify(token),
-            #[cfg(not(target_family = "windows"))]
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthVerifier::Spire(spire) => spire.try_verify(token),
             AuthVerifier::SharedSecret(secret) => secret.try_verify(token),
         }
@@ -347,8 +364,9 @@ impl Verifier for AuthVerifier {
         Claims: serde::de::DeserializeOwned + Send,
     {
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
             AuthVerifier::JwtVerifier(verifier) => verifier.get_claims(token).await,
-            #[cfg(not(target_family = "windows"))]
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthVerifier::Spire(spire) => spire.get_claims(token).await,
             AuthVerifier::SharedSecret(secret) => secret.get_claims(token).await,
         }
@@ -359,8 +377,9 @@ impl Verifier for AuthVerifier {
         Claims: serde::de::DeserializeOwned + Send,
     {
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
             AuthVerifier::JwtVerifier(verifier) => verifier.try_get_claims(token),
-            #[cfg(not(target_family = "windows"))]
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthVerifier::Spire(spire) => spire.try_get_claims(token),
             AuthVerifier::SharedSecret(secret) => secret.try_get_claims(token),
         }
@@ -370,76 +389,23 @@ impl Verifier for AuthVerifier {
 /// Convenience constructors and utility methods for [`AuthProvider`]
 impl AuthProvider {
     /// Create a new JWT signer provider
-    ///
-    /// # Arguments
-    /// * `signer` - A configured JWT signer instance
-    ///
-    /// # Examples
-    /// ```rust,ignore
-    /// use slim_auth::auth_provider::AuthProvider;
-    ///
-    /// let signer = /* create JWT signer */;
-    /// let provider = AuthProvider::jwt_signer(signer);
-    /// ```
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn jwt_signer(signer: SignerJwt) -> Self {
         AuthProvider::JwtSigner(signer)
     }
 
     /// Create a new static token provider
-    ///
-    /// # Arguments
-    /// * `provider` - A configured static token provider instance
-    ///
-    /// # Examples
-    /// ```rust,ignore
-    /// use slim_auth::auth_provider::AuthProvider;
-    ///
-    /// let provider = /* create static token provider */;
-    /// let auth_provider = AuthProvider::static_token(provider);
-    /// ```
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn static_token(provider: StaticTokenProvider) -> Self {
         AuthProvider::StaticToken(provider)
     }
 
     /// Create a new shared secret provider
-    ///
-    /// # Arguments
-    /// * `secret` - A configured shared secret instance
-    ///
-    /// # Examples
-    /// ```rust
-    /// use slim_auth::auth_provider::AuthProvider;
-    /// use slim_auth::shared_secret::SharedSecret;
-    ///
-    /// let shared_secret = SharedSecret::generated();
-    /// let secret = SharedSecret::new("service-id", shared_secret);
-    /// let provider = AuthProvider::shared_secret(secret);
-    /// ```
     pub fn shared_secret(secret: SharedSecret) -> Self {
         AuthProvider::SharedSecret(secret)
     }
 
     /// Create a new shared secret provider from ID and secret string
-    ///
-    /// This is a convenience method that creates the underlying `SharedSecret`
-    /// instance automatically.
-    ///
-    /// # Arguments
-    /// * `id` - The service/entity identifier
-    /// * `secret` - The shared secret string
-    ///
-    /// # Examples
-    /// ```rust
-    /// use slim_auth::auth_provider::AuthProvider;
-    /// use slim_auth::traits::TokenProvider;
-    ///
-    /// let provider = AuthProvider::shared_secret_from_str("my-service", "shared-secret-value-0123456789abcdef")?;
-    /// let token = provider.get_token()?;
-    /// // Token format: id:timestamp:nonce:mac (e.g., "my-service_ABC12345:1640995200:NONCEBASE64:MACBASE64")
-    /// let parts: Vec<&str> = token.split(':').collect();
-    /// assert_eq!(parts.len(), 4);
-    /// assert!(parts[0].starts_with("my-service_"));
-    /// ```
     pub fn shared_secret_from_str(
         id: &str,
         secret: &str,
@@ -447,23 +413,8 @@ impl AuthProvider {
         Ok(AuthProvider::SharedSecret(SharedSecret::new(id, secret)?))
     }
 
-    #[cfg(not(target_family = "windows"))]
     /// Create a new SPIRE identity manager provider
-    ///
-    /// # Arguments
-    /// * `spire` - An initialized `SpireIdentityManager` that has had `initialize()` called
-    ///
-    /// # Examples
-    /// ```rust,ignore
-    /// use slim_auth::auth_provider::AuthProvider;
-    /// use slim_auth::spire::SpireIdentityManager;
-    ///
-    /// // let mut spire_mgr = SpireIdentityManager::builder()
-    /// //     .with_target_spiffe_id("spiffe://example.org/my-service")
-    /// //     .build();
-    /// // spire_mgr.initialize().await.unwrap();
-    /// // let provider = AuthProvider::spire(spire_mgr);
-    /// ```
+    #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
     pub fn spire(spire: crate::spire::SpireIdentityManager) -> Self {
         AuthProvider::Spire(spire)
     }
@@ -472,62 +423,17 @@ impl AuthProvider {
 /// Convenience constructors and utility methods for [`AuthVerifier`]
 impl AuthVerifier {
     /// Create a new JWT verifier
-    ///
-    /// # Arguments
-    /// * `verifier` - A configured JWT verifier instance
-    ///
-    /// # Examples
-    /// ```rust,ignore
-    /// use slim_auth::auth_provider::AuthVerifier;
-    ///
-    /// let jwt_verifier = /* create JWT verifier */;
-    /// let verifier = AuthVerifier::jwt_verifier(jwt_verifier);
-    /// ```
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn jwt_verifier(verifier: VerifierJwt) -> Self {
         AuthVerifier::JwtVerifier(verifier)
     }
 
     /// Create a new shared secret verifier
-    ///
-    /// # Arguments
-    /// * `secret` - A configured shared secret instance
-    ///
-    /// # Examples
-    /// ```rust
-    /// use slim_auth::auth_provider::AuthVerifier;
-    /// use slim_auth::shared_secret::SharedSecret;
-    ///
-    /// let secret = SharedSecret::new("service-id", "shared-secret-value-0123456789abcdef")?;
-    /// let verifier = AuthVerifier::shared_secret(secret);
-    /// # Ok::<(), slim_auth::errors::AuthError>(())
-    /// ```
     pub fn shared_secret(secret: SharedSecret) -> Self {
         AuthVerifier::SharedSecret(secret)
     }
 
     /// Create a new shared secret verifier from ID and secret string
-    ///
-    /// This is a convenience method that creates the underlying `SharedSecret`
-    /// instance automatically.
-    ///
-    /// # Arguments
-    /// * `id` - The service/entity identifier
-    /// * `secret` - The shared secret string
-    ///
-    /// # Examples
-    /// ```rust
-    /// use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-    /// use slim_auth::traits::{TokenProvider, Verifier};
-    ///
-    /// let provider = AuthProvider::shared_secret_from_str("my-service", "shared-secret-value-0123456789abcdef")?;
-    /// let verifier = AuthVerifier::shared_secret_from_str("my-service", "shared-secret-value-0123456789abcdef")?;
-    /// let token = provider.get_token()?;
-    ///
-    /// # tokio_test::block_on(async {
-    /// let result = verifier.verify(&token).await;
-    /// assert!(result.is_ok());
-    /// # });
-    /// ```
     pub fn shared_secret_from_str(
         id: &str,
         secret: &str,
@@ -535,23 +441,8 @@ impl AuthVerifier {
         Ok(AuthVerifier::SharedSecret(SharedSecret::new(id, secret)?))
     }
 
-    #[cfg(not(target_family = "windows"))]
     /// Create a new SPIRE verifier from an initialized `SpireIdentityManager`.
-    ///
-    /// # Arguments
-    /// * `spire` - An initialized `SpireIdentityManager` (caller must have called `initialize().await`).
-    ///
-    /// # Examples
-    /// ```rust,ignore
-    /// use slim_auth::auth_provider::AuthVerifier;
-    /// use slim_auth::spire::SpireIdentityManager;
-    ///
-    /// // let mut mgr = SpireIdentityManager::builder()
-    /// //     .with_target_spiffe_id("spiffe://example.org/my-service")
-    /// //     .build();
-    /// // mgr.initialize().await.unwrap();
-    /// // let verifier = AuthVerifier::spire(mgr);
-    /// ```
+    #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
     pub fn spire(spire: crate::spire::SpireIdentityManager) -> Self {
         AuthVerifier::Spire(spire)
     }
@@ -594,7 +485,7 @@ pub enum TokenVerifierType {
     SharedSecret,
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use crate::builder::JwtBuilder;

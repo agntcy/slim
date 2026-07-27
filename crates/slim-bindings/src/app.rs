@@ -33,6 +33,7 @@ use crate::name::Name;
 
 use crate::session::SessionConfig;
 
+use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_datapath::api::ProtoName as SlimName;
 use slim_service::app::App as SlimApp;
 use slim_session::Direction as CoreDirection;
@@ -40,7 +41,7 @@ use slim_session::Direction as CoreDirection;
 use slim_session::SessionConfig as SlimSessionConfig;
 use slim_session::{Notification, SessionError as SlimSessionError};
 
-// Native-only surface: global Service, the auth enums, identity config records,
+// Native-only surface: global Service, identity config records,
 // the runtime-agnostic timer, and the blocking FFI helpers.
 #[cfg(not(feature = "web"))]
 use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
@@ -50,8 +51,6 @@ use crate::{get_global_service, get_runtime};
 // (wasm32) runtime uses `tokio_with_wasm`'s timer instead.
 #[cfg(not(target_arch = "wasm32"))]
 use futures_timer::Delay;
-#[cfg(not(feature = "web"))]
-use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 #[cfg(not(feature = "web"))]
 use slim_service::Service as SlimService;
 #[cfg(not(feature = "web"))]
@@ -112,26 +111,23 @@ pub struct SessionWithCompletion {
 
 /// Adapter that bridges the App API with the language-bindings interface.
 ///
-/// Both native and browser builds wrap the same [`slim_service::app::App`]; the
-/// auth types and lifecycle handle differ per target:
+/// Both native and browser builds wrap the same [`slim_service::app::App`] with
+/// the same `AuthProvider`/`AuthVerifier` type parameters; the only structural
+/// difference is the lifecycle owner:
 ///
-/// - Native uses the enum-based `AuthProvider`/`AuthVerifier` (SharedSecret, JWT,
-///   SPIRE, StaticToken) and keeps the owning [`slim_service::Service`] alive.
-/// - Browser (wasm32) uses `SharedSecret` identity and keeps the WebSocket
-///   [`slim_datapath::message_processing::MessageProcessor`] alive together with
-///   the upstream connection id.
+/// - Native keeps the owning [`slim_service::Service`] alive.
+/// - Browser (wasm32) uses `AuthProvider::SharedSecret` identity and keeps the
+///   WebSocket [`slim_datapath::message_processing::MessageProcessor`] alive
+///   together with the upstream connection id.
 #[derive(uniffi::Object)]
 pub struct App {
-    /// The underlying core SLIM app.
-    #[cfg(not(feature = "web"))]
+    /// The underlying core SLIM app (same type on all targets).
     app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
-    #[cfg(feature = "web")]
-    app: Arc<SlimApp<SharedSecret, SharedSecret>>,
 
     /// Channel receiver for notifications from the app
     notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>>,
 
-    /// Service instance for lifecycle management (Arc to inner SlimService)
+    /// Service instance for lifecycle management (native only).
     #[cfg(not(feature = "web"))]
     service: Arc<SlimService>,
 
@@ -853,8 +849,8 @@ impl App {
             &processor,
             "slim/web",
             &base_name,
-            identity.clone(),
-            identity,
+            AuthProvider::SharedSecret(identity.clone()),
+            AuthVerifier::SharedSecret(identity),
             direction.into(),
             None,
             false,
