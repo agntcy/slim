@@ -16,6 +16,7 @@ session = ["agntcy-slim-session", "agntcy-slim-persistence"]
 
 [dependencies]
 agntcy-slim-auth = { workspace = true }
+agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-persistence = { workspace = true, optional = true }
 agntcy-slim-session = { workspace = true, optional = true }
@@ -27,7 +28,6 @@ tracing = { workspace = true }
 twox-hash = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-agntcy-slim-config = { workspace = true }
 agntcy-slim-controller = { workspace = true }
 agntcy-slim-mls = { workspace = true }
 async-trait = { workspace = true }
@@ -39,6 +39,7 @@ uuid = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 tokio = { package = "tokio_with_wasm", version = "0.9", features = ["sync", "macros", "rt", "time"] }
+uuid = { workspace = true, features = ["v4", "js"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim-testing = { workspace = true }

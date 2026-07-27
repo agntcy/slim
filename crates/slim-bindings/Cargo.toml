@@ -10,11 +10,8 @@ description = "UniFFI bindings and FFI adapter for SLIM data plane - enables lan
 name = "slim_bindings"
 
 [features]
-default = ["native"]
-# Full desktop/mobile bindings, including services, configuration, and SlimRPC.
-native = []
-# Browser-safe UniFFI surface. Mutually exclusive with `native`; do not enable
-# both at once (CI runs native and web clippy as separate `cargo clippy` passes).
+default = []
+# Browser-safe UniFFI surface. When absent the crate builds in native (desktop/mobile) mode.
 web = []
 
 [dependencies]
@@ -57,15 +54,14 @@ agntcy-slim-version = { workspace = true }
 uniffi = { workspace = true, features = ["build"] }
 
 [dev-dependencies]
+cfg-if = { workspace = true }
 clap = { workspace = true }
 test-fork = { workspace = true }
 
 [[example]]
 name = "receiver"
 path = "examples/receiver.rs"
-required-features = ["native"]
 
 [[example]]
 name = "sender"
 path = "examples/sender.rs"
-required-features = ["native"]

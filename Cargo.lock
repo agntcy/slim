@@ -93,6 +93,7 @@ dependencies = [
  "agntcy-slim-signal",
  "agntcy-slim-tracing",
  "agntcy-slim-version",
+ "cfg-if",
  "clap",
  "display-error-chain",
  "futures",

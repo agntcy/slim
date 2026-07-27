@@ -43,9 +43,6 @@
 //! session.Publish(data, payloadType, metadata)
 //! ```
 
-#[cfg(all(feature = "native", feature = "web"))]
-compile_error!("features `native` and `web` are mutually exclusive");
-
 // Single entry point for both native and browser (wasm32) builds. The divergent
 // pieces (Service-backed vs WebSocket-backed bootstrap, blocking vs async-only
 // FFI) are feature-gated inside the module rather than forked into a second file.
@@ -69,7 +66,6 @@ mod name;
 mod persistence;
 #[cfg(not(feature = "web"))]
 mod server_config;
-#[cfg(not(feature = "web"))]
 mod service;
 mod session;
 #[cfg(not(feature = "web"))]
@@ -116,9 +112,10 @@ pub use persistence::PersistenceConfig;
 pub use server_config::{
     KeepaliveServerParameters, ServerConfig, new_insecure_server_config, new_server_config,
 };
+pub use service::Service;
 #[cfg(not(feature = "web"))]
 pub use service::{
-    DataplaneConfig, Service, ServiceConfig, create_service, create_service_with_config,
+    DataplaneConfig, ServiceConfig, create_service, create_service_with_config,
     new_dataplane_config, new_service_configuration,
 };
 pub use session::{MlsSettings, Session, SessionConfig, SessionType};

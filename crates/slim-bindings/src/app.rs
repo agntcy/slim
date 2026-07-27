@@ -56,12 +56,6 @@ use slim_service::Service as SlimService;
 #[cfg(not(feature = "web"))]
 use slim_session::session_controller::SessionController;
 
-// Browser-only surface: shared-secret identity + a WebSocket message processor.
-#[cfg(feature = "web")]
-use slim_auth::shared_secret::SharedSecret;
-#[cfg(feature = "web")]
-use slim_datapath::message_processing::MessageProcessor;
-
 /// Direction enum
 /// Indicates whether the App can send, receive, both, or neither.
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
@@ -130,21 +124,10 @@ pub struct App {
     /// Service instance for lifecycle management (native only).
     #[cfg(not(feature = "web"))]
     service: Arc<SlimService>,
-
-    /// WebSocket message processor kept alive for the browser connection.
-    #[cfg(feature = "web")]
-    processor: MessageProcessor,
-
-    /// Connection id of the upstream browser WebSocket.
-    #[cfg(feature = "web")]
-    remote_connection: u64,
 }
 
 #[cfg(not(feature = "web"))]
 impl App {
-    /// Internal constructor from parts
-    ///
-    /// Used by Service::create_adapter_async to construct a App from its components.
     pub(crate) fn from_parts(
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>>,
@@ -263,6 +246,19 @@ impl App {
         get_global_service()
             .create_app_with_secret_async(name, secret)
             .await
+    }
+}
+
+#[cfg(feature = "web")]
+impl App {
+    pub(crate) fn from_parts(
+        app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
+        notification_rx: Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>>,
+    ) -> Self {
+        Self {
+            app,
+            notification_rx,
+        }
     }
 }
 
@@ -762,157 +758,6 @@ impl App {
         let ret = self.app.delete_session(session)?;
 
         Ok(ret)
-    }
-}
-
-// ============================================================================
-// Browser (wasm32) surface
-//
-// These items are only compiled for the `web` feature. The session/subscribe/
-// route operations are shared with the native build above (they merely delegate
-// to `self.app`); only the WebSocket-specific constructor and lifecycle helpers
-// live here.
-// ============================================================================
-
-#[cfg(feature = "web")]
-#[uniffi::export]
-impl App {
-    /// Connect a browser application to a SLIM WebSocket endpoint.
-    ///
-    /// `endpoint` must use `ws://` or `wss://`. When supplied, `token` is
-    /// appended as the `token` query parameter used by the SLIM WebSocket
-    /// server. Browser bindings currently support shared-secret identity, which
-    /// is portable and backed by WebCrypto-compatible SLIM components.
-    #[uniffi::constructor]
-    pub async fn connect_with_secret(
-        endpoint: String,
-        token: Option<String>,
-        name: Arc<Name>,
-        secret: String,
-        direction: Direction,
-    ) -> Result<Arc<Self>, SlimError> {
-        Self::connect_browser(endpoint, token, name, secret, direction).await
-    }
-
-    /// Connection ID of the upstream browser WebSocket.
-    pub fn remote_connection_id(&self) -> u64 {
-        self.remote_connection
-    }
-
-    /// Route traffic for `name` through the application's upstream WebSocket.
-    pub async fn set_route_via_upstream_async(&self, name: Arc<Name>) -> Result<(), SlimError> {
-        self.set_route_async(name, self.remote_connection).await
-    }
-
-    /// Disconnect the upstream WebSocket.
-    pub fn disconnect(&self) -> Result<(), SlimError> {
-        self.processor
-            .disconnect(self.remote_connection)
-            .map(|_| ())
-            .map_err(|error| SlimError::ServiceError {
-                message: format!("failed to disconnect browser WebSocket: {error}"),
-            })
-    }
-}
-
-#[cfg(feature = "web")]
-impl App {
-    /// Establish the WebSocket connection and bootstrap the core app over it.
-    ///
-    /// This performs the browser-specific wiring: it opens the `wss://`/`ws://`
-    /// data-plane connection, bootstraps the same [`slim_service::app::App`] used
-    /// natively via [`slim_service::app::bootstrap_app_with_direction`], and
-    /// advertises the local name upstream so the server can route to it.
-    async fn connect_browser(
-        endpoint: String,
-        token: Option<String>,
-        name: Arc<Name>,
-        secret: String,
-        direction: Direction,
-    ) -> Result<Arc<Self>, SlimError> {
-        use slim_config::client::ClientConfig;
-        use slim_service::app::bootstrap_app_with_direction;
-
-        validate_websocket_endpoint(&endpoint)?;
-        let endpoint = build_endpoint(&endpoint, token.as_deref());
-        let base_name: SlimName = name.as_ref().into();
-        let identity = SharedSecret::new(&name.to_string(), &secret)?;
-        let processor = MessageProcessor::new();
-        let (_connection_handle, remote_connection) = processor
-            .connect(ClientConfig::with_endpoint(&endpoint), None, None)
-            .await
-            .map_err(|error| SlimError::ServiceError {
-                message: format!("failed to connect browser WebSocket: {error}"),
-            })?;
-
-        let (app, notification_rx) = bootstrap_app_with_direction(
-            &processor,
-            "slim/web",
-            &base_name,
-            AuthProvider::SharedSecret(identity.clone()),
-            AuthVerifier::SharedSecret(identity),
-            direction.into(),
-            None,
-            false,
-        )?;
-
-        let app = Arc::new(app);
-        // Advertise the local name to the upstream server so it can route to us.
-        app.subscribe(app.app_name(), Some(remote_connection))
-            .await?;
-
-        Ok(Arc::new(Self {
-            app,
-            notification_rx: Arc::new(RwLock::new(notification_rx)),
-            processor,
-            remote_connection,
-        }))
-    }
-}
-
-#[cfg(feature = "web")]
-fn build_endpoint(endpoint: &str, token: Option<&str>) -> String {
-    match token {
-        Some(token) if !token.is_empty() => {
-            let separator = if endpoint.contains('?') { '&' } else { '?' };
-            format!("{endpoint}{separator}token={token}")
-        }
-        _ => endpoint.to_string(),
-    }
-}
-
-#[cfg(feature = "web")]
-fn validate_websocket_endpoint(endpoint: &str) -> Result<(), SlimError> {
-    if endpoint.starts_with("ws://") || endpoint.starts_with("wss://") {
-        Ok(())
-    } else {
-        Err(SlimError::InvalidArgument {
-            message: format!("browser endpoint must use ws:// or wss://, got {endpoint:?}"),
-        })
-    }
-}
-
-#[cfg(all(test, feature = "web"))]
-mod web_tests {
-    use super::*;
-
-    #[test]
-    fn appends_auth_token_to_websocket_endpoint() {
-        assert_eq!(
-            build_endpoint("wss://slim.example/ws", Some("jwt")),
-            "wss://slim.example/ws?token=jwt"
-        );
-        assert_eq!(
-            build_endpoint("wss://slim.example/ws?x=1", Some("jwt")),
-            "wss://slim.example/ws?x=1&token=jwt"
-        );
-    }
-
-    #[test]
-    fn validates_browser_websocket_schemes() {
-        assert!(validate_websocket_endpoint("ws://localhost:46357").is_ok());
-        assert!(validate_websocket_endpoint("wss://slim.example").is_ok());
-        assert!(validate_websocket_endpoint("http://slim.example").is_err());
     }
 }
 

@@ -3,27 +3,40 @@
 
 use std::sync::Arc;
 
-use crate::client_config::ClientConfig;
 use crate::errors::SlimError;
-use crate::get_runtime;
-use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
-use crate::server_config::ServerConfig;
-use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-use slim_auth::traits::{TokenProvider, Verifier};
-use slim_config::component::Component;
-use slim_config::component::id::{ID, Kind};
-use slim_config::grpc::client::ClientConfig as CoreClientConfig;
-use slim_config::grpc::server::ServerConfig as CoreServerConfig;
-use slim_controller::config::Config as CoreControllerConfig;
-use slim_datapath::api::ProtoName as SlimName;
-use slim_service::{
-    KIND, Service as SlimService, ServiceConfiguration as SlimServiceConfiguration,
-};
-use tokio::task::JoinHandle;
-
 use crate::name::Name;
+use slim_config::component::id::{ID, Kind};
+use slim_datapath::api::ProtoName as SlimName;
+#[cfg(not(feature = "web"))]
+use slim_service::ServiceConfiguration as SlimServiceConfiguration;
+use slim_service::{KIND, Service as SlimService};
 
-/// DataPlane configuration wrapper for uniffi bindings
+// Native-only imports
+#[cfg(not(feature = "web"))]
+use {
+    crate::client_config::ClientConfig,
+    crate::get_runtime,
+    crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig},
+    crate::server_config::ServerConfig,
+    slim_auth::auth_provider::{AuthProvider, AuthVerifier},
+    slim_auth::traits::{TokenProvider, Verifier},
+    slim_config::component::Component,
+    slim_config::grpc::client::ClientConfig as CoreClientConfig,
+    slim_config::grpc::server::ServerConfig as CoreServerConfig,
+    slim_controller::config::Config as CoreControllerConfig,
+    tokio::task::JoinHandle,
+};
+
+// wasm32 (web feature) imports
+#[cfg(feature = "web")]
+use {
+    slim_auth::auth_provider::{AuthProvider, AuthVerifier},
+    slim_auth::shared_secret::SharedSecret,
+    slim_config::client::ClientConfig as CoreWsClientConfig,
+};
+
+/// DataPlane configuration wrapper for uniffi bindings (native only — wraps gRPC config)
+#[cfg(not(feature = "web"))]
 #[derive(Clone, Default, uniffi::Record)]
 pub struct DataplaneConfig {
     /// DataPlane GRPC server settings
@@ -32,6 +45,7 @@ pub struct DataplaneConfig {
     pub clients: Vec<ClientConfig>,
 }
 
+#[cfg(not(feature = "web"))]
 impl From<DataplaneConfig> for CoreControllerConfig {
     fn from(config: DataplaneConfig) -> Self {
         let mut core_config = CoreControllerConfig::new();
@@ -55,6 +69,7 @@ impl From<DataplaneConfig> for CoreControllerConfig {
     }
 }
 
+#[cfg(not(feature = "web"))]
 impl From<CoreControllerConfig> for DataplaneConfig {
     fn from(config: CoreControllerConfig) -> Self {
         Self {
@@ -64,7 +79,8 @@ impl From<CoreControllerConfig> for DataplaneConfig {
     }
 }
 
-/// Service configuration wrapper for uniffi bindings
+/// Service configuration wrapper for uniffi bindings (native only — includes gRPC dataplane config)
+#[cfg(not(feature = "web"))]
 #[derive(Clone, Default, uniffi::Record)]
 pub struct ServiceConfig {
     /// Optional node ID for the service
@@ -77,6 +93,7 @@ pub struct ServiceConfig {
     pub dataplane: DataplaneConfig,
 }
 
+#[cfg(not(feature = "web"))]
 impl ServiceConfig {
     pub fn new() -> Self {
         Self {
@@ -87,6 +104,7 @@ impl ServiceConfig {
     }
 }
 
+#[cfg(not(feature = "web"))]
 impl From<ServiceConfig> for SlimServiceConfiguration {
     fn from(config: ServiceConfig) -> Self {
         let mut core_config = SlimServiceConfiguration::new();
@@ -99,6 +117,7 @@ impl From<ServiceConfig> for SlimServiceConfiguration {
     }
 }
 
+#[cfg(not(feature = "web"))]
 impl From<SlimServiceConfiguration> for ServiceConfig {
     fn from(config: SlimServiceConfiguration) -> Self {
         Self {
@@ -109,6 +128,7 @@ impl From<SlimServiceConfiguration> for ServiceConfig {
     }
 }
 
+#[cfg(not(feature = "web"))]
 impl From<&SlimServiceConfiguration> for ServiceConfig {
     fn from(config: &SlimServiceConfiguration) -> Self {
         Self {
@@ -132,7 +152,8 @@ impl Service {
     }
 }
 
-/// Conversion traits
+/// Conversion traits (native only)
+#[cfg(not(feature = "web"))]
 impl From<SlimService> for Service {
     fn from(service: SlimService) -> Self {
         Service {
@@ -141,6 +162,8 @@ impl From<SlimService> for Service {
     }
 }
 
+/// Native Service export block — gRPC servers/clients, full identity configs
+#[cfg(not(feature = "web"))]
 #[uniffi::export]
 impl Service {
     /// Create a new Service with the given name
@@ -433,19 +456,8 @@ impl Service {
     }
 }
 
-/// Internal async app creation logic (used by both service and app constructors)
-///
-/// This is the core implementation shared by Service::create_app_async and App::new_async_with_service.
-///
-/// # Arguments
-/// * `base_name` - The base name for the app (without ID)
-/// * `identity_provider_config` - Configuration for proving identity to others
-/// * `identity_verifier_config` - Configuration for verifying identity of others
-/// * `service` - The service instance to use for creating the app
-///
-/// # Returns
-/// * `Ok(App)` - Successfully created app
-/// * `Err(SlimError)` - If app creation fails
+/// Internal async app creation logic — native only (uses IdentityProviderConfig/IdentityVerifierConfig)
+#[cfg(not(feature = "web"))]
 pub(crate) async fn create_app_async_internal(
     base_name: SlimName,
     identity_provider_config: IdentityProviderConfig,
@@ -481,25 +493,125 @@ pub(crate) async fn create_app_async_internal(
     ))
 }
 
-/// Create a new ServiceConfiguration
+/// wasm32 Service export block — WebSocket connect, shared-secret identity
+#[cfg(feature = "web")]
+#[uniffi::export]
+impl Service {
+    /// Create a new Service with the given id
+    #[uniffi::constructor]
+    pub fn new(id: String) -> Self {
+        let kind = Kind::new(KIND).expect("invalid service kind");
+        let sid = ID::new_with_name(kind, &id).expect("invalid service id");
+        let service = SlimService::new(sid);
+        Service {
+            inner: Arc::new(service),
+        }
+    }
+
+    /// Connect to a SLIM node over WebSocket.
+    ///
+    /// `endpoint` must use `ws://` or `wss://`. When supplied, `token` is
+    /// appended as the `token` query parameter. Returns the connection ID to
+    /// pass to `create_app_async` / `app.subscribe_async`.
+    pub async fn connect_async(
+        &self,
+        endpoint: String,
+        token: Option<String>,
+    ) -> Result<u64, SlimError> {
+        validate_websocket_endpoint(&endpoint)?;
+        let endpoint = build_endpoint(&endpoint, token.as_deref());
+        let config = CoreWsClientConfig::with_endpoint(&endpoint);
+        Ok(self.inner.connect(&config).await?)
+    }
+
+    /// Disconnect a WebSocket connection by connection ID.
+    pub fn disconnect(&self, conn_id: u64) -> Result<(), SlimError> {
+        Ok(self.inner.disconnect(conn_id)?)
+    }
+
+    /// Create an App using SharedSecret authentication (async).
+    ///
+    /// After this call, subscribe the app name to the upstream connection so the
+    /// server can route messages to it:
+    /// `app.subscribe_async(name, Some(conn_id)).await`
+    pub async fn create_app_async(
+        &self,
+        name: Arc<Name>,
+        secret: String,
+    ) -> Result<Arc<crate::app::App>, SlimError> {
+        self.create_app_with_direction_async(name, secret, crate::app::Direction::Bidirectional)
+            .await
+    }
+
+    /// Create an App with a specific traffic direction using SharedSecret authentication (async).
+    pub async fn create_app_with_direction_async(
+        &self,
+        name: Arc<Name>,
+        secret: String,
+        direction: crate::app::Direction,
+    ) -> Result<Arc<crate::app::App>, SlimError> {
+        let base_name: SlimName = name.as_ref().into();
+        let identity = SharedSecret::new(&name.to_string(), &secret)?;
+        let (app, rx) = self.inner.create_app_with_direction(
+            &base_name,
+            AuthProvider::SharedSecret(identity.clone()),
+            AuthVerifier::SharedSecret(identity),
+            direction.into(),
+        )?;
+        Ok(Arc::new(crate::app::App::from_parts(
+            Arc::new(app),
+            Arc::new(tokio::sync::RwLock::new(rx)),
+        )))
+    }
+}
+
+/// Validate a WebSocket endpoint (web feature only)
+#[cfg(feature = "web")]
+fn validate_websocket_endpoint(endpoint: &str) -> Result<(), SlimError> {
+    if endpoint.starts_with("ws://") || endpoint.starts_with("wss://") {
+        Ok(())
+    } else {
+        Err(SlimError::InvalidArgument {
+            message: format!("browser endpoint must use ws:// or wss://, got {endpoint:?}"),
+        })
+    }
+}
+
+/// Append a bearer token to a WebSocket URL (web feature only)
+#[cfg(feature = "web")]
+fn build_endpoint(endpoint: &str, token: Option<&str>) -> String {
+    match token {
+        Some(t) if !t.is_empty() => {
+            let sep = if endpoint.contains('?') { '&' } else { '?' };
+            format!("{endpoint}{sep}token={t}")
+        }
+        _ => endpoint.to_string(),
+    }
+}
+
+/// Create a new ServiceConfiguration (native only)
+#[cfg(not(feature = "web"))]
 #[uniffi::export]
 pub fn new_service_configuration() -> ServiceConfig {
     ServiceConfig::new()
 }
 
-/// Create a new DataplaneConfig
+/// Create a new DataplaneConfig (native only)
+#[cfg(not(feature = "web"))]
 #[uniffi::export]
 pub fn new_dataplane_config() -> DataplaneConfig {
     DataplaneConfig::default()
 }
 
-/// Create a new Service with builder pattern
+/// Create a new Service with builder pattern (native only)
+#[cfg(not(feature = "web"))]
 #[uniffi::export]
 pub fn create_service(name: String) -> Result<Arc<Service>, SlimError> {
     Ok(Arc::new(Service::new(name)))
 }
 
-/// Create a new Service with configuration
+/// Create a new Service with configuration (native only)
+#[cfg(not(feature = "web"))]
 #[uniffi::export]
 pub fn create_service_with_config(
     name: String,
@@ -508,7 +620,7 @@ pub fn create_service_with_config(
     Ok(Arc::new(Service::new_with_config(name, config)))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "web")))]
 mod tests {
     use super::*;
     use slim_datapath::api::ProtoName as SlimName;

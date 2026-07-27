@@ -3,36 +3,43 @@
 
 // Standard library imports
 use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::sync::Arc;
 
 // Third-party crates
 use display_error_chain::ErrorChainExt;
-use serde::Deserialize;
-use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use slim_auth::traits::TokenProvider;
 use slim_config::client::ClientConfig;
-use slim_config::component::configuration::Configuration;
-use slim_config::component::id::{ID, Kind};
-use slim_config::component::{Component, ComponentBuilder};
-use slim_config::server::ServerConfig;
-use slim_controller::config::Config as ControllerConfig;
-use slim_controller::config::Config as DataplaneConfig;
-use slim_controller::service::ControlPlane;
+use slim_config::component::id::ID;
 use slim_datapath::message_processing::MessageProcessor;
-#[cfg(feature = "kubernetes")]
-use slim_datapath::peer_discovery::KubernetesPeerDiscovery;
-use slim_datapath::peer_discovery::{PeerConfig, PeerDiscoveryConfig, StaticPeerDiscovery};
-use slim_datapath::sync::{PeerSync, PeerSyncConfig};
-use slim_datapath::tables::ConnType;
 
 // Local crate
 use crate::errors::ServiceError;
 
-/// Strip URL scheme prefix for endpoint comparison.
-// Session feature imports
+// Native-only imports
+#[cfg(all(not(target_arch = "wasm32"), feature = "kubernetes"))]
+use slim_datapath::peer_discovery::KubernetesPeerDiscovery;
+
+#[cfg(not(target_arch = "wasm32"))]
+use {
+    serde::Deserialize,
+    slim_config::component::configuration::Configuration,
+    slim_config::component::id::Kind,
+    slim_config::component::{Component, ComponentBuilder},
+    slim_config::server::ServerConfig,
+    slim_controller::config::Config as ControllerConfig,
+    slim_controller::config::Config as DataplaneConfig,
+    slim_controller::service::ControlPlane,
+    slim_datapath::peer_discovery::{PeerConfig, PeerDiscoveryConfig, StaticPeerDiscovery},
+    slim_datapath::sync::{PeerSync, PeerSyncConfig},
+    slim_datapath::tables::ConnType,
+    std::net::SocketAddr,
+    std::sync::Arc,
+    tokio_util::sync::CancellationToken,
+    tracing::warn,
+};
+
+// Session feature imports (work on both native and wasm32)
 #[cfg(feature = "session")]
 use {
     crate::app::{App, bootstrap_app_with_direction},
@@ -47,6 +54,7 @@ use {
 pub const KIND: &str = "slim";
 
 /// Information about a connection
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone)]
 pub struct ConnectionInfo {
     /// Connection ID
@@ -65,8 +73,11 @@ pub struct ConnectionInfo {
     pub conn_type: ConnType,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+// ── ServiceConfiguration ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+#[cfg_attr(not(target_arch = "wasm32"), derive(Deserialize))]
+#[cfg_attr(not(target_arch = "wasm32"), serde(default, deny_unknown_fields))]
 pub struct ServiceConfiguration {
     /// Unique node ID for the service. Defaults to a random UUID if not set,
     /// ensuring uniqueness across replicas sharing the same configuration.
@@ -76,7 +87,7 @@ pub struct ServiceConfiguration {
     /// Local service identifier (the YAML map key, e.g. "0" from "slim/0").
     /// Used as the service identifier within this process.
     /// Always set: from the config file key when loading YAML, or defaults to `node_id`.
-    #[serde(skip)]
+    #[cfg_attr(not(target_arch = "wasm32"), serde(skip))]
     pub service_id: String,
 
     /// Optional name of the group for the service.
@@ -85,16 +96,20 @@ pub struct ServiceConfiguration {
     /// Optional authentication configuration for control plane registration.
     /// When set, the node will generate and send credentials to prove
     /// group membership during registration.
+    #[cfg(not(target_arch = "wasm32"))]
     pub auth: Option<slim_config::auth::AuthConfig>,
 
     /// DataPlane API configuration
+    #[cfg(not(target_arch = "wasm32"))]
     pub dataplane: DataplaneConfig,
 
     /// Controller API configuration
+    #[cfg(not(target_arch = "wasm32"))]
     pub controller: ControllerConfig,
 
     /// Peer replica configuration for intra-deployment route sync.
     /// When present, enables peer-to-peer subscription synchronization.
+    #[cfg(not(target_arch = "wasm32"))]
     pub peers: Option<PeerConfig>,
 }
 
@@ -105,9 +120,13 @@ impl Default for ServiceConfiguration {
             service_id: node_id.clone(),
             node_id,
             domain_name: None,
+            #[cfg(not(target_arch = "wasm32"))]
             auth: None,
+            #[cfg(not(target_arch = "wasm32"))]
             dataplane: DataplaneConfig::default(),
+            #[cfg(not(target_arch = "wasm32"))]
             controller: ControllerConfig::default(),
+            #[cfg(not(target_arch = "wasm32"))]
             peers: None,
         }
     }
@@ -123,6 +142,14 @@ impl ServiceConfiguration {
         self
     }
 
+    /// Returns the service ID (always set — from config key or defaults to node_id).
+    pub fn service_id(&self) -> &str {
+        &self.service_id
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl ServiceConfiguration {
     pub fn with_dataplane_server(mut self, server: Vec<ServerConfig>) -> Self {
         self.dataplane.servers = server;
         self
@@ -176,11 +203,6 @@ impl ServiceConfiguration {
         self
     }
 
-    /// Returns the service ID (always set — from config key or defaults to node_id).
-    pub fn service_id(&self) -> &str {
-        &self.service_id
-    }
-
     pub fn build_server(&self, id: ID) -> Result<Service, ServiceError> {
         let mut config = self.clone();
         config.prepare()?;
@@ -189,6 +211,7 @@ impl ServiceConfiguration {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Configuration for ServiceConfiguration {
     type Error = ServiceError;
 
@@ -208,298 +231,199 @@ impl Configuration for ServiceConfiguration {
     }
 }
 
+// ── Service ───────────────────────────────────────────────────────────────────
+
 pub struct Service {
-    /// id of the service
     id: ID,
 
     /// underlying message processor
     message_processor: MessageProcessor,
 
-    /// controller service
+    /// controller service (native only)
+    #[cfg(not(target_arch = "wasm32"))]
     controller: tokio::sync::RwLock<Option<ControlPlane>>,
 
     /// the configuration of the service
     config: ServiceConfiguration,
 
-    /// cancellation tokens to stop the servers main loop
+    /// cancellation tokens to stop the servers main loop (native only — no servers on wasm32)
+    #[cfg(not(target_arch = "wasm32"))]
     cancellation_tokens: parking_lot::RwLock<HashMap<String, CancellationToken>>,
 
     /// clients created by the service
+    #[cfg(not(target_arch = "wasm32"))]
     clients: parking_lot::RwLock<HashMap<String, u64>>,
+    // parking_lot is unavailable on wasm32; std::sync::RwLock is safe because
+    // wasm32 is single-threaded and will never have concurrent lock attempts.
+    #[cfg(target_arch = "wasm32")]
+    #[allow(clippy::disallowed_types)]
+    clients: std::sync::RwLock<HashMap<String, u64>>,
 
-    /// Cancellation token for the peer sync manager task.
+    /// Cancellation token for the peer sync manager task (native only).
+    #[cfg(not(target_arch = "wasm32"))]
     peer_sync_cancel: parking_lot::Mutex<Option<CancellationToken>>,
 }
 
 impl std::fmt::Debug for Service {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Service")
-            .field("id", &self.id)
-            .field("dataplane_servers", &self.config.dataplane_servers())
-            .field("dataplane_clients", &self.config.dataplane_clients())
-            .field("domain_name", &self.config.domain_name)
-            .field("controller", &self.config.controller)
-            .finish()
+        let mut dbg = f.debug_struct("Service");
+        dbg.field("id", &self.id);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            dbg.field("dataplane_servers", &self.config.dataplane_servers());
+            dbg.field("dataplane_clients", &self.config.dataplane_clients());
+            dbg.field("controller", &self.config.controller);
+        }
+        dbg.field("domain_name", &self.config.domain_name);
+        dbg.finish()
     }
 }
 
 impl Drop for Service {
     fn drop(&mut self) {
-        // Cancel peer sync manager
-        if let Some(token) = self.peer_sync_cancel.lock().take() {
-            token.cancel();
-        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Cancel peer sync manager
+            if let Some(token) = self.peer_sync_cancel.lock().take() {
+                token.cancel();
+            }
 
-        // Trigger all cancellation tokens to stop servers
-        for (endpoint, token) in self.cancellation_tokens.write().drain() {
-            debug!(%endpoint, "cancelling server on drop");
-            token.cancel();
-        }
-
-        // Disconnect all clients registered via Service::connect
-        for (endpoint, conn_id) in self.clients.write().drain() {
-            debug!(%endpoint, conn_id = %conn_id, "disconnecting client on drop");
-            if let Err(e) = self.message_processor.disconnect(conn_id) {
-                tracing::error!(%endpoint, error = %e.chain(), "disconnect error");
+            // Trigger all cancellation tokens to stop servers
+            for (endpoint, token) in self.cancellation_tokens.write().drain() {
+                debug!(%endpoint, "cancelling server on drop");
+                token.cancel();
             }
         }
 
-        // Signal all remaining spawned tasks (including connections created by
-        // the controller via ConfigCommand) to shut down.
+        for (endpoint, conn_id) in self.clients_drain() {
+            debug!("disconnecting client on drop: {endpoint} (conn_id={conn_id})");
+            if let Err(e) = self.message_processor.disconnect(conn_id) {
+                tracing::error!("disconnect error for {endpoint}: {}", e.chain());
+            }
+        }
+
         self.message_processor.signal_drain();
     }
 }
 
+// ── Private helpers (abstract over parking_lot vs std::sync) ─────────────────
+
+#[allow(clippy::disallowed_types)]
 impl Service {
-    /// Create a new Service
-    pub fn new(id: ID) -> Self {
-        Service::new_with_config(id, ServiceConfiguration::new())
-    }
-
-    /// Create a new Service with configuration
-    pub fn new_with_config(id: ID, config: ServiceConfiguration) -> Self {
-        let deployment_name = config
-            .peers
-            .as_ref()
-            .map(|p| p.deployment_name.clone())
-            .unwrap_or_default();
-        let service_id = config.node_id.clone();
-        let enforce_pqc = config.enforce_pqc().is_enforced();
-
-        // In full-mesh topology, peers deliver directly (1-hop) so no relay needed.
-        // Without peer config (standalone), relay is enabled.
-        let relay_peer_publishes = config.peers.is_none();
-
-        let message_processor = if let Some(server) = config.dataplane_servers().first() {
-            MessageProcessor::new_with_server_config(
-                service_id,
-                deployment_name,
-                server,
-                enforce_pqc,
-                relay_peer_publishes,
-            )
-        } else {
-            MessageProcessor::new_with_service_id(service_id, enforce_pqc)
-        };
-
-        Service {
-            id,
-            message_processor,
-            controller: tokio::sync::RwLock::new(None),
-            config,
-            cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
-            clients: parking_lot::RwLock::new(HashMap::new()),
-            peer_sync_cancel: parking_lot::Mutex::new(None),
+    fn clients_contains_key(&self, key: &str) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.clients.read().contains_key(key)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.clients
+                .read()
+                .expect("clients lock poisoned")
+                .contains_key(key)
         }
     }
 
+    fn clients_get(&self, key: &str) -> Option<u64> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.clients.read().get(key).cloned()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.clients
+                .read()
+                .expect("clients lock poisoned")
+                .get(key)
+                .cloned()
+        }
+    }
+
+    fn clients_insert(&self, key: String, value: u64) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.clients.write().insert(key, value);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.clients
+                .write()
+                .expect("clients lock poisoned")
+                .insert(key, value);
+        }
+    }
+
+    fn clients_remove(&self, key: &str) -> Option<u64> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.clients.write().remove(key)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.clients
+                .write()
+                .expect("clients lock poisoned")
+                .remove(key)
+        }
+    }
+
+    fn clients_drain(&self) -> Vec<(String, u64)> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.clients.write().drain().collect()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.clients
+                .write()
+                .expect("clients lock poisoned")
+                .drain()
+                .collect()
+        }
+    }
+
+    #[cfg(feature = "session")]
+    fn enforce_pqc(&self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.config.enforce_pqc().is_enforced()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            false
+        }
+    }
+}
+
+// ── Cross-platform Service methods ────────────────────────────────────────────
+
+impl Service {
     /// get the service configuration
     pub fn config(&self) -> &ServiceConfiguration {
         &self.config
     }
 
-    /// Create a new ServiceBuilder
-    pub fn builder() -> ServiceBuilder {
-        ServiceBuilder::new()
-    }
-
-    /// Run the service
-    #[tracing::instrument(skip_all, fields(service_id = %self.id))]
-    pub async fn run(&self) -> Result<(), ServiceError> {
-        // Check that at least one client or server is configured
-
-        if self.config.dataplane_servers().is_empty() && self.config.dataplane_clients().is_empty()
-        {
-            return Err(ServiceError::NoServerOrClientConfigured);
-        }
-
-        // Run servers
-        for server in self.config.dataplane_servers().iter() {
-            self.run_server(server).await?;
-        }
-
-        // Run clients
-        for client in self.config.dataplane_clients() {
-            _ = self.connect(client).await?;
-        }
-
-        // Peer sync manager
-        if let Some(ref peer_config) = self.config.peers.clone() {
-            self.start_peer_sync(peer_config);
-        }
-
-        // Controller service
-        if self.config.controller.is_default() {
-            info!("no controller configuration provided, skipping controller startup");
-            return Ok(());
-        }
-
-        // run the controller
-        debug!("starting controller service");
-
-        // Build auth provider if configured
-        let auth_provider = if let Some(auth_config) = &self.config.auth {
-            // Both domain_name and node_id are required when auth is configured —
-            // the CP verifier expects the token subject to be "{group}/{node_id}".
-            let group = self.config.domain_name.as_ref().ok_or_else(|| {
-                ServiceError::InvalidConfig(
-                    "domain_name must be set when auth is configured".to_string(),
-                )
-            })?;
-            if self.config.node_id.is_empty() {
-                return Err(ServiceError::InvalidConfig(
-                    "node_id must be set when auth is configured".to_string(),
-                ));
-            }
-            let identity_name = format!("{}/{}", group, self.config.node_id);
-            let registration_auth = auth_config.clone().with_identity_id(identity_name.clone());
-            let (provider_config, _) = registration_auth.to_identity_configs(&identity_name);
-            let mut provider = provider_config.build_auth_provider().map_err(|e| {
-                ServiceError::InvalidConfig(format!("failed to build auth provider: {e}"))
-            })?;
-            provider.initialize().await.map_err(|e| {
-                ServiceError::InvalidConfig(format!("failed to initialize auth provider: {e}"))
-            })?;
-            Some(provider)
-        } else {
-            None
-        };
-
-        let mut controller = self.config.controller.into_service(
-            self.config.node_id.clone(),
-            self.config.domain_name.clone(),
-            self.message_processor.clone(),
-            self.config.dataplane_servers(),
-            auth_provider,
-        );
-
-        // run controller service
-        controller.run().await?;
-
-        // save controller service
-        *self.controller.write().await = Some(controller);
-
-        Ok(())
-    }
-
-    /// Start the peer sync manager in a background task.
-    fn start_peer_sync(&self, peer_config: &PeerConfig) {
-        let self_id = self.config.node_id.clone();
-
-        info!(
-            %self_id,
-            topology = ?peer_config.topology,
-            deployment_name = %peer_config.deployment_name,
-            "starting peer sync"
-        );
-
-        let cancel = CancellationToken::new();
-        *self.peer_sync_cancel.lock() = Some(cancel.clone());
-
-        let sync_config = PeerSyncConfig {
-            self_id: self_id.clone(),
-            deployment_name: peer_config.deployment_name.clone(),
-            topology: peer_config.topology.clone(),
-        };
-
-        let mp = self.message_processor.clone();
-        let peer_sync = PeerSync::with_peer_state(
-            &peer_config.topology,
-            Arc::new(parking_lot::RwLock::new(
-                slim_datapath::sync::PeerState::new(),
-            )),
-        );
-        self.message_processor.set_peer_sync(peer_sync.clone());
-
-        match &peer_config.discovery {
-            PeerDiscoveryConfig::Static { peers } => {
-                let discovery = StaticPeerDiscovery::from_static_peers(peers, &self_id);
-                tokio::spawn(async move {
-                    peer_sync
-                        .run_discovery(&mp, sync_config, discovery, cancel)
-                        .await;
-                });
-            }
-            #[cfg(feature = "kubernetes")]
-            PeerDiscoveryConfig::Kubernetes {
-                namespace,
-                service_name,
-                port,
-            } => {
-                info!(
-                    %namespace,
-                    %service_name,
-                    %port,
-                    "starting peer sync (kubernetes EndpointSlice discovery)"
-                );
-                let discovery = KubernetesPeerDiscovery::new(
-                    namespace.clone(),
-                    service_name.clone(),
-                    *port,
-                    self_id,
-                );
-                tokio::spawn(async move {
-                    peer_sync
-                        .run_discovery(&mp, sync_config, discovery, cancel)
-                        .await;
-                });
-            }
-            #[cfg(not(feature = "kubernetes"))]
-            PeerDiscoveryConfig::Kubernetes { .. } => {
-                warn!(
-                    "kubernetes peer discovery configured but the 'kubernetes' feature is not enabled"
-                );
-            }
-        }
-    }
-
-    #[tracing::instrument(skip_all, fields(service_id = %self.id))]
-    pub async fn deregister(&self) -> Result<(), ServiceError> {
-        if let Some(ref controller) = *self.controller.read().await {
-            controller.deregister().await?;
-        }
-        Ok(())
-    }
-
     pub async fn shutdown(&self) -> Result<(), ServiceError> {
         debug!("shutting down service");
 
-        // Cancel peer sync manager
-        if let Some(token) = self.peer_sync_cancel.lock().take() {
-            token.cancel();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Cancel peer sync manager
+            if let Some(token) = self.peer_sync_cancel.lock().take() {
+                token.cancel();
+            }
+
+            // Cancel and drain all server cancellation tokens
+            for (endpoint, token) in self.cancellation_tokens.write().drain() {
+                info!(%endpoint, "stopping server");
+                token.cancel();
+            }
         }
 
-        // Cancel and drain all server cancellation tokens
-        for (endpoint, token) in self.cancellation_tokens.write().drain() {
-            info!(%endpoint, "stopping server");
-            token.cancel();
-        }
-
-        // Disconnect all clients (ignore individual disconnect errors, just log)
-        for (endpoint, conn_id) in self.clients.write().drain() {
-            info!(%endpoint, conn_id = %conn_id, "disconnecting client");
+        for (endpoint, conn_id) in self.clients_drain() {
+            info!("disconnecting client: {endpoint} (conn_id={conn_id})");
             if let Err(e) = self.message_processor.disconnect(conn_id) {
-                tracing::error!(%endpoint, error = %e.chain(), "disconnect error");
+                tracing::error!("disconnect error for {endpoint}: {}", e.chain());
             }
         }
 
@@ -507,12 +431,61 @@ impl Service {
         // tasks ended gracefully
         self.message_processor.shutdown().await?;
 
-        // Shutdown controller if present
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(ref controller) = *self.controller.read().await {
             controller.shutdown().await?;
         }
 
         Ok(())
+    }
+
+    #[tracing::instrument(skip_all, fields(service_id = %self.id))]
+    pub async fn connect(&self, config: &ClientConfig) -> Result<u64, ServiceError> {
+        if self.clients_contains_key(&config.endpoint) {
+            return Err(ServiceError::ClientAlreadyConnected(
+                config.endpoint.clone(),
+            ));
+        }
+
+        let (_handle, conn_id) = self
+            .message_processor
+            .connect(config.clone(), None, None)
+            .await?;
+
+        self.clients_insert(config.endpoint.clone(), conn_id);
+
+        tracing::info!(endpoint = %config.endpoint, conn_id = %conn_id, "client connected");
+
+        Ok(conn_id)
+    }
+
+    #[tracing::instrument(skip_all, fields(service_id = %self.id))]
+    pub fn disconnect(&self, conn: u64) -> Result<(), ServiceError> {
+        let client_config = self.message_processor.disconnect(conn)?;
+        let endpoint = client_config.endpoint.clone();
+
+        let stored_conn =
+            self.clients_get(&endpoint)
+                .ok_or(ServiceError::ConnectionNotFoundForEndpoint(
+                    endpoint.clone(),
+                ))?;
+
+        if stored_conn == conn {
+            self.clients_remove(&endpoint);
+            debug!(%endpoint, "removed client mapping");
+        } else {
+            return Err(ServiceError::DifferentIdForConnection {
+                endpoint: endpoint.clone(),
+                expected: stored_conn,
+                found: conn,
+            });
+        }
+
+        Ok(())
+    }
+
+    pub fn get_connection_id(&self, endpoint: &str) -> Option<u64> {
+        self.clients_get(endpoint)
     }
 
     // APP APIs
@@ -606,8 +579,206 @@ impl Service {
             identity_verifier,
             direction,
             persistence,
-            self.config.enforce_pqc().is_enforced(),
+            self.enforce_pqc(),
         )
+    }
+
+    /// Get a reference to the underlying message processor.
+    pub fn message_processor(&self) -> &MessageProcessor {
+        &self.message_processor
+    }
+}
+
+// ── Native-only Service constructors and methods ──────────────────────────────
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Service {
+    pub fn new(id: ID) -> Self {
+        Service::new_with_config(id, ServiceConfiguration::new())
+    }
+
+    pub fn new_with_config(id: ID, config: ServiceConfiguration) -> Self {
+        let deployment_name = config
+            .peers
+            .as_ref()
+            .map(|p| p.deployment_name.clone())
+            .unwrap_or_default();
+        let service_id = config.node_id.clone();
+        let enforce_pqc = config.enforce_pqc().is_enforced();
+
+        // In full-mesh topology, peers deliver directly (1-hop) so no relay needed.
+        // Without peer config (standalone), relay is enabled.
+        let relay_peer_publishes = config.peers.is_none();
+
+        let message_processor = if let Some(server) = config.dataplane_servers().first() {
+            MessageProcessor::new_with_server_config(
+                service_id,
+                deployment_name,
+                server,
+                enforce_pqc,
+                relay_peer_publishes,
+            )
+        } else {
+            MessageProcessor::new_with_service_id(service_id, enforce_pqc)
+        };
+
+        Service {
+            id,
+            message_processor,
+            controller: tokio::sync::RwLock::new(None),
+            config,
+            cancellation_tokens: parking_lot::RwLock::new(HashMap::new()),
+            clients: parking_lot::RwLock::new(HashMap::new()),
+            peer_sync_cancel: parking_lot::Mutex::new(None),
+        }
+    }
+
+    pub fn builder() -> ServiceBuilder {
+        ServiceBuilder::new()
+    }
+
+    #[tracing::instrument(skip_all, fields(service_id = %self.id))]
+    pub async fn run(&self) -> Result<(), ServiceError> {
+        if self.config.dataplane_servers().is_empty() && self.config.dataplane_clients().is_empty()
+        {
+            return Err(ServiceError::NoServerOrClientConfigured);
+        }
+
+        for server in self.config.dataplane_servers().iter() {
+            self.run_server(server).await?;
+        }
+
+        for client in self.config.dataplane_clients() {
+            _ = self.connect(client).await?;
+        }
+
+        if let Some(ref peer_config) = self.config.peers.clone() {
+            self.start_peer_sync(peer_config);
+        }
+
+        if self.config.controller.is_default() {
+            info!("no controller configuration provided, skipping controller startup");
+            return Ok(());
+        }
+
+        debug!("starting controller service");
+
+        let auth_provider = if let Some(auth_config) = &self.config.auth {
+            let group = self.config.domain_name.as_ref().ok_or_else(|| {
+                ServiceError::InvalidConfig(
+                    "domain_name must be set when auth is configured".to_string(),
+                )
+            })?;
+            if self.config.node_id.is_empty() {
+                return Err(ServiceError::InvalidConfig(
+                    "node_id must be set when auth is configured".to_string(),
+                ));
+            }
+            let identity_name = format!("{}/{}", group, self.config.node_id);
+            let registration_auth = auth_config.clone().with_identity_id(identity_name.clone());
+            let (provider_config, _) = registration_auth.to_identity_configs(&identity_name);
+            let mut provider = provider_config.build_auth_provider().map_err(|e| {
+                ServiceError::InvalidConfig(format!("failed to build auth provider: {e}"))
+            })?;
+            provider.initialize().await.map_err(|e| {
+                ServiceError::InvalidConfig(format!("failed to initialize auth provider: {e}"))
+            })?;
+            Some(provider)
+        } else {
+            None
+        };
+
+        let mut controller = self.config.controller.into_service(
+            self.config.node_id.clone(),
+            self.config.domain_name.clone(),
+            self.message_processor.clone(),
+            self.config.dataplane_servers(),
+            auth_provider,
+        );
+
+        controller.run().await?;
+
+        *self.controller.write().await = Some(controller);
+
+        Ok(())
+    }
+
+    fn start_peer_sync(&self, peer_config: &PeerConfig) {
+        let self_id = self.config.node_id.clone();
+
+        info!(
+            %self_id,
+            topology = ?peer_config.topology,
+            deployment_name = %peer_config.deployment_name,
+            "starting peer sync"
+        );
+
+        let cancel = CancellationToken::new();
+        *self.peer_sync_cancel.lock() = Some(cancel.clone());
+
+        let sync_config = PeerSyncConfig {
+            self_id: self_id.clone(),
+            deployment_name: peer_config.deployment_name.clone(),
+            topology: peer_config.topology.clone(),
+        };
+
+        let mp = self.message_processor.clone();
+        let peer_sync = PeerSync::with_peer_state(
+            &peer_config.topology,
+            Arc::new(parking_lot::RwLock::new(
+                slim_datapath::sync::PeerState::new(),
+            )),
+        );
+        self.message_processor.set_peer_sync(peer_sync.clone());
+
+        match &peer_config.discovery {
+            PeerDiscoveryConfig::Static { peers } => {
+                let discovery = StaticPeerDiscovery::from_static_peers(peers, &self_id);
+                tokio::spawn(async move {
+                    peer_sync
+                        .run_discovery(&mp, sync_config, discovery, cancel)
+                        .await;
+                });
+            }
+            #[cfg(feature = "kubernetes")]
+            PeerDiscoveryConfig::Kubernetes {
+                namespace,
+                service_name,
+                port,
+            } => {
+                info!(
+                    %namespace,
+                    %service_name,
+                    %port,
+                    "starting peer sync (kubernetes EndpointSlice discovery)"
+                );
+                let discovery = KubernetesPeerDiscovery::new(
+                    namespace.clone(),
+                    service_name.clone(),
+                    *port,
+                    self_id,
+                );
+                tokio::spawn(async move {
+                    peer_sync
+                        .run_discovery(&mp, sync_config, discovery, cancel)
+                        .await;
+                });
+            }
+            #[cfg(not(feature = "kubernetes"))]
+            PeerDiscoveryConfig::Kubernetes { .. } => {
+                warn!(
+                    "kubernetes peer discovery configured but the 'kubernetes' feature is not enabled"
+                );
+            }
+        }
+    }
+
+    #[tracing::instrument(skip_all, fields(service_id = %self.id))]
+    pub async fn deregister(&self) -> Result<(), ServiceError> {
+        if let Some(ref controller) = *self.controller.read().await {
+            controller.deregister().await?;
+        }
+        Ok(())
     }
 
     #[tracing::instrument(skip_all, fields(service_id = %self.id))]
@@ -623,7 +794,6 @@ impl Service {
     }
 
     pub fn stop_server(&self, endpoint: &str) -> Result<(), ServiceError> {
-        // stop the server
         if let Some(token) = self.cancellation_tokens.write().remove(endpoint) {
             token.cancel();
             Ok(())
@@ -632,75 +802,12 @@ impl Service {
         }
     }
 
-    #[tracing::instrument(skip_all, fields(service_id = %self.id))]
-    pub async fn connect(&self, config: &ClientConfig) -> Result<u64, ServiceError> {
-        // ensure there is no other client connected to the same endpoint
-        if self.clients.read().contains_key(&config.endpoint) {
-            return Err(ServiceError::ClientAlreadyConnected(
-                config.endpoint.clone(),
-            ));
-        }
-
-        let (_handle, conn_id) = self
-            .message_processor
-            .connect(config.clone(), None, None)
-            .await?;
-
-        // register the client
-        self.clients
-            .write()
-            .insert(config.endpoint.clone(), conn_id);
-
-        tracing::info!(endpoint = %config.endpoint, conn_id = %conn_id, "client connected");
-
-        // return the connection id
-        Ok(conn_id)
-    }
-
-    #[tracing::instrument(skip_all, fields(service_id = %self.id))]
-    pub fn disconnect(&self, conn: u64) -> Result<(), ServiceError> {
-        let client_config = self.message_processor.disconnect(conn)?;
-        let endpoint = client_config.endpoint.clone();
-        let mut clients = self.clients.write();
-
-        let stored_conn =
-            clients
-                .get(&endpoint)
-                .ok_or(ServiceError::ConnectionNotFoundForEndpoint(
-                    endpoint.clone(),
-                ))?;
-
-        if *stored_conn == conn {
-            clients.remove(&endpoint);
-            debug!(%endpoint, "removed client mapping");
-        } else {
-            return Err(ServiceError::DifferentIdForConnection {
-                endpoint: endpoint.clone(),
-                expected: *stored_conn,
-                found: conn,
-            });
-        }
-
-        Ok(())
-    }
-
-    pub fn get_connection_id(&self, endpoint: &str) -> Option<u64> {
-        self.clients.read().get(endpoint).cloned()
-    }
-
     /// Get a list of all connections ordered by connection ID
-    ///
-    /// This method iterates through the client connections tracked by the service
-    /// and returns information about all active connections, sorted by their connection ID.
-    ///
-    /// # Returns
-    /// A vector of `ConnectionInfo` structs, ordered by connection ID (ascending)
     pub fn get_all_connections(&self) -> Vec<ConnectionInfo> {
         let clients = self.clients.read();
         let mut connections: Vec<ConnectionInfo> = clients
             .iter()
             .filter_map(|(endpoint, &conn_id)| {
-                // Get connection details from the connection table
                 self.message_processor
                     .connection_table()
                     .get(conn_id)
@@ -714,18 +821,35 @@ impl Service {
             })
             .collect();
 
-        // Sort by connection ID
         connections.sort_by_key(|c| c.id);
-
         connections
-    }
-
-    /// Get a reference to the underlying message processor.
-    pub fn message_processor(&self) -> &MessageProcessor {
-        &self.message_processor
     }
 }
 
+// ── wasm32-only Service constructors ─────────────────────────────────────────
+
+#[cfg(target_arch = "wasm32")]
+#[allow(clippy::disallowed_types)]
+impl Service {
+    pub fn new(id: ID) -> Self {
+        Service::new_with_config(id, ServiceConfiguration::new())
+    }
+
+    pub fn new_with_config(id: ID, config: ServiceConfiguration) -> Self {
+        let service_id = config.node_id.clone();
+        let message_processor = MessageProcessor::new_with_service_id(service_id, false);
+        Service {
+            id,
+            message_processor,
+            config,
+            clients: std::sync::RwLock::new(HashMap::new()),
+        }
+    }
+}
+
+// ── Component / ServiceBuilder (native only) ──────────────────────────────────
+
+#[cfg(not(target_arch = "wasm32"))]
 #[async_trait::async_trait]
 impl Component for Service {
     type Error = ServiceError;
@@ -742,11 +866,12 @@ impl Component for Service {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(PartialEq, Eq, Hash, Default)]
 pub struct ServiceBuilder;
 
+#[cfg(not(target_arch = "wasm32"))]
 impl ServiceBuilder {
-    // Create a new ServiceBuilder
     pub fn new() -> Self {
         ServiceBuilder {}
     }
@@ -756,23 +881,21 @@ impl ServiceBuilder {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl ComponentBuilder for ServiceBuilder {
     type Config = ServiceConfiguration;
     type Component = Service;
 
-    // Kind of the component
     fn kind(&self) -> Kind {
         ServiceBuilder::kind()
     }
 
-    // Build the component
     fn build(&self, name: String) -> Result<Self::Component, ServiceError> {
         let id = ID::new_with_name(ServiceBuilder::kind(), name.as_ref())?;
 
         Ok(Service::new(id))
     }
 
-    // Build the component
     fn build_with_config(
         &self,
         name: &str,
@@ -783,8 +906,9 @@ impl ComponentBuilder for ServiceBuilder {
     }
 }
 
-// tests
-#[cfg(test)]
+// ── Tests (native only) ───────────────────────────────────────────────────────
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
 
     use super::*;

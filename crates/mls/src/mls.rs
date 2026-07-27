@@ -106,18 +106,14 @@ fn ciphersuite_for(enforce_pqc: bool) -> Result<CipherSuite, MlsError> {
             "enforce_pqc MLS is not supported on wasm32".into(),
         ));
     }
-    Ok(if enforce_pqc {
-        CipherSuite::ML_KEM_768_X25519
-    } else {
-        #[cfg(all(not(target_arch = "wasm32"), feature = "curve25519"))]
-        {
-            CipherSuite::CURVE25519_AES128
-        }
-        #[cfg(not(all(not(target_arch = "wasm32"), feature = "curve25519")))]
-        {
-            CipherSuite::P256_AES128
-        }
-    })
+    #[cfg(not(target_arch = "wasm32"))]
+    if enforce_pqc {
+        return Ok(CipherSuite::ML_KEM_768_X25519);
+    }
+    #[cfg(all(not(target_arch = "wasm32"), feature = "curve25519"))]
+    return Ok(CipherSuite::CURVE25519_AES128);
+    #[cfg(not(all(not(target_arch = "wasm32"), feature = "curve25519")))]
+    return Ok(CipherSuite::P256_AES128);
 }
 
 impl<P, V> Mls<P, V>

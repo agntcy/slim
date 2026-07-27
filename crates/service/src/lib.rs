@@ -34,8 +34,6 @@
 //! ```
 
 pub mod errors;
-
-#[cfg(not(target_arch = "wasm32"))]
 pub mod service;
 
 #[cfg(feature = "session")]
@@ -49,4 +47,5 @@ pub use errors::ServiceError;
 #[cfg(feature = "session")]
 pub use errors::SubscriptionAckError;
 #[cfg(not(target_arch = "wasm32"))]
-pub use service::{KIND, Service, ServiceBuilder, ServiceConfiguration};
+pub use service::ServiceBuilder;
+pub use service::{KIND, Service, ServiceConfiguration};

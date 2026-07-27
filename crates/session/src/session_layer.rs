@@ -580,6 +580,8 @@ where
                 .with_enforce_pqc(self.enforce_pqc);
 
             // Share the persistence handles so the session can save its state.
+            // Persistence is native-only; SlimKvStore is uninhabited on wasm32.
+            #[cfg(not(target_arch = "wasm32"))]
             if let Some(store) = &self.kv_store {
                 builder = builder.with_kv_store(store.clone());
             }
@@ -691,6 +693,7 @@ where
             .with_direction(direction)
             .with_subscription_manager(self.subscription_manager.clone())
             .with_service_id(self.service_id.clone());
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(store) = &self.kv_store {
             builder = builder.with_kv_store(store.clone());
         }

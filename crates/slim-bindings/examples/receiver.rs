@@ -16,140 +16,147 @@
 //!   --shared-secret a-very-long-shared-secret-abcdef1234567890
 //! ```
 
-use std::sync::Arc;
-use std::time::Duration;
+#[cfg(feature = "web")]
+fn main() {}
 
-use clap::Parser;
-use slim_bindings::{
-    Name, get_global_service, initialize_with_defaults, new_insecure_client_config, shutdown,
-};
-use tokio::signal;
+cfg_if::cfg_if! {
+    if #[cfg(not(feature = "web"))] {
+        use std::sync::Arc;
+        use std::time::Duration;
 
-/// Command-line arguments for the receiver application
-#[derive(Parser, Debug)]
-struct Args {
-    /// Local identity in format: organization/namespace/application
-    #[arg(long)]
-    local: String,
+        use clap::Parser;
+        use slim_bindings::{
+            Name, get_global_service, initialize_with_defaults, new_insecure_client_config, shutdown,
+        };
+        use tokio::signal;
 
-    /// Shared secret for authentication
-    #[arg(long)]
-    shared_secret: String,
+        /// Command-line arguments for the receiver application
+        #[derive(Parser, Debug)]
+        struct Args {
+            /// Local identity in format: organization/namespace/application
+            #[arg(long)]
+            local: String,
 
-    /// SLIM control plane endpoint
-    #[arg(long, default_value = "http://localhost:46357")]
-    slim: String,
-}
+            /// Shared secret for authentication
+            #[arg(long)]
+            shared_secret: String,
 
-/// Parse a name string in format "org/namespace/app" into a Name object
-fn parse_name(id: &str) -> Result<Name, Box<dyn std::error::Error>> {
-    let parts: Vec<&str> = id.split('/').collect();
-    if parts.len() != 3 {
-        return Err(format!(
-            "Invalid name format '{id}'. Expected format: organization/namespace/application"
-        )
-        .into());
-    }
+            /// SLIM control plane endpoint
+            #[arg(long, default_value = "http://localhost:46357")]
+            slim: String,
+        }
 
-    Ok(Name::new(
-        parts[0].to_string(),
-        parts[1].to_string(),
-        parts[2].to_string(),
-    ))
-}
+        /// Parse a name string in format "org/namespace/app" into a Name object
+        fn parse_name(id: &str) -> Result<Name, Box<dyn std::error::Error>> {
+            let parts: Vec<&str> = id.split('/').collect();
+            if parts.len() != 3 {
+                return Err(format!(
+                    "Invalid name format '{id}'. Expected format: organization/namespace/application"
+                )
+                .into());
+            }
 
-/// Main receiver loop
-async fn run_receiver(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    // Parse the local identity
-    let local_name = parse_name(&args.local)?;
-    let local_name_arc = Arc::new(local_name);
+            Ok(Name::new(
+                parts[0].to_string(),
+                parts[1].to_string(),
+                parts[2].to_string(),
+            ))
+        }
 
-    // Initialize SLIM with default configuration
-    initialize_with_defaults();
+        /// Main receiver loop
+        async fn run_receiver(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+            // Parse the local identity
+            let local_name = parse_name(&args.local)?;
+            let local_name_arc = Arc::new(local_name);
 
-    // Get the global service and connect to the control plane
-    let service = get_global_service();
-    let client_config = new_insecure_client_config(args.slim);
-    let conn_id = service.connect_async(client_config).await?;
+            // Initialize SLIM with default configuration
+            initialize_with_defaults();
 
-    println!("Connected to control plane with connection ID: {conn_id}");
+            // Get the global service and connect to the control plane
+            let service = get_global_service();
+            let client_config = new_insecure_client_config(args.slim);
+            let conn_id = service.connect_async(client_config).await?;
 
-    // Create the slim application using global service with shared secret
-    let app = service
-        .create_app_with_secret_async(local_name_arc.clone(), args.shared_secret)
-        .await?;
+            println!("Connected to control plane with connection ID: {conn_id}");
 
-    let full_name = app.name();
+            // Create the slim application using global service with shared secret
+            let app = service
+                .create_app_with_secret_async(local_name_arc.clone(), args.shared_secret)
+                .await?;
 
-    // Subscribe to local name
-    app.subscribe_async(local_name_arc, Some(conn_id)).await?;
+            let full_name = app.name();
 
-    println!("[{full_name}] Waiting for incoming session...");
+            // Subscribe to local name
+            app.subscribe_async(local_name_arc, Some(conn_id)).await?;
 
-    // Wait for one incoming session (no timeout)
-    let session = app.listen_for_session_async(None).await?;
+            println!("[{full_name}] Waiting for incoming session...");
 
-    let session_id = session.session_id()?;
-    let destination = session.destination()?;
-    println!("[{full_name}] New session {session_id} established from {destination}");
+            // Wait for one incoming session (no timeout)
+            let session = app.listen_for_session_async(None).await?;
 
-    // Loop to receive messages and reply
-    loop {
-        tokio::select! {
-            result = session.get_message_async(Some(Duration::from_secs(5))) => {
-                match result {
-                    Ok(received_msg) => {
-                        let payload = String::from_utf8_lossy(&received_msg.payload);
-                        let source = &received_msg.context.source_name;
+            let session_id = session.session_id()?;
+            let destination = session.destination()?;
+            println!("[{full_name}] New session {session_id} established from {destination}");
 
-                        println!(
-                            "[{full_name}] Received from {source}: {payload}"
-                        );
+            // Loop to receive messages and reply
+            loop {
+                tokio::select! {
+                    result = session.get_message_async(Some(Duration::from_secs(5))) => {
+                        match result {
+                            Ok(received_msg) => {
+                                let payload = String::from_utf8_lossy(&received_msg.payload);
+                                let source = &received_msg.context.source_name;
 
-                        // Reply to the sender using publish_to
-                        let reply = format!("{payload} from {full_name}");
-                        session
-                            .publish_to_and_wait_async(
-                                received_msg.context,
-                                reply.as_bytes().to_vec(),
-                                None,
-                                None,
-                            )
-                            .await?;
+                                println!(
+                                    "[{full_name}] Received from {source}: {payload}"
+                                );
 
-                        println!("[{full_name}] Sent reply: {reply}");
-                    }
-                    Err(e) => {
-                        let error_msg = e.to_string().to_lowercase();
-                        if error_msg.contains("timeout") {
-                            // Timeout is expected, just continue waiting
-                            continue;
-                        } else {
-                            println!("[{full_name}] Error receiving message: {e}");
-                            break;
+                                // Reply to the sender using publish_to
+                                let reply = format!("{payload} from {full_name}");
+                                session
+                                    .publish_to_and_wait_async(
+                                        received_msg.context,
+                                        reply.as_bytes().to_vec(),
+                                        None,
+                                        None,
+                                    )
+                                    .await?;
+
+                                println!("[{full_name}] Sent reply: {reply}");
+                            }
+                            Err(e) => {
+                                let error_msg = e.to_string().to_lowercase();
+                                if error_msg.contains("timeout") {
+                                    // Timeout is expected, just continue waiting
+                                    continue;
+                                } else {
+                                    println!("[{full_name}] Error receiving message: {e}");
+                                    break;
+                                }
+                            }
                         }
+                    },
+                    _ = signal::ctrl_c() => {
+                        println!("\n[{full_name}] Received Ctrl+C, shutting down gracefully...");
+                        break;
                     }
                 }
-            },
-            _ = signal::ctrl_c() => {
-                println!("\n[{full_name}] Received Ctrl+C, shutting down gracefully...");
-                break;
             }
+
+            // Cleanup
+            shutdown().await?;
+            println!("[{full_name}] Receiver stopped");
+
+            Ok(())
+        }
+
+        #[tokio::main]
+        async fn main() -> Result<(), Box<dyn std::error::Error>> {
+            // Parse command-line arguments
+            let args = Args::parse();
+
+            // Run the receiver
+            run_receiver(args).await
         }
     }
-
-    // Cleanup
-    shutdown().await?;
-    println!("[{full_name}] Receiver stopped");
-
-    Ok(())
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Parse command-line arguments
-    let args = Args::parse();
-
-    // Run the receiver
-    run_receiver(args).await
 }

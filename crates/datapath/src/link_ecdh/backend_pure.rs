@@ -23,6 +23,10 @@ use crate::{
     link_ecdh::HkdfInfo,
 };
 
+/// Opaque ML-KEM-768 decapsulation key, held between keygen and decapsulation.
+#[cfg_attr(all(test, not(target_arch = "wasm32")), allow(dead_code))]
+pub type MlKem768SecretKey = DecapsulationKey;
+
 /// Seeds ML-KEM via the workspace `getrandom` (0.3, `wasm_js` on wasm32).
 ///
 /// The ml_kem API requires `TryCryptoRng<Error = Infallible>` (via the `CryptoRng`
