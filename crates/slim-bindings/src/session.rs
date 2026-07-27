@@ -756,7 +756,14 @@ impl Session {
     /// Hard-close the session (blocking version): terminate it permanently.
     /// For a soft, restorable close use [`Self::close_with_mode`].
     pub fn close(&self) -> Result<Arc<CompletionHandle>, SlimError> {
-        crate::config::get_runtime().block_on(async { self.close_async().await })
+        #[cfg(not(feature = "web"))]
+        {
+            crate::config::get_runtime().block_on(async { self.close_async().await })
+        }
+        #[cfg(feature = "web")]
+        {
+            Err(web_async_required("close_async"))
+        }
     }
 
     /// Hard-close the session (async version). See [`Self::close`].
@@ -774,7 +781,14 @@ impl Session {
 
     /// Hard-close the session and wait for completion (blocking version). See [`Self::close`].
     pub fn close_and_wait(&self) -> Result<(), SlimError> {
-        crate::config::get_runtime().block_on(async { self.close_and_wait_async().await })
+        #[cfg(not(feature = "web"))]
+        {
+            crate::config::get_runtime().block_on(async { self.close_and_wait_async().await })
+        }
+        #[cfg(feature = "web")]
+        {
+            Err(web_async_required("close_and_wait_async"))
+        }
     }
 
     /// Hard-close the session and wait for completion (async version). See [`Self::close`].
@@ -792,7 +806,15 @@ impl Session {
     /// the session permanently. Returns a completion handle that resolves when
     /// ACKs are collected or on timeout.
     pub fn close_with_mode(&self, mode: CloseMode) -> Result<Arc<CompletionHandle>, SlimError> {
-        crate::config::get_runtime().block_on(async { self.close_with_mode_async(mode).await })
+        #[cfg(not(feature = "web"))]
+        {
+            crate::config::get_runtime().block_on(async { self.close_with_mode_async(mode).await })
+        }
+        #[cfg(feature = "web")]
+        {
+            let _ = mode;
+            Err(web_async_required("close_with_mode_async"))
+        }
     }
 
     /// Close the session with an explicit [`CloseMode`] (async version). See [`Self::close_with_mode`].
@@ -813,8 +835,16 @@ impl Session {
 
     /// Close the session with an explicit [`CloseMode`] and wait for completion (blocking version).
     pub fn close_with_mode_and_wait(&self, mode: CloseMode) -> Result<(), SlimError> {
-        crate::config::get_runtime()
-            .block_on(async { self.close_with_mode_and_wait_async(mode).await })
+        #[cfg(not(feature = "web"))]
+        {
+            crate::config::get_runtime()
+                .block_on(async { self.close_with_mode_and_wait_async(mode).await })
+        }
+        #[cfg(feature = "web")]
+        {
+            let _ = mode;
+            Err(web_async_required("close_with_mode_and_wait_async"))
+        }
     }
 
     /// Close the session with an explicit [`CloseMode`] and wait for completion (async version).
@@ -829,7 +859,14 @@ impl Session {
     /// Returns a completion handle that resolves when ACKs/NACKs are collected.
     /// If any participant NACKs due to an MLS epoch mismatch, the rejoin fails.
     pub fn rejoin(&self) -> Result<Arc<CompletionHandle>, SlimError> {
-        crate::config::get_runtime().block_on(async { self.rejoin_async().await })
+        #[cfg(not(feature = "web"))]
+        {
+            crate::config::get_runtime().block_on(async { self.rejoin_async().await })
+        }
+        #[cfg(feature = "web")]
+        {
+            Err(web_async_required("rejoin_async"))
+        }
     }
 
     /// Notify the group that this participant is back online (async version).
@@ -847,7 +884,14 @@ impl Session {
 
     /// Notify the group that this participant is back online and wait for completion (blocking version).
     pub fn rejoin_and_wait(&self) -> Result<(), SlimError> {
-        crate::config::get_runtime().block_on(async { self.rejoin_and_wait_async().await })
+        #[cfg(not(feature = "web"))]
+        {
+            crate::config::get_runtime().block_on(async { self.rejoin_and_wait_async().await })
+        }
+        #[cfg(feature = "web")]
+        {
+            Err(web_async_required("rejoin_and_wait_async"))
+        }
     }
 
     /// Notify the group that this participant is back online and wait for completion (async version).
