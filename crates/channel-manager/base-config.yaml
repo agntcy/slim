@@ -16,6 +16,33 @@ channel-manager:
 
   auth:
     type: shared_secret
-    secret: "a-very-long-shared-secret-abcdef1234567890"
+    # In production inject the secret at runtime, e.g.:
+    #   secret: ${env:CM_AUTH_SECRET}
+    #   secret: ${file:/run/secrets/cm-auth-secret}
+    secret: "1234567890-1234567890-1234567890-123456"
 
+  # Channel definition controls the operating mode:
+  #
+  # Config mode (channels non-empty): the config file is the source of truth.
+  #   Channels and participants are reconciled against the DB on startup.
+  #   gRPC write APIs (create/delete channel, add/remove participant) are
+  #   disabled — modify this file and restart to change the topology.
+  #
+  # API mode (channels empty): the DB is the source of truth.
+  #   All sessions restored from the DB are used as-is and the full gRPC
+  #   API is available for dynamic channel management.
   channels: []
+    
+  persistence:
+    # Both path and passphrase support ${ENV_VAR} substitution and can be
+    # injected at runtime via a secrets manager (Kubernetes Secret, Vault,
+    # External Secrets Operator, etc.), for example:
+    #   path: ${env:CM_PERSISTENCE_PATH}
+    #   encryption-passphrase: ${env:CM_PASSPHRASE}
+    # A file-based secret is also supported:
+    #   encryption-passphrase: ${file:/run/secrets/cm-passphrase}
+    # In production use a private directory with restrictive permissions
+    # and never store the passphrase in the config file directly.
+    path: /tmp/slim/channel-manager
+    insecure: true
+    delete-sessions-on-shutdown: false

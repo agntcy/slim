@@ -3,7 +3,38 @@
 
 //! Configuration module for the Channel Manager.
 //!
-//! Supports loading configuration from a YAML file with the following structure:
+//! ## Operating modes
+//!
+//! The `channels:` list selects the operating mode:
+//!
+//! - **Config mode** (`channels` non-empty): the config file is the source of
+//!   truth. On startup, each channel is reconciled against the persistence store:
+//!   if already restored, missing participants are invited; otherwise a fresh
+//!   session is created. gRPC write APIs (create/delete channel,
+//!   add/remove participant) return `FAILED_PRECONDITION` — modify the config
+//!   file and restart to change the topology.
+//!
+//! - **API mode** (`channels` empty): the persistence store is the source of
+//!   truth. All sessions restored from the store are used as-is and the full
+//!   gRPC API is available for dynamic channel management.
+//!
+//! ## Secret injection
+//!
+//! String values support provider references using the `${provider:ref}` syntax,
+//! resolved after YAML parsing (comments are never affected):
+//!
+//! - `${env:VAR_NAME}` — read from an environment variable
+//! - `${file:/path/to/secret}` — read from a file on disk
+//!
+//! Example using environment variables:
+//!
+//! ```yaml
+//! persistence:
+//!   path: ${env:CM_PERSISTENCE_PATH}
+//!   encryption-passphrase: ${env:CM_PASSPHRASE}
+//! ```
+//!
+//! ## Example configuration
 //!
 //! ```yaml
 //! channel-manager:
@@ -20,20 +51,33 @@
 //!     type: shared_secret
 //!     # id: "custom/identity/id"  # optional, defaults to local-name
 //!     secret: "a-very-long-shared-secret"
+//!   # Config mode: declare channels here. Leave empty for API mode.
 //!   channels:
 //!     - name: "agntcy/otel/channel"
 //!       participants:
 //!         - "agntcy/otel/exporter"
 //!         - "agntcy/otel/receiver"
 //!       mls-enabled: true
+//!   # Optional: persist sessions so they survive a restart.
+//!   # Omit this section entirely to keep everything in memory (default).
+//!   persistence:
+//!     path: ${env:CM_PERSISTENCE_PATH}
+//!     encryption-passphrase: ${env:CM_PASSPHRASE}
+//!     # Set insecure: true instead of encryption-passphrase to allow
+//!     # unencrypted storage. Not recommended for production.
+//!     # insecure: true
+//!     # Set to false to keep sessions in the store on clean shutdown so they
+//!     # are restored on next startup. Default is true (sessions are deleted).
+//!     delete-sessions-on-shutdown: false
 //! ```
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use serde::Deserialize;
 use slim_config::auth::AuthConfig;
 use slim_config::client::ClientConfig;
+use slim_config::provider::ConfigResolver;
 use slim_config::server::ServerConfig;
 
 /// Top-level configuration
@@ -42,6 +86,39 @@ pub struct Config {
     /// Channel manager settings
     #[serde(rename = "channel-manager")]
     pub manager: ManagerConfig,
+}
+
+/// Persistence configuration for the channel manager.
+///
+/// When present, session state survives restarts: the session layer stores MLS
+/// group state and session records in an encrypted SQLite database, and the
+/// channel manager restores all previously-known sessions on startup.
+#[derive(Clone, Debug, Deserialize)]
+pub struct PersistenceConfig {
+    /// Directory where the SQLite database will be written.
+    pub path: PathBuf,
+
+    /// Passphrase used to derive the AES-256 encryption key for the store.
+    /// Required unless `insecure: true` is set explicitly.
+    #[serde(default, rename = "encryption-passphrase")]
+    pub encryption_passphrase: Option<String>,
+
+    /// Allow persistence without an encryption passphrase.
+    /// The fallback key is derived from the public app name and provides no
+    /// confidentiality. Do not use in production.
+    #[serde(default)]
+    pub insecure: bool,
+
+    /// Controls what happens to sessions when the channel manager shuts down.
+    ///
+    /// - `true` (default): sessions are fully deleted from SLIM on shutdown.
+    /// - `false`: sessions are closed (participants notified offline) but kept
+    ///   in the persistence store, so they are restored on the next startup.
+    #[serde(
+        default = "default_delete_sessions_on_shutdown",
+        rename = "delete-sessions-on-shutdown"
+    )]
+    pub delete_sessions_on_shutdown: bool,
 }
 
 /// Channel manager service configuration
@@ -68,6 +145,11 @@ pub struct ManagerConfig {
     /// Channels to create on startup
     #[serde(default)]
     pub channels: Vec<ChannelConfig>,
+
+    /// Optional persistence configuration.  When set, sessions survive a
+    /// channel-manager restart and are automatically restored on startup.
+    #[serde(default)]
+    pub persistence: Option<PersistenceConfig>,
 }
 
 /// Configuration for a single channel
@@ -88,12 +170,29 @@ fn default_mls_enabled() -> bool {
     true
 }
 
+fn default_delete_sessions_on_shutdown() -> bool {
+    true
+}
+
 impl Config {
-    /// Load configuration from a YAML file
+    /// Load configuration from a YAML file.
+    ///
+    /// String values of the form `${env:VAR_NAME}` are resolved from the process
+    /// environment, and `${file:/path/to/file}` values are read from disk.
+    /// Resolution happens on the parsed YAML value tree so comments are never
+    /// affected. Use this to inject secrets (e.g.
+    /// `encryption-passphrase: ${env:CM_PASSPHRASE}`) without storing them in
+    /// the config file itself.
     pub fn load(path: &Path) -> anyhow::Result<Self> {
         let data = std::fs::read_to_string(path)
             .with_context(|| format!("reading config file {:?}", path))?;
-        let cfg: Config = serde_yaml::from_str(&data).with_context(|| "parsing config YAML")?;
+        let mut value: serde_yaml::Value =
+            serde_yaml::from_str(&data).with_context(|| "parsing config YAML")?;
+        ConfigResolver::new()
+            .resolve(&mut value)
+            .with_context(|| format!("resolving config values in {:?}", path))?;
+        let cfg: Config =
+            serde_yaml::from_value(value).with_context(|| "deserializing config YAML")?;
         cfg.validate()?;
         Ok(cfg)
     }
@@ -121,6 +220,23 @@ impl Config {
 
         // Validate auth configuration
         self.manager.auth.validate()?;
+
+        if let Some(p) = &self.manager.persistence {
+            if p.path.as_os_str().is_empty() {
+                bail!("persistence.path cannot be empty");
+            }
+            if p.encryption_passphrase.is_some() && p.insecure {
+                bail!(
+                    "persistence.insecure and persistence.encryption-passphrase are mutually exclusive"
+                );
+            }
+            if p.encryption_passphrase.is_none() && !p.insecure {
+                bail!(
+                    "persistence requires encryption-passphrase; \
+                     set insecure: true to allow unencrypted storage (not recommended for production)"
+                );
+            }
+        }
 
         for (i, channel) in self.manager.channels.iter().enumerate() {
             if channel.name.is_empty() {
@@ -598,6 +714,109 @@ channel-manager:
             }
             _ => panic!("expected SharedSecret"),
         }
+    }
+
+    // ── ConfigResolver ───────────────────────────────────────────────────
+
+    fn resolve_yaml(yaml: &str) -> serde_yaml::Value {
+        let mut value: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        ConfigResolver::new().resolve(&mut value).unwrap();
+        value
+    }
+
+    #[test]
+    fn test_resolver_no_placeholders() {
+        let v = resolve_yaml("key: plain");
+        assert_eq!(v["key"].as_str(), Some("plain"));
+    }
+
+    #[test]
+    fn test_resolver_unknown_provider_errors() {
+        let mut value: serde_yaml::Value = serde_yaml::from_str("key: \"${unknown:VAR}\"").unwrap();
+        assert!(ConfigResolver::new().resolve(&mut value).is_err());
+    }
+
+    #[test]
+    fn test_resolver_missing_env_var_errors() {
+        let mut value: serde_yaml::Value =
+            serde_yaml::from_str("key: \"${env:_TEST_CM_DEFINITELY_NOT_SET_XYZ}\"").unwrap();
+        assert!(ConfigResolver::new().resolve(&mut value).is_err());
+    }
+
+    // ── Persistence config ───────────────────────────────────────────────
+
+    #[test]
+    fn test_persistence_config_parsed() {
+        let yaml = base_yaml(
+            r#"  persistence:
+    path: /var/lib/slim/channel-manager
+    encryption-passphrase: "secret""#,
+        );
+        let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert!(cfg.validate().is_ok());
+        let p = cfg.manager.persistence.unwrap();
+        assert_eq!(
+            p.path,
+            std::path::PathBuf::from("/var/lib/slim/channel-manager")
+        );
+        assert_eq!(p.encryption_passphrase.as_deref(), Some("secret"));
+    }
+
+    #[test]
+    fn test_persistence_without_passphrase_or_insecure_fails() {
+        let yaml = base_yaml(
+            r#"  persistence:
+    path: /var/lib/slim/channel-manager"#,
+        );
+        let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
+        let err = cfg.validate().unwrap_err().to_string();
+        assert!(err.contains("encryption-passphrase"), "got: {err}");
+    }
+
+    #[test]
+    fn test_persistence_insecure_and_passphrase_together_fails() {
+        let yaml = base_yaml(
+            r#"  persistence:
+    path: /var/lib/slim/channel-manager
+    encryption-passphrase: "secret"
+    insecure: true"#,
+        );
+        let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
+        let err = cfg.validate().unwrap_err().to_string();
+        assert!(err.contains("mutually exclusive"), "got: {err}");
+    }
+
+    #[test]
+    fn test_persistence_insecure_without_passphrase_passes() {
+        let yaml = base_yaml(
+            r#"  persistence:
+    path: /var/lib/slim/channel-manager
+    insecure: true"#,
+        );
+        let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert!(cfg.validate().is_ok());
+        let p = cfg.manager.persistence.unwrap();
+        assert!(p.encryption_passphrase.is_none());
+        assert!(p.insecure);
+    }
+
+    #[test]
+    fn test_persistence_absent_by_default() {
+        let yaml = base_yaml("");
+        let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert!(cfg.validate().is_ok());
+        assert!(cfg.manager.persistence.is_none());
+    }
+
+    #[test]
+    fn test_persistence_empty_path_fails() {
+        let yaml = base_yaml(
+            r#"  persistence:
+    path: """#,
+        );
+        let cfg: Config = serde_yaml::from_str(&yaml).unwrap();
+        let err = cfg.validate().unwrap_err().to_string();
+        assert!(err.contains("persistence.path"), "got: {err}");
     }
 
     // ── Config::load from file ───────────────────────────────────────────
