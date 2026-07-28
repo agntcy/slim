@@ -20,7 +20,7 @@ Within each domain, one node is selected at random as the **gateway** — the no
 
 ## Links
 
-A **link** is a directed gRPC connection between two nodes in different domains. The source node initiates the connection to the destination node's `external_endpoint`. Links are created and managed entirely by the Controller — application code and data plane nodes do not create links directly.
+A **link** is a bidirectional gRPC connection between two nodes in different domains. The source node initiates the connection to the destination node's `external_endpoint`, but once established traffic flows in both directions. Links are created and managed entirely by the Controller — application code and data plane nodes do not create links directly.
 
 ```mermaid
 graph LR
@@ -30,7 +30,7 @@ graph LR
     subgraph "Domain B"
         gw-b["Node B\n(gateway)"]
     end
-    gw-a -- "link (gRPC)" --> gw-b
+    gw-a <-- "link (gRPC)" --> gw-b
 ```
 
 ### Link Lifecycle
@@ -69,12 +69,23 @@ The **topology** configuration in the Controller defines which domains are allow
 
 The wildcard `"*"` matches all registered domains and is resolved at runtime when new nodes register.
 
-### Full Mesh (Default)
+### API-Managed (No Topology)
 
-If no topology is configured, the Controller defaults to full mesh: every domain is linked to every other domain.
+If the topology field is omitted or empty, the Controller creates no links automatically. Use this when domains are added or removed dynamically and you do not want to restart the Controller each time — links are managed exclusively through the API instead:
 
 ```yaml
 topology: {}
+```
+
+### Full Mesh
+
+To connect every domain to every other domain, use the wildcard shorthand:
+
+```yaml
+topology:
+  links:
+    - domain: "*"
+      neighbors: ["*"]
 ```
 
 Use full mesh when all deployments need to communicate with each other and there is no need to restrict routing.
@@ -86,7 +97,7 @@ A hub domain connects to all others; spoke domains can only reach each other by 
 ```yaml
 topology:
   links:
-    - name: cloud
+    - domain: cloud
       neighbors: ["*"]
 ```
 
@@ -94,17 +105,13 @@ Use a star topology when you have a central service (e.g. a cloud-hosted coordin
 
 ### Explicit Pairs
 
-Only specific domain pairs are allowed to form links:
+Only specific domain pairs are allowed to form links. Since links are bidirectional, only one direction needs to be declared:
 
 ```yaml
 topology:
   links:
-    - name: cloud
+    - domain: cloud
       neighbors: [customer-a, customer-b]
-    - name: customer-a
-      neighbors: [cloud]
-    - name: customer-b
-      neighbors: [cloud]
 ```
 
 ### Chain Topology
@@ -114,14 +121,12 @@ Domains form a linear chain; multi-hop routing via the Shortest Path Tree algori
 ```yaml
 topology:
   links:
-    - name: domain-a
+    - domain: domain-a
       neighbors: [domain-b]
-    - name: domain-b
-      neighbors: [domain-a, domain-c]
-    - name: domain-c
-      neighbors: [domain-b, domain-d]
-    - name: domain-d
+    - domain: domain-b
       neighbors: [domain-c]
+    - domain: domain-c
+      neighbors: [domain-d]
 ```
 
 ## Segments
@@ -141,11 +146,11 @@ topology:
   segments:
     - name: customer-1
       links:
-        - name: cloud
+        - domain: cloud
           neighbors: [cluster-a]
     - name: customer-2
       links:
-        - name: cloud
+        - domain: cloud
           neighbors: [cluster-b, cluster-c]
 ```
 
@@ -160,7 +165,7 @@ topology:
   segments:
     - name: segment-$domain
       links:
-        - name: cloud
+        - domain: cloud
           neighbors: [$domain]
 ```
 
@@ -188,7 +193,8 @@ This ensures that multi-hop routing (e.g. spoke-a → hub → spoke-b in a star 
 
 | Topology | When to use |
 |----------|-------------|
-| Full mesh | All domains communicate freely; simple deployments |
+| API-managed (`topology: {}`) | Domains added/removed dynamically without Controller restarts; links managed via API |
+| Full mesh (`domain: "*"`) | All domains communicate freely; simple deployments |
 | Star (hub + `"*"`) | Hub-and-spoke; edge deployments connect via a central service |
 | Explicit pairs | Controlled access; specific domains should reach specific others |
 | Chain | Linear pipelines; multi-hop routing handled automatically |
