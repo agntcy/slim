@@ -33,9 +33,15 @@ The SLIM configuration file consists of three main sections:
     ```yaml
     services:
       slim/0:
+        domain_name: "cluster-a"
+        auth: {...}
         dataplane:
           servers: [...]
           clients: [...]
+        controller:
+          servers: [...]
+          clients: [...]
+        peers: {...}
     ```
 
 ## Top-Level Configuration Sections
@@ -132,20 +138,120 @@ The `services` section defines SLIM service instances and their network configur
 services:
   # Service identifier - format: slim/<instance_number>
   slim/0:
-    # Optional node ID override
-    # If not specified, uses the service identifier
+    # Optional node ID override. Defaults to a random UUID if not set.
+    # This is the global identity used for peer sync and controller communication.
     node_id: "my-node-01"
+
+    # Domain this node belongs to (used for Controller-based inter-domain routing).
+    domain_name: "cluster-a.example"
+
+    # Authentication presented to the Controller on registration (optional).
+    # Must match the topology.registration_auth configured in the Controller.
+    auth:
+      type: shared_secret
+      secret: "secret-for-cluster-a-abcdefghi-1234567890"
 
     # Data plane API configuration
     dataplane:
       servers: [...] # Server endpoints this instance will listen on
       clients: [...] # Client connections this instance will make
 
-    # Control plane API configuration (optional)
+    # Controller connectivity configuration (optional)
     controller:
-      servers: [...] # Control plane server endpoints
-      clients: [...] # Control plane client connections
+      # gRPC server this node exposes for the Controller to push route updates
+      servers: [...]
+      # Connection(s) to the SLIM Controller's southbound gRPC API
+      clients: [...]
+      # Outbound connections the Controller creates on behalf of this node
+      # (links to other data-plane nodes in remote domains)
+      outbound_clients: [...]
+
+    # Peer replica sync configuration (optional — for multi-replica deployments)
+    peers:
+      deployment_name: "cluster-a"
+      discovery:
+        type: static
+        peers: [...]
 ```
+
+### Domain and Controller Registration
+
+The `domain_name` field assigns this node to a routing domain. Nodes in the same domain form a peer group and are managed together by the SLIM Controller. When a node registers with the Controller, it presents the credentials in `auth` to prove domain membership:
+
+```yaml
+services:
+  slim/0:
+    domain_name: "cluster-a.example"
+    auth:
+      # Shared secret — must match topology.registration_auth.secrets in the Controller config
+      type: shared_secret
+      secret: "secret-for-cluster-a-abcdefghi-1234567890"
+      # SPIRE (production)
+      # type: spire
+      # socket_path: "/run/spire/agent-sockets/api.sock"
+```
+
+### Controller Connectivity
+
+The `controller` section controls how the data-plane node communicates with the SLIM Controller:
+
+```yaml
+services:
+  slim/0:
+    controller:
+      # gRPC server for inbound Controller connections (route/link updates pushed by Controller)
+      servers:
+        - endpoint: "0.0.0.0:47101"
+          tls:
+            insecure: true
+          # Optional metadata — external_endpoint tells the Controller the address
+          # other nodes should use to reach this node's controller port
+          metadata:
+            external_endpoint: "10.0.1.5:47101"
+
+      # Client connection(s) to the Controller's southbound registration API
+      clients:
+        - endpoint: "http://slim-controller:50052"
+          tls:
+            insecure: true
+```
+
+### Peer Replica Sync
+
+The `peers` section enables subscription synchronisation between multiple replicas of the same SLIM node (e.g. a Kubernetes Deployment). All replicas in the same deployment must share the same `deployment_name` to authenticate each other.
+
+=== "Static peers"
+    ```yaml
+    services:
+      slim/0:
+        peers:
+          deployment_name: "cluster-a"
+          topology: full_mesh  # default — the only supported topology
+          discovery:
+            type: static
+            peers:
+              - node_id: "node-1"
+                endpoint: "http://127.0.0.1:46101"
+                tls:
+                  insecure: true
+              - node_id: "node-2"
+                endpoint: "http://127.0.0.1:46102"
+                tls:
+                  insecure: true
+    ```
+
+=== "Kubernetes discovery"
+    ```yaml
+    services:
+      slim/0:
+        peers:
+          deployment_name: "slim"
+          discovery:
+            type: kubernetes
+            namespace: "default"
+            service_name: "slim-svc"
+            port: 46357
+    ```
 
 ## TLS Configuration
 
@@ -1108,22 +1214,33 @@ connect_timeout: "1m30s"
 # config/development.yaml
 tracing:
   log_level: debug
-  display_thread_names: true
-  display_thread_ids: true
 
 runtime:
   n_cores: 0
-  thread_name: "slim-dev"
   drain_timeout: "5s"
 
 services:
   slim/0:
+    domain_name: "dev-cluster"
+    auth:
+      type: shared_secret
+      secret: "dev-secret-abcdefghi-1234567890"
     dataplane:
       servers:
         - endpoint: "0.0.0.0:46357"
           tls:
             insecure: true
-      clients: []
+          metadata:
+            external_endpoint: "127.0.0.1:46357"
+    controller:
+      servers:
+        - endpoint: "0.0.0.0:47357"
+          tls:
+            insecure: true
+      clients:
+        - endpoint: "http://127.0.0.1:50052"
+          tls:
+            insecure: true
 ```
 
 ### Production Configuration with mTLS
@@ -1132,8 +1249,6 @@ services:
 # config/production.yaml
 tracing:
   log_level: info
-  display_thread_names: false
-  display_thread_ids: false
   opentelemetry:
     enabled: true
     service_name: "slim-dataplane"
@@ -1142,12 +1257,16 @@ tracing:
 
 runtime:
   n_cores: 0
-  thread_name: "slim-prod"
   drain_timeout: "30s"
 
 services:
   slim/0:
     node_id: "${env:NODE_ID}"
+    domain_name: "${env:DOMAIN_NAME}"
+    auth:
+      type: shared_secret
+      secret: "${env:DOMAIN_SECRET}"
+
     dataplane:
       servers:
         - endpoint: "0.0.0.0:46357"
@@ -1161,41 +1280,31 @@ services:
               type: file
               path: "/etc/slim/certs/ca.crt"
             tls_version: "tls1.3"
+          metadata:
+            external_endpoint: "${env:EXTERNAL_ENDPOINT}"
           keepalive:
             max_connection_idle: "1800s"
             time: "300s"
             timeout: "60s"
 
-      clients:
-        - endpoint: "peer1.example.com:46357"
-          tls:
-            insecure: false
-            ca_source:
-              type: file
-              path: "/etc/slim/certs/ca.crt"
-            source:
-              type: file
-              cert: "/etc/slim/certs/client.crt"
-              key: "/etc/slim/certs/client.key"
-          connect_timeout: "15s"
-          request_timeout: "120s"
-          backoff:
-            type: exponential
-            base: 100
-            factor: 2
-            jitter: true
-            max_delay: "10s"
-            max_attempts: 5
-
     controller:
       servers:
-        - endpoint: "0.0.0.0:46358"
+        - endpoint: "0.0.0.0:47357"
           tls:
             insecure: false
             source:
               type: file
               cert: "/etc/slim/certs/server.crt"
               key: "/etc/slim/certs/server.key"
+          metadata:
+            external_endpoint: "${env:CONTROLLER_EXTERNAL_ENDPOINT}"
+      clients:
+        - endpoint: "${env:CONTROLLER_ENDPOINT}"
+          tls:
+            insecure: false
+            ca_source:
+              type: file
+              path: "/etc/slim/certs/ca.crt"
 ```
 
 ### JWT Authentication Configuration
