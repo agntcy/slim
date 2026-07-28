@@ -4,14 +4,14 @@ icon: material/play-circle-outline
 
 # Getting Started
 
-By the end of this guide you will have a SLIM node running locally and a Python or Go application connected to it, ready to start exchanging messages.
+By the end of this guide you will have a SLIM node running locally and an application connected to it, ready to start exchanging messages.
 
 **Time to complete:** ~5 minutes
 
 ## Prerequisites
 
-- macOS or Linux (Windows supported via pre-built binaries)
-- Python 3.9+ **or** Go 1.21+ for the SDK step
+- macOS, Linux, or Windows
+- One of: Python 3.9+, Go 1.21+, Java 17+, Kotlin, Node.js 18+, .NET 6+
 
 ## Step 1: Install slimctl
 
@@ -27,8 +27,8 @@ By the end of this guide you will have a SLIM node running locally and a Python 
 === "macOS (Apple Silicon)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl_2.0.0-alpha.7_darwin_arm64.tar.gz
-    tar -xzf slimctl_2.0.0-alpha.7_darwin_arm64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl-darwin-arm64.tar.gz
+    tar -xzf slimctl-darwin-arm64.tar.gz
     sudo mv slimctl /usr/local/bin/
     ```
 
@@ -41,26 +41,36 @@ By the end of this guide you will have a SLIM node running locally and a Python 
 === "macOS (Intel)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl_2.0.0-alpha.7_darwin_amd64.tar.gz
-    tar -xzf slimctl_2.0.0-alpha.7_darwin_amd64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl-darwin-amd64.tar.gz
+    tar -xzf slimctl-darwin-amd64.tar.gz
     sudo mv slimctl /usr/local/bin/
     ```
+
+    !!! note "Gatekeeper"
+        If macOS blocks the binary, run:
+        ```bash
+        sudo xattr -rd com.apple.quarantine /usr/local/bin/slimctl
+        ```
 
 === "Linux (AMD64)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl_2.0.0-alpha.7_linux_amd64.tar.gz
-    tar -xzf slimctl_2.0.0-alpha.7_linux_amd64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl-linux-amd64-gnu.tar.gz
+    tar -xzf slimctl-linux-amd64-gnu.tar.gz
     sudo mv slimctl /usr/local/bin/
     ```
 
 === "Linux (ARM64)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl_2.0.0-alpha.7_linux_arm64.tar.gz
-    tar -xzf slimctl_2.0.0-alpha.7_linux_arm64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl-linux-arm64-gnu.tar.gz
+    tar -xzf slimctl-linux-arm64-gnu.tar.gz
     sudo mv slimctl /usr/local/bin/
     ```
+
+=== "Windows"
+
+    Download the binary from the [GitHub releases page](https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl-windows-amd64.zip) and add it to your `PATH`. See [CLI Installation](./components/cli/install.md) for full Windows instructions.
 
 Verify the install:
 
@@ -68,7 +78,7 @@ Verify the install:
 slimctl help
 ```
 
-See [CLI Installation](./components/cli/install.md) for Windows binaries and build-from-source instructions.
+See [CLI Installation](./components/cli/install.md) for build-from-source instructions.
 
 ## Step 2: Start a SLIM node
 
@@ -76,18 +86,7 @@ See [CLI Installation](./components/cli/install.md) for Windows binaries and bui
 slimctl slim start
 ```
 
-This starts a SLIM node on `0.0.0.0:46357` with insecure (no TLS) defaults. The node is ready immediately.
-
-```bash
-# Check it is running
-slimctl slim status
-```
-
-To stop it later:
-
-```bash
-slimctl slim stop
-```
+This starts a SLIM node on `0.0.0.0:46357` with insecure (no TLS) defaults. The node runs in the foreground — press **Ctrl-C** to stop it.
 
 ## Step 3: Install the SDK
 
@@ -107,13 +106,28 @@ Install the SLIM bindings for your language:
     go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup
     ```
 
+=== "Java"
+
+    ```kotlin
+    // build.gradle.kts
+    dependencies {
+        implementation("io.agntcy.slim:slim-bindings-java:2.0.0-alpha.9")
+    }
+    ```
+
 === "Kotlin"
 
     ```kotlin
     // build.gradle.kts
     dependencies {
-        implementation("io.agntcy.slim:slim-bindings-kotlin:1.2.0")
+        implementation("io.agntcy.slim:slim-bindings-kotlin:2.0.0-alpha.9")
     }
+    ```
+
+=== "Node.js"
+
+    ```bash
+    npm install @agntcy/slim-bindings
     ```
 
 === ".NET"
@@ -122,49 +136,19 @@ Install the SLIM bindings for your language:
     dotnet add package Agntcy.Slim.Bindings
     ```
 
+=== "React Native"
+
+    ```bash
+    npm install @agntcy/slim-bindings-react-native
+    ```
+
 See [SDK Installation](./components/sdk/install.md) for full per-language setup details.
 
 ## Step 4: Connect your first app
 
-With the node running, initialise the SLIM service and connect:
+With the node running, initialise the SLIM service, connect, and register an application identity:
 
-=== "Python"
-
-    ```python
-    import asyncio
-    import slim_bindings
-
-    async def main():
-        # Required for UniFFI async bindings
-        slim_bindings.uniffi_set_event_loop(asyncio.get_running_loop())
-
-        # Initialise the global runtime
-        slim_bindings.initialize_with_defaults()
-        service = slim_bindings.get_global_service()
-
-        # Connect to the local SLIM node
-        conn_id = await service.connect_async(
-            slim_bindings.new_insecure_client_config("http://127.0.0.1:46357")
-        )
-
-        # Register an application identity
-        local_name = slim_bindings.Name("myorg", "default", "my-app")
-        app = service.create_app_with_secret(local_name, "my-shared-secret")
-
-        print(f"Connected — app id: {app.id()}")
-
-    asyncio.run(main())
-    ```
-
-=== "Go"
-
-    Refer to the [Go examples](https://github.com/agntcy/slim-bindings-go/tree/main/examples) in the slim-bindings-go repository for the equivalent connection pattern.
-
-Running the Python script should print your app's SLIM identity:
-
-```text
-Connected — app id: myorg/default/my-app/<client-id>
-```
+{% include-markdown "slim/components/sdk/tutorials/_snippets/putting-it-together.md" %}
 
 !!! note "Insecure mode"
     `new_insecure_client_config` skips TLS and is for local development only. See [Authentication](./architecture/authentication.md) for production TLS, mTLS, and SPIRE options.

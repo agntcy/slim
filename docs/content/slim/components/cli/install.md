@@ -9,8 +9,8 @@ Download the binary for your platform from the [GitHub releases page](https://gi
 === "macOS (Apple Silicon)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl_2.0.0-alpha.7_darwin_arm64.tar.gz
-    tar -xzf slimctl_2.0.0-alpha.7_darwin_arm64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl-darwin-arm64.tar.gz
+    tar -xzf slimctl-darwin-arm64.tar.gz
     sudo mv slimctl /usr/local/bin/slimctl
     sudo chmod +x /usr/local/bin/slimctl
     ```
@@ -27,17 +27,26 @@ Download the binary for your platform from the [GitHub releases page](https://gi
 === "macOS (Intel)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl_2.0.0-alpha.7_darwin_amd64.tar.gz
-    tar -xzf slimctl_2.0.0-alpha.7_darwin_amd64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl-darwin-amd64.tar.gz
+    tar -xzf slimctl-darwin-amd64.tar.gz
     sudo mv slimctl /usr/local/bin/slimctl
     sudo chmod +x /usr/local/bin/slimctl
     ```
 
+    !!! warning "macOS Security"
+        You may need to allow the binary to run if blocked by Gatekeeper:
+
+        ```bash
+        sudo xattr -rd com.apple.quarantine /usr/local/bin/slimctl
+        ```
+
+        Alternatively, go to **System Settings > Privacy & Security** and allow the application when prompted.
+
 === "Linux (AMD64)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl_2.0.0-alpha.7_linux_amd64.tar.gz
-    tar -xzf slimctl_2.0.0-alpha.7_linux_amd64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl-linux-amd64-gnu.tar.gz
+    tar -xzf slimctl-linux-amd64-gnu.tar.gz
     sudo mv slimctl /usr/local/bin/slimctl
     sudo chmod +x /usr/local/bin/slimctl
     ```
@@ -45,8 +54,8 @@ Download the binary for your platform from the [GitHub releases page](https://gi
 === "Linux (ARM64)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl_2.0.0-alpha.7_linux_arm64.tar.gz
-    tar -xzf slimctl_2.0.0-alpha.7_linux_arm64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.7/slimctl-linux-arm64-gnu.tar.gz
+    tar -xzf slimctl-linux-arm64-gnu.tar.gz
     sudo mv slimctl /usr/local/bin/slimctl
     sudo chmod +x /usr/local/bin/slimctl
     ```
@@ -82,14 +91,13 @@ brew install slimctl
 
 ## Building from Source
 
-**Prerequisites**: Go 1.24+, [Taskfile](https://taskfile.dev/)
+**Prerequisites**: Rust toolchain (pinned to 1.95.0), [Taskfile](https://taskfile.dev/)
 
 ```bash
 # From repository root
-cd control-plane
-task control-plane:slimctl:build
+cargo build -p agntcy-slimctl --release
 
-# Binary location: .dist/bin/slimctl
+# Binary location: target/release/slimctl
 ```
 
 ## Verify Installation
