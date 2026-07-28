@@ -495,7 +495,7 @@ details, as these aspects are handled automatically by SLIMRPC and SLIM.
 
 All RPC services underneath utilize a point-to-point session. The SLIM
 session creation is implemented inside SLIMRPC in
-[channel.rs](https://github.com/agntcy/slim-bindings/blob/main/rust/src/slimrpc/channel.rs):
+[channel.rs](https://github.com/agntcy/slim/blob/main/crates/rpc/src/channel.rs):
 
 ```rust
 let slim_config = slim_session::session_config::SessionConfig {
