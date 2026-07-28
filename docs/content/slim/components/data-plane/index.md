@@ -30,7 +30,7 @@ The Data Plane distinguishes four connection categories:
 | Type | Description |
 |------|-------------|
 | **Local** | In-process applications connected via the SDK |
-| **Edge** | Applications connected over the network (gRPC or WebSocket) |
+| **Edge** | First-hop connection from an application to the SLIM network (gRPC or WebSocket) |
 | **Peer** | Other Data Plane nodes in the same deployment (replica peers) |
 | **Remote** | Data Plane nodes in remote deployments (inter-cluster links) |
 
