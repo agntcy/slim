@@ -51,24 +51,37 @@ spec:
             - "/config.yaml"
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- with .Values.extraEnv }}
+          {{- $envVars := .Values.extraEnv | default list }}
+          {{- if and .Values.persistence.enabled (not .Values.persistence.insecure) .Values.persistence.encryptionPassphrase.secretRef.name }}
+          {{- $envVars = append $envVars (dict "name" "CM_PASSPHRASE" "valueFrom" (dict "secretKeyRef" (dict "name" .Values.persistence.encryptionPassphrase.secretRef.name "key" .Values.persistence.encryptionPassphrase.secretRef.key))) }}
+          {{- end }}
+          {{- if $envVars }}
           env:
-            {{- toYaml . | nindent 12 }}
+            {{- toYaml $envVars | nindent 12 }}
           {{- end }}
           volumeMounts:
             - name: config-volume
               mountPath: /config.yaml
               subPath: config.yaml
-          {{- with .Values.extraVolumeMounts }}
+            {{- if .Values.persistence.enabled }}
+            - name: slim-store
+              mountPath: {{ .Values.persistence.path.value }}
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
-          {{- end }}
+            {{- end }}
       volumes:
         - name: config-volume
           configMap:
             name: {{ include "channel-manager.fullname" . }}
-      {{- with .Values.extraVolumes }}
+        {{- if .Values.persistence.enabled }}
+        - name: slim-store
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (include "channel-manager.fullname" .) }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

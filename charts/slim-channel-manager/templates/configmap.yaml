@@ -14,5 +14,26 @@ data:
     {{- if .Values.overrideConfig }}
     {{- tpl (toYaml .Values.overrideConfig) . | nindent 4 }}
     {{- else }}
-    {{- tpl (toYaml .Values.config) . | nindent 4 }}
+    {{- $config := deepCopy .Values.config }}
+    {{- if .Values.persistence.enabled }}
+    {{- $p := .Values.persistence }}
+    {{- $persistenceCfg := dict "delete-sessions-on-shutdown" $p.deleteSessionsOnShutdown }}
+    {{- if $p.path.envVar }}
+    {{- $_ := set $persistenceCfg "path" (printf "${env:%s}" $p.path.envVar) }}
+    {{- else }}
+    {{- $_ := set $persistenceCfg "path" $p.path.value }}
+    {{- end }}
+    {{- if $p.insecure }}
+    {{- $_ := set $persistenceCfg "insecure" true }}
+    {{- else if $p.encryptionPassphrase.value }}
+    {{- $_ := set $persistenceCfg "encryption-passphrase" $p.encryptionPassphrase.value }}
+    {{- else if $p.encryptionPassphrase.envVar }}
+    {{- $_ := set $persistenceCfg "encryption-passphrase" (printf "${env:%s}" $p.encryptionPassphrase.envVar) }}
+    {{- else if $p.encryptionPassphrase.secretRef.name }}
+    {{- $_ := set $persistenceCfg "encryption-passphrase" "${env:CM_PASSPHRASE}" }}
+    {{- end }}
+    {{- $cm := get $config "channel-manager" }}
+    {{- $_ := set $cm "persistence" $persistenceCfg }}
+    {{- end }}
+    {{- tpl (toYaml $config) . | nindent 4 }}
     {{- end }}
