@@ -3,7 +3,7 @@ name: spire-server
 description: A Helm chart to install the SPIRE server.
 type: application
 version: 0.1.0
-appVersion: "1.15.1"
+appVersion: "1.15.2"
 keywords: ["spiffe", "spire-server", "spire-controller-manager"]
 home: https://github.com/spiffe/helm-charts-hardened/tree/main/charts/spire
 sources:

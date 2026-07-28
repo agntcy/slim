@@ -3,7 +3,7 @@ name: spire-agent
 description: A Helm chart to install the SPIRE agent.
 type: application
 version: 0.1.0
-appVersion: "1.15.1"
+appVersion: "1.15.2"
 keywords: ["spiffe", "spire-agent"]
 home: https://github.com/spiffe/helm-charts-hardened/tree/main/charts/spire
 sources:
