@@ -2183,7 +2183,7 @@ Application developers do not need to manage endpoint names or connectivity
 details, as these aspects are handled automatically by SLIMRPC and SLIM.</p>
 <p>All RPC services underneath utilize a point-to-point session. The SLIM
 session creation is implemented inside SLIMRPC in
-<a href="https://github.com/agntcy/slim-bindings/blob/main/rust/src/slimrpc/channel.rs">channel.rs</a>:</p>
+<a href="https://github.com/agntcy/slim/blob/main/crates/rpc/src/channel.rs">channel.rs</a>:</p>
 <div class="highlight"><pre><span></span><code><span class="kd">let</span><span class="w"> </span><span class="n">slim_config</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">slim_session</span><span class="p">::</span><span class="n">session_config</span><span class="p">::</span><span class="n">SessionConfig</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="n">session_type</span><span class="p">:</span><span class="w"> </span><span class="nc">ProtoSessionType</span><span class="p">::</span><span class="n">PointToPoint</span><span class="p">,</span>
 <span class="w">    </span><span class="n">mls_enabled</span><span class="p">:</span><span class="w"> </span><span class="nc">true</span><span class="p">,</span>
