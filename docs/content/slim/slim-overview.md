@@ -73,11 +73,7 @@ Agents are identified using a hierarchical naming scheme based on Decentralized 
 organization/namespace/service/<hash-of-public-key>
 ```
 
-Group channels use the same scheme, with `0xffffffff` as the last component to fan out to all joined members:
-
-```text
-organization/namespace/service/0xffffffff
-```
+Group channels use the same four-component scheme. The last component is a UUID derived from the moderator's key material. Each group gets two channel names — a data channel and a control channel — that differ only in their final UUID component.
 
 ## SLIM vs. Message Queues
 

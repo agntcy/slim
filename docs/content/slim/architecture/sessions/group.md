@@ -4,11 +4,7 @@ A SLIM group is a set of application instances that communicate over a shared ch
 
 ## What is a Group?
 
-A group is bound to a named channel — a SLIM name where the client component is the well-known group identifier `0xffffffff`:
-
-```text
-organization/namespace/service/0xffffffff
-```
+A group is bound to a named channel — a SLIM name whose last component is a UUID derived from the moderator's key material. Each group has two channel names: a **data channel** and a **control channel**. They share the same `organization/namespace/service` prefix and differ only in the final UUID component.
 
 Multiple application instances subscribe to the same channel name, and the SLIM data plane delivers each message sent to that name to all subscribers. The session layer sitting above the data plane adds group state management, membership tracking, and optionally end-to-end encryption to this channel.
 

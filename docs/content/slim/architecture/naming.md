@@ -26,12 +26,6 @@ The four-component structure supports two delivery modes:
 
 Channels are named endpoints that multiple clients can join to receive every message published to that channel. They underpin [group sessions](./sessions/index.md#group-session) and multicast communication.
 
-A channel name uses the same four-component structure, with the last component set to a well-known group identifier:
-
-```
-organization/namespace/service/0xffffffff
-```
-
-Because all clients sharing the same `organization/namespace/service` prefix are eligible to receive messages on the channel, the `0xffffffff` suffix acts as a wildcard that fans out to every joined member rather than routing to a single instance.
+A channel name uses the same four-component structure. The last component is a UUID derived from the moderator's key material — it is not a fixed well-known value. Each group is associated with two channel names: a **data channel** and a **control channel**. They share the same `organization/namespace/service` prefix and differ only in the final UUID component.
 
 For further details, refer to the [SLIM Specification](https://datatracker.ietf.org/doc/draft-mpsb-agntcy-slim/).
