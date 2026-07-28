@@ -51,7 +51,7 @@ docker run -it \
 Install SLIM using Rust's package manager:
 
 ```bash
-RUSTFLAGS="--cfg mls_build_async" cargo install agntcy-slim
+cargo install agntcy-slim
 ```
 
 Create a configuration file (see the Docker example above), then run SLIM:
@@ -93,7 +93,7 @@ For local development and testing, use the `slimctl` binary. First [install slim
 
 ## Building from Source
 
-**Prerequisites**: Rust toolchain (pinned to 1.93.0), [Taskfile](https://taskfile.dev/)
+**Prerequisites**: Rust toolchain (pinned to 1.95.0), [Taskfile](https://taskfile.dev/)
 
 ```bash
 # Clone the repository

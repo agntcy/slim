@@ -14,14 +14,14 @@ The SLIM Data Plane is the core routing engine of a SLIM deployment. It is a hig
 
 Internally the Data Plane is composed of two main layers:
 
-- **Service layer** — bootstraps the process, owns the transports (gRPC and WebSocket listeners), and spawns per-connection tasks. Each accepted connection runs in its own async task and feeds received messages into the core routing engine.
-- **Datapath layer** — the `MessageProcessor` is the central hub. It owns a `ConnectionTable` (all active connections) and a `SubscriptionTable` (name-to-connection mappings that drive routing). A `Forwarder` executes the fanout: given a message, it looks up matching subscriptions and writes the message to each matched connection.
+- **Service layer** — bootstraps the process and exposes the public API for creating connections and servers. It owns a `MessageProcessor`, through which all transport and routing operations flow.
+- **Datapath layer** — the `MessageProcessor` runs the gRPC and WebSocket servers and owns a `Forwarder`. The `Forwarder` in turn owns the `ConnectionTable` (all active connections) and the `SubscriptionTable` (name-to-connection mappings that drive routing).
 
 ### Message Flow
 
 1. A connection task receives a message and performs basic validation: HMAC integrity check and TTL decrement. Messages that fail validation or whose TTL reaches zero are dropped.
-2. The message type determines dispatch: **subscribe** updates the subscription table, **publish** triggers a routing table lookup, **link** (peer control) updates the connection table.
-3. For publish messages the Forwarder looks up all subscriptions matching the destination name, then round-robins across the matching connections and writes the message to each.
+2. The message type determines dispatch: **subscribe** updates the subscription table, **publish** triggers a routing lookup, **link** (peer control) updates the connection table.
+3. For publish messages the `Forwarder` looks up subscriptions matching the destination name. If the message's fanout field is `1` it picks a single matching connection (anycast); otherwise it delivers to all matching connections (multicast).
 
 ### Connection Types
 
@@ -30,9 +30,9 @@ The Data Plane distinguishes four connection categories:
 | Type | Description |
 |------|-------------|
 | **Local** | In-process applications connected via the SDK |
-| **Remote** | Applications connected over the network (gRPC or WebSocket) |
+| **Edge** | Applications connected over the network (gRPC or WebSocket) |
 | **Peer** | Other Data Plane nodes in the same deployment (replica peers) |
-| **Edge** | Data Plane nodes in remote deployments (inter-cluster links) |
+| **Remote** | Data Plane nodes in remote deployments (inter-cluster links) |
 
 Peer connections enforce a one-hop rule: messages received from a peer are never forwarded to another peer, preventing routing loops.
 
