@@ -54,9 +54,11 @@ A point-to-point session connects your application to a single remote instance. 
     async def run_client(app, remote_name):
         session_config = slim_bindings.SessionConfig(
             session_type=slim_bindings.SessionType.POINT_TO_POINT,
-            enable_mls=True,
             max_retries=5,
             interval=datetime.timedelta(seconds=5),
+            mls_settings=slim_bindings.MlsSettings(
+                header_integrity_validation_percent=100
+            ),
         )
 
         # Create the session — discovery happens automatically
@@ -160,10 +162,10 @@ A point-to-point session connects your application to a single remote instance. 
     async function runClient(app, remoteName) {
         const sessionConfig = {
             sessionType: "pointToPoint" as const,
-            enableMls: true,
             maxRetries: 5,
             interval: 5000, // milliseconds
-            metadata: new Map()
+            metadata: new Map(),
+            mlsSettings: { headerIntegrityValidationPercent: 100 },
         };
 
         // Create the session — discovery happens automatically
@@ -201,10 +203,10 @@ A point-to-point session connects your application to a single remote instance. 
     ```tsx
     const sessionConfig = {
         sessionType: slimBindings.SessionType.PointToPoint,
-        enableMls: true,
         maxRetries: 5,
         interval: 5000, // milliseconds
-        metadata: new Map()
+        metadata: new Map(),
+        mlsSettings: { headerIntegrityValidationPercent: 100 },
     };
 
     // Create the session — discovery happens automatically
@@ -247,9 +249,11 @@ A group session enables many-to-many communication on a named channel. Every mes
     async def create_group_session(app, channel_name):
         session_config = slim_bindings.SessionConfig(
             session_type=slim_bindings.SessionType.GROUP,
-            enable_mls=True,
             max_retries=5,
             interval=datetime.timedelta(seconds=5),
+            mls_settings=slim_bindings.MlsSettings(
+                header_integrity_validation_percent=100
+            ),
         )
 
         # Create the session on the given channel
@@ -336,10 +340,10 @@ A group session enables many-to-many communication on a named channel. Every mes
     ```typescript
     const sessionConfig = {
         sessionType: "group" as const,
-        enableMls: true,
         maxRetries: 5,
         interval: 5000, // milliseconds
-        metadata: new Map()
+        metadata: new Map(),
+        mlsSettings: { headerIntegrityValidationPercent: 100 },
     };
 
     // Create the group session on the given channel
@@ -373,10 +377,10 @@ A group session enables many-to-many communication on a named channel. Every mes
     ```tsx
     const sessionConfig = {
         sessionType: slimBindings.SessionType.Group,
-        enableMls: true,
         maxRetries: 5,
         interval: 5000, // milliseconds
-        metadata: new Map()
+        metadata: new Map(),
+        mlsSettings: { headerIntegrityValidationPercent: 100 },
     };
 
     // Create the group session on the given channel
@@ -723,9 +727,11 @@ The code examples in this tutorial use `max_retries=5` and a 5-second interval. 
 
 ### End-to-End Encryption
 
-Set `enable_mls=True` (Python) or provide an `MlsSettings` object (Go, Java, Kotlin) in the `SessionConfig` to enable MLS-based end-to-end encryption. The session layer handles all key establishment automatically — your application code stays the same.
+Provide an `MlsSettings` object in the `SessionConfig` to enable MLS-based end-to-end encryption. The `header_integrity_validation_percent` field controls what percentage of message headers are validated (100 = all headers).
 
-The examples in this tutorial already have MLS enabled. To disable it, set `enable_mls=False` / `MlsSettings = null` / `MlsSettings: nil`.
+The session layer handles all key establishment automatically — your application code stays the same.
+
+The examples in this tutorial already have MLS enabled. To disable it, set `mls_settings=None` / `MlsSettings = null` / `mlsSettings = nil` / omit the `MlsSettings` argument.
 
 ## Runnable Examples
 
