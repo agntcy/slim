@@ -22,7 +22,7 @@ Modern agentic workloads share three characteristics that make communication har
 
     ---
 
-    Agents share sensitive data — code, plans, personal information, business logic. Network-level TLS is not enough: if a node is compromised, traffic can be read. Data must be encrypted end-to-end.
+    Agents share sensitive data — code, plans, personal information, business logic. Network-level TLS is not enough: if a middlebox is compromised, traffic can be read. Data must be encrypted end-to-end.
 
 -   :material-earth:{ .lg .middle } **Distributed**
 
@@ -99,7 +99,7 @@ SLIM is composed of five components:
 - **[Controller](./components/controller/index.md)** — manages route tables, node registration, and group membership across clusters
 - **[Channel Manager](./components/channel-manager/index.md)** — operator-managed service for creating and moderating group channels
 - **[CLI (`slimctl`)](./components/cli/install.md)** — command-line tool for operating and interacting with SLIM nodes
-- **[SDK](./components/sdk/index.md)** — language-native bindings (Python, Go, .NET, JavaScript) for building applications on SLIM
+- **[SDK](./components/sdk/index.md)** — language-native bindings (Python, Go, .NET, JavaScript, Java, Kotlin) for building applications on SLIM
 
 For a detailed breakdown of how the layers fit together, see [Architecture](./architecture/index.md).
 

@@ -41,7 +41,7 @@ The Channel Manager holds the moderator role for every channel it creates. When 
 
 **MLS encryption** — channels are created with MLS end-to-end encryption enabled by default. Each membership change triggers a key rotation, so former members cannot read future messages and new members cannot read past messages. MLS can be disabled per-channel if not required.
 
-**Authentication** — the Channel Manager authenticates to the SLIM node using the same options as any SLIM application: shared secret (development), JWT, or SPIRE (production).
+**Authentication** — the Channel Manager authenticates using the same options as any SLIM application: shared secret (development), JWT, or SPIRE (production).
 
 ## Managing Channels with slimctl
 
