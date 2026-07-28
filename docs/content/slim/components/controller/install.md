@@ -18,26 +18,21 @@ Create a configuration file:
 ```yaml
 # slim-control-plane.yaml
 northbound:
-  httpHost: 0.0.0.0
-  httpPort: 50051
-  logging:
-    level: INFO
+  endpoint: "0.0.0.0:50051"
 
 southbound:
-  httpHost: 0.0.0.0
-  httpPort: 50052
-  logging:
-    level: INFO
+  endpoint: "0.0.0.0:50052"
 
 reconciler:
-  maxRequeues: 15
-  maxNumOfParallelReconciles: 1000
+  max_requeues: 15
+  workers: 4
 
-logging:
-  level: INFO
+tracing:
+  log_level: info
 
 database:
-  filePath: /db/controlplane.db
+  type: sqlite
+  path: /db/controlplane.db
 ```
 
 Run the controller:
@@ -46,7 +41,7 @@ Run the controller:
 docker run -it \
     -v ./slim-control-plane.yaml:/config.yaml -v .:/db \
     -p 50051:50051 -p 50052:50052                      \
-    ghcr.io/agntcy/slim/control-plane:2.0.0-alpha.7           \
+    ghcr.io/agntcy/slim/control-plane:2.0.0-alpha.7    \
     -config /config.yaml
 ```
 
@@ -60,24 +55,21 @@ helm pull oci://ghcr.io/agntcy/slim/helm/slim-control-plane --version v2.0.0-alp
 
 ## Building from Source
 
-**Prerequisites**: Go 1.24+, [Taskfile](https://taskfile.dev/)
+**Prerequisites**: Rust toolchain (pinned to 1.95.0), [Taskfile](https://taskfile.dev/)
 
 ```bash
 # Clone the repository
 git clone https://github.com/agntcy/slim
 cd slim
 
-# Build all control plane binaries
+# Build the controller binary
 task control-plane:build
-
-# Or build just the controller binary
-task control-plane:control-plane:build
 ```
 
-Start the controller directly using the task runner:
+Start the controller directly:
 
 ```bash
-task control-plane:control-plane:run
+cargo run --bin slim-control-plane
 ```
 
 ## Next Steps

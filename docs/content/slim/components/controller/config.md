@@ -6,19 +6,13 @@ The SLIM Controller is configured through a YAML file passed at startup with the
 
 ```yaml
 northbound:
-  httpHost: localhost
-  httpPort: 50051
-  logging:
-    level: DEBUG
+  endpoint: "0.0.0.0:50051"
 
 southbound:
-  httpHost: localhost
-  httpPort: 50052
-  reconciler:
-    threads: 3
+  endpoint: "0.0.0.0:50052"
 
-logging:
-  level: DEBUG
+tracing:
+  log_level: info
 ```
 
 ## Full Configuration Reference
@@ -26,73 +20,116 @@ logging:
 ```yaml
 # Northbound interface — used by slimctl and external management tools
 northbound:
-  httpHost: 0.0.0.0          # IP address to bind the northbound gRPC server
-  httpPort: 50051             # Port for the northbound interface
-  logging:
-    level: INFO               # Log level for northbound requests (DEBUG, INFO, WARN, ERROR)
+  endpoint: "0.0.0.0:50051"   # Address to bind the northbound gRPC server
+  tls:
+    insecure: true             # Set to false to enable TLS
 
 # Southbound interface — used by SLIM nodes to register and receive config updates
 southbound:
-  httpHost: 0.0.0.0          # IP address to bind the southbound gRPC server
-  httpPort: 50052             # Port for the southbound interface
-  logging:
-    level: INFO
+  endpoint: "0.0.0.0:50052"   # Address to bind the southbound gRPC server
   tls:
-    useSpiffe: false          # Enable SPIFFE/SPIRE-based mTLS on the southbound interface
-  spire:
-    socketPath: ""            # SPIRE agent socket path, e.g. "unix:///run/spire/agent-sockets/api.sock"
+    insecure: true             # Set to false to enable TLS
 
 # Reconciler settings
 reconciler:
-  maxRequeues: 15             # Maximum retries for a failed node reconciliation
-  maxNumOfParallelReconciles: 1000  # Maximum concurrent reconciliations across nodes
+  max_requeues: 15             # Maximum retries for a failed node reconciliation
+  base_retry_delay: "200ms"   # Initial delay; retries use exponential backoff (capped at 30s)
+  reconcile_period: "60s"     # How often all nodes are re-enqueued for a full reconciliation sweep
+  workers: 4                  # Number of concurrent reconciler worker tasks
+  enable_orphan_detection: false  # Delete data-plane connections not tracked by the controller
 
-# Top-level logging
-logging:
-  level: INFO                 # Global log level (DEBUG, INFO, WARN, ERROR)
+# Tracing and logging
+tracing:
+  log_level: info             # Log level (trace, debug, info, warn, error)
+  display_thread_names: false
+  display_thread_ids: false
 
-# SQLite database for persisting control plane state
+# Database backend (default: in-memory; all state is lost on restart)
 database:
-  filePath: controlplane.db  # Path to the SQLite database file
+  type: in_memory
 
-# SPIRE integration settings
-spire:
-  enabled: false              # Enable SPIRE for issuing SVIDs to controller components
-  trustedDomains: []          # Trust domains to federate with
-    # - cluster-a.example.org
-    # - cluster-b.example.org
+# SQLite-backed persistent store (state survives restarts)
+# database:
+#   type: sqlite
+#   path: /db/controlplane.db
+
+# Topology mode (default: API-managed — topology is built via slimctl at runtime)
+topology: {}
 ```
 
-## mTLS with SPIRE (Southbound)
+## Topology Configuration
 
-To secure the southbound interface with mTLS using [SPIRE](https://spiffe.io/docs/latest/spire-about/spire-concepts/):
+The `topology` key controls how the Controller creates inter-domain links and routes:
+
+### API-Managed (Default)
+
+No topology declared. The Controller manages all links and routes via the gRPC/CLI API. Use `slimctl controller link add` to create links at runtime.
 
 ```yaml
-northbound:
-  httpHost: 0.0.0.0
-  httpPort: 50051
+topology: {}
+```
 
-southbound:
-  httpHost: 0.0.0.0
-  httpPort: 50052
-  tls:
-    useSpiffe: true
-  spire:
-    socketPath: "unix:///run/spire/agent-sockets/api.sock"
+### Config-Managed: Links
 
-logging:
-  level: DEBUG
+Define the link graph directly in the configuration file. Changes require a config reload.
 
-reconciler:
-  maxRequeues: 15
-  maxNumOfParallelReconciles: 1000
+```yaml
+topology:
+  links:
+    - domain: hub
+      neighbors: ["*"]   # hub connects to all other domains
+```
 
-database:
-  filePath: controlplane.db
+### Config-Managed: Segments
 
-spire:
-  enabled: false
-  trustedDomains: []
+Define multiple independent routing domains. Domains in separate segments cannot route to each other.
+
+```yaml
+topology:
+  segments:
+    - name: customer-1
+      links:
+        - domain: cloud
+          neighbors: [cluster-a]
+    - name: customer-2
+      links:
+        - domain: cloud
+          neighbors: [cluster-b]
+```
+
+Use `$domain` for dynamic per-tenant segment expansion:
+
+```yaml
+topology:
+  segments:
+    - name: segment-$domain
+      links:
+        - domain: platform
+          neighbors: [$domain]
+```
+
+## Registration Authentication
+
+The `topology.registration_auth` field configures how data-plane nodes authenticate when registering with the controller:
+
+### Shared Secret
+
+```yaml
+topology:
+  registration_auth:
+    type: shared_secret
+    secrets:
+      cluster-a: "secret-for-cluster-a"
+      cluster-b: "secret-for-cluster-b"
+```
+
+### SPIRE
+
+```yaml
+topology:
+  registration_auth:
+    type: spire
+    socket_path: "unix:///run/spire/agent-sockets/api.sock"
 ```
 
 ## SLIM Node Configuration for Self-Registration
@@ -118,3 +155,4 @@ services:
 - [SLIM Controller Overview](./index.md)
 - [SLIM Controller Installation](./install.md)
 - [Authentication](../../architecture/authentication.md) — Identity management including SPIRE integration
+- [Routing](../../architecture/routing.md) — Topology configuration in depth
