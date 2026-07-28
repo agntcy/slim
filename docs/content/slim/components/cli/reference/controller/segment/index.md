@@ -1,6 +1,6 @@
 # slimctl controller segment
 
-List network segments (routing domains) and the domains they contain.
+List, add, and remove network segments (routing domains) and the domains they contain. The `add` and `remove` subcommands are available in API-managed mode only (when no `topology` is set in the Controller config).
 
 ## Usage
 
@@ -12,7 +12,9 @@ slimctl controller segment <COMMAND>
 
 | Command | Aliases | Description |
 |---------|---------|-------------|
-| [`list`](./list.md) | `ls` | List all network segments |
+| [`list`](./list.md) | `ls` | List all network segments and their domains |
+| [`add`](./add.md) | — | Create a new segment (API-managed mode only) |
+| [`remove`](./remove.md) | `rm` | Remove a segment and all its links (API-managed mode only) |
 
 ## Inherited Options
 
@@ -20,7 +22,7 @@ Options inherited from [`slimctl controller`](../index.md) and [`slimctl`](../..
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--server` | `-s` | `127.0.0.1:50051` | Controller gRPC endpoint |
+| `--server` | — | `127.0.0.1:50051` | Controller gRPC endpoint |
 | `--timeout` | — | `15s` | gRPC request timeout |
 | `--basic-auth-creds` | `-b` | — | Basic auth credentials (`username:password`) |
 | `--tls.ca_file` | — | — | Path to TLS CA certificate |

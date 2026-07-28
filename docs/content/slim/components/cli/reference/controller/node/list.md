@@ -42,7 +42,7 @@ Options inherited from [`slimctl controller node`](./index.md), [`slimctl contro
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--server` | `-s` | `127.0.0.1:50051` | Controller gRPC endpoint |
+| `--server` | — | `127.0.0.1:50051` | Controller gRPC endpoint |
 | `--timeout` | — | `15s` | gRPC request timeout |
 | `--basic-auth-creds` | `-b` | — | Basic auth credentials (`username:password`) |
 | `--tls.ca_file` | — | — | Path to TLS CA certificate |

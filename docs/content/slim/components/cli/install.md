@@ -91,7 +91,7 @@ brew install slimctl
 
 ## Building from Source
 
-**Prerequisites**: Rust toolchain (pinned to 1.95.0), [Taskfile](https://taskfile.dev/)
+**Prerequisites**: [Rust toolchain](https://rustup.rs/) (the workspace pins a specific version via `rust-toolchain.toml`)
 
 ```bash
 # From repository root
@@ -100,13 +100,17 @@ cargo build -p agntcy-slimctl --release
 # Binary location: target/release/slimctl
 ```
 
+Or run directly without installing:
+
+```bash
+cargo run --bin slimctl -- help
+```
+
 ## Verify Installation
 
 ```bash
-slimctl help
+slimctl version
 ```
-
-This displays help information and available commands.
 
 ## Configuration
 

@@ -22,7 +22,7 @@ Options inherited from [`slimctl node`](../index.md) and [`slimctl`](../../index
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--server` | `-s` | `127.0.0.1:46358` | Address of the SLIM node control endpoint |
+| `--server` | — | `127.0.0.1:46358` | Address of the SLIM node control endpoint |
 | `--timeout` | — | `15s` | gRPC request timeout |
 | `--basic-auth-creds` | `-b` | — | Basic auth credentials (`username:password`) |
 | `--tls.ca_file` | — | — | Path to TLS CA certificate |

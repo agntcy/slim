@@ -1,30 +1,28 @@
-# slimctl controller connection list
+# slimctl controller segment add
 
-List active connections on a node, queried via the Controller.
-
-**Aliases:** `ls`
+Create a new network segment in the Controller. Only available when the Controller is running in API-managed mode. After creating a segment, use `slimctl controller link add --segment <NAME>` to populate it with domain links.
 
 ## Usage
 
 ```
-slimctl controller connection list --node-id <NODE_ID>
+slimctl controller segment add <NAME>
 ```
+
+## Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `NAME` | Segment name |
 
 ## Examples
 
 ```bash
-slimctl controller connection list --node-id slim/a
+slimctl controller segment add customer-1
 ```
-
-## Options
-
-| Flag | Short | Required | Description |
-|------|-------|----------|-------------|
-| `--node-id` | `-n` | **Yes** | ID of the node to query |
 
 ## Inherited Options
 
-Options inherited from [`slimctl controller connection`](./index.md), [`slimctl controller`](../index.md), and [`slimctl`](../../index.md):
+Options inherited from [`slimctl controller segment`](./index.md), [`slimctl controller`](../index.md), and [`slimctl`](../../index.md):
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|

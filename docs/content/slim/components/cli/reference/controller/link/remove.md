@@ -1,42 +1,39 @@
-# slimctl controller link list
+# slimctl controller link remove
 
-List inter-node links registered at the Controller.
+Remove a topology link between two domains. Only available when the Controller is running in API-managed mode.
 
-**Aliases:** `ls`
+**Aliases:** `rm`
 
 ## Usage
 
 ```
-slimctl controller link list [OPTIONS]
+slimctl controller link remove [OPTIONS] <DOMAIN_A> <DOMAIN_B>
 ```
 
-## Examples
+## Arguments
 
-List all links:
-
-```bash
-slimctl controller link list
-```
-
-Filter links from a specific origin node:
-
-```bash
-slimctl controller link list --origin-node-id slim/a
-```
-
-Filter links to a specific target node:
-
-```bash
-slimctl controller link list --target-node-id slim/b
-```
+| Argument | Description |
+|----------|-------------|
+| `DOMAIN_A` | First domain name |
+| `DOMAIN_B` | Second domain name |
 
 ## Options
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--origin-node-id` | `-o` | — | Filter by source (origin) node ID |
-| `--target-node-id` | `-t` | — | Filter by destination (target) node ID |
-| `--all` | `-a` | `false` | Include links in all states (pending, failed, deleted). Default shows only applied links. |
+| `--segment` | `-s` | `default` | Segment the link belongs to |
+
+## Examples
+
+```bash
+slimctl controller link remove cluster-a cluster-b
+```
+
+Remove a link from a named segment:
+
+```bash
+slimctl controller link remove cluster-a cluster-b --segment customer-1
+```
 
 ## Inherited Options
 

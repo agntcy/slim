@@ -181,12 +181,18 @@ nav:
                       - link:
                           - slim/components/cli/reference/controller/link/index.md
                           - list: slim/components/cli/reference/controller/link/list.md
+                          - add: slim/components/cli/reference/controller/link/add.md
+                          - remove: slim/components/cli/reference/controller/link/remove.md
                       - domain:
                           - slim/components/cli/reference/controller/domain/index.md
                           - list: slim/components/cli/reference/controller/domain/list.md
+                          - add: slim/components/cli/reference/controller/domain/add.md
+                          - remove: slim/components/cli/reference/controller/domain/remove.md
                       - segment:
                           - slim/components/cli/reference/controller/segment/index.md
                           - list: slim/components/cli/reference/controller/segment/list.md
+                          - add: slim/components/cli/reference/controller/segment/add.md
+                          - remove: slim/components/cli/reference/controller/segment/remove.md
                   - slimctl channel-manager:
                       - slim/components/cli/reference/channel-manager/index.md
                       - create-channel: slim/components/cli/reference/channel-manager/create-channel.md

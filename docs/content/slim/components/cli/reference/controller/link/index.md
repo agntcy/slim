@@ -1,6 +1,6 @@
 # slimctl controller link
 
-List inter-node links registered at the Controller.
+List, add, and remove inter-domain links registered at the Controller. The `add` and `remove` subcommands are available in API-managed mode only (when no `topology` is set in the Controller config).
 
 ## Usage
 
@@ -13,6 +13,8 @@ slimctl controller link <COMMAND>
 | Command | Aliases | Description |
 |---------|---------|-------------|
 | [`list`](./list.md) | `ls` | List all links registered at the Controller |
+| [`add`](./add.md) | — | Add a topology link between two domains (API-managed mode only) |
+| [`remove`](./remove.md) | `rm` | Remove a topology link between two domains (API-managed mode only) |
 
 ## Inherited Options
 
@@ -20,7 +22,7 @@ Options inherited from [`slimctl controller`](../index.md) and [`slimctl`](../..
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--server` | `-s` | `127.0.0.1:50051` | Controller gRPC endpoint |
+| `--server` | — | `127.0.0.1:50051` | Controller gRPC endpoint |
 | `--timeout` | — | `15s` | gRPC request timeout |
 | `--basic-auth-creds` | `-b` | — | Basic auth credentials (`username:password`) |
 | `--tls.ca_file` | — | — | Path to TLS CA certificate |

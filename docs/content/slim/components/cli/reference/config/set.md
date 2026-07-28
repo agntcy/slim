@@ -57,7 +57,7 @@ Options inherited from [`slimctl config`](./index.md) and [`slimctl`](../index.m
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--config` | — | `~/.slimctl/config.yaml` | Path to `slimctl` configuration file to write |
-| `--server` | `-s` | `127.0.0.1:46358` | gRPC API endpoint |
+| `--server` | — | `127.0.0.1:46358` | gRPC API endpoint |
 | `--timeout` | — | `15s` | gRPC request timeout |
 | `--basic-auth-creds` | `-b` | — | Basic auth credentials (`username:password`) |
 | `--tls.ca_file` | — | — | Path to TLS CA certificate |

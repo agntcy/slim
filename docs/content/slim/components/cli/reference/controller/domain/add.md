@@ -1,24 +1,25 @@
-# slimctl controller domain list
+# slimctl controller domain add
 
-List all routing domains and the nodes they contain.
-
-**Aliases:** `ls`
+Register a new domain with the Controller and set its shared-secret registration credential. Only available when the Controller is running in API-managed mode (no `topology` configured in the Controller config file).
 
 ## Usage
 
 ```
-slimctl controller domain list
+slimctl controller domain add <DOMAIN_NAME> <SECRET>
 ```
+
+## Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `DOMAIN_NAME` | Name of the domain to register |
+| `SECRET` | Shared secret nodes in this domain must present on registration |
 
 ## Examples
 
 ```bash
-slimctl controller domain list
+slimctl controller domain add cluster-a "secret-for-cluster-a-abcdefghi-1234567890"
 ```
-
-## Options
-
-No options.
 
 ## Inherited Options
 

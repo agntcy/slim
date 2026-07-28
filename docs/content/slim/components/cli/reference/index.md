@@ -25,7 +25,7 @@ slimctl [OPTIONS] <COMMAND>
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--config` | — | `~/.slimctl/config.yaml` | Path to `slimctl` configuration file |
-| `--server` | `-s` | *(varies by command)* | gRPC API endpoint (`host:port`) |
+| `--server` | — | *(varies by command)* | gRPC API endpoint (`host:port`) |
 | `--timeout` | — | `15s` | gRPC request timeout (e.g. `30s`, `1m`) |
 | `--basic-auth-creds` | `-b` | — | Basic auth credentials (`username:password`) |
 | `--tls.ca_file` | — | — | Path to TLS CA certificate |

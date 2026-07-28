@@ -1,30 +1,30 @@
-# slimctl controller connection list
+# slimctl controller domain remove
 
-List active connections on a node, queried via the Controller.
+Remove a domain from the Controller, disconnecting all nodes that belong to it. Only available when the Controller is running in API-managed mode.
 
-**Aliases:** `ls`
+**Aliases:** `rm`
 
 ## Usage
 
 ```
-slimctl controller connection list --node-id <NODE_ID>
+slimctl controller domain remove <DOMAIN_NAME>
 ```
+
+## Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `DOMAIN_NAME` | Name of the domain to remove |
 
 ## Examples
 
 ```bash
-slimctl controller connection list --node-id slim/a
+slimctl controller domain remove cluster-a
 ```
-
-## Options
-
-| Flag | Short | Required | Description |
-|------|-------|----------|-------------|
-| `--node-id` | `-n` | **Yes** | ID of the node to query |
 
 ## Inherited Options
 
-Options inherited from [`slimctl controller connection`](./index.md), [`slimctl controller`](../index.md), and [`slimctl`](../../index.md):
+Options inherited from [`slimctl controller domain`](./index.md), [`slimctl controller`](../index.md), and [`slimctl`](../../index.md):
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|

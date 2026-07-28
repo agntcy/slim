@@ -29,7 +29,7 @@ Options inherited from [`slimctl channel-manager`](./index.md) and [`slimctl`](.
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--server` | `-s` | `127.0.0.1:10356` | Channel Manager gRPC endpoint |
+| `--server` | — | `127.0.0.1:10356` | Channel Manager gRPC endpoint |
 | `--timeout` | — | `15s` | gRPC request timeout |
 | `--basic-auth-creds` | `-b` | — | Basic auth credentials (`username:password`) |
 | `--tls.ca_file` | — | — | Path to TLS CA certificate |
