@@ -159,6 +159,47 @@ extraVolumeMounts: []
 #   mountPath: "/etc/foo"
 #   readOnly: true
 
+# Persistent storage for channel-manager session state.
+# When enabled, sessions survive pod restarts via an encrypted SQLite file.
+persistence:
+  enabled: false
+
+  # Path inside the container where the SQLite database is stored.
+  # path.value is used for the Kubernetes volume mountPath and (by default) in the app config.
+  # path.envVar: if set, the app config references ${env:VAR_NAME} instead of the literal value;
+  #   you must supply that env var (e.g. via extraEnv) resolving to the same directory.
+  path:
+    value: /var/lib/slim/channel-manager
+    envVar: ""
+
+  # Encryption passphrase — configure exactly one option (unless insecure: true).
+  encryptionPassphrase:
+    # Option 1: plain value written directly into the config (insecure, for testing only)
+    value: ""
+    # Option 2: name of an env var already present in the container (supplied via extraEnv)
+    #   → chart puts ${env:VAR_NAME} in the app config
+    envVar: ""
+    # Option 3: Kubernetes Secret — chart injects it as env var CM_PASSPHRASE
+    #   → chart puts ${env:CM_PASSPHRASE} in the app config
+    secretRef:
+      name: ""
+      key: "encryption-passphrase"
+
+  # Set true to skip encryption entirely (dev/test only — overrides encryptionPassphrase)
+  insecure: false
+
+  # When false (recommended), sessions persist across restarts.
+  # When true, sessions are fully deleted from SLIM on shutdown (original behaviour).
+  deleteSessionsOnShutdown: false
+
+  # PVC settings (ignored when existingClaim is set)
+  size: 1Gi
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  # Provide an existing PVC name to skip PVC creation
+  existingClaim: ""
+
 nodeSelector: {}
 
 tolerations: []
