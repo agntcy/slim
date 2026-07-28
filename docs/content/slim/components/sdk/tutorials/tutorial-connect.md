@@ -167,16 +167,6 @@ With the service initialised, connect to a SLIM node. The connection returns a `
     print(f"Connected, conn_id={conn_id}")
     ```
 
-    For TLS-secured connections, build the client config with certificate paths instead:
-
-    ```python
-    client_config = slim_bindings.new_client_config(
-        endpoint="https://slim.example.com:46357",
-        ca_file="/path/to/ca.pem",
-    )
-    conn_id = await service.connect_async(client_config)
-    ```
-
 === "Go"
 
     ```go
@@ -231,8 +221,11 @@ With the service initialised, connect to a SLIM node. The connection returns a `
 === ".NET"
 
     ```csharp
-    // Connect to the SLIM node — returns a connection ID used in later calls
-    var connId = Slim.Connect("http://127.0.0.1:46357");
+    // Build a client config pointing at your SLIM node
+    var config = Slim.NewInsecureClientConfig("http://127.0.0.1:46357");
+
+    // Connect — returns a connection ID used in later calls
+    var connId = service.Connect(config);
 
     Console.WriteLine($"Connected, connId={connId}");
     ```
@@ -247,8 +240,8 @@ With the service initialised, connect to a SLIM node. The connection returns a `
     console.log(`Connected, connId=${connId}`);
     ```
 
-!!! note "TLS in Production"
-    `new_insecure_client_config` skips TLS verification and is for development only. See [Authentication](../../../architecture/authentication.md) for production TLS, mTLS, and JWT options.
+!!! note "Not for production"
+    The insecure client config skips TLS verification and should not be used in production. Full client configuration options, including TLS settings, are available in the [ClientConfig API reference](https://docs.rs/agntcy-slim-bindings/2.0.0-alpha.9/slim_bindings/struct.ClientConfig.html).
 
 ## Putting It Together
 
@@ -382,7 +375,8 @@ With the service initialised, connect to a SLIM node. The connection returns a `
     Slim.Initialize();
     using var service = Slim.GetGlobalService();
 
-    var connId = Slim.Connect("http://127.0.0.1:46357");
+    var config = Slim.NewInsecureClientConfig("http://127.0.0.1:46357");
+    var connId = service.Connect(config);
 
     Console.WriteLine($"Connected, connId={connId}");
     // service and connId are passed to CreateApp in the next tutorial
@@ -407,4 +401,3 @@ With the service initialised, connect to a SLIM node. The connection returns a `
 ## Next Steps
 
 - [Creating an App](./tutorial-app.md) — Register an application identity using the `service` and `conn_id` from this tutorial
-- [Authentication](../../../architecture/authentication.md) — Secure connections with mTLS, JWT, or SPIRE

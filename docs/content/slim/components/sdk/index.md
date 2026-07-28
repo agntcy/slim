@@ -17,16 +17,27 @@ See [Installation](./install.md) for per-language package names, requirements, a
 
 The following diagram shows where the SDK sits in a SLIM deployment:
 
-```
-Your Application
-      ↓  (uses)
-SLIM SDK / Language Bindings
-  ├─ Session Layer  ← MLS encryption, reliable delivery, group management
-  └─ Data Plane Client ← connects to a SLIM Node
-                             ↓
-                       SLIM Node (Data Plane)
-                             ↓
-                       SLIM Network
+```mermaid
+graph LR
+    app["Your Application"]
+
+    subgraph sdk["SLIM SDK / Language Bindings"]
+        session["Session Layer\n(MLS encryption, reliable delivery, group management)"]
+        client["Data Plane Client"]
+        session --> client
+    end
+
+    node["SLIM Data Plane"]
+    network["SLIM Network"]
+
+    app --> session
+    client --> node
+    node --> network
+
+    style sdk fill:transparent,stroke:#888,stroke-width:2px,stroke-dasharray:4 4
+    style session fill:#4a90e2,stroke:#2e5c8a,stroke-width:2px,color:#fff
+    style client fill:#f39c12,stroke:#d68910,stroke-width:2px,color:#fff
+    style node fill:#f39c12,stroke:#d68910,stroke-width:2px,color:#fff
 ```
 
 Applications never connect to each other directly. They connect to a nearby SLIM routing node and let the SLIM network deliver messages to named endpoints. The SDK handles all the plumbing — TLS connections, name registration, session establishment, and message encryption — so your application logic stays clean.
