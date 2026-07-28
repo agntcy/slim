@@ -100,6 +100,20 @@ tasks:
           BIN: "slim"
           BIN_ARGS: "--config ./config/telemetry/server-config.yaml"
 
+  run:example:receiver:
+    desc: "Run the slim-bindings receiver example (pass ARGS for extra flags, e.g. ARGS='--slim-config /path/to/slim.yaml')"
+    cmds:
+      - cargo run {{.RELEASE}} -p agntcy-slim-bindings --example receiver -- {{.ARGS}}
+    vars:
+      ARGS: '{{.ARGS | default ""}}'
+
+  run:example:sender:
+    desc: "Run the slim-bindings sender example (pass ARGS for flags, e.g. ARGS='--local org/ns/app --shared-secret s --session-type p2p --participants org/ns/other')"
+    cmds:
+      - cargo run {{.RELEASE}} -p agntcy-slim-bindings --example sender -- {{.ARGS}}
+    vars:
+      ARGS: '{{.ARGS | default ""}}'
+
   slimctl:run:
     desc: "Run the Rust slimctl binary"
     cmds:

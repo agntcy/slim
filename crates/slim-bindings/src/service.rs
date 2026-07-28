@@ -119,6 +119,21 @@ impl From<&SlimServiceConfiguration> for ServiceConfig {
     }
 }
 
+/// The result of [`Service::create_app_from_slim_config`].
+///
+/// Bundles the ready-to-use App with the routing Name and the connection ID
+/// established to the SLIM node, so downstream consumers have everything they
+/// need for sending, subscribing to additional channels, etc.
+#[derive(uniffi::Record)]
+pub struct SlimAppHandle {
+    /// The created, connected, and subscribed App.
+    pub app: Arc<crate::app::App>,
+    /// The fully-qualified routing name (including the persisted instance UUID).
+    pub name: Arc<Name>,
+    /// Connection ID returned by the SLIM node for the active transport connection.
+    pub conn_id: u64,
+}
+
 /// Service wrapper for uniffi bindings
 #[derive(uniffi::Object)]
 pub struct Service {
@@ -431,6 +446,47 @@ impl Service {
     ) -> Result<Arc<crate::app::App>, SlimError> {
         get_runtime().block_on(self.create_app_with_secret_async(name, secret))
     }
+
+    /// Create a fully-connected App from hierarchical SLIM configuration (async version).
+    pub async fn create_app_from_slim_config_async(
+        &self,
+        config: crate::slim_node_config::SlimConfig,
+    ) -> Result<SlimAppHandle, SlimError> {
+        // Convert FFI config → core config and delegate to the service crate
+        let core_config = slim_service::node_config::SlimNodeConfig::from(config);
+
+        let handle = self
+            .inner
+            .create_app_from_slim_config(core_config)
+            .await
+            .map_err(|e| SlimError::ConfigError {
+                message: e.to_string(),
+            })?;
+
+        // Wrap the core AppHandle into the FFI App type.
+        // Use app.app_name() — the fully-qualified name with UUID assigned by the
+        // session layer — rather than handle.name which is the base name without UUID.
+        let app = Arc::new(crate::app::App::from_parts(
+            Arc::new(handle.app),
+            Arc::new(tokio::sync::RwLock::new(handle.notification_rx)),
+            self.inner.clone(),
+        ));
+        let name = app.name();
+        Ok(SlimAppHandle {
+            app,
+            name,
+            conn_id: handle.conn_id,
+        })
+    }
+
+    /// Create a fully-connected App from hierarchical SLIM configuration (blocking version).
+    #[uniffi::method]
+    pub fn create_app_from_slim_config(
+        &self,
+        config: crate::slim_node_config::SlimConfig,
+    ) -> Result<SlimAppHandle, SlimError> {
+        get_runtime().block_on(self.create_app_from_slim_config_async(config))
+    }
 }
 
 /// Internal async app creation logic (used by both service and app constructors)
@@ -466,6 +522,28 @@ pub(crate) async fn create_app_async_internal(
     // Validate token
     let _identity_token = identity_provider.get_token()?;
 
+    create_app_from_providers(
+        base_name,
+        identity_provider,
+        identity_verifier,
+        service,
+        direction,
+    )
+    .await
+}
+
+/// Create an App from already-initialized identity providers.
+///
+/// This is the shared implementation that both `create_app_async_internal` (which converts
+/// configs to providers first) and `create_app_from_slim_config_async` (which manages
+/// providers directly for caching) call.
+pub(crate) async fn create_app_from_providers(
+    base_name: SlimName,
+    identity_provider: AuthProvider,
+    identity_verifier: AuthVerifier,
+    service: Arc<SlimService>,
+    direction: crate::app::Direction,
+) -> Result<crate::app::App, SlimError> {
     // Create the app using the provided service
     let (app, rx) = service.create_app_with_direction(
         &base_name,

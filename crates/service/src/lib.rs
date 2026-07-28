@@ -41,6 +41,9 @@ pub mod service;
 #[cfg(feature = "session")]
 pub mod app;
 
+#[cfg(feature = "slim-config")]
+pub mod node_config;
+
 // Third-party crates
 pub use slim_datapath::messages::utils::SlimHeaderFlags;
 
@@ -49,3 +52,5 @@ pub use errors::ServiceError;
 #[cfg(feature = "session")]
 pub use errors::SubscriptionAckError;
 pub use service::{KIND, Service, ServiceBuilder, ServiceConfiguration};
+#[cfg(all(feature = "slim-config", feature = "session"))]
+pub use service::AppHandle;

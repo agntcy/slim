@@ -45,6 +45,28 @@ use {
     tokio::sync::mpsc,
 };
 
+// slim-config feature imports
+#[cfg(all(feature = "slim-config", feature = "session"))]
+use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+
+/// Handle returned by [`Service::create_app_from_slim_config`].
+///
+/// Bundles together the created `App`, its registered name, and the outbound
+/// connection ID so callers have everything they need to start publishing and
+/// receiving messages.
+#[cfg(all(feature = "slim-config", feature = "session"))]
+pub struct AppHandle {
+    /// The fully-initialised application instance.
+    pub app: App<AuthProvider, AuthVerifier>,
+    /// Notification receiver for incoming sessions and events.
+    pub notification_rx:
+        mpsc::Receiver<Result<slim_session::notification::Notification, slim_session::SessionError>>,
+    /// The canonical name the app is subscribed under.
+    pub name: ProtoName,
+    /// Connection ID of the outbound link to the SLIM node.
+    pub conn_id: u64,
+}
+
 // Define the kind of the component as static string
 pub const KIND: &str = "slim";
 
@@ -633,6 +655,58 @@ impl Service {
 
         // return the app instance and the rx channel
         Ok((app, rx_app))
+    }
+
+    /// Create, connect, and subscribe a new `App` using a fully-resolved [`SlimNodeConfig`].
+    ///
+    /// This is a one-call API that:
+    /// 1. Builds `AuthProvider` / `AuthVerifier` from the config's identity settings.
+    /// 2. Loads / saves Ed25519 signature keys from the cache directory.
+    /// 3. Creates the app, connects to the SLIM node, and subscribes.
+    ///
+    /// Only available when the `slim-config` and `session` Cargo features are both enabled.
+    #[cfg(all(feature = "slim-config", feature = "session"))]
+    pub async fn create_app_from_slim_config(
+        &self,
+        config: crate::node_config::SlimNodeConfig,
+    ) -> Result<AppHandle, ServiceError> {
+        let app_cfg = config.app.as_ref().ok_or(ServiceError::NoAppName)?;
+
+        let name = ProtoName::parse_name(&app_cfg.name)
+            .map_err(|e| ServiceError::InvalidConfig(format!("app.name: {e}")))?;
+
+        let identity_provider: AuthProvider = app_cfg
+            .identity
+            .build_auth_provider()
+            .map_err(|e| ServiceError::InvalidConfig(format!("identity provider: {e}")))?;
+
+        let identity_verifier: AuthVerifier = app_cfg
+            .identity_verifier
+            .build_auth_verifier()
+            .map_err(|e| ServiceError::InvalidConfig(format!("identity verifier: {e}")))?;
+
+        let persistence = config.cache_dir.as_deref().map(|dir| {
+            slim_persistence::PersistenceConfig::new(std::path::Path::new(dir).join("mls"))
+        });
+
+        let (app, notification_rx) = self.create_app_with_direction_and_persistence(
+            &name,
+            identity_provider,
+            identity_verifier,
+            Direction::Bidirectional,
+            persistence,
+        )?;
+
+        let conn_id = self.connect(&config.node).await?;
+
+        app.subscribe(&name, Some(conn_id)).await?;
+
+        Ok(AppHandle {
+            app,
+            notification_rx,
+            name,
+            conn_id,
+        })
     }
 
     #[tracing::instrument(skip_all, fields(service_id = %self.id))]
