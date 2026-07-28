@@ -40,7 +40,7 @@ For the full establishment sequence (discovery → invite → MLS setup → mess
 
 A group session enables many-to-many communication over a named channel. Every message published to the channel is delivered to all current participants. A designated **moderator** (the session creator) controls membership — only the moderator can invite new participants or remove existing ones.
 
-Unlike a point-to-point session, a group session has no discovery phase: the channel name is known in advance and all participants join the same address. When MLS is enabled, each membership change triggers a key rotation so that former members lose access to future traffic and new members cannot read past messages.
+Unlike a point-to-point session, a group session has no discovery phase for channel establishment: the channel name is known in advance and all participants join the same address. Each participant invite does involve a discovery step to locate that participant's endpoint. When MLS is enabled, each membership change triggers a key rotation so that former members lose access to future traffic and new members cannot read past messages.
 
 For the full membership lifecycle — how participants are added and removed, the protocol exchange involved, and how the moderator role works — see [Groups](./group.md).
 

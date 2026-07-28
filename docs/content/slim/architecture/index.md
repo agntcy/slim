@@ -10,12 +10,16 @@ SLIM separates message delivery from infrastructure management across three netw
 
 The three layers that carry messages between applications:
 
-```
-Applications (Python / Go / .NET / JS bindings)
-    ↓
-Session Layer (Rust) — MLS encryption, reliable delivery, group communication
-    ↓
-Data Plane (Rust) — hierarchical name-based message routing, TLS/mTLS/auth
+```mermaid
+graph LR
+    app["Applications\nRust / Python / Go / .NET / JavaScript / Java / Kotlin bindings"]
+    session["Session Layer (Rust)\nMLS encryption · reliable delivery · group communication"]
+    dataplane["Data Plane (Rust)\nhierarchical name-based message routing · TLS/mTLS/auth"]
+
+    app --> session --> dataplane
+
+    style session fill:#4a90e2,stroke:#2e5c8a,stroke-width:2px,color:#fff
+    style dataplane fill:#f39c12,stroke:#d68910,stroke-width:2px,color:#fff
 ```
 
 - **Applications and Bindings**: Your agents and services communicate through language-native bindings (Python, Go, .NET, JavaScript). The bindings expose a simple API for sending and receiving messages, establishing sessions, and managing groups without needing to deal directly with the underlying protocols.

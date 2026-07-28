@@ -4,7 +4,7 @@ SLIM uses a domain-based routing model managed by the SLIM Controller. The Contr
 
 ## Domains
 
-A **domain** is a set of SLIM data plane nodes that share a common identity — typically all nodes within a single deployment or Kubernetes cluster. Each node belongs to exactly one domain, declared in its configuration:
+A **domain** is a set of SLIM data plane nodes that operate within the same administrative domain. While this typically includes all nodes within a single deployment or Kubernetes cluster, the concept is flexible enough to encompass any logical administrative boundary. Each node belongs to exactly one domain, declared in its configuration:
 
 ```yaml
 services:
