@@ -29,7 +29,7 @@ graph LR
 The Channel Manager sits between the operator tooling (`slimctl`) and the SLIM data plane:
 
 1. **Southbound** — connects to the SLIM data plane node as a SLIM application (gRPC or WebSocket transport, same as any other app)
-2. **Northbound** — exposes a gRPC API (`ChannelManagerService`) that `slimctl channel-manager` and the standalone `cmctl` tool use to send management commands
+2. **Northbound** — exposes a gRPC API (`ChannelManagerService`) that `slimctl channel-manager` uses to send management commands
 
 The Channel Manager holds the moderator role for every channel it creates. When a participant is added or removed, it performs the full SLIM group state update and key rotation sequence on behalf of the operator.
 
@@ -37,7 +37,7 @@ The Channel Manager holds the moderator role for every channel it creates. When 
 
 **Startup channel provisioning** — channels and their initial participants can be declared in the configuration file. The Channel Manager creates them and completes all invitation handshakes automatically when it starts.
 
-**Runtime management** — after startup, channels and participants can be added or removed at any time using `slimctl channel-manager` commands or the `cmctl` standalone tool, without restarting the service.
+**Two management modes** — the Channel Manager operates in either config-mode or API-mode, mirroring the Controller's topology model. When channels are declared in the configuration file (config-mode), `slimctl channel-manager` commands are read-only. When no channels are pre-configured (API-mode), channels and participants can be created and modified at any time using `slimctl channel-manager` commands without restarting the service.
 
 **MLS encryption** — channels are created with MLS end-to-end encryption enabled by default. Each membership change triggers a key rotation, so former members cannot read future messages and new members cannot read past messages. MLS can be disabled per-channel if not required.
 

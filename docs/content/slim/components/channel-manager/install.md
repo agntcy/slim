@@ -1,8 +1,17 @@
 # SLIM Channel Manager: Installation Guide
 
-The Channel Manager is distributed as a Rust binary built from source. There is no pre-built binary or container image at this time.
+The Channel Manager is available as a pre-built Docker image or can be built from source.
 
-## Prerequisites
+## Docker
+
+```bash
+docker pull ghcr.io/agntcy/slim/channel-manager:2.0.0-alpha.7
+docker run --rm -v ./config.yaml:/config.yaml ghcr.io/agntcy/slim/channel-manager:2.0.0-alpha.7 --config-file /config.yaml
+```
+
+## Build from Source
+
+### Prerequisites
 
 - [Rust toolchain](https://rustup.rs/) (the workspace pins a specific version via `rust-toolchain.toml`)
 - The SLIM repository cloned locally

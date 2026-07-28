@@ -108,6 +108,20 @@ channel-manager:
     - name: "agntcy/ns/broadcast"
       participants: []
       mls-enabled: false
+
+  # ---------------------------------------------------------------------------
+  # persistence: optional state store so session state survives restarts.
+  # Both path and encryption-passphrase support ${ENV_VAR} and ${file:/path}
+  # substitution for secrets manager integration (Kubernetes Secret, Vault,
+  # External Secrets Operator, etc.).
+  # In production use a private directory with restrictive permissions and
+  # never store the passphrase in the config file directly.
+  # ---------------------------------------------------------------------------
+  # persistence:
+  #   path: /var/lib/channel-manager
+  #   encryption-passphrase: ${env:CM_PASSPHRASE}
+  #   insecure: false
+  #   delete-sessions-on-shutdown: false
 ```
 
 ## Configuration Sections
@@ -149,30 +163,6 @@ Channels listed here are created at startup. For each channel:
 - `mls-enabled` — whether to enable MLS end-to-end encryption for the channel (defaults to `true`)
 
 Channels can also be created and participants managed at runtime using `slimctl channel-manager` commands after the service is running.
-
-## cmctl Client Configuration
-
-The standalone `cmctl` tool accepts a `--client-config` YAML file for TLS and auth settings when connecting to the Channel Manager's gRPC API:
-
-```yaml
-endpoint: "https://channel-manager.example.com:10356"
-tls:
-  insecure: false
-  ca_file: "/path/to/ca.pem"
-auth:
-  type: static_jwt
-  token_file: "/path/to/token"
-keepalive:
-  tcp_keepalive: "60s"
-  http2_keepalive: "60s"
-  timeout: "10s"
-```
-
-Pass it with:
-
-```bash
-cmctl --client-config client-config.yaml list-channels
-```
 
 ## Related
 
