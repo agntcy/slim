@@ -36,7 +36,7 @@ uuid = { workspace = true }
 getrandom = { workspace = true }
 opentelemetry = { workspace = true, optional = true }
 # `rt-tokio` from the workspace preset is native-only; trace-only is enough here.
-opentelemetry_sdk = { version = "0.31.0", default-features = false, features = [
+opentelemetry_sdk = { version = "0.32.1", default-features = false, features = [
     "trace",
 ], optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
