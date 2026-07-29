@@ -15,6 +15,8 @@ path = "src/schema/generate_schema.rs"
 [dependencies]
 agntcy-slim-version = { workspace = true }
 cfg-if = { workspace = true }
+lazy_static = { workspace = true }
+regex = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 
@@ -33,11 +35,9 @@ http-body-util = { workspace = true }
 hyper = { workspace = true }
 hyper-rustls = { workspace = true }
 hyper-util = { workspace = true, features = ["client-proxy-system", "service"] }
-lazy_static = { workspace = true }
 parking_lot = { workspace = true }
 percent-encoding = { workspace = true }
 prost = { workspace = true }
-regex = { workspace = true }
 rustls = { workspace = true }
 rustls-native-certs = { workspace = true }
 rustls-pki-types = { workspace = true }

@@ -33,8 +33,6 @@
 //! # })
 //! ```
 
-#![cfg(not(target_arch = "wasm32"))]
-
 pub mod errors;
 pub mod service;
 
@@ -48,4 +46,6 @@ pub use slim_datapath::messages::utils::SlimHeaderFlags;
 pub use errors::ServiceError;
 #[cfg(feature = "session")]
 pub use errors::SubscriptionAckError;
-pub use service::{KIND, Service, ServiceBuilder, ServiceConfiguration};
+#[cfg(not(target_arch = "wasm32"))]
+pub use service::ServiceBuilder;
+pub use service::{KIND, Service, ServiceConfiguration};

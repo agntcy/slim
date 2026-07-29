@@ -2,11 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod configuration;
+pub mod id;
 
 cfg_if::cfg_if! {
     if #[cfg(not(target_arch = "wasm32"))] {
-        pub mod id;
-
         #[async_trait::async_trait]
         pub trait Component {
             // Error type for component operations
