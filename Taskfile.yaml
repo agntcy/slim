@@ -17,6 +17,11 @@ shopt: [globstar]
 
 vars:
   GLOBAL_ARGS: '{{.GLOBAL_ARGS | default "--workspace"}}'
+  # E2E integration tests spawn pre-built binaries; they live in `crates/testing`
+  # behind the `integration` feature. Run via `task -d crates/testing tests:integration`.
+  # The crate is excluded here so `--all-features` doesn't pull the heavy suites into
+  # the normal test run; its lib unit tests are run separately in the `test` task.
+  WORKSPACE_TEST_ARGS: '--all-targets --locked --all-features --exclude agntcy-slim-testing'
   CARGO_COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete cargo-deny typos-cli"
 
   PROFILE: '{{.PROFILE | default "debug"}}'
@@ -291,8 +296,11 @@ tasks:
     desc: "Run the tests"
     cmds:
       - ulimit -n 4096 2>/dev/null || true; cargo test {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
+      # Run agntcy-slim-testing's lib unit tests without the `integration` feature
+      # (the crate is excluded from the workspace run above to skip e2e suites).
+      - ulimit -n 4096 2>/dev/null || true; cargo test {{.RELEASE}} {{.TARGET_ARGS}} -p agntcy-slim-testing --lib --locked
     vars:
-      ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
+      ARGS: '{{.ARGS | default .WORKSPACE_TEST_ARGS}}'
 
   test:build:
     desc: "Build the tests"
@@ -301,7 +309,7 @@ tasks:
     cmds:
       - ulimit -n 4096 2>/dev/null || true; cargo test --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
     vars:
-      ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
+      ARGS: '{{.ARGS | default .WORKSPACE_TEST_ARGS}}'
 
   test:wasm:
     desc: "Run the wasm32 browser unit tests (needs wasm-bindgen-cli matching the locked wasm-bindgen version)"
@@ -340,7 +348,7 @@ tasks:
     cmds:
       - ulimit -n 4096 2>/dev/null || true; cargo llvm-cov --lcov --output-path lcov.info {{.GLOBAL_ARGS}} {{.ARGS}}
     vars:
-      ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
+      ARGS: '{{.ARGS | default .WORKSPACE_TEST_ARGS}}'
 
   coverage-full:
     desc: "Run full tests coverage"
@@ -348,6 +356,7 @@ tasks:
       - task: test:coverage
         vars:
           ARGS: "--all-targets --locked --all-features"
+      - task: core:test
 
   core:test:
     desc: "Run core end to end tests"
