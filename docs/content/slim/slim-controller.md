@@ -71,6 +71,43 @@ Example config to enable MTLS on Southbound endpoint using [Spire](https://spiff
       # - cluster-b.example.org
 ```
 
+### Enforcing Node Connection Parameters
+
+The Controller can enforce connection parameters on all nodes at registration
+time. Any field set here overrides the node's local configuration; omitted
+fields leave the node's own settings untouched.
+
+```yaml
+enforce_node_connection:
+  # Fixed-interval reconnect backoff (milliseconds).
+  # Overrides the node's local backoff when set.
+  backoff: 2000
+
+  # Connect timeout (milliseconds).
+  # Overrides the node's local connect timeout when set.
+  timeout: 5000
+
+  # Keepalive settings pushed to every connecting node.
+  keepalive:
+    tcp_keepalive: "60s"
+    http2_keepalive: "60s"
+    timeout: "10s"
+    keep_alive_while_idle: true
+```
+
+All three fields are optional. A minimal example that only enforces backoff:
+
+```yaml
+enforce_node_connection:
+  backoff: 3000
+```
+
+!!! note
+    These values are stamped onto a node's connection record at registration
+    time and persist until the node re-registers. If you change
+    `enforce_node_connection` in the CP config, existing nodes pick up the new
+    values on their next reconnect.
+
 ## slimctl
 
 `slimctl` is a unified command-line interface for managing SLIM instances and the SLIM control plane. It provides commands for:
