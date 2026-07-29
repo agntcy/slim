@@ -222,6 +222,11 @@
   {
     "version": "slim-persistence-v0.1.0",
     "title": "slim-persistence-v0.1.0",
+    "aliases": []
+  },
+  {
+    "version": "slim-mls-v0.3.0",
+    "title": "slim-mls-v0.3.0",
     "aliases": [
       "latest"
     ]
