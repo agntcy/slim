@@ -4,7 +4,7 @@
   SPDX-License-Identifier: Apache-2.0
 
   GitHub Pages site-wide 404. Deployed to the gh-pages branch root by deploy_root_files.sh.
-  Unversioned doc URLs are redirected to /slim/latest/... before this page is shown.
+  Unversioned doc URLs are redirected to /latest/... (or /slim/latest/ on github.io) before this page is shown.
 -->
 <html lang="en">
 <head>
@@ -12,7 +12,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <title>Page not found — SLIM</title>
-  <link rel="icon" href="/slim/latest/assets/agntcy/favicon.ico">
+  <link rel="icon" href="" id="slim-not-found-favicon">
   <style>
     :root {
       color-scheme: light dark;
@@ -189,54 +189,57 @@
   </style>
   <script>
     (function () {
-      const basePath = "/slim/";
       const latestVersion = "latest";
-      const homeUrl = basePath + latestVersion + "/";
       const path = window.location.pathname;
-      const redirected = sessionStorage.getItem("redirected");
 
+      // GitHub project pages live under /slim/; the custom domain serves at /.
+      const siteBase = path.startsWith("/slim/") ? "/slim/" : "/";
+      const docsBase = siteBase + latestVersion + "/";
+      const homeUrl = docsBase;
+      window.__SLIM_DOCS_BASE__ = docsBase;
+      window.__SLIM_HOME_URL__ = homeUrl;
+
+      const escapedSiteBase = siteBase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const versionPattern = new RegExp(
+        `${escapedSiteBase}(v?(\\d+\\.\\d+(\\.\\d+)?)|${latestVersion})/`
+      );
+
+      const redirected = sessionStorage.getItem("redirected");
       if (redirected) {
         sessionStorage.removeItem("redirected");
         return;
       }
 
       const isAsset = path.includes("/assets/") || path.includes("/stylesheets/");
-      const isVersioned = new RegExp(
-        `${basePath}(v?(\\d+\\.\\d+(\\.\\d+)?)|${latestVersion})/`
-      ).test(path);
+      const isVersioned = versionPattern.test(path);
 
       if (!isVersioned && !isAsset) {
-        const newPath = path.replace(basePath, basePath + latestVersion + "/");
+        const newPath = path.replace(siteBase, siteBase + latestVersion + "/");
         sessionStorage.setItem("redirected", "true");
         window.location.replace(newPath + window.location.search + window.location.hash);
         return;
       }
 
-      const status = document.getElementById("redirect-status");
-      if (status) {
-        status.hidden = false;
-        status.textContent = "Redirecting to the documentation home…";
-      }
-      window.setTimeout(function () {
-        window.location.replace(homeUrl);
-      }, 1200);
+      window.__SLIM_SHOW_REDIRECT_STATUS__ = true;
     })();
   </script>
 </head>
 <body>
   <main class="slim-not-found">
-    <a href="/slim/latest/">
+    <a href="#" id="slim-not-found-logo-link">
       <picture>
         <source
           media="(prefers-color-scheme: dark)"
-          srcset="/slim/latest/assets/agntcy/img/logo-dark.svg"
+          srcset=""
+          id="slim-not-found-logo-dark"
         >
         <img
           class="slim-not-found__logo"
-          src="/slim/latest/assets/agntcy/img/logo-light.svg"
+          src=""
           alt="SLIM"
           width="120"
           height="32"
+          id="slim-not-found-logo-light"
         >
       </picture>
     </a>
@@ -247,12 +250,54 @@
       <p>If you followed an old link, we will try to send you to the latest docs.</p>
     </div>
     <div class="slim-not-found__actions">
-      <a class="slim-not-found__btn slim-not-found__btn--primary" href="/slim/latest/">
+      <a class="slim-not-found__btn slim-not-found__btn--primary" href="#" id="slim-not-found-home-link">
         Back to home
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
       </a>
     </div>
     <p id="redirect-status" class="slim-not-found__status" hidden></p>
   </main>
+  <script>
+    (function () {
+      const docsBase = window.__SLIM_DOCS_BASE__ || "/latest/";
+      const homeUrl = window.__SLIM_HOME_URL__ || docsBase;
+
+      const favicon = document.getElementById("slim-not-found-favicon");
+      if (favicon) {
+        favicon.href = docsBase + "assets/agntcy/favicon.ico";
+      }
+
+      const logoLink = document.getElementById("slim-not-found-logo-link");
+      if (logoLink) {
+        logoLink.href = homeUrl;
+      }
+
+      const logoLight = document.getElementById("slim-not-found-logo-light");
+      if (logoLight) {
+        logoLight.src = docsBase + "assets/agntcy/img/logo-light.svg";
+      }
+
+      const logoDark = document.getElementById("slim-not-found-logo-dark");
+      if (logoDark) {
+        logoDark.srcset = docsBase + "assets/agntcy/img/logo-dark.svg";
+      }
+
+      const homeLink = document.getElementById("slim-not-found-home-link");
+      if (homeLink) {
+        homeLink.href = homeUrl;
+      }
+
+      if (window.__SLIM_SHOW_REDIRECT_STATUS__) {
+        const status = document.getElementById("redirect-status");
+        if (status) {
+          status.hidden = false;
+          status.textContent = "Redirecting to the documentation home…";
+        }
+        window.setTimeout(function () {
+          window.location.replace(homeUrl);
+        }, 1200);
+      }
+    })();
+  </script>
 </body>
 </html>
