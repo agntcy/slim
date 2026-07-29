@@ -170,14 +170,16 @@ hide:
       <div class="slimctl-terminal-side">
         <div class="slimctl-terminal-intro-group" id="slimctl-terminal-intros">
           <p class="slimctl-terminal-intro" data-intro-level="node" hidden>
-            Start a local node using the slimctl CLI. For other installation options, see
-            <a href="slim/slim-howto/#slim-node">SLIM Node in the Getting Started guide</a>.
+            Start a local node using the slimctl CLI. See the
+            <a href="slim/slim-howto/">Getting Started guide</a> for a full walkthrough,
+            or the <a href="slim/deploy/index.html">Deployment docs</a> for Docker,
+            Kubernetes, and multi-cluster options.
           </p>
           <p class="slimctl-terminal-intro" data-intro-level="message" hidden>
-            Use the SLIM language bindings to connect and send messages over SLIM.
-            See the <a href="https://github.com/agntcy/slim-bindings">slim-bindings</a>
-            repository and the
-            <a href="slim/slim-howto/#slim-bindings">SLIM Bindings installation in the Getting Started guide</a>.
+            Use the SLIM SDK to connect your app and exchange messages.
+            See the <a href="slim/components/sdk/index.html">SLIM SDK overview</a>
+            and the <a href="slim/components/sdk/tutorials/tutorial-connect.html">Tutorials</a>
+            to get up and running in Python, Go, Java, Kotlin, .NET, or Node.js.
           </p>
         </div>
         <div class="slimctl-terminal-actions">
@@ -295,7 +297,7 @@ hide:
 
 <div class="grid cards" markdown="1">
 
-- :material-book-open:{ .lg .middle } **Read the Introduction**
+- :material-book-open:{ .lg .middle } **Introduction**
 
     Understand core concepts, the messaging layer, and the controller.
 
@@ -307,31 +309,37 @@ hide:
 
     [:octicons-arrow-right-24: Getting Started](slim/slim-howto.md)
 
-- :material-file-document-outline:{ .lg .middle } **Dive into the Specification**
+- :material-layers-triple:{ .lg .middle } **Architecture**
 
-    Explore the SLIM Internet Draft and protocol definition.
+    Sessions, groups, naming, routing, and end-to-end encryption.
 
-    [:octicons-arrow-right-24: SLIM Specification](https://datatracker.ietf.org/doc/draft-mpsb-agntcy-slim/)
+    [:octicons-arrow-right-24: Architecture](slim/architecture/index.md)
+
+- :material-code-braces:{ .lg .middle } **SDK & Tutorials**
+
+    Connect, build apps, create sessions, and call SLIMRPC services.
+
+    [:octicons-arrow-right-24: SLIM SDK](slim/components/sdk/index.md)
 
 - :material-connection:{ .lg .middle } **Integrations**
 
     Run A2A, MCP, SLIMRPC, and OpenTelemetry over SLIM.
 
-    [:octicons-arrow-right-24: Integrations](slim/slim-integrations.md)
+    [:octicons-arrow-right-24: Integrations](slim/integrations/index.md)
 
-- :material-cog:{ .lg .middle } **Data Plane Config Reference**
+- :material-cloud-upload:{ .lg .middle } **Deployment**
 
-    Tune the data plane for your environment.
+    Run SLIM locally, in Docker, on Kubernetes, or across multiple clusters.
 
-    [:octicons-arrow-right-24: Configuration Reference](slim/slim-data-plane-config.md)
+    [:octicons-arrow-right-24: Deployment](slim/deploy/index.md)
 
-- :material-text-box-outline:{ .lg .middle } **Controller Config Reference**
+- :material-file-document-outline:{ .lg .middle } **Specification**
 
-    Controller API and configuration details.
+    Explore the SLIM Internet Draft and protocol definition.
 
-    [:octicons-arrow-right-24: Controller Reference](slim/slim-controller.md#controller-configuration)
+    [:octicons-arrow-right-24: SLIM Specification](https://datatracker.ietf.org/doc/draft-mpsb-agntcy-slim/)
 
-- :material-account-group:{ .lg .middle } **Join the Community**
+- :material-account-group:{ .lg .middle } **Community**
 
     Connect with maintainers and contributors across the AGNTCY project.
 
