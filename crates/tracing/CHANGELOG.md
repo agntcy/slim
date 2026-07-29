@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.9](https://github.com/agntcy/slim/compare/slim-tracing-v0.4.8...slim-tracing-v0.4.9) - 2026-07-29
+
+### Added
+
+- *(session)* encrypted MLS + session state persistence and restore ([#1820](https://github.com/agntcy/slim/pull/1820))
+
+### Other
+
+- *(deps)* bump opentelemetry_sdk from 0.31.0 to 0.32.1 ([#1912](https://github.com/agntcy/slim/pull/1912))
+
 ## [0.4.8](https://github.com/agntcy/slim/compare/slim-tracing-v0.4.7...slim-tracing-v0.4.8) - 2026-07-20
 
 ### Other

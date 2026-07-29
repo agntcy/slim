@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0](https://github.com/agntcy/slim/compare/slim-service-v0.11.6...slim-service-v0.12.0) - 2026-07-29
+
+### Added
+
+- *(slim-bindings)* browser/WASM support ([#1886](https://github.com/agntcy/slim/pull/1886))
+- increase post-quantum crypto coverage for wasm and add hybrid key exchange ([#1887](https://github.com/agntcy/slim/pull/1887))
+- *(session)* encrypted MLS + session state persistence and restore ([#1820](https://github.com/agntcy/slim/pull/1820))
+
+### Fixed
+
+- *(session)* remove record + MLS state + pool entry on close (both roles) ([#1902](https://github.com/agntcy/slim/pull/1902))
+- *(session)* process rejoin from online participant on MLS epoch mismatch ([#1893](https://github.com/agntcy/slim/pull/1893))
+
+### Other
+
+- *(session)* unify close into close() + close_with_mode(CloseMode) ([#1900](https://github.com/agntcy/slim/pull/1900))
+- rename group in domain ([#1891](https://github.com/agntcy/slim/pull/1891))
+
 ## [0.11.6](https://github.com/agntcy/slim/compare/slim-service-v0.11.5...slim-service-v0.11.6) - 2026-07-20
 
 ### Other
