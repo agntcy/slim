@@ -285,6 +285,7 @@ where
     ///
     /// Crate-internal: persistence is enabled only at the app level (the
     /// `SessionLayer` injects its shared store), never per session by callers.
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn with_kv_store(mut self, kv_store: slim_persistence::SlimKvStore) -> Self {
         self.kv_store = Some(kv_store);
         self
