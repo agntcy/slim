@@ -108,6 +108,38 @@ topology:
           neighbors: [$domain]
 ```
 
+## Node Connection Enforcement
+
+The `enforce_node_connection` key lets the Controller push connection parameters to all nodes at registration time. Any field set here overrides the node's local configuration; omitted fields leave the node's own settings untouched.
+
+```yaml
+enforce_node_connection:
+  # Fixed-interval reconnect backoff (milliseconds).
+  backoff: 2000
+
+  # Connect timeout (milliseconds).
+  timeout: 5000
+
+  # Keepalive settings pushed to every connecting node.
+  keepalive:
+    tcp_keepalive: "60s"
+    http2_keepalive: "60s"
+    timeout: "10s"
+    keep_alive_while_idle: true
+```
+
+All three fields are optional. A minimal example that only enforces backoff:
+
+```yaml
+enforce_node_connection:
+  backoff: 3000
+```
+
+!!! note
+    Values are stamped onto a node's connection record at registration time and
+    persist until the node re-registers. Nodes that are already connected pick
+    up changes on their next reconnect.
+
 ## Registration Authentication
 
 The `topology.registration_auth` field configures how data-plane nodes authenticate when registering with the controller:
