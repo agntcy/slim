@@ -134,6 +134,7 @@ impl ControllerService for SouthboundApiService {
 /// Wait for the RegisterNodeRequest with a timeout, save the node, register
 /// the stream, and return the (node ID, stream epoch). Returns empty string
 /// and epoch 0 if no register message arrived.
+#[allow(clippy::too_many_arguments)]
 async fn receive_register(
     stream: &mut Streaming<ControlMessage>,
     peer_host: &str,

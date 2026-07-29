@@ -1054,9 +1054,10 @@ mod tests {
 
     #[test]
     fn merge_server_requirements_cp_backoff_overrides_local() {
-        let local_backoff = BackoffConfig::new_exponential(100, 2, Duration::from_secs(30), 10, false);
-        let mut client = ClientConfig::with_endpoint("http://host:8080")
-            .with_backoff(local_backoff);
+        let local_backoff =
+            BackoffConfig::new_exponential(100, 2, Duration::from_secs(30), 10, false);
+        let mut client =
+            ClientConfig::with_endpoint("http://host:8080").with_backoff(local_backoff);
         let server = ServerConnectionConfig {
             endpoint: "http://host:8080".to_string(),
             backoff: Some(5000),
@@ -1072,8 +1073,8 @@ mod tests {
     #[test]
     fn merge_server_requirements_preserves_local_backoff_when_cp_none() {
         let local_backoff = BackoffConfig::new_fixed_interval(Duration::from_secs(2), usize::MAX);
-        let mut client = ClientConfig::with_endpoint("http://host:8080")
-            .with_backoff(local_backoff.clone());
+        let mut client =
+            ClientConfig::with_endpoint("http://host:8080").with_backoff(local_backoff.clone());
         let server = ServerConnectionConfig {
             endpoint: "http://host:8080".to_string(),
             backoff: None,
@@ -1123,8 +1124,7 @@ mod tests {
             timeout: Duration::from_secs(10).into(),
             keep_alive_while_idle: true,
         };
-        let mut client = ClientConfig::with_endpoint("http://host:8080")
-            .with_keepalive(local_ka);
+        let mut client = ClientConfig::with_endpoint("http://host:8080").with_keepalive(local_ka);
         let server = ServerConnectionConfig {
             endpoint: "http://host:8080".to_string(),
             keepalive: Some(cp_ka.clone()),
@@ -1142,8 +1142,8 @@ mod tests {
             timeout: Duration::from_secs(5).into(),
             keep_alive_while_idle: true,
         };
-        let mut client = ClientConfig::with_endpoint("http://host:8080")
-            .with_keepalive(local_ka.clone());
+        let mut client =
+            ClientConfig::with_endpoint("http://host:8080").with_keepalive(local_ka.clone());
         let server = ServerConnectionConfig {
             endpoint: "http://host:8080".to_string(),
             keepalive: None,

@@ -466,7 +466,7 @@ pub(crate) mod test_utils {
 
     use crate::config::AdjacencyEntry;
     use crate::config::{ReconcilerConfig, TopologyConfig};
-    use crate::db::{ConnectionDetails, model};
+    use crate::db::ConnectionDetails;
     use crate::node_transport::DefaultNodeCommandHandler;
 
     use super::RouteService;
