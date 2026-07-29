@@ -66,7 +66,7 @@ pub enum TransportChannel<G> {
 /// This struct contains the keepalive time for TCP and HTTP2,
 /// the timeout duration for the keepalive, and whether to permit
 /// keepalive without an active stream.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, JsonSchema)]
 pub struct KeepaliveConfig {
     /// The duration of the keepalive time for TCP
     #[serde(default = "default_tcp_keepalive")]
@@ -253,7 +253,7 @@ pub struct ClientConfig {
 
     /// Backoff retry configuration.
     #[cfg(not(target_arch = "wasm32"))]
-    #[serde(default)]
+    #[serde(default = "default_backoff")]
     pub backoff: BackoffConfig,
 
     /// Arbitrary user-provided metadata.
@@ -298,7 +298,7 @@ impl Default for ClientConfig {
             #[cfg(not(target_arch = "wasm32"))]
             auth: AuthenticationConfig::None,
             #[cfg(not(target_arch = "wasm32"))]
-            backoff: BackoffConfig::default(),
+            backoff: default_backoff(),
             #[cfg(not(target_arch = "wasm32"))]
             metadata: None,
             link_id: default_link_id(),
@@ -314,6 +314,10 @@ fn default_link_id() -> String {
 
 fn default_require_header_mac() -> bool {
     true
+}
+
+fn default_backoff() -> BackoffConfig {
+    BackoffConfig::new_fixed_interval(Duration::from_secs(2), usize::MAX)
 }
 
 fn default_connect_timeout() -> DurationString {
@@ -496,6 +500,9 @@ impl ClientConfig {
             self.backoff =
                 BackoffConfig::new_fixed_interval(Duration::from_millis(ms as u64), usize::MAX);
         }
+        if let Some(ka) = &server.keepalive {
+            self.keepalive = Some(ka.clone());
+        }
         Ok(())
     }
 
@@ -634,6 +641,7 @@ pub struct ServerConnectionConfig {
     pub auth_method: RequiredAuthMethod,
     pub timeout: Option<u32>,
     pub backoff: Option<u32>,
+    pub keepalive: Option<KeepaliveConfig>,
 }
 
 impl ServerConnectionConfig {
@@ -657,6 +665,7 @@ impl ServerConnectionConfig {
             auth_method,
             timeout: None,
             backoff: None,
+            keepalive: None,
         }
     }
 
@@ -668,6 +677,7 @@ impl ServerConnectionConfig {
             auth_method: RequiredAuthMethod::None,
             timeout: None,
             backoff: None,
+            keepalive: None,
         }
     }
 }
@@ -1040,6 +1050,107 @@ mod tests {
             ..Default::default()
         };
         assert!(client.merge_server_requirements(&server).is_err());
+    }
+
+    #[test]
+    fn merge_server_requirements_cp_backoff_overrides_local() {
+        let local_backoff = BackoffConfig::new_exponential(100, 2, Duration::from_secs(30), 10, false);
+        let mut client = ClientConfig::with_endpoint("http://host:8080")
+            .with_backoff(local_backoff);
+        let server = ServerConnectionConfig {
+            endpoint: "http://host:8080".to_string(),
+            backoff: Some(5000),
+            ..Default::default()
+        };
+        client.merge_server_requirements(&server).unwrap();
+        assert_eq!(
+            client.backoff,
+            BackoffConfig::new_fixed_interval(Duration::from_millis(5000), usize::MAX)
+        );
+    }
+
+    #[test]
+    fn merge_server_requirements_preserves_local_backoff_when_cp_none() {
+        let local_backoff = BackoffConfig::new_fixed_interval(Duration::from_secs(2), usize::MAX);
+        let mut client = ClientConfig::with_endpoint("http://host:8080")
+            .with_backoff(local_backoff.clone());
+        let server = ServerConnectionConfig {
+            endpoint: "http://host:8080".to_string(),
+            backoff: None,
+            ..Default::default()
+        };
+        client.merge_server_requirements(&server).unwrap();
+        assert_eq!(client.backoff, local_backoff);
+    }
+
+    #[test]
+    fn merge_server_requirements_cp_timeout_overrides_local() {
+        let mut client = ClientConfig::with_endpoint("http://host:8080")
+            .with_connect_timeout(Duration::from_secs(10));
+        let server = ServerConnectionConfig {
+            endpoint: "http://host:8080".to_string(),
+            timeout: Some(3000),
+            ..Default::default()
+        };
+        client.merge_server_requirements(&server).unwrap();
+        assert_eq!(client.connect_timeout, Duration::from_millis(3000));
+    }
+
+    #[test]
+    fn merge_server_requirements_preserves_local_timeout_when_cp_none() {
+        let mut client = ClientConfig::with_endpoint("http://host:8080")
+            .with_connect_timeout(Duration::from_secs(10));
+        let server = ServerConnectionConfig {
+            endpoint: "http://host:8080".to_string(),
+            timeout: None,
+            ..Default::default()
+        };
+        client.merge_server_requirements(&server).unwrap();
+        assert_eq!(client.connect_timeout, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn merge_server_requirements_cp_keepalive_overrides_local() {
+        let local_ka = KeepaliveConfig {
+            tcp_keepalive: Duration::from_secs(30).into(),
+            http2_keepalive: Duration::from_secs(30).into(),
+            timeout: Duration::from_secs(5).into(),
+            keep_alive_while_idle: false,
+        };
+        let cp_ka = KeepaliveConfig {
+            tcp_keepalive: Duration::from_secs(60).into(),
+            http2_keepalive: Duration::from_secs(60).into(),
+            timeout: Duration::from_secs(10).into(),
+            keep_alive_while_idle: true,
+        };
+        let mut client = ClientConfig::with_endpoint("http://host:8080")
+            .with_keepalive(local_ka);
+        let server = ServerConnectionConfig {
+            endpoint: "http://host:8080".to_string(),
+            keepalive: Some(cp_ka.clone()),
+            ..Default::default()
+        };
+        client.merge_server_requirements(&server).unwrap();
+        assert_eq!(client.keepalive, Some(cp_ka));
+    }
+
+    #[test]
+    fn merge_server_requirements_preserves_local_keepalive_when_cp_none() {
+        let local_ka = KeepaliveConfig {
+            tcp_keepalive: Duration::from_secs(30).into(),
+            http2_keepalive: Duration::from_secs(30).into(),
+            timeout: Duration::from_secs(5).into(),
+            keep_alive_while_idle: true,
+        };
+        let mut client = ClientConfig::with_endpoint("http://host:8080")
+            .with_keepalive(local_ka.clone());
+        let server = ServerConnectionConfig {
+            endpoint: "http://host:8080".to_string(),
+            keepalive: None,
+            ..Default::default()
+        };
+        client.merge_server_requirements(&server).unwrap();
+        assert_eq!(client.keepalive, Some(local_ka));
     }
 
     #[test]

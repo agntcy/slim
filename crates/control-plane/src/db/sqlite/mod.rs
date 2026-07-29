@@ -1356,10 +1356,7 @@ mod tests {
             domain_name: domain.map(|s| s.to_string()),
             conn_details: vec![ConnectionDetails {
                 endpoint: format!("{id}:8080"),
-                external_endpoint: None,
-                tls_required: false,
-                auth_method: crate::db::model::AuthMethod::None,
-                spire_trust_domain: None,
+                ..Default::default()
             }],
             created_at: SystemTime::now(),
             last_updated: SystemTime::now(),

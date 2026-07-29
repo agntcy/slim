@@ -138,8 +138,9 @@ pub(super) fn generate_config_data(
         endpoint: effective_endpoint.clone(),
         tls_required: detail.tls_required,
         auth_method,
-        backoff: Some(2000),
-        timeout: None,
+        backoff: detail.backoff,
+        timeout: detail.timeout,
+        keepalive: detail.keepalive.clone(),
     };
 
     Ok((effective_endpoint, server_config))
@@ -414,6 +415,7 @@ mod tests {
             tls_required: true,
             auth_method: AuthMethod::Spire,
             spire_trust_domain: Some("mygroup".to_string()),
+            ..Default::default()
         };
         let dest = make_node("dst", Some("mygroup"), vec![cd.clone()]);
         let (ep, config) = generate_config_data(&cd, false, &dest).unwrap();
@@ -434,7 +436,8 @@ mod tests {
             external_endpoint: Some("ext:9090".to_string()),
             tls_required: true,
             auth_method: AuthMethod::Spire,
-            spire_trust_domain: None, // no explicit trust domain
+            spire_trust_domain: None,
+            ..Default::default()
         };
         let dest = make_node("dst", Some("fallback-domain"), vec![cd.clone()]);
         let (_, config) = generate_config_data(&cd, false, &dest).unwrap();
@@ -450,10 +453,9 @@ mod tests {
     fn generate_config_data_basic_no_tls() {
         let cd = crate::db::ConnectionDetails {
             endpoint: "host:8080".to_string(),
-            external_endpoint: None,
             tls_required: false,
             auth_method: AuthMethod::Basic,
-            spire_trust_domain: None,
+            ..Default::default()
         };
         let dest = make_node("dst", None, vec![cd.clone()]);
         let (ep, config) = generate_config_data(&cd, true, &dest).unwrap();
@@ -466,10 +468,9 @@ mod tests {
     fn generate_config_data_basic_with_tls() {
         let cd = crate::db::ConnectionDetails {
             endpoint: "host:8080".to_string(),
-            external_endpoint: None,
             tls_required: true,
             auth_method: AuthMethod::Basic,
-            spire_trust_domain: None,
+            ..Default::default()
         };
         let dest = make_node("dst", None, vec![cd.clone()]);
         let (ep, config) = generate_config_data(&cd, true, &dest).unwrap();
@@ -482,10 +483,9 @@ mod tests {
     fn generate_config_data_jwt_no_tls() {
         let cd = crate::db::ConnectionDetails {
             endpoint: "host:8080".to_string(),
-            external_endpoint: None,
             tls_required: false,
             auth_method: AuthMethod::Jwt,
-            spire_trust_domain: None,
+            ..Default::default()
         };
         let dest = make_node("dst", None, vec![cd.clone()]);
         let (ep, config) = generate_config_data(&cd, true, &dest).unwrap();
@@ -498,10 +498,9 @@ mod tests {
     fn generate_config_data_jwt_with_tls() {
         let cd = crate::db::ConnectionDetails {
             endpoint: "host:8080".to_string(),
-            external_endpoint: None,
             tls_required: true,
             auth_method: AuthMethod::Jwt,
-            spire_trust_domain: None,
+            ..Default::default()
         };
         let dest = make_node("dst", None, vec![cd.clone()]);
         let (ep, config) = generate_config_data(&cd, true, &dest).unwrap();
@@ -550,5 +549,61 @@ mod tests {
 
         let unrelated = make_node("other", None, vec![make_conn_details("other:1111", None)]);
         assert!(find_reported_connection_for_dest(&reported, &unrelated).is_none());
+    }
+
+    // ── CP connection-parameter override (backoff / timeout / keepalive) ───────
+
+    #[test]
+    fn generate_config_data_propagates_backoff_from_conn_details() {
+        let cd = crate::db::ConnectionDetails {
+            endpoint: "host:8080".to_string(),
+            backoff: Some(5000),
+            ..Default::default()
+        };
+        let dest = make_node("dst", None, vec![cd.clone()]);
+        let (_, config) = generate_config_data(&cd, true, &dest).unwrap();
+        assert_eq!(config.backoff, Some(5000));
+    }
+
+    #[test]
+    fn generate_config_data_propagates_timeout_from_conn_details() {
+        let cd = crate::db::ConnectionDetails {
+            endpoint: "host:8080".to_string(),
+            timeout: Some(3000),
+            ..Default::default()
+        };
+        let dest = make_node("dst", None, vec![cd.clone()]);
+        let (_, config) = generate_config_data(&cd, true, &dest).unwrap();
+        assert_eq!(config.timeout, Some(3000));
+    }
+
+    #[test]
+    fn generate_config_data_propagates_keepalive_from_conn_details() {
+        use slim_config::client::KeepaliveConfig;
+        use std::time::Duration;
+        let ka = KeepaliveConfig {
+            tcp_keepalive: Duration::from_secs(45).into(),
+            http2_keepalive: Duration::from_secs(45).into(),
+            timeout: Duration::from_secs(8).into(),
+            keep_alive_while_idle: true,
+        };
+        let cd = crate::db::ConnectionDetails {
+            endpoint: "host:8080".to_string(),
+            keepalive: Some(ka.clone()),
+            ..Default::default()
+        };
+        let dest = make_node("dst", None, vec![cd.clone()]);
+        let (_, config) = generate_config_data(&cd, true, &dest).unwrap();
+        assert_eq!(config.keepalive, Some(ka));
+    }
+
+    #[test]
+    fn generate_config_data_none_params_when_not_configured() {
+        let cd = make_conn_details("host:8080", None);
+        let dest = make_node("dst", None, vec![cd.clone()]);
+        let (_, config) = generate_config_data(&cd, true, &dest).unwrap();
+        assert_eq!(config.backoff, None);
+        assert_eq!(config.timeout, None);
+        assert_eq!(config.keepalive, None);
     }
 }
