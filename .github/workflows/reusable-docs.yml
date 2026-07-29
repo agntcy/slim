@@ -51,9 +51,9 @@ jobs:
         if: inputs.mode == 'ci' || inputs.mode == 'deploy-dev'
         shell: bash
         run: |
-          curl -sSfL https://github.com/lycheeverse/lychee/releases/download/lychee-v0.18.1/lychee-x86_64-unknown-linux-gnu.tar.gz \
+          curl -sSfL https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-gnu.tar.gz \
             | tar xzv
-          sudo mv lychee /usr/local/bin/lychee
+          sudo mv lychee-x86_64-unknown-linux-gnu/lychee /usr/local/bin/lychee
           lychee --version
 
       - name: CI checks (build + lint)
