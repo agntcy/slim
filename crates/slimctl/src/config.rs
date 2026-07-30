@@ -51,7 +51,7 @@ pub fn resolve_config(
     let timeout_str = timeout.unwrap_or(DEFAULT_TIMEOUT);
     let timeout_dur = parse_duration(timeout_str)
         .with_context(|| format!("invalid timeout value: '{}'", timeout_str))?;
-    if timeout.is_some() || config.request_timeout.as_secs() == 0 {
+    if timeout.is_some() || config.request_timeout.as_millis() == 0 {
         config.connect_timeout = DurationString::from(timeout_dur);
         config.request_timeout = DurationString::from(timeout_dur);
     }

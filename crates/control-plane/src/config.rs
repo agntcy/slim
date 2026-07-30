@@ -8,9 +8,24 @@ use serde::Deserialize;
 use serde::de::{self, MapAccess, Visitor};
 use std::time::Duration;
 
+use slim_config::client::KeepaliveConfig;
 use slim_config::grpc::server::ServerConfig;
 use slim_config::tls::server::TlsServerConfig;
 use slim_tracing::TracingConfiguration;
+
+/// CP-enforced connection parameters applied to all nodes on registration.
+/// Any field set here overrides the node's local configuration.
+/// Omitted fields leave the node's local settings untouched.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct NodeConnectionParams {
+    /// Fixed-interval backoff to enforce (milliseconds).
+    pub backoff: Option<u32>,
+    /// Connect timeout to enforce (milliseconds).
+    pub timeout: Option<u32>,
+    /// Keepalive settings to enforce.
+    pub keepalive: Option<KeepaliveConfig>,
+}
 
 /// Top-level control-plane configuration.
 #[derive(Debug, Deserialize)]
@@ -29,6 +44,9 @@ pub struct Config {
     /// Topology and auth configuration: controls link creation, route visibility
     /// between node domains, and optional node registration authentication.
     pub topology: TopologySettings,
+    /// Optional connection parameters the CP enforces on all connecting nodes.
+    #[serde(default, rename = "enforce_node_connection")]
+    pub node_connection_params: NodeConnectionParams,
 }
 
 impl Default for Config {
@@ -48,6 +66,7 @@ impl Default for Config {
             database: DatabaseConfig::default(),
             tracing: TracingConfiguration::default(),
             topology: TopologySettings::default(),
+            node_connection_params: NodeConnectionParams::default(),
         }
     }
 }

@@ -108,6 +108,7 @@ impl ControlPlane {
             route_service.clone(),
             authenticator,
             shared_drain.clone(),
+            cfg.node_connection_params,
         );
 
         cfg.northbound

@@ -33,6 +33,7 @@ pub struct SouthboundApiService {
     route_service: RouteService,
     authenticator: DomainAuthenticator,
     drain: SharedDrain,
+    node_connection_params: crate::config::NodeConnectionParams,
 }
 
 impl SouthboundApiService {
@@ -42,6 +43,7 @@ impl SouthboundApiService {
         route_service: RouteService,
         authenticator: DomainAuthenticator,
         drain: SharedDrain,
+        node_connection_params: crate::config::NodeConnectionParams,
     ) -> Self {
         Self {
             db,
@@ -49,6 +51,7 @@ impl SouthboundApiService {
             route_service,
             authenticator,
             drain,
+            node_connection_params,
         }
     }
 }
@@ -75,6 +78,7 @@ impl ControllerService for SouthboundApiService {
         let route_service = self.route_service.clone();
         let authenticator = self.authenticator.clone();
         let drain = self.drain.lock().clone();
+        let node_connection_params = self.node_connection_params.clone();
 
         tokio::spawn(async move {
             let (registered_node_id, stream_epoch) = match receive_register(
@@ -85,6 +89,7 @@ impl ControllerService for SouthboundApiService {
                 &route_service,
                 &tx,
                 &authenticator,
+                &node_connection_params,
             )
             .await
             {
@@ -129,6 +134,7 @@ impl ControllerService for SouthboundApiService {
 /// Wait for the RegisterNodeRequest with a timeout, save the node, register
 /// the stream, and return the (node ID, stream epoch). Returns empty string
 /// and epoch 0 if no register message arrived.
+#[allow(clippy::too_many_arguments)]
 async fn receive_register(
     stream: &mut Streaming<ControlMessage>,
     peer_host: &str,
@@ -137,6 +143,7 @@ async fn receive_register(
     route_service: &RouteService,
     tx: &mpsc::UnboundedSender<Result<ControlMessage, Status>>,
     authenticator: &DomainAuthenticator,
+    node_connection_params: &crate::config::NodeConnectionParams,
 ) -> Result<(String, u64)> {
     let msg = tokio::time::timeout(Duration::from_secs(REGISTER_TIMEOUT_SECS), stream.message())
         .await
@@ -193,7 +200,13 @@ async fn receive_register(
     let conn_details: Vec<ConnectionDetails> = reg_req
         .connection_details
         .iter()
-        .map(|d| parse_conn_details(peer_host, d))
+        .map(|d| {
+            let mut cd = parse_conn_details(peer_host, d);
+            cd.backoff = node_connection_params.backoff;
+            cd.timeout = node_connection_params.timeout;
+            cd.keepalive = node_connection_params.keepalive.clone();
+            cd
+        })
         .collect();
 
     let (_, conn_details_updated) = db
@@ -451,5 +464,6 @@ fn parse_conn_details(
             ProtoAuthMethod::None => AuthMethod::None,
         },
         spire_trust_domain: detail.spire_trust_domain.clone(),
+        ..Default::default()
     }
 }

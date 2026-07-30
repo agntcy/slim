@@ -10,7 +10,7 @@ use diesel::prelude::*;
 use diesel::serialize::{self, Output, ToSql};
 use diesel::sql_types::{BigInt, Integer, Text};
 use serde::{Deserialize, Serialize};
-use slim_config::client::ServerConnectionConfig;
+use slim_config::client::{KeepaliveConfig, ServerConnectionConfig};
 
 use super::schema::{links, nodes, routes, topology_segment_links, topology_segments};
 
@@ -176,13 +176,22 @@ pub struct Node {
 }
 
 /// Per-node connection detail.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ConnectionDetails {
     pub endpoint: String,
     pub external_endpoint: Option<String>,
     pub tls_required: bool,
     pub auth_method: AuthMethod,
     pub spire_trust_domain: Option<String>,
+    /// CP enforces this backoff on connecting nodes when `Some`; `None` preserves local config.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backoff: Option<u32>,
+    /// CP enforces this connect timeout (ms) on connecting nodes when `Some`; `None` preserves local config.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u32>,
+    /// CP enforces these keepalive settings on connecting nodes when `Some`; `None` preserves local config.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keepalive: Option<KeepaliveConfig>,
 }
 
 impl std::fmt::Display for ConnectionDetails {
@@ -426,9 +435,7 @@ mod tests {
         ConnectionDetails {
             endpoint: endpoint.to_string(),
             external_endpoint: external.map(|s| s.to_string()),
-            tls_required: false,
-            auth_method: AuthMethod::None,
-            spire_trust_domain: None,
+            ..Default::default()
         }
     }
 
