@@ -1343,6 +1343,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#node-connection-enforcement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Node Connection Enforcement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#related" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4866,6 +4877,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#node-connection-enforcement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Node Connection Enforcement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#related" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5108,6 +5130,32 @@
 <span class="w">          </span><span class="nt">tls</span><span class="p">:</span>
 <span class="w">            </span><span class="nt">insecure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </code></pre></div>
+<h2 id="node-connection-enforcement">Node Connection Enforcement</h2>
+<p>The <code>enforce_node_connection</code> key lets the Controller push connection parameters to all nodes at registration time. Any field set here overrides the node's local configuration; omitted fields leave the node's own settings untouched.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">enforce_node_connection</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># Fixed-interval reconnect backoff (milliseconds).</span>
+<span class="w">  </span><span class="nt">backoff</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2000</span>
+
+<span class="w">  </span><span class="c1"># Connect timeout (milliseconds).</span>
+<span class="w">  </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5000</span>
+
+<span class="w">  </span><span class="c1"># Keepalive settings pushed to every connecting node.</span>
+<span class="w">  </span><span class="nt">keepalive</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">tcp_keepalive</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;60s&quot;</span>
+<span class="w">    </span><span class="nt">http2_keepalive</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;60s&quot;</span>
+<span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;10s&quot;</span>
+<span class="w">    </span><span class="nt">keep_alive_while_idle</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</code></pre></div>
+<p>All three fields are optional. A minimal example that only enforces backoff:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">enforce_node_connection</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">backoff</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3000</span>
+</code></pre></div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Values are stamped onto a node's connection record at registration time and
+persist until the node re-registers. Nodes that are already connected pick
+up changes on their next reconnect.</p>
+</div>
 <h2 id="related">Related</h2>
 <ul>
 <li><a href="../">SLIM Controller Overview</a></li>

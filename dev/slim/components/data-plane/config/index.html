@@ -1200,6 +1200,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#post-quantum-cryptography-enforce_pqc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Post-Quantum Cryptography (enforce_pqc)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#domain-and-controller-registration" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5562,6 +5573,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#post-quantum-cryptography-enforce_pqc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Post-Quantum Cryptography (enforce_pqc)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#domain-and-controller-registration" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6558,6 +6580,24 @@
 <span class="w">      </span><span class="nt">discovery</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">static</span>
 <span class="w">        </span><span class="nt">peers</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">...</span><span class="p p-Indicator">]</span>
+</code></pre></div>
+<h3 id="post-quantum-cryptography-enforce_pqc">Post-Quantum Cryptography (<code>enforce_pqc</code>)</h3>
+<p>The <code>enforce_pqc</code> field is a boolean that enables a deployment-wide post-quantum cryptography policy. When set to <code>true</code>, all three security layers on the node must use post-quantum algorithms:</p>
+<ul>
+<li><strong>TLS</strong> — hybrid key exchange (requires <code>tls_version: tls1.3</code>)</li>
+<li><strong>Link negotiation</strong> — hybrid KEM for the per-link HMAC session key</li>
+<li><strong>MLS</strong> — ML-KEM ciphersuite for group key agreement</li>
+</ul>
+<p>Default is <code>false</code> (disabled). Enabling it while any endpoint is configured with TLS 1.2 is a startup error.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">slim/0</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enforce_pqc</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">   </span><span class="c1"># require PQC on TLS, link negotiation, and MLS</span>
+<span class="w">    </span><span class="nt">dataplane</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">servers</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0.0.0.0:46357&quot;</span>
+<span class="w">          </span><span class="nt">tls</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">tls_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tls1.3</span><span class="w">   </span><span class="c1"># required when enforce_pqc is true</span>
+<span class="w">            </span><span class="l l-Scalar l-Scalar-Plain">...</span>
 </code></pre></div>
 <h3 id="domain-and-controller-registration">Domain and Controller Registration</h3>
 <p>The <code>domain_name</code> field assigns this node to a routing domain. Nodes in the same domain form a peer group and are managed together by the SLIM Controller. When a node registers with the Controller, it presents the credentials in <code>auth</code> to prove domain membership:</p>
