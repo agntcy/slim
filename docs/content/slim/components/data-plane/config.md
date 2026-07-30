@@ -174,6 +174,28 @@ services:
         peers: [...]
 ```
 
+### Post-Quantum Cryptography (`enforce_pqc`)
+
+The `enforce_pqc` field is a boolean that enables a deployment-wide post-quantum cryptography policy. When set to `true`, all three security layers on the node must use post-quantum algorithms:
+
+- **TLS** — hybrid key exchange (requires `tls_version: tls1.3`)
+- **Link negotiation** — hybrid KEM for the per-link HMAC session key
+- **MLS** — ML-KEM ciphersuite for group key agreement
+
+Default is `false` (disabled). Enabling it while any endpoint is configured with TLS 1.2 is a startup error.
+
+```yaml
+services:
+  slim/0:
+    enforce_pqc: true   # require PQC on TLS, link negotiation, and MLS
+    dataplane:
+      servers:
+        - endpoint: "0.0.0.0:46357"
+          tls:
+            tls_version: tls1.3   # required when enforce_pqc is true
+            ...
+```
+
 ### Domain and Controller Registration
 
 The `domain_name` field assigns this node to a routing domain. Nodes in the same domain form a peer group and are managed together by the SLIM Controller. When a node registers with the Controller, it presents the credentials in `auth` to prove domain membership:
