@@ -1,10 +1,11 @@
 # Changelog
 
-## [1.5.0](https://github.com/agntcy/slim/compare/helm-slim-v1.4.0...helm-slim-v1.5.0) (2026-07-03)
+## [2.0.0-alpha.0](https://github.com/agntcy/slim/compare/helm-slim-v1.4.0...helm-slim-v2.0.0-alpha.0) (2026-07-31)
 
 
 ### Features
 
+* update chart image to latest release ([#1917](https://github.com/agntcy/slim/issues/1917)) ([8f595c4](https://github.com/agntcy/slim/commit/8f595c4f63f9c8e2c667faca22df72729f74239e))
 * automatic peer discovery in k8s ([#1724](https://github.com/agntcy/slim/issues/1724)) ([16146d7](https://github.com/agntcy/slim/commit/16146d719f58266128236494a70af8c73fa46069))
 * update control plane and slim chart ([#1784](https://github.com/agntcy/slim/issues/1784)) ([979bb4f](https://github.com/agntcy/slim/commit/979bb4fa213acae69985755d17dcadef8e9b8461))
 
