@@ -138,29 +138,47 @@ mod handler_traits;
 mod stream_types;
 
 // All `#[uniffi::export]` impls are grouped in this module (compiled only under
-// the `uniffi` feature).
-#[cfg(feature = "uniffi")]
+// the `uniffi` feature and not in the browser build, where get_runtime and the
+// native Tokio handle are absent from agntcy-slim-bindings).
+#[cfg(all(feature = "uniffi", not(feature = "web")))]
 mod ffi;
 
 // The runtime handle for the synchronous FFI convenience wrappers is only
-// available under the `uniffi` feature (it is owned by `agntcy-slim-bindings`).
-// Native builds have no `get_runtime`: they use the ambient tokio runtime
-// (`Handle::current()`) and the async API directly.
-#[cfg(feature = "uniffi")]
+// available in native (non-web) builds; it is owned by `agntcy-slim-bindings`.
+#[cfg(all(feature = "uniffi", not(feature = "web")))]
 pub use slim_bindings::get_runtime;
 
 /// Spawn a background task on the runtime that drives streaming RPC work.
 ///
-/// Native builds spawn onto the ambient tokio runtime (the caller is always
-/// inside one). The `uniffi` build spawns onto the runtime owned by
-/// `agntcy-slim-bindings`, because FFI callers have no ambient runtime.
-#[cfg(feature = "uniffi")]
+/// The `uniffi` (non-web) build spawns onto the runtime owned by
+/// `agntcy-slim-bindings` because FFI callers have no ambient runtime.
+/// The `web` feature stub uses the ambient Tokio handle; it is only compiled
+/// so that `--all-features` builds succeed on native architectures.
+#[cfg(all(feature = "uniffi", not(feature = "web")))]
 pub(crate) fn spawn<F>(future: F) -> tokio::task::JoinHandle<F::Output>
 where
     F: std::future::Future + Send + 'static,
     F::Output: Send + 'static,
 {
     get_runtime().spawn(future)
+}
+
+// When both `uniffi` and `web` features are active (e.g. --all-features on a
+// native host), slim_bindings hides get_runtime behind not(feature="web").
+// Provide local stubs so the UniFFI blocking wrappers in stream_types.rs
+// compile; they are unreachable at runtime in this configuration.
+#[cfg(all(feature = "uniffi", feature = "web"))]
+pub(crate) fn get_runtime() -> tokio::runtime::Handle {
+    tokio::runtime::Handle::current()
+}
+
+#[cfg(all(feature = "uniffi", feature = "web"))]
+pub(crate) fn spawn<F>(future: F) -> tokio::task::JoinHandle<F::Output>
+where
+    F: std::future::Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    tokio::spawn(future)
 }
 
 pub use channel::{Channel, MessageContext, MulticastItem};
