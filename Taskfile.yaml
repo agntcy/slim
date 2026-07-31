@@ -350,11 +350,7 @@ tasks:
         vars:
           COMPONENTS: "cargo-llvm-cov"
     cmds:
-      # agntcy-slim-bindings has mutually exclusive feature combinations that
-      # break compilation under --all-features; exclude it and cover separately.
       - ulimit -n 4096 2>/dev/null || true; cargo llvm-cov --no-report {{.GLOBAL_ARGS}} {{.ARGS}} --exclude agntcy-slim-bindings
-      - ulimit -n 4096 2>/dev/null || true; cargo llvm-cov --no-report -p agntcy-slim-bindings --all-targets --locked
-      - ulimit -n 4096 2>/dev/null || true; cargo llvm-cov --no-report -p agntcy-slim-bindings --all-targets --locked --no-default-features --features web
       - ulimit -n 4096 2>/dev/null || true; cargo llvm-cov report --lcov --output-path lcov.info
     vars:
       ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
