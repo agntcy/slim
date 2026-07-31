@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.10](https://github.com/agntcy/slim/compare/slim-rpc-v2.0.0-alpha.9...slim-rpc-v2.0.0-alpha.10) - 2026-07-31
+
+### Fixed
+
+- *(coverage)* exclude agntcy-slim-rpc from workspace --all-features coverage pass ([#1924](https://github.com/agntcy/slim/pull/1924))
+
 ## [2.0.0-alpha.9](https://github.com/agntcy/slim/compare/slim-rpc-v2.0.0-alpha.8...slim-rpc-v2.0.0-alpha.9) - 2026-07-31
 
 ### Other

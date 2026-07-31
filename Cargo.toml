@@ -41,24 +41,24 @@ resolver = "2"
 
 [workspace.dependencies]
 # Local dependencies
-agntcy-slim = { path = "crates/slim", version = "2.0.0-alpha.9" }
-agntcy-slim-auth = { path = "crates/auth", version = "0.14.2" }
-agntcy-slim-bindings = { path = "crates/slim-bindings", version = "2.0.0-alpha.11" }
-agntcy-slim-config = { path = "crates/config", version = "0.14.0" }
-agntcy-slim-control-plane = { path = "crates/control-plane", version = "2.0.0-alpha.9" }
-agntcy-slim-controller = { path = "crates/controller", version = "0.12.1" }
-agntcy-slim-datapath = { path = "crates/datapath", version = "0.17.1" }
-agntcy-slim-mls = { path = "crates/mls", version = "0.3.1" }
+agntcy-slim = { path = "crates/slim", version = "2.0.0-alpha.10" }
+agntcy-slim-auth = { path = "crates/auth", version = "0.14.3" }
+agntcy-slim-bindings = { path = "crates/slim-bindings", version = "2.0.0-alpha.12" }
+agntcy-slim-config = { path = "crates/config", version = "0.14.1" }
+agntcy-slim-control-plane = { path = "crates/control-plane", version = "2.0.0-alpha.10" }
+agntcy-slim-controller = { path = "crates/controller", version = "0.12.2" }
+agntcy-slim-datapath = { path = "crates/datapath", version = "0.17.2" }
+agntcy-slim-mls = { path = "crates/mls", version = "0.3.2" }
 agntcy-slim-persistence = { path = "crates/persistence", version = "0.1.0" }
-agntcy-slim-proto = { path = "crates/proto", version = "0.5.1" }
-agntcy-slim-rpc = { path = "crates/rpc", version = "2.0.0-alpha.9" }
-agntcy-slim-service = { path = "crates/service", version = "0.12.1", default-features = false }
-agntcy-slim-session = { path = "crates/session", version = "0.7.1" }
-agntcy-slim-signal = { path = "crates/signal", version = "0.1.17" }
+agntcy-slim-proto = { path = "crates/proto", version = "0.5.2" }
+agntcy-slim-rpc = { path = "crates/rpc", version = "2.0.0-alpha.10" }
+agntcy-slim-service = { path = "crates/service", version = "0.12.2", default-features = false }
+agntcy-slim-session = { path = "crates/session", version = "0.7.2" }
+agntcy-slim-signal = { path = "crates/signal", version = "0.1.18" }
 agntcy-slim-testing = { path = "crates/testing" }
-agntcy-slim-tracing = { path = "crates/tracing", version = "0.4.10" }
-agntcy-slim-version = { path = "crates/version", version = "2.0.0-alpha.9" }
-agntcy-slimctl = { path = "crates/slimctl", version = "2.0.0-alpha.9" }
+agntcy-slim-tracing = { path = "crates/tracing", version = "0.4.11" }
+agntcy-slim-version = { path = "crates/version", version = "2.0.0-alpha.10" }
+agntcy-slimctl = { path = "crates/slimctl", version = "2.0.0-alpha.10" }
 anyhow = "1.0.103"
 
 arc-swap = "1.9.1"
@@ -230,7 +230,7 @@ x25519-dalek = { version = "2", default-features = false, features = ["static_se
 zeroize = "1.9"
 
 [workspace.package]
-version = "2.0.0-alpha.9"
+version = "2.0.0-alpha.10"
 license = "Apache-2.0"
 edition = "2024"
 repository = "https://github.com/agntcy/slim"
