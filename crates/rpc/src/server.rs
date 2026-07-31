@@ -12,9 +12,9 @@ use std::time::Duration;
 
 use futures::future::BoxFuture;
 use futures::future::join_all;
-#[cfg(not(all(feature = "uniffi", feature = "web")))]
+
 use futures::stream::Stream;
-#[cfg(not(all(feature = "uniffi", feature = "web")))]
+
 use futures::{FutureExt, StreamExt, stream};
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
@@ -35,7 +35,7 @@ use super::{
     session_wrapper::{SessionRx, SessionTx, new_session},
     stream_types::StreamSource,
 };
-#[cfg(not(all(feature = "uniffi", feature = "web")))]
+
 use super::{
     codec::{Decoder, Encoder},
     send_response_stream,
@@ -85,7 +85,7 @@ impl ServiceRegistry {
     }
 
     /// Register a unary-unary handler
-    #[cfg(not(all(feature = "uniffi", feature = "web")))]
+    
     fn register_unary_unary<F, Req, Res, Fut>(
         &mut self,
         service_name: &str,
@@ -123,7 +123,7 @@ impl ServiceRegistry {
     }
 
     /// Register a unary-stream handler
-    #[cfg(not(all(feature = "uniffi", feature = "web")))]
+    
     pub fn register_unary_stream<F, Req, Res, S, Fut>(
         &mut self,
         service_name: &str,
@@ -157,7 +157,7 @@ impl ServiceRegistry {
     }
 
     /// Register a stream-unary handler
-    #[cfg(not(all(feature = "uniffi", feature = "web")))]
+    
     pub fn register_stream_unary<F, Req, Res, Fut>(
         &mut self,
         service_name: &str,
@@ -198,7 +198,7 @@ impl ServiceRegistry {
     }
 
     /// Register a stream-stream handler
-    #[cfg(not(all(feature = "uniffi", feature = "web")))]
+    
     pub fn register_stream_stream<F, Req, Res, S, Fut>(
         &mut self,
         service_name: &str,
@@ -710,7 +710,7 @@ impl Server {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(not(all(feature = "uniffi", feature = "web")))]
+    
     pub(crate) fn register_unary_unary_internal<F, Req, Res, Fut>(
         &self,
         service_name: &str,
@@ -774,7 +774,7 @@ impl Server {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(not(all(feature = "uniffi", feature = "web")))]
+    
     pub(crate) fn register_unary_stream_internal<F, Req, Res, S, Fut>(
         &self,
         service_name: &str,
@@ -842,7 +842,7 @@ impl Server {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(not(all(feature = "uniffi", feature = "web")))]
+    
     pub(crate) fn register_stream_unary_internal<F, Req, Res, Fut>(
         &self,
         service_name: &str,
@@ -920,7 +920,7 @@ impl Server {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(not(all(feature = "uniffi", feature = "web")))]
+    
     pub(crate) fn register_stream_stream_internal<F, Req, Res, S, Fut>(
         &self,
         service_name: &str,
