@@ -78,6 +78,7 @@ impl ServiceRegistry {
     }
 
     /// Register a unary-unary handler
+    #[cfg(not(all(feature = "uniffi", feature = "web")))]
     fn register_unary_unary<F, Req, Res, Fut>(
         &mut self,
         service_name: &str,
@@ -115,6 +116,7 @@ impl ServiceRegistry {
     }
 
     /// Register a unary-stream handler
+    #[cfg(not(all(feature = "uniffi", feature = "web")))]
     pub fn register_unary_stream<F, Req, Res, S, Fut>(
         &mut self,
         service_name: &str,
@@ -148,6 +150,7 @@ impl ServiceRegistry {
     }
 
     /// Register a stream-unary handler
+    #[cfg(not(all(feature = "uniffi", feature = "web")))]
     pub fn register_stream_unary<F, Req, Res, Fut>(
         &mut self,
         service_name: &str,
@@ -188,6 +191,7 @@ impl ServiceRegistry {
     }
 
     /// Register a stream-stream handler
+    #[cfg(not(all(feature = "uniffi", feature = "web")))]
     pub fn register_stream_stream<F, Req, Res, S, Fut>(
         &mut self,
         service_name: &str,
@@ -699,6 +703,7 @@ impl Server {
     /// # Ok(())
     /// # }
     /// ```
+    #[cfg(not(all(feature = "uniffi", feature = "web")))]
     pub(crate) fn register_unary_unary_internal<F, Req, Res, Fut>(
         &self,
         service_name: &str,
@@ -762,6 +767,7 @@ impl Server {
     /// # Ok(())
     /// # }
     /// ```
+    #[cfg(not(all(feature = "uniffi", feature = "web")))]
     pub(crate) fn register_unary_stream_internal<F, Req, Res, S, Fut>(
         &self,
         service_name: &str,
@@ -829,6 +835,7 @@ impl Server {
     /// # Ok(())
     /// # }
     /// ```
+    #[cfg(not(all(feature = "uniffi", feature = "web")))]
     pub(crate) fn register_stream_unary_internal<F, Req, Res, Fut>(
         &self,
         service_name: &str,
@@ -906,6 +913,7 @@ impl Server {
     /// # Ok(())
     /// # }
     /// ```
+    #[cfg(not(all(feature = "uniffi", feature = "web")))]
     pub(crate) fn register_stream_stream_internal<F, Req, Res, S, Fut>(
         &self,
         service_name: &str,
