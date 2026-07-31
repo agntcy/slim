@@ -17,9 +17,6 @@ default = []
 # for the `App`/`Name` wrapper types exposed across the FFI boundary and emits the
 # UniFFI scaffolding. Without this feature the crate is a pure native Rust library.
 uniffi = ["dep:uniffi", "dep:agntcy-slim-bindings"]
-# Browser/wasm32 surface. Propagates the matching feature to agntcy-slim-bindings so
-# that both crates agree on whether get_runtime and the native Tokio handle exist.
-web = ["agntcy-slim-bindings?/web"]
 
 [dependencies]
 agntcy-slim-auth = { workspace = true }
