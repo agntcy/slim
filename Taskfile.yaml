@@ -300,7 +300,12 @@ tasks:
   test:
     desc: "Run the tests"
     cmds:
-      - ulimit -n 4096 2>/dev/null || true; cargo test {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}} --exclude agntcy-slim-bindings
+      # agntcy-slim-bindings and agntcy-slim-rpc have mutually exclusive feature
+      # combinations that break test compilation under --all-features.
+      - ulimit -n 4096 2>/dev/null || true; cargo test {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}} --exclude agntcy-slim-bindings --exclude agntcy-slim-rpc
+      # slim-rpc: lib-only with all features; all targets with uniffi-only
+      - ulimit -n 4096 2>/dev/null || true; cargo test -p agntcy-slim-rpc --lib --locked --all-features
+      - ulimit -n 4096 2>/dev/null || true; cargo test -p agntcy-slim-rpc --all-targets --locked --features uniffi
       - ulimit -n 4096 2>/dev/null || true; cargo test -p agntcy-slim-bindings {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} --all-targets --locked
       - ulimit -n 4096 2>/dev/null || true; cargo test -p agntcy-slim-bindings {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} --all-targets --locked --no-default-features --features web
     vars:
@@ -311,7 +316,12 @@ tasks:
     deps:
       - task: install-target
     cmds:
-      - ulimit -n 4096 2>/dev/null || true; cargo test --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}} --exclude agntcy-slim-bindings
+      # agntcy-slim-bindings and agntcy-slim-rpc have mutually exclusive feature
+      # combinations that break test compilation under --all-features.
+      - ulimit -n 4096 2>/dev/null || true; cargo test --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}} --exclude agntcy-slim-bindings --exclude agntcy-slim-rpc
+      # slim-rpc: lib-only with all features; all targets with uniffi-only
+      - ulimit -n 4096 2>/dev/null || true; cargo test -p agntcy-slim-rpc --no-run --lib --locked --all-features
+      - ulimit -n 4096 2>/dev/null || true; cargo test -p agntcy-slim-rpc --no-run --all-targets --locked --features uniffi
       - ulimit -n 4096 2>/dev/null || true; cargo test -p agntcy-slim-bindings --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} --all-targets --locked
       - ulimit -n 4096 2>/dev/null || true; cargo test -p agntcy-slim-bindings --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} --all-targets --locked --no-default-features --features web
     vars:
