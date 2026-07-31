@@ -152,14 +152,6 @@ impl App {
         &self.app
     }
 
-    /// Get a clone of the inner core SlimApp instance
-    ///
-    /// This is used internally by other bindings modules (like slimrpc) that need
-    /// to interact with the core SLIM app.
-    pub fn inner(&self) -> Arc<SlimApp<AuthProvider, AuthVerifier>> {
-        self.app.clone()
-    }
-
     /// Async constructor - Create a new App with complete creation logic
     ///
     /// This is the recommended entry point for language bindings to avoid nested block_on issues.
@@ -436,6 +428,18 @@ impl App {
         &self,
         conn_id: u64,
     ) -> Result<Vec<Arc<crate::Session>>, SlimError> {
+        // Native: route through the managed runtime so that tokio::spawn calls
+        // inside restore_sessions (e.g. Timer::start) have a live reactor even
+        // when reached from a UniFFI async context.
+        #[cfg(not(feature = "web"))]
+        let contexts = {
+            let app = self.app.clone();
+            let handle = get_runtime().spawn(async move { app.restore_sessions(conn_id).await });
+            handle.await.map_err(|e| SlimError::SessionError {
+                message: format!("restore_sessions task failed: {e}"),
+            })??
+        };
+        #[cfg(feature = "web")]
         let contexts = self.app.restore_sessions(conn_id).await?;
         Ok(contexts
             .into_iter()
@@ -662,15 +666,21 @@ impl App {
     }
 }
 
-// Non-UniFFI methods for internal use (slimrpc)
-#[cfg(not(feature = "web"))]
+// Non-UniFFI accessors used by slimrpc and other native crates.
+// These only touch `self.app` and `self.notification_rx`, which are present in
+// both the native and web builds, so they are available without a feature gate.
 impl App {
-    /// Get reference to internal app for advanced use cases (slimrpc)
+    /// Get a clone of the inner core SlimApp instance.
+    pub fn inner(&self) -> Arc<SlimApp<AuthProvider, AuthVerifier>> {
+        self.app.clone()
+    }
+
+    /// Get reference to internal app for advanced use cases (slimrpc).
     pub fn inner_app(&self) -> &Arc<SlimApp<AuthProvider, AuthVerifier>> {
         &self.app
     }
 
-    /// Get notification receiver for server use (slimrpc)
+    /// Get notification receiver for server use (slimrpc).
     pub fn notification_receiver(
         &self,
     ) -> Arc<RwLock<mpsc::Receiver<Result<Notification, SlimSessionError>>>> {

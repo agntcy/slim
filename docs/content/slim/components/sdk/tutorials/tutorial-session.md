@@ -56,8 +56,10 @@ A point-to-point session connects your application to a single remote instance. 
             session_type=slim_bindings.SessionType.POINT_TO_POINT,
             max_retries=5,
             interval=datetime.timedelta(seconds=5),
+            metadata={},
             mls_settings=slim_bindings.MlsSettings(
-                header_integrity_validation_percent=100
+                header_integrity_validation_percent=100,
+                max_seen_control_message_ids_size=None,
             ),
         )
 
@@ -251,13 +253,15 @@ A group session enables many-to-many communication on a named channel. Every mes
             session_type=slim_bindings.SessionType.GROUP,
             max_retries=5,
             interval=datetime.timedelta(seconds=5),
+            metadata={},
             mls_settings=slim_bindings.MlsSettings(
-                header_integrity_validation_percent=100
+                header_integrity_validation_percent=100,
+                max_seen_control_message_ids_size=None,
             ),
         )
 
         # Create the session on the given channel
-        session_context = app.create_session(session_config, channel_name)
+        session_context = await app.create_session_async(session_config, channel_name)
 
         # Wait until the session is ready
         await session_context.completion.wait_async()
@@ -740,7 +744,7 @@ The [slim-bindings repository](https://github.com/agntcy/slim-bindings) contains
 - [Python point-to-point example](https://github.com/agntcy/slim-bindings/blob/main/python/examples/point_to_point.py)
 - [Python group example](https://github.com/agntcy/slim-bindings/blob/main/python/examples/group.py)
 - [Go examples](https://github.com/agntcy/slim-bindings/tree/main/go/examples)
-- [Java examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples)
+- [Java examples](https://github.com/agntcy/slim-bindings/tree/main/java/examples)
 - [Kotlin examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples)
 - [Node.js examples](https://github.com/agntcy/slim-bindings/tree/main/node/examples)
 

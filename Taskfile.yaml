@@ -210,9 +210,15 @@ tasks:
     deps:
       - task: check
     cmds:
-      # agntcy-slim-bindings `native` and `web` are mutually exclusive; skip it
-      # in the workspace `--all-features` pass and lint each mode separately.
-      - cargo clippy {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}} --exclude agntcy-slim-bindings -- -D warnings
+      # agntcy-slim-bindings and agntcy-slim-rpc have mutually exclusive feature
+      # combinations (native vs web, uniffi vs uniffi+web) that break test
+      # compilation under --all-features. Exclude both from the workspace pass
+      # and lint each mode separately below.
+      - cargo clippy {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}} --exclude agntcy-slim-bindings --exclude agntcy-slim-rpc -- -D warnings
+      # slim-rpc: lib-only with all features (verifies uniffi+web lib compiles);
+      #           all targets with uniffi-only (exercises tests without web gate).
+      - cargo clippy -p agntcy-slim-rpc --lib --locked --all-features -- -D warnings
+      - cargo clippy -p agntcy-slim-rpc --all-targets --locked --features uniffi -- -D warnings
       - cargo clippy -p agntcy-slim-bindings --all-targets --locked -- -D warnings
       - cargo clippy -p agntcy-slim-bindings --all-targets --locked --no-default-features --features web -- -D warnings
     vars:
