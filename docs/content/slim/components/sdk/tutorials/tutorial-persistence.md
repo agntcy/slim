@@ -33,8 +33,8 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         let conn_id = service.connect(ClientConfig::with_endpoint("http://127.0.0.1:46357")).await?;
 
         let name = ProtoName::from_strings(["myorg", "default", "my-service"]);
-        let provider = SharedSecret::new("myorg/default/my-service", "my-shared-secret")?;
-        let verifier = SharedSecret::new("myorg/default/my-service", "my-shared-secret")?;
+        let provider = SharedSecret::new("myorg/default/my-service", "my-shared-secret-replace-in-prod")?;
+        let verifier = SharedSecret::new("myorg/default/my-service", "my-shared-secret-replace-in-prod")?;
 
         let (app, _rx) = service.create_app_with_direction_and_persistence(
             &name,
@@ -73,13 +73,13 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         )
 
         provider = slim_bindings.IdentityProviderConfig.SHARED_SECRET(
-            id=str(local_name), data="my-shared-secret"
+            id=str(local_name), data="my-shared-secret-replace-in-prod"
         )
         verifier = slim_bindings.IdentityVerifierConfig.SHARED_SECRET(
-            id=str(local_name), data="my-shared-secret"
+            id=str(local_name), data="my-shared-secret-replace-in-prod"
         )
 
-        app = await service.create_app_with_persistence_async(
+        app = service.create_app_with_persistence(
             local_name,
             provider,
             verifier,
@@ -119,11 +119,11 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         }
         provider := slim.IdentityProviderConfigSharedSecret{
             Id:   appName.String(),
-            Data: "my-shared-secret",
+            Data: "my-shared-secret-replace-in-prod",
         }
         verifier := slim.IdentityVerifierConfigSharedSecret{
             Id:   appName.String(),
-            Data: "my-shared-secret",
+            Data: "my-shared-secret-replace-in-prod",
         }
 
         app, err := slim.GetGlobalService().CreateAppWithPersistence(
@@ -163,10 +163,10 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         "change-me-in-production"
     );
     IdentityProviderConfig provider = IdentityProviderConfig.sharedSecret(
-        localName.toString(), "my-shared-secret"
+        localName.toString(), "my-shared-secret-replace-in-prod"
     );
     IdentityVerifierConfig verifier = IdentityVerifierConfig.sharedSecret(
-        localName.toString(), "my-shared-secret"
+        localName.toString(), "my-shared-secret-replace-in-prod"
     );
 
     App app = service.createAppWithPersistence(
@@ -195,10 +195,10 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         passphrase = "change-me-in-production"
     )
     val provider = IdentityProviderConfig.SharedSecret(
-        id = localName.toString(), data = "my-shared-secret"
+        id = localName.toString(), data = "my-shared-secret-replace-in-prod"
     )
     val verifier = IdentityVerifierConfig.SharedSecret(
-        id = localName.toString(), data = "my-shared-secret"
+        id = localName.toString(), data = "my-shared-secret-replace-in-prod"
     )
 
     val app = service.createAppWithPersistence(
@@ -228,8 +228,8 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         path: "./slim-state",
         passphrase: "change-me-in-production",
     };
-    const provider = { sharedSecret: { id: localName.toString(), data: "my-shared-secret" } };
-    const verifier = { sharedSecret: { id: localName.toString(), data: "my-shared-secret" } };
+    const provider = { sharedSecret: { id: localName.toString(), data: "my-shared-secret-replace-in-prod" } };
+    const verifier = { sharedSecret: { id: localName.toString(), data: "my-shared-secret-replace-in-prod" } };
 
     const app = await service.createAppWithPersistenceAsync(
         localName, provider, verifier,
@@ -256,8 +256,8 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         path: "./slim-state",
         passphrase: "change-me-in-production"
     );
-    var provider = SlimIdentityProviderConfig.SharedSecret(localName.ToString(), "my-shared-secret");
-    var verifier = SlimIdentityVerifierConfig.SharedSecret(localName.ToString(), "my-shared-secret");
+    var provider = SlimIdentityProviderConfig.SharedSecret(localName.ToString(), "my-shared-secret-replace-in-prod");
+    var verifier = SlimIdentityVerifierConfig.SharedSecret(localName.ToString(), "my-shared-secret-replace-in-prod");
 
     var app = await service.CreateAppWithPersistenceAsync(
         localName, provider, verifier,
@@ -303,14 +303,14 @@ On the next startup, create a new app using the **same name, secret, store path,
 
     ```python
     # After restart — same name, secret, path, and passphrase as before
-    app = await service.create_app_with_persistence_async(
+    app = service.create_app_with_persistence(
         local_name, provider, verifier,
         slim_bindings.Direction.BIDIRECTIONAL, persistence,
     )
     await app.subscribe_async(local_name, conn_id)
 
     # Restore all previously active sessions
-    sessions = await app.restore_sessions_async(conn_id)
+    sessions = app.restore_sessions(conn_id)
     print(f"Restored {len(sessions)} session(s)")
 
     # Each restored session is immediately usable

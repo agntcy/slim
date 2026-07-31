@@ -5,8 +5,8 @@ The Channel Manager is available as a pre-built Docker image or can be built fro
 ## Docker
 
 ```bash
-docker pull ghcr.io/agntcy/slim/channel-manager:2.0.0-alpha.7
-docker run --rm -v ./config.yaml:/config.yaml ghcr.io/agntcy/slim/channel-manager:2.0.0-alpha.7 --config-file /config.yaml
+docker pull ghcr.io/agntcy/slim/channel-manager:2.0.0-alpha.8
+docker run --rm -v ./config.yaml:/config.yaml ghcr.io/agntcy/slim/channel-manager:2.0.0-alpha.8 --config-file /config.yaml
 ```
 
 ## Build from Source
