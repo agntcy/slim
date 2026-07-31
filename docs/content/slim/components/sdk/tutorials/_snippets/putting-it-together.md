@@ -15,6 +15,8 @@
         let name = ProtoName::from_strings(["myorg", "default", "my-service"]);
         let provider = SharedSecret::new("myorg/default/my-service", "change-me-before-going-to-production")?;
         let verifier = SharedSecret::new("myorg/default/my-service", "change-me-before-going-to-production")?;
+        let provider = SharedSecret::new("myorg/default/my-service", "my-shared-secret-replace-in-prod")?;
+        let verifier = SharedSecret::new("myorg/default/my-service", "my-shared-secret-replace-in-prod")?;
 
         let (app, _rx) = service.create_app(&name, provider, verifier)?;
         app.subscribe(&name, Some(conn_id)).await?;
@@ -43,6 +45,7 @@
 
         local_name = slim_bindings.Name("myorg", "default", "my-service")
         local_app = service.create_app_with_secret(local_name, "change-me-before-going-to-production")
+        local_app = service.create_app_with_secret(local_name, "my-shared-secret-replace-in-prod")
         await local_app.subscribe_async(local_name, conn_id)
 
         print(f"App ready: {local_name}, id={local_app.id()}")
@@ -78,6 +81,7 @@
         }
 
         app, err := slim.GetGlobalService().CreateAppWithSecret(appName, "change-me-before-going-to-production")
+        app, err := slim.GetGlobalService().CreateAppWithSecret(appName, "my-shared-secret-replace-in-prod")
         if err != nil {
             log.Fatal(err)
         }
@@ -107,6 +111,7 @@
 
             Name localName = Name.fromString("myorg/default/my-service");
             App app = service.createAppWithSecret(localName, "change-me-before-going-to-production");
+            App app = service.createAppWithSecret(localName, "my-shared-secret-replace-in-prod");
             app.subscribe(app.name(), connId);
 
             System.out.println("App ready: " + localName + ", id=" + app.id());
@@ -129,6 +134,7 @@
 
         val localName = Name.fromString("myorg/default/my-service")
         val localApp = service.createAppWithSecret(localName, "change-me-before-going-to-production")
+        val localApp = service.createAppWithSecret(localName, "my-shared-secret-replace-in-prod")
         localApp.subscribeAsync(localName, connId)
 
         println("App ready: $localName, id=${localApp.id()}")
@@ -150,6 +156,7 @@
 
         const localName = new slimBindings.Name("myorg", "default", "my-service");
         const app = service.createAppWithSecret(localName, "change-me-before-going-to-production");
+        const app = service.createAppWithSecret(localName, "my-shared-secret-replace-in-prod");
         await app.subscribeAsync(localName, BigInt(connId));
 
         console.log(`App ready: ${localName}, id=${app.id()}`);
@@ -171,6 +178,7 @@
     using var localName = SlimName.Parse("myorg/default/my-service");
     using var service = Slim.GetGlobalService();
     var app = service.CreateApp(localName, "change-me-before-going-to-production");
+    var app = service.CreateApp(localName, "my-shared-secret-replace-in-prod");
     app.Subscribe(app.Name, connId);
 
     Console.WriteLine($"App ready: {app.Name}, id={app.Id}");
@@ -191,6 +199,7 @@
 
     const localName = new slimBindings.Name("myorg", "default", "my-service");
     const app = service.createAppWithSecret(localName, "change-me-before-going-to-production");
+    const app = service.createAppWithSecret(localName, "my-shared-secret-replace-in-prod");
     await app.subscribeAsync(localName, connId);
 
     console.log(`App ready: ${localName}, id=${app.id()}`);
