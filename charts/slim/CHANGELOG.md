@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/agntcy/slim/compare/helm-slim-v1.5.0...helm-slim-v1.6.0) (2026-07-31)
+
+
+### Features
+
+* update chart image to latest release ([#1917](https://github.com/agntcy/slim/issues/1917)) ([8f595c4](https://github.com/agntcy/slim/commit/8f595c4f63f9c8e2c667faca22df72729f74239e))
+
 ## [1.5.0](https://github.com/agntcy/slim/compare/helm-slim-v1.4.0...helm-slim-v1.5.0) (2026-07-03)
 
 
