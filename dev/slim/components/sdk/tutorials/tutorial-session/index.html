@@ -5141,8 +5141,10 @@
         <span class="n">session_type</span><span class="o">=</span><span class="n">slim_bindings</span><span class="o">.</span><span class="n">SessionType</span><span class="o">.</span><span class="n">POINT_TO_POINT</span><span class="p">,</span>
         <span class="n">max_retries</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
         <span class="n">interval</span><span class="o">=</span><span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span>
+        <span class="n">metadata</span><span class="o">=</span><span class="p">{},</span>
         <span class="n">mls_settings</span><span class="o">=</span><span class="n">slim_bindings</span><span class="o">.</span><span class="n">MlsSettings</span><span class="p">(</span>
-            <span class="n">header_integrity_validation_percent</span><span class="o">=</span><span class="mi">100</span>
+            <span class="n">header_integrity_validation_percent</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+            <span class="n">max_seen_control_message_ids_size</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
         <span class="p">),</span>
     <span class="p">)</span>
 
@@ -5321,13 +5323,15 @@
         <span class="n">session_type</span><span class="o">=</span><span class="n">slim_bindings</span><span class="o">.</span><span class="n">SessionType</span><span class="o">.</span><span class="n">GROUP</span><span class="p">,</span>
         <span class="n">max_retries</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
         <span class="n">interval</span><span class="o">=</span><span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span>
+        <span class="n">metadata</span><span class="o">=</span><span class="p">{},</span>
         <span class="n">mls_settings</span><span class="o">=</span><span class="n">slim_bindings</span><span class="o">.</span><span class="n">MlsSettings</span><span class="p">(</span>
-            <span class="n">header_integrity_validation_percent</span><span class="o">=</span><span class="mi">100</span>
+            <span class="n">header_integrity_validation_percent</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+            <span class="n">max_seen_control_message_ids_size</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
         <span class="p">),</span>
     <span class="p">)</span>
 
     <span class="c1"># Create the session on the given channel</span>
-    <span class="n">session_context</span> <span class="o">=</span> <span class="n">app</span><span class="o">.</span><span class="n">create_session</span><span class="p">(</span><span class="n">session_config</span><span class="p">,</span> <span class="n">channel_name</span><span class="p">)</span>
+    <span class="n">session_context</span> <span class="o">=</span> <span class="k">await</span> <span class="n">app</span><span class="o">.</span><span class="n">create_session_async</span><span class="p">(</span><span class="n">session_config</span><span class="p">,</span> <span class="n">channel_name</span><span class="p">)</span>
 
     <span class="c1"># Wait until the session is ready</span>
     <span class="k">await</span> <span class="n">session_context</span><span class="o">.</span><span class="n">completion</span><span class="o">.</span><span class="n">wait_async</span><span class="p">()</span>
@@ -5734,7 +5738,7 @@
 <li><a href="https://github.com/agntcy/slim-bindings/blob/main/python/examples/point_to_point.py">Python point-to-point example</a></li>
 <li><a href="https://github.com/agntcy/slim-bindings/blob/main/python/examples/group.py">Python group example</a></li>
 <li><a href="https://github.com/agntcy/slim-bindings/tree/main/go/examples">Go examples</a></li>
-<li><a href="https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples">Java examples</a></li>
+<li><a href="https://github.com/agntcy/slim-bindings/tree/main/java/examples">Java examples</a></li>
 <li><a href="https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples">Kotlin examples</a></li>
 <li><a href="https://github.com/agntcy/slim-bindings/tree/main/node/examples">Node.js examples</a></li>
 </ul>
