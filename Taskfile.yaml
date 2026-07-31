@@ -352,7 +352,12 @@ tasks:
         vars:
           COMPONENTS: "cargo-llvm-cov"
     cmds:
-      - ulimit -n 4096 2>/dev/null || true; cargo llvm-cov --lcov --output-path lcov.info {{.GLOBAL_ARGS}} {{.ARGS}}
+      - ulimit -n 4096 2>/dev/null || true; cargo llvm-cov --no-report {{.GLOBAL_ARGS}} {{.ARGS}} --exclude agntcy-slim-bindings --exclude agntcy-slim-rpc
+      - ulimit -n 4096 2>/dev/null || true; cargo llvm-cov --no-report -p agntcy-slim-rpc --lib --locked --all-features
+      - ulimit -n 4096 2>/dev/null || true; cargo llvm-cov --no-report -p agntcy-slim-rpc --all-targets --locked --features uniffi
+      - ulimit -n 4096 2>/dev/null || true; cargo llvm-cov --no-report -p agntcy-slim-bindings --all-targets --locked
+      - ulimit -n 4096 2>/dev/null || true; cargo llvm-cov --no-report -p agntcy-slim-bindings --all-targets --locked --no-default-features --features web
+      - ulimit -n 4096 2>/dev/null || true; cargo llvm-cov report --lcov --output-path lcov.info
     vars:
       ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
