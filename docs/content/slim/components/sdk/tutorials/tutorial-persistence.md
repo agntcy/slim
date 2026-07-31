@@ -85,7 +85,7 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
             id=str(local_name), data="my-shared-secret-replace-in-prod"
         )
 
-        app = service.create_app_with_persistence(
+        app = await service.create_app_with_persistence_async(
             local_name,
             provider,
             verifier,
@@ -326,14 +326,14 @@ On the next startup, create a new app using the **same name, secret, store path,
 
     ```python
     # After restart — same name, secret, path, and passphrase as before
-    app = service.create_app_with_persistence(
+    app = await service.create_app_with_persistence_async(
         local_name, provider, verifier,
         slim_bindings.Direction.BIDIRECTIONAL, persistence,
     )
     await app.subscribe_async(local_name, conn_id)
 
     # Restore all previously active sessions
-    sessions = app.restore_sessions(conn_id)
+    sessions = await app.restore_sessions_async(conn_id)
     print(f"Restored {len(sessions)} session(s)")
 
     # Each restored session is immediately usable
