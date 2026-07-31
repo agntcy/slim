@@ -140,6 +140,13 @@
     "aliases": []
   },
   {
+    "version": "slim-tracing-v0.4.11",
+    "title": "slim-tracing-v0.4.11",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-tracing-v0.4.8",
     "title": "slim-tracing-v0.4.8",
     "aliases": []
@@ -537,9 +544,7 @@
   {
     "version": "slim-auth-v0.14.3",
     "title": "slim-auth-v0.14.3",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-auth-v0.14.2",
