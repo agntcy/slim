@@ -436,6 +436,18 @@ impl App {
         &self,
         conn_id: u64,
     ) -> Result<Vec<Arc<crate::Session>>, SlimError> {
+        // Native: route through the managed runtime so that tokio::spawn calls
+        // inside restore_sessions (e.g. Timer::start) have a live reactor even
+        // when reached from a UniFFI async context.
+        #[cfg(not(feature = "web"))]
+        let contexts = {
+            let app = self.app.clone();
+            let handle = get_runtime().spawn(async move { app.restore_sessions(conn_id).await });
+            handle.await.map_err(|e| SlimError::SessionError {
+                message: format!("restore_sessions task failed: {e}"),
+            })??
+        };
+        #[cfg(feature = "web")]
         let contexts = self.app.restore_sessions(conn_id).await?;
         Ok(contexts
             .into_iter()
