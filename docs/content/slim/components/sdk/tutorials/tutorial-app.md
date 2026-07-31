@@ -33,8 +33,8 @@ Pass the `service` obtained from initialisation to create an app bound to a name
     let name = ProtoName::from_strings(["myorg", "default", "my-service"]);
 
     // Shared-secret identity — use a long, random value in production
-    let provider = SharedSecret::new("myorg/default/my-service", "my-shared-secret-replace-in-prod")?;
-    let verifier = SharedSecret::new("myorg/default/my-service", "my-shared-secret-replace-in-prod")?;
+    let provider = SharedSecret::new("myorg/default/my-service", "change-me-before-going-to-production")?;
+    let verifier = SharedSecret::new("myorg/default/my-service", "change-me-before-going-to-production")?;
 
     // Create the app — returns the app handle and a notification receiver
     let (app, _rx) = service.create_app(&name, provider, verifier)?;
@@ -51,7 +51,7 @@ Pass the `service` obtained from initialisation to create an app bound to a name
     local_name = slim_bindings.Name("myorg", "default", "my-service")
 
     # Create the app — registers this name with the cryptographic identity
-    local_app = service.create_app_with_secret(local_name, "my-shared-secret-replace-in-prod")
+    local_app = service.create_app_with_secret(local_name, "change-me-before-going-to-production")
 
     print(f"App created, id={local_app.id()}")
     ```
@@ -66,7 +66,7 @@ Pass the `service` obtained from initialisation to create an app bound to a name
     }
 
     // Create the app — registers this name with the cryptographic identity
-    app, err := slim.GetGlobalService().CreateAppWithSecret(appName, "my-shared-secret-replace-in-prod")
+    app, err := slim.GetGlobalService().CreateAppWithSecret(appName, "change-me-before-going-to-production")
     if err != nil {
         log.Fatal(err)
     }
@@ -82,7 +82,7 @@ Pass the `service` obtained from initialisation to create an app bound to a name
     Name localName = Name.fromString("myorg/default/my-service");
 
     // Create the app — registers this name with the cryptographic identity
-    App app = service.createAppWithSecret(localName, "my-shared-secret-replace-in-prod");
+    App app = service.createAppWithSecret(localName, "change-me-before-going-to-production");
 
     System.out.println("App created, id=" + app.id());
     ```
@@ -94,7 +94,7 @@ Pass the `service` obtained from initialisation to create an app bound to a name
     val localName = Name.fromString("myorg/default/my-service")
 
     // Create the app — registers this name with the cryptographic identity
-    val localApp = service.createAppWithSecret(localName, "my-shared-secret-replace-in-prod")
+    val localApp = service.createAppWithSecret(localName, "change-me-before-going-to-production")
 
     println("App created, id=${localApp.id()}")
     ```
@@ -106,7 +106,7 @@ Pass the `service` obtained from initialisation to create an app bound to a name
     const localName = new slimBindings.Name("myorg", "default", "my-service");
 
     // Create the app — registers this name with the cryptographic identity
-    const app = service.createAppWithSecret(localName, "my-shared-secret-replace-in-prod");
+    const app = service.createAppWithSecret(localName, "change-me-before-going-to-production");
 
     console.log(`App created, id=${app.id()}`);
     ```
@@ -119,7 +119,7 @@ Pass the `service` obtained from initialisation to create an app bound to a name
     using var localName = SlimName.Parse("myorg/default/my-service");
 
     // Create the app — service is obtained from Slim.GetGlobalService() (see previous tutorial)
-    var app = service.CreateApp(localName, "my-shared-secret-replace-in-prod");
+    var app = service.CreateApp(localName, "change-me-before-going-to-production");
 
     Console.WriteLine($"App created, id={app.Id}");
     ```
@@ -132,7 +132,7 @@ Pass the `service` obtained from initialisation to create an app bound to a name
     const localName = new slimBindings.Name("myorg", "default", "my-service");
 
     // Create the app — service is from the previous tutorial
-    const app = service.createAppWithSecret(localName, "my-shared-secret-replace-in-prod");
+    const app = service.createAppWithSecret(localName, "change-me-before-going-to-production");
 
     console.log(`App created, id=${app.id()}`);
     ```
