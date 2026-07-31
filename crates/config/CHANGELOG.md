@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0](https://github.com/agntcy/slim/compare/slim-config-v0.13.0...slim-config-v0.14.0) - 2026-07-31
+
+### Added
+
+- add control-plane side override of node connection data ([#1913](https://github.com/agntcy/slim/pull/1913))
+
 ## [0.13.0](https://github.com/agntcy/slim/compare/slim-config-v0.12.6...slim-config-v0.13.0) - 2026-07-29
 
 ### Added
