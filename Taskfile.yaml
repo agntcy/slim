@@ -210,11 +210,7 @@ tasks:
     deps:
       - task: check
     cmds:
-      # agntcy-slim-bindings has mutually exclusive feature combinations that
-      # break compilation under --all-features; exclude it and lint separately.
-      - cargo clippy {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}} --exclude agntcy-slim-bindings -- -D warnings
-      - cargo clippy -p agntcy-slim-bindings --all-targets --locked -- -D warnings
-      - cargo clippy -p agntcy-slim-bindings --all-targets --locked --no-default-features --features web -- -D warnings
+      - cargo clippy {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}} -- -D warnings
     vars:
       ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
@@ -294,11 +290,7 @@ tasks:
   test:
     desc: "Run the tests"
     cmds:
-      # agntcy-slim-bindings has mutually exclusive feature combinations that
-      # break compilation under --all-features; exclude it and test separately.
-      - ulimit -n 4096 2>/dev/null || true; cargo test {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}} --exclude agntcy-slim-bindings
-      - ulimit -n 4096 2>/dev/null || true; cargo test -p agntcy-slim-bindings {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} --all-targets --locked
-      - ulimit -n 4096 2>/dev/null || true; cargo test -p agntcy-slim-bindings {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} --all-targets --locked --no-default-features --features web
+      - ulimit -n 4096 2>/dev/null || true; cargo test {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
     vars:
       ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
@@ -307,11 +299,7 @@ tasks:
     deps:
       - task: install-target
     cmds:
-      # agntcy-slim-bindings has mutually exclusive feature combinations that
-      # break compilation under --all-features; exclude it and build separately.
-      - ulimit -n 4096 2>/dev/null || true; cargo test --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}} --exclude agntcy-slim-bindings
-      - ulimit -n 4096 2>/dev/null || true; cargo test -p agntcy-slim-bindings --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} --all-targets --locked
-      - ulimit -n 4096 2>/dev/null || true; cargo test -p agntcy-slim-bindings --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} --all-targets --locked --no-default-features --features web
+      - ulimit -n 4096 2>/dev/null || true; cargo test --no-run {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
     vars:
       ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
 
@@ -350,7 +338,7 @@ tasks:
         vars:
           COMPONENTS: "cargo-llvm-cov"
     cmds:
-      - ulimit -n 4096 2>/dev/null || true; cargo llvm-cov --no-report {{.GLOBAL_ARGS}} {{.ARGS}} --exclude agntcy-slim-bindings
+      - ulimit -n 4096 2>/dev/null || true; cargo llvm-cov --no-report {{.GLOBAL_ARGS}} {{.ARGS}}
       - ulimit -n 4096 2>/dev/null || true; cargo llvm-cov report --lcov --output-path lcov.info
     vars:
       ARGS: '{{.ARGS | default "--all-targets --locked --all-features"}}'
