@@ -35,8 +35,6 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         let name = ProtoName::from_strings(["myorg", "default", "my-service"]);
         let provider = SharedSecret::new("myorg/default/my-service", "change-me-before-going-to-production")?;
         let verifier = SharedSecret::new("myorg/default/my-service", "change-me-before-going-to-production")?;
-        let provider = SharedSecret::new("myorg/default/my-service", "my-shared-secret-replace-in-prod")?;
-        let verifier = SharedSecret::new("myorg/default/my-service", "my-shared-secret-replace-in-prod")?;
 
         let (app, _rx) = service.create_app_with_direction_and_persistence(
             &name,
@@ -79,10 +77,6 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         )
         verifier = slim_bindings.IdentityVerifierConfig.SHARED_SECRET(
             id=str(local_name), data="change-me-before-going-to-production"
-            id=str(local_name), data="my-shared-secret-replace-in-prod"
-        )
-        verifier = slim_bindings.IdentityVerifierConfig.SHARED_SECRET(
-            id=str(local_name), data="my-shared-secret-replace-in-prod"
         )
 
         app = await service.create_app_with_persistence_async(
@@ -130,11 +124,6 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         verifier := slim.IdentityVerifierConfigSharedSecret{
             Id:   appName.String(),
             Data: "change-me-before-going-to-production",
-            Data: "my-shared-secret-replace-in-prod",
-        }
-        verifier := slim.IdentityVerifierConfigSharedSecret{
-            Id:   appName.String(),
-            Data: "my-shared-secret-replace-in-prod",
         }
 
         app, err := slim.GetGlobalService().CreateAppWithPersistence(
@@ -178,10 +167,6 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
     );
     IdentityVerifierConfig verifier = IdentityVerifierConfig.sharedSecret(
         localName.toString(), "change-me-before-going-to-production"
-        localName.toString(), "my-shared-secret-replace-in-prod"
-    );
-    IdentityVerifierConfig verifier = IdentityVerifierConfig.sharedSecret(
-        localName.toString(), "my-shared-secret-replace-in-prod"
     );
 
     App app = service.createAppWithPersistence(
@@ -214,10 +199,6 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
     )
     val verifier = IdentityVerifierConfig.SharedSecret(
         id = localName.toString(), data = "change-me-before-going-to-production"
-        id = localName.toString(), data = "my-shared-secret-replace-in-prod"
-    )
-    val verifier = IdentityVerifierConfig.SharedSecret(
-        id = localName.toString(), data = "my-shared-secret-replace-in-prod"
     )
 
     val app = service.createAppWithPersistence(
@@ -249,8 +230,6 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
     };
     const provider = { sharedSecret: { id: localName.toString(), data: "change-me-before-going-to-production" } };
     const verifier = { sharedSecret: { id: localName.toString(), data: "change-me-before-going-to-production" } };
-    const provider = { sharedSecret: { id: localName.toString(), data: "my-shared-secret-replace-in-prod" } };
-    const verifier = { sharedSecret: { id: localName.toString(), data: "my-shared-secret-replace-in-prod" } };
 
     const app = await service.createAppWithPersistenceAsync(
         localName, provider, verifier,
@@ -279,8 +258,6 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
     );
     var provider = SlimIdentityProviderConfig.SharedSecret(localName.ToString(), "change-me-before-going-to-production");
     var verifier = SlimIdentityVerifierConfig.SharedSecret(localName.ToString(), "change-me-before-going-to-production");
-    var provider = SlimIdentityProviderConfig.SharedSecret(localName.ToString(), "my-shared-secret-replace-in-prod");
-    var verifier = SlimIdentityVerifierConfig.SharedSecret(localName.ToString(), "my-shared-secret-replace-in-prod");
 
     var app = await service.CreateAppWithPersistenceAsync(
         localName, provider, verifier,

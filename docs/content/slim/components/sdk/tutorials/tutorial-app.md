@@ -35,8 +35,6 @@ Pass the `service` obtained from initialisation to create an app bound to a name
     // Shared-secret identity — use a long, random value in production
     let provider = SharedSecret::new("myorg/default/my-service", "change-me-before-going-to-production")?;
     let verifier = SharedSecret::new("myorg/default/my-service", "change-me-before-going-to-production")?;
-    let provider = SharedSecret::new("myorg/default/my-service", "my-shared-secret-replace-in-prod")?;
-    let verifier = SharedSecret::new("myorg/default/my-service", "my-shared-secret-replace-in-prod")?;
 
     // Create the app — returns the app handle and a notification receiver
     let (app, _rx) = service.create_app(&name, provider, verifier)?;
@@ -54,7 +52,6 @@ Pass the `service` obtained from initialisation to create an app bound to a name
 
     # Create the app — registers this name with the cryptographic identity
     local_app = service.create_app_with_secret(local_name, "change-me-before-going-to-production")
-    local_app = service.create_app_with_secret(local_name, "my-shared-secret-replace-in-prod")
 
     print(f"App created, id={local_app.id()}")
     ```
@@ -70,7 +67,6 @@ Pass the `service` obtained from initialisation to create an app bound to a name
 
     // Create the app — registers this name with the cryptographic identity
     app, err := slim.GetGlobalService().CreateAppWithSecret(appName, "change-me-before-going-to-production")
-    app, err := slim.GetGlobalService().CreateAppWithSecret(appName, "my-shared-secret-replace-in-prod")
     if err != nil {
         log.Fatal(err)
     }
@@ -87,7 +83,6 @@ Pass the `service` obtained from initialisation to create an app bound to a name
 
     // Create the app — registers this name with the cryptographic identity
     App app = service.createAppWithSecret(localName, "change-me-before-going-to-production");
-    App app = service.createAppWithSecret(localName, "my-shared-secret-replace-in-prod");
 
     System.out.println("App created, id=" + app.id());
     ```
@@ -100,7 +95,6 @@ Pass the `service` obtained from initialisation to create an app bound to a name
 
     // Create the app — registers this name with the cryptographic identity
     val localApp = service.createAppWithSecret(localName, "change-me-before-going-to-production")
-    val localApp = service.createAppWithSecret(localName, "my-shared-secret-replace-in-prod")
 
     println("App created, id=${localApp.id()}")
     ```
@@ -113,7 +107,6 @@ Pass the `service` obtained from initialisation to create an app bound to a name
 
     // Create the app — registers this name with the cryptographic identity
     const app = service.createAppWithSecret(localName, "change-me-before-going-to-production");
-    const app = service.createAppWithSecret(localName, "my-shared-secret-replace-in-prod");
 
     console.log(`App created, id=${app.id()}`);
     ```
@@ -127,7 +120,6 @@ Pass the `service` obtained from initialisation to create an app bound to a name
 
     // Create the app — service is obtained from Slim.GetGlobalService() (see previous tutorial)
     var app = service.CreateApp(localName, "change-me-before-going-to-production");
-    var app = service.CreateApp(localName, "my-shared-secret-replace-in-prod");
 
     Console.WriteLine($"App created, id={app.Id}");
     ```
@@ -141,7 +133,6 @@ Pass the `service` obtained from initialisation to create an app bound to a name
 
     // Create the app — service is from the previous tutorial
     const app = service.createAppWithSecret(localName, "change-me-before-going-to-production");
-    const app = service.createAppWithSecret(localName, "my-shared-secret-replace-in-prod");
 
     console.log(`App created, id=${app.id()}`);
     ```
