@@ -139,6 +139,25 @@ Create a `buf.gen.yaml` to generate SLIMRPC stubs alongside the standard protobu
 
     Kotlin uses the same Java generator. The generated `TestSlimrpc.java` is fully usable from Kotlin.
 
+=== "Node.js"
+
+    ```yaml
+    # buf.gen.yaml
+    version: v2
+    managed:
+      enabled: true
+    plugins:
+      - local: protoc-gen-slimrpc-node
+        out: types
+      - remote: buf.build/bufbuild/es:v2.12.1
+        out: types
+        opt:
+          - target=ts
+          - import_extension=js
+    ```
+
+    This generates `types/example_pb.ts` (protobuf-es message types) and `types/example_slimrpc.ts` containing `TestServicer`, `registerTestServicer`, `TestClient`, and `TestGroupClient`.
+
 === ".NET"
 
     ```yaml
@@ -465,6 +484,51 @@ Implement each RPC method defined in your proto. Extend the generated base class
     }
     ```
 
+=== "Node.js"
+
+    ```typescript
+    import type { ContextLike } from '@agntcy/slim-bindings';
+    import { create } from '@bufbuild/protobuf';
+    import { ExampleResponseSchema, type ExampleRequest, type ExampleResponse } from './types/example_pb.js';
+    import { registerTestServicer, type TestServicer } from './types/example_slimrpc.js';
+
+    class TestService implements TestServicer {
+        async ExampleUnaryUnary(request: ExampleRequest, context: ContextLike): Promise<ExampleResponse> {
+            return create(ExampleResponseSchema, {
+                exampleString: `hello ${request.exampleString}`,
+                exampleInteger: request.exampleInteger + 1n,
+            });
+        }
+
+        async *ExampleUnaryStream(request: ExampleRequest, context: ContextLike): AsyncIterable<ExampleResponse> {
+            for (let i = 0; i < 5; i++) {
+                yield create(ExampleResponseSchema, {
+                    exampleString: `hello ${request.exampleString} ${i}`,
+                    exampleInteger: request.exampleInteger + BigInt(i),
+                });
+            }
+        }
+
+        async ExampleStreamUnary(requests: AsyncIterable<ExampleRequest>, context: ContextLike): Promise<ExampleResponse> {
+            let count = 0n;
+            for await (const _ of requests) { count++; }
+            return create(ExampleResponseSchema, {
+                exampleString: `received ${count} requests`,
+                exampleInteger: count,
+            });
+        }
+
+        async *ExampleStreamStream(requests: AsyncIterable<ExampleRequest>, context: ContextLike): AsyncIterable<ExampleResponse> {
+            for await (const req of requests) {
+                yield create(ExampleResponseSchema, {
+                    exampleString: `echo: ${req.exampleString}`,
+                    exampleInteger: req.exampleInteger,
+                });
+            }
+        }
+    }
+    ```
+
 === ".NET"
 
     ```csharp
@@ -653,6 +717,19 @@ Create a SLIMRPC server, register your implementation, and start serving. The se
     runBlocking { rpcServer.serve() }
     ```
 
+=== "Node.js"
+
+    ```typescript
+    import slimBindings from '@agntcy/slim-bindings';
+
+    // app, localName, and connId come from the prerequisite tutorials
+    const rpcServer = slimBindings.Server.newWithConnection(app, localName, connId);
+    registerTestServicer(rpcServer, new TestService());
+
+    console.log('Serving...');
+    await rpcServer.serveAsync();
+    ```
+
 === ".NET"
 
     ```csharp
@@ -674,6 +751,7 @@ Complete server examples for each language:
 - [Python server example](https://github.com/agntcy/slim-bindings/blob/main/python/examples/slimrpc/simple/server.py)
 - [Go server example](https://github.com/agntcy/slim-bindings/blob/main/go/examples/slimrpc/simple/cmd/server/server.go)
 - [Java/Kotlin server example](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples/slimrpc/simple)
+- [Node.js server example](https://github.com/agntcy/slim-bindings/blob/main/node/examples/slimrpc/simple/server.ts)
 - [.NET server example](https://github.com/agntcy/slim-bindings/tree/main/dotnet/Slim.Examples.SlimRpc)
 
 ## Next Steps

@@ -102,6 +102,20 @@ A group channel wraps a SLIM group session that spans all the servers you want t
     val client = TestSlimrpc.TestGroupClientImpl(channel)
     ```
 
+=== "Node.js"
+
+    ```typescript
+    import slimBindings from '@agntcy/slim-bindings';
+    import { TestGroupClient } from './types/example_slimrpc.js';
+
+    const serverNames = [
+        new slimBindings.Name('myorg', 'default', 'server-1'),
+        new slimBindings.Name('myorg', 'default', 'server-2'),
+    ];
+    const channel = slimBindings.Channel.newGroupWithConnection(app, serverNames, connId);
+    const client = new TestGroupClient(channel);
+    ```
+
 === ".NET"
 
     ```csharp
@@ -245,6 +259,19 @@ Each response item carries both the response payload and the context identifying
     }
     ```
 
+=== "Node.js"
+
+    ```typescript
+    import { create } from '@bufbuild/protobuf';
+    import { ExampleRequestSchema } from './types/example_pb.js';
+
+    const request = create(ExampleRequestSchema, { exampleString: 'world', exampleInteger: 42n });
+
+    for await (const { context, response } of client.ExampleUnaryUnary(request, 5000)) {
+        console.log(`Response from ${context.source}: ${response.exampleString}`);
+    }
+    ```
+
 === ".NET"
 
     ```csharp
@@ -263,6 +290,7 @@ Each response item carries both the response payload and the context identifying
 - [Python group client example](https://github.com/agntcy/slim-bindings/blob/main/python/examples/slimrpc/simple/client_group.py)
 - [Go group client example](https://github.com/agntcy/slim-bindings/blob/main/go/examples/slimrpc/simple/cmd/client_group/client_group.go)
 - [Java/Kotlin group client example](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples/slimrpc/simple)
+- [Node.js group client example](https://github.com/agntcy/slim-bindings/blob/main/node/examples/slimrpc/simple/client_group.ts)
 - [.NET group client example](https://github.com/agntcy/slim-bindings/tree/main/dotnet/Slim.Examples.SlimRpc)
 
 ## Next Steps

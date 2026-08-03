@@ -73,6 +73,17 @@ A SLIMRPC channel wraps the SLIM session layer. Pass it the remote server's SLIM
     val client = TestSlimrpc.TestClientImpl(channel)
     ```
 
+=== "Node.js"
+
+    ```typescript
+    import slimBindings from '@agntcy/slim-bindings';
+    import { TestClient } from './types/example_slimrpc.js';
+
+    // app, connId, and remoteName come from the prerequisite tutorials
+    const channel = slimBindings.Channel.newWithConnection(app, remoteName, connId);
+    const client = new TestClient(channel);
+    ```
+
 === ".NET"
 
     ```csharp
@@ -166,6 +177,17 @@ Send a single request and receive a single response.
     println("Response: ${response.exampleString} ${response.exampleInteger}")
     ```
 
+=== "Node.js"
+
+    ```typescript
+    import { create } from '@bufbuild/protobuf';
+    import { ExampleRequestSchema } from './types/example_pb.js';
+
+    const request = create(ExampleRequestSchema, { exampleString: 'world', exampleInteger: 42n });
+    const response = await client.ExampleUnaryUnary(request, 5000);
+    console.log('Response:', response.exampleString, response.exampleInteger);
+    ```
+
 === ".NET"
 
     ```csharp
@@ -249,6 +271,14 @@ Send a single request and iterate over a stream of responses from the server.
     while (true) {
         val resp = stream.recv() ?: break
         println("Stream response: ${resp.exampleString} ${resp.exampleInteger}")
+    }
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    for await (const resp of client.ExampleUnaryStream(request, 5000)) {
+        console.log('Stream response:', resp.exampleString, resp.exampleInteger);
     }
     ```
 
@@ -349,6 +379,19 @@ Stream a sequence of requests to the server and receive a single response.
     }
     val response = stream.finalizeStream()
     println("Response: ${response.exampleString} ${response.exampleInteger}")
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    async function* streamRequests() {
+        for (let i = 0; i < 5; i++) {
+            yield create(ExampleRequestSchema, { exampleString: `req_${i}`, exampleInteger: BigInt(i) });
+        }
+    }
+
+    const response = await client.ExampleStreamUnary(streamRequests(), 5000);
+    console.log('Response:', response.exampleString, response.exampleInteger);
     ```
 
 === ".NET"
@@ -494,6 +537,14 @@ Stream requests to the server and receive a stream of responses simultaneously.
     }
     ```
 
+=== "Node.js"
+
+    ```typescript
+    for await (const resp of client.ExampleStreamStream(streamRequests(), 5000)) {
+        console.log('Stream response:', resp.exampleString, resp.exampleInteger);
+    }
+    ```
+
 === ".NET"
 
     ```csharp
@@ -537,6 +588,12 @@ When finished, close the channel to release the underlying SLIM session.
     channel.close()
     ```
 
+=== "Node.js"
+
+    ```typescript
+    await channel.closeAsync(undefined);
+    ```
+
 === ".NET"
 
     ```csharp
@@ -550,6 +607,7 @@ Complete client examples for each language:
 - [Python client example](https://github.com/agntcy/slim-bindings/blob/main/python/examples/slimrpc/simple/client.py)
 - [Go client example](https://github.com/agntcy/slim-bindings/blob/main/go/examples/slimrpc/simple/cmd/client/client.go)
 - [Java/Kotlin client example](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples/slimrpc/simple)
+- [Node.js client example](https://github.com/agntcy/slim-bindings/blob/main/node/examples/slimrpc/simple/client.ts)
 - [.NET client example](https://github.com/agntcy/slim-bindings/tree/main/dotnet/Slim.Examples.SlimRpc)
 
 ## Next Steps
