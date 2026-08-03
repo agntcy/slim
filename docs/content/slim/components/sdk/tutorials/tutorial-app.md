@@ -72,7 +72,7 @@ Pass the `service` obtained from initialisation to create an app bound to a name
     }
     defer app.Destroy()
 
-    fmt.Printf("App created, id=%d\n", app.Id())
+    fmt.Printf("App created, id=%s\n", app.Id())
     ```
 
 === "Java"

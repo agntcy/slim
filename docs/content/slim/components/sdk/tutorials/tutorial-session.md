@@ -81,10 +81,10 @@ A point-to-point session connects your application to a single remote instance. 
         "fmt"
         "log"
 
-        slim "github.com/agntcy/slim-bindings-go"
+        slim "github.com/agntcy/slim-bindings-go/v2"
     )
 
-    func runClient(app *slim.App, remoteName slim.Name) *slim.Session {
+    func runClient(app *slim.App, remoteName *slim.Name) *slim.Session {
         config := slim.SessionConfig{
             SessionType: slim.SessionTypePointToPoint,
             MlsSettings: &slim.MlsSettings{
@@ -274,7 +274,7 @@ A group session enables many-to-many communication on a named channel. Every mes
 === "Go"
 
     ```go
-    func createGroupSession(app *slim.App, channelName slim.Name) *slim.Session {
+    func createGroupSession(app *slim.App, channelName *slim.Name) *slim.Session {
         config := slim.SessionConfig{
             SessionType: slim.SessionTypeGroup,
             MlsSettings: &slim.MlsSettings{
@@ -427,7 +427,7 @@ The session creator acts as a moderator and can invite other applications to joi
 === "Go"
 
     ```go
-    func inviteParticipant(app *slim.App, session *slim.Session, name slim.Name, connID slim.ConnID) error {
+    func inviteParticipant(app *slim.App, session *slim.Session, name *slim.Name, connID uint64) error {
         // Set the route to the participant first
         if err := app.SetRouteAsync(name, connID); err != nil {
             return err

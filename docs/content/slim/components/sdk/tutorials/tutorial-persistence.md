@@ -98,7 +98,7 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         "fmt"
         "log"
 
-        slim "github.com/agntcy/slim-bindings-go"
+        slim "github.com/agntcy/slim-bindings-go/v2"
     )
 
     func main() {

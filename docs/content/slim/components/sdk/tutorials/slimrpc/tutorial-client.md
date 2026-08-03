@@ -42,12 +42,12 @@ A SLIMRPC channel wraps the SLIM session layer. Pass it the remote server's SLIM
 
     ```go
     import (
-        slim "github.com/agntcy/slim-bindings-go"
+        slim_rpc "github.com/agntcy/slim-bindings-go/v2/slim_rpc"
         pb "example/types"
     )
 
     // app, connId, and remoteName come from the prerequisite tutorials
-    channel := slim.ChannelNewWithConnection(app, remoteName, &connId)
+    channel := slim_rpc.ChannelNewWithConnection(app, remoteName, &connId)
     client := pb.NewTestClient(channel)
     ```
 
@@ -470,7 +470,7 @@ When finished, close the channel to release the underlying SLIM session.
 === "Go"
 
     ```go
-    channel.Close()
+    channel.CloseBlocking(nil)
     ```
 
 === "Java"

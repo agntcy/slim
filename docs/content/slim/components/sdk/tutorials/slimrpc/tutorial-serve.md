@@ -246,7 +246,7 @@ Implement each RPC method defined in your proto. Extend the generated base class
         "io"
 
         pb "example/types"
-        "github.com/agntcy/slim-bindings-go/slimrpc"
+        slim_rpc "github.com/agntcy/slim-bindings-go/v2/slim_rpc"
     )
 
     type TestServiceImpl struct {
@@ -264,7 +264,7 @@ Implement each RPC method defined in your proto. Extend the generated base class
 
     func (s *TestServiceImpl) ExampleUnaryStream(
         ctx context.Context, req *pb.ExampleRequest,
-        stream slimrpc.RequestStream[*pb.ExampleResponse],
+        stream slim_rpc.ServerStream[*pb.ExampleResponse],
     ) error {
         for i := 0; i < 5; i++ {
             if err := stream.Send(&pb.ExampleResponse{
@@ -278,7 +278,7 @@ Implement each RPC method defined in your proto. Extend the generated base class
     }
 
     func (s *TestServiceImpl) ExampleStreamUnary(
-        ctx context.Context, stream slimrpc.ResponseStream[*pb.ExampleRequest],
+        ctx context.Context, stream slim_rpc.ResponseStream[*pb.ExampleRequest],
     ) (*pb.ExampleResponse, error) {
         count := int64(0)
         for {
@@ -299,7 +299,7 @@ Implement each RPC method defined in your proto. Extend the generated base class
 
     func (s *TestServiceImpl) ExampleStreamStream(
         ctx context.Context,
-        stream slimrpc.ServerBidiStream[*pb.ExampleRequest, *pb.ExampleResponse],
+        stream slim_rpc.ServerBidiStream[*pb.ExampleRequest, *pb.ExampleResponse],
     ) error {
         for {
             req, err := stream.Recv()
@@ -591,14 +591,14 @@ Create a SLIMRPC server, register your implementation, and start serving. The se
 === "Go"
 
     ```go
-    import slim "github.com/agntcy/slim-bindings-go"
+    import slim_rpc "github.com/agntcy/slim-bindings-go/v2/slim_rpc"
 
     // app and connId come from the prerequisite tutorials
-    server := slim.ServerNewWithConnection(app, localName, &connId)
+    server := slim_rpc.ServerNewWithConnection(app, localName, &connId)
     pb.RegisterTestServer(server, &TestServiceImpl{})
 
     fmt.Println("Serving...")
-    server.Serve()
+    server.ServeBlocking()
     ```
 
 === "Java"

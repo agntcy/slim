@@ -53,13 +53,16 @@ A group channel wraps a SLIM group session that spans all the servers you want t
 === "Go"
 
     ```go
-    import slim "github.com/agntcy/slim-bindings-go"
+    import (
+        slim "github.com/agntcy/slim-bindings-go/v2"
+        slim_rpc "github.com/agntcy/slim-bindings-go/v2/slim_rpc"
+    )
 
     server1, _ := slim.NameFromString("myorg/default/server-1")
     server2, _ := slim.NameFromString("myorg/default/server-2")
-    serverNames := []slim.Name{server1, server2}
+    serverNames := []*slim.Name{server1, server2}
 
-    channel, err := slim.ChannelNewGroupWithConnection(app, serverNames, &connId)
+    channel, err := slim_rpc.ChannelNewGroupWithConnection(app, serverNames, &connId)
     if err != nil {
         log.Fatal(err)
     }

@@ -45,7 +45,7 @@ The receiving side does not call `create_session`. Instead it calls `listen_for_
         "fmt"
         "log"
 
-        slim "github.com/agntcy/slim-bindings-go"
+        slim "github.com/agntcy/slim-bindings-go/v2"
     )
 
     // Wait indefinitely for an incoming session (nil = no timeout)
