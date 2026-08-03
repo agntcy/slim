@@ -46,7 +46,7 @@ pub(crate) struct Cli {
 #[command(next_help_heading = "Global Options")]
 struct GlobalOpts {
     /// Path to slimctl configuration file
-    #[arg(long, env = "SLIMCTL_CONFIG", global = true)]
+    #[arg(long, env = "SLIMCTL_CONFIG")]
     config: Option<String>,
 
     /// Basic auth credentials (username:password)
