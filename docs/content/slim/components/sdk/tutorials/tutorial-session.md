@@ -163,7 +163,7 @@ A point-to-point session connects your application to a single remote instance. 
 
     async function runClient(app, remoteName) {
         const sessionConfig = {
-            sessionType: "pointToPoint" as const,
+            sessionType: slimBindings.SessionType.PointToPoint,
             maxRetries: 5,
             interval: 5000, // milliseconds
             metadata: new Map(),
@@ -343,7 +343,7 @@ A group session enables many-to-many communication on a named channel. Every mes
 
     ```typescript
     const sessionConfig = {
-        sessionType: "group" as const,
+        sessionType: slimBindings.SessionType.Group,
         maxRetries: 5,
         interval: 5000, // milliseconds
         metadata: new Map(),

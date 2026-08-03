@@ -169,7 +169,7 @@ Each response item carries both the response payload and the context identifying
     request = ExampleRequest(example_string="world", example_integer=42)
 
     async for context, response in client.ExampleUnaryUnary(request, timeout=timedelta(seconds=5)):
-        print(f"Response from {context.source_name}: {response.example_string}")
+        print(f"Response from {context.source}: {response.example_string}")
     ```
 
 === "Go"

@@ -228,14 +228,18 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         path: "./slim-state",
         passphrase: "change-me-in-production",
     };
-    const provider = { sharedSecret: { id: localName.toString(), data: "change-me-before-going-to-production" } };
-    const verifier = { sharedSecret: { id: localName.toString(), data: "change-me-before-going-to-production" } };
+    const provider = new slimBindings.IdentityProviderConfig.SharedSecret({
+        id: localName.toString(), data: "change-me-before-going-to-production"
+    });
+    const verifier = new slimBindings.IdentityVerifierConfig.SharedSecret({
+        id: localName.toString(), data: "change-me-before-going-to-production"
+    });
 
     const app = await service.createAppWithPersistenceAsync(
         localName, provider, verifier,
-        "bidirectional", persistence
+        slimBindings.Direction.Bidirectional, persistence
     );
-    await app.subscribeAsync(localName, BigInt(connId));
+    await app.subscribeAsync(localName, connId);
 
     console.log(`App ready with persistence: ${localName}`);
     ```
@@ -396,9 +400,9 @@ On the next startup, create a new app using the **same name, secret, store path,
     ```typescript
     // After restart — same name, secret, path, and passphrase as before
     const app = await service.createAppWithPersistenceAsync(
-        localName, provider, verifier, "bidirectional", persistence
+        localName, provider, verifier, slimBindings.Direction.Bidirectional, persistence
     );
-    await app.subscribeAsync(localName, BigInt(connId));
+    await app.subscribeAsync(localName, connId);
 
     // Restore all previously active sessions
     const sessions = await app.restoreSessionsAsync(connId);
