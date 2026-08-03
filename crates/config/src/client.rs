@@ -316,6 +316,7 @@ fn default_require_header_mac() -> bool {
     true
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn default_backoff() -> BackoffConfig {
     BackoffConfig::new_fixed_interval(Duration::from_secs(2), usize::MAX)
 }
