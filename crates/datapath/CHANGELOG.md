@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.17.3...slim-datapath-v0.18.0) - 2026-08-03
+
+### Added
+
+- *(config)* derive peer deployment_name from domain_name ([#1931](https://github.com/agntcy/slim/pull/1931))
+
 ## [0.17.3](https://github.com/agntcy/slim/compare/slim-datapath-v0.17.2...slim-datapath-v0.17.3) - 2026-08-03
 
 ### Other
