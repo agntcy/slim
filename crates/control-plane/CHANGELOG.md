@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.11](https://github.com/agntcy/slim/compare/slim-control-plane-v2.0.0-alpha.10...slim-control-plane-v2.0.0-alpha.11) - 2026-08-03
+
+### Other
+
+- updated the following local packages: agntcy-slim-config, agntcy-slim-config, agntcy-slim-proto, agntcy-slim-tracing, agntcy-slim-tracing, agntcy-slim-datapath, agntcy-slim-datapath, agntcy-slim-service
+
 ## [2.0.0-alpha.9](https://github.com/agntcy/slim/compare/slim-control-plane-v2.0.0-alpha.8...slim-control-plane-v2.0.0-alpha.9) - 2026-07-31
 
 ### Added
