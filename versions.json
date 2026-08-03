@@ -50,6 +50,13 @@
     "aliases": []
   },
   {
+    "version": "slim-version-v2.0.0-alpha.11",
+    "title": "slim-version-v2.0.0-alpha.11",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-version-v2.0.0-alpha.10",
     "title": "slim-version-v2.0.0-alpha.10",
     "aliases": []
@@ -537,9 +544,7 @@
   {
     "version": "slim-bindings-v2.0.0-alpha.13",
     "title": "slim-bindings-v2.0.0-alpha.13",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-bindings-v2.0.0-alpha.12",
