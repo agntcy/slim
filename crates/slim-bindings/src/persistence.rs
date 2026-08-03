@@ -73,16 +73,28 @@ impl Service {
         persistence: PersistenceConfig,
     ) -> Result<Arc<App>, SlimError> {
         let slim_name: SlimName = name.as_ref().into();
-        create_app_with_persistence_internal(
-            slim_name,
-            identity_provider_config,
-            identity_verifier_config,
-            self.inner.clone(),
-            direction,
-            persistence.into(),
-        )
-        .await
-        .map(Arc::new)
+        let service = self.inner.clone();
+        let persistence_cfg: slim_persistence::PersistenceConfig = persistence.into();
+        // Route through the managed Tokio runtime so that internal tokio::spawn
+        // calls (e.g. the message-processing loop spawned by bootstrap_app) have
+        // a live reactor even when called from a UniFFI async context.
+        let handle = get_runtime().spawn(async move {
+            create_app_with_persistence_internal(
+                slim_name,
+                identity_provider_config,
+                identity_verifier_config,
+                service,
+                direction,
+                persistence_cfg,
+            )
+            .await
+        });
+        handle
+            .await
+            .map_err(|e| SlimError::InternalError {
+                message: format!("create_app_with_persistence task failed: {e}"),
+            })?
+            .map(Arc::new)
     }
 
     /// Blocking wrapper around [`Service::create_app_with_persistence_async`].

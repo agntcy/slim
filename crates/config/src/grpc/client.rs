@@ -249,10 +249,10 @@ impl ClientConfig {
         }
 
         // set timeouts
-        if self.connect_timeout.as_secs() != 0 {
+        if !self.connect_timeout.is_zero() {
             builder = builder.connect_timeout(self.connect_timeout.into());
         }
-        if self.request_timeout.as_secs() != 0 {
+        if !self.request_timeout.is_zero() {
             builder = builder.timeout(self.request_timeout.into());
         }
 

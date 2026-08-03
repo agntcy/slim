@@ -598,11 +598,7 @@ impl Service {
     }
 
     pub fn new_with_config(id: ID, config: ServiceConfiguration) -> Self {
-        let deployment_name = config
-            .peers
-            .as_ref()
-            .map(|p| p.deployment_name.clone())
-            .unwrap_or_default();
+        let deployment_name = config.domain_name.clone().unwrap_or_default();
         let service_id = config.node_id.clone();
         let enforce_pqc = config.enforce_pqc().is_enforced();
 
@@ -706,10 +702,12 @@ impl Service {
     fn start_peer_sync(&self, peer_config: &PeerConfig) {
         let self_id = self.config.node_id.clone();
 
+        let deployment_name = self.config.domain_name.clone().unwrap_or_default();
+
         info!(
             %self_id,
             topology = ?peer_config.topology,
-            deployment_name = %peer_config.deployment_name,
+            %deployment_name,
             "starting peer sync"
         );
 
@@ -718,7 +716,7 @@ impl Service {
 
         let sync_config = PeerSyncConfig {
             self_id: self_id.clone(),
-            deployment_name: peer_config.deployment_name.clone(),
+            deployment_name,
             topology: peer_config.topology.clone(),
         };
 
@@ -1371,7 +1369,6 @@ mod tests {
         let config = ServiceConfiguration::new()
             .with_dataplane_server(vec![server_config])
             .with_peers(PeerConfig {
-                deployment_name: "test".to_string(),
                 topology: PeerTopology::FullMesh,
                 discovery: PeerDiscoveryConfig::Static {
                     peers: vec![StaticPeerEntry {
@@ -1415,7 +1412,6 @@ mod tests {
         let server_config =
             ServerConfig::with_endpoint(&format!("0.0.0.0:{port}")).with_tls_settings(tls_config);
         let peer_config = PeerConfig {
-            deployment_name: "test-deploy".to_string(),
             topology: PeerTopology::FullMesh,
             discovery: PeerDiscoveryConfig::Static {
                 peers: vec![StaticPeerEntry {

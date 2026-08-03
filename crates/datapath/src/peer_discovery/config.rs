@@ -35,12 +35,12 @@ pub struct StaticPeerEntry {
 /// Top-level peer configuration.
 ///
 /// When present in the service configuration, enables peer-to-peer route
-/// synchronization between SLIM replicas.
+/// synchronization between SLIM replicas. The peer group identity used for
+/// mutual authentication is derived from the service-level `domain_name`.
 ///
 /// # Example (static peers)
 /// ```yaml
 /// peers:
-///   deployment_name: "my-deployment"
 ///   discovery:
 ///     type: static
 ///     peers:
@@ -55,7 +55,6 @@ pub struct StaticPeerEntry {
 /// # Example (kubernetes discovery)
 /// ```yaml
 /// peers:
-///   deployment_name: "my-deployment"
 ///   discovery:
 ///     type: kubernetes
 ///     namespace: "default"
@@ -65,10 +64,6 @@ pub struct StaticPeerEntry {
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct PeerConfig {
-    /// Shared group identity for mutual peer authentication during link negotiation.
-    /// Peers must have the same `deployment_name` to accept each other.
-    pub deployment_name: String,
-
     /// Topology for peer connections. Defaults to `FullMesh`.
     #[serde(default)]
     pub topology: PeerTopology,
@@ -122,7 +117,6 @@ mod tests {
     #[test]
     fn test_deserialize_peer_config_static_peers() {
         let yaml = r#"
-            deployment_name: "my-deployment"
             discovery:
               type: static
               peers:
@@ -133,7 +127,6 @@ mod tests {
         "#;
 
         let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.deployment_name, "my-deployment");
         match &config.discovery {
             PeerDiscoveryConfig::Static { peers } => {
                 assert_eq!(peers.len(), 2);
@@ -149,7 +142,7 @@ mod tests {
     #[test]
     fn test_deserialize_peer_config_no_discovery_fails() {
         let yaml = r#"
-            deployment_name: "my-deployment"
+            topology: full_mesh
         "#;
 
         let result: Result<PeerConfig, _> = serde_yaml::from_str(yaml);
@@ -159,7 +152,6 @@ mod tests {
     #[test]
     fn test_deserialize_peer_config_empty_peers_fails() {
         let yaml = r#"
-            deployment_name: "my-deployment"
             discovery:
               type: static
               peers: []
@@ -172,7 +164,6 @@ mod tests {
     #[test]
     fn test_deserialize_kubernetes_config() {
         let yaml = r#"
-            deployment_name: "slim-deployment"
             discovery:
               type: kubernetes
               namespace: "default"
@@ -181,8 +172,6 @@ mod tests {
         "#;
 
         let config: PeerConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.deployment_name, "slim-deployment");
-
         match &config.discovery {
             PeerDiscoveryConfig::Kubernetes {
                 namespace,
@@ -200,7 +189,7 @@ mod tests {
     #[test]
     fn test_reject_unknown_fields() {
         let yaml = r#"
-            deployment_name: "group"
+            topology: full_mesh
             unknown_field: "oops"
         "#;
 
@@ -211,7 +200,6 @@ mod tests {
     #[test]
     fn test_topology_defaults_to_full_mesh() {
         let yaml = r#"
-            deployment_name: "my-deployment"
             discovery:
               type: static
               peers:
@@ -226,7 +214,6 @@ mod tests {
     #[test]
     fn test_deserialize_full_mesh_topology_explicit() {
         let yaml = r#"
-            deployment_name: "my-deployment"
             topology: full_mesh
             discovery:
               type: static

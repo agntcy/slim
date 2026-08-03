@@ -21,7 +21,6 @@ AI agent protocols like [A2A (Agent-to-Agent)](https://a2a.ai) and
   [A2A](https://github.com/agntcy/slim-a2a-python) |
   [MCP](https://github.com/agntcy/slim-mcp-python) |
   [OpenTelemetry](https://github.com/agntcy/slim-otel)
-- 🚀 **[Deployment Strategies](./deployments/readme.md)**
 - 📝 **[Technical blog posts](https://blogs.agntcy.org)**
 
 ## Architecture
@@ -331,7 +330,7 @@ task lint
 
 - 📚 [Documentation](https://docs.agntcy.org/slim/overview)
 - 📖 [IETF Specification](https://datatracker.ietf.org/doc/draft-slim-protocol/)
-- 💬 [Discord Community](https://discord.gg/FbEnSHXD34)
+- 💬 [Discord Community](https://discord.gg/hdTDzBQe7D)
 - 🎥 [YouTube Channel](https://www.youtube.com/@agntcy-lf)
 
 ## License

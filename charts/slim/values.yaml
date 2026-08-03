@@ -44,7 +44,6 @@ slim:
         # SLIM nodes in different groups are connected via external_endpoint. See 'metadata' below.
         # group_name: "cluster-a"
         peers:
-          deployment_name: "slim-peers"
           topology: full_mesh
           discovery:
             type: kubernetes

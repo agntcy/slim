@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.14](https://github.com/agntcy/slim/compare/slim-bindings-v2.0.0-alpha.13...slim-bindings-v2.0.0-alpha.14) - 2026-08-03
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-version, agntcy-slim-version, agntcy-slim-datapath, agntcy-slim-datapath, agntcy-slim-service, agntcy-slim-service, agntcy-slim, agntcy-slim-auth, agntcy-slim-auth, agntcy-slim-config, agntcy-slim-config, agntcy-slim-tracing, agntcy-slim-session, agntcy-slim-session, agntcy-slim-signal, agntcy-slim-controller
+
+## [2.0.0-alpha.13](https://github.com/agntcy/slim/compare/slim-bindings-v2.0.0-alpha.12...slim-bindings-v2.0.0-alpha.13) - 2026-08-03
+
+### Other
+
+- updated the following local packages: agntcy-slim-config, agntcy-slim-config, agntcy-slim-tracing, agntcy-slim-datapath, agntcy-slim-datapath, agntcy-slim-session, agntcy-slim-session, agntcy-slim-controller, agntcy-slim-service, agntcy-slim-service, agntcy-slim
+
+## [2.0.0-alpha.12](https://github.com/agntcy/slim/compare/slim-bindings-v2.0.0-alpha.11...slim-bindings-v2.0.0-alpha.12) - 2026-07-31
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-version, agntcy-slim-version, agntcy-slim, agntcy-slim-auth, agntcy-slim-auth, agntcy-slim-config, agntcy-slim-config, agntcy-slim-tracing, agntcy-slim-datapath, agntcy-slim-datapath, agntcy-slim-session, agntcy-slim-session, agntcy-slim-signal, agntcy-slim-controller, agntcy-slim-service, agntcy-slim-service
+
+## [2.0.0-alpha.11](https://github.com/agntcy/slim/compare/slim-bindings-v2.0.0-alpha.10...slim-bindings-v2.0.0-alpha.11) - 2026-07-31
+
+### Other
+
+- fix tutorial code bugs and update versions to alpha.8 / bindings alpha.5 ([#1922](https://github.com/agntcy/slim/pull/1922))
+
 ## [2.0.0-alpha.10](https://github.com/agntcy/slim/compare/slim-bindings-v2.0.0-alpha.9...slim-bindings-v2.0.0-alpha.10) - 2026-07-29
 
 ### Added

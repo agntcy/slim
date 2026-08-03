@@ -18,7 +18,7 @@ Or add to your `pyproject.toml`:
 
 ```toml
 [project]
-dependencies = ["slim-bindings~=1.0"]
+dependencies = ["slim-bindings==2.0.0a5"]
 ```
 
 ## Go
@@ -76,7 +76,7 @@ Add to your `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("io.agntcy.slim:slim-bindings-kotlin:1.2.0")
+    implementation("io.agntcy.slim:slim-bindings-kotlin:2.0.0-alpha.5")
 }
 ```
 

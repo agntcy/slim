@@ -134,7 +134,7 @@ channel-manager:
   local-name: "agntcy/local/channel-manager"
   auth:
     type: shared_secret
-    secret: "dev-secret-replace-in-production"
+    secret: "change-me-before-going-to-production"
 ```
 
 ## Next Steps

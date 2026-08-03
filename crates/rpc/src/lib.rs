@@ -137,23 +137,15 @@ mod session_wrapper;
 mod handler_traits;
 mod stream_types;
 
-// All `#[uniffi::export]` impls are grouped in this module (compiled only under
-// the `uniffi` feature).
+// All `#[uniffi::export]` impls are grouped in this module.
 #[cfg(feature = "uniffi")]
 mod ffi;
 
-// The runtime handle for the synchronous FFI convenience wrappers is only
-// available under the `uniffi` feature (it is owned by `agntcy-slim-bindings`).
-// Native builds have no `get_runtime`: they use the ambient tokio runtime
-// (`Handle::current()`) and the async API directly.
+// The runtime handle is owned by `agntcy-slim-bindings`.
 #[cfg(feature = "uniffi")]
 pub use slim_bindings::get_runtime;
 
 /// Spawn a background task on the runtime that drives streaming RPC work.
-///
-/// Native builds spawn onto the ambient tokio runtime (the caller is always
-/// inside one). The `uniffi` build spawns onto the runtime owned by
-/// `agntcy-slim-bindings`, because FFI callers have no ambient runtime.
 #[cfg(feature = "uniffi")]
 pub(crate) fn spawn<F>(future: F) -> tokio::task::JoinHandle<F::Output>
 where
