@@ -474,7 +474,7 @@ The session creator acts as a moderator and can invite other applications to joi
 
     ```typescript
     // Set the route to the participant first
-    await app.setRoute(inviteName, Number(connId));
+    app.setRoute(inviteName, Number(connId));
 
     // Invite the participant
     await session.inviteAndWaitAsync(inviteName);
@@ -544,7 +544,8 @@ The session creator acts as a moderator and can invite other applications to joi
 === "Kotlin"
 
     ```kotlin
-    session.publishAsync("hello".toByteArray(), null, null)
+    val handle = session.publishAsync("hello".toByteArray(), null, null)
+    handle.waitAsync()
     ```
 
 === "Node.js"
@@ -689,7 +690,8 @@ In a group session, `publish_to_and_wait_async` / `PublishToAndWaitAsync` sends 
 
     ```kotlin
     // msg is obtained from session.getMessageAsync(...)
-    session.publishToAsync(msg.context, "private reply".toByteArray(), null, null)
+    val handle = session.publishToAsync(msg.context, "private reply".toByteArray(), null, null)
+    handle.waitAsync()
     ```
 
 === "Node.js"

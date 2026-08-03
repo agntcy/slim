@@ -327,6 +327,7 @@ Implement each RPC method defined in your proto. Extend the generated base class
     import com.example_service.TestSlimrpc;
     import com.example_service.ExampleRequest;
     import com.example_service.ExampleResponse;
+    import io.agntcy.slim.bindings.slimrpc.*;
 
     class TestServerImpl implements TestSlimrpc.TestServer {
         @Override
@@ -342,12 +343,12 @@ Implement each RPC method defined in your proto. Extend the generated base class
 
         @Override
         public CompletableFuture<Void> ExampleUnaryStream(
-                ExampleRequest request,
-                TestSlimrpc.ServerResponseStream<ExampleResponse> stream,
-                Context context) {
+                ExampleRequest request, Context context, ResponseSink sink) {
             return CompletableFuture.runAsync(() -> {
+                ServerRequestStream<ExampleResponse> sender = ServerRequestStream.create(
+                    sink, ExampleResponse::toByteArray);
                 for (int i = 0; i < 5; i++) {
-                    stream.send(ExampleResponse.newBuilder()
+                    sender.send(ExampleResponse.newBuilder()
                         .setExampleString("hello " + request.getExampleString() + " " + i)
                         .setExampleInteger(request.getExampleInteger() + i)
                         .build());
@@ -357,14 +358,12 @@ Implement each RPC method defined in your proto. Extend the generated base class
 
         @Override
         public CompletableFuture<ExampleResponse> ExampleStreamUnary(
-                TestSlimrpc.ServerRequestStream<ExampleRequest> stream,
-                Context context) {
+                RequestStream stream, Context context) {
             return CompletableFuture.supplyAsync(() -> {
+                ServerResponseStream<ExampleRequest> reader = ServerResponseStream.create(
+                    stream, bytes -> ExampleRequest.parseFrom(bytes));
                 long count = 0;
-                ExampleRequest req;
-                while ((req = stream.recv()) != null) {
-                    count++;
-                }
+                while (reader.recv() != null) { count++; }
                 return ExampleResponse.newBuilder()
                     .setExampleString("received " + count + " requests")
                     .setExampleInteger(count)
@@ -374,12 +373,15 @@ Implement each RPC method defined in your proto. Extend the generated base class
 
         @Override
         public CompletableFuture<Void> ExampleStreamStream(
-                TestSlimrpc.ServerBidiStream<ExampleRequest, ExampleResponse> stream,
-                Context context) {
+                RequestStream stream, Context context, ResponseSink sink) {
             return CompletableFuture.runAsync(() -> {
+                ServerBidiStream<ExampleRequest, ExampleResponse> bidi = ServerBidiStream.create(
+                    stream, sink,
+                    bytes -> ExampleRequest.parseFrom(bytes),
+                    ExampleResponse::toByteArray);
                 ExampleRequest req;
-                while ((req = stream.recv()) != null) {
-                    stream.send(ExampleResponse.newBuilder()
+                while ((req = bidi.recv()) != null) {
+                    bidi.send(ExampleResponse.newBuilder()
                         .setExampleString("echo: " + req.getExampleString())
                         .setExampleInteger(req.getExampleInteger())
                         .build());
@@ -395,9 +397,7 @@ Implement each RPC method defined in your proto. Extend the generated base class
     import com.example_service.TestSlimrpc
     import com.example_service.ExampleRequest
     import com.example_service.ExampleResponse
-    import kotlinx.coroutines.flow.Flow
-    import kotlinx.coroutines.flow.flow
-    import kotlinx.coroutines.flow.map
+    import io.agntcy.slim.bindings.slimrpc.*
 
     class TestServiceImpl : TestSlimrpc.UnimplementedTestServer() {
         override suspend fun ExampleUnaryUnary(
@@ -407,11 +407,12 @@ Implement each RPC method defined in your proto. Extend the generated base class
             .setExampleInteger(request.exampleInteger + 1)
             .build()
 
-        override fun ExampleUnaryStream(
-            request: ExampleRequest, context: Context
-        ): Flow<ExampleResponse> = flow {
+        override suspend fun ExampleUnaryStream(
+            request: ExampleRequest, context: Context, sink: ResponseSink
+        ) {
+            val sender = ServerRequestStream.create(sink) { resp: ExampleResponse -> resp.toByteArray() }
             for (i in 0 until 5) {
-                emit(ExampleResponse.newBuilder()
+                sender.send(ExampleResponse.newBuilder()
                     .setExampleString("hello ${request.exampleString} $i")
                     .setExampleInteger(request.exampleInteger + i)
                     .build())
@@ -419,23 +420,32 @@ Implement each RPC method defined in your proto. Extend the generated base class
         }
 
         override suspend fun ExampleStreamUnary(
-            requestStream: Flow<ExampleRequest>, context: Context
+            stream: RequestStream, context: Context
         ): ExampleResponse {
+            val reader = ServerResponseStream.create(stream) { ExampleRequest.parseFrom(it) }
             var count = 0L
-            requestStream.collect { count++ }
+            while (reader.recv() != null) { count++ }
             return ExampleResponse.newBuilder()
                 .setExampleString("received $count requests")
                 .setExampleInteger(count)
                 .build()
         }
 
-        override fun ExampleStreamStream(
-            requestStream: Flow<ExampleRequest>, context: Context
-        ): Flow<ExampleResponse> = requestStream.map { req ->
-            ExampleResponse.newBuilder()
-                .setExampleString("echo: ${req.exampleString}")
-                .setExampleInteger(req.exampleInteger)
-                .build()
+        override suspend fun ExampleStreamStream(
+            stream: RequestStream, context: Context, sink: ResponseSink
+        ) {
+            val bidi = ServerBidiStream.create(
+                stream, sink,
+                { ExampleRequest.parseFrom(it) },
+                { resp: ExampleResponse -> resp.toByteArray() }
+            )
+            while (true) {
+                val req = bidi.recv() ?: break
+                bidi.send(ExampleResponse.newBuilder()
+                    .setExampleString("echo: ${req.exampleString}")
+                    .setExampleInteger(req.exampleInteger)
+                    .build())
+            }
         }
     }
     ```

@@ -201,7 +201,7 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         id = localName.toString(), data = "change-me-before-going-to-production"
     )
 
-    val app = service.createAppWithPersistence(
+    val app = service.createAppWithPersistenceAsync(
         localName, provider, verifier,
         Direction.BIDIRECTIONAL, persistence
     )
@@ -374,7 +374,7 @@ On the next startup, create a new app using the **same name, secret, store path,
 
     ```kotlin
     // After restart — same name, secret, path, and passphrase as before
-    val app = service.createAppWithPersistence(
+    val app = service.createAppWithPersistenceAsync(
         localName, provider, verifier,
         Direction.BIDIRECTIONAL, persistence
     )
@@ -386,7 +386,8 @@ On the next startup, create a new app using the **same name, secret, store path,
 
     // Each restored session is immediately usable
     for (session in sessions) {
-        session.publishAsync("back online".toByteArray(), null, null)
+        val handle = session.publishAsync("back online".toByteArray(), null, null)
+        handle.waitAsync()
     }
     ```
 

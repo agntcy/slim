@@ -188,36 +188,58 @@ Each response item carries both the response payload and the context identifying
 === "Java"
 
     ```java
+    import java.time.Duration;
     import com.example_service.ExampleRequest;
+    import com.example_service.ExampleResponse;
     import io.agntcy.slim.bindings.slimrpc.MulticastResponseStream;
+    import io.agntcy.slim.bindings.slimrpc.MulticastStreamMessage;
+    import io.agntcy.slim.bindings.slimrpc.RpcMulticastItem;
 
     ExampleRequest request = ExampleRequest.newBuilder()
         .setExampleString("world")
         .setExampleInteger(42)
         .build();
 
-    MulticastResponseStream<com.example_service.ExampleResponse> stream =
-        client.ExampleUnaryUnary(request).get();
+    MulticastResponseStream stream = client.ExampleUnaryUnary(request, Duration.ofSeconds(5), null);
 
-    while (stream.hasNext()) {
-        var item = stream.next();
-        System.out.println("Response from " + item.context().sourceName()
-            + ": " + item.value().getExampleString());
+    while (true) {
+        MulticastStreamMessage msg = stream.next();
+        if (msg instanceof MulticastStreamMessage.End) break;
+        if (msg instanceof MulticastStreamMessage.Error) break;
+        if (msg instanceof MulticastStreamMessage.Data data) {
+            RpcMulticastItem item = data.item();
+            ExampleResponse resp = ExampleResponse.parseFrom(item.message());
+            System.out.println("Response from " + item.context().source()
+                + ": " + resp.getExampleString());
+        }
     }
     ```
 
 === "Kotlin"
 
     ```kotlin
+    import java.time.Duration
     import com.example_service.ExampleRequest
+    import com.example_service.ExampleResponse
+    import io.agntcy.slim.bindings.slimrpc.MulticastStreamMessage
 
     val request = ExampleRequest.newBuilder()
         .setExampleString("world")
         .setExampleInteger(42)
         .build()
 
-    client.ExampleUnaryUnary(request).collect { item ->
-        println("Response from ${item.context.sourceName}: ${item.value.exampleString}")
+    val stream = client.ExampleUnaryUnary(request, Duration.ofSeconds(5), null)
+
+    while (true) {
+        when (val msg = stream.next()) {
+            is MulticastStreamMessage.End -> break
+            is MulticastStreamMessage.Error -> break
+            is MulticastStreamMessage.Data -> {
+                val item = msg.item
+                val resp = ExampleResponse.parseFrom(item.message)
+                println("Response from ${item.context.source}: ${resp.exampleString}")
+            }
+        }
     }
     ```
 

@@ -301,10 +301,12 @@ There are two ways to reply:
 
     ```kotlin
     // Broadcast to all participants
-    session.publishAsync("hello everyone".toByteArray(), null, null)
+    val broadcastHandle = session.publishAsync("hello everyone".toByteArray(), null, null)
+    broadcastHandle.waitAsync()
 
     // Reply only to the sender
-    session.publishToAsync(msg.context, "hello back".toByteArray(), null, null)
+    val replyHandle = session.publishToAsync(msg.context, "hello back".toByteArray(), null, null)
+    replyHandle.waitAsync()
     ```
 
 === "Node.js"

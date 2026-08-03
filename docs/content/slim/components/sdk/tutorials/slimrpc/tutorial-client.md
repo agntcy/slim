@@ -147,7 +147,7 @@ Send a single request and receive a single response.
         .setExampleInteger(42)
         .build();
 
-    ExampleResponse response = client.ExampleUnaryUnary(request).get();
+    ExampleResponse response = client.ExampleUnaryUnary(request, Duration.ofSeconds(5), null);
     System.out.println("Response: " + response.getExampleString() + " " + response.getExampleInteger());
     ```
 
@@ -155,13 +155,14 @@ Send a single request and receive a single response.
 
     ```kotlin
     import com.example_service.ExampleRequest
+    import java.time.Duration
 
     val request = ExampleRequest.newBuilder()
         .setExampleString("world")
         .setExampleInteger(42)
         .build()
 
-    val response = client.ExampleUnaryUnary(request)
+    val response = client.ExampleUnaryUnary(request, Duration.ofSeconds(5), null)
     println("Response: ${response.exampleString} ${response.exampleInteger}")
     ```
 
@@ -221,11 +222,15 @@ Send a single request and iterate over a stream of responses from the server.
 === "Java"
 
     ```java
-    TestSlimrpc.ClientResponseStream<ExampleResponse> stream =
-        client.ExampleUnaryStream(request).get();
+    import io.agntcy.slim.bindings.slimrpc.ClientResponseStream;
+    import io.agntcy.slim.bindings.slimrpc.ResponseStreamReader;
 
-    while (stream.hasNext()) {
-        ExampleResponse resp = stream.next();
+    ResponseStreamReader streamReader = client.ExampleUnaryStream(request, Duration.ofSeconds(5), null);
+    ClientResponseStream<ExampleResponse> stream = ClientResponseStream.create(
+        streamReader, bytes -> ExampleResponse.parseFrom(bytes));
+    while (true) {
+        ExampleResponse resp = stream.recv();
+        if (resp == null) break;
         System.out.println("Stream response: " + resp.getExampleString() + " " + resp.getExampleInteger());
     }
     ```
@@ -233,7 +238,13 @@ Send a single request and iterate over a stream of responses from the server.
 === "Kotlin"
 
     ```kotlin
-    client.ExampleUnaryStream(request).collect { resp ->
+    import io.agntcy.slim.bindings.slimrpc.ClientResponseStream
+    import java.time.Duration
+
+    val streamReader = client.ExampleUnaryStream(request, Duration.ofSeconds(5), null)
+    val stream = ClientResponseStream.create(streamReader) { bytes -> ExampleResponse.parseFrom(bytes) }
+    while (true) {
+        val resp = stream.recv() ?: break
         println("Stream response: ${resp.exampleString} ${resp.exampleInteger}")
     }
     ```
@@ -303,34 +314,37 @@ Stream a sequence of requests to the server and receive a single response.
 === "Java"
 
     ```java
-    TestSlimrpc.ClientRequestStream<ExampleRequest, ExampleResponse> requestStream =
-        client.ExampleStreamUnary().get();
+    import io.agntcy.slim.bindings.slimrpc.ClientRequestStream;
+
+    ClientRequestStream<ExampleRequest, ExampleResponse> stream =
+        client.ExampleStreamUnary(Duration.ofSeconds(5), null);
 
     for (int i = 0; i < 5; i++) {
-        requestStream.send(ExampleRequest.newBuilder()
+        stream.send(ExampleRequest.newBuilder()
             .setExampleString("req_" + i)
             .setExampleInteger(i)
             .build());
     }
-    ExampleResponse response = requestStream.closeAndReceive().get();
+    ExampleResponse response = stream.finalizeStream();
     System.out.println("Response: " + response.getExampleString() + " " + response.getExampleInteger());
     ```
 
 === "Kotlin"
 
     ```kotlin
-    import kotlinx.coroutines.flow.flow
+    import io.agntcy.slim.bindings.slimrpc.ClientRequestStream
+    import java.time.Duration
 
-    val requests = flow {
-        for (i in 0 until 5) {
-            emit(ExampleRequest.newBuilder()
-                .setExampleString("req_$i")
-                .setExampleInteger(i.toLong())
-                .build())
-        }
+    val stream: ClientRequestStream<ExampleRequest, ExampleResponse> =
+        client.ExampleStreamUnary(Duration.ofSeconds(5), null)
+
+    for (i in 0 until 5) {
+        stream.send(ExampleRequest.newBuilder()
+            .setExampleString("req_$i")
+            .setExampleInteger(i.toLong())
+            .build())
     }
-
-    val response = client.ExampleStreamUnary(requests)
+    val response = stream.finalizeStream()
     println("Response: ${response.exampleString} ${response.exampleInteger}")
     ```
 
@@ -415,30 +429,65 @@ Stream requests to the server and receive a stream of responses simultaneously.
 === "Java"
 
     ```java
-    TestSlimrpc.ClientBidiStream<ExampleRequest> bidiStream =
-        client.ExampleStreamStream().get();
+    import io.agntcy.slim.bindings.slimrpc.ClientBidiStream;
+    import io.agntcy.slim.bindings.slimrpc.StreamMessage;
 
-    // Send requests
-    for (int i = 0; i < 5; i++) {
-        bidiStream.send(ExampleRequest.newBuilder()
-            .setExampleString("req_" + i)
-            .setExampleInteger(i)
-            .build());
-    }
-    bidiStream.closeSend();
+    ClientBidiStream<ExampleRequest> stream = client.ExampleStreamStream(Duration.ofSeconds(5), null);
+
+    // Send requests in a separate thread
+    new Thread(() -> {
+        for (int i = 0; i < 5; i++) {
+            stream.send(ExampleRequest.newBuilder()
+                .setExampleString("req_" + i)
+                .setExampleInteger(i)
+                .build());
+        }
+        stream.closeSend();
+    }).start();
 
     // Receive responses
-    ExampleResponse resp;
-    while ((resp = bidiStream.recv()) != null) {
-        System.out.println("Stream response: " + resp.getExampleString() + " " + resp.getExampleInteger());
+    while (true) {
+        StreamMessage msg = stream.recv();
+        if (msg instanceof StreamMessage.End) break;
+        if (msg instanceof StreamMessage.Error err) throw new RuntimeException(err.v1().toString());
+        if (msg instanceof StreamMessage.Data data) {
+            ExampleResponse resp = ExampleResponse.parseFrom(data.v1());
+            System.out.println("Stream response: " + resp.getExampleString() + " " + resp.getExampleInteger());
+        }
     }
     ```
 
 === "Kotlin"
 
     ```kotlin
-    client.ExampleStreamStream(requests).collect { resp ->
-        println("Stream response: ${resp.exampleString} ${resp.exampleInteger}")
+    import io.agntcy.slim.bindings.slimrpc.ClientBidiStream
+    import io.agntcy.slim.bindings.slimrpc.StreamMessage
+    import java.time.Duration
+    import kotlinx.coroutines.launch
+
+    val stream: ClientBidiStream<ExampleRequest> = client.ExampleStreamStream(Duration.ofSeconds(5), null)
+
+    // Send requests in a launched coroutine
+    launch {
+        for (i in 0 until 5) {
+            stream.send(ExampleRequest.newBuilder()
+                .setExampleString("req_$i")
+                .setExampleInteger(i.toLong())
+                .build())
+        }
+        stream.closeSend()
+    }
+
+    // Receive responses
+    while (true) {
+        when (val msg = stream.recv()) {
+            is StreamMessage.End -> break
+            is StreamMessage.Error -> throw RuntimeException(msg.v1.toString())
+            is StreamMessage.Data -> {
+                val resp = ExampleResponse.parseFrom(msg.v1)
+                println("Stream response: ${resp.exampleString} ${resp.exampleInteger}")
+            }
+        }
     }
     ```
 
