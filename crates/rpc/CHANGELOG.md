@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.11](https://github.com/agntcy/slim/compare/slim-rpc-v2.0.0-alpha.10...slim-rpc-v2.0.0-alpha.11) - 2026-08-03
+
+### Other
+
+- updated the following local packages: agntcy-slim-config, agntcy-slim-datapath, agntcy-slim-session, agntcy-slim-service, agntcy-slim-bindings
+
 ## [2.0.0-alpha.10](https://github.com/agntcy/slim/compare/slim-rpc-v2.0.0-alpha.9...slim-rpc-v2.0.0-alpha.10) - 2026-07-31
 
 ### Fixed
