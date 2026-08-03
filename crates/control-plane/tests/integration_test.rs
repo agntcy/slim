@@ -242,7 +242,6 @@ async fn start_domain_node(
 
     let peer_config = if static_peers.len() > 1 {
         Some(PeerConfig {
-            deployment_name: domain.to_string(),
             topology: PeerTopology::FullMesh,
             discovery: PeerDiscoveryConfig::Static {
                 peers: static_peers,

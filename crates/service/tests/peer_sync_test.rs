@@ -77,7 +77,6 @@ fn build_peer_configs(count: usize) -> Vec<(u16, String, PeerConfig)> {
         .collect();
 
     let peer_config = PeerConfig {
-        deployment_name: "test-domain".to_string(),
         topology: PeerTopology::FullMesh,
         discovery: PeerDiscoveryConfig::Static { peers },
     };
@@ -673,7 +672,6 @@ async fn test_no_duplicate_subscriptions_on_peer_reconnect() {
         },
     ];
     let peer_config = PeerConfig {
-        deployment_name: "test-reconnect".to_string(),
         topology: PeerTopology::FullMesh,
         discovery: PeerDiscoveryConfig::Static { peers },
     };
@@ -773,7 +771,6 @@ async fn test_multiple_subscriptions_restored_on_reconnect() {
         },
     ];
     let peer_config = PeerConfig {
-        deployment_name: "test-multi-reconnect".to_string(),
         topology: PeerTopology::FullMesh,
         discovery: PeerDiscoveryConfig::Static { peers },
     };
