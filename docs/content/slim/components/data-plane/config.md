@@ -168,7 +168,6 @@ services:
 
     # Peer replica sync configuration (optional — for multi-replica deployments)
     peers:
-      deployment_name: "cluster-a"
       discovery:
         type: static
         peers: [...]
@@ -240,14 +239,14 @@ services:
 
 ### Peer Replica Sync
 
-The `peers` section enables subscription synchronisation between multiple replicas of the same SLIM node (e.g. a Kubernetes Deployment). All replicas in the same deployment must share the same `deployment_name` to authenticate each other.
+The `peers` section enables subscription synchronisation between multiple replicas of the same SLIM node (e.g. a Kubernetes Deployment). Replicas authenticate each other using the service-level `domain_name` as the shared group identity — all replicas must have the same `domain_name` to accept peer connections from each other.
 
 === "Static peers"
     ```yaml
     services:
       slim/0:
+        domain_name: "cluster-a"
         peers:
-          deployment_name: "cluster-a"
           topology: full_mesh  # default — the only supported topology
           discovery:
             type: static
@@ -266,8 +265,8 @@ The `peers` section enables subscription synchronisation between multiple replic
     ```yaml
     services:
       slim/0:
+        domain_name: "slim"
         peers:
-          deployment_name: "slim"
           discovery:
             type: kubernetes
             namespace: "default"

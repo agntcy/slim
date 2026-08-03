@@ -30,7 +30,6 @@ services:
           tls:
             insecure: true
     peers:
-      deployment_name: "domain-1"
       topology: "full_mesh"
       discovery:
         type: static
