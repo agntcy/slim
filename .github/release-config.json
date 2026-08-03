@@ -19,6 +19,10 @@
       "package-name": "helm-slim-spire",
       "release-type": "helm"
     },
+    "charts/slim-channel-manager": {
+      "package-name": "helm-slim-channel-manager",
+      "release-type": "helm"
+    },
     "crates/testing": {
       "package-name": "slim-testutils",
       "release-type": "simple"
