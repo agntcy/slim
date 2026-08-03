@@ -200,7 +200,7 @@ Each response item carries both the response payload and the context identifying
         .setExampleInteger(42)
         .build();
 
-    MulticastResponseStream stream = client.ExampleUnaryUnary(request, Duration.ofSeconds(5), null);
+    MulticastResponseStream<ExampleResponse> stream = client.ExampleUnaryUnary(request, Duration.ofSeconds(5), null);
 
     while (true) {
         MulticastStreamMessage msg = stream.next();
@@ -208,9 +208,11 @@ Each response item carries both the response payload and the context identifying
         if (msg instanceof MulticastStreamMessage.Error) break;
         if (msg instanceof MulticastStreamMessage.Data data) {
             RpcMulticastItem item = data.item();
-            ExampleResponse resp = ExampleResponse.parseFrom(item.message());
-            System.out.println("Response from " + item.context().source()
-                + ": " + resp.getExampleString());
+            try {
+                ExampleResponse resp = ExampleResponse.parseFrom(item.message());
+                System.out.println("Response from " + item.context().source()
+                    + ": " + resp.getExampleString());
+            } catch (Exception e) { throw new RuntimeException(e); }
         }
     }
     ```

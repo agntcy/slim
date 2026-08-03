@@ -344,49 +344,64 @@ Implement each RPC method defined in your proto. Extend the generated base class
         @Override
         public CompletableFuture<Void> ExampleUnaryStream(
                 ExampleRequest request, Context context, ResponseSink sink) {
-            return CompletableFuture.runAsync(() -> {
-                ServerRequestStream<ExampleResponse> sender = ServerRequestStream.create(
-                    sink, ExampleResponse::toByteArray);
-                for (int i = 0; i < 5; i++) {
+            ServerRequestStream<ExampleResponse> sender = ServerRequestStream.create(
+                sink, ExampleResponse::toByteArray);
+            for (int i = 0; i < 5; i++) {
+                try {
                     sender.send(ExampleResponse.newBuilder()
                         .setExampleString("hello " + request.getExampleString() + " " + i)
                         .setExampleInteger(request.getExampleInteger() + i)
                         .build());
+                } catch (Exception e) {
+                    return CompletableFuture.failedFuture(e);
                 }
-            });
+            }
+            return CompletableFuture.completedFuture(null);
         }
 
         @Override
         public CompletableFuture<ExampleResponse> ExampleStreamUnary(
                 RequestStream stream, Context context) {
-            return CompletableFuture.supplyAsync(() -> {
-                ServerResponseStream<ExampleRequest> reader = ServerResponseStream.create(
-                    stream, bytes -> ExampleRequest.parseFrom(bytes));
-                long count = 0;
-                while (reader.recv() != null) { count++; }
-                return ExampleResponse.newBuilder()
+            ServerResponseStream<ExampleRequest> reader = ServerResponseStream.create(stream,
+                bytes -> {
+                    try { return ExampleRequest.parseFrom(bytes); }
+                    catch (Exception e) { throw new RuntimeException(e); }
+                });
+            long count = 0;
+            while (true) {
+                ExampleRequest req;
+                try { req = reader.recv(); } catch (Exception e) { return CompletableFuture.failedFuture(e); }
+                if (req == null) break;
+                count++;
+            }
+            return CompletableFuture.completedFuture(
+                ExampleResponse.newBuilder()
                     .setExampleString("received " + count + " requests")
                     .setExampleInteger(count)
-                    .build();
-            });
+                    .build());
         }
 
         @Override
         public CompletableFuture<Void> ExampleStreamStream(
                 RequestStream stream, Context context, ResponseSink sink) {
-            return CompletableFuture.runAsync(() -> {
-                ServerBidiStream<ExampleRequest, ExampleResponse> bidi = ServerBidiStream.create(
-                    stream, sink,
-                    bytes -> ExampleRequest.parseFrom(bytes),
-                    ExampleResponse::toByteArray);
+            ServerBidiStream<ExampleRequest, ExampleResponse> bidi = ServerBidiStream.create(stream, sink,
+                bytes -> {
+                    try { return ExampleRequest.parseFrom(bytes); }
+                    catch (Exception e) { throw new RuntimeException(e); }
+                },
+                ExampleResponse::toByteArray);
+            while (true) {
                 ExampleRequest req;
-                while ((req = bidi.recv()) != null) {
+                try { req = bidi.recv(); } catch (Exception e) { return CompletableFuture.failedFuture(e); }
+                if (req == null) break;
+                try {
                     bidi.send(ExampleResponse.newBuilder()
                         .setExampleString("echo: " + req.getExampleString())
                         .setExampleInteger(req.getExampleInteger())
                         .build());
-                }
-            });
+                } catch (Exception e) { return CompletableFuture.failedFuture(e); }
+            }
+            return CompletableFuture.completedFuture(null);
         }
     }
     ```

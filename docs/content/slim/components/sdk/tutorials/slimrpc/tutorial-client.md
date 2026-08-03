@@ -226,8 +226,11 @@ Send a single request and iterate over a stream of responses from the server.
     import io.agntcy.slim.bindings.slimrpc.ResponseStreamReader;
 
     ResponseStreamReader streamReader = client.ExampleUnaryStream(request, Duration.ofSeconds(5), null);
-    ClientResponseStream<ExampleResponse> stream = ClientResponseStream.create(
-        streamReader, bytes -> ExampleResponse.parseFrom(bytes));
+    ClientResponseStream<ExampleResponse> stream = ClientResponseStream.create(streamReader,
+        bytes -> {
+            try { return ExampleResponse.parseFrom(bytes); }
+            catch (Exception e) { throw new RuntimeException(e); }
+        });
     while (true) {
         ExampleResponse resp = stream.recv();
         if (resp == null) break;
