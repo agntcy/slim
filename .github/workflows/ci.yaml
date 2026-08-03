@@ -40,9 +40,9 @@ jobs:
     name: Build & test
     uses: ./.github/workflows/reusable-rust-build-and-test.yaml
     with:
-      # wasm suites run nightly (ci-nightly): the browser suite is flaky
-      # (headless Chrome) and neither is on the PR critical path.
-      rust-test-wasm: false
+      # wasm unit-test suite runs on PRs so wasm32 compile regressions are
+      # caught early; the browser suite (headless Chrome) stays nightly-only.
+      rust-test-wasm: true
       rust-test-wasm-browser: false
 
   docker-build:
