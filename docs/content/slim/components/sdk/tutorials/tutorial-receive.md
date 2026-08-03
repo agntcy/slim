@@ -243,8 +243,8 @@ Once the session is established, call `get_message_async` in a loop to receive m
 
 There are two ways to reply:
 
-- **Broadcast** (`publish_async` / `PublishAndWaitAsync`) — sends to all current session participants. For point-to-point sessions this is just the remote peer; for group sessions every member receives it.
-- **Direct reply** (`publish_to_async` / `PublishToAndWaitAsync` / `ReplyAsync`) — uses the context from the received message to send back only to the original sender. Other group participants do not see the reply.
+- **Broadcast** (`publish_and_wait_async` / `PublishAndWaitAsync`) — sends to all current session participants. For point-to-point sessions this is just the remote peer; for group sessions every member receives it.
+- **Direct reply** (`publish_to_and_wait_async` / `PublishToAndWaitAsync` / `ReplyAsync`) — uses the context from the received message to send back only to the original sender. Other group participants do not see the reply.
 
 === "Rust"
 
@@ -262,10 +262,10 @@ There are two ways to reply:
 
     ```python
     # Broadcast to all participants
-    await session.publish_async(b"hello everyone", None, None)
+    await session.publish_and_wait_async(b"hello everyone", None, None)
 
     # Reply only to the sender
-    await session.publish_to_async(
+    await session.publish_to_and_wait_async(
         msg.context,
         b"hello back",
         None,   # payload_type

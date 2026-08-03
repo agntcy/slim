@@ -509,7 +509,7 @@ The session creator acts as a moderator and can invite other applications to joi
 
 ## Send a Message
 
-`publish_async` / `PublishAndWaitAsync` delivers the message to all current session participants. For point-to-point sessions this is just the single remote peer; for group sessions every member receives it.
+`publish_and_wait_async` / `PublishAndWaitAsync` delivers the message to all current session participants. For point-to-point sessions this is just the single remote peer; for group sessions every member receives it.
 
 === "Rust"
 
@@ -520,7 +520,7 @@ The session creator acts as a moderator and can invite other applications to joi
 === "Python"
 
     ```python
-    await session.publish_async(
+    await session.publish_and_wait_async(
         b"hello",   # payload: bytes
         None,       # payload_type: str | None
         None,       # metadata: dict | None
@@ -648,7 +648,7 @@ After sending, call `get_message_async` to wait for an inbound message on the sa
 
 ## Send to a Specific Participant
 
-In a group session, `publish_to_async` / `PublishToAndWaitAsync` sends to a single participant using the context from a previously received message. Other group members do not see the message.
+In a group session, `publish_to_and_wait_async` / `PublishToAndWaitAsync` sends to a single participant using the context from a previously received message. Other group members do not see the message.
 
 === "Rust"
 
@@ -661,7 +661,7 @@ In a group session, `publish_to_async` / `PublishToAndWaitAsync` sends to a sing
 
     ```python
     # received is a ReceivedMessage obtained from session.get_message_async(...)
-    await session.publish_to_async(
+    await session.publish_to_and_wait_async(
         received.context,
         b"private reply",
         None,   # payload_type

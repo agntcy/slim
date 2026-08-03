@@ -315,7 +315,7 @@ On the next startup, create a new app using the **same name, secret, store path,
 
     # Each restored session is immediately usable
     for session in sessions:
-        await session.publish_async(b"back online", None, None)
+        await session.publish_and_wait_async(b"back online", None, None)
     ```
 
 === "Go"
