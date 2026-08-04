@@ -182,32 +182,35 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
 
     ```kotlin
     import io.agntcy.slim.bindings.*
+    import kotlinx.coroutines.runBlocking
 
-    initializeWithDefaults()
-    val service = getGlobalService()
+    fun main() = runBlocking {
+        initializeWithDefaults()
+        val service = getGlobalService()
 
-    val connId: ULong = service.connectAsync(newInsecureClientConfig("http://127.0.0.1:46357"))
+        val connId: ULong = service.connectAsync(newInsecureClientConfig("http://127.0.0.1:46357"))
 
-    val localName = Name.fromString("myorg/default/my-service")
+        val localName = Name.fromString("myorg/default/my-service")
 
-    val persistence = PersistenceConfig(
-        path = "./slim-state",
-        passphrase = "change-me-in-production"
-    )
-    val provider = IdentityProviderConfig.SharedSecret(
-        id = localName.toString(), data = "change-me-before-going-to-production"
-    )
-    val verifier = IdentityVerifierConfig.SharedSecret(
-        id = localName.toString(), data = "change-me-before-going-to-production"
-    )
+        val persistence = PersistenceConfig(
+            path = "./slim-state",
+            passphrase = "change-me-in-production"
+        )
+        val provider = IdentityProviderConfig.SharedSecret(
+            id = localName.toString(), data = "change-me-before-going-to-production"
+        )
+        val verifier = IdentityVerifierConfig.SharedSecret(
+            id = localName.toString(), data = "change-me-before-going-to-production"
+        )
 
-    val app = service.createAppWithPersistenceAsync(
-        localName, provider, verifier,
-        Direction.BIDIRECTIONAL, persistence
-    )
-    app.subscribeAsync(localName, connId)
+        val app = service.createAppWithPersistenceAsync(
+            localName, provider, verifier,
+            Direction.BIDIRECTIONAL, persistence
+        )
+        app.subscribeAsync(localName, connId)
 
-    println("App ready with persistence: $localName")
+        println("App ready with persistence: $localName")
+    }
     ```
 
 === "Node.js"
@@ -377,20 +380,24 @@ On the next startup, create a new app using the **same name, secret, store path,
 === "Kotlin"
 
     ```kotlin
+    import kotlinx.coroutines.runBlocking
+
     // After restart — same name, secret, path, and passphrase as before
-    val app = service.createAppWithPersistenceAsync(
-        localName, provider, verifier,
-        Direction.BIDIRECTIONAL, persistence
-    )
-    app.subscribeAsync(localName, connId)
+    runBlocking {
+        val app = service.createAppWithPersistenceAsync(
+            localName, provider, verifier,
+            Direction.BIDIRECTIONAL, persistence
+        )
+        app.subscribeAsync(localName, connId)
 
-    // Restore all previously active sessions
-    val sessions = app.restoreSessionsAsync(connId)
-    println("Restored ${sessions.size} session(s)")
+        // Restore all previously active sessions
+        val sessions = app.restoreSessionsAsync(connId)
+        println("Restored ${sessions.size} session(s)")
 
-    // Each restored session is immediately usable
-    for (session in sessions) {
-        session.publishAndWaitAsync("back online".toByteArray(), null, null)
+        // Each restored session is immediately usable
+        for (session in sessions) {
+            session.publishAndWaitAsync("back online".toByteArray(), null, null)
+        }
     }
     ```
 
@@ -480,9 +487,13 @@ Call `close` to broadcast an `OFFLINE` state update and pause participation. Oth
 === "Kotlin"
 
     ```kotlin
-    // Broadcast OFFLINE and wait for acknowledgements
-    session.closeAndWaitAsync()
-    println("Offline — other members will stop expecting acks from us")
+    import kotlinx.coroutines.runBlocking
+
+    runBlocking {
+        // Broadcast OFFLINE and wait for acknowledgements
+        session.closeAndWaitAsync()
+        println("Offline — other members will stop expecting acks from us")
+    }
     ```
 
 === "Node.js"
@@ -540,9 +551,13 @@ Call `close` to broadcast an `OFFLINE` state update and pause participation. Oth
 === "Kotlin"
 
     ```kotlin
-    // Broadcast ONLINE and wait for acknowledgements
-    session.rejoinAndWaitAsync()
-    println("Back online — MLS re-key complete")
+    import kotlinx.coroutines.runBlocking
+
+    runBlocking {
+        // Broadcast ONLINE and wait for acknowledgements
+        session.rejoinAndWaitAsync()
+        println("Back online — MLS re-key complete")
+    }
     ```
 
 === "Node.js"
