@@ -1,6 +1,6 @@
 [package]
 name = "agntcy-slim-auth"
-version = "0.14.4"
+version = "0.14.5"
 license = { workspace = true }
 edition = { workspace = true }
 description = "Authentication utilities for the Agntcy Slim framework"
