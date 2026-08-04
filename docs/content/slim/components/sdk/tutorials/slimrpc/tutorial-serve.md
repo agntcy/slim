@@ -532,12 +532,13 @@ Implement each RPC method defined in your proto. Extend the generated base class
 === ".NET"
 
     ```csharp
+    using Agntcy.Slim.SlimRpc;
     using ExampleService;
 
     class TestServerImpl : ITestServer
     {
         public async Task<ExampleResponse> ExampleUnaryUnary(
-            ExampleRequest request, ServerCallContext context)
+            ExampleRequest request, SlimRpcContext context)
         {
             return new ExampleResponse
             {
@@ -547,7 +548,7 @@ Implement each RPC method defined in your proto. Extend the generated base class
         }
 
         public async IAsyncEnumerable<ExampleResponse> ExampleUnaryStream(
-            ExampleRequest request, ServerCallContext context)
+            ExampleRequest request, SlimRpcContext context)
         {
             for (int i = 0; i < 5; i++)
             {
@@ -560,7 +561,7 @@ Implement each RPC method defined in your proto. Extend the generated base class
         }
 
         public async Task<ExampleResponse> ExampleStreamUnary(
-            IAsyncEnumerable<ExampleRequest> requestStream, ServerCallContext context)
+            IAsyncEnumerable<ExampleRequest> requestStream, SlimRpcContext context)
         {
             long count = 0;
             await foreach (var _ in requestStream)
@@ -573,7 +574,7 @@ Implement each RPC method defined in your proto. Extend the generated base class
         }
 
         public async IAsyncEnumerable<ExampleResponse> ExampleStreamStream(
-            IAsyncEnumerable<ExampleRequest> requestStream, ServerCallContext context)
+            IAsyncEnumerable<ExampleRequest> requestStream, SlimRpcContext context)
         {
             await foreach (var req in requestStream)
             {
@@ -733,7 +734,7 @@ Create a SLIMRPC server, register your implementation, and start serving. The se
 === ".NET"
 
     ```csharp
-    using Agntcy.Slim.Rpc;
+    using Agntcy.Slim.SlimRpc;
     using ExampleService;
 
     // app and connId come from the prerequisite tutorials

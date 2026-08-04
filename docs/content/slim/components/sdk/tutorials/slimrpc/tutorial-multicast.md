@@ -119,7 +119,7 @@ A group channel wraps a SLIM group session that spans all the servers you want t
 === ".NET"
 
     ```csharp
-    using Agntcy.Slim.Rpc;
+    using Agntcy.Slim.SlimRpc;
     using Agntcy.Slim;
     using ExampleService;
 
@@ -279,9 +279,9 @@ Each response item carries both the response payload and the context identifying
 
     var request = new ExampleRequest { ExampleString = "world", ExampleInteger = 42 };
 
-    await foreach (var item in client.ExampleUnaryUnary(request, timeout: TimeSpan.FromSeconds(5)))
+    await foreach (var item in client.ExampleUnaryUnaryAsync(request, timeout: TimeSpan.FromSeconds(5)))
     {
-        Console.WriteLine($"Response from {item.Context.SourceName}: {item.Value.ExampleString}");
+        Console.WriteLine($"Response from {item.Context}: {item.Value.ExampleString}");
     }
     ```
 

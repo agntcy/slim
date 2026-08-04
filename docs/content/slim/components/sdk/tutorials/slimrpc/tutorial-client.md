@@ -87,7 +87,7 @@ A SLIMRPC channel wraps the SLIM session layer. Pass it the remote server's SLIM
 === ".NET"
 
     ```csharp
-    using Agntcy.Slim.Rpc;
+    using Agntcy.Slim.SlimRpc;
     using ExampleService;
 
     // app, connId, and remoteName come from the prerequisite tutorials
@@ -194,7 +194,7 @@ Send a single request and receive a single response.
     using ExampleService;
 
     var request = new ExampleRequest { ExampleString = "world", ExampleInteger = 42 };
-    var response = await client.ExampleUnaryUnary(request, timeout: TimeSpan.FromSeconds(5));
+    var response = await client.ExampleUnaryUnaryAsync(request, timeout: TimeSpan.FromSeconds(5));
     Console.WriteLine($"Response: {response.ExampleString} {response.ExampleInteger}");
     ```
 
@@ -285,7 +285,7 @@ Send a single request and iterate over a stream of responses from the server.
 === ".NET"
 
     ```csharp
-    await foreach (var response in client.ExampleUnaryStream(request, timeout: TimeSpan.FromSeconds(5)))
+    await foreach (var response in client.ExampleUnaryStreamAsync(request, timeout: TimeSpan.FromSeconds(5)))
     {
         Console.WriteLine($"Stream response: {response.ExampleString} {response.ExampleInteger}");
     }
@@ -405,7 +405,7 @@ Stream a sequence of requests to the server and receive a single response.
         }
     }
 
-    var response = await client.ExampleStreamUnary(GetRequests(), timeout: TimeSpan.FromSeconds(5));
+    var response = await client.ExampleStreamUnaryAsync(GetRequests(), timeout: TimeSpan.FromSeconds(5));
     Console.WriteLine($"Response: {response.ExampleString} {response.ExampleInteger}");
     ```
 
@@ -548,7 +548,7 @@ Stream requests to the server and receive a stream of responses simultaneously.
 === ".NET"
 
     ```csharp
-    await foreach (var response in client.ExampleStreamStream(GetRequests(), timeout: TimeSpan.FromSeconds(5)))
+    await foreach (var response in client.ExampleStreamStreamAsync(GetRequests(), timeout: TimeSpan.FromSeconds(5)))
     {
         Console.WriteLine($"Stream response: {response.ExampleString} {response.ExampleInteger}");
     }
