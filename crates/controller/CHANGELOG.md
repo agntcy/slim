@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.5](https://github.com/agntcy/slim/compare/slim-controller-v0.12.4...slim-controller-v0.12.5) - 2026-08-04
+
+### Fixed
+
+- *(controller)* derive tls_required from client_config.tls in server metadata ([#1938](https://github.com/agntcy/slim/pull/1938))
+
 ## [0.12.4](https://github.com/agntcy/slim/compare/slim-controller-v0.12.3...slim-controller-v0.12.4) - 2026-08-03
 
 ### Other
