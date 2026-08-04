@@ -118,12 +118,13 @@ async fn run_receiver(args: Args) -> Result<()> {
             .context("failed to create SLIM service")?,
     );
 
-    let client_config = ClientConfig::with_endpoint(&args.slim)
-        .with_tls_setting(if args.slim.starts_with("https://") {
+    let client_config = ClientConfig::with_endpoint(&args.slim).with_tls_setting(
+        if args.slim.starts_with("https://") {
             TlsClientConfig::default()
         } else {
             TlsClientConfig::insecure()
-        });
+        },
+    );
     let conn_id = service
         .connect(&client_config)
         .await
@@ -143,8 +144,8 @@ async fn run_receiver(args: Args) -> Result<()> {
         }
         #[cfg(not(target_family = "windows"))]
         "spire" => {
-            let mut spire_cfg = SpireConfig::default()
-                .with_jwt_audiences(args.spire_audiences.clone());
+            let mut spire_cfg =
+                SpireConfig::default().with_jwt_audiences(args.spire_audiences.clone());
             if let Some(ref path) = args.spire_socket_path {
                 spire_cfg = spire_cfg.with_socket_path(path);
             }
