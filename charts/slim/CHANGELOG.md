@@ -1,6 +1,6 @@
 # Changelog
 
-## [2.1.0-alpha.0](https://github.com/agntcy/slim/compare/helm-slim-v2.0.0-alpha.0...helm-slim-v2.1.0-alpha.0) (2026-08-04)
+## [2.0.0-alpha.1](https://github.com/agntcy/slim/compare/helm-slim-v2.0.0-alpha.0...helm-slim-v2.0.0-alpha.1) (2026-08-04)
 
 
 ### Features
