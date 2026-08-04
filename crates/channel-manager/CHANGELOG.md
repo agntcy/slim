@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.13](https://github.com/agntcy/slim/compare/slim-channel-manager-v2.0.0-alpha.12...slim-channel-manager-v2.0.0-alpha.13) - 2026-08-04
+
+### Other
+
+- update Cargo.lock dependencies
+
 ## [2.0.0-alpha.11](https://github.com/agntcy/slim/compare/slim-channel-manager-v2.0.0-alpha.10...slim-channel-manager-v2.0.0-alpha.11) - 2026-08-03
 
 ### Other
