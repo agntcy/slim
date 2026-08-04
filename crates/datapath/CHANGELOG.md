@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.2](https://github.com/agntcy/slim/compare/slim-datapath-v0.18.1...slim-datapath-v0.18.2) - 2026-08-04
+
+### Added
+
+- move to v2.0.0 stable ([#1946](https://github.com/agntcy/slim/pull/1946))
+
 ## [0.18.1](https://github.com/agntcy/slim/compare/slim-datapath-v0.18.0...slim-datapath-v0.18.1) - 2026-08-04
 
 ### Other

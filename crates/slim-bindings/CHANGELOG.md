@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1](https://github.com/agntcy/slim/compare/slim-bindings-v2.0.0-alpha.15...slim-bindings-v2.0.1) - 2026-08-04
+
+### Added
+
+- move to v2.0.0 stable ([#1946](https://github.com/agntcy/slim/pull/1946))
+
 ## [2.0.0-alpha.15](https://github.com/agntcy/slim/compare/slim-bindings-v2.0.0-alpha.14...slim-bindings-v2.0.0-alpha.15) - 2026-08-04
 
 ### Other
