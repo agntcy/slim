@@ -123,13 +123,18 @@ slimctl version
 An example `config.yaml` for connecting to a Controller:
 
 ```yaml
-server: "127.0.0.1:46358"
-timeout: "10s"
+endpoint: "127.0.0.1:46358"
+connect_timeout: "10s"
+request_timeout: "10s"
 tls:
   insecure: false
-  ca_file: "/path/to/ca.pem"
-  cert_file: "/path/to/client.pem"
-  key_file: "/path/to/client.key"
+  ca_source:
+    type: file
+    path: "/path/to/ca.pem"
+  source:
+    type: file
+    cert: "/path/to/client.pem"
+    key: "/path/to/client.key"
 ```
 
 ## Next Steps

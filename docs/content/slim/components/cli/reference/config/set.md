@@ -76,11 +76,16 @@ Options inherited from [`slimctl config`](./index.md) and [`slimctl`](../index.m
 Example `~/.slimctl/config.yaml`:
 
 ```yaml
-server: "127.0.0.1:46358"
-timeout: "15s"
+endpoint: "127.0.0.1:46358"
+connect_timeout: "15s"
+request_timeout: "15s"
 tls:
   insecure_skip_verify: false
-  ca_file: "/path/to/ca.pem"
-  cert_file: "/path/to/client.pem"
-  key_file: "/path/to/client-key.pem"
+  ca_source:
+    type: file
+    path: "/path/to/ca.pem"
+  source:
+    type: file
+    cert: "/path/to/client.pem"
+    key: "/path/to/client-key.pem"
 ```

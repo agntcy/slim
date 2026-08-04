@@ -8,17 +8,17 @@ services:
     entrypoint: ["/slim"]
     command: ["--config", "/config/server-config.yaml"]
     ports:
-      - "50001:50001"
+      - "46357:46357"
     networks:
       - slim-network
     volumes:
-      - ../config/base/server-config.yaml:/config/server-config.yaml
+      - ../../config/base/server-config.yaml:/config/server-config.yaml
 
   # Mock app server
   mock-app-server:
     build:
       context: ../..
-      dockerfile: ./crates/examples/Dockerfile.mock-app
+      dockerfile: ./crates/examples/Dockerfile.mock-agent
       target: mock-app-server
     depends_on:
       - slim-server
@@ -31,7 +31,7 @@ services:
   mock-app-client:
     build:
       context: ../..
-      dockerfile: ./crates/examples/Dockerfile.mock-app
+      dockerfile: ./crates/examples/Dockerfile.mock-agent
       target: mock-app-client
     depends_on:
       - slim-server

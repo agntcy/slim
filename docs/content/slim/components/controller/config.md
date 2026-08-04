@@ -1,6 +1,6 @@
 # SLIM Controller Configuration Reference
 
-The SLIM Controller is configured through a YAML file passed at startup with the `-config` flag.
+The SLIM Controller is configured through a YAML file passed at startup with the `--config` flag.
 
 ## Minimal Configuration
 

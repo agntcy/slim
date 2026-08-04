@@ -104,8 +104,8 @@ tasks:
     dir: "../.."
     cmds:
       - docker build -t slim-server -f Dockerfile .
-      - docker build -t mock-app-server -f crates/examples/Dockerfile.mock-app --target=mock-app-server .
-      - docker build -t mock-app-client -f crates/examples/Dockerfile.mock-app --target=mock-app-client .
+      - docker build -t mock-app-server -f crates/examples/Dockerfile.mock-agent --target=mock-app-server .
+      - docker build -t mock-app-client -f crates/examples/Dockerfile.mock-agent --target=mock-app-client .
 
   docker:compose-up:
     desc: "Start all services with Docker Compose"
