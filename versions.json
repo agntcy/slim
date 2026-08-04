@@ -345,6 +345,13 @@
     "aliases": []
   },
   {
+    "version": "slim-mls-v0.3.5",
+    "title": "slim-mls-v0.3.5",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-mls-v0.3.4",
     "title": "slim-mls-v0.3.4",
     "aliases": []
@@ -502,9 +509,7 @@
   {
     "version": "slim-config-v0.14.5",
     "title": "slim-config-v0.14.5",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-config-v0.14.4",
