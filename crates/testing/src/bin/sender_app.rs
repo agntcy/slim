@@ -300,12 +300,16 @@ async fn run_sender(args: Args) -> Result<()> {
     if session_type == ProtoSessionType::Multicast {
         for participant in &participant_names {
             tprintln!("[{}] Inviting {} to session...", full_name, participant);
-            controller
-                .invite_participant(participant)
-                .await
-                .context("invite failed")?
-                .await
-                .context("invite completion failed")?;
+            tokio::time::timeout(
+                Duration::from_secs(35),
+                controller
+                    .invite_participant(participant)
+                    .await
+                    .context("invite failed")?,
+            )
+            .await
+            .context("invite timed out after 35s")?
+            .context("invite completion failed")?;
             tprintln!("[{}] {} joined session", full_name, participant);
         }
     }
