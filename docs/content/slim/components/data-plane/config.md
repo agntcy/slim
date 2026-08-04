@@ -4,8 +4,8 @@ This document provides comprehensive documentation for configuring the SLIM data
 
 This documentation corresponds to the JSON schemas in the SLIM repository:
   
-- [Client Configuration Schema](https://github.com/agntcy/slim/blob/slim-v2.0.0/crates/config/src/schema/client-config.schema.json)
-- [Server Configuration Schema](https://github.com/agntcy/slim/blob/slim-v2.0.0/crates/config/src/schema/server-config.schema.json)
+- [Client Configuration Schema](https://github.com/agntcy/slim/blob/slim-v2.0.0-alpha.12/crates/config/src/schema/client-config.schema.json)
+- [Server Configuration Schema](https://github.com/agntcy/slim/blob/slim-v2.0.0-alpha.12/crates/config/src/schema/server-config.schema.json)
 
 ## Configuration Structure Overview
 
