@@ -1,6 +1,6 @@
 [package]
 name = "agntcy-slim-bindings"
-version = "2.0.0-alpha.15"
+version.workspace = true
 edition = { workspace = true }
 license = { workspace = true }
 repository = { workspace = true }
@@ -46,6 +46,7 @@ agntcy-slim-datapath = { workspace = true }
 agntcy-slim-service = { workspace = true, features = ["session"] }
 agntcy-slim-session = { workspace = true }
 agntcy-slim-version = { workspace = true }
+getrandom = { version = "0.4", features = ["wasm_js"] }
 tokio = { package = "tokio_with_wasm", version = "0.9", features = ["sync", "time"] }
 wasm-bindgen-futures = { workspace = true }
 
