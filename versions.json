@@ -60,6 +60,13 @@
     "aliases": []
   },
   {
+    "version": "slim-version-v2.0.0",
+    "title": "slim-version-v2.0.0",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-version-v2.0.0-alpha.12",
     "title": "slim-version-v2.0.0-alpha.12",
     "aliases": []
@@ -742,9 +749,7 @@
   {
     "version": "helm-slim-v2.1.0-alpha.0",
     "title": "helm-slim-v2.1.0-alpha.0",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "helm-slim-v2.0.0-alpha.0",
