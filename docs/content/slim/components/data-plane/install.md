@@ -104,7 +104,7 @@ cd slim
 task data-plane:build PROFILE=release
 ```
 
-The binary will be available at `data-plane/target/release/slim`.
+The binary will be available at `target/release/slim`.
 
 ## Next Steps
 

@@ -12,6 +12,7 @@ SLIM images are published to the GitHub Container Registry:
 | `ghcr.io/agntcy/slim` | `<version>-debug` | SLIM data plane (Debian slim, includes shell) |
 | `ghcr.io/agntcy/slim/control-plane` | `<version>` | SLIM Controller (distroless) |
 | `ghcr.io/agntcy/slim/control-plane` | `<version>-debug` | SLIM Controller (Debian slim) |
+| `ghcr.io/agntcy/slim/examples` | `<version>` | Mock client applications for end-to-end testing |
 
 Both `linux/amd64` and `linux/arm64` are supported.
 
@@ -48,7 +49,7 @@ Run the SLIM node:
 docker run -it \
     -v ./config.yaml:/config.yaml \
     -p 46357:46357 \
-    ghcr.io/agntcy/slim:2.0.0-alpha.8 /slim --config /config.yaml
+    ghcr.io/agntcy/slim:2.0.0 /slim --config /config.yaml
 ```
 
 SDK applications on the host connect to `http://127.0.0.1:46357`.
@@ -57,17 +58,11 @@ SDK applications on the host connect to `http://127.0.0.1:46357`.
 
 The `crates/examples/` directory includes a Docker Compose file that starts a SLIM node alongside mock client applications for quick end-to-end testing.
 
-> **Note:** The mock app images must be built locally before running the compose stack. From the repo root:
->
-> ```bash
-> task -d crates/examples docker:build-all
-> ```
-
 ```yaml
 # docker-compose.yml
 services:
   slim-server:
-    image: ghcr.io/agntcy/slim:2.0.0-alpha.8
+    image: ghcr.io/agntcy/slim:2.0.0
     entrypoint: ["/slim"]
     command: ["--config", "/config/server-config.yaml"]
     ports:
@@ -78,7 +73,8 @@ services:
       - slim-network
 
   mock-app-server:
-    image: ghcr.io/agntcy/slim/examples:2.0.0-alpha.8
+    image: ghcr.io/agntcy/slim/examples:2.0.0
+    command: ["--config", "/config/client-config.yaml", "--local-name", "server", "--remote-name", "client"]
     depends_on:
       - slim-server
     networks:
@@ -87,7 +83,8 @@ services:
       - ./config/docker-client-config.yaml:/config/client-config.yaml
 
   mock-app-client:
-    image: ghcr.io/agntcy/slim/examples:2.0.0-alpha.8
+    image: ghcr.io/agntcy/slim/examples:2.0.0
+    command: ["--config", "/config/client-config.yaml", "--local-name", "client", "--remote-name", "server", "--message", "hello from Docker!"]
     depends_on:
       - slim-server
       - mock-app-server
@@ -157,7 +154,7 @@ docker run -it \
     -v ./controller-config.yaml:/config.yaml \
     -v ./db:/db \
     -p 50051:50051 -p 50052:50052 \
-    ghcr.io/agntcy/slim/control-plane:2.0.0-alpha.8 \
+    ghcr.io/agntcy/slim/control-plane:2.0.0 \
     --config /config.yaml
 ```
 

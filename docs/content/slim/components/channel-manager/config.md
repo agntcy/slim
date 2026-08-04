@@ -42,13 +42,15 @@ channel-manager:
       insecure: true
       # For TLS-secured connections set insecure: false and supply a CA cert:
       # insecure: false
-      # ca_file: "/path/to/ca.pem"
+      # ca_source:
+      #   type: file
+      #   path: "/path/to/ca.pem"
 
     # Authentication used when connecting to the SLIM node (if the node
     # requires it). Example: JWT bearer token from a file.
     # auth:
     #   type: static_jwt
-    #   token_file: "/path/to/token"
+    #   file: "/path/to/token"
 
     # TCP and HTTP/2 keepalive settings for long-lived connections.
     # keepalive:
@@ -68,8 +70,10 @@ channel-manager:
       insecure: true
       # For TLS-secured API:
       # insecure: false
-      # cert_file: "/path/to/server.pem"
-      # key_file:  "/path/to/server-key.pem"
+      # source:
+      #   type: file
+      #   cert: "/path/to/server.pem"
+      #   key:  "/path/to/server-key.pem"
 
   # ---------------------------------------------------------------------------
   # local-name: the SLIM name this Channel Manager registers as.

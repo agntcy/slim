@@ -27,7 +27,7 @@ By the end of this guide you will have a SLIM node running locally and an applic
 === "macOS (Apple Silicon)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.8/slimctl-darwin-arm64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-darwin-arm64.tar.gz
     tar -xzf slimctl-darwin-arm64.tar.gz
     sudo mv slimctl /usr/local/bin/
     ```
@@ -41,7 +41,7 @@ By the end of this guide you will have a SLIM node running locally and an applic
 === "macOS (Intel)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.8/slimctl-darwin-amd64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-darwin-amd64.tar.gz
     tar -xzf slimctl-darwin-amd64.tar.gz
     sudo mv slimctl /usr/local/bin/
     ```
@@ -55,7 +55,7 @@ By the end of this guide you will have a SLIM node running locally and an applic
 === "Linux (AMD64)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.8/slimctl-linux-amd64-gnu.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-linux-amd64-gnu.tar.gz
     tar -xzf slimctl-linux-amd64-gnu.tar.gz
     sudo mv slimctl /usr/local/bin/
     ```
@@ -63,14 +63,14 @@ By the end of this guide you will have a SLIM node running locally and an applic
 === "Linux (ARM64)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.8/slimctl-linux-arm64-gnu.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-linux-arm64-gnu.tar.gz
     tar -xzf slimctl-linux-arm64-gnu.tar.gz
     sudo mv slimctl /usr/local/bin/
     ```
 
 === "Windows"
 
-    Download the binary from the [GitHub releases page](https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.8/slimctl-windows-amd64.zip) and add it to your `PATH`. See [CLI Installation](./components/cli/install.md) for full Windows instructions.
+    Download the binary from the [GitHub releases page](https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-windows-amd64.zip) and add it to your `PATH`. See [CLI Installation](./components/cli/install.md) for full Windows instructions.
 
 Verify the install:
 
@@ -86,7 +86,7 @@ See [CLI Installation](./components/cli/install.md) for build-from-source instru
 slimctl slim start
 ```
 
-This starts a SLIM node on `0.0.0.0:46357` with insecure (no TLS) defaults. The node runs in the foreground — press **Ctrl-C** to stop it.
+This starts a SLIM node on `127.0.0.1:46357` with insecure (no TLS) defaults. The node runs in the foreground — press **Ctrl-C** to stop it.
 
 ## Step 3: Install the SDK
 

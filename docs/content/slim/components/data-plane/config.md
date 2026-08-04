@@ -4,8 +4,8 @@ This document provides comprehensive documentation for configuring the SLIM data
 
 This documentation corresponds to the JSON schemas in the SLIM repository:
   
-- [Client Configuration Schema](https://github.com/agntcy/slim/blob/slim-v2.0.0-alpha.8/crates/config/src/schema/client-config.schema.json)
-- [Server Configuration Schema](https://github.com/agntcy/slim/blob/slim-v2.0.0-alpha.8/crates/config/src/schema/server-config.schema.json)
+- [Client Configuration Schema](https://github.com/agntcy/slim/blob/slim-v2.0.0/crates/config/src/schema/client-config.schema.json)
+- [Server Configuration Schema](https://github.com/agntcy/slim/blob/slim-v2.0.0/crates/config/src/schema/server-config.schema.json)
 
 ## Configuration Structure Overview
 
@@ -186,8 +186,8 @@ Default is `false` (disabled). Enabling it while any endpoint is configured with
 ```yaml
 services:
   slim/0:
-    enforce_pqc: true   # require PQC on TLS, link negotiation, and MLS
     dataplane:
+      enforce_pqc: true   # require PQC on TLS, link negotiation, and MLS
       servers:
         - endpoint: "0.0.0.0:46357"
           tls:
@@ -968,7 +968,7 @@ clients:
     ```
 
 !!! info "Default Backoff"
-    Default: exponential with base=100ms, factor=1, jitter=true, max_delay=1s, unlimited attempts
+    Default: fixed interval, 2s between retries, unlimited attempts
 
 ## Native SPIRE Integration
 
@@ -1658,7 +1658,7 @@ The `endpoint` field can be configured as either a network address or a Unix soc
 | `keepalive` | KeepaliveConfig | ❌ | `null` | Keepalive settings | - |
 | `proxy` | ProxyConfig | ❌ | - | HTTP proxy config | - |
 | `auth` | AuthConfig | ❌ | `none` | Authentication config | - |
-| `backoff` | BackoffConfig | ❌ | exponential | Retry backoff | - |
+| `backoff` | BackoffConfig | ❌ | fixed_interval 2s | Retry backoff | - |
 | `metadata` | object | ❌ | `null` | User metadata | - |
 
 ### Authentication Types
