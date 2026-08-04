@@ -83,16 +83,12 @@ services:
       - slim-network
 
   mock-app-server:
-<<<<<<< HEAD
-    image: mock-app-server
-=======
     image: ghcr.io/agntcy/slim/examples:2.0.0
     # To build from source instead:
     # build:
     #   context: ../..
     #   dockerfile: ./crates/examples/Dockerfile.mock-agent
     #   target: mock-app-server
->>>>>>> ad10b85b (docs: update deployment docs for local and docker)
     depends_on:
       - slim-server
     networks:
@@ -101,16 +97,12 @@ services:
       - ./config/docker-client-config.yaml:/config/client-config.yaml
 
   mock-app-client:
-<<<<<<< HEAD
-    image: mock-app-client
-=======
     image: ghcr.io/agntcy/slim/examples:2.0.0
     # To build from source instead:
     # build:
     #   context: ../..
     #   dockerfile: ./crates/examples/Dockerfile.mock-agent
     #   target: mock-app-client
->>>>>>> ad10b85b (docs: update deployment docs for local and docker)
     depends_on:
       - slim-server
       - mock-app-server
