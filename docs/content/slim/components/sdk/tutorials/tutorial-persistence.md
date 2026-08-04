@@ -126,7 +126,7 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
             Data: "change-me-before-going-to-production",
         }
 
-        app, err := slim.GetGlobalService().CreateAppWithPersistence(
+        app, err := slim.GetGlobalService().CreateAppWithPersistenceAsync(
             appName,
             provider,
             verifier,
@@ -326,7 +326,7 @@ On the next startup, create a new app using the **same name, secret, store path,
 
     ```go
     // After restart — same name, secret, path, and passphrase as before
-    app, err = slim.GetGlobalService().CreateAppWithPersistence(
+    app, err = slim.GetGlobalService().CreateAppWithPersistenceAsync(
         appName, provider, verifier,
         slim.DirectionBidirectional, persistence,
     )
@@ -340,7 +340,7 @@ On the next startup, create a new app using the **same name, secret, store path,
     }
 
     // Restore all previously active sessions
-    sessions, err := app.RestoreSessions(connID)
+    sessions, err := app.RestoreSessionsAsync(connID)
     if err != nil {
         log.Fatal(err)
     }
