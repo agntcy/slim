@@ -466,7 +466,7 @@ pub(crate) mod test_utils {
 
     use crate::config::AdjacencyEntry;
     use crate::config::{ReconcilerConfig, TopologyConfig};
-    use crate::db::{ConnectionDetails, model};
+    use crate::db::ConnectionDetails;
     use crate::node_transport::DefaultNodeCommandHandler;
 
     use super::RouteService;
@@ -475,9 +475,7 @@ pub(crate) mod test_utils {
         ConnectionDetails {
             endpoint: ep.to_string(),
             external_endpoint: external.map(|s| s.to_string()),
-            tls_required: false,
-            auth_method: model::AuthMethod::None,
-            spire_trust_domain: None,
+            ..Default::default()
         }
     }
 
@@ -563,10 +561,7 @@ mod topology_mutation_tests {
                 domain_name: Some(domain.to_string()),
                 conn_details: vec![ConnectionDetails {
                     endpoint: format!("127.0.0.1:{}", 9000 + i),
-                    external_endpoint: None,
-                    tls_required: false,
-                    auth_method: crate::db::model::AuthMethod::None,
-                    spire_trust_domain: None,
+                    ..Default::default()
                 }],
                 created_at: SystemTime::now(),
                 last_updated: SystemTime::now(),

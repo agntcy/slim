@@ -29,8 +29,8 @@ use slim_control_plane::api::proto::controlplane::proto::v1::{
     SegmentListRequest,
 };
 use slim_control_plane::config::{
-    AdjacencyEntry, Config, DatabaseConfig, ReconcilerConfig, RegistrationAuthConfig,
-    SegmentConfig, TopologyConfig, TopologySettings,
+    AdjacencyEntry, Config, DatabaseConfig, NodeConnectionParams, ReconcilerConfig,
+    RegistrationAuthConfig, SegmentConfig, TopologyConfig, TopologySettings,
 };
 use slim_control_plane::server::ControlPlane;
 use slim_datapath::api::ProtoName as Name;
@@ -242,7 +242,6 @@ async fn start_domain_node(
 
     let peer_config = if static_peers.len() > 1 {
         Some(PeerConfig {
-            deployment_name: domain.to_string(),
             topology: PeerTopology::FullMesh,
             discovery: PeerDiscoveryConfig::Static {
                 peers: static_peers,
@@ -2705,5 +2704,125 @@ async fn test_remove_domain_kicks_connected_node() {
         "domain should have been removed"
     );
 
+    stop_control_plane(cp).await;
+}
+
+async fn start_control_plane_with_node_connection(
+    topology: TopologyConfig,
+    node_connection: NodeConnectionParams,
+) -> TestControlPlane {
+    let permit = CP_TEST_SLOTS
+        .clone()
+        .acquire_owned()
+        .await
+        .expect("CP_TEST_SLOTS semaphore closed");
+    initialize_crypto_provider();
+
+    let northbound_port = reserve_port();
+    let southbound_port = reserve_port();
+
+    let cfg = Config {
+        northbound: ServerConfig::with_endpoint(&format!("127.0.0.1:{northbound_port}"))
+            .with_tls_settings(TlsServerConfig::insecure()),
+        southbound: ServerConfig::with_endpoint(&format!("127.0.0.1:{southbound_port}"))
+            .with_tls_settings(TlsServerConfig::insecure()),
+        database: DatabaseConfig::InMemory,
+        reconciler: test_reconciler_config(),
+        topology: TopologySettings {
+            config: topology,
+            auth: None,
+        },
+        node_connection_params: node_connection,
+        ..Default::default()
+    };
+
+    let cp = ControlPlane::start(cfg)
+        .await
+        .expect("failed to start control plane");
+
+    TestControlPlane {
+        northbound_port,
+        southbound_port,
+        cp,
+        _permit: permit,
+    }
+}
+
+/// Test: CP enforces backoff, timeout, and keepalive from its config on connecting nodes.
+///
+/// Scenario:
+///   - Start CP with `node_connection` configured (backoff, timeout, keepalive).
+///   - Start two nodes in different domains so a cross-domain link is created.
+///   - Wait for the link to reach Applied status.
+///   - Read the link's `conn_config_data` via the northbound API.
+///   - Assert all three values match what the CP was configured with.
+///
+/// Because `node_connection` values are stamped onto `ConnectionDetails` at
+/// registration time, they survive reconnects: re-registering nodes get the
+/// same override applied again.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_cp_enforces_node_connection_params() {
+    use slim_config::client::ServerConnectionConfig;
+
+    init_tracing();
+
+    let cp_keepalive = KeepaliveConfig {
+        http2_keepalive: Duration::from_secs(45).into(),
+        timeout: Duration::from_secs(8).into(),
+        keep_alive_while_idle: true,
+        ..Default::default()
+    };
+
+    let cp = start_control_plane_with_node_connection(
+        full_mesh_topology(),
+        NodeConnectionParams {
+            backoff: Some(3000),
+            timeout: Some(5000),
+            keepalive: Some(cp_keepalive.clone()),
+        },
+    )
+    .await;
+
+    let mut nb = create_nb_client(cp.northbound_port).await;
+
+    let a_port = reserve_port();
+    let b_port = reserve_port();
+
+    let node_a = start_single_node("node-a", "domain-a", cp.southbound_port, a_port).await;
+    let node_b = start_single_node("node-b", "domain-b", cp.southbound_port, b_port).await;
+
+    let id_a = domain_node_id("domain-a", "node-a");
+    let id_b = domain_node_id("domain-b", "node-b");
+
+    wait_for_nodes_connected(&mut nb, &[&id_a, &id_b], SHORT_TIMEOUT).await;
+    wait_for_link_between_domains(&mut nb, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
+
+    let links = collect_links(&mut nb, "", "").await;
+    let applied_link = links
+        .iter()
+        .find(|l| l.status == LINK_APPLIED && !l.deleted)
+        .expect("expected at least one applied link");
+
+    let config: ServerConnectionConfig = serde_json::from_str(&applied_link.conn_config_data)
+        .expect("conn_config_data should be valid ServerConnectionConfig JSON");
+
+    assert_eq!(
+        config.backoff,
+        Some(3000),
+        "CP-configured backoff should be enforced on the link"
+    );
+    assert_eq!(
+        config.timeout,
+        Some(5000),
+        "CP-configured timeout should be enforced on the link"
+    );
+    assert_eq!(
+        config.keepalive.as_ref(),
+        Some(&cp_keepalive),
+        "CP-configured keepalive should be enforced on the link"
+    );
+
+    node_a.shutdown().await.ok();
+    node_b.shutdown().await.ok();
     stop_control_plane(cp).await;
 }

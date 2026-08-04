@@ -25,7 +25,6 @@ services:
           tls:
             insecure: true
     peers:
-      deployment_name: "thegroup"
       topology: "full_mesh"
       discovery:
         type: static

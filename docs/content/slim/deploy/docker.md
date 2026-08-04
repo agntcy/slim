@@ -48,7 +48,7 @@ Run the SLIM node:
 docker run -it \
     -v ./config.yaml:/config.yaml \
     -p 46357:46357 \
-    ghcr.io/agntcy/slim:2.0.0 /slim --config /config.yaml
+    ghcr.io/agntcy/slim:2.0.0-alpha.8 /slim --config /config.yaml
 ```
 
 SDK applications on the host connect to `http://127.0.0.1:46357`.
@@ -67,12 +67,7 @@ The `crates/examples/` directory includes a Docker Compose file that starts a SL
 # docker-compose.yml
 services:
   slim-server:
-    image: ghcr.io/agntcy/slim:2.0.0
-    # To build from source instead:
-    # build:
-    #   context: ../..
-    #   dockerfile: ./Dockerfile
-    #   target: slim-release
+    image: ghcr.io/agntcy/slim:2.0.0-alpha.8
     entrypoint: ["/slim"]
     command: ["--config", "/config/server-config.yaml"]
     ports:
@@ -83,12 +78,7 @@ services:
       - slim-network
 
   mock-app-server:
-    image: ghcr.io/agntcy/slim/examples:2.0.0
-    # To build from source instead:
-    # build:
-    #   context: ../..
-    #   dockerfile: ./crates/examples/Dockerfile.mock-agent
-    #   target: mock-app-server
+    image: ghcr.io/agntcy/slim/examples:2.0.0-alpha.8
     depends_on:
       - slim-server
     networks:
@@ -97,12 +87,7 @@ services:
       - ./config/docker-client-config.yaml:/config/client-config.yaml
 
   mock-app-client:
-    image: ghcr.io/agntcy/slim/examples:2.0.0
-    # To build from source instead:
-    # build:
-    #   context: ../..
-    #   dockerfile: ./crates/examples/Dockerfile.mock-agent
-    #   target: mock-app-client
+    image: ghcr.io/agntcy/slim/examples:2.0.0-alpha.8
     depends_on:
       - slim-server
       - mock-app-server
@@ -172,7 +157,7 @@ docker run -it \
     -v ./controller-config.yaml:/config.yaml \
     -v ./db:/db \
     -p 50051:50051 -p 50052:50052 \
-    ghcr.io/agntcy/slim/control-plane:2.0.0 \
+    ghcr.io/agntcy/slim/control-plane:2.0.0-alpha.8 \
     --config /config.yaml
 ```
 

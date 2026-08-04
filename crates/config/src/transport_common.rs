@@ -76,7 +76,7 @@ impl ClientConfig {
         http.enforce_http(false);
         http.set_nodelay(false);
 
-        match self.connect_timeout.as_secs() {
+        match self.connect_timeout.as_millis() {
             0 => http.set_connect_timeout(None),
             _ => http.set_connect_timeout(Some(self.connect_timeout.into())),
         }
