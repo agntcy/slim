@@ -171,6 +171,7 @@ pub(crate) fn from_server_config(server_config: &ServerConfig) -> ConnectionDeta
     let mut external_endpoint = None;
     let mut spire_socket_path = None;
     let mut trust_domain = None;
+    let mut client_config_tls_insecure: Option<bool> = None;
     let mut remaining_fields = std::collections::BTreeMap::new();
 
     if let Some(m) = &server_config.metadata {
@@ -204,6 +205,24 @@ pub(crate) fn from_server_config(server_config: &ServerConfig) -> ConnectionDeta
                         trust_domain = Some(s.to_string());
                     }
                 }
+                "client_config" => {
+                    // When client_config is present it owns the remote TLS decision;
+                    // the server-level tls.insecure only governs local (intra-cluster)
+                    // connections and must not be used as a fallback.
+                    // Default to insecure=true so that absence of a tls section means
+                    // no TLS rather than inheriting the server-level flag.
+                    if let Some(cc) = v.as_map() {
+                        let insecure = cc
+                            .inner
+                            .get("tls")
+                            .and_then(|v| v.as_map())
+                            .and_then(|tls| tls.inner.get("insecure"))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(true);
+                        client_config_tls_insecure = Some(insecure);
+                    }
+                    remaining_fields.insert(k.clone(), prost_types::Value::from(v));
+                }
                 _ => {
                     remaining_fields.insert(k.clone(), prost_types::Value::from(v));
                 }
@@ -211,7 +230,15 @@ pub(crate) fn from_server_config(server_config: &ServerConfig) -> ConnectionDeta
         }
     }
 
-    let tls_required = !server_config.tls_setting.insecure || spire_socket_path.is_some();
+    // tls_required is true when:
+    // - client_config is present and client_config.tls.insecure is false (remote TLS config
+    //   wins; absence of tls section defaults to insecure=true, i.e. no TLS)
+    // - or client_config is absent and the server-level TLS is not insecure (fallback)
+    // - or a SPIRE socket path is configured
+    let tls_required = client_config_tls_insecure
+        .map(|insecure| !insecure)
+        .unwrap_or(!server_config.tls_setting.insecure)
+        || spire_socket_path.is_some();
     // AuthenticationConfig::Spire is gated to non-windows in slim-config.
     #[cfg(not(target_family = "windows"))]
     let auth_is_spire = matches!(server_config.auth, AuthenticationConfig::Spire(_));

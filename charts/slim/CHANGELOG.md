@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.0-alpha.1](https://github.com/agntcy/slim/compare/helm-slim-v2.0.0-alpha.0...helm-slim-v2.0.0-alpha.1) (2026-08-04)
+
+
+### Features
+
+* **helm:** update slim version in the chart ([#1941](https://github.com/agntcy/slim/issues/1941)) ([edd5388](https://github.com/agntcy/slim/commit/edd5388c8bcdbc5df13cb1f7e7d035012d16c4f8))
+
 ## [2.0.0-alpha.0](https://github.com/agntcy/slim/compare/helm-slim-v1.4.0...helm-slim-v2.0.0-alpha.0) (2026-07-31)
 
 
