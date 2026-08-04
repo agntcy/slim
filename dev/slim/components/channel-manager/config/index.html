@@ -4974,13 +4974,15 @@
 <span class="w">      </span><span class="nt">insecure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">      </span><span class="c1"># For TLS-secured connections set insecure: false and supply a CA cert:</span>
 <span class="w">      </span><span class="c1"># insecure: false</span>
-<span class="w">      </span><span class="c1"># ca_file: &quot;/path/to/ca.pem&quot;</span>
+<span class="w">      </span><span class="c1"># ca_source:</span>
+<span class="w">      </span><span class="c1">#   type: file</span>
+<span class="w">      </span><span class="c1">#   path: &quot;/path/to/ca.pem&quot;</span>
 
 <span class="w">    </span><span class="c1"># Authentication used when connecting to the SLIM node (if the node</span>
 <span class="w">    </span><span class="c1"># requires it). Example: JWT bearer token from a file.</span>
 <span class="w">    </span><span class="c1"># auth:</span>
 <span class="w">    </span><span class="c1">#   type: static_jwt</span>
-<span class="w">    </span><span class="c1">#   token_file: &quot;/path/to/token&quot;</span>
+<span class="w">    </span><span class="c1">#   file: &quot;/path/to/token&quot;</span>
 
 <span class="w">    </span><span class="c1"># TCP and HTTP/2 keepalive settings for long-lived connections.</span>
 <span class="w">    </span><span class="c1"># keepalive:</span>
@@ -5000,8 +5002,10 @@
 <span class="w">      </span><span class="nt">insecure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">      </span><span class="c1"># For TLS-secured API:</span>
 <span class="w">      </span><span class="c1"># insecure: false</span>
-<span class="w">      </span><span class="c1"># cert_file: &quot;/path/to/server.pem&quot;</span>
-<span class="w">      </span><span class="c1"># key_file:  &quot;/path/to/server-key.pem&quot;</span>
+<span class="w">      </span><span class="c1"># source:</span>
+<span class="w">      </span><span class="c1">#   type: file</span>
+<span class="w">      </span><span class="c1">#   cert: &quot;/path/to/server.pem&quot;</span>
+<span class="w">      </span><span class="c1">#   key:  &quot;/path/to/server-key.pem&quot;</span>
 
 <span class="w">  </span><span class="c1"># ---------------------------------------------------------------------------</span>
 <span class="w">  </span><span class="c1"># local-name: the SLIM name this Channel Manager registers as.</span>

@@ -4851,9 +4851,7 @@
 <div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>slim<span class="w"> </span>start
 </code></pre></div>
 <p>The node is ready immediately. Connect SDK applications to <code>http://127.0.0.1:46357</code>.</p>
-<p>To stop the node:</p>
-<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>slim<span class="w"> </span>stop
-</code></pre></div>
+<p>To stop the node, just kill the running process.</p>
 <h2 id="option-2-run-with-a-config-file">Option 2: Run with a Config File</h2>
 <p>For more control, create a configuration file and run the <code>slim</code> binary directly.</p>
 <p><strong>Minimal config</strong> (<code>config.yaml</code>):</p>
@@ -4879,6 +4877,9 @@
 </code></pre></div>
 <p>Run the node:</p>
 <div class="highlight"><pre><span></span><code>./slim<span class="w"> </span>--config<span class="w"> </span>config.yaml
+</code></pre></div>
+<p>Same with <code>slimctl</code>:</p>
+<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>slim<span class="w"> </span>start<span class="w"> </span>--config<span class="w"> </span>config.yaml
 </code></pre></div>
 <p>Or with Cargo after building from source:</p>
 <div class="highlight"><pre><span></span><code>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>agntcy-slim<span class="w"> </span>--<span class="w"> </span>--config<span class="w"> </span>config.yaml
@@ -4913,6 +4914,10 @@
 <p>Start both:</p>
 <div class="highlight"><pre><span></span><code>./slim<span class="w"> </span>--config<span class="w"> </span>node-a.yaml<span class="w"> </span><span class="p">&amp;</span>
 ./slim<span class="w"> </span>--config<span class="w"> </span>node-b.yaml<span class="w"> </span><span class="p">&amp;</span>
+</code></pre></div>
+<p>Or:</p>
+<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>slim<span class="w"> </span>start<span class="w"> </span>--config<span class="w"> </span>node-a.yaml<span class="w"> </span><span class="p">&amp;</span>
+slimctl<span class="w"> </span>slim<span class="w"> </span>start<span class="w"> </span>--config<span class="w"> </span>node-b.yaml<span class="w"> </span><span class="p">&amp;</span>
 </code></pre></div>
 <p>Applications connected to either node can now route messages to each other.</p>
 <h2 id="running-the-channel-manager-locally">Running the Channel Manager Locally</h2>

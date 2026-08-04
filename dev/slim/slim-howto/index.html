@@ -4839,7 +4839,7 @@ brew<span class="w"> </span>install<span class="w"> </span>slimctl
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.8/slimctl-darwin-arm64.tar.gz
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.12/slimctl-darwin-arm64.tar.gz
 tar<span class="w"> </span>-xzf<span class="w"> </span>slimctl-darwin-arm64.tar.gz
 sudo<span class="w"> </span>mv<span class="w"> </span>slimctl<span class="w"> </span>/usr/local/bin/
 </code></pre></div>
@@ -4851,7 +4851,7 @@ sudo<span class="w"> </span>mv<span class="w"> </span>slimctl<span class="w"> </
 </div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.8/slimctl-darwin-amd64.tar.gz
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.12/slimctl-darwin-amd64.tar.gz
 tar<span class="w"> </span>-xzf<span class="w"> </span>slimctl-darwin-amd64.tar.gz
 sudo<span class="w"> </span>mv<span class="w"> </span>slimctl<span class="w"> </span>/usr/local/bin/
 </code></pre></div>
@@ -4863,19 +4863,19 @@ sudo<span class="w"> </span>mv<span class="w"> </span>slimctl<span class="w"> </
 </div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.8/slimctl-linux-amd64-gnu.tar.gz
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.12/slimctl-linux-amd64-gnu.tar.gz
 tar<span class="w"> </span>-xzf<span class="w"> </span>slimctl-linux-amd64-gnu.tar.gz
 sudo<span class="w"> </span>mv<span class="w"> </span>slimctl<span class="w"> </span>/usr/local/bin/
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.8/slimctl-linux-arm64-gnu.tar.gz
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.12/slimctl-linux-arm64-gnu.tar.gz
 tar<span class="w"> </span>-xzf<span class="w"> </span>slimctl-linux-arm64-gnu.tar.gz
 sudo<span class="w"> </span>mv<span class="w"> </span>slimctl<span class="w"> </span>/usr/local/bin/
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<p>Download the binary from the <a href="https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.8/slimctl-windows-amd64.zip">GitHub releases page</a> and add it to your <code>PATH</code>. See <a href="../components/cli/install/">CLI Installation</a> for full Windows instructions.</p>
+<p>Download the binary from the <a href="https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.12/slimctl-windows-amd64.zip">GitHub releases page</a> and add it to your <code>PATH</code>. See <a href="../components/cli/install/">CLI Installation</a> for full Windows instructions.</p>
 </div>
 </div>
 </div>
@@ -4886,7 +4886,7 @@ sudo<span class="w"> </span>mv<span class="w"> </span>slimctl<span class="w"> </
 <h2 id="step-2-start-a-slim-node">Step 2: Start a SLIM node</h2>
 <div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>slim<span class="w"> </span>start
 </code></pre></div>
-<p>This starts a SLIM node on <code>0.0.0.0:46357</code> with insecure (no TLS) defaults. The node runs in the foreground — press <strong>Ctrl-C</strong> to stop it.</p>
+<p>This starts a SLIM node on <code>127.0.0.1:46357</code> with insecure (no TLS) defaults. The node runs in the foreground — press <strong>Ctrl-C</strong> to stop it.</p>
 <h2 id="step-3-install-the-sdk">Step 3: Install the SDK</h2>
 <p>Install the SLIM bindings for your language:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="2:7"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><input id="__tabbed_2_3" name="__tabbed_2" type="radio" /><input id="__tabbed_2_4" name="__tabbed_2" type="radio" /><input id="__tabbed_2_5" name="__tabbed_2" type="radio" /><input id="__tabbed_2_6" name="__tabbed_2" type="radio" /><input id="__tabbed_2_7" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">Python</label><label for="__tabbed_2_2">Go</label><label for="__tabbed_2_3">Java</label><label for="__tabbed_2_4">Kotlin</label><label for="__tabbed_2_5">Node.js</label><label for="__tabbed_2_6">.NET</label><label for="__tabbed_2_7">React Native</label></div>

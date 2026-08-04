@@ -6431,8 +6431,8 @@
 <p>This document provides comprehensive documentation for configuring the SLIM data plane. The configuration is written in YAML format and defines how the data plane runtime, services, authentication, and observability components operate.</p>
 <p>This documentation corresponds to the JSON schemas in the SLIM repository:</p>
 <ul>
-<li><a href="https://github.com/agntcy/slim/blob/slim-v2.0.0-alpha.8/crates/config/src/schema/client-config.schema.json">Client Configuration Schema</a></li>
-<li><a href="https://github.com/agntcy/slim/blob/slim-v2.0.0-alpha.8/crates/config/src/schema/server-config.schema.json">Server Configuration Schema</a></li>
+<li><a href="https://github.com/agntcy/slim/blob/slim-v2.0.0-alpha.12/crates/config/src/schema/client-config.schema.json">Client Configuration Schema</a></li>
+<li><a href="https://github.com/agntcy/slim/blob/slim-v2.0.0-alpha.12/crates/config/src/schema/server-config.schema.json">Server Configuration Schema</a></li>
 </ul>
 <h2 id="configuration-structure-overview">Configuration Structure Overview</h2>
 <p>The SLIM configuration file consists of three main sections:</p>
@@ -6590,8 +6590,8 @@
 <p>Default is <code>false</code> (disabled). Enabling it while any endpoint is configured with TLS 1.2 is a startup error.</p>
 <div class="highlight"><pre><span></span><code><span class="nt">services</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">slim/0</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">enforce_pqc</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">   </span><span class="c1"># require PQC on TLS, link negotiation, and MLS</span>
 <span class="w">    </span><span class="nt">dataplane</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enforce_pqc</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">   </span><span class="c1"># require PQC on TLS, link negotiation, and MLS</span>
 <span class="w">      </span><span class="nt">servers</span><span class="p">:</span>
 <span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0.0.0.0:46357&quot;</span>
 <span class="w">          </span><span class="nt">tls</span><span class="p">:</span>
@@ -7311,7 +7311,7 @@
 </div>
 <div class="admonition info">
 <p class="admonition-title">Default Backoff</p>
-<p>Default: exponential with base=100ms, factor=1, jitter=true, max_delay=1s, unlimited attempts</p>
+<p>Default: fixed interval, 2s between retries, unlimited attempts</p>
 </div>
 <h2 id="native-spire-integration">Native SPIRE Integration</h2>
 <p>SLIM has native support for SPIFFE/SPIRE Workload API for automatic certificate management and zero-trust authentication.</p>
@@ -8293,7 +8293,7 @@
 <td><code>backoff</code></td>
 <td>BackoffConfig</td>
 <td>❌</td>
-<td>exponential</td>
+<td>fixed_interval 2s</td>
 <td>Retry backoff</td>
 <td>-</td>
 </tr>
