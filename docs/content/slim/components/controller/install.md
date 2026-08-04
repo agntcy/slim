@@ -50,7 +50,7 @@ docker run -it \
 For Kubernetes deployments:
 
 ```bash
-helm pull oci://ghcr.io/agntcy/slim/helm/slim-control-plane --version v2.0.0
+helm pull oci://ghcr.io/agntcy/slim/helm/slim-control-plane --version v2.0.0-rc.0
 ```
 
 ## Building from Source
