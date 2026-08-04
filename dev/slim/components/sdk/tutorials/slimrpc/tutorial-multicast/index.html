@@ -4867,7 +4867,7 @@
 </ul>
 <h2 id="create-a-group-channel">Create a Group Channel</h2>
 <p>A group channel wraps a SLIM group session that spans all the servers you want to call. Pass a list of remote server names instead of a single name.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:6"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><input id="__tabbed_1_5" name="__tabbed_1" type="radio" /><input id="__tabbed_1_6" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Rust</label><label for="__tabbed_1_2">Python</label><label for="__tabbed_1_3">Go</label><label for="__tabbed_1_4">Java</label><label for="__tabbed_1_5">Kotlin</label><label for="__tabbed_1_6">.NET</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:7"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><input id="__tabbed_1_5" name="__tabbed_1" type="radio" /><input id="__tabbed_1_6" name="__tabbed_1" type="radio" /><input id="__tabbed_1_7" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Rust</label><label for="__tabbed_1_2">Python</label><label for="__tabbed_1_3">Go</label><label for="__tabbed_1_4">Java</label><label for="__tabbed_1_5">Kotlin</label><label for="__tabbed_1_6">Node.js</label><label for="__tabbed_1_7">.NET</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">slim_rpc</span><span class="p">::</span><span class="n">Channel</span><span class="p">;</span>
@@ -4904,13 +4904,16 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nx">slim</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="nx">slim</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go/v2&quot;</span>
+<span class="w">    </span><span class="nx">slim_rpc</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go/v2/slim_rpc&quot;</span>
+<span class="p">)</span>
 
 <span class="nx">server1</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">NameFromString</span><span class="p">(</span><span class="s">&quot;myorg/default/server-1&quot;</span><span class="p">)</span>
 <span class="nx">server2</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">NameFromString</span><span class="p">(</span><span class="s">&quot;myorg/default/server-2&quot;</span><span class="p">)</span>
-<span class="nx">serverNames</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="p">[]</span><span class="nx">slim</span><span class="p">.</span><span class="nx">Name</span><span class="p">{</span><span class="nx">server1</span><span class="p">,</span><span class="w"> </span><span class="nx">server2</span><span class="p">}</span>
+<span class="nx">serverNames</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="p">[]</span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">Name</span><span class="p">{</span><span class="nx">server1</span><span class="p">,</span><span class="w"> </span><span class="nx">server2</span><span class="p">}</span>
 
-<span class="nx">channel</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">ChannelNewGroupWithConnection</span><span class="p">(</span><span class="nx">app</span><span class="p">,</span><span class="w"> </span><span class="nx">serverNames</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">connId</span><span class="p">)</span>
+<span class="nx">channel</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">slim_rpc</span><span class="p">.</span><span class="nx">ChannelNewGroupWithConnection</span><span class="p">(</span><span class="nx">app</span><span class="p">,</span><span class="w"> </span><span class="nx">serverNames</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">connId</span><span class="p">)</span>
 <span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Fatal</span><span class="p">(</span><span class="nx">err</span><span class="p">)</span>
 <span class="p">}</span>
@@ -4918,7 +4921,7 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">io.agntcy.slim.bindings.Channel</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">io.agntcy.slim.bindings.slimrpc.Channel</span><span class="p">;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">io.agntcy.slim.bindings.Name</span><span class="p">;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">com.example_service.TestSlimrpc</span><span class="p">;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">java.util.List</span><span class="p">;</span>
@@ -4933,7 +4936,7 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="k">import</span><span class="w"> </span><span class="nn">io.agntcy.slim.bindings.Channel</span>
+<div class="highlight"><pre><span></span><code><span class="k">import</span><span class="w"> </span><span class="nn">io.agntcy.slim.bindings.slimrpc.Channel</span>
 <span class="k">import</span><span class="w"> </span><span class="nn">io.agntcy.slim.bindings.Name</span>
 <span class="k">import</span><span class="w"> </span><span class="nn">com.example_service.TestSlimrpc</span>
 
@@ -4947,7 +4950,19 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">Agntcy.Slim.Rpc</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><span class="k">import</span><span class="w"> </span><span class="nx">slimBindings</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">&#39;@agntcy/slim-bindings&#39;</span><span class="p">;</span>
+<span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">TestGroupClient</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">&#39;./types/example_slimrpc.js&#39;</span><span class="p">;</span>
+
+<span class="kd">const</span><span class="w"> </span><span class="nx">serverNames</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="ow">new</span><span class="w"> </span><span class="nx">slimBindings</span><span class="p">.</span><span class="nx">Name</span><span class="p">(</span><span class="s1">&#39;myorg&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;default&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;server-1&#39;</span><span class="p">),</span>
+<span class="w">    </span><span class="ow">new</span><span class="w"> </span><span class="nx">slimBindings</span><span class="p">.</span><span class="nx">Name</span><span class="p">(</span><span class="s1">&#39;myorg&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;default&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;server-2&#39;</span><span class="p">),</span>
+<span class="p">];</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">channel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">slimBindings</span><span class="p">.</span><span class="nx">Channel</span><span class="p">.</span><span class="nx">newGroupWithConnection</span><span class="p">(</span><span class="nx">app</span><span class="p">,</span><span class="w"> </span><span class="nx">serverNames</span><span class="p">,</span><span class="w"> </span><span class="nx">connId</span><span class="p">);</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">client</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">TestGroupClient</span><span class="p">(</span><span class="nx">channel</span><span class="p">);</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">Agntcy.Slim.SlimRpc</span><span class="p">;</span>
 <span class="k">using</span><span class="w"> </span><span class="nn">Agntcy.Slim</span><span class="p">;</span>
 <span class="k">using</span><span class="w"> </span><span class="nn">ExampleService</span><span class="p">;</span>
 
@@ -4966,7 +4981,7 @@
 <h2 id="send-a-multicast-request">Send a Multicast Request</h2>
 <p>Call any RPC method on the group client. The call fans out to every server in the group. Responses arrive as a stream — one response per server, in arrival order.</p>
 <p>Each response item carries both the response payload and the context identifying which server it came from.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="2:6"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><input id="__tabbed_2_3" name="__tabbed_2" type="radio" /><input id="__tabbed_2_4" name="__tabbed_2" type="radio" /><input id="__tabbed_2_5" name="__tabbed_2" type="radio" /><input id="__tabbed_2_6" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">Rust</label><label for="__tabbed_2_2">Python</label><label for="__tabbed_2_3">Go</label><label for="__tabbed_2_4">Java</label><label for="__tabbed_2_5">Kotlin</label><label for="__tabbed_2_6">.NET</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:7"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><input id="__tabbed_2_3" name="__tabbed_2" type="radio" /><input id="__tabbed_2_4" name="__tabbed_2" type="radio" /><input id="__tabbed_2_5" name="__tabbed_2" type="radio" /><input id="__tabbed_2_6" name="__tabbed_2" type="radio" /><input id="__tabbed_2_7" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">Rust</label><label for="__tabbed_2_2">Python</label><label for="__tabbed_2_3">Go</label><label for="__tabbed_2_4">Java</label><label for="__tabbed_2_5">Kotlin</label><label for="__tabbed_2_6">Node.js</label><label for="__tabbed_2_7">.NET</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">example_service</span><span class="p">::{</span><span class="n">ExampleRequest</span><span class="p">,</span><span class="w"> </span><span class="n">ExampleResponse</span><span class="p">};</span>
@@ -4994,7 +5009,7 @@
 <span class="n">request</span> <span class="o">=</span> <span class="n">ExampleRequest</span><span class="p">(</span><span class="n">example_string</span><span class="o">=</span><span class="s2">&quot;world&quot;</span><span class="p">,</span> <span class="n">example_integer</span><span class="o">=</span><span class="mi">42</span><span class="p">)</span>
 
 <span class="k">async</span> <span class="k">for</span> <span class="n">context</span><span class="p">,</span> <span class="n">response</span> <span class="ow">in</span> <span class="n">client</span><span class="o">.</span><span class="n">ExampleUnaryUnary</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="n">timedelta</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">5</span><span class="p">)):</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Response from </span><span class="si">{</span><span class="n">context</span><span class="o">.</span><span class="n">source_name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">response</span><span class="o">.</span><span class="n">example_string</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Response from </span><span class="si">{</span><span class="n">context</span><span class="o">.</span><span class="n">source</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">response</span><span class="o">.</span><span class="n">example_string</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
@@ -5018,39 +5033,77 @@
 <span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">item</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="k">break</span>
 <span class="w">    </span><span class="p">}</span>
-<span class="w">    </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">&quot;Response from %s: %s\n&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">item</span><span class="p">.</span><span class="nx">Context</span><span class="p">.</span><span class="nx">SourceName</span><span class="p">,</span><span class="w"> </span><span class="nx">item</span><span class="p">.</span><span class="nx">Value</span><span class="p">.</span><span class="nx">ExampleString</span><span class="p">)</span>
+<span class="w">    </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">&quot;Response from %s: %s\n&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">item</span><span class="p">.</span><span class="nx">Context</span><span class="p">.</span><span class="nx">Source</span><span class="p">,</span><span class="w"> </span><span class="nx">item</span><span class="p">.</span><span class="nx">Value</span><span class="p">.</span><span class="nx">ExampleString</span><span class="p">)</span>
 <span class="p">}</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">com.example_service.ExampleRequest</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">java.time.Duration</span><span class="p">;</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">com.example_service.ExampleRequest</span><span class="p">;</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">com.example_service.ExampleResponse</span><span class="p">;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">io.agntcy.slim.bindings.slimrpc.MulticastResponseStream</span><span class="p">;</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">io.agntcy.slim.bindings.slimrpc.MulticastStreamMessage</span><span class="p">;</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">io.agntcy.slim.bindings.slimrpc.RpcMulticastItem</span><span class="p">;</span>
 
 <span class="n">ExampleRequest</span><span class="w"> </span><span class="n">request</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ExampleRequest</span><span class="p">.</span><span class="na">newBuilder</span><span class="p">()</span>
 <span class="w">    </span><span class="p">.</span><span class="na">setExampleString</span><span class="p">(</span><span class="s">&quot;world&quot;</span><span class="p">)</span>
 <span class="w">    </span><span class="p">.</span><span class="na">setExampleInteger</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
 <span class="w">    </span><span class="p">.</span><span class="na">build</span><span class="p">();</span>
 
-<span class="n">MulticastResponseStream</span><span class="o">&lt;</span><span class="n">com</span><span class="p">.</span><span class="na">example_service</span><span class="p">.</span><span class="na">ExampleResponse</span><span class="o">&gt;</span><span class="w"> </span><span class="n">stream</span><span class="w"> </span><span class="o">=</span>
-<span class="w">    </span><span class="n">client</span><span class="p">.</span><span class="na">ExampleUnaryUnary</span><span class="p">(</span><span class="n">request</span><span class="p">).</span><span class="na">get</span><span class="p">();</span>
+<span class="n">MulticastResponseStream</span><span class="o">&lt;</span><span class="n">ExampleResponse</span><span class="o">&gt;</span><span class="w"> </span><span class="n">stream</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="na">ExampleUnaryUnary</span><span class="p">(</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">Duration</span><span class="p">.</span><span class="na">ofSeconds</span><span class="p">(</span><span class="mi">5</span><span class="p">),</span><span class="w"> </span><span class="kc">null</span><span class="p">);</span>
 
-<span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">stream</span><span class="p">.</span><span class="na">hasNext</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="n">item</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">stream</span><span class="p">.</span><span class="na">next</span><span class="p">();</span>
-<span class="w">    </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&quot;Response from &quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">item</span><span class="p">.</span><span class="na">context</span><span class="p">().</span><span class="na">sourceName</span><span class="p">()</span>
-<span class="w">        </span><span class="o">+</span><span class="w"> </span><span class="s">&quot;: &quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">item</span><span class="p">.</span><span class="na">value</span><span class="p">().</span><span class="na">getExampleString</span><span class="p">());</span>
+<span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="kc">true</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">MulticastStreamMessage</span><span class="w"> </span><span class="n">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">stream</span><span class="p">.</span><span class="na">next</span><span class="p">();</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">msg</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">MulticastStreamMessage</span><span class="p">.</span><span class="na">End</span><span class="p">)</span><span class="w"> </span><span class="k">break</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">msg</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">MulticastStreamMessage</span><span class="p">.</span><span class="na">Error</span><span class="w"> </span><span class="n">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">System</span><span class="p">.</span><span class="na">err</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&quot;Error from server: &quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">error</span><span class="p">.</span><span class="na">error</span><span class="p">());</span>
+<span class="w">        </span><span class="k">continue</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">msg</span><span class="w"> </span><span class="k">instanceof</span><span class="w"> </span><span class="n">MulticastStreamMessage</span><span class="p">.</span><span class="na">Data</span><span class="w"> </span><span class="n">data</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">RpcMulticastItem</span><span class="w"> </span><span class="n">item</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">data</span><span class="p">.</span><span class="na">item</span><span class="p">();</span>
+<span class="w">        </span><span class="k">try</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="n">ExampleResponse</span><span class="w"> </span><span class="n">resp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ExampleResponse</span><span class="p">.</span><span class="na">parseFrom</span><span class="p">(</span><span class="n">item</span><span class="p">.</span><span class="na">message</span><span class="p">());</span>
+<span class="w">            </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&quot;Response from &quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">item</span><span class="p">.</span><span class="na">context</span><span class="p">().</span><span class="na">source</span><span class="p">()</span>
+<span class="w">                </span><span class="o">+</span><span class="w"> </span><span class="s">&quot;: &quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">resp</span><span class="p">.</span><span class="na">getExampleString</span><span class="p">());</span>
+<span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RuntimeException</span><span class="p">(</span><span class="n">e</span><span class="p">);</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="k">import</span><span class="w"> </span><span class="nn">com.example_service.ExampleRequest</span>
+<div class="highlight"><pre><span></span><code><span class="k">import</span><span class="w"> </span><span class="nn">java.time.Duration</span>
+<span class="k">import</span><span class="w"> </span><span class="nn">com.example_service.ExampleRequest</span>
+<span class="k">import</span><span class="w"> </span><span class="nn">com.example_service.ExampleResponse</span>
+<span class="k">import</span><span class="w"> </span><span class="nn">io.agntcy.slim.bindings.slimrpc.MulticastStreamMessage</span>
 
 <span class="kd">val</span><span class="w"> </span><span class="nv">request</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ExampleRequest</span><span class="p">.</span><span class="na">newBuilder</span><span class="p">()</span>
 <span class="w">    </span><span class="p">.</span><span class="na">setExampleString</span><span class="p">(</span><span class="s">&quot;world&quot;</span><span class="p">)</span>
 <span class="w">    </span><span class="p">.</span><span class="na">setExampleInteger</span><span class="p">(</span><span class="m">42</span><span class="p">)</span>
 <span class="w">    </span><span class="p">.</span><span class="na">build</span><span class="p">()</span>
 
-<span class="n">client</span><span class="p">.</span><span class="na">ExampleUnaryUnary</span><span class="p">(</span><span class="n">request</span><span class="p">).</span><span class="na">collect</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">item</span><span class="w"> </span><span class="o">-&gt;</span>
-<span class="w">    </span><span class="n">println</span><span class="p">(</span><span class="s">&quot;Response from </span><span class="si">${</span><span class="n">item</span><span class="p">.</span><span class="na">context</span><span class="p">.</span><span class="na">sourceName</span><span class="si">}</span><span class="s">: </span><span class="si">${</span><span class="n">item</span><span class="p">.</span><span class="na">value</span><span class="p">.</span><span class="na">exampleString</span><span class="si">}</span><span class="s">&quot;</span><span class="p">)</span>
+<span class="kd">val</span><span class="w"> </span><span class="nv">stream</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="na">ExampleUnaryUnary</span><span class="p">(</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">Duration</span><span class="p">.</span><span class="na">ofSeconds</span><span class="p">(</span><span class="m">5</span><span class="p">),</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span>
+
+<span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="kc">true</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">when</span><span class="w"> </span><span class="p">(</span><span class="kd">val</span><span class="w"> </span><span class="nv">msg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">stream</span><span class="p">.</span><span class="na">next</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">is</span><span class="w"> </span><span class="n">MulticastStreamMessage</span><span class="p">.</span><span class="na">End</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="k">break</span>
+<span class="w">        </span><span class="k">is</span><span class="w"> </span><span class="n">MulticastStreamMessage</span><span class="p">.</span><span class="na">Error</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">err</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&quot;Error from server: </span><span class="si">${</span><span class="n">msg</span><span class="p">.</span><span class="na">error</span><span class="si">}</span><span class="s">&quot;</span><span class="p">)</span>
+<span class="w">        </span><span class="k">is</span><span class="w"> </span><span class="n">MulticastStreamMessage</span><span class="p">.</span><span class="na">Data</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="kd">val</span><span class="w"> </span><span class="nv">item</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">msg</span><span class="p">.</span><span class="na">item</span>
+<span class="w">            </span><span class="kd">val</span><span class="w"> </span><span class="nv">resp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ExampleResponse</span><span class="p">.</span><span class="na">parseFrom</span><span class="p">(</span><span class="n">item</span><span class="p">.</span><span class="na">message</span><span class="p">)</span>
+<span class="w">            </span><span class="n">println</span><span class="p">(</span><span class="s">&quot;Response from </span><span class="si">${</span><span class="n">item</span><span class="p">.</span><span class="na">context</span><span class="p">.</span><span class="na">source</span><span class="si">}</span><span class="s">: </span><span class="si">${</span><span class="n">resp</span><span class="p">.</span><span class="na">exampleString</span><span class="si">}</span><span class="s">&quot;</span><span class="p">)</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">create</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">&#39;@bufbuild/protobuf&#39;</span><span class="p">;</span>
+<span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">ExampleRequestSchema</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">&#39;./types/example_pb.js&#39;</span><span class="p">;</span>
+
+<span class="kd">const</span><span class="w"> </span><span class="nx">request</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">create</span><span class="p">(</span><span class="nx">ExampleRequestSchema</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">exampleString</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;world&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">exampleInteger</span><span class="o">:</span><span class="w"> </span><span class="kt">42n</span><span class="w"> </span><span class="p">});</span>
+
+<span class="k">for</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="p">(</span><span class="kd">const</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">context</span><span class="p">,</span><span class="w"> </span><span class="nx">response</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="k">of</span><span class="w"> </span><span class="nx">client</span><span class="p">.</span><span class="nx">ExampleUnaryUnary</span><span class="p">(</span><span class="nx">request</span><span class="p">,</span><span class="w"> </span><span class="mf">5000</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="sb">`Response from </span><span class="si">${</span><span class="nx">context</span><span class="p">.</span><span class="nx">source</span><span class="si">}</span><span class="sb">: </span><span class="si">${</span><span class="nx">response</span><span class="p">.</span><span class="nx">exampleString</span><span class="si">}</span><span class="sb">`</span><span class="p">);</span>
 <span class="p">}</span>
 </code></pre></div>
 </div>
@@ -5059,9 +5112,9 @@
 
 <span class="kt">var</span><span class="w"> </span><span class="n">request</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ExampleRequest</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">ExampleString</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;world&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">ExampleInteger</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">42</span><span class="w"> </span><span class="p">};</span>
 
-<span class="k">await</span><span class="w"> </span><span class="nf">foreach</span><span class="w"> </span><span class="p">(</span><span class="kt">var</span><span class="w"> </span><span class="n">item</span><span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="n">ExampleUnaryUnary</span><span class="p">(</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">timeout</span><span class="p">:</span><span class="w"> </span><span class="n">TimeSpan</span><span class="p">.</span><span class="n">FromSeconds</span><span class="p">(</span><span class="mi">5</span><span class="p">)))</span>
+<span class="k">await</span><span class="w"> </span><span class="nf">foreach</span><span class="w"> </span><span class="p">(</span><span class="kt">var</span><span class="w"> </span><span class="n">item</span><span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="n">client</span><span class="p">.</span><span class="n">ExampleUnaryUnaryAsync</span><span class="p">(</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">timeout</span><span class="p">:</span><span class="w"> </span><span class="n">TimeSpan</span><span class="p">.</span><span class="n">FromSeconds</span><span class="p">(</span><span class="mi">5</span><span class="p">)))</span>
 <span class="p">{</span>
-<span class="w">    </span><span class="n">Console</span><span class="p">.</span><span class="n">WriteLine</span><span class="p">(</span><span class="s">$&quot;Response from {item.Context.SourceName}: {item.Value.ExampleString}&quot;</span><span class="p">);</span>
+<span class="w">    </span><span class="n">Console</span><span class="p">.</span><span class="n">WriteLine</span><span class="p">(</span><span class="s">$&quot;Response from {item.Context}: {item.Value.ExampleString}&quot;</span><span class="p">);</span>
 <span class="p">}</span>
 </code></pre></div>
 </div>
@@ -5072,6 +5125,7 @@
 <li><a href="https://github.com/agntcy/slim-bindings/blob/main/python/examples/slimrpc/simple/client_group.py">Python group client example</a></li>
 <li><a href="https://github.com/agntcy/slim-bindings/blob/main/go/examples/slimrpc/simple/cmd/client_group/client_group.go">Go group client example</a></li>
 <li><a href="https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples/slimrpc/simple">Java/Kotlin group client example</a></li>
+<li><a href="https://github.com/agntcy/slim-bindings/blob/main/node/examples/slimrpc/simple/client_group.ts">Node.js group client example</a></li>
 <li><a href="https://github.com/agntcy/slim-bindings/tree/main/dotnet/Slim.Examples.SlimRpc">.NET group client example</a></li>
 </ul>
 <h2 id="next-steps">Next Steps</h2>

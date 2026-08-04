@@ -5027,7 +5027,7 @@
 <span class="w">    </span><span class="s">&quot;fmt&quot;</span>
 <span class="w">    </span><span class="s">&quot;log&quot;</span>
 
-<span class="w">    </span><span class="nx">slim</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go&quot;</span>
+<span class="w">    </span><span class="nx">slim</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go/v2&quot;</span>
 <span class="p">)</span>
 
 <span class="kd">func</span><span class="w"> </span><span class="nx">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
@@ -5055,7 +5055,7 @@
 <span class="w">        </span><span class="nx">Data</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;change-me-before-going-to-production&quot;</span><span class="p">,</span>
 <span class="w">    </span><span class="p">}</span>
 
-<span class="w">    </span><span class="nx">app</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">GetGlobalService</span><span class="p">().</span><span class="nx">CreateAppWithPersistence</span><span class="p">(</span>
+<span class="w">    </span><span class="nx">app</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">GetGlobalService</span><span class="p">().</span><span class="nx">CreateAppWithPersistenceAsync</span><span class="p">(</span>
 <span class="w">        </span><span class="nx">appName</span><span class="p">,</span>
 <span class="w">        </span><span class="nx">provider</span><span class="p">,</span>
 <span class="w">        </span><span class="nx">verifier</span><span class="p">,</span>
@@ -5089,10 +5089,10 @@
 <span class="w">    </span><span class="s">&quot;./slim-state&quot;</span><span class="p">,</span>
 <span class="w">    </span><span class="s">&quot;change-me-in-production&quot;</span>
 <span class="p">);</span>
-<span class="n">IdentityProviderConfig</span><span class="w"> </span><span class="n">provider</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">IdentityProviderConfig</span><span class="p">.</span><span class="na">sharedSecret</span><span class="p">(</span>
+<span class="n">IdentityProviderConfig</span><span class="w"> </span><span class="n">provider</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">IdentityProviderConfig</span><span class="p">.</span><span class="na">SharedSecret</span><span class="p">(</span>
 <span class="w">    </span><span class="n">localName</span><span class="p">.</span><span class="na">toString</span><span class="p">(),</span><span class="w"> </span><span class="s">&quot;change-me-before-going-to-production&quot;</span>
 <span class="p">);</span>
-<span class="n">IdentityVerifierConfig</span><span class="w"> </span><span class="n">verifier</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">IdentityVerifierConfig</span><span class="p">.</span><span class="na">sharedSecret</span><span class="p">(</span>
+<span class="n">IdentityVerifierConfig</span><span class="w"> </span><span class="n">verifier</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">IdentityVerifierConfig</span><span class="p">.</span><span class="na">SharedSecret</span><span class="p">(</span>
 <span class="w">    </span><span class="n">localName</span><span class="p">.</span><span class="na">toString</span><span class="p">(),</span><span class="w"> </span><span class="s">&quot;change-me-before-going-to-production&quot;</span>
 <span class="p">);</span>
 
@@ -5107,32 +5107,35 @@
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="k">import</span><span class="w"> </span><span class="nn">io.agntcy.slim.bindings.*</span>
+<span class="k">import</span><span class="w"> </span><span class="nn">kotlinx.coroutines.runBlocking</span>
 
-<span class="n">initializeWithDefaults</span><span class="p">()</span>
-<span class="kd">val</span><span class="w"> </span><span class="nv">service</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getGlobalService</span><span class="p">()</span>
+<span class="kd">fun</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">runBlocking</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">initializeWithDefaults</span><span class="p">()</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">service</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">getGlobalService</span><span class="p">()</span>
 
-<span class="kd">val</span><span class="w"> </span><span class="nv">connId</span><span class="p">:</span><span class="w"> </span><span class="n">ULong</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">service</span><span class="p">.</span><span class="na">connectAsync</span><span class="p">(</span><span class="n">newInsecureClientConfig</span><span class="p">(</span><span class="s">&quot;http://127.0.0.1:46357&quot;</span><span class="p">))</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">connId</span><span class="p">:</span><span class="w"> </span><span class="n">ULong</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">service</span><span class="p">.</span><span class="na">connectAsync</span><span class="p">(</span><span class="n">newInsecureClientConfig</span><span class="p">(</span><span class="s">&quot;http://127.0.0.1:46357&quot;</span><span class="p">))</span>
 
-<span class="kd">val</span><span class="w"> </span><span class="nv">localName</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Name</span><span class="p">.</span><span class="na">fromString</span><span class="p">(</span><span class="s">&quot;myorg/default/my-service&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">localName</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Name</span><span class="p">.</span><span class="na">fromString</span><span class="p">(</span><span class="s">&quot;myorg/default/my-service&quot;</span><span class="p">)</span>
 
-<span class="kd">val</span><span class="w"> </span><span class="nv">persistence</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">PersistenceConfig</span><span class="p">(</span>
-<span class="w">    </span><span class="n">path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;./slim-state&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="n">passphrase</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;change-me-in-production&quot;</span>
-<span class="p">)</span>
-<span class="kd">val</span><span class="w"> </span><span class="nv">provider</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">IdentityProviderConfig</span><span class="p">.</span><span class="na">SharedSecret</span><span class="p">(</span>
-<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">localName</span><span class="p">.</span><span class="na">toString</span><span class="p">(),</span><span class="w"> </span><span class="n">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;change-me-before-going-to-production&quot;</span>
-<span class="p">)</span>
-<span class="kd">val</span><span class="w"> </span><span class="nv">verifier</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">IdentityVerifierConfig</span><span class="p">.</span><span class="na">SharedSecret</span><span class="p">(</span>
-<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">localName</span><span class="p">.</span><span class="na">toString</span><span class="p">(),</span><span class="w"> </span><span class="n">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;change-me-before-going-to-production&quot;</span>
-<span class="p">)</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">persistence</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">PersistenceConfig</span><span class="p">(</span>
+<span class="w">        </span><span class="n">path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;./slim-state&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="n">passphrase</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;change-me-in-production&quot;</span>
+<span class="w">    </span><span class="p">)</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">provider</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">IdentityProviderConfig</span><span class="p">.</span><span class="na">SharedSecret</span><span class="p">(</span>
+<span class="w">        </span><span class="n">id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">localName</span><span class="p">.</span><span class="na">toString</span><span class="p">(),</span><span class="w"> </span><span class="n">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;change-me-before-going-to-production&quot;</span>
+<span class="w">    </span><span class="p">)</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">verifier</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">IdentityVerifierConfig</span><span class="p">.</span><span class="na">SharedSecret</span><span class="p">(</span>
+<span class="w">        </span><span class="n">id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">localName</span><span class="p">.</span><span class="na">toString</span><span class="p">(),</span><span class="w"> </span><span class="n">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;change-me-before-going-to-production&quot;</span>
+<span class="w">    </span><span class="p">)</span>
 
-<span class="kd">val</span><span class="w"> </span><span class="nv">app</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">service</span><span class="p">.</span><span class="na">createAppWithPersistence</span><span class="p">(</span>
-<span class="w">    </span><span class="n">localName</span><span class="p">,</span><span class="w"> </span><span class="n">provider</span><span class="p">,</span><span class="w"> </span><span class="n">verifier</span><span class="p">,</span>
-<span class="w">    </span><span class="n">Direction</span><span class="p">.</span><span class="na">BIDIRECTIONAL</span><span class="p">,</span><span class="w"> </span><span class="n">persistence</span>
-<span class="p">)</span>
-<span class="n">app</span><span class="p">.</span><span class="na">subscribeAsync</span><span class="p">(</span><span class="n">localName</span><span class="p">,</span><span class="w"> </span><span class="n">connId</span><span class="p">)</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">app</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">service</span><span class="p">.</span><span class="na">createAppWithPersistenceAsync</span><span class="p">(</span>
+<span class="w">        </span><span class="n">localName</span><span class="p">,</span><span class="w"> </span><span class="n">provider</span><span class="p">,</span><span class="w"> </span><span class="n">verifier</span><span class="p">,</span>
+<span class="w">        </span><span class="n">Direction</span><span class="p">.</span><span class="na">BIDIRECTIONAL</span><span class="p">,</span><span class="w"> </span><span class="n">persistence</span>
+<span class="w">    </span><span class="p">)</span>
+<span class="w">    </span><span class="n">app</span><span class="p">.</span><span class="na">subscribeAsync</span><span class="p">(</span><span class="n">localName</span><span class="p">,</span><span class="w"> </span><span class="n">connId</span><span class="p">)</span>
 
-<span class="n">println</span><span class="p">(</span><span class="s">&quot;App ready with persistence: </span><span class="si">$</span><span class="n">localName</span><span class="s">&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="n">println</span><span class="p">(</span><span class="s">&quot;App ready with persistence: </span><span class="si">$</span><span class="n">localName</span><span class="s">&quot;</span><span class="p">)</span>
+<span class="p">}</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
@@ -5151,14 +5154,18 @@
 <span class="w">    </span><span class="nx">path</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;./slim-state&quot;</span><span class="p">,</span>
 <span class="w">    </span><span class="nx">passphrase</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;change-me-in-production&quot;</span><span class="p">,</span>
 <span class="p">};</span>
-<span class="kd">const</span><span class="w"> </span><span class="nx">provider</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">sharedSecret</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">localName.toString</span><span class="p">(),</span><span class="w"> </span><span class="nx">data</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;change-me-before-going-to-production&quot;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">};</span>
-<span class="kd">const</span><span class="w"> </span><span class="nx">verifier</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">sharedSecret</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">localName.toString</span><span class="p">(),</span><span class="w"> </span><span class="nx">data</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;change-me-before-going-to-production&quot;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">};</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">provider</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">slimBindings</span><span class="p">.</span><span class="nx">IdentityProviderConfig</span><span class="p">.</span><span class="nx">SharedSecret</span><span class="p">({</span>
+<span class="w">    </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">localName.toString</span><span class="p">(),</span><span class="w"> </span><span class="nx">data</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;change-me-before-going-to-production&quot;</span>
+<span class="p">});</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">verifier</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">slimBindings</span><span class="p">.</span><span class="nx">IdentityVerifierConfig</span><span class="p">.</span><span class="nx">SharedSecret</span><span class="p">({</span>
+<span class="w">    </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">localName.toString</span><span class="p">(),</span><span class="w"> </span><span class="nx">data</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;change-me-before-going-to-production&quot;</span>
+<span class="p">});</span>
 
 <span class="kd">const</span><span class="w"> </span><span class="nx">app</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">service</span><span class="p">.</span><span class="nx">createAppWithPersistenceAsync</span><span class="p">(</span>
 <span class="w">    </span><span class="nx">localName</span><span class="p">,</span><span class="w"> </span><span class="nx">provider</span><span class="p">,</span><span class="w"> </span><span class="nx">verifier</span><span class="p">,</span>
-<span class="w">    </span><span class="s2">&quot;bidirectional&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">persistence</span>
+<span class="w">    </span><span class="nx">slimBindings</span><span class="p">.</span><span class="nx">Direction</span><span class="p">.</span><span class="nx">Bidirectional</span><span class="p">,</span><span class="w"> </span><span class="nx">persistence</span>
 <span class="p">);</span>
-<span class="k">await</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">subscribeAsync</span><span class="p">(</span><span class="nx">localName</span><span class="p">,</span><span class="w"> </span><span class="nb">BigInt</span><span class="p">(</span><span class="nx">connId</span><span class="p">));</span>
+<span class="k">await</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">subscribeAsync</span><span class="p">(</span><span class="nx">localName</span><span class="p">,</span><span class="w"> </span><span class="nx">connId</span><span class="p">);</span>
 
 <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="sb">`App ready with persistence: </span><span class="si">${</span><span class="nx">localName</span><span class="si">}</span><span class="sb">`</span><span class="p">);</span>
 </code></pre></div>
@@ -5232,12 +5239,12 @@
 
 <span class="c1"># Each restored session is immediately usable</span>
 <span class="k">for</span> <span class="n">session</span> <span class="ow">in</span> <span class="n">sessions</span><span class="p">:</span>
-    <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">publish_async</span><span class="p">(</span><span class="sa">b</span><span class="s2">&quot;back online&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">publish_and_wait_async</span><span class="p">(</span><span class="sa">b</span><span class="s2">&quot;back online&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="c1">// After restart — same name, secret, path, and passphrase as before</span>
-<span class="nx">app</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">GetGlobalService</span><span class="p">().</span><span class="nx">CreateAppWithPersistence</span><span class="p">(</span>
+<span class="nx">app</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">GetGlobalService</span><span class="p">().</span><span class="nx">CreateAppWithPersistenceAsync</span><span class="p">(</span>
 <span class="w">    </span><span class="nx">appName</span><span class="p">,</span><span class="w"> </span><span class="nx">provider</span><span class="p">,</span><span class="w"> </span><span class="nx">verifier</span><span class="p">,</span>
 <span class="w">    </span><span class="nx">slim</span><span class="p">.</span><span class="nx">DirectionBidirectional</span><span class="p">,</span><span class="w"> </span><span class="nx">persistence</span><span class="p">,</span>
 <span class="p">)</span>
@@ -5251,7 +5258,7 @@
 <span class="p">}</span>
 
 <span class="c1">// Restore all previously active sessions</span>
-<span class="nx">sessions</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">RestoreSessions</span><span class="p">(</span><span class="nx">connID</span><span class="p">)</span>
+<span class="nx">sessions</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">RestoreSessionsAsync</span><span class="p">(</span><span class="nx">connID</span><span class="p">)</span>
 <span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Fatal</span><span class="p">(</span><span class="nx">err</span><span class="p">)</span>
 <span class="p">}</span>
@@ -5284,29 +5291,33 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="c1">// After restart — same name, secret, path, and passphrase as before</span>
-<span class="kd">val</span><span class="w"> </span><span class="nv">app</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">service</span><span class="p">.</span><span class="na">createAppWithPersistence</span><span class="p">(</span>
-<span class="w">    </span><span class="n">localName</span><span class="p">,</span><span class="w"> </span><span class="n">provider</span><span class="p">,</span><span class="w"> </span><span class="n">verifier</span><span class="p">,</span>
-<span class="w">    </span><span class="n">Direction</span><span class="p">.</span><span class="na">BIDIRECTIONAL</span><span class="p">,</span><span class="w"> </span><span class="n">persistence</span>
-<span class="p">)</span>
-<span class="n">app</span><span class="p">.</span><span class="na">subscribeAsync</span><span class="p">(</span><span class="n">localName</span><span class="p">,</span><span class="w"> </span><span class="n">connId</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><span class="k">import</span><span class="w"> </span><span class="nn">kotlinx.coroutines.runBlocking</span>
 
-<span class="c1">// Restore all previously active sessions</span>
-<span class="kd">val</span><span class="w"> </span><span class="nv">sessions</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">app</span><span class="p">.</span><span class="na">restoreSessionsAsync</span><span class="p">(</span><span class="n">connId</span><span class="p">)</span>
-<span class="n">println</span><span class="p">(</span><span class="s">&quot;Restored </span><span class="si">${</span><span class="n">sessions</span><span class="p">.</span><span class="na">size</span><span class="si">}</span><span class="s"> session(s)&quot;</span><span class="p">)</span>
+<span class="c1">// After restart — same name, secret, path, and passphrase as before</span>
+<span class="n">runBlocking</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">app</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">service</span><span class="p">.</span><span class="na">createAppWithPersistenceAsync</span><span class="p">(</span>
+<span class="w">        </span><span class="n">localName</span><span class="p">,</span><span class="w"> </span><span class="n">provider</span><span class="p">,</span><span class="w"> </span><span class="n">verifier</span><span class="p">,</span>
+<span class="w">        </span><span class="n">Direction</span><span class="p">.</span><span class="na">BIDIRECTIONAL</span><span class="p">,</span><span class="w"> </span><span class="n">persistence</span>
+<span class="w">    </span><span class="p">)</span>
+<span class="w">    </span><span class="n">app</span><span class="p">.</span><span class="na">subscribeAsync</span><span class="p">(</span><span class="n">localName</span><span class="p">,</span><span class="w"> </span><span class="n">connId</span><span class="p">)</span>
 
-<span class="c1">// Each restored session is immediately usable</span>
-<span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">session</span><span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="n">sessions</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="n">session</span><span class="p">.</span><span class="na">publishAsync</span><span class="p">(</span><span class="s">&quot;back online&quot;</span><span class="p">.</span><span class="na">toByteArray</span><span class="p">(),</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span>
+<span class="w">    </span><span class="c1">// Restore all previously active sessions</span>
+<span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">sessions</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">app</span><span class="p">.</span><span class="na">restoreSessionsAsync</span><span class="p">(</span><span class="n">connId</span><span class="p">)</span>
+<span class="w">    </span><span class="n">println</span><span class="p">(</span><span class="s">&quot;Restored </span><span class="si">${</span><span class="n">sessions</span><span class="p">.</span><span class="na">size</span><span class="si">}</span><span class="s"> session(s)&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="c1">// Each restored session is immediately usable</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">session</span><span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="n">sessions</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">session</span><span class="p">.</span><span class="na">publishAndWaitAsync</span><span class="p">(</span><span class="s">&quot;back online&quot;</span><span class="p">.</span><span class="na">toByteArray</span><span class="p">(),</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="c1">// After restart — same name, secret, path, and passphrase as before</span>
 <span class="kd">const</span><span class="w"> </span><span class="nx">app</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">service</span><span class="p">.</span><span class="nx">createAppWithPersistenceAsync</span><span class="p">(</span>
-<span class="w">    </span><span class="nx">localName</span><span class="p">,</span><span class="w"> </span><span class="nx">provider</span><span class="p">,</span><span class="w"> </span><span class="nx">verifier</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;bidirectional&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">persistence</span>
+<span class="w">    </span><span class="nx">localName</span><span class="p">,</span><span class="w"> </span><span class="nx">provider</span><span class="p">,</span><span class="w"> </span><span class="nx">verifier</span><span class="p">,</span><span class="w"> </span><span class="nx">slimBindings</span><span class="p">.</span><span class="nx">Direction</span><span class="p">.</span><span class="nx">Bidirectional</span><span class="p">,</span><span class="w"> </span><span class="nx">persistence</span>
 <span class="p">);</span>
-<span class="k">await</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">subscribeAsync</span><span class="p">(</span><span class="nx">localName</span><span class="p">,</span><span class="w"> </span><span class="nb">BigInt</span><span class="p">(</span><span class="nx">connId</span><span class="p">));</span>
+<span class="k">await</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">subscribeAsync</span><span class="p">(</span><span class="nx">localName</span><span class="p">,</span><span class="w"> </span><span class="nx">connId</span><span class="p">);</span>
 
 <span class="c1">// Restore all previously active sessions</span>
 <span class="kd">const</span><span class="w"> </span><span class="nx">sessions</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">restoreSessionsAsync</span><span class="p">(</span><span class="nx">connId</span><span class="p">);</span>
@@ -5375,9 +5386,13 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="c1">// Broadcast OFFLINE and wait for acknowledgements</span>
-<span class="n">session</span><span class="p">.</span><span class="na">closeAndWaitAsync</span><span class="p">()</span>
-<span class="n">println</span><span class="p">(</span><span class="s">&quot;Offline — other members will stop expecting acks from us&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><span class="k">import</span><span class="w"> </span><span class="nn">kotlinx.coroutines.runBlocking</span>
+
+<span class="n">runBlocking</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// Broadcast OFFLINE and wait for acknowledgements</span>
+<span class="w">    </span><span class="n">session</span><span class="p">.</span><span class="na">closeAndWaitAsync</span><span class="p">()</span>
+<span class="w">    </span><span class="n">println</span><span class="p">(</span><span class="s">&quot;Offline — other members will stop expecting acks from us&quot;</span><span class="p">)</span>
+<span class="p">}</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
@@ -5424,9 +5439,13 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="c1">// Broadcast ONLINE and wait for acknowledgements</span>
-<span class="n">session</span><span class="p">.</span><span class="na">rejoinAndWaitAsync</span><span class="p">()</span>
-<span class="n">println</span><span class="p">(</span><span class="s">&quot;Back online — MLS re-key complete&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><span class="k">import</span><span class="w"> </span><span class="nn">kotlinx.coroutines.runBlocking</span>
+
+<span class="n">runBlocking</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// Broadcast ONLINE and wait for acknowledgements</span>
+<span class="w">    </span><span class="n">session</span><span class="p">.</span><span class="na">rejoinAndWaitAsync</span><span class="p">()</span>
+<span class="w">    </span><span class="n">println</span><span class="p">(</span><span class="s">&quot;Back online — MLS re-key complete&quot;</span><span class="p">)</span>
+<span class="p">}</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">

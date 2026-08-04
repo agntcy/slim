@@ -4961,7 +4961,7 @@
 <span class="p">}</span>
 <span class="k">defer</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">Destroy</span><span class="p">()</span>
 
-<span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">&quot;App created, id=%d\n&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">Id</span><span class="p">())</span>
+<span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">&quot;App created, id=%s\n&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">Id</span><span class="p">())</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
@@ -5125,7 +5125,7 @@
 <div class="highlight"><pre><span></span><code><span class="c1">// Tell the local SLIM node how to reach the remote service</span>
 <span class="kd">const</span><span class="w"> </span><span class="nx">remoteName</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">slimBindings</span><span class="p">.</span><span class="nx">Name</span><span class="p">(</span><span class="s2">&quot;myorg&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;default&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;other-service&quot;</span><span class="p">);</span>
 
-<span class="nx">app</span><span class="p">.</span><span class="nx">setRoute</span><span class="p">(</span><span class="nx">remoteName</span><span class="p">,</span><span class="w"> </span><span class="nb">Number</span><span class="p">(</span><span class="nx">connId</span><span class="p">));</span>
+<span class="nx">app</span><span class="p">.</span><span class="nx">setRoute</span><span class="p">(</span><span class="nx">remoteName</span><span class="p">,</span><span class="w"> </span><span class="nx">connId</span><span class="p">);</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
@@ -5201,7 +5201,7 @@
 <span class="w">    </span><span class="s">&quot;fmt&quot;</span>
 <span class="w">    </span><span class="s">&quot;log&quot;</span>
 
-<span class="w">    </span><span class="nx">slim</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go&quot;</span>
+<span class="w">    </span><span class="nx">slim</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go/v2&quot;</span>
 <span class="p">)</span>
 
 <span class="kd">func</span><span class="w"> </span><span class="nx">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
@@ -5228,7 +5228,7 @@
 <span class="w">        </span><span class="nx">log</span><span class="p">.</span><span class="nx">Fatal</span><span class="p">(</span><span class="nx">err</span><span class="p">)</span>
 <span class="w">    </span><span class="p">}</span>
 
-<span class="w">    </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">&quot;App ready: %s, id=%d\n&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">appName</span><span class="p">,</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">Id</span><span class="p">())</span>
+<span class="w">    </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">&quot;App ready: %s, id=%s\n&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">appName</span><span class="p">,</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">Id</span><span class="p">())</span>
 <span class="w">    </span><span class="c1">// app and connID are passed to create_session in the next tutorial</span>
 <span class="p">}</span>
 </code></pre></div>

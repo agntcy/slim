@@ -5164,10 +5164,10 @@
 <span class="w">    </span><span class="s">&quot;fmt&quot;</span>
 <span class="w">    </span><span class="s">&quot;log&quot;</span>
 
-<span class="w">    </span><span class="nx">slim</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go&quot;</span>
+<span class="w">    </span><span class="nx">slim</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go/v2&quot;</span>
 <span class="p">)</span>
 
-<span class="kd">func</span><span class="w"> </span><span class="nx">runClient</span><span class="p">(</span><span class="nx">app</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">App</span><span class="p">,</span><span class="w"> </span><span class="nx">remoteName</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">Name</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">Session</span><span class="w"> </span><span class="p">{</span>
+<span class="kd">func</span><span class="w"> </span><span class="nx">runClient</span><span class="p">(</span><span class="nx">app</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">App</span><span class="p">,</span><span class="w"> </span><span class="nx">remoteName</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">Name</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">Session</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nx">config</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">SessionConfig</span><span class="p">{</span>
 <span class="w">        </span><span class="nx">SessionType</span><span class="p">:</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">SessionTypePointToPoint</span><span class="p">,</span>
 <span class="w">        </span><span class="nx">MlsSettings</span><span class="p">:</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">slim</span><span class="p">.</span><span class="nx">MlsSettings</span><span class="p">{</span>
@@ -5198,7 +5198,7 @@
 <span class="w">        </span><span class="mi">5</span><span class="p">,</span><span class="w">                       </span><span class="c1">// maxRetries</span>
 <span class="w">        </span><span class="n">Duration</span><span class="p">.</span><span class="na">ofSeconds</span><span class="p">(</span><span class="mi">5</span><span class="p">),</span><span class="w">   </span><span class="c1">// interval</span>
 <span class="w">        </span><span class="n">Map</span><span class="p">.</span><span class="na">of</span><span class="p">(),</span><span class="w">                </span><span class="c1">// metadata</span>
-<span class="w">        </span><span class="k">new</span><span class="w"> </span><span class="n">MlsSettings</span><span class="p">(</span><span class="mi">100</span><span class="p">)</span><span class="w">     </span><span class="c1">// Enable E2E encryption</span>
+<span class="w">        </span><span class="k">new</span><span class="w"> </span><span class="n">MlsSettings</span><span class="p">(</span><span class="mi">100</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="c1">// Enable E2E encryption</span>
 <span class="w">    </span><span class="p">);</span>
 
 <span class="w">    </span><span class="c1">// Create the session — discovery happens automatically</span>
@@ -5220,7 +5220,7 @@
 <span class="w">        </span><span class="n">maxRetries</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">5</span><span class="n">u</span><span class="p">,</span>
 <span class="w">        </span><span class="n">interval</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Duration</span><span class="p">.</span><span class="na">ofSeconds</span><span class="p">(</span><span class="m">5</span><span class="p">),</span>
 <span class="w">        </span><span class="n">metadata</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">emptyMap</span><span class="p">(),</span>
-<span class="w">        </span><span class="n">mlsSettings</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">MlsSettings</span><span class="p">(</span><span class="m">100</span><span class="n">u</span><span class="p">)</span>
+<span class="w">        </span><span class="n">mlsSettings</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">MlsSettings</span><span class="p">(</span><span class="m">100</span><span class="n">u</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span>
 <span class="w">    </span><span class="p">)</span>
 
 <span class="w">    </span><span class="c1">// Create the session — discovery happens automatically</span>
@@ -5240,7 +5240,7 @@
 
 <span class="k">async</span><span class="w"> </span><span class="kd">function</span><span class="w"> </span><span class="nx">runClient</span><span class="p">(</span><span class="nx">app</span><span class="p">,</span><span class="w"> </span><span class="nx">remoteName</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">sessionConfig</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="nx">sessionType</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;pointToPoint&quot;</span><span class="w"> </span><span class="kr">as</span><span class="w"> </span><span class="kd">const</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">sessionType</span><span class="o">:</span><span class="w"> </span><span class="kt">slimBindings.SessionType.PointToPoint</span><span class="p">,</span>
 <span class="w">        </span><span class="nx">maxRetries</span><span class="o">:</span><span class="w"> </span><span class="kt">5</span><span class="p">,</span>
 <span class="w">        </span><span class="nx">interval</span><span class="o">:</span><span class="w"> </span><span class="kt">5000</span><span class="p">,</span><span class="w"> </span><span class="c1">// milliseconds</span>
 <span class="w">        </span><span class="nx">metadata</span><span class="o">:</span><span class="w"> </span><span class="kt">new</span><span class="w"> </span><span class="nb">Map</span><span class="p">(),</span>
@@ -5342,7 +5342,7 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kd">func</span><span class="w"> </span><span class="nx">createGroupSession</span><span class="p">(</span><span class="nx">app</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">App</span><span class="p">,</span><span class="w"> </span><span class="nx">channelName</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">Name</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">Session</span><span class="w"> </span><span class="p">{</span>
+<div class="highlight"><pre><span></span><code><span class="kd">func</span><span class="w"> </span><span class="nx">createGroupSession</span><span class="p">(</span><span class="nx">app</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">App</span><span class="p">,</span><span class="w"> </span><span class="nx">channelName</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">Name</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">Session</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nx">config</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">SessionConfig</span><span class="p">{</span>
 <span class="w">        </span><span class="nx">SessionType</span><span class="p">:</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">SessionTypeGroup</span><span class="p">,</span>
 <span class="w">        </span><span class="nx">MlsSettings</span><span class="p">:</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">slim</span><span class="p">.</span><span class="nx">MlsSettings</span><span class="p">{</span>
@@ -5369,7 +5369,7 @@
 <span class="w">        </span><span class="mi">5</span><span class="p">,</span><span class="w">                       </span><span class="c1">// maxRetries</span>
 <span class="w">        </span><span class="n">Duration</span><span class="p">.</span><span class="na">ofSeconds</span><span class="p">(</span><span class="mi">5</span><span class="p">),</span><span class="w">   </span><span class="c1">// interval</span>
 <span class="w">        </span><span class="n">Map</span><span class="p">.</span><span class="na">of</span><span class="p">(),</span><span class="w">                </span><span class="c1">// metadata</span>
-<span class="w">        </span><span class="k">new</span><span class="w"> </span><span class="n">MlsSettings</span><span class="p">(</span><span class="mi">100</span><span class="p">)</span><span class="w">     </span><span class="c1">// Enable E2E encryption</span>
+<span class="w">        </span><span class="k">new</span><span class="w"> </span><span class="n">MlsSettings</span><span class="p">(</span><span class="mi">100</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span><span class="w"> </span><span class="c1">// Enable E2E encryption</span>
 <span class="w">    </span><span class="p">);</span>
 
 <span class="w">    </span><span class="c1">// Create the session on the given channel</span>
@@ -5388,7 +5388,7 @@
 <span class="w">        </span><span class="n">maxRetries</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">5</span><span class="n">u</span><span class="p">,</span>
 <span class="w">        </span><span class="n">interval</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Duration</span><span class="p">.</span><span class="na">ofSeconds</span><span class="p">(</span><span class="m">5</span><span class="p">),</span>
 <span class="w">        </span><span class="n">metadata</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">emptyMap</span><span class="p">(),</span>
-<span class="w">        </span><span class="n">mlsSettings</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">MlsSettings</span><span class="p">(</span><span class="m">100</span><span class="n">u</span><span class="p">)</span>
+<span class="w">        </span><span class="n">mlsSettings</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">MlsSettings</span><span class="p">(</span><span class="m">100</span><span class="n">u</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span>
 <span class="w">    </span><span class="p">)</span>
 
 <span class="w">    </span><span class="c1">// Create the session on the given channel</span>
@@ -5405,7 +5405,7 @@
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kd">const</span><span class="w"> </span><span class="nx">sessionConfig</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nx">sessionType</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;group&quot;</span><span class="w"> </span><span class="kr">as</span><span class="w"> </span><span class="kd">const</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">sessionType</span><span class="o">:</span><span class="w"> </span><span class="kt">slimBindings.SessionType.Group</span><span class="p">,</span>
 <span class="w">    </span><span class="nx">maxRetries</span><span class="o">:</span><span class="w"> </span><span class="kt">5</span><span class="p">,</span>
 <span class="w">    </span><span class="nx">interval</span><span class="o">:</span><span class="w"> </span><span class="kt">5000</span><span class="p">,</span><span class="w"> </span><span class="c1">// milliseconds</span>
 <span class="w">    </span><span class="nx">metadata</span><span class="o">:</span><span class="w"> </span><span class="kt">new</span><span class="w"> </span><span class="nb">Map</span><span class="p">(),</span>
@@ -5481,7 +5481,7 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kd">func</span><span class="w"> </span><span class="nx">inviteParticipant</span><span class="p">(</span><span class="nx">app</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">App</span><span class="p">,</span><span class="w"> </span><span class="nx">session</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">Session</span><span class="p">,</span><span class="w"> </span><span class="nx">name</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">Name</span><span class="p">,</span><span class="w"> </span><span class="nx">connID</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">ConnID</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span>
+<div class="highlight"><pre><span></span><code><span class="kd">func</span><span class="w"> </span><span class="nx">inviteParticipant</span><span class="p">(</span><span class="nx">app</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">App</span><span class="p">,</span><span class="w"> </span><span class="nx">session</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">Session</span><span class="p">,</span><span class="w"> </span><span class="nx">name</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">Name</span><span class="p">,</span><span class="w"> </span><span class="nx">connID</span><span class="w"> </span><span class="kt">uint64</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="c1">// Set the route to the participant first</span>
 <span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">SetRouteAsync</span><span class="p">(</span><span class="nx">name</span><span class="p">,</span><span class="w"> </span><span class="nx">connID</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">err</span>
@@ -5522,7 +5522,7 @@
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="c1">// Set the route to the participant first</span>
-<span class="k">await</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">setRoute</span><span class="p">(</span><span class="nx">inviteName</span><span class="p">,</span><span class="w"> </span><span class="nb">Number</span><span class="p">(</span><span class="nx">connId</span><span class="p">));</span>
+<span class="nx">app</span><span class="p">.</span><span class="nx">setRoute</span><span class="p">(</span><span class="nx">inviteName</span><span class="p">,</span><span class="w"> </span><span class="nx">connId</span><span class="p">);</span>
 
 <span class="c1">// Invite the participant</span>
 <span class="k">await</span><span class="w"> </span><span class="nx">session</span><span class="p">.</span><span class="nx">inviteAndWaitAsync</span><span class="p">(</span><span class="nx">inviteName</span><span class="p">);</span>
@@ -5554,7 +5554,7 @@
 </div>
 </div>
 <h2 id="send-a-message">Send a Message</h2>
-<p><code>publish_async</code> / <code>PublishAndWaitAsync</code> delivers the message to all current session participants. For point-to-point sessions this is just the single remote peer; for group sessions every member receives it.</p>
+<p><code>publish_and_wait_async</code> / <code>PublishAndWaitAsync</code> delivers the message to all current session participants. For point-to-point sessions this is just the single remote peer; for group sessions every member receives it.</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="4:8"><input checked="checked" id="__tabbed_4_1" name="__tabbed_4" type="radio" /><input id="__tabbed_4_2" name="__tabbed_4" type="radio" /><input id="__tabbed_4_3" name="__tabbed_4" type="radio" /><input id="__tabbed_4_4" name="__tabbed_4" type="radio" /><input id="__tabbed_4_5" name="__tabbed_4" type="radio" /><input id="__tabbed_4_6" name="__tabbed_4" type="radio" /><input id="__tabbed_4_7" name="__tabbed_4" type="radio" /><input id="__tabbed_4_8" name="__tabbed_4" type="radio" /><div class="tabbed-labels"><label for="__tabbed_4_1">Rust</label><label for="__tabbed_4_2">Python</label><label for="__tabbed_4_3">Go</label><label for="__tabbed_4_4">Java</label><label for="__tabbed_4_5">Kotlin</label><label for="__tabbed_4_6">Node.js</label><label for="__tabbed_4_7">.NET</label><label for="__tabbed_4_8">React Native</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
@@ -5562,7 +5562,7 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">publish_async</span><span class="p">(</span>
+<div class="highlight"><pre><span></span><code><span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">publish_and_wait_async</span><span class="p">(</span>
     <span class="sa">b</span><span class="s2">&quot;hello&quot;</span><span class="p">,</span>   <span class="c1"># payload: bytes</span>
     <span class="kc">None</span><span class="p">,</span>       <span class="c1"># payload_type: str | None</span>
     <span class="kc">None</span><span class="p">,</span>       <span class="c1"># metadata: dict | None</span>
@@ -5580,7 +5580,8 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="n">session</span><span class="p">.</span><span class="na">publishAsync</span><span class="p">(</span><span class="s">&quot;hello&quot;</span><span class="p">.</span><span class="na">toByteArray</span><span class="p">(),</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><span class="kd">val</span><span class="w"> </span><span class="nv">handle</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">session</span><span class="p">.</span><span class="na">publishAsync</span><span class="p">(</span><span class="s">&quot;hello&quot;</span><span class="p">.</span><span class="na">toByteArray</span><span class="p">(),</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span>
+<span class="n">handle</span><span class="p">.</span><span class="na">waitAsync</span><span class="p">()</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
@@ -5665,7 +5666,7 @@
 </div>
 </div>
 <h2 id="send-to-a-specific-participant">Send to a Specific Participant</h2>
-<p>In a group session, <code>publish_to_async</code> / <code>PublishToAndWaitAsync</code> sends to a single participant using the context from a previously received message. Other group members do not see the message.</p>
+<p>In a group session, <code>publish_to_and_wait_async</code> / <code>PublishToAndWaitAsync</code> sends to a single participant using the context from a previously received message. Other group members do not see the message.</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="6:8"><input checked="checked" id="__tabbed_6_1" name="__tabbed_6" type="radio" /><input id="__tabbed_6_2" name="__tabbed_6" type="radio" /><input id="__tabbed_6_3" name="__tabbed_6" type="radio" /><input id="__tabbed_6_4" name="__tabbed_6" type="radio" /><input id="__tabbed_6_5" name="__tabbed_6" type="radio" /><input id="__tabbed_6_6" name="__tabbed_6" type="radio" /><input id="__tabbed_6_7" name="__tabbed_6" type="radio" /><input id="__tabbed_6_8" name="__tabbed_6" type="radio" /><div class="tabbed-labels"><label for="__tabbed_6_1">Rust</label><label for="__tabbed_6_2">Python</label><label for="__tabbed_6_3">Go</label><label for="__tabbed_6_4">Java</label><label for="__tabbed_6_5">Kotlin</label><label for="__tabbed_6_6">Node.js</label><label for="__tabbed_6_7">.NET</label><label for="__tabbed_6_8">React Native</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
@@ -5675,7 +5676,7 @@
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="c1"># received is a ReceivedMessage obtained from session.get_message_async(...)</span>
-<span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">publish_to_async</span><span class="p">(</span>
+<span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">publish_to_and_wait_async</span><span class="p">(</span>
     <span class="n">received</span><span class="o">.</span><span class="n">context</span><span class="p">,</span>
     <span class="sa">b</span><span class="s2">&quot;private reply&quot;</span><span class="p">,</span>
     <span class="kc">None</span><span class="p">,</span>   <span class="c1"># payload_type</span>
@@ -5697,7 +5698,8 @@
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="c1">// msg is obtained from session.getMessageAsync(...)</span>
-<span class="n">session</span><span class="p">.</span><span class="na">publishToAsync</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="na">context</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;private reply&quot;</span><span class="p">.</span><span class="na">toByteArray</span><span class="p">(),</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span>
+<span class="kd">val</span><span class="w"> </span><span class="nv">handle</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">session</span><span class="p">.</span><span class="na">publishToAsync</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="na">context</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;private reply&quot;</span><span class="p">.</span><span class="na">toByteArray</span><span class="p">(),</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="kc">null</span><span class="p">)</span>
+<span class="n">handle</span><span class="p">.</span><span class="na">waitAsync</span><span class="p">()</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
