@@ -17,11 +17,7 @@ slimctl slim start
 
 The node is ready immediately. Connect SDK applications to `http://127.0.0.1:46357`.
 
-To stop the node:
-
-```bash
-slimctl slim stop
-```
+To stop the node, just kill the running process.
 
 ## Option 2: Run with a Config File
 
@@ -55,6 +51,12 @@ Run the node:
 
 ```bash
 ./slim --config config.yaml
+```
+
+Same with `slimctl`:
+
+```bash
+slimctl slim start --config config.yaml
 ```
 
 Or with Cargo after building from source:
@@ -103,6 +105,13 @@ Start both:
 ```bash
 ./slim --config node-a.yaml &
 ./slim --config node-b.yaml &
+```
+
+Or:
+
+```bash
+slimctl slim start --config node-a.yaml &
+slimctl slim start --config node-b.yaml &
 ```
 
 Applications connected to either node can now route messages to each other.

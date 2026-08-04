@@ -48,7 +48,7 @@ Run the SLIM node:
 docker run -it \
     -v ./config.yaml:/config.yaml \
     -p 46357:46357 \
-    ghcr.io/agntcy/slim:1.4.0 /slim --config /config.yaml
+    ghcr.io/agntcy/slim:2.0.0 /slim --config /config.yaml
 ```
 
 SDK applications on the host connect to `http://127.0.0.1:46357`.
@@ -57,34 +57,49 @@ SDK applications on the host connect to `http://127.0.0.1:46357`.
 
 The `crates/examples/` directory includes a Docker Compose file that starts a SLIM node alongside mock client applications for quick end-to-end testing.
 
+> **Note:** The mock app images must be built locally before running the compose stack. From the repo root:
+>
+> ```bash
+> task -d crates/examples docker:build-all
+> ```
+
 ```yaml
 # docker-compose.yml
 services:
   slim-server:
-    image: ghcr.io/agntcy/slim:1.4.0
+    image: ghcr.io/agntcy/slim:2.0.0
+    # To build from source instead:
+    # build:
+    #   context: ../..
+    #   dockerfile: ./Dockerfile
+    #   target: slim-release
     entrypoint: ["/slim"]
     command: ["--config", "/config/server-config.yaml"]
     ports:
-      - "50001:50001"
+      - "46357:46357"
     volumes:
       - ./server-config.yaml:/config/server-config.yaml
     networks:
       - slim-network
 
   mock-app-server:
-    image: ghcr.io/agntcy/slim/examples:1.4.0
+    image: mock-app-server
     depends_on:
       - slim-server
     networks:
       - slim-network
+    volumes:
+      - ./config/docker-client-config.yaml:/config/client-config.yaml
 
   mock-app-client:
-    image: ghcr.io/agntcy/slim/examples:1.4.0
+    image: mock-app-client
     depends_on:
       - slim-server
       - mock-app-server
     networks:
       - slim-network
+    volumes:
+      - ./config/docker-client-config.yaml:/config/client-config.yaml
 
 networks:
   slim-network:
@@ -147,8 +162,8 @@ docker run -it \
     -v ./controller-config.yaml:/config.yaml \
     -v ./db:/db \
     -p 50051:50051 -p 50052:50052 \
-    ghcr.io/agntcy/slim/control-plane:1.4.0 \
-    -config /config.yaml
+    ghcr.io/agntcy/slim/control-plane:2.0.0 \
+    --config /config.yaml
 ```
 
 See the [Controller Configuration Reference](../components/controller/config.md) for the controller config format.

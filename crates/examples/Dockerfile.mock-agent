@@ -19,8 +19,8 @@ RUN DEBIAN_FRONTEND=noninteractive \
         unzip \
         git \
         pkg-config \
-        clang-14 \
-        llvm-14
+        clang-19 \
+        llvm-19
 
 # Install taskfile
 RUN sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
@@ -77,27 +77,27 @@ FROM debian:bookworm-slim AS slim-debug
 ARG TARGETARCH
 
 # copy the build artifacts from the build stage
-COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/slim /slim
-COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/slim.dbg /slim.dbg
+COPY --from=rust /app/target/${TARGETARCH}-unknown-linux-gnu/release/slim /slim
+COPY --from=rust /app/target/${TARGETARCH}-unknown-linux-gnu/release/slim.dbg /slim.dbg
 
 FROM debian:bookworm-slim AS mock-app-client
 
 ARG TARGETARCH
 
 # copy the artifacts from the build stage
-COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/sdk-mock /usr/local/bin/
+COPY --from=rust /app/target/${TARGETARCH}-unknown-linux-gnu/release/sdk-mock /usr/local/bin/
 
 # Run the mock app client
 ENTRYPOINT ["/usr/local/bin/sdk-mock"]
-CMD ["--config", "/config/client-config.yaml", "--local-app", "client", "--remote-app", "server", "--message", "hello from Docker!"]
+CMD ["--config", "/config/client-config.yaml", "--local-name", "client", "--remote-name", "server", "--message", "hello from Docker!"]
 
 FROM debian:bookworm-slim AS mock-app-server
 
 ARG TARGETARCH
 
 # copy the artifacts from the build stage
-COPY --from=rust /app/data-plane/target/${TARGETARCH}-unknown-linux-gnu/release/sdk-mock /usr/local/bin/
+COPY --from=rust /app/target/${TARGETARCH}-unknown-linux-gnu/release/sdk-mock /usr/local/bin/
 
 # Run the mock app server
 ENTRYPOINT ["/usr/local/bin/sdk-mock"]
-CMD ["--config", "/config/client-config.yaml", "--local-app", "server", "--remote-app", "client"]
+CMD ["--config", "/config/client-config.yaml", "--local-name", "server", "--remote-name", "client"]
