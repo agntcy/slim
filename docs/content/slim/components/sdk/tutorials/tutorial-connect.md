@@ -335,8 +335,9 @@ With the service initialised, connect to a SLIM node. The connection returns a `
 
     ```kotlin
     import io.agntcy.slim.bindings.*
+    import kotlinx.coroutines.runBlocking
 
-    fun main() {
+    fun main() = runBlocking {
         initializeWithDefaults()
         val service = getGlobalService()
 

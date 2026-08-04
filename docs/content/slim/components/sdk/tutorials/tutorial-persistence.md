@@ -162,10 +162,10 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         "./slim-state",
         "change-me-in-production"
     );
-    IdentityProviderConfig provider = IdentityProviderConfig.sharedSecret(
+    IdentityProviderConfig provider = new IdentityProviderConfig.SharedSecret(
         localName.toString(), "change-me-before-going-to-production"
     );
-    IdentityVerifierConfig verifier = IdentityVerifierConfig.sharedSecret(
+    IdentityVerifierConfig verifier = new IdentityVerifierConfig.SharedSecret(
         localName.toString(), "change-me-before-going-to-production"
     );
 
@@ -186,7 +186,7 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
     initializeWithDefaults()
     val service = getGlobalService()
 
-    val connId: ULong = service.connectAsync(newInsecureClientConfig("http://127.0.0.1:46357"))
+    val connId: ULong = service.connect(newInsecureClientConfig("http://127.0.0.1:46357"))
 
     val localName = Name.fromString("myorg/default/my-service")
 
@@ -201,11 +201,11 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         id = localName.toString(), data = "change-me-before-going-to-production"
     )
 
-    val app = service.createAppWithPersistenceAsync(
+    val app = service.createAppWithPersistence(
         localName, provider, verifier,
         Direction.BIDIRECTIONAL, persistence
     )
-    app.subscribeAsync(localName, connId)
+    app.subscribe(localName, connId)
 
     println("App ready with persistence: $localName")
     ```
@@ -378,20 +378,19 @@ On the next startup, create a new app using the **same name, secret, store path,
 
     ```kotlin
     // After restart — same name, secret, path, and passphrase as before
-    val app = service.createAppWithPersistenceAsync(
+    val app = service.createAppWithPersistence(
         localName, provider, verifier,
         Direction.BIDIRECTIONAL, persistence
     )
-    app.subscribeAsync(localName, connId)
+    app.subscribe(localName, connId)
 
     // Restore all previously active sessions
-    val sessions = app.restoreSessionsAsync(connId)
+    val sessions = app.restoreSessions(connId)
     println("Restored ${sessions.size} session(s)")
 
     // Each restored session is immediately usable
     for (session in sessions) {
-        val handle = session.publishAsync("back online".toByteArray(), null, null)
-        handle.waitAsync()
+        session.publishAndWait("back online".toByteArray(), null, null)
     }
     ```
 
@@ -482,7 +481,7 @@ Call `close` to broadcast an `OFFLINE` state update and pause participation. Oth
 
     ```kotlin
     // Broadcast OFFLINE and wait for acknowledgements
-    session.closeAndWaitAsync()
+    session.closeAndWait()
     println("Offline — other members will stop expecting acks from us")
     ```
 
@@ -542,7 +541,7 @@ Call `close` to broadcast an `OFFLINE` state update and pause participation. Oth
 
     ```kotlin
     // Broadcast ONLINE and wait for acknowledgements
-    session.rejoinAndWaitAsync()
+    session.rejoinAndWait()
     println("Back online — MLS re-key complete")
     ```
 

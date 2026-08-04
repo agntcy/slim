@@ -474,7 +474,7 @@ The session creator acts as a moderator and can invite other applications to joi
 
     ```typescript
     // Set the route to the participant first
-    app.setRoute(inviteName, Number(connId));
+    app.setRoute(inviteName, connId);
 
     // Invite the participant
     await session.inviteAndWaitAsync(inviteName);
