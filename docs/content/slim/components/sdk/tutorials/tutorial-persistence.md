@@ -186,7 +186,7 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
     initializeWithDefaults()
     val service = getGlobalService()
 
-    val connId: ULong = service.connect(newInsecureClientConfig("http://127.0.0.1:46357"))
+    val connId: ULong = service.connectAsync(newInsecureClientConfig("http://127.0.0.1:46357"))
 
     val localName = Name.fromString("myorg/default/my-service")
 
@@ -201,11 +201,11 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         id = localName.toString(), data = "change-me-before-going-to-production"
     )
 
-    val app = service.createAppWithPersistence(
+    val app = service.createAppWithPersistenceAsync(
         localName, provider, verifier,
         Direction.BIDIRECTIONAL, persistence
     )
-    app.subscribe(localName, connId)
+    app.subscribeAsync(localName, connId)
 
     println("App ready with persistence: $localName")
     ```
@@ -378,19 +378,19 @@ On the next startup, create a new app using the **same name, secret, store path,
 
     ```kotlin
     // After restart — same name, secret, path, and passphrase as before
-    val app = service.createAppWithPersistence(
+    val app = service.createAppWithPersistenceAsync(
         localName, provider, verifier,
         Direction.BIDIRECTIONAL, persistence
     )
-    app.subscribe(localName, connId)
+    app.subscribeAsync(localName, connId)
 
     // Restore all previously active sessions
-    val sessions = app.restoreSessions(connId)
+    val sessions = app.restoreSessionsAsync(connId)
     println("Restored ${sessions.size} session(s)")
 
     // Each restored session is immediately usable
     for (session in sessions) {
-        session.publishAndWait("back online".toByteArray(), null, null)
+        session.publishAndWaitAsync("back online".toByteArray(), null, null)
     }
     ```
 
@@ -481,7 +481,7 @@ Call `close` to broadcast an `OFFLINE` state update and pause participation. Oth
 
     ```kotlin
     // Broadcast OFFLINE and wait for acknowledgements
-    session.closeAndWait()
+    session.closeAndWaitAsync()
     println("Offline — other members will stop expecting acks from us")
     ```
 
@@ -541,7 +541,7 @@ Call `close` to broadcast an `OFFLINE` state update and pause participation. Oth
 
     ```kotlin
     // Broadcast ONLINE and wait for acknowledgements
-    session.rejoinAndWait()
+    session.rejoinAndWaitAsync()
     println("Back online — MLS re-key complete")
     ```
 
