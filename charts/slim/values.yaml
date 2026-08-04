@@ -78,9 +78,13 @@ slim:
           # clients:
           #   - endpoint: "https://slim-control:50052"
           #     tls:
-          #       cert_file: "/svids/tls.crt"
-          #       key_file: "/svids/tls.key"
-          #       ca_file: "/svids/svid_bundle.pem"
+          #       source:
+          #         type: file
+          #         cert: "/svids/tls.crt"
+          #         key: "/svids/tls.key"
+          #       ca_source:
+          #         type: file
+          #         path: "/svids/svid_bundle.pem"
 
   # dnsPolicy setting (used when deploymentMode is "DaemonSet")
   dnsPolicy: "ClusterFirst"

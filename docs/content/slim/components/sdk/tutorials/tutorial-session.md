@@ -81,10 +81,10 @@ A point-to-point session connects your application to a single remote instance. 
         "fmt"
         "log"
 
-        slim "github.com/agntcy/slim-bindings-go"
+        slim "github.com/agntcy/slim-bindings-go/v2"
     )
 
-    func runClient(app *slim.App, remoteName slim.Name) *slim.Session {
+    func runClient(app *slim.App, remoteName *slim.Name) *slim.Session {
         config := slim.SessionConfig{
             SessionType: slim.SessionTypePointToPoint,
             MlsSettings: &slim.MlsSettings{
@@ -117,7 +117,7 @@ A point-to-point session connects your application to a single remote instance. 
             5,                       // maxRetries
             Duration.ofSeconds(5),   // interval
             Map.of(),                // metadata
-            new MlsSettings(100)     // Enable E2E encryption
+            new MlsSettings(100, null) // Enable E2E encryption
         );
 
         // Create the session — discovery happens automatically
@@ -141,7 +141,7 @@ A point-to-point session connects your application to a single remote instance. 
             maxRetries = 5u,
             interval = Duration.ofSeconds(5),
             metadata = emptyMap(),
-            mlsSettings = MlsSettings(100u)
+            mlsSettings = MlsSettings(100u, null)
         )
 
         // Create the session — discovery happens automatically
@@ -163,7 +163,7 @@ A point-to-point session connects your application to a single remote instance. 
 
     async function runClient(app, remoteName) {
         const sessionConfig = {
-            sessionType: "pointToPoint" as const,
+            sessionType: slimBindings.SessionType.PointToPoint,
             maxRetries: 5,
             interval: 5000, // milliseconds
             metadata: new Map(),
@@ -274,7 +274,7 @@ A group session enables many-to-many communication on a named channel. Every mes
 === "Go"
 
     ```go
-    func createGroupSession(app *slim.App, channelName slim.Name) *slim.Session {
+    func createGroupSession(app *slim.App, channelName *slim.Name) *slim.Session {
         config := slim.SessionConfig{
             SessionType: slim.SessionTypeGroup,
             MlsSettings: &slim.MlsSettings{
@@ -303,7 +303,7 @@ A group session enables many-to-many communication on a named channel. Every mes
             5,                       // maxRetries
             Duration.ofSeconds(5),   // interval
             Map.of(),                // metadata
-            new MlsSettings(100)     // Enable E2E encryption
+            new MlsSettings(100, null) // Enable E2E encryption
         );
 
         // Create the session on the given channel
@@ -324,7 +324,7 @@ A group session enables many-to-many communication on a named channel. Every mes
             maxRetries = 5u,
             interval = Duration.ofSeconds(5),
             metadata = emptyMap(),
-            mlsSettings = MlsSettings(100u)
+            mlsSettings = MlsSettings(100u, null)
         )
 
         // Create the session on the given channel
@@ -343,7 +343,7 @@ A group session enables many-to-many communication on a named channel. Every mes
 
     ```typescript
     const sessionConfig = {
-        sessionType: "group" as const,
+        sessionType: slimBindings.SessionType.Group,
         maxRetries: 5,
         interval: 5000, // milliseconds
         metadata: new Map(),
@@ -427,7 +427,7 @@ The session creator acts as a moderator and can invite other applications to joi
 === "Go"
 
     ```go
-    func inviteParticipant(app *slim.App, session *slim.Session, name slim.Name, connID slim.ConnID) error {
+    func inviteParticipant(app *slim.App, session *slim.Session, name *slim.Name, connID uint64) error {
         // Set the route to the participant first
         if err := app.SetRouteAsync(name, connID); err != nil {
             return err
@@ -474,7 +474,7 @@ The session creator acts as a moderator and can invite other applications to joi
 
     ```typescript
     // Set the route to the participant first
-    await app.setRoute(inviteName, Number(connId));
+    app.setRoute(inviteName, connId);
 
     // Invite the participant
     await session.inviteAndWaitAsync(inviteName);
@@ -509,7 +509,7 @@ The session creator acts as a moderator and can invite other applications to joi
 
 ## Send a Message
 
-`publish_async` / `PublishAndWaitAsync` delivers the message to all current session participants. For point-to-point sessions this is just the single remote peer; for group sessions every member receives it.
+`publish_and_wait_async` / `PublishAndWaitAsync` delivers the message to all current session participants. For point-to-point sessions this is just the single remote peer; for group sessions every member receives it.
 
 === "Rust"
 
@@ -520,7 +520,7 @@ The session creator acts as a moderator and can invite other applications to joi
 === "Python"
 
     ```python
-    await session.publish_async(
+    await session.publish_and_wait_async(
         b"hello",   # payload: bytes
         None,       # payload_type: str | None
         None,       # metadata: dict | None
@@ -544,7 +544,8 @@ The session creator acts as a moderator and can invite other applications to joi
 === "Kotlin"
 
     ```kotlin
-    session.publishAsync("hello".toByteArray(), null, null)
+    val handle = session.publishAsync("hello".toByteArray(), null, null)
+    handle.waitAsync()
     ```
 
 === "Node.js"
@@ -648,7 +649,7 @@ After sending, call `get_message_async` to wait for an inbound message on the sa
 
 ## Send to a Specific Participant
 
-In a group session, `publish_to_async` / `PublishToAndWaitAsync` sends to a single participant using the context from a previously received message. Other group members do not see the message.
+In a group session, `publish_to_and_wait_async` / `PublishToAndWaitAsync` sends to a single participant using the context from a previously received message. Other group members do not see the message.
 
 === "Rust"
 
@@ -661,7 +662,7 @@ In a group session, `publish_to_async` / `PublishToAndWaitAsync` sends to a sing
 
     ```python
     # received is a ReceivedMessage obtained from session.get_message_async(...)
-    await session.publish_to_async(
+    await session.publish_to_and_wait_async(
         received.context,
         b"private reply",
         None,   # payload_type
@@ -689,7 +690,8 @@ In a group session, `publish_to_async` / `PublishToAndWaitAsync` sends to a sing
 
     ```kotlin
     // msg is obtained from session.getMessageAsync(...)
-    session.publishToAsync(msg.context, "private reply".toByteArray(), null, null)
+    val handle = session.publishToAsync(msg.context, "private reply".toByteArray(), null, null)
+    handle.waitAsync()
     ```
 
 === "Node.js"

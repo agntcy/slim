@@ -69,7 +69,7 @@ helm pull oci://ghcr.io/agntcy/slim/helm/slim --version v2.0.0-alpha.8
 ```
 
 !!! note "Configuration"
-    For detailed Helm configuration options, see the [values.yaml](https://github.com/agntcy/slim/blob/slim-v2.0.0-alpha.8/charts/slim/values.yaml) in the repository.
+    For detailed Helm configuration options, see the [values.yaml](https://github.com/agntcy/slim/blob/slim-v2.0.0-alpha.12/charts/slim/values.yaml) in the repository.
 
 ## CLI Binary (`slimctl`)
 
@@ -104,7 +104,7 @@ cd slim
 task data-plane:build PROFILE=release
 ```
 
-The binary will be available at `data-plane/target/release/slim`.
+The binary will be available at `target/release/slim`.
 
 ## Next Steps
 

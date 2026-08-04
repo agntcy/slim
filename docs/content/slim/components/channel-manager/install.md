@@ -73,7 +73,7 @@ Or using `cmctl` directly:
 ./target/release/cmctl list-channels
 ```
 
-Both connect to `127.0.0.1:10356` by default. Use `--endpoint` (slimctl) or `--server` (cmctl) to point at a different address.
+Both connect to `127.0.0.1:10356` by default. Use `--server` to point at a different address.
 
 ## Installing slimctl
 

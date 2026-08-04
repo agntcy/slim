@@ -145,11 +145,10 @@ slim:
                       type: spire
                       socket_path: unix:/tmp/spire-agent/public/api.sock
               tls:
-                insecure_skip_verify: false
                 source:
                   type: spire
                   socket_path: unix:/tmp/spire-agent/public/api.sock
-                ca_source:
+                client_ca:
                   type: spire
                   socket_path: unix:/tmp/spire-agent/public/api.sock
                   trust_domains:

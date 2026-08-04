@@ -98,13 +98,12 @@ helm upgrade --install slim-spire \
 ```yaml
 config:
   northbound:
-    httpHost: 0.0.0.0
-    httpPort: 50051
+    endpoint: "0.0.0.0:50051"
   southbound:
-    httpHost: 0.0.0.0
-    httpPort: 50052
+    endpoint: "0.0.0.0:50052"
   database:
-    filePath: /db/controlplane.db
+    type: sqlite
+    path: /db/controlplane.db
 persistence:
   enabled: true
   size: 1Gi
@@ -136,12 +135,11 @@ slim:
           servers:
             - endpoint: "0.0.0.0:46357"
               tls:
-                insecure_skip_verify: false
                 source:
                   type: spire
                   socket_path: unix:/tmp/spire-agent/public/api.sock
                   target_spiffe_id: spiffe://example.local/ns/slim/sa/slim
-                ca_source:
+                client_ca:
                   type: spire
                   socket_path: unix:/tmp/spire-agent/public/api.sock
           clients: []

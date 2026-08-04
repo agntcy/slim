@@ -133,11 +133,32 @@ Create a `buf.gen.yaml` to generate SLIMRPC stubs alongside the standard protobu
     plugins:
       - remote: buf.build/protocolbuffers/java
         out: src/main/java
-      - local: protoc-gen-slimrpc-java
-        out: src/main/java
+      - remote: buf.build/protocolbuffers/kotlin
+        out: src/main/kotlin
+      - local: protoc-gen-slimrpc-kotlin
+        out: slimrpc
     ```
 
-    Kotlin uses the same Java generator. The generated `TestSlimrpc.java` is fully usable from Kotlin.
+    This generates the Java protobuf classes, Kotlin protobuf extensions, and a `TestSlimrpc.kt` file with coroutine-based client, server, and registration function.
+
+=== "Node.js"
+
+    ```yaml
+    # buf.gen.yaml
+    version: v2
+    managed:
+      enabled: true
+    plugins:
+      - local: protoc-gen-slimrpc-node
+        out: types
+      - remote: buf.build/bufbuild/es:v2.12.1
+        out: types
+        opt:
+          - target=ts
+          - import_extension=js
+    ```
+
+    This generates `types/example_pb.ts` (protobuf-es message types) and `types/example_slimrpc.ts` containing `TestServicer`, `registerTestServicer`, `TestClient`, and `TestGroupClient`.
 
 === ".NET"
 
@@ -246,7 +267,7 @@ Implement each RPC method defined in your proto. Extend the generated base class
         "io"
 
         pb "example/types"
-        "github.com/agntcy/slim-bindings-go/slimrpc"
+        slim_rpc "github.com/agntcy/slim-bindings-go/v2/slim_rpc"
     )
 
     type TestServiceImpl struct {
@@ -264,7 +285,7 @@ Implement each RPC method defined in your proto. Extend the generated base class
 
     func (s *TestServiceImpl) ExampleUnaryStream(
         ctx context.Context, req *pb.ExampleRequest,
-        stream slimrpc.RequestStream[*pb.ExampleResponse],
+        stream slim_rpc.ServerStream[*pb.ExampleResponse],
     ) error {
         for i := 0; i < 5; i++ {
             if err := stream.Send(&pb.ExampleResponse{
@@ -278,7 +299,7 @@ Implement each RPC method defined in your proto. Extend the generated base class
     }
 
     func (s *TestServiceImpl) ExampleStreamUnary(
-        ctx context.Context, stream slimrpc.ResponseStream[*pb.ExampleRequest],
+        ctx context.Context, stream slim_rpc.ResponseStream[*pb.ExampleRequest],
     ) (*pb.ExampleResponse, error) {
         count := int64(0)
         for {
@@ -299,7 +320,7 @@ Implement each RPC method defined in your proto. Extend the generated base class
 
     func (s *TestServiceImpl) ExampleStreamStream(
         ctx context.Context,
-        stream slimrpc.ServerBidiStream[*pb.ExampleRequest, *pb.ExampleResponse],
+        stream slim_rpc.ServerBidiStream[*pb.ExampleRequest, *pb.ExampleResponse],
     ) error {
         for {
             req, err := stream.Recv()
@@ -327,6 +348,7 @@ Implement each RPC method defined in your proto. Extend the generated base class
     import com.example_service.TestSlimrpc;
     import com.example_service.ExampleRequest;
     import com.example_service.ExampleResponse;
+    import io.agntcy.slim.bindings.slimrpc.*;
 
     class TestServerImpl implements TestSlimrpc.TestServer {
         @Override
@@ -342,49 +364,65 @@ Implement each RPC method defined in your proto. Extend the generated base class
 
         @Override
         public CompletableFuture<Void> ExampleUnaryStream(
-                ExampleRequest request,
-                TestSlimrpc.ServerResponseStream<ExampleResponse> stream,
-                Context context) {
-            return CompletableFuture.runAsync(() -> {
-                for (int i = 0; i < 5; i++) {
-                    stream.send(ExampleResponse.newBuilder()
+                ExampleRequest request, Context context, ResponseSink sink) {
+            ServerRequestStream<ExampleResponse> sender = ServerRequestStream.create(
+                sink, ExampleResponse::toByteArray);
+            for (int i = 0; i < 5; i++) {
+                try {
+                    sender.send(ExampleResponse.newBuilder()
                         .setExampleString("hello " + request.getExampleString() + " " + i)
                         .setExampleInteger(request.getExampleInteger() + i)
                         .build());
+                } catch (Exception e) {
+                    return CompletableFuture.failedFuture(e);
                 }
-            });
+            }
+            return CompletableFuture.completedFuture(null);
         }
 
         @Override
         public CompletableFuture<ExampleResponse> ExampleStreamUnary(
-                TestSlimrpc.ServerRequestStream<ExampleRequest> stream,
-                Context context) {
-            return CompletableFuture.supplyAsync(() -> {
-                long count = 0;
+                RequestStream stream, Context context) {
+            ServerResponseStream<ExampleRequest> reader = ServerResponseStream.create(stream,
+                bytes -> {
+                    try { return ExampleRequest.parseFrom(bytes); }
+                    catch (Exception e) { throw new RuntimeException(e); }
+                });
+            long count = 0;
+            while (true) {
                 ExampleRequest req;
-                while ((req = stream.recv()) != null) {
-                    count++;
-                }
-                return ExampleResponse.newBuilder()
+                try { req = reader.recv(); } catch (Exception e) { return CompletableFuture.failedFuture(e); }
+                if (req == null) break;
+                count++;
+            }
+            return CompletableFuture.completedFuture(
+                ExampleResponse.newBuilder()
                     .setExampleString("received " + count + " requests")
                     .setExampleInteger(count)
-                    .build();
-            });
+                    .build());
         }
 
         @Override
         public CompletableFuture<Void> ExampleStreamStream(
-                TestSlimrpc.ServerBidiStream<ExampleRequest, ExampleResponse> stream,
-                Context context) {
-            return CompletableFuture.runAsync(() -> {
+                RequestStream stream, Context context, ResponseSink sink) {
+            ServerBidiStream<ExampleRequest, ExampleResponse> bidi = ServerBidiStream.create(stream, sink,
+                bytes -> {
+                    try { return ExampleRequest.parseFrom(bytes); }
+                    catch (Exception e) { throw new RuntimeException(e); }
+                },
+                ExampleResponse::toByteArray);
+            while (true) {
                 ExampleRequest req;
-                while ((req = stream.recv()) != null) {
-                    stream.send(ExampleResponse.newBuilder()
+                try { req = bidi.recv(); } catch (Exception e) { return CompletableFuture.failedFuture(e); }
+                if (req == null) break;
+                try {
+                    bidi.send(ExampleResponse.newBuilder()
                         .setExampleString("echo: " + req.getExampleString())
                         .setExampleInteger(req.getExampleInteger())
                         .build());
-                }
-            });
+                } catch (Exception e) { return CompletableFuture.failedFuture(e); }
+            }
+            return CompletableFuture.completedFuture(null);
         }
     }
     ```
@@ -395,9 +433,7 @@ Implement each RPC method defined in your proto. Extend the generated base class
     import com.example_service.TestSlimrpc
     import com.example_service.ExampleRequest
     import com.example_service.ExampleResponse
-    import kotlinx.coroutines.flow.Flow
-    import kotlinx.coroutines.flow.flow
-    import kotlinx.coroutines.flow.map
+    import io.agntcy.slim.bindings.slimrpc.*
 
     class TestServiceImpl : TestSlimrpc.UnimplementedTestServer() {
         override suspend fun ExampleUnaryUnary(
@@ -407,11 +443,12 @@ Implement each RPC method defined in your proto. Extend the generated base class
             .setExampleInteger(request.exampleInteger + 1)
             .build()
 
-        override fun ExampleUnaryStream(
-            request: ExampleRequest, context: Context
-        ): Flow<ExampleResponse> = flow {
+        override suspend fun ExampleUnaryStream(
+            request: ExampleRequest, context: Context, sink: ResponseSink
+        ) {
+            val sender = ServerRequestStream.create(sink) { resp: ExampleResponse -> resp.toByteArray() }
             for (i in 0 until 5) {
-                emit(ExampleResponse.newBuilder()
+                sender.send(ExampleResponse.newBuilder()
                     .setExampleString("hello ${request.exampleString} $i")
                     .setExampleInteger(request.exampleInteger + i)
                     .build())
@@ -419,23 +456,77 @@ Implement each RPC method defined in your proto. Extend the generated base class
         }
 
         override suspend fun ExampleStreamUnary(
-            requestStream: Flow<ExampleRequest>, context: Context
+            stream: RequestStream, context: Context
         ): ExampleResponse {
+            val reader = ServerResponseStream.create(stream) { ExampleRequest.parseFrom(it) }
             var count = 0L
-            requestStream.collect { count++ }
+            while (reader.recv() != null) { count++ }
             return ExampleResponse.newBuilder()
                 .setExampleString("received $count requests")
                 .setExampleInteger(count)
                 .build()
         }
 
-        override fun ExampleStreamStream(
-            requestStream: Flow<ExampleRequest>, context: Context
-        ): Flow<ExampleResponse> = requestStream.map { req ->
-            ExampleResponse.newBuilder()
-                .setExampleString("echo: ${req.exampleString}")
-                .setExampleInteger(req.exampleInteger)
-                .build()
+        override suspend fun ExampleStreamStream(
+            stream: RequestStream, context: Context, sink: ResponseSink
+        ) {
+            val bidi = ServerBidiStream.create(
+                stream, sink,
+                { ExampleRequest.parseFrom(it) },
+                { resp: ExampleResponse -> resp.toByteArray() }
+            )
+            while (true) {
+                val req = bidi.recv() ?: break
+                bidi.send(ExampleResponse.newBuilder()
+                    .setExampleString("echo: ${req.exampleString}")
+                    .setExampleInteger(req.exampleInteger)
+                    .build())
+            }
+        }
+    }
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    import type { ContextLike } from '@agntcy/slim-bindings';
+    import { create } from '@bufbuild/protobuf';
+    import { ExampleResponseSchema, type ExampleRequest, type ExampleResponse } from './types/example_pb.js';
+    import { registerTestServicer, type TestServicer } from './types/example_slimrpc.js';
+
+    class TestService implements TestServicer {
+        async ExampleUnaryUnary(request: ExampleRequest, context: ContextLike): Promise<ExampleResponse> {
+            return create(ExampleResponseSchema, {
+                exampleString: `hello ${request.exampleString}`,
+                exampleInteger: request.exampleInteger + 1n,
+            });
+        }
+
+        async *ExampleUnaryStream(request: ExampleRequest, context: ContextLike): AsyncIterable<ExampleResponse> {
+            for (let i = 0; i < 5; i++) {
+                yield create(ExampleResponseSchema, {
+                    exampleString: `hello ${request.exampleString} ${i}`,
+                    exampleInteger: request.exampleInteger + BigInt(i),
+                });
+            }
+        }
+
+        async ExampleStreamUnary(requests: AsyncIterable<ExampleRequest>, context: ContextLike): Promise<ExampleResponse> {
+            let count = 0n;
+            for await (const _ of requests) { count++; }
+            return create(ExampleResponseSchema, {
+                exampleString: `received ${count} requests`,
+                exampleInteger: count,
+            });
+        }
+
+        async *ExampleStreamStream(requests: AsyncIterable<ExampleRequest>, context: ContextLike): AsyncIterable<ExampleResponse> {
+            for await (const req of requests) {
+                yield create(ExampleResponseSchema, {
+                    exampleString: `echo: ${req.exampleString}`,
+                    exampleInteger: req.exampleInteger,
+                });
+            }
         }
     }
     ```
@@ -443,12 +534,13 @@ Implement each RPC method defined in your proto. Extend the generated base class
 === ".NET"
 
     ```csharp
+    using Agntcy.Slim.SlimRpc;
     using ExampleService;
 
     class TestServerImpl : ITestServer
     {
         public async Task<ExampleResponse> ExampleUnaryUnary(
-            ExampleRequest request, ServerCallContext context)
+            ExampleRequest request, SlimRpcContext context)
         {
             return new ExampleResponse
             {
@@ -458,7 +550,7 @@ Implement each RPC method defined in your proto. Extend the generated base class
         }
 
         public async IAsyncEnumerable<ExampleResponse> ExampleUnaryStream(
-            ExampleRequest request, ServerCallContext context)
+            ExampleRequest request, SlimRpcContext context)
         {
             for (int i = 0; i < 5; i++)
             {
@@ -471,7 +563,7 @@ Implement each RPC method defined in your proto. Extend the generated base class
         }
 
         public async Task<ExampleResponse> ExampleStreamUnary(
-            IAsyncEnumerable<ExampleRequest> requestStream, ServerCallContext context)
+            IAsyncEnumerable<ExampleRequest> requestStream, SlimRpcContext context)
         {
             long count = 0;
             await foreach (var _ in requestStream)
@@ -484,7 +576,7 @@ Implement each RPC method defined in your proto. Extend the generated base class
         }
 
         public async IAsyncEnumerable<ExampleResponse> ExampleStreamStream(
-            IAsyncEnumerable<ExampleRequest> requestStream, ServerCallContext context)
+            IAsyncEnumerable<ExampleRequest> requestStream, SlimRpcContext context)
         {
             await foreach (var req in requestStream)
             {
@@ -591,47 +683,59 @@ Create a SLIMRPC server, register your implementation, and start serving. The se
 === "Go"
 
     ```go
-    import slim "github.com/agntcy/slim-bindings-go"
+    import slim_rpc "github.com/agntcy/slim-bindings-go/v2/slim_rpc"
 
     // app and connId come from the prerequisite tutorials
-    server := slim.ServerNewWithConnection(app, localName, &connId)
+    server := slim_rpc.ServerNewWithConnection(app, localName, &connId)
     pb.RegisterTestServer(server, &TestServiceImpl{})
 
     fmt.Println("Serving...")
-    server.Serve()
+    server.ServeBlocking()
     ```
 
 === "Java"
 
     ```java
-    import io.agntcy.slim.bindings.Server;
+    import io.agntcy.slim.bindings.slimrpc.Server;
 
     // app and connId come from the prerequisite tutorials
     Server rpcServer = Server.newWithConnection(app, localName, connId);
     TestSlimrpc.registerTestServer(rpcServer, new TestServerImpl());
 
     System.out.println("Serving...");
-    rpcServer.serve();
+    rpcServer.serveBlocking();
     ```
 
 === "Kotlin"
 
     ```kotlin
-    import io.agntcy.slim.bindings.Server
-    import kotlinx.coroutines.runBlocking
+    import io.agntcy.slim.bindings.slimrpc.Server
 
     // app and connId come from the prerequisite tutorials
     val rpcServer = Server.newWithConnection(app, localName, connId)
     TestSlimrpc.registerTestServer(rpcServer, TestServiceImpl())
 
     println("Serving...")
-    runBlocking { rpcServer.serve() }
+    rpcServer.serveBlocking()
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    import slimBindings from '@agntcy/slim-bindings';
+
+    // app, localName, and connId come from the prerequisite tutorials
+    const rpcServer = slimBindings.Server.newWithConnection(app, localName, connId);
+    registerTestServicer(rpcServer, new TestService());
+
+    console.log('Serving...');
+    await rpcServer.serveAsync();
     ```
 
 === ".NET"
 
     ```csharp
-    using Agntcy.Slim.Rpc;
+    using Agntcy.Slim.SlimRpc;
     using ExampleService;
 
     // app and connId come from the prerequisite tutorials
@@ -649,6 +753,7 @@ Complete server examples for each language:
 - [Python server example](https://github.com/agntcy/slim-bindings/blob/main/python/examples/slimrpc/simple/server.py)
 - [Go server example](https://github.com/agntcy/slim-bindings/blob/main/go/examples/slimrpc/simple/cmd/server/server.go)
 - [Java/Kotlin server example](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples/slimrpc/simple)
+- [Node.js server example](https://github.com/agntcy/slim-bindings/blob/main/node/examples/slimrpc/simple/server.ts)
 - [.NET server example](https://github.com/agntcy/slim-bindings/tree/main/dotnet/Slim.Examples.SlimRpc)
 
 ## Next Steps

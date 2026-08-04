@@ -72,7 +72,7 @@ Pass the `service` obtained from initialisation to create an app bound to a name
     }
     defer app.Destroy()
 
-    fmt.Printf("App created, id=%d\n", app.Id())
+    fmt.Printf("App created, id=%s\n", app.Id())
     ```
 
 === "Java"
@@ -270,7 +270,7 @@ Before establishing a session to a remote application, your local SLIM node must
     // Tell the local SLIM node how to reach the remote service
     const remoteName = new slimBindings.Name("myorg", "default", "other-service");
 
-    app.setRoute(remoteName, Number(connId));
+    app.setRoute(remoteName, connId);
     ```
 
 === ".NET"
