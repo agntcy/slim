@@ -195,7 +195,7 @@ Each response item carries both the response payload and the context identifying
         if item == nil || err != nil {
             break
         }
-        fmt.Printf("Response from %s: %s\n", item.Context.SourceName, item.Value.ExampleString)
+        fmt.Printf("Response from %s: %s\n", item.Context.Source, item.Value.ExampleString)
     }
     ```
 
