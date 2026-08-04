@@ -11,7 +11,7 @@
 //!
 //! Usage:
 //! ```bash
-//! # Point-to-point
+//! # Point-to-point (shared secret)
 //! cargo run --bin sender-app -- \
 //!   -l agntcy/ns/bob \
 //!   -t p2p \
@@ -25,6 +25,16 @@
 //!   -g agntcy/slim/my-channel \
 //!   -p agntcy/ns/alice agntcy/ns/charlie \
 //!   -n 20 -i 200
+//!
+//! # SPIRE / SPIFFE (non-Windows)
+//! cargo run --bin sender-app -- \
+//!   -l agntcy/ns/bob \
+//!   -a spire \
+//!   -S unix:/tmp/spire-agent/public/api.sock \
+//!   -A slim \
+//!   -T spiffe://example.org/slim \
+//!   -t p2p \
+//!   -p agntcy/ns/alice
 //! ```
 
 use std::collections::HashMap;
@@ -42,6 +52,9 @@ use slim_datapath::api::{ProtoName, ProtoPublishType, ProtoSessionType};
 use slim_service::ServiceBuilder;
 use slim_session::{Direction, SessionConfig, session_config::MlsSettings};
 use slim_tracing::TracingConfiguration;
+
+#[cfg(not(target_family = "windows"))]
+use slim_config::auth::spire::SpireConfig;
 
 /// Print with timestamp prefix
 macro_rules! tprintln {
@@ -69,9 +82,28 @@ struct Args {
     #[arg(short, long, required = true)]
     local: String,
 
-    /// Shared secret for authentication (min 32 bytes)
+    /// Authentication method: "shared_secret" or "spire"
+    #[arg(short = 'a', long, default_value = "shared_secret")]
+    auth_method: String,
+
+    /// Shared secret for authentication (min 32 bytes, used with shared_secret auth)
     #[arg(short = 'k', long, default_value = DEFAULT_SECRET)]
     shared_secret: String,
+
+    /// SPIRE Workload API socket path (used with spire auth)
+    #[cfg(not(target_family = "windows"))]
+    #[arg(short = 'S', long, default_value = "/tmp/spire-agent/public/api.sock")]
+    spire_socket_path: Option<String>,
+
+    /// JWT audiences to request/verify (used with spire auth)
+    #[cfg(not(target_family = "windows"))]
+    #[arg(short = 'A', long, default_value = "slim")]
+    spire_audiences: Vec<String>,
+
+    /// Target SPIFFE ID for JWT SVID acquisition (used with spire auth)
+    #[cfg(not(target_family = "windows"))]
+    #[arg(short = 'T', long)]
+    spire_target: Option<String>,
 
     /// SLIM control plane endpoint
     #[arg(short, long, default_value = "http://localhost:46357")]
@@ -145,8 +177,13 @@ async fn run_sender(args: Args) -> Result<()> {
             .context("failed to create SLIM service")?,
     );
 
-    let client_config =
-        ClientConfig::with_endpoint(&args.slim).with_tls_setting(TlsClientConfig::insecure());
+    let client_config = ClientConfig::with_endpoint(&args.slim).with_tls_setting(
+        if args.slim.starts_with("https://") {
+            TlsClientConfig::default()
+        } else {
+            TlsClientConfig::insecure()
+        },
+    );
     let conn_id = service
         .connect(&client_config)
         .await
@@ -154,12 +191,40 @@ async fn run_sender(args: Args) -> Result<()> {
 
     tprintln!("Connected to control plane with connection ID: {}", conn_id);
 
-    // Create the app with shared secret auth
-    let name_str = local_name.to_string();
-    let mut provider = AuthProvider::shared_secret_from_str(&name_str, &args.shared_secret)
-        .context("failed to create auth provider")?;
-    let mut verifier = AuthVerifier::shared_secret_from_str(&name_str, &args.shared_secret)
-        .context("failed to create auth verifier")?;
+    // Build auth provider and verifier based on selected method
+    let (mut provider, mut verifier) = match args.auth_method.as_str() {
+        "shared_secret" => {
+            let name_str = local_name.to_string();
+            let p = AuthProvider::shared_secret_from_str(&name_str, &args.shared_secret)
+                .context("failed to create auth provider")?;
+            let v = AuthVerifier::shared_secret_from_str(&name_str, &args.shared_secret)
+                .context("failed to create auth verifier")?;
+            (p, v)
+        }
+        #[cfg(not(target_family = "windows"))]
+        "spire" => {
+            let mut spire_cfg =
+                SpireConfig::default().with_jwt_audiences(args.spire_audiences.clone());
+            if let Some(ref path) = args.spire_socket_path {
+                spire_cfg = spire_cfg.with_socket_path(path);
+            }
+            if let Some(ref target) = args.spire_target {
+                spire_cfg = spire_cfg.with_target_spiffe_id(target);
+            }
+            let p = AuthProvider::spire(
+                spire_cfg
+                    .create_provider()
+                    .context("failed to create SPIRE provider")?,
+            );
+            let v = AuthVerifier::spire(
+                spire_cfg
+                    .create_verifier()
+                    .context("failed to create SPIRE verifier")?,
+            );
+            (p, v)
+        }
+        other => anyhow::bail!("unsupported auth method: {other}"),
+    };
     provider
         .initialize()
         .await
@@ -236,12 +301,16 @@ async fn run_sender(args: Args) -> Result<()> {
     if session_type == ProtoSessionType::Multicast {
         for participant in &participant_names {
             tprintln!("[{}] Inviting {} to session...", full_name, participant);
-            controller
-                .invite_participant(participant)
-                .await
-                .context("invite failed")?
-                .await
-                .context("invite completion failed")?;
+            tokio::time::timeout(
+                Duration::from_secs(35),
+                controller
+                    .invite_participant(participant)
+                    .await
+                    .context("invite failed")?,
+            )
+            .await
+            .context("invite timed out after 35s")?
+            .context("invite completion failed")?;
             tprintln!("[{}] {} joined session", full_name, participant);
         }
     }
