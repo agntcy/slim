@@ -98,7 +98,7 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         "fmt"
         "log"
 
-        slim "github.com/agntcy/slim-bindings-go"
+        slim "github.com/agntcy/slim-bindings-go/v2"
     )
 
     func main() {
@@ -126,7 +126,7 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
             Data: "change-me-before-going-to-production",
         }
 
-        app, err := slim.GetGlobalService().CreateAppWithPersistence(
+        app, err := slim.GetGlobalService().CreateAppWithPersistenceAsync(
             appName,
             provider,
             verifier,
@@ -162,10 +162,10 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         "./slim-state",
         "change-me-in-production"
     );
-    IdentityProviderConfig provider = IdentityProviderConfig.sharedSecret(
+    IdentityProviderConfig provider = new IdentityProviderConfig.SharedSecret(
         localName.toString(), "change-me-before-going-to-production"
     );
-    IdentityVerifierConfig verifier = IdentityVerifierConfig.sharedSecret(
+    IdentityVerifierConfig verifier = new IdentityVerifierConfig.SharedSecret(
         localName.toString(), "change-me-before-going-to-production"
     );
 
@@ -182,32 +182,35 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
 
     ```kotlin
     import io.agntcy.slim.bindings.*
+    import kotlinx.coroutines.runBlocking
 
-    initializeWithDefaults()
-    val service = getGlobalService()
+    fun main() = runBlocking {
+        initializeWithDefaults()
+        val service = getGlobalService()
 
-    val connId: ULong = service.connectAsync(newInsecureClientConfig("http://127.0.0.1:46357"))
+        val connId: ULong = service.connectAsync(newInsecureClientConfig("http://127.0.0.1:46357"))
 
-    val localName = Name.fromString("myorg/default/my-service")
+        val localName = Name.fromString("myorg/default/my-service")
 
-    val persistence = PersistenceConfig(
-        path = "./slim-state",
-        passphrase = "change-me-in-production"
-    )
-    val provider = IdentityProviderConfig.SharedSecret(
-        id = localName.toString(), data = "change-me-before-going-to-production"
-    )
-    val verifier = IdentityVerifierConfig.SharedSecret(
-        id = localName.toString(), data = "change-me-before-going-to-production"
-    )
+        val persistence = PersistenceConfig(
+            path = "./slim-state",
+            passphrase = "change-me-in-production"
+        )
+        val provider = IdentityProviderConfig.SharedSecret(
+            id = localName.toString(), data = "change-me-before-going-to-production"
+        )
+        val verifier = IdentityVerifierConfig.SharedSecret(
+            id = localName.toString(), data = "change-me-before-going-to-production"
+        )
 
-    val app = service.createAppWithPersistence(
-        localName, provider, verifier,
-        Direction.BIDIRECTIONAL, persistence
-    )
-    app.subscribeAsync(localName, connId)
+        val app = service.createAppWithPersistenceAsync(
+            localName, provider, verifier,
+            Direction.BIDIRECTIONAL, persistence
+        )
+        app.subscribeAsync(localName, connId)
 
-    println("App ready with persistence: $localName")
+        println("App ready with persistence: $localName")
+    }
     ```
 
 === "Node.js"
@@ -228,14 +231,18 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         path: "./slim-state",
         passphrase: "change-me-in-production",
     };
-    const provider = { sharedSecret: { id: localName.toString(), data: "change-me-before-going-to-production" } };
-    const verifier = { sharedSecret: { id: localName.toString(), data: "change-me-before-going-to-production" } };
+    const provider = new slimBindings.IdentityProviderConfig.SharedSecret({
+        id: localName.toString(), data: "change-me-before-going-to-production"
+    });
+    const verifier = new slimBindings.IdentityVerifierConfig.SharedSecret({
+        id: localName.toString(), data: "change-me-before-going-to-production"
+    });
 
     const app = await service.createAppWithPersistenceAsync(
         localName, provider, verifier,
-        "bidirectional", persistence
+        slimBindings.Direction.Bidirectional, persistence
     );
-    await app.subscribeAsync(localName, BigInt(connId));
+    await app.subscribeAsync(localName, connId);
 
     console.log(`App ready with persistence: ${localName}`);
     ```
@@ -315,14 +322,14 @@ On the next startup, create a new app using the **same name, secret, store path,
 
     # Each restored session is immediately usable
     for session in sessions:
-        await session.publish_async(b"back online", None, None)
+        await session.publish_and_wait_async(b"back online", None, None)
     ```
 
 === "Go"
 
     ```go
     // After restart — same name, secret, path, and passphrase as before
-    app, err = slim.GetGlobalService().CreateAppWithPersistence(
+    app, err = slim.GetGlobalService().CreateAppWithPersistenceAsync(
         appName, provider, verifier,
         slim.DirectionBidirectional, persistence,
     )
@@ -336,7 +343,7 @@ On the next startup, create a new app using the **same name, secret, store path,
     }
 
     // Restore all previously active sessions
-    sessions, err := app.RestoreSessions(connID)
+    sessions, err := app.RestoreSessionsAsync(connID)
     if err != nil {
         log.Fatal(err)
     }
@@ -373,20 +380,24 @@ On the next startup, create a new app using the **same name, secret, store path,
 === "Kotlin"
 
     ```kotlin
+    import kotlinx.coroutines.runBlocking
+
     // After restart — same name, secret, path, and passphrase as before
-    val app = service.createAppWithPersistence(
-        localName, provider, verifier,
-        Direction.BIDIRECTIONAL, persistence
-    )
-    app.subscribeAsync(localName, connId)
+    runBlocking {
+        val app = service.createAppWithPersistenceAsync(
+            localName, provider, verifier,
+            Direction.BIDIRECTIONAL, persistence
+        )
+        app.subscribeAsync(localName, connId)
 
-    // Restore all previously active sessions
-    val sessions = app.restoreSessionsAsync(connId)
-    println("Restored ${sessions.size} session(s)")
+        // Restore all previously active sessions
+        val sessions = app.restoreSessionsAsync(connId)
+        println("Restored ${sessions.size} session(s)")
 
-    // Each restored session is immediately usable
-    for (session in sessions) {
-        session.publishAsync("back online".toByteArray(), null, null)
+        // Each restored session is immediately usable
+        for (session in sessions) {
+            session.publishAndWaitAsync("back online".toByteArray(), null, null)
+        }
     }
     ```
 
@@ -395,9 +406,9 @@ On the next startup, create a new app using the **same name, secret, store path,
     ```typescript
     // After restart — same name, secret, path, and passphrase as before
     const app = await service.createAppWithPersistenceAsync(
-        localName, provider, verifier, "bidirectional", persistence
+        localName, provider, verifier, slimBindings.Direction.Bidirectional, persistence
     );
-    await app.subscribeAsync(localName, BigInt(connId));
+    await app.subscribeAsync(localName, connId);
 
     // Restore all previously active sessions
     const sessions = await app.restoreSessionsAsync(connId);
@@ -476,9 +487,13 @@ Call `close` to broadcast an `OFFLINE` state update and pause participation. Oth
 === "Kotlin"
 
     ```kotlin
-    // Broadcast OFFLINE and wait for acknowledgements
-    session.closeAndWaitAsync()
-    println("Offline — other members will stop expecting acks from us")
+    import kotlinx.coroutines.runBlocking
+
+    runBlocking {
+        // Broadcast OFFLINE and wait for acknowledgements
+        session.closeAndWaitAsync()
+        println("Offline — other members will stop expecting acks from us")
+    }
     ```
 
 === "Node.js"
@@ -536,9 +551,13 @@ Call `close` to broadcast an `OFFLINE` state update and pause participation. Oth
 === "Kotlin"
 
     ```kotlin
-    // Broadcast ONLINE and wait for acknowledgements
-    session.rejoinAndWaitAsync()
-    println("Back online — MLS re-key complete")
+    import kotlinx.coroutines.runBlocking
+
+    runBlocking {
+        // Broadcast ONLINE and wait for acknowledgements
+        session.rejoinAndWaitAsync()
+        println("Back online — MLS re-key complete")
+    }
     ```
 
 === "Node.js"

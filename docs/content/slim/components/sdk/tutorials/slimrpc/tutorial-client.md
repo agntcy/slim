@@ -42,19 +42,19 @@ A SLIMRPC channel wraps the SLIM session layer. Pass it the remote server's SLIM
 
     ```go
     import (
-        slim "github.com/agntcy/slim-bindings-go"
+        slim_rpc "github.com/agntcy/slim-bindings-go/v2/slim_rpc"
         pb "example/types"
     )
 
     // app, connId, and remoteName come from the prerequisite tutorials
-    channel := slim.ChannelNewWithConnection(app, remoteName, &connId)
+    channel := slim_rpc.ChannelNewWithConnection(app, remoteName, &connId)
     client := pb.NewTestClient(channel)
     ```
 
 === "Java"
 
     ```java
-    import io.agntcy.slim.bindings.Channel;
+    import io.agntcy.slim.bindings.slimrpc.Channel;
     import com.example_service.TestSlimrpc;
 
     // app, connId, and remoteName come from the prerequisite tutorials
@@ -65,7 +65,7 @@ A SLIMRPC channel wraps the SLIM session layer. Pass it the remote server's SLIM
 === "Kotlin"
 
     ```kotlin
-    import io.agntcy.slim.bindings.Channel
+    import io.agntcy.slim.bindings.slimrpc.Channel
     import com.example_service.TestSlimrpc
 
     // app, connId, and remoteName come from the prerequisite tutorials
@@ -73,10 +73,21 @@ A SLIMRPC channel wraps the SLIM session layer. Pass it the remote server's SLIM
     val client = TestSlimrpc.TestClientImpl(channel)
     ```
 
+=== "Node.js"
+
+    ```typescript
+    import slimBindings from '@agntcy/slim-bindings';
+    import { TestClient } from './types/example_slimrpc.js';
+
+    // app, connId, and remoteName come from the prerequisite tutorials
+    const channel = slimBindings.Channel.newWithConnection(app, remoteName, connId);
+    const client = new TestClient(channel);
+    ```
+
 === ".NET"
 
     ```csharp
-    using Agntcy.Slim.Rpc;
+    using Agntcy.Slim.SlimRpc;
     using ExampleService;
 
     // app, connId, and remoteName come from the prerequisite tutorials
@@ -147,7 +158,7 @@ Send a single request and receive a single response.
         .setExampleInteger(42)
         .build();
 
-    ExampleResponse response = client.ExampleUnaryUnary(request).get();
+    ExampleResponse response = client.ExampleUnaryUnary(request, Duration.ofSeconds(5), null);
     System.out.println("Response: " + response.getExampleString() + " " + response.getExampleInteger());
     ```
 
@@ -155,14 +166,26 @@ Send a single request and receive a single response.
 
     ```kotlin
     import com.example_service.ExampleRequest
+    import java.time.Duration
 
     val request = ExampleRequest.newBuilder()
         .setExampleString("world")
         .setExampleInteger(42)
         .build()
 
-    val response = client.ExampleUnaryUnary(request)
+    val response = client.ExampleUnaryUnary(request, Duration.ofSeconds(5), null)
     println("Response: ${response.exampleString} ${response.exampleInteger}")
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    import { create } from '@bufbuild/protobuf';
+    import { ExampleRequestSchema } from './types/example_pb.js';
+
+    const request = create(ExampleRequestSchema, { exampleString: 'world', exampleInteger: 42n });
+    const response = await client.ExampleUnaryUnary(request, 5000);
+    console.log('Response:', response.exampleString, response.exampleInteger);
     ```
 
 === ".NET"
@@ -171,7 +194,7 @@ Send a single request and receive a single response.
     using ExampleService;
 
     var request = new ExampleRequest { ExampleString = "world", ExampleInteger = 42 };
-    var response = await client.ExampleUnaryUnary(request, timeout: TimeSpan.FromSeconds(5));
+    var response = await client.ExampleUnaryUnaryAsync(request, timeout: TimeSpan.FromSeconds(5));
     Console.WriteLine($"Response: {response.ExampleString} {response.ExampleInteger}");
     ```
 
@@ -221,11 +244,18 @@ Send a single request and iterate over a stream of responses from the server.
 === "Java"
 
     ```java
-    TestSlimrpc.ClientResponseStream<ExampleResponse> stream =
-        client.ExampleUnaryStream(request).get();
+    import io.agntcy.slim.bindings.slimrpc.ClientResponseStream;
+    import io.agntcy.slim.bindings.slimrpc.ResponseStreamReader;
 
-    while (stream.hasNext()) {
-        ExampleResponse resp = stream.next();
+    ResponseStreamReader streamReader = client.ExampleUnaryStream(request, Duration.ofSeconds(5), null);
+    ClientResponseStream<ExampleResponse> stream = ClientResponseStream.create(streamReader,
+        bytes -> {
+            try { return ExampleResponse.parseFrom(bytes); }
+            catch (Exception e) { throw new RuntimeException(e); }
+        });
+    while (true) {
+        ExampleResponse resp = stream.recv();
+        if (resp == null) break;
         System.out.println("Stream response: " + resp.getExampleString() + " " + resp.getExampleInteger());
     }
     ```
@@ -233,15 +263,29 @@ Send a single request and iterate over a stream of responses from the server.
 === "Kotlin"
 
     ```kotlin
-    client.ExampleUnaryStream(request).collect { resp ->
+    import io.agntcy.slim.bindings.slimrpc.ClientResponseStream
+    import java.time.Duration
+
+    val streamReader = client.ExampleUnaryStream(request, Duration.ofSeconds(5), null)
+    val stream = ClientResponseStream.create(streamReader) { bytes -> ExampleResponse.parseFrom(bytes) }
+    while (true) {
+        val resp = stream.recv() ?: break
         println("Stream response: ${resp.exampleString} ${resp.exampleInteger}")
+    }
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    for await (const resp of client.ExampleUnaryStream(request, 5000)) {
+        console.log('Stream response:', resp.exampleString, resp.exampleInteger);
     }
     ```
 
 === ".NET"
 
     ```csharp
-    await foreach (var response in client.ExampleUnaryStream(request, timeout: TimeSpan.FromSeconds(5)))
+    await foreach (var response in client.ExampleUnaryStreamAsync(request, timeout: TimeSpan.FromSeconds(5)))
     {
         Console.WriteLine($"Stream response: {response.ExampleString} {response.ExampleInteger}");
     }
@@ -303,35 +347,51 @@ Stream a sequence of requests to the server and receive a single response.
 === "Java"
 
     ```java
-    TestSlimrpc.ClientRequestStream<ExampleRequest, ExampleResponse> requestStream =
-        client.ExampleStreamUnary().get();
+    import io.agntcy.slim.bindings.slimrpc.ClientRequestStream;
+
+    ClientRequestStream<ExampleRequest, ExampleResponse> stream =
+        client.ExampleStreamUnary(Duration.ofSeconds(5), null);
 
     for (int i = 0; i < 5; i++) {
-        requestStream.send(ExampleRequest.newBuilder()
+        stream.send(ExampleRequest.newBuilder()
             .setExampleString("req_" + i)
             .setExampleInteger(i)
             .build());
     }
-    ExampleResponse response = requestStream.closeAndReceive().get();
+    ExampleResponse response = stream.finalizeStream();
     System.out.println("Response: " + response.getExampleString() + " " + response.getExampleInteger());
     ```
 
 === "Kotlin"
 
     ```kotlin
-    import kotlinx.coroutines.flow.flow
+    import io.agntcy.slim.bindings.slimrpc.ClientRequestStream
+    import java.time.Duration
 
-    val requests = flow {
-        for (i in 0 until 5) {
-            emit(ExampleRequest.newBuilder()
-                .setExampleString("req_$i")
-                .setExampleInteger(i.toLong())
-                .build())
+    val stream: ClientRequestStream<ExampleRequest, ExampleResponse> =
+        client.ExampleStreamUnary(Duration.ofSeconds(5), null)
+
+    for (i in 0 until 5) {
+        stream.send(ExampleRequest.newBuilder()
+            .setExampleString("req_$i")
+            .setExampleInteger(i.toLong())
+            .build())
+    }
+    val response = stream.finalizeStream()
+    println("Response: ${response.exampleString} ${response.exampleInteger}")
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    async function* streamRequests() {
+        for (let i = 0; i < 5; i++) {
+            yield create(ExampleRequestSchema, { exampleString: `req_${i}`, exampleInteger: BigInt(i) });
         }
     }
 
-    val response = client.ExampleStreamUnary(requests)
-    println("Response: ${response.exampleString} ${response.exampleInteger}")
+    const response = await client.ExampleStreamUnary(streamRequests(), 5000);
+    console.log('Response:', response.exampleString, response.exampleInteger);
     ```
 
 === ".NET"
@@ -345,7 +405,7 @@ Stream a sequence of requests to the server and receive a single response.
         }
     }
 
-    var response = await client.ExampleStreamUnary(GetRequests(), timeout: TimeSpan.FromSeconds(5));
+    var response = await client.ExampleStreamUnaryAsync(GetRequests(), timeout: TimeSpan.FromSeconds(5));
     Console.WriteLine($"Response: {response.ExampleString} {response.ExampleInteger}");
     ```
 
@@ -415,37 +475,83 @@ Stream requests to the server and receive a stream of responses simultaneously.
 === "Java"
 
     ```java
-    TestSlimrpc.ClientBidiStream<ExampleRequest> bidiStream =
-        client.ExampleStreamStream().get();
+    import io.agntcy.slim.bindings.slimrpc.ClientBidiStream;
+    import io.agntcy.slim.bindings.slimrpc.StreamMessage;
 
-    // Send requests
-    for (int i = 0; i < 5; i++) {
-        bidiStream.send(ExampleRequest.newBuilder()
-            .setExampleString("req_" + i)
-            .setExampleInteger(i)
-            .build());
-    }
-    bidiStream.closeSend();
+    ClientBidiStream<ExampleRequest> stream = client.ExampleStreamStream(Duration.ofSeconds(5), null);
+
+    // Send requests in a separate thread
+    new Thread(() -> {
+        for (int i = 0; i < 5; i++) {
+            stream.send(ExampleRequest.newBuilder()
+                .setExampleString("req_" + i)
+                .setExampleInteger(i)
+                .build());
+        }
+        stream.closeSend();
+    }).start();
 
     // Receive responses
-    ExampleResponse resp;
-    while ((resp = bidiStream.recv()) != null) {
-        System.out.println("Stream response: " + resp.getExampleString() + " " + resp.getExampleInteger());
+    while (true) {
+        StreamMessage msg = stream.recv();
+        if (msg instanceof StreamMessage.End) break;
+        if (msg instanceof StreamMessage.Error err) throw new RuntimeException(err.v1().toString());
+        if (msg instanceof StreamMessage.Data data) {
+            ExampleResponse resp = ExampleResponse.parseFrom(data.v1());
+            System.out.println("Stream response: " + resp.getExampleString() + " " + resp.getExampleInteger());
+        }
     }
     ```
 
 === "Kotlin"
 
     ```kotlin
-    client.ExampleStreamStream(requests).collect { resp ->
-        println("Stream response: ${resp.exampleString} ${resp.exampleInteger}")
+    import io.agntcy.slim.bindings.slimrpc.ClientBidiStream
+    import io.agntcy.slim.bindings.slimrpc.StreamMessage
+    import java.time.Duration
+    import kotlinx.coroutines.coroutineScope
+    import kotlinx.coroutines.launch
+
+    coroutineScope {
+        val stream: ClientBidiStream<ExampleRequest> = client.ExampleStreamStream(Duration.ofSeconds(5), null)
+
+        // Send requests in a launched coroutine
+        launch {
+            for (i in 0 until 5) {
+                stream.send(ExampleRequest.newBuilder()
+                    .setExampleString("req_$i")
+                    .setExampleInteger(i.toLong())
+                    .build())
+            }
+            stream.closeSend()
+        }
+
+        // Receive responses
+        while (true) {
+            when (val msg = stream.recv()) {
+                is StreamMessage.End -> break
+                is StreamMessage.Error -> throw RuntimeException(msg.v1.toString())
+                is StreamMessage.Data -> {
+                    val resp = ExampleResponse.parseFrom(msg.v1)
+                    println("Stream response: ${resp.exampleString} ${resp.exampleInteger}")
+                }
+            }
+        }
+    }
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    for await (const resp of client.ExampleStreamStream(streamRequests(), 5000)) {
+        console.log('Stream response:', resp.exampleString, resp.exampleInteger);
     }
     ```
 
 === ".NET"
 
     ```csharp
-    await foreach (var response in client.ExampleStreamStream(GetRequests(), timeout: TimeSpan.FromSeconds(5)))
+    await foreach (var response in client.ExampleStreamStreamAsync(GetRequests(), timeout: TimeSpan.FromSeconds(5)))
     {
         Console.WriteLine($"Stream response: {response.ExampleString} {response.ExampleInteger}");
     }
@@ -470,7 +576,7 @@ When finished, close the channel to release the underlying SLIM session.
 === "Go"
 
     ```go
-    channel.Close()
+    channel.CloseBlocking(nil)
     ```
 
 === "Java"
@@ -483,6 +589,12 @@ When finished, close the channel to release the underlying SLIM session.
 
     ```kotlin
     channel.close()
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    await channel.closeAsync(undefined);
     ```
 
 === ".NET"
@@ -498,6 +610,7 @@ Complete client examples for each language:
 - [Python client example](https://github.com/agntcy/slim-bindings/blob/main/python/examples/slimrpc/simple/client.py)
 - [Go client example](https://github.com/agntcy/slim-bindings/blob/main/go/examples/slimrpc/simple/cmd/client/client.go)
 - [Java/Kotlin client example](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples/slimrpc/simple)
+- [Node.js client example](https://github.com/agntcy/slim-bindings/blob/main/node/examples/slimrpc/simple/client.ts)
 - [.NET client example](https://github.com/agntcy/slim-bindings/tree/main/dotnet/Slim.Examples.SlimRpc)
 
 ## Next Steps

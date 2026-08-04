@@ -60,7 +60,7 @@
         "fmt"
         "log"
 
-        slim "github.com/agntcy/slim-bindings-go"
+        slim "github.com/agntcy/slim-bindings-go/v2"
     )
 
     func main() {
@@ -87,7 +87,7 @@
             log.Fatal(err)
         }
 
-        fmt.Printf("App ready: %s, id=%d\n", appName, app.Id())
+        fmt.Printf("App ready: %s, id=%s\n", appName, app.Id())
         // app and connID are passed to create_session in the next tutorial
     }
     ```

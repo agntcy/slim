@@ -63,7 +63,7 @@ The SLIM service is the global runtime that manages connections and application 
 === "Go"
 
     ```go
-    import slim "github.com/agntcy/slim-bindings-go"
+    import slim "github.com/agntcy/slim-bindings-go/v2"
 
     func main() {
         // Initialise the global SLIM service with defaults
@@ -295,7 +295,7 @@ With the service initialised, connect to a SLIM node. The connection returns a `
         "fmt"
         "log"
 
-        slim "github.com/agntcy/slim-bindings-go"
+        slim "github.com/agntcy/slim-bindings-go/v2"
     )
 
     func main() {
@@ -335,8 +335,9 @@ With the service initialised, connect to a SLIM node. The connection returns a `
 
     ```kotlin
     import io.agntcy.slim.bindings.*
+    import kotlinx.coroutines.runBlocking
 
-    fun main() {
+    fun main() = runBlocking {
         initializeWithDefaults()
         val service = getGlobalService()
 
