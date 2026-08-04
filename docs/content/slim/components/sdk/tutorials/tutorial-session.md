@@ -117,7 +117,7 @@ A point-to-point session connects your application to a single remote instance. 
             5,                       // maxRetries
             Duration.ofSeconds(5),   // interval
             Map.of(),                // metadata
-            new MlsSettings(100)     // Enable E2E encryption
+            new MlsSettings(100, null) // Enable E2E encryption
         );
 
         // Create the session — discovery happens automatically
@@ -141,7 +141,7 @@ A point-to-point session connects your application to a single remote instance. 
             maxRetries = 5u,
             interval = Duration.ofSeconds(5),
             metadata = emptyMap(),
-            mlsSettings = MlsSettings(100u)
+            mlsSettings = MlsSettings(100u, null)
         )
 
         // Create the session — discovery happens automatically
@@ -303,7 +303,7 @@ A group session enables many-to-many communication on a named channel. Every mes
             5,                       // maxRetries
             Duration.ofSeconds(5),   // interval
             Map.of(),                // metadata
-            new MlsSettings(100)     // Enable E2E encryption
+            new MlsSettings(100, null) // Enable E2E encryption
         );
 
         // Create the session on the given channel
@@ -324,7 +324,7 @@ A group session enables many-to-many communication on a named channel. Every mes
             maxRetries = 5u,
             interval = Duration.ofSeconds(5),
             metadata = emptyMap(),
-            mlsSettings = MlsSettings(100u)
+            mlsSettings = MlsSettings(100u, null)
         )
 
         // Create the session on the given channel
