@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-alpha.12](https://github.com/agntcy/slim/compare/slimctl-v2.0.0-alpha.11...slimctl-v2.0.0-alpha.12) - 2026-08-04
+
+### Fixed
+
+- *(slimctl)* resolve clap config param collision in slimctl ([#1935](https://github.com/agntcy/slim/pull/1935))
+
 ## [2.0.0-alpha.11](https://github.com/agntcy/slim/compare/slimctl-v2.0.0-alpha.10...slimctl-v2.0.0-alpha.11) - 2026-08-03
 
 ### Other
