@@ -509,29 +509,32 @@ Stream requests to the server and receive a stream of responses simultaneously.
     import io.agntcy.slim.bindings.slimrpc.ClientBidiStream
     import io.agntcy.slim.bindings.slimrpc.StreamMessage
     import java.time.Duration
+    import kotlinx.coroutines.coroutineScope
     import kotlinx.coroutines.launch
 
-    val stream: ClientBidiStream<ExampleRequest> = client.ExampleStreamStream(Duration.ofSeconds(5), null)
+    coroutineScope {
+        val stream: ClientBidiStream<ExampleRequest> = client.ExampleStreamStream(Duration.ofSeconds(5), null)
 
-    // Send requests in a launched coroutine
-    launch {
-        for (i in 0 until 5) {
-            stream.send(ExampleRequest.newBuilder()
-                .setExampleString("req_$i")
-                .setExampleInteger(i.toLong())
-                .build())
+        // Send requests in a launched coroutine
+        launch {
+            for (i in 0 until 5) {
+                stream.send(ExampleRequest.newBuilder()
+                    .setExampleString("req_$i")
+                    .setExampleInteger(i.toLong())
+                    .build())
+            }
+            stream.closeSend()
         }
-        stream.closeSend()
-    }
 
-    // Receive responses
-    while (true) {
-        when (val msg = stream.recv()) {
-            is StreamMessage.End -> break
-            is StreamMessage.Error -> throw RuntimeException(msg.v1.toString())
-            is StreamMessage.Data -> {
-                val resp = ExampleResponse.parseFrom(msg.v1)
-                println("Stream response: ${resp.exampleString} ${resp.exampleInteger}")
+        // Receive responses
+        while (true) {
+            when (val msg = stream.recv()) {
+                is StreamMessage.End -> break
+                is StreamMessage.Error -> throw RuntimeException(msg.v1.toString())
+                is StreamMessage.Data -> {
+                    val resp = ExampleResponse.parseFrom(msg.v1)
+                    println("Stream response: ${resp.exampleString} ${resp.exampleInteger}")
+                }
             }
         }
     }

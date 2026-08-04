@@ -219,7 +219,10 @@ Each response item carries both the response payload and the context identifying
     while (true) {
         MulticastStreamMessage msg = stream.next();
         if (msg instanceof MulticastStreamMessage.End) break;
-        if (msg instanceof MulticastStreamMessage.Error) break;
+        if (msg instanceof MulticastStreamMessage.Error error) {
+            System.err.println("Error from server: " + error.error());
+            continue;
+        }
         if (msg instanceof MulticastStreamMessage.Data data) {
             RpcMulticastItem item = data.item();
             try {
@@ -249,7 +252,7 @@ Each response item carries both the response payload and the context identifying
     while (true) {
         when (val msg = stream.next()) {
             is MulticastStreamMessage.End -> break
-            is MulticastStreamMessage.Error -> break
+            is MulticastStreamMessage.Error -> System.err.println("Error from server: ${msg.error}")
             is MulticastStreamMessage.Data -> {
                 val item = msg.item
                 val resp = ExampleResponse.parseFrom(item.message)
