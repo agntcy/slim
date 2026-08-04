@@ -72,7 +72,7 @@ A group channel wraps a SLIM group session that spans all the servers you want t
 === "Java"
 
     ```java
-    import io.agntcy.slim.bindings.Channel;
+    import io.agntcy.slim.bindings.slimrpc.Channel;
     import io.agntcy.slim.bindings.Name;
     import com.example_service.TestSlimrpc;
     import java.util.List;
@@ -89,7 +89,7 @@ A group channel wraps a SLIM group session that spans all the servers you want t
 === "Kotlin"
 
     ```kotlin
-    import io.agntcy.slim.bindings.Channel
+    import io.agntcy.slim.bindings.slimrpc.Channel
     import io.agntcy.slim.bindings.Name
     import com.example_service.TestSlimrpc
 

@@ -133,11 +133,13 @@ Create a `buf.gen.yaml` to generate SLIMRPC stubs alongside the standard protobu
     plugins:
       - remote: buf.build/protocolbuffers/java
         out: src/main/java
-      - local: protoc-gen-slimrpc-java
-        out: src/main/java
+      - remote: buf.build/protocolbuffers/kotlin
+        out: src/main/kotlin
+      - local: protoc-gen-slimrpc-kotlin
+        out: slimrpc
     ```
 
-    Kotlin uses the same Java generator. The generated `TestSlimrpc.java` is fully usable from Kotlin.
+    This generates the Java protobuf classes, Kotlin protobuf extensions, and a `TestSlimrpc.kt` file with coroutine-based client, server, and registration function.
 
 === "Node.js"
 
@@ -694,28 +696,27 @@ Create a SLIMRPC server, register your implementation, and start serving. The se
 === "Java"
 
     ```java
-    import io.agntcy.slim.bindings.Server;
+    import io.agntcy.slim.bindings.slimrpc.Server;
 
     // app and connId come from the prerequisite tutorials
     Server rpcServer = Server.newWithConnection(app, localName, connId);
     TestSlimrpc.registerTestServer(rpcServer, new TestServerImpl());
 
     System.out.println("Serving...");
-    rpcServer.serve();
+    rpcServer.serveBlocking();
     ```
 
 === "Kotlin"
 
     ```kotlin
-    import io.agntcy.slim.bindings.Server
-    import kotlinx.coroutines.runBlocking
+    import io.agntcy.slim.bindings.slimrpc.Server
 
     // app and connId come from the prerequisite tutorials
     val rpcServer = Server.newWithConnection(app, localName, connId)
     TestSlimrpc.registerTestServer(rpcServer, TestServiceImpl())
 
     println("Serving...")
-    runBlocking { rpcServer.serve() }
+    rpcServer.serveBlocking()
     ```
 
 === "Node.js"

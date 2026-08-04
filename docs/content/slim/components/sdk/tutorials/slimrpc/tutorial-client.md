@@ -54,7 +54,7 @@ A SLIMRPC channel wraps the SLIM session layer. Pass it the remote server's SLIM
 === "Java"
 
     ```java
-    import io.agntcy.slim.bindings.Channel;
+    import io.agntcy.slim.bindings.slimrpc.Channel;
     import com.example_service.TestSlimrpc;
 
     // app, connId, and remoteName come from the prerequisite tutorials
@@ -65,7 +65,7 @@ A SLIMRPC channel wraps the SLIM session layer. Pass it the remote server's SLIM
 === "Kotlin"
 
     ```kotlin
-    import io.agntcy.slim.bindings.Channel
+    import io.agntcy.slim.bindings.slimrpc.Channel
     import com.example_service.TestSlimrpc
 
     // app, connId, and remoteName come from the prerequisite tutorials
