@@ -99,9 +99,8 @@ async fn fetch_metadata(client: &Client, discovery_url: &str) -> Result<Provider
     // a different issuer whose tokens we would then accept.
     let raw_issuer = str_field("issuer")?;
     let issuer = raw_issuer.trim_end_matches('/');
-    if discovery_url.ends_with(WELL_KNOWN_SUFFIX) {
-        let expected = discovery_url[..discovery_url.len() - WELL_KNOWN_SUFFIX.len()]
-            .trim_end_matches('/');
+    if let Some(stripped) = discovery_url.strip_suffix(WELL_KNOWN_SUFFIX) {
+        let expected = stripped.trim_end_matches('/');
         if issuer != expected {
             bail!("issuer mismatch: document claims {issuer:?} but was served from {expected:?}");
         }
@@ -191,7 +190,10 @@ async fn wait_for_callback(
 
         if let Some(err) = error {
             let desc = error_description.as_deref().unwrap_or("");
-            let err_escaped = err.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+            let err_escaped = err
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;");
             let body = format!("<html><body>Sign-in failed: {err_escaped}</body></html>");
             stream
                 .write_all(
@@ -272,7 +274,9 @@ async fn validate_id_token(
     validation.set_audience(&[client_id]);
     validation.set_issuer(&[&meta.issuer]);
     validation.leeway = 60;
-    validation.required_spec_claims.extend(["sub", "iat"].map(str::to_owned));
+    validation
+        .required_spec_claims
+        .extend(["sub", "iat"].map(str::to_owned));
     let claims = decode::<serde_json::Map<String, Value>>(id_token, &key, &validation)
         .context("validating ID token")?
         .claims;
@@ -282,10 +286,10 @@ async fn validate_id_token(
     }
 
     // OIDC Core 3.1.3.7: when azp is present it must identify this client.
-    if let Some(azp) = claims.get("azp").and_then(|v| v.as_str()) {
-        if azp != client_id {
-            bail!("ID token azp claim does not match client_id");
-        }
+    if let Some(azp) = claims.get("azp").and_then(|v| v.as_str())
+        && azp != client_id
+    {
+        bail!("ID token azp claim does not match client_id");
     }
 
     Ok(claims)
@@ -294,7 +298,10 @@ async fn validate_id_token(
 // Constant-time comparison to resist timing oracle attacks on the CSRF state token.
 fn ct_str_eq(a: &str, b: &str) -> bool {
     a.len() == b.len() && {
-        let diff = a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y));
+        let diff = a
+            .bytes()
+            .zip(b.bytes())
+            .fold(0u8, |acc, (x, y)| acc | (x ^ y));
         diff == 0
     }
 }
@@ -321,9 +328,7 @@ pub async fn run(args: &LoginArgs) -> Result<()> {
         let acceptable = meta
             .id_token_signing_alg_values_supported
             .iter()
-            .filter_map(|s| {
-                serde_json::from_value::<Algorithm>(Value::String(s.clone())).ok()
-            })
+            .filter_map(|s| serde_json::from_value::<Algorithm>(Value::String(s.clone())).ok())
             .any(|alg| SAFE_ALGS.contains(&alg));
         if !acceptable {
             bail!(
@@ -334,7 +339,10 @@ pub async fn run(args: &LoginArgs) -> Result<()> {
     }
     let parsed_redirect = Url::parse(&args.redirect_uri).context("invalid redirect URI")?;
     if parsed_redirect.scheme() != "http" {
-        bail!("redirect URI must use http on a loopback address, got {:?}", args.redirect_uri);
+        bail!(
+            "redirect URI must use http on a loopback address, got {:?}",
+            args.redirect_uri
+        );
     }
     let host = parsed_redirect.host_str().unwrap_or("");
     if !LOOPBACK_HOSTS.contains(&host) {
@@ -420,4 +428,103 @@ pub async fn run(args: &LoginArgs) -> Result<()> {
 
     println!("{}", serde_json::to_string_pretty(&claims)?);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    /// Wrap LoginArgs in a throwaway top-level parser so we can exercise clap
+    /// validation without going through the full `Cli` struct.
+    #[derive(Parser)]
+    struct TestCli {
+        #[command(flatten)]
+        args: LoginArgs,
+    }
+
+    fn parse_ok(argv: &[&str]) -> LoginArgs {
+        TestCli::try_parse_from(argv)
+            .unwrap_or_else(|e| panic!("expected parse success for {argv:?}, got: {e}"))
+            .args
+    }
+
+    fn parse_err(argv: &[&str]) -> clap::Error {
+        match TestCli::try_parse_from(argv) {
+            Err(e) => e,
+            Ok(_) => panic!("expected parse failure for {argv:?}"),
+        }
+    }
+
+    const REQUIRED: &[&str] = &[
+        "test",
+        "--client-id",
+        "myclient",
+        "--discovery-uri",
+        "https://example.com/.well-known/openid-configuration",
+    ];
+
+    #[test]
+    fn required_args_accepted() {
+        let args = parse_ok(REQUIRED);
+        assert_eq!(args.client_id, "myclient");
+        assert_eq!(
+            args.discovery_uri,
+            "https://example.com/.well-known/openid-configuration"
+        );
+    }
+
+    #[test]
+    fn optional_args_accepted() {
+        let args = parse_ok(&[
+            "test",
+            "--client-id",
+            "myclient",
+            "--discovery-uri",
+            "https://example.com/.well-known/openid-configuration",
+            "--redirect-uri",
+            "http://127.0.0.1:9999/cb",
+            "--callback-timeout",
+            "60",
+        ]);
+        assert_eq!(args.redirect_uri, "http://127.0.0.1:9999/cb");
+        assert_eq!(args.callback_timeout, 60);
+    }
+
+    #[test]
+    fn defaults() {
+        let args = parse_ok(REQUIRED);
+        assert_eq!(args.redirect_uri, "http://127.0.0.1:8250/callback");
+        assert_eq!(args.callback_timeout, 300);
+    }
+
+    #[test]
+    fn missing_client_id_fails() {
+        let err = parse_err(&[
+            "test",
+            "--discovery-uri",
+            "https://example.com/.well-known/openid-configuration",
+        ]);
+        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn missing_discovery_uri_fails() {
+        let err = parse_err(&["test", "--client-id", "myclient"]);
+        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn callback_timeout_zero_fails() {
+        let err = parse_err(&[
+            "test",
+            "--client-id",
+            "myclient",
+            "--discovery-uri",
+            "https://example.com/.well-known/openid-configuration",
+            "--callback-timeout",
+            "0",
+        ]);
+        assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
+    }
 }
