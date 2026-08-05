@@ -51,7 +51,7 @@ Create a `buf.gen.yaml` to generate SLIMRPC stubs alongside the standard protobu
     # Cargo.toml
     [dependencies]
     prost = "0.13"
-    agntcy-slim = "2.0.0-alpha.8"
+    agntcy-slim = "2.0.0"
     tokio = { version = "1", features = ["full"] }
 
     [build-dependencies]

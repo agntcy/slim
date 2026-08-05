@@ -76,7 +76,7 @@ Add to your `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("io.agntcy.slim:slim-bindings-kotlin:2.0.0-alpha.5")
+    implementation("io.agntcy.slim:slim-bindings-kotlin:2.0.0")
 }
 ```
 
