@@ -1,5 +1,35 @@
 # Changelog
 
+## [2.0.0](https://github.com/agntcy/slim/compare/helm-slim-v2.0.0-alpha.1...helm-slim-v2.0.0) (2026-08-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* update slim chart appVersion to 2.0.0 ([#1950](https://github.com/agntcy/slim/issues/1950))
+
+### Features
+
+* automatic peer discovery in k8s ([#1724](https://github.com/agntcy/slim/issues/1724)) ([16146d7](https://github.com/agntcy/slim/commit/16146d719f58266128236494a70af8c73fa46069))
+* **helm:** add southbound ingress and named data-plane ports ([#1536](https://github.com/agntcy/slim/issues/1536)) ([194e546](https://github.com/agntcy/slim/commit/194e546341caa86d0363197038342fe7b51055df))
+* **helm:** allow to expose multiple ports via the service ([#1498](https://github.com/agntcy/slim/issues/1498)) ([1139f5f](https://github.com/agntcy/slim/commit/1139f5f8e6aa35429914fc487f2483818b09d2bc))
+* **helm:** update slim version in the chart ([#1941](https://github.com/agntcy/slim/issues/1941)) ([edd5388](https://github.com/agntcy/slim/commit/edd5388c8bcdbc5df13cb1f7e7d035012d16c4f8))
+* Migrate Rust MCP proxy to its own repo ([#1100](https://github.com/agntcy/slim/issues/1100)) ([c016c7d](https://github.com/agntcy/slim/commit/c016c7d956843446fb72b027828708c594fda2ae))
+* publish slim-spire chart ([#1564](https://github.com/agntcy/slim/issues/1564)) ([715082c](https://github.com/agntcy/slim/commit/715082c8535164994cf381b62a3f7e0551e5a531))
+* **slim-chart:** add extraEnv param ([#1491](https://github.com/agntcy/slim/issues/1491)) ([9fe7da3](https://github.com/agntcy/slim/commit/9fe7da38001c636f115de3eb5584d1e07bae9750))
+* **slim-chart:** upgrade chart to latest image version ([#1631](https://github.com/agntcy/slim/issues/1631)) ([9f03d9e](https://github.com/agntcy/slim/commit/9f03d9e4d0fb40d4e61aff511a84ad2189865481))
+* **slim-helm:** upgrade SLIM to 1.0.0 ([#1166](https://github.com/agntcy/slim/issues/1166)) ([be2d8ab](https://github.com/agntcy/slim/commit/be2d8abc09d4ad3bef462febcade01020e1ac219))
+* Support different trust domains in auto route setup ([#1001](https://github.com/agntcy/slim/issues/1001)) ([9a7e930](https://github.com/agntcy/slim/commit/9a7e930f167751f185592c33d11b14f942ee9bb1))
+* update chart image to latest release ([#1917](https://github.com/agntcy/slim/issues/1917)) ([8f595c4](https://github.com/agntcy/slim/commit/8f595c4f63f9c8e2c667faca22df72729f74239e))
+* update control plane and slim chart ([#1784](https://github.com/agntcy/slim/issues/1784)) ([979bb4f](https://github.com/agntcy/slim/commit/979bb4fa213acae69985755d17dcadef8e9b8461))
+* update slim chart appVersion to 2.0.0 ([#1950](https://github.com/agntcy/slim/issues/1950)) ([bd8a201](https://github.com/agntcy/slim/commit/bd8a201e57e9f25d6e7660b07be3a8177b73ca41))
+* upgrade SLIM helm chart to latest version of image ([#1432](https://github.com/agntcy/slim/issues/1432)) ([2f7ea3f](https://github.com/agntcy/slim/commit/2f7ea3f629c3058f11377ae0acd8e6c1152b1c4e))
+
+
+### Bug Fixes
+
+* **helm-charts:** add configmap checksum annotation for auto reload ([#1493](https://github.com/agntcy/slim/issues/1493)) ([691e86a](https://github.com/agntcy/slim/commit/691e86afec21457db64ee039092d4d88fffdc54f))
+* **helm-slim:** chart version ([#1538](https://github.com/agntcy/slim/issues/1538)) ([676f954](https://github.com/agntcy/slim/commit/676f954fc28a18208ea7f5b727a9f686f260c3a6))
+
 ## [2.0.0-alpha.1](https://github.com/agntcy/slim/compare/helm-slim-v2.0.0-alpha.0...helm-slim-v2.0.0-alpha.1) (2026-08-04)
 
 
