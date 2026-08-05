@@ -53,13 +53,16 @@ A group channel wraps a SLIM group session that spans all the servers you want t
 === "Go"
 
     ```go
-    import slim "github.com/agntcy/slim-bindings-go"
+    import (
+        slim "github.com/agntcy/slim-bindings-go/v2"
+        slim_rpc "github.com/agntcy/slim-bindings-go/v2/slim_rpc"
+    )
 
     server1, _ := slim.NameFromString("myorg/default/server-1")
     server2, _ := slim.NameFromString("myorg/default/server-2")
-    serverNames := []slim.Name{server1, server2}
+    serverNames := []*slim.Name{server1, server2}
 
-    channel, err := slim.ChannelNewGroupWithConnection(app, serverNames, &connId)
+    channel, err := slim_rpc.ChannelNewGroupWithConnection(app, serverNames, &connId)
     if err != nil {
         log.Fatal(err)
     }
@@ -69,7 +72,7 @@ A group channel wraps a SLIM group session that spans all the servers you want t
 === "Java"
 
     ```java
-    import io.agntcy.slim.bindings.Channel;
+    import io.agntcy.slim.bindings.slimrpc.Channel;
     import io.agntcy.slim.bindings.Name;
     import com.example_service.TestSlimrpc;
     import java.util.List;
@@ -86,7 +89,7 @@ A group channel wraps a SLIM group session that spans all the servers you want t
 === "Kotlin"
 
     ```kotlin
-    import io.agntcy.slim.bindings.Channel
+    import io.agntcy.slim.bindings.slimrpc.Channel
     import io.agntcy.slim.bindings.Name
     import com.example_service.TestSlimrpc
 
@@ -99,10 +102,24 @@ A group channel wraps a SLIM group session that spans all the servers you want t
     val client = TestSlimrpc.TestGroupClientImpl(channel)
     ```
 
+=== "Node.js"
+
+    ```typescript
+    import slimBindings from '@agntcy/slim-bindings';
+    import { TestGroupClient } from './types/example_slimrpc.js';
+
+    const serverNames = [
+        new slimBindings.Name('myorg', 'default', 'server-1'),
+        new slimBindings.Name('myorg', 'default', 'server-2'),
+    ];
+    const channel = slimBindings.Channel.newGroupWithConnection(app, serverNames, connId);
+    const client = new TestGroupClient(channel);
+    ```
+
 === ".NET"
 
     ```csharp
-    using Agntcy.Slim.Rpc;
+    using Agntcy.Slim.SlimRpc;
     using Agntcy.Slim;
     using ExampleService;
 
@@ -152,7 +169,7 @@ Each response item carries both the response payload and the context identifying
     request = ExampleRequest(example_string="world", example_integer=42)
 
     async for context, response in client.ExampleUnaryUnary(request, timeout=timedelta(seconds=5)):
-        print(f"Response from {context.source_name}: {response.example_string}")
+        print(f"Response from {context.source}: {response.example_string}")
     ```
 
 === "Go"
@@ -178,43 +195,83 @@ Each response item carries both the response payload and the context identifying
         if item == nil || err != nil {
             break
         }
-        fmt.Printf("Response from %s: %s\n", item.Context.SourceName, item.Value.ExampleString)
+        fmt.Printf("Response from %s: %s\n", item.Context.Source, item.Value.ExampleString)
     }
     ```
 
 === "Java"
 
     ```java
+    import java.time.Duration;
     import com.example_service.ExampleRequest;
+    import com.example_service.ExampleResponse;
     import io.agntcy.slim.bindings.slimrpc.MulticastResponseStream;
+    import io.agntcy.slim.bindings.slimrpc.MulticastStreamMessage;
+    import io.agntcy.slim.bindings.slimrpc.RpcMulticastItem;
 
     ExampleRequest request = ExampleRequest.newBuilder()
         .setExampleString("world")
         .setExampleInteger(42)
         .build();
 
-    MulticastResponseStream<com.example_service.ExampleResponse> stream =
-        client.ExampleUnaryUnary(request).get();
+    MulticastResponseStream<ExampleResponse> stream = client.ExampleUnaryUnary(request, Duration.ofSeconds(5), null);
 
-    while (stream.hasNext()) {
-        var item = stream.next();
-        System.out.println("Response from " + item.context().sourceName()
-            + ": " + item.value().getExampleString());
+    while (true) {
+        MulticastStreamMessage msg = stream.next();
+        if (msg instanceof MulticastStreamMessage.End) break;
+        if (msg instanceof MulticastStreamMessage.Error error) {
+            System.err.println("Error from server: " + error.error());
+            continue;
+        }
+        if (msg instanceof MulticastStreamMessage.Data data) {
+            RpcMulticastItem item = data.item();
+            try {
+                ExampleResponse resp = ExampleResponse.parseFrom(item.message());
+                System.out.println("Response from " + item.context().source()
+                    + ": " + resp.getExampleString());
+            } catch (Exception e) { throw new RuntimeException(e); }
+        }
     }
     ```
 
 === "Kotlin"
 
     ```kotlin
+    import java.time.Duration
     import com.example_service.ExampleRequest
+    import com.example_service.ExampleResponse
+    import io.agntcy.slim.bindings.slimrpc.MulticastStreamMessage
 
     val request = ExampleRequest.newBuilder()
         .setExampleString("world")
         .setExampleInteger(42)
         .build()
 
-    client.ExampleUnaryUnary(request).collect { item ->
-        println("Response from ${item.context.sourceName}: ${item.value.exampleString}")
+    val stream = client.ExampleUnaryUnary(request, Duration.ofSeconds(5), null)
+
+    while (true) {
+        when (val msg = stream.next()) {
+            is MulticastStreamMessage.End -> break
+            is MulticastStreamMessage.Error -> System.err.println("Error from server: ${msg.error}")
+            is MulticastStreamMessage.Data -> {
+                val item = msg.item
+                val resp = ExampleResponse.parseFrom(item.message)
+                println("Response from ${item.context.source}: ${resp.exampleString}")
+            }
+        }
+    }
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    import { create } from '@bufbuild/protobuf';
+    import { ExampleRequestSchema } from './types/example_pb.js';
+
+    const request = create(ExampleRequestSchema, { exampleString: 'world', exampleInteger: 42n });
+
+    for await (const { context, response } of client.ExampleUnaryUnary(request, 5000)) {
+        console.log(`Response from ${context.source}: ${response.exampleString}`);
     }
     ```
 
@@ -225,9 +282,9 @@ Each response item carries both the response payload and the context identifying
 
     var request = new ExampleRequest { ExampleString = "world", ExampleInteger = 42 };
 
-    await foreach (var item in client.ExampleUnaryUnary(request, timeout: TimeSpan.FromSeconds(5)))
+    await foreach (var item in client.ExampleUnaryUnaryAsync(request, timeout: TimeSpan.FromSeconds(5)))
     {
-        Console.WriteLine($"Response from {item.Context.SourceName}: {item.Value.ExampleString}");
+        Console.WriteLine($"Response from {item.Context}: {item.Value.ExampleString}");
     }
     ```
 
@@ -236,6 +293,7 @@ Each response item carries both the response payload and the context identifying
 - [Python group client example](https://github.com/agntcy/slim-bindings/blob/main/python/examples/slimrpc/simple/client_group.py)
 - [Go group client example](https://github.com/agntcy/slim-bindings/blob/main/go/examples/slimrpc/simple/cmd/client_group/client_group.go)
 - [Java/Kotlin group client example](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples/slimrpc/simple)
+- [Node.js group client example](https://github.com/agntcy/slim-bindings/blob/main/node/examples/slimrpc/simple/client_group.ts)
 - [.NET group client example](https://github.com/agntcy/slim-bindings/tree/main/dotnet/Slim.Examples.SlimRpc)
 
 ## Next Steps
