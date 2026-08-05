@@ -2,9 +2,7 @@
   {
     "version": "slimctl-v2.0.0",
     "title": "slimctl-v2.0.0",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slimctl-v2.0.0-alpha.12",
@@ -795,6 +793,13 @@
     "version": "helm-slim-v2.1.0-alpha.0",
     "title": "helm-slim-v2.1.0-alpha.0",
     "aliases": []
+  },
+  {
+    "version": "helm-slim-v2.0.0",
+    "title": "helm-slim-v2.0.0",
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "helm-slim-v2.0.0-alpha.0",
