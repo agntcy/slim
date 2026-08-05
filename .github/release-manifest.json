@@ -1,7 +1,7 @@
 {
-  "charts/slim": "2.0.0-alpha.1",
+  "charts/slim": "2.0.0",
   "crates/testing": "0.7.1",
-  "charts/slim-control-plane": "2.0.0-alpha.0",
+  "charts/slim-control-plane": "2.0.0",
   "charts/slim-spire": "1.4.0",
   "charts/slim-channel-manager": "2.0.0"
 }
