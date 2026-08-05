@@ -1,6 +1,28 @@
 # Changelog
 
 
+## [2.0.0](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v2.0.0-alpha.0...helm-slim-control-plane-v2.0.0) (2026-08-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* update slim-control-plane chart appVersion to 2.0.0 ([#1951](https://github.com/agntcy/slim/issues/1951))
+
+### Features
+
+* **control-plane-helm:** upgrade cp to 1.0.0 ([#1167](https://github.com/agntcy/slim/issues/1167)) ([d5f4f38](https://github.com/agntcy/slim/commit/d5f4f38178517e48f5322f491b927b56826516e1))
+* **helm-control-plane:** upgrade to latest control plane version ([#1632](https://github.com/agntcy/slim/issues/1632)) ([a82986f](https://github.com/agntcy/slim/commit/a82986fa84c80a1e55138a3273e95c8a510b5341))
+* **helm:** add southbound ingress and named data-plane ports ([#1536](https://github.com/agntcy/slim/issues/1536)) ([194e546](https://github.com/agntcy/slim/commit/194e546341caa86d0363197038342fe7b51055df))
+* update chart image to latest release ([#1917](https://github.com/agntcy/slim/issues/1917)) ([8f595c4](https://github.com/agntcy/slim/commit/8f595c4f63f9c8e2c667faca22df72729f74239e))
+* update control plane and slim chart ([#1784](https://github.com/agntcy/slim/issues/1784)) ([979bb4f](https://github.com/agntcy/slim/commit/979bb4fa213acae69985755d17dcadef8e9b8461))
+* update slim-control-plane chart appVersion to 2.0.0 ([#1951](https://github.com/agntcy/slim/issues/1951)) ([1dfbe51](https://github.com/agntcy/slim/commit/1dfbe51285c9b800389ed31bf1531b16e561d452))
+
+
+### Bug Fixes
+
+* **helm-charts:** add configmap checksum annotation for auto reload ([#1493](https://github.com/agntcy/slim/issues/1493)) ([691e86a](https://github.com/agntcy/slim/commit/691e86afec21457db64ee039092d4d88fffdc54f))
+* update controller helm chart ([#1691](https://github.com/agntcy/slim/issues/1691)) ([3e4853c](https://github.com/agntcy/slim/commit/3e4853cf72a36340098a456ede7eab3cc54a2676))
+
 ## [2.0.0-alpha.0](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v1.4.0...helm-slim-control-plane-v2.0.0-alpha.0) (2026-07-31)
 
 
