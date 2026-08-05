@@ -10,6 +10,7 @@ use crate::commands::{
     channel_manager::{self, ChannelManagerArgs},
     config_cmd::{self, ConfigArgs},
     controller::{self, ControllerArgs},
+    login::{self, LoginArgs},
     node::{self, NodeArgs},
     slim_cmd::{self, SlimArgs},
     version,
@@ -125,6 +126,9 @@ enum Commands {
 
     /// Benchmark SLIM messaging performance
     Bench(BenchArgs),
+
+    /// OIDC authentication
+    Login(LoginArgs),
 }
 
 pub(crate) async fn run(cli: Cli) -> Result<()> {
@@ -178,6 +182,9 @@ pub(crate) async fn run(cli: Cli) -> Result<()> {
         }
         Commands::Bench(args) => {
             bench::run(&args).await?;
+        }
+        Commands::Login(args) => {
+            login::run(&args).await?;
         }
     }
 

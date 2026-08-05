@@ -5,6 +5,7 @@ pub mod bench;
 pub mod channel_manager;
 pub mod config_cmd;
 pub mod controller;
+pub mod login;
 pub mod node;
 pub mod slim_cmd;
 pub mod version;
