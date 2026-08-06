@@ -8,6 +8,7 @@ use anyhow::{Context, Result, bail};
 use duration_string::DurationString;
 
 use slim_config::auth::basic::Config as BasicAuthConfig;
+use slim_config::auth::static_jwt::Config as StaticJwtConfig;
 use slim_config::grpc::client::{AuthenticationConfig, BackoffConfig, ClientConfig};
 use slim_config::tls::client::TlsClientConfig;
 
@@ -117,6 +118,15 @@ pub fn resolve_config(
             .split_once(':')
             .ok_or_else(|| anyhow::anyhow!("basic-auth-creds must be 'username:password'"))?;
         config.auth = AuthenticationConfig::Basic(BasicAuthConfig::new(user, pass));
+    } else if config.auth == AuthenticationConfig::None {
+        // Auto-inject token from `slimctl login` if no other auth is configured
+        if let Ok(token_path) = token_file_path()
+            && token_path.exists()
+        {
+            config.auth = AuthenticationConfig::StaticJwt(StaticJwtConfig::with_file(
+                token_path.to_string_lossy(),
+            ));
+        }
     }
 
     // ── backoff (no retries by default for CLI) ─────────────────────
@@ -175,6 +185,12 @@ pub fn save_config(config: &ClientConfig, config_file: Option<&str>) -> Result<(
     std::fs::write(&path, data)
         .with_context(|| format!("failed to write config file: {}", path.display()))?;
     Ok(())
+}
+
+/// Path to the bare token file used by StaticJwt injection: `~/.slimctl/token`
+pub fn token_file_path() -> Result<PathBuf> {
+    let home = dirs_home().context("could not determine home directory")?;
+    Ok(home.join(".slimctl").join("token"))
 }
 
 /// Return the default config file path: `$HOME/.slimctl/config.yaml`

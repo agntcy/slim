@@ -24,6 +24,7 @@ use {std::path::PathBuf, tokio::net::UnixListener, tokio_stream::wrappers::UnixL
 
 use crate::auth::ServerAuthenticator;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
+use crate::auth::oidc::Config as OidcConfig;
 #[cfg(not(target_family = "windows"))]
 use crate::auth::spire::SpireConfig as SpireAuthConfig;
 use crate::errors::ConfigError;
@@ -270,6 +271,14 @@ impl ServerConfig {
 
                 auth_layer.initialize().await?;
 
+                let router = builder.layer(auth_layer).add_routes(routes);
+                Ok(router.serve_with_incoming(incoming).boxed())
+            }
+            AuthenticationConfig::Oidc(oidc) => {
+                // OidcVerifier::initialize is a no-op; JWKS warms on first verify.
+                let auth_layer = <OidcConfig as ServerAuthenticator<
+                    http::Response<tonic::body::Body>,
+                >>::get_server_layer(oidc)?;
                 let router = builder.layer(auth_layer).add_routes(routes);
                 Ok(router.serve_with_incoming(incoming).boxed())
             }

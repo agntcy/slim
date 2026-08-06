@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use slim_auth::jwt_middleware::{AddJwtLayer, ValidateJwtLayer};
+use slim_auth::jwt_middleware::{AddJwtLayer, GroupCheckLayer, ValidateJwtLayer};
+use tower_layer::Stack;
 use slim_auth::metadata::MetadataMap;
 
 use super::{ClientAuthenticator, ConfigAuthError, ServerAuthenticator};
@@ -44,6 +45,14 @@ pub struct Config {
     #[schemars(with = "String")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jwks_ttl: Option<Duration>,
+
+    /// JWT claim name to inspect for group membership (default: "groups")
+    #[serde(default = "default_claim_name")]
+    pub claim_name: String,
+
+    /// Required value in `claim_name`; requests without it are rejected with 403
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required_claim: Option<String>,
 }
 
 fn default_timeout() -> Option<Duration> {
@@ -52,6 +61,10 @@ fn default_timeout() -> Option<Duration> {
 
 fn default_jwks_ttl() -> Option<Duration> {
     Some(Duration::from_secs(3600)) // 1 hour
+}
+
+fn default_claim_name() -> String {
+    "groups".to_string()
 }
 
 impl Config {
@@ -65,6 +78,8 @@ impl Config {
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            claim_name: default_claim_name(),
+            required_claim: None,
         }
     }
 
@@ -82,6 +97,8 @@ impl Config {
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            claim_name: default_claim_name(),
+            required_claim: None,
         }
     }
 
@@ -95,6 +112,8 @@ impl Config {
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            claim_name: default_claim_name(),
+            required_claim: None,
         }
     }
 
@@ -113,6 +132,8 @@ impl Config {
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            claim_name: default_claim_name(),
+            required_claim: None,
         }
     }
 
@@ -148,6 +169,18 @@ impl Config {
     /// Set the JWKS cache TTL (verifier functionality)
     pub fn with_jwks_ttl(mut self, ttl: Duration) -> Self {
         self.jwks_ttl = Some(ttl);
+        self
+    }
+
+    /// Set the JWT claim name to inspect for group membership (default: "groups")
+    pub fn with_claim_name(mut self, name: impl Into<String>) -> Self {
+        self.claim_name = name.into();
+        self
+    }
+
+    /// Require callers to have this value in `claim_name`; absent → 403
+    pub fn with_required_claim(mut self, claim: impl Into<String>) -> Self {
+        self.required_claim = Some(claim.into());
         self
     }
 
@@ -227,7 +260,9 @@ impl<Response> ServerAuthenticator<Response> for Config
 where
     Response: Default + Send + 'static,
 {
-    type ServerLayer = ValidateJwtLayer<MetadataMap, OidcVerifier>;
+    // GroupCheckLayer is the inner layer (runs after JWT validation); ValidateJwtLayer is outer.
+    // Stack::new(inner, outer) produces outer(inner(service)), so JWT validates first, then group check.
+    type ServerLayer = Stack<GroupCheckLayer, ValidateJwtLayer<MetadataMap, OidcVerifier>>;
 
     fn get_server_layer(&self) -> Result<Self::ServerLayer, ConfigAuthError> {
         if !self.can_verify() {
@@ -235,10 +270,9 @@ where
         }
 
         let verifier = self.create_verifier()?;
-
-        let claims = MetadataMap::default();
-
-        Ok(Self::ServerLayer::new(verifier, claims))
+        let jwt_layer = ValidateJwtLayer::new(verifier, MetadataMap::default());
+        let group_layer = GroupCheckLayer::new(self.claim_name.clone(), self.required_claim.clone());
+        Ok(Stack::new(group_layer, jwt_layer))
     }
 }
 

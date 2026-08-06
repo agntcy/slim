@@ -6,7 +6,6 @@ use crate::jwt::extract_sub_claim_unsafe;
 use crate::resolver::JwksCache;
 use crate::traits::{TokenProvider, Verifier};
 use display_error_chain::ErrorChainExt;
-use futures::executor::block_on;
 use jsonwebtoken::jwk::JwkSet;
 use jsonwebtoken::{DecodingKey, Validation, decode, decode_header};
 use oauth2::{AuthUrl, ClientId, ClientSecret, Scope, TokenResponse, TokenUrl, basic::BasicClient};
@@ -532,8 +531,11 @@ impl Verifier for OidcVerifier {
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
-        // For synchronous verification, we need a runtime
-        block_on(self.verify_token(token.as_ref()))
+        if let Some(cached_jwks) = self.jwks_cache.get(&self.issuer_url) {
+            self.verify_token_util(token.as_ref(), &cached_jwks)
+        } else {
+            Err(AuthError::WouldBlockOn)
+        }
     }
 }
 

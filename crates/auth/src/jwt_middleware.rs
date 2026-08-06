@@ -17,7 +17,9 @@ use tower_layer::Layer;
 use tower_service::Service;
 
 use crate::errors::AuthError;
+use crate::metadata::{MetadataMap, MetadataValue};
 use crate::traits::{TokenProvider, Verifier};
+use futures::future::{Either, Ready, ready};
 
 /// Layer to sign JWT tokens with a signing key. Custom claims can be added to the token.
 #[derive(Clone)]
@@ -268,8 +270,12 @@ where
                         }
                     }
                     Err(e) => {
-                        // Verification failed, need to use async verification
-                        tracing::warn!(error = %e, "ValidateJwt: sync try_get_claims failed, trying async");
+                        // WouldBlockOn is the expected cold-cache path; anything else is surprising
+                        if matches!(e, AuthError::WouldBlockOn) {
+                            tracing::debug!("ValidateJwt: JWKS cache cold, using async verification");
+                        } else {
+                            tracing::warn!(error = %e, "ValidateJwt: sync try_get_claims failed, trying async");
+                        }
                         let verifier = self.verifier.clone();
                         let clone = self.inner.clone();
                         let inner = std::mem::replace(&mut self.inner, clone);
@@ -294,6 +300,92 @@ where
                 tracing::warn!("ValidateJwt: no Authorization Bearer header found in request");
                 Self::Future::Error
             }
+        }
+    }
+}
+
+/// Layer that enforces group membership by inspecting a named claim in the verified JWT.
+/// Must sit *after* [`ValidateJwtLayer`] in the service chain so claims are already in
+/// the request extensions before this layer runs.
+#[derive(Clone)]
+pub struct GroupCheckLayer {
+    claim_name: String,
+    required_claim: Option<String>,
+}
+
+impl GroupCheckLayer {
+    pub fn new(claim_name: impl Into<String>, required_claim: Option<String>) -> Self {
+        Self {
+            claim_name: claim_name.into(),
+            required_claim,
+        }
+    }
+}
+
+impl<S> Layer<S> for GroupCheckLayer {
+    type Service = GroupCheck<S>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        GroupCheck {
+            inner,
+            claim_name: self.claim_name.clone(),
+            required_claim: self.required_claim.clone(),
+        }
+    }
+}
+
+/// Middleware that checks a named JWT claim for a required value.
+/// Passes through when `required_claim` is `None`.
+#[derive(Clone)]
+pub struct GroupCheck<S> {
+    inner: S,
+    claim_name: String,
+    required_claim: Option<String>,
+}
+
+impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for GroupCheck<S>
+where
+    S: Service<Request<ReqBody>, Response = Response<ResBody>>,
+    ResBody: Default,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = Either<S::Future, Ready<Result<S::Response, S::Error>>>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
+        let Some(required) = &self.required_claim else {
+            return Either::Left(self.inner.call(req));
+        };
+
+        let has_group = req
+            .extensions()
+            .get::<MetadataMap>()
+            .and_then(|claims| claims.get(&self.claim_name))
+            .map(|v| match v {
+                MetadataValue::List(list) => list
+                    .iter()
+                    .any(|item| matches!(item, MetadataValue::String(s) if s == required)),
+                MetadataValue::String(s) => s == required,
+                _ => false,
+            })
+            .unwrap_or(false);
+
+        if has_group {
+            Either::Left(self.inner.call(req))
+        } else {
+            tracing::warn!(
+                claim = %self.claim_name,
+                required = %required,
+                "GroupCheck: required claim not present, rejecting request"
+            );
+            Either::Right(ready(Ok(Response::builder()
+                .status(http::StatusCode::FORBIDDEN)
+                .body(Default::default())
+                .unwrap())))
         }
     }
 }
