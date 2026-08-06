@@ -6,8 +6,8 @@ use std::time::Duration;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use slim_auth::jwt_middleware::{AddJwtLayer, GroupCheckLayer, ValidateJwtLayer};
-use tower_layer::Stack;
 use slim_auth::metadata::MetadataMap;
+use tower_layer::Stack;
 
 use super::{ClientAuthenticator, ConfigAuthError, ServerAuthenticator};
 use slim_auth::oidc::{OidcProviderConfig, OidcTokenProvider, OidcVerifier};
@@ -271,7 +271,8 @@ where
 
         let verifier = self.create_verifier()?;
         let jwt_layer = ValidateJwtLayer::new(verifier, MetadataMap::default());
-        let group_layer = GroupCheckLayer::new(self.claim_name.clone(), self.required_claim.clone());
+        let group_layer =
+            GroupCheckLayer::new(self.claim_name.clone(), self.required_claim.clone());
         Ok(Stack::new(group_layer, jwt_layer))
     }
 }

@@ -26,7 +26,6 @@ use slim_auth::metadata::MetadataMap;
 use slim_auth::oidc::OidcVerifier;
 #[cfg(not(target_family = "windows"))]
 use slim_auth::spire::SpireIdentityManager;
-use tower_layer::Stack;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -37,6 +36,7 @@ use tower::{ServiceBuilder, service_fn};
 #[allow(deprecated)]
 use tower_http::auth::require_authorization::Basic;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
+use tower_layer::Stack;
 use tracing::{debug, warn};
 
 use crate::auth::ServerAuthenticator;
@@ -160,9 +160,10 @@ async fn build_auth_kind(config: &ServerConfig) -> Result<AuthKind, ConfigError>
             Ok(AuthKind::Jwt(layer))
         }
         ServerAuthConfig::Oidc(oidc) => {
-            let layer = <OidcConfig as ServerAuthenticator<
-                Response<Empty<Bytes>>,
-            >>::get_server_layer(oidc)?;
+            let layer =
+                <OidcConfig as ServerAuthenticator<Response<Empty<Bytes>>>>::get_server_layer(
+                    oidc,
+                )?;
             Ok(AuthKind::Oidc(layer))
         }
         #[cfg(not(target_family = "windows"))]

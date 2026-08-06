@@ -273,7 +273,9 @@ where
                     Err(e) => {
                         // WouldBlockOn is the expected cold-cache path; anything else is surprising
                         if matches!(e, AuthError::WouldBlockOn) {
-                            tracing::debug!("ValidateJwt: JWKS cache cold, using async verification");
+                            tracing::debug!(
+                                "ValidateJwt: JWKS cache cold, using async verification"
+                            );
                         } else {
                             tracing::warn!(error = %e.chain(), "ValidateJwt: sync try_get_claims failed, trying async");
                         }
