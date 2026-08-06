@@ -428,6 +428,11 @@ impl From<slim_config::grpc::server::AuthenticationConfig> for ServerAuthenticat
                     config: spire.into(),
                 }
             }
+            slim_config::grpc::server::AuthenticationConfig::Oidc(_) => {
+                unimplemented!(
+                    "OIDC authentication is not supported in the language bindings layer"
+                )
+            }
         }
     }
 }
