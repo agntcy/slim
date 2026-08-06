@@ -1,0 +1,36 @@
+{
+  "eval_id": 2,
+  "run": "without_skill",
+  "expectations": [
+    {
+      "text": "Uses 'controller route list' (not 'node route list')",
+      "passed": true,
+      "evidence": "slimctl controller route list -n edge-node-1"
+    },
+    {
+      "text": "Passes -n edge-node-1 (or --node-id) to the list command",
+      "passed": true,
+      "evidence": "slimctl controller route list -n edge-node-1"
+    },
+    {
+      "text": "Uses 'controller route del' for deletion",
+      "passed": true,
+      "evidence": "slimctl controller route del -n edge-node-1 acme/prod/chatbot/3 via http://gateway:9090"
+    },
+    {
+      "text": "Deletion command includes -n edge-node-1",
+      "passed": true,
+      "evidence": "slimctl controller route del -n edge-node-1 ..."
+    },
+    {
+      "text": "Deletion command includes route acme/prod/chatbot/3",
+      "passed": true,
+      "evidence": "... acme/prod/chatbot/3 via http://gateway:9090"
+    },
+    {
+      "text": "Deletion command includes 'via http://gateway:9090'",
+      "passed": true,
+      "evidence": "... via http://gateway:9090"
+    }
+  ]
+}
