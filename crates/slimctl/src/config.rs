@@ -193,6 +193,11 @@ pub fn credentials_file_path() -> Result<PathBuf> {
     Ok(home.join(".slimctl").join("credentials.yaml"))
 }
 
+pub fn token_file_path() -> Result<PathBuf> {
+    let home = dirs_home().context("could not determine home directory")?;
+    Ok(home.join(".slimctl").join("token"))
+}
+
 pub fn save_credentials(creds: &OidcCredentials) -> Result<()> {
     let path = credentials_file_path()?;
     let dir = path.parent().expect("credentials path must have a parent");
@@ -201,6 +206,11 @@ pub fn save_credentials(creds: &OidcCredentials) -> Result<()> {
     let data = serde_yaml::to_string(creds).context("failed to serialize credentials")?;
     std::fs::write(&path, data)
         .with_context(|| format!("failed to write credentials: {}", path.display()))?;
+    // Write bearer token for StaticJwt auto-injection; prefer access_token (longer TTL).
+    let token = creds.access_token.as_deref().unwrap_or(&creds.id_token);
+    let token_path = token_file_path()?;
+    std::fs::write(&token_path, token)
+        .with_context(|| format!("failed to write token: {}", token_path.display()))?;
     Ok(())
 }
 
