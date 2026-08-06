@@ -19,6 +19,7 @@ use tower_service::Service;
 use crate::errors::AuthError;
 use crate::metadata::{MetadataMap, MetadataValue};
 use crate::traits::{TokenProvider, Verifier};
+use display_error_chain::ErrorChainExt;
 use futures::future::{Either, Ready, ready};
 
 /// Layer to sign JWT tokens with a signing key. Custom claims can be added to the token.
@@ -274,7 +275,7 @@ where
                         if matches!(e, AuthError::WouldBlockOn) {
                             tracing::debug!("ValidateJwt: JWKS cache cold, using async verification");
                         } else {
-                            tracing::warn!(error = %e, "ValidateJwt: sync try_get_claims failed, trying async");
+                            tracing::warn!(error = %e.chain(), "ValidateJwt: sync try_get_claims failed, trying async");
                         }
                         let verifier = self.verifier.clone();
                         let clone = self.inner.clone();
@@ -286,7 +287,7 @@ where
                                 // Perform the verification asynchronously
                                 let result = verifier.get_claims::<Claim>(&bearer_token).await;
                                 if let Err(ref e) = result {
-                                    tracing::warn!(error = %e, "ValidateJwt: async get_claims also failed");
+                                    tracing::warn!(error = %e.chain(), "ValidateJwt: async get_claims also failed");
                                 }
                                 result
                             }),
