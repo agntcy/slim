@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use duration_string::DurationString;
-
+use serde::{Deserialize, Serialize};
 use slim_config::auth::basic::Config as BasicAuthConfig;
 use slim_config::grpc::client::{AuthenticationConfig, BackoffConfig, ClientConfig};
 use slim_config::tls::client::TlsClientConfig;
@@ -21,6 +21,17 @@ pub(crate) const DEFAULT_CONTROLLER_ENDPOINT: &str = "127.0.0.1:50051";
 pub(crate) const DEFAULT_CHANNEL_MANAGER_ENDPOINT: &str = "127.0.0.1:10356";
 /// Default listen address for starting a local SLIM node via the `slim` subcommand.
 pub(crate) const DEFAULT_SLIM_ADDRESS: &str = "127.0.0.1:46357";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OidcCredentials {
+    pub id_token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+    pub client_id: String,
+    pub issuer: String,
+}
 
 /// Merge a file-level `ClientConfig` with CLI overrides.
 /// `default_endpoint` is the per-subcommand fallback when neither the file
@@ -174,6 +185,22 @@ pub fn save_config(config: &ClientConfig, config_file: Option<&str>) -> Result<(
     let data = serde_yaml::to_string(config).context("failed to serialize config")?;
     std::fs::write(&path, data)
         .with_context(|| format!("failed to write config file: {}", path.display()))?;
+    Ok(())
+}
+
+pub fn credentials_file_path() -> Result<PathBuf> {
+    let home = dirs_home().context("could not determine home directory")?;
+    Ok(home.join(".slimctl").join("credentials.yaml"))
+}
+
+pub fn save_credentials(creds: &OidcCredentials) -> Result<()> {
+    let path = credentials_file_path()?;
+    let dir = path.parent().expect("credentials path must have a parent");
+    std::fs::create_dir_all(dir)
+        .with_context(|| format!("failed to create config directory: {}", dir.display()))?;
+    let data = serde_yaml::to_string(creds).context("failed to serialize credentials")?;
+    std::fs::write(&path, data)
+        .with_context(|| format!("failed to write credentials: {}", path.display()))?;
     Ok(())
 }
 

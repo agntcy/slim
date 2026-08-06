@@ -424,9 +424,19 @@ pub async fn run(args: &LoginArgs) -> Result<()> {
         .as_str()
         .context("missing id_token")?
         .to_owned();
-    let claims = validate_id_token(&http, &meta, &id_token, &args.client_id, &nonce).await?;
+    validate_id_token(&http, &meta, &id_token, &args.client_id, &nonce).await?;
 
-    println!("{}", serde_json::to_string_pretty(&claims)?);
+    let creds = crate::config::OidcCredentials {
+        id_token: id_token.to_string(),
+        access_token: token_resp["access_token"].as_str().map(str::to_owned),
+        refresh_token: token_resp["refresh_token"].as_str().map(str::to_owned),
+        client_id: args.client_id.clone(),
+        issuer: meta.issuer.clone(),
+    };
+
+    crate::config::save_credentials(&creds)?;
+    let creds_path = crate::config::credentials_file_path()?;
+    eprintln!("Credentials saved to {}", creds_path.display());
     Ok(())
 }
 
