@@ -101,7 +101,7 @@ runs:
         for tool in \
           clang-19 \
           lldb-19 \
-          lld-19 \
+          ld.lld-19 \
           clangd-19 \
           pkg-config \
           make \
