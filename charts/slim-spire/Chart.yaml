@@ -6,7 +6,7 @@ description: >
   drivers. Based on
   https://github.com/spiffe/helm-charts-hardened/tree/main/charts/spire
 type: application
-version: 1.4.0
+version: 2.0.0
 appVersion: "1.15.2"
 keywords:
   [
@@ -16,9 +16,9 @@ keywords:
     "spire-agent",
     "slim"
   ]
-home: https://github.com/agntcy/slim
+home: https://github.com/agntcy/slim/tree/main/charts/slim-spire
 sources:
-  - https://github.com/agntcy/slim
+  - https://github.com/agntcy/slim/tree/main/charts/slim-spire
 kubeVersion: ">=1.21.0-0"
 dependencies:
   - name: spire-lib
