@@ -59,18 +59,57 @@ runs:
     - name: Setup Taskfile
       uses: ./.github/actions/setup-task
 
-    - name: Install C/C++ toolchain
+    - name: Configure LLVM apt repository
       if: runner.os == 'Linux'
       shell: bash
       run: |
+        . /etc/os-release
+        codename="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
+        if [[ -z "${codename}" ]]; then
+          echo "::error::Unable to determine the Linux distribution codename"
+          exit 1
+        fi
+
+        curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key \
+          | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc > /dev/null
+        echo "deb https://apt.llvm.org/${codename}/ llvm-toolchain-${codename}-19 main" \
+          | sudo tee /etc/apt/sources.list.d/apt.llvm.org.list > /dev/null
         sudo apt-get update
-        curl -L https://apt.llvm.org/llvm.sh -o /tmp/llvm.sh
-        chmod +x /tmp/llvm.sh
-        sudo /tmp/llvm.sh 19
-        sudo apt-get install -y \
+
+    - name: Install cached C/C++ toolchain
+      if: runner.os == 'Linux'
+      uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
+      with:
+        packages: >-
+          clang-19
+          lldb-19
+          lld-19
+          clangd-19
+          pkg-config
+          make
+          gcc-aarch64-linux-gnu
+          g++-aarch64-linux-gnu
+          gcc-x86-64-linux-gnu
+          g++-x86-64-linux-gnu
+        version: llvm19-v1
+        execute_install_scripts: "true"
+
+    - name: Verify C/C++ toolchain
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        for tool in \
+          clang-19 \
+          lldb-19 \
+          ld.lld-19 \
+          clangd-19 \
           pkg-config \
           make \
-          gcc-aarch64-linux-gnu \
-          g++-aarch64-linux-gnu \
-          gcc-x86-64-linux-gnu \
-          g++-x86-64-linux-gnu
+          aarch64-linux-gnu-gcc \
+          aarch64-linux-gnu-g++ \
+          x86_64-linux-gnu-gcc \
+          x86_64-linux-gnu-g++
+        do
+          command -v "${tool}"
+          "${tool}" --version | sed -n '1p'
+        done
