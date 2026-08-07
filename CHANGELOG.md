@@ -180,7 +180,7 @@ All notable changes to this project will be documented in this file.
 | helm-slim                   | v2.0.0         | 2026-08-05   |
 | helm-slim-control-plane     | v2.0.0         | 2026-08-05   |
 | helm-slim-channel-manager   | v2.0.0         | 2026-08-05   |
-| helm-slim-spire             | v1.4.1         | 2026-05-13   |
+| helm-slim-spire             | v2.0.0         | 2026-08-07   |
 
 ### Release Artifacts
 
@@ -188,6 +188,7 @@ All notable changes to this project will be documented in this file.
   - `ghcr.io/agntcy/slim:v2.0.0`
   - `ghcr.io/agntcy/slim-control-plane:v2.0.0`
   - `ghcr.io/agntcy/slim-channel-manager:v2.0.0`
+  - `ghcr.io/agntcy/slim-spire:v2.0.0`
 - **Python Packages**: Published to PyPI
   - `slim-bindings==2.0.0`
 - **JavaScript / TypeScript Packages**: Published to npm
