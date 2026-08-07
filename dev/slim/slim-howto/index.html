@@ -4839,7 +4839,7 @@ brew<span class="w"> </span>install<span class="w"> </span>slimctl
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.12/slimctl-darwin-arm64.tar.gz
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-darwin-arm64.tar.gz
 tar<span class="w"> </span>-xzf<span class="w"> </span>slimctl-darwin-arm64.tar.gz
 sudo<span class="w"> </span>mv<span class="w"> </span>slimctl<span class="w"> </span>/usr/local/bin/
 </code></pre></div>
@@ -4851,7 +4851,7 @@ sudo<span class="w"> </span>mv<span class="w"> </span>slimctl<span class="w"> </
 </div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.12/slimctl-darwin-amd64.tar.gz
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-darwin-amd64.tar.gz
 tar<span class="w"> </span>-xzf<span class="w"> </span>slimctl-darwin-amd64.tar.gz
 sudo<span class="w"> </span>mv<span class="w"> </span>slimctl<span class="w"> </span>/usr/local/bin/
 </code></pre></div>
@@ -4863,19 +4863,19 @@ sudo<span class="w"> </span>mv<span class="w"> </span>slimctl<span class="w"> </
 </div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.12/slimctl-linux-amd64-gnu.tar.gz
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-linux-amd64-gnu.tar.gz
 tar<span class="w"> </span>-xzf<span class="w"> </span>slimctl-linux-amd64-gnu.tar.gz
 sudo<span class="w"> </span>mv<span class="w"> </span>slimctl<span class="w"> </span>/usr/local/bin/
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.12/slimctl-linux-arm64-gnu.tar.gz
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-linux-arm64-gnu.tar.gz
 tar<span class="w"> </span>-xzf<span class="w"> </span>slimctl-linux-arm64-gnu.tar.gz
 sudo<span class="w"> </span>mv<span class="w"> </span>slimctl<span class="w"> </span>/usr/local/bin/
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<p>Download the binary from the <a href="https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.12/slimctl-windows-amd64.zip">GitHub releases page</a> and add it to your <code>PATH</code>. See <a href="../components/cli/install/">CLI Installation</a> for full Windows instructions.</p>
+<p>Download the binary from the <a href="https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-windows-amd64.zip">GitHub releases page</a> and add it to your <code>PATH</code>. See <a href="../components/cli/install/">CLI Installation</a> for full Windows instructions.</p>
 </div>
 </div>
 </div>
@@ -4896,7 +4896,7 @@ sudo<span class="w"> </span>mv<span class="w"> </span>slimctl<span class="w"> </
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>go<span class="w"> </span>get<span class="w"> </span>github.com/agntcy/slim-bindings-go@v2.0.0-alpha.5
+<div class="highlight"><pre><span></span><code>go<span class="w"> </span>get<span class="w"> </span>github.com/agntcy/slim-bindings-go@v2.0.0
 <span class="c1"># Run the setup tool to download the native library</span>
 go<span class="w"> </span>run<span class="w"> </span>github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup
 </code></pre></div>
@@ -4904,14 +4904,14 @@ go<span class="w"> </span>run<span class="w"> </span>github.com/agntcy/slim-bind
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="c1">// build.gradle.kts</span>
 <span class="n">dependencies</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="n">implementation</span><span class="p">(</span><span class="s">&quot;io.agntcy.slim:slim-bindings-java:2.0.0-alpha.5&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="n">implementation</span><span class="p">(</span><span class="s">&quot;io.agntcy.slim:slim-bindings-java:2.0.0&quot;</span><span class="p">)</span>
 <span class="p">}</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="c1">// build.gradle.kts</span>
 <span class="n">dependencies</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="n">implementation</span><span class="p">(</span><span class="s">&quot;io.agntcy.slim:slim-bindings-kotlin:2.0.0-alpha.5&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="n">implementation</span><span class="p">(</span><span class="s">&quot;io.agntcy.slim:slim-bindings-kotlin:2.0.0&quot;</span><span class="p">)</span>
 <span class="p">}</span>
 </code></pre></div>
 </div>
