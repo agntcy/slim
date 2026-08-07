@@ -810,6 +810,13 @@
     "aliases": []
   },
   {
+    "version": "helm-slim-spire-v2.0.0",
+    "title": "helm-slim-spire-v2.0.0",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "helm-slim-control-plane-v2.0.0",
     "title": "helm-slim-control-plane-v2.0.0",
     "aliases": []
@@ -827,9 +834,7 @@
   {
     "version": "helm-slim-channel-manager-v2.0.0",
     "title": "helm-slim-channel-manager-v2.0.0",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "dev",
