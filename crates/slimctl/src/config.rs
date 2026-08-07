@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use duration_string::DurationString;
-
+use serde::{Deserialize, Serialize};
 use slim_config::auth::basic::Config as BasicAuthConfig;
 use slim_config::auth::static_jwt::Config as StaticJwtConfig;
 use slim_config::grpc::client::{AuthenticationConfig, BackoffConfig, ClientConfig};
@@ -22,6 +22,17 @@ pub(crate) const DEFAULT_CONTROLLER_ENDPOINT: &str = "127.0.0.1:50051";
 pub(crate) const DEFAULT_CHANNEL_MANAGER_ENDPOINT: &str = "127.0.0.1:10356";
 /// Default listen address for starting a local SLIM node via the `slim` subcommand.
 pub(crate) const DEFAULT_SLIM_ADDRESS: &str = "127.0.0.1:46357";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OidcCredentials {
+    pub id_token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+    pub client_id: String,
+    pub issuer: String,
+}
 
 /// Merge a file-level `ClientConfig` with CLI overrides.
 /// `default_endpoint` is the per-subcommand fallback when neither the file
@@ -188,9 +199,30 @@ pub fn save_config(config: &ClientConfig, config_file: Option<&str>) -> Result<(
 }
 
 /// Path to the bare token file used by StaticJwt injection: `~/.slimctl/token`
+pub fn credentials_file_path() -> Result<PathBuf> {
+    let home = dirs_home().context("could not determine home directory")?;
+    Ok(home.join(".slimctl").join("credentials.yaml"))
+}
+
 pub fn token_file_path() -> Result<PathBuf> {
     let home = dirs_home().context("could not determine home directory")?;
     Ok(home.join(".slimctl").join("token"))
+}
+
+pub fn save_credentials(creds: &OidcCredentials) -> Result<()> {
+    let path = credentials_file_path()?;
+    let dir = path.parent().expect("credentials path must have a parent");
+    std::fs::create_dir_all(dir)
+        .with_context(|| format!("failed to create config directory: {}", dir.display()))?;
+    let data = serde_yaml::to_string(creds).context("failed to serialize credentials")?;
+    std::fs::write(&path, data)
+        .with_context(|| format!("failed to write credentials: {}", path.display()))?;
+    // Write bearer token for StaticJwt auto-injection; prefer access_token (longer TTL).
+    let token = creds.access_token.as_deref().unwrap_or(&creds.id_token);
+    let token_path = token_file_path()?;
+    std::fs::write(&token_path, token)
+        .with_context(|| format!("failed to write token: {}", token_path.display()))?;
+    Ok(())
 }
 
 /// Return the default config file path: `$HOME/.slimctl/config.yaml`
