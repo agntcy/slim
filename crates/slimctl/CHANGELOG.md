@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0](https://github.com/agntcy/slim/compare/slimctl-v2.0.0...slimctl-v2.1.0) - 2026-08-07
+
+### Added
+
+- *(slimctl)* add login subcommand with OIDC auth code flow and PKCE ([#1955](https://github.com/agntcy/slim/pull/1955))
+
 ## [2.0.0](https://github.com/agntcy/slim/compare/slimctl-v2.0.0...slimctl-v2.0.0) - 2026-08-04
 
 ### Other
