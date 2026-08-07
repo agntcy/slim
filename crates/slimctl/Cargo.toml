@@ -44,14 +44,25 @@ clap = { workspace = true }
 
 # Config
 duration-string = { workspace = true }
+jsonwebtoken = { workspace = true }
+
+# OIDC OAuth2 authenctication
+oauth2 = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
+reqwest = { workspace = true, features = ["rustls-tls-native-roots"] }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 tempfile = { workspace = true }
 
 # Async
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "rt", "time"] }
+tokio = { workspace = true, features = [
+    "macros",
+    "rt-multi-thread",
+    "rt",
+    "time",
+] }
 tokio-stream = { workspace = true }
 
 # gRPC / protobuf
