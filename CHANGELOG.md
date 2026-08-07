@@ -4,6 +4,194 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## v2.0.0 (4 August 2026)
+
+### Key Highlights
+
+#### ⚠️ Breaking Changes
+
+- **Separate data and control channels**: Sessions now use dedicated channels for data messages and session-management control messages (join, leave, group updates), each identified by a derived UUID rather than a shared channel name. Existing integrations that assumed a single channel per session must be updated ([#1418](https://github.com/agntcy/slim/pull/1418), [#1809](https://github.com/agntcy/slim/pull/1809))
+- **Control plane rewritten in Rust**: The Go control plane has been replaced by a full Rust implementation, enabling tighter integration with the data plane and removing the Go runtime dependency ([#1581](https://github.com/agntcy/slim/pull/1581), [#1716](https://github.com/agntcy/slim/pull/1716))
+- **Group renamed to domain in the control plane**: The concept of "group" in the control plane has been renamed to "domain" to avoid confusion with SLIM session groups/channels ([#1891](https://github.com/agntcy/slim/pull/1891))
+- **Mandatory link negotiation**: Link negotiation is now required before any message processing, and connections are immutable once established. The previous link-recovery mechanism has been removed ([#1736](https://github.com/agntcy/slim/pull/1736), [#1737](https://github.com/agntcy/slim/pull/1737))
+- **Repository restructured as a pure Rust workspace**: The `data-plane` subfolder has been removed; the repository is now a single flat Rust workspace ([#1693](https://github.com/agntcy/slim/pull/1693))
+- **Group creation removed from the data plane**: Groups are now exclusively managed via the channel manager, not directly in the data plane ([#1594](https://github.com/agntcy/slim/pull/1594))
+- **Transport field removed from config**: The `transport` field has been dropped; transport selection is now inferred from the address scheme ([#1662](https://github.com/agntcy/slim/pull/1662))
+
+#### 🚀 Features
+
+##### Channel Manager
+
+- **New standalone channel manager**: A new `agntcy-slim-channel-manager` application manages MLS-secured channel lifecycles (create/delete channels, add/remove participants) via a dedicated gRPC API ([#1576](https://github.com/agntcy/slim/pull/1576))
+- **Channel manager storage and session persistence**: Sessions now survive a channel manager restart; session state is written to an encrypted SQLite store on creation and restored on startup ([#1901](https://github.com/agntcy/slim/pull/1901))
+- **Helm chart for channel manager**: New `helm-slim-channel-manager` chart for deploying the channel manager on Kubernetes ([#1813](https://github.com/agntcy/slim/pull/1813))
+- **Docker image for channel manager**: A container image is now published alongside the binary ([#1785](https://github.com/agntcy/slim/pull/1785))
+- **slimctl channel manager commands**: New slimctl sub-commands for channel lifecycle management and for creating groups via the channel manager ([#1586](https://github.com/agntcy/slim/pull/1586), [#1589](https://github.com/agntcy/slim/pull/1589))
+- **Dynamic group registration via slimctl**: Operators can now add/remove registration auth groups at runtime without restarting the control plane (`ListGroups`, `AddGroup`, `RemoveGroup` RPCs) ([#1795](https://github.com/agntcy/slim/pull/1795))
+
+##### Sessions
+
+- **Encrypted MLS session state persistence and restore**: MLS group and session state are persisted so a session can be restored after a restart and rejoin its established group without re-running discovery/invite/welcome ([#1820](https://github.com/agntcy/slim/pull/1820))
+- **Shared MLS signing identity**: A single MLS signature keypair is now shared across all sessions owned by an app, enabling consistent identity across restarts and multiple concurrent sessions ([#1825](https://github.com/agntcy/slim/pull/1825))
+- **Session close and rejoin**: Participants can now gracefully go offline and rejoin without permanently leaving the session. Introduces `UpdateParticipantState` (`ONLINE`/`OFFLINE`) protocol messages ([#1873](https://github.com/agntcy/slim/pull/1873))
+- **MLS re-key on rejoin**: The MLS group performs a key update when a participant rejoins, preserving forward secrecy ([#1875](https://github.com/agntcy/slim/pull/1875))
+- **Heartbeat-based disconnection detection**: Replaces the centralized ping mechanism with decentralised per-participant heartbeats and independent liveness tracking across all members ([#1868](https://github.com/agntcy/slim/pull/1868))
+- **UUID-derived channel IDs**: Data and control channel names are derived from the moderator identity and channel name via `XxHash3_128`, eliminating collisions that occurred with the previous hardcoded sentinel constants ([#1809](https://github.com/agntcy/slim/pull/1809))
+- **Expose session close/rejoin in bindings**: The close and rejoin functions are now accessible from all language bindings ([#1896](https://github.com/agntcy/slim/pull/1896))
+
+##### WebSocket and WASM/Browser Support
+
+- **WebSocket transport for the data plane**: A full WebSocket transport (alongside the existing gRPC transport) built on `hyper`/`fastwebsockets`, sharing the same auth pipeline, proxy machinery, and config entry points ([#1638](https://github.com/agntcy/slim/pull/1638))
+- **Browser/WASM support in slim-bindings**: The `agntcy-slim-bindings` crate now compiles for `wasm32-unknown-unknown` via a `web` feature, enabling the same UniFFI surface to run in the browser ([#1886](https://github.com/agntcy/slim/pull/1886))
+- **Browser WebSocket data plane**: The data-plane core compiles for browser targets, allowing a web client to join a channel over WebSocket and interoperate with native gRPC and native-WebSocket participants ([#1775](https://github.com/agntcy/slim/pull/1775), [#1695](https://github.com/agntcy/slim/pull/1695))
+
+##### Security
+
+- **Post-quantum crypto coverage and hybrid key exchange**: New deployment-wide `enforce_pqc` policy that applies hybrid classical + ML-KEM-768 algorithms consistently across TLS, inter-node link negotiation, and MLS; coverage extended to WASM ([#1887](https://github.com/agntcy/slim/pull/1887))
+- **Header integrity check and replay protection for control messages**: Adds manual integrity checks and `message_id`-based replay protection to pre- and post-session control messages, complementing the existing MLS-payload-level validation on data messages ([#1740](https://github.com/agntcy/slim/pull/1740), [#1677](https://github.com/agntcy/slim/pull/1677), [#1609](https://github.com/agntcy/slim/pull/1609))
+- **Node group membership authentication on registration**: A pluggable auth layer verifies that a node is authorised to join its claimed domain, preventing rogue nodes from accessing routes in other tenants' segments ([#1782](https://github.com/agntcy/slim/pull/1782))
+- **Network segmentation**: The control plane now supports partitioning the network into independent routing domains, enabling hub-and-spoke topologies where customer groups are isolated while sharing a common platform group ([#1761](https://github.com/agntcy/slim/pull/1761))
+
+##### Peer Discovery and Topology
+
+- **Peer discovery module with static backend**: New `PeerDiscovery` abstraction (start/recv) with a `StaticPeerDiscovery` implementation; lays the groundwork for dynamic discovery backends ([#1696](https://github.com/agntcy/slim/pull/1696))
+- **Automatic peer discovery in Kubernetes**: SLIM replicas automatically discover each other in a k8s environment without manual peer configuration ([#1724](https://github.com/agntcy/slim/pull/1724))
+- **Subscription synchronization**: Replicas discover each other, establish direct connections, and exchange local routes so every replica is immediately aware of subscriptions held by its peers ([#1705](https://github.com/agntcy/slim/pull/1705))
+- **Edge connections**: New `ConnType::Edge` variant distinguishes application/SDK connections to their first-hop SLIM node from control-plane-managed remote connections ([#1741](https://github.com/agntcy/slim/pull/1741))
+- **TTL support for message forwarding**: Messages can now carry a time-to-live value that limits forwarding hops across the data plane ([#1714](https://github.com/agntcy/slim/pull/1714))
+- **Flexible link IDs**: Removed the UUID v4 constraint on `link_id`; any non-empty string is now accepted ([#1713](https://github.com/agntcy/slim/pull/1713))
+- **Control plane-side override of node connection data**: The control plane can now override node connection parameters server-side ([#1913](https://github.com/agntcy/slim/pull/1913))
+- **Derive peer `deployment_name` from `domain_name`**: Peer deployment names are now automatically derived from the domain name, reducing boilerplate configuration ([#1931](https://github.com/agntcy/slim/pull/1931))
+
+##### Control Plane Topology Management
+
+- **Config mode vs. API mode**: Dual topology management modes — **config-managed** (YAML file is source of truth) and **API-managed** (database is source of truth with full CRUD via gRPC/CLI). Supports config→API mode transitions and controller-restart resilience ([#1772](https://github.com/agntcy/slim/pull/1772))
+
+##### SLIM RPC
+
+- **Native `agntcy-slim-rpc` crate**: The SlimRPC engine (~5.5k LOC) has been extracted from the UniFFI FFI bindings into a standalone Rust crate (`crates/rpc`), so native Rust consumers no longer depend on the FFI shim ([#1830](https://github.com/agntcy/slim/pull/1830))
+- **Unified RPC crate in slim-bindings**: `slim-bindings` now consumes `agntcy-slim-rpc` (with the optional `uniffi` feature) instead of carrying a duplicate copy, removing ~5k duplicated lines while keeping the public UniFFI API unchanged ([#1850](https://github.com/agntcy/slim/pull/1850), [#1864](https://github.com/agntcy/slim/pull/1864))
+
+##### slimctl
+
+- **Group-based routing CLI**: New `slimctl` commands for managing and querying group-based routing ([#1769](https://github.com/agntcy/slim/pull/1769))
+- **Bench sub/pub and channel sub/pub commands**: New benchmarking commands with improved reporting for throughput and latency measurements ([#1602](https://github.com/agntcy/slim/pull/1602), [#1748](https://github.com/agntcy/slim/pull/1748))
+
+##### Documentation
+
+- **Restructured and expanded SLIM documentation**: Comprehensive docs overhaul including tutorials, API references, and deployment guides ([#1789](https://github.com/agntcy/slim/pull/1789), [#1937](https://github.com/agntcy/slim/pull/1937))
+- **Versioned docs deployment**: Docs are now deployed per version (`dev(main)` and `latest(vX.Y.Z)`) ([#1720](https://github.com/agntcy/slim/pull/1720))
+- **PQC documentation**: New documentation page covering post-quantum cryptography configuration and usage ([#1914](https://github.com/agntcy/slim/pull/1914))
+- **Multicluster public/private example**: New end-to-end example for multicluster topologies ([#1587](https://github.com/agntcy/slim/pull/1587))
+- **SPIRE support in test apps**: Test applications now demonstrate SPIRE-based workload identity ([#1939](https://github.com/agntcy/slim/pull/1939))
+
+#### ⚡ Performance & Refactoring
+
+- **Eliminate allocations from publish routing hot path**: The publish routing path no longer performs heap allocations on the critical path ([#1577](https://github.com/agntcy/slim/pull/1577))
+- **Replace `RwLock` with `ArcSwap` on the connection table read path**: Lock-free reads on the connection table improve throughput under concurrent workloads ([#1624](https://github.com/agntcy/slim/pull/1624))
+- **Refactor `SubscriptionTableImpl` for cache efficiency**: Improved data layout reduces cache misses on subscription lookups ([#1611](https://github.com/agntcy/slim/pull/1611))
+- **Cache HMAC key and claims in `SharedSecret`**: Per-call allocations in the authentication hot path are eliminated ([#1671](https://github.com/agntcy/slim/pull/1671))
+- **Drop `async_trait` from `MessageHandler` and `Transmitter`**: Replaces dynamic dispatch with `trait-variant`, reducing overhead in the session layer ([#1667](https://github.com/agntcy/slim/pull/1667), [#1684](https://github.com/agntcy/slim/pull/1684))
+- **Remove sub/unsub message cloning sent to the control plane**: Avoids unnecessary allocations on the subscription notification path ([#1897](https://github.com/agntcy/slim/pull/1897))
+- **Name ID widened from `u64` to `u128`**: Reduces the probability of ID collisions in large deployments ([#1680](https://github.com/agntcy/slim/pull/1680))
+- **Session transmitter and interceptor layer removed**: `AppTransmitter`, `Transmitter` trait, `MockTransmitter`, and the interceptor layer are replaced with a cleaner `SessionOutput`-based design ([#1679](https://github.com/agntcy/slim/pull/1679), [#1676](https://github.com/agntcy/slim/pull/1676))
+- **`ConnType` enum replaces `is_local` bool**: The connection type is now represented as an explicit enum (`Local`, `Remote`, `Edge`) ([#1689](https://github.com/agntcy/slim/pull/1689))
+
+#### 🐛 Bug Fixes
+
+##### Core
+
+- Fix control plane route re-expansion when a node reconnects over a claimed link ([#1836](https://github.com/agntcy/slim/pull/1836))
+- Apply backpressure on outbound channel send to prevent unbounded queue growth under slow consumers ([#1669](https://github.com/agntcy/slim/pull/1669))
+- Separate server connection config to resolve a mis-routing regression ([#1778](https://github.com/agntcy/slim/pull/1778))
+- Controller stops retrying connection after a shutdown signal ([#1730](https://github.com/agntcy/slim/pull/1730))
+- Set SQLite `busy_timeout` before enabling WAL mode to prevent startup races ([#1659](https://github.com/agntcy/slim/pull/1659))
+
+##### Session
+
+- Guard against late `GroupAck` after task completion ([#1628](https://github.com/agntcy/slim/pull/1628))
+- Fix `need_drains` with app direction set to `None` ([#1574](https://github.com/agntcy/slim/pull/1574))
+- Skip buffer clone in unreliable mode ([#1673](https://github.com/agntcy/slim/pull/1673))
+- Stop mid-handshake MLS signing-key rotation that could cause handshake failures ([#1869](https://github.com/agntcy/slim/pull/1869))
+- Process rejoin from an online participant on MLS epoch mismatch ([#1893](https://github.com/agntcy/slim/pull/1893))
+- Restore control-sender group name on session restore ([#1899](https://github.com/agntcy/slim/pull/1899))
+- Remove MLS record, state, and pool entry on session close for both moderator and participant roles ([#1902](https://github.com/agntcy/slim/pull/1902))
+- Prevent session failure when a participant is temporarily offline ([#1895](https://github.com/agntcy/slim/pull/1895))
+- Fix link recreation after node restart ([#1898](https://github.com/agntcy/slim/pull/1898))
+
+##### Authentication
+
+- Verify JWT against every JWKS candidate key when no `kid` claim is present, instead of failing on the first non-matching key ([#1883](https://github.com/agntcy/slim/pull/1883))
+- Encode WASM MLS signing keys as PKCS to interoperate with native peers ([#1879](https://github.com/agntcy/slim/pull/1879))
+
+##### Bindings
+
+- Fix deadlock when using a single-thread runtime in the bindings ([#1657](https://github.com/agntcy/slim/pull/1657))
+- Fix Kotlin tests ([#1655](https://github.com/agntcy/slim/pull/1655))
+- Export stream types with async interfaces ([#1880](https://github.com/agntcy/slim/pull/1880))
+
+##### Windows
+
+- Gate `RequiredAuthMethod::Spire` and `AuthenticationConfig::Spire` matching behind a `not(target_os = "windows")` guard ([#1855](https://github.com/agntcy/slim/pull/1855), [#1859](https://github.com/agntcy/slim/pull/1859))
+- Gate `default_backoff()` on `not(wasm32)` ([#1927](https://github.com/agntcy/slim/pull/1927))
+
+##### slimctl
+
+- Resolve `clap` config parameter name collision in slimctl ([#1935](https://github.com/agntcy/slim/pull/1935))
+- Fix protobuf resolution in slimctl ([#1708](https://github.com/agntcy/slim/pull/1708))
+
+##### Build
+
+- Skip proto compilation in published packages ([#1706](https://github.com/agntcy/slim/pull/1706))
+- Require `tokio-retry >=0.3.2` for `RetryIf::start` ([#1828](https://github.com/agntcy/slim/pull/1828))
+
+#### 📦 Packaging & Dependencies
+
+- Upgrade Rust toolchain from 1.93 to 1.95 ([#1763](https://github.com/agntcy/slim/pull/1763))
+- Upgrade OpenTelemetry to 0.32.x ([#1910](https://github.com/agntcy/slim/pull/1910))
+- Upgrade Diesel to 2.3.10 ([#1717](https://github.com/agntcy/slim/pull/1717))
+- Update SPIRE to 1.15.2 ([#1904](https://github.com/agntcy/slim/pull/1904))
+- Update Maven version for Java bindings ([#1643](https://github.com/agntcy/slim/pull/1643))
+- Switch npm and PyPI releases to trusted publishers (OIDC), removing long-lived tokens from CI ([#1654](https://github.com/agntcy/slim/pull/1654))
+
+#### 🔧 Infrastructure & Tooling
+
+- Move coverage, benchmarks, WASM test suites, and release cross-builds off the PR path to nightly, significantly reducing PR CI time ([#1837](https://github.com/agntcy/slim/pull/1837), [#1840](https://github.com/agntcy/slim/pull/1840), [#1841](https://github.com/agntcy/slim/pull/1841))
+- Warm-start release cross-builds and cut Docker cache bloat ([#1833](https://github.com/agntcy/slim/pull/1833))
+- Enable crate publishing for `agntcy-slim-control-plane` and `agntcy-slim-channel-manager` ([#1796](https://github.com/agntcy/slim/pull/1796))
+- Add `agntcy-slim-control-plane` to `release-plz` ([#1759](https://github.com/agntcy/slim/pull/1759))
+- Disable Docker builds on PRs to reduce CI cost ([#1845](https://github.com/agntcy/slim/pull/1845))
+- Fix Trivy scanning blocked by aquasecurity IP allowlist ([#1757](https://github.com/agntcy/slim/pull/1757))
+- Stabilise rust-cache shared key to warm-start on dependency changes ([#1832](https://github.com/agntcy/slim/pull/1832))
+- Fix Docker bake set block broken by inline comments ([#1834](https://github.com/agntcy/slim/pull/1834))
+- Exempt org members from DCO check and scope release secrets to a dedicated environment ([#1857](https://github.com/agntcy/slim/pull/1857))
+- Update slimctl Homebrew cask to latest ([#1711](https://github.com/agntcy/slim/pull/1711))
+
+### Component Versions Summary
+
+| Component                   | Latest Version | Release Date |
+| --------------------------- | -------------- | ------------ |
+| slim                        | v2.0.0         | 2026-08-04   |
+| slim-bindings               | v2.0.0         | 2026-08-04   |
+| slim-channel-manager        | v2.0.0         | 2026-08-04   |
+| slim-control-plane          | v2.0.0         | 2026-08-04   |
+| agntcy-slim-rpc             | v2.0.0         | 2026-08-04   |
+| slimctl                     | v2.0.0         | 2026-08-04   |
+| helm-slim                   | v2.0.0         | 2026-08-05   |
+| helm-slim-control-plane     | v2.0.0         | 2026-08-05   |
+| helm-slim-channel-manager   | v2.0.0         | 2026-08-05   |
+| helm-slim-spire             | v1.4.1         | 2026-05-13   |
+
+### Release Artifacts
+
+- **Container Images**: Available on GitHub Container Registry
+  - `ghcr.io/agntcy/slim:v2.0.0`
+  - `ghcr.io/agntcy/slim-control-plane:v2.0.0`
+  - `ghcr.io/agntcy/slim-channel-manager:v2.0.0`
+- **Python Packages**: Published to PyPI
+  - `slim-bindings==2.0.0`
+- **JavaScript / TypeScript Packages**: Published to npm
+
 ## v1.4.0 (13 May 2026)
 
 ### Key Highlights
