@@ -150,8 +150,7 @@ impl KeyResolver {
         &self,
         issuer: &str,
         token_header: &Header,
-    ) -> Result<DecodingKey, AuthError> {
-        // Backwards-compatible single-key accessor: return the first candidate.
+    ) -> Result<(DecodingKey, Algorithm), AuthError> {
         self.resolve_keys(issuer, token_header)
             .await?
             .into_iter()
@@ -171,7 +170,7 @@ impl KeyResolver {
         &self,
         issuer: &str,
         token_header: &Header,
-    ) -> Result<Vec<DecodingKey>, AuthError> {
+    ) -> Result<Vec<(DecodingKey, Algorithm)>, AuthError> {
         // Check if we have a static JWKS entry
         if let Some(cache_entry) = self.jwks_cache.read().get(Self::STATIC_JWKS_ENTRY) {
             // If we have a static JWKS, use it directly
@@ -231,12 +230,18 @@ impl KeyResolver {
         &self,
         cache: &JwksCache,
         token_header: &Header,
-    ) -> Result<Vec<DecodingKey>, AuthError> {
+    ) -> Result<Vec<(DecodingKey, Algorithm)>, AuthError> {
         // Fast path: exact `kid` hit via the precomputed index.
         if let Some(kid) = &token_header.kid
             && let Some(jwk) = cache.by_kid.get(kid)
         {
-            return Ok(vec![self.jwk_to_decoding_key(jwk)?]);
+            let alg = jwk
+                .common
+                .key_algorithm
+                .as_ref()
+                .ok_or(AuthError::JwksNoSuitableKey)
+                .and_then(|a| self.key_alg_to_algorithm(a))?;
+            return Ok(vec![(self.jwk_to_decoding_key(jwk)?, alg)]);
         }
 
         // Fallback: every key whose algorithm matches the token.
@@ -246,7 +251,7 @@ impl KeyResolver {
                 && let Ok(algorithm) = self.key_alg_to_algorithm(alg)
                 && algorithm == token_header.alg
             {
-                candidates.push(self.jwk_to_decoding_key(key)?);
+                candidates.push((self.jwk_to_decoding_key(key)?, algorithm));
             }
         }
 
@@ -261,7 +266,7 @@ impl KeyResolver {
         &self,
         issuer: &str,
         token_header: &Header,
-    ) -> Result<DecodingKey, AuthError> {
+    ) -> Result<(DecodingKey, Algorithm), AuthError> {
         self.get_cached_keys(issuer, token_header)?
             .into_iter()
             .next()
@@ -273,7 +278,7 @@ impl KeyResolver {
         &self,
         issuer: &str,
         token_header: &Header,
-    ) -> Result<Vec<DecodingKey>, AuthError> {
+    ) -> Result<Vec<(DecodingKey, Algorithm)>, AuthError> {
         // Check if we have a cached JWKS that's still valid
         let cache = self.jwks_cache.read();
 
@@ -406,6 +411,7 @@ mod tests {
 
     // Helper to create a test resolver with a client that can talk to the mock server
     async fn create_test_resolver() -> (KeyResolver, MockServer) {
+        slim_config::tls::provider::initialize_crypto_provider();
         let server = MockServer::start().await;
         let resolver = KeyResolver::new();
         (resolver, server)
@@ -415,19 +421,18 @@ mod tests {
     async fn test_build_jwks_uri_with_openid_discovery() {
         let (resolver, mock_server) = create_test_resolver().await;
 
-        // Setup mock for OpenID discovery endpoint
-        let jwks_uri = "https://example.com/custom/path/to/jwks.json";
+        let mock_uri = mock_server.uri();
+        let jwks_uri = format!("{}/custom/path/to/jwks.json", mock_uri);
         Mock::given(method("GET"))
             .and(path("/.well-known/openid-configuration"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "issuer": "https://example.com",
-                "jwks_uri": jwks_uri
+                "issuer": mock_uri,
+                "jwks_uri": jwks_uri,
             })))
             .mount(&mock_server)
             .await;
 
-        // Test that we can discover the JWKS URI from OpenID configuration
-        let uri = resolver.build_jwks_uri(&mock_server.uri()).await.unwrap();
+        let uri = resolver.build_jwks_uri(&mock_uri).await.unwrap();
         assert_eq!(uri, jwks_uri);
     }
 
