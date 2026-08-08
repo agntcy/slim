@@ -10,8 +10,7 @@ use base64::engine::general_purpose::STANDARD as STANDARD_BASE64;
 use jsonwebtoken::jwk::KeyAlgorithm;
 pub use jsonwebtoken::{Algorithm, Validation};
 use jsonwebtoken::{
-    DecodingKey, EncodingKey, Header as JwtHeader, TokenData, decode, decode_header, encode,
-    jwk::Jwk,
+    DecodingKey, EncodingKey, Header as JwtHeader, TokenData, decode, encode, jwk::Jwk,
 };
 
 use parking_lot::RwLock;
@@ -75,7 +74,7 @@ pub enum AlgorithmRepr {
     EdDSA,
 }
 
-fn key_alg_to_algorithm(key: &KeyAlgorithm) -> Result<Algorithm, AuthError> {
+pub(crate) fn key_alg_to_algorithm(key: &KeyAlgorithm) -> Result<Algorithm, AuthError> {
     match key {
         KeyAlgorithm::ES256 => Ok(Algorithm::ES256),
         KeyAlgorithm::ES384 => Ok(Algorithm::ES384),
@@ -95,9 +94,6 @@ fn key_alg_to_algorithm(key: &KeyAlgorithm) -> Result<Algorithm, AuthError> {
 
 pub fn algorithm_from_jwk(jwk: &str) -> Result<Algorithm, AuthError> {
     let jwk: Jwk = serde_json::from_str(jwk)?;
-
-    tracing::info!(?jwk, "JWK parsed successfully");
-
     let alg = jwk
         .common
         .key_algorithm
@@ -450,11 +446,15 @@ impl<V> Jwt<V> {
     fn verify_with_keys<Claims: serde::de::DeserializeOwned>(
         &self,
         token: &str,
-        keys: Vec<DecodingKey>,
+        keys: Vec<(DecodingKey, Algorithm)>,
     ) -> Result<Claims, AuthError> {
         let mut last_err = AuthError::JwksNoSuitableKey;
-        for key in keys {
-            match self.verify_internal::<Claims>(token, key) {
+        for (key, algorithm) in keys {
+            // Build a per-key validation so the algorithm family check in jsonwebtoken
+            // sees only the single algorithm this key actually uses.
+            let mut validation = self.validation.clone();
+            validation.algorithms = vec![algorithm];
+            match self.verify_internal::<Claims>(token, key, validation) {
                 Ok(claims) => return Ok(claims),
                 Err(e) if is_signature_error(&e) => {
                     last_err = e;
@@ -469,16 +469,12 @@ impl<V> Jwt<V> {
         &self,
         token: impl AsRef<str>,
         decoding_key: DecodingKey,
+        validation: Validation,
     ) -> Result<Claims, AuthError> {
         let token = token.as_ref();
 
-        // Get the token header (propagate underlying jsonwebtoken error directly)
-        let token_header = decode_header(token)?;
-
-        // Derive a validation using the same algorithm
-        let validation = self.get_validation(token_header.alg);
-
-        // Decode and verify the token
+        // Decode and verify the token using the per-key algorithm — never trust the
+        // algorithm claimed in the token header.
         let token_data: TokenData<Claims> = decode(token, &decoding_key, &validation)?;
 
         // Get the exp to cache the token - do not verify token again
@@ -514,14 +510,6 @@ impl<V> Jwt<V> {
         self.token_cache.store(token, expiry);
     }
 
-    fn get_validation(&self, alg: Algorithm) -> Validation {
-        // Create a validation object with the configured issuer, audience, and subject
-        let mut ret = self.validation.clone();
-        ret.algorithms[0] = alg;
-
-        ret
-    }
-
     fn unsecure_get_token_data<T: DeserializeOwned>(
         &self,
         token: &str,
@@ -533,11 +521,11 @@ impl<V> Jwt<V> {
     }
 
     /// Get decoding key for verification
-    fn decoding_keys(&self, token: &str) -> Result<Vec<DecodingKey>, AuthError> {
+    fn decoding_keys(&self, token: &str) -> Result<Vec<(DecodingKey, Algorithm)>, AuthError> {
         // If a decoding key is configured directly, use it.
         {
             if let Some(key) = &self.decoding_key {
-                return Ok(vec![key.read().clone()]);
+                return Ok(vec![(key.read().clone(), self.validation.algorithms[0])]);
             }
         }
 
@@ -567,11 +555,14 @@ impl<V> Jwt<V> {
     }
 
     /// Resolve a decoding key for token verification
-    async fn resolve_decoding_keys(&self, token: &str) -> Result<Vec<DecodingKey>, AuthError> {
+    async fn resolve_decoding_keys(
+        &self,
+        token: &str,
+    ) -> Result<Vec<(DecodingKey, Algorithm)>, AuthError> {
         // First check if we already have a decoding key
         {
             if let Some(key) = &self.decoding_key {
-                return Ok(vec![key.read().clone()]);
+                return Ok(vec![(key.read().clone(), self.validation.algorithms[0])]);
             }
         }
 

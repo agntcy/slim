@@ -27,6 +27,7 @@ use crate::server_handler::ServerHandler;
 
 use crate::auth::basic::Config as BasicAuthenticationConfig;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
+use crate::auth::oidc::Config as OidcAuthConfig;
 #[cfg(not(target_family = "windows"))]
 use crate::auth::spire::SpireConfig as SpireAuthConfig;
 use crate::component::configuration::Configuration;
@@ -71,6 +72,8 @@ pub enum AuthenticationConfig {
     Basic(BasicAuthenticationConfig),
     /// JWT authentication configuration.
     Jwt(JwtAuthenticationConfig),
+    /// OIDC authentication configuration (JWT validation + optional group claim check).
+    Oidc(OidcAuthConfig),
     /// SPIRE/SPIFFE authentication configuration.
     #[cfg(not(target_family = "windows"))]
     Spire(SpireAuthConfig),

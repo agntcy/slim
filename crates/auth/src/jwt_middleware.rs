@@ -17,7 +17,10 @@ use tower_layer::Layer;
 use tower_service::Service;
 
 use crate::errors::AuthError;
+use crate::metadata::MetadataMap;
 use crate::traits::{TokenProvider, Verifier};
+use display_error_chain::ErrorChainExt;
+use futures::future::{Either, Ready, ready};
 
 /// Layer to sign JWT tokens with a signing key. Custom claims can be added to the token.
 #[derive(Clone)]
@@ -268,8 +271,14 @@ where
                         }
                     }
                     Err(e) => {
-                        // Verification failed, need to use async verification
-                        tracing::warn!(error = %e, "ValidateJwt: sync try_get_claims failed, trying async");
+                        // WouldBlockOn is the expected cold-cache path; anything else is surprising
+                        if matches!(e, AuthError::WouldBlockOn) {
+                            tracing::debug!(
+                                "ValidateJwt: JWKS cache cold, using async verification"
+                            );
+                        } else {
+                            tracing::warn!(error = %e.chain(), "ValidateJwt: sync try_get_claims failed, trying async");
+                        }
                         let verifier = self.verifier.clone();
                         let clone = self.inner.clone();
                         let inner = std::mem::replace(&mut self.inner, clone);
@@ -280,7 +289,7 @@ where
                                 // Perform the verification asynchronously
                                 let result = verifier.get_claims::<Claim>(&bearer_token).await;
                                 if let Err(ref e) = result {
-                                    tracing::warn!(error = %e, "ValidateJwt: async get_claims also failed");
+                                    tracing::warn!(error = %e.chain(), "ValidateJwt: async get_claims also failed");
                                 }
                                 result
                             }),
@@ -294,6 +303,151 @@ where
                 tracing::warn!("ValidateJwt: no Authorization Bearer header found in request");
                 Self::Future::Error
             }
+        }
+    }
+}
+
+#[derive(Clone)]
+enum PolicyEngine {
+    Rego(Box<regorus::Engine>),
+    Cel(std::sync::Arc<cel::Program>),
+}
+
+/// Layer that enforces a Rego or CEL policy against verified JWT claims.
+/// Must sit *after* [`ValidateJwtLayer`] so claims are in extensions before this runs.
+#[derive(Clone)]
+pub struct PolicyCheckLayer {
+    engine: Option<PolicyEngine>,
+}
+
+impl PolicyCheckLayer {
+    /// No policy — all authenticated requests pass through.
+    pub fn none() -> Self {
+        Self { engine: None }
+    }
+
+    /// Inline Rego policy. Fails at construction if the policy doesn't compile.
+    /// Policy must define `package slim.auth` with `default allow = false`.
+    /// Claims are available as `input.claims.*`.
+    pub fn rego(text: &str) -> Result<Self, AuthError> {
+        let mut e = regorus::Engine::new();
+        e.add_policy("slim/auth.rego".to_string(), text.to_string())
+            .map_err(|e| AuthError::PolicyCompile(e.to_string()))?;
+        Ok(Self {
+            engine: Some(PolicyEngine::Rego(Box::new(e))),
+        })
+    }
+
+    /// Rego policy loaded from a file. Fails at construction if the file is
+    /// unreadable or the policy doesn't compile.
+    pub fn rego_file(path: &std::path::Path) -> Result<Self, AuthError> {
+        let mut e = regorus::Engine::new();
+        e.add_policy_from_file(path)
+            .map_err(|e| AuthError::PolicyCompile(e.to_string()))?;
+        Ok(Self {
+            engine: Some(PolicyEngine::Rego(Box::new(e))),
+        })
+    }
+
+    /// CEL expression that must evaluate to `true` to allow the request.
+    /// Claims are available as `claims.*` (e.g. `"admin" in claims.groups`).
+    /// Fails at construction if the expression doesn't parse.
+    pub fn cel(expression: &str) -> Result<Self, AuthError> {
+        let program = cel::Program::compile(expression)
+            .map_err(|e| AuthError::PolicyCompile(e.to_string()))?;
+        Ok(Self {
+            engine: Some(PolicyEngine::Cel(std::sync::Arc::new(program))),
+        })
+    }
+}
+
+impl<S> Layer<S> for PolicyCheckLayer {
+    type Service = PolicyCheck<S>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        PolicyCheck {
+            inner,
+            engine: self.engine.clone(),
+        }
+    }
+}
+
+/// Middleware that evaluates a Rego or CEL policy against JWT claims.
+/// Passes through when no policy is configured.
+#[derive(Clone)]
+pub struct PolicyCheck<S> {
+    inner: S,
+    engine: Option<PolicyEngine>,
+}
+
+impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for PolicyCheck<S>
+where
+    S: Service<Request<ReqBody>, Response = Response<ResBody>>,
+    ResBody: Default,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = Either<S::Future, Ready<Result<S::Response, S::Error>>>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
+        let Some(engine) = &mut self.engine else {
+            return Either::Left(self.inner.call(req));
+        };
+
+        let deny = || {
+            Either::Right(ready(Ok(Response::builder()
+                .status(http::StatusCode::FORBIDDEN)
+                .body(Default::default())
+                .unwrap())))
+        };
+
+        let Some(c) = req.extensions().get::<MetadataMap>() else {
+            tracing::warn!(
+                "PolicyCheck: no JWT claims in request — ValidateJwtLayer must wrap PolicyCheckLayer"
+            );
+            return deny();
+        };
+
+        let allowed = match engine {
+            PolicyEngine::Rego(e) => serde_json::to_string(&serde_json::json!({ "claims": c }))
+                .inspect_err(|e| tracing::error!(error=%e, "PolicyCheck: claim serialization failed"))
+                .ok()
+                .and_then(|json| {
+                    e.set_input_json(&json)
+                        .inspect_err(|e| tracing::error!(error=%e, "PolicyCheck: set_input_json failed"))
+                        .ok()
+                })
+                .and_then(|_| {
+                    e.eval_bool_query("data.slim.auth.allow".to_string(), false)
+                        .inspect_err(|e| tracing::error!(error=%e, "PolicyCheck: rego eval error — verify policy uses 'package slim.auth'"))
+                        .ok()
+                })
+                .unwrap_or(false),
+            PolicyEngine::Cel(program) => {
+                let mut ctx = cel::Context::default();
+                ctx.add_variable("claims", c)
+                    .inspect_err(|e| tracing::error!(error=%e, "PolicyCheck: failed to add claims to CEL context"))
+                    .ok()
+                    .and_then(|_| {
+                        program
+                            .execute(&ctx)
+                            .inspect_err(|e| tracing::error!(error=%e, "PolicyCheck: CEL eval error"))
+                            .ok()
+                            .map(|v| v == cel::Value::Bool(true))
+                    })
+                    .unwrap_or(false)
+            }
+        };
+
+        if allowed {
+            Either::Left(self.inner.call(req))
+        } else {
+            tracing::warn!("PolicyCheck: policy denied request");
+            deny()
         }
     }
 }

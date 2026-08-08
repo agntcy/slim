@@ -1,15 +1,46 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use slim_auth::jwt_middleware::{AddJwtLayer, ValidateJwtLayer};
+use slim_auth::jwt_middleware::{AddJwtLayer, PolicyCheckLayer, ValidateJwtLayer};
 use slim_auth::metadata::MetadataMap;
+use tower_layer::Stack;
 
 use super::{ClientAuthenticator, ConfigAuthError, ServerAuthenticator};
 use slim_auth::oidc::{OidcProviderConfig, OidcTokenProvider, OidcVerifier};
+
+/// Policy evaluated against JWT claims on every authenticated request.
+///
+/// YAML shape (externally tagged — use exactly one key):
+/// ```yaml
+/// policy:
+///   rego: |
+///     package slim.auth
+///     default allow = false
+///     allow if "admin" in input.claims.groups
+///
+/// policy:
+///   rego_file: /etc/slim/auth.rego
+///
+/// policy:
+///   cel: '"admin" in claims.groups'
+/// ```
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PolicyConfig {
+    /// Inline Rego policy. Must define `package slim.auth` with `default allow = false`.
+    /// Claims available as `input.claims.*`.
+    Rego(String),
+    /// Path to a `.rego` file read at server startup.
+    RegoFile(PathBuf),
+    /// CEL expression that must evaluate to `true`.
+    /// Claims available as `claims.*` (e.g. `"admin" in claims.groups`).
+    Cel(String),
+}
 
 /// Unified OIDC Configuration that can act as both provider and verifier
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -44,6 +75,13 @@ pub struct Config {
     #[schemars(with = "String")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jwks_ttl: Option<Duration>,
+
+    /// Rego policy evaluated against JWT claims on every request.
+    /// Input shape: `{ "claims": { <all JWT payload fields> } }`.
+    /// Must define `package slim.auth` with `default allow = false`.
+    /// Absent means all authenticated requests are allowed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub policy: Option<PolicyConfig>,
 }
 
 fn default_timeout() -> Option<Duration> {
@@ -65,6 +103,7 @@ impl Config {
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            policy: None,
         }
     }
 
@@ -82,6 +121,7 @@ impl Config {
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            policy: None,
         }
     }
 
@@ -95,6 +135,7 @@ impl Config {
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            policy: None,
         }
     }
 
@@ -113,6 +154,7 @@ impl Config {
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            policy: None,
         }
     }
 
@@ -148,6 +190,24 @@ impl Config {
     /// Set the JWKS cache TTL (verifier functionality)
     pub fn with_jwks_ttl(mut self, ttl: Duration) -> Self {
         self.jwks_ttl = Some(ttl);
+        self
+    }
+
+    /// Set an inline Rego policy evaluated against JWT claims on every request
+    pub fn with_rego_policy(mut self, text: impl Into<String>) -> Self {
+        self.policy = Some(PolicyConfig::Rego(text.into()));
+        self
+    }
+
+    /// Set a path to a `.rego` file read at server startup
+    pub fn with_rego_policy_file(mut self, path: impl Into<PathBuf>) -> Self {
+        self.policy = Some(PolicyConfig::RegoFile(path.into()));
+        self
+    }
+
+    /// Set a CEL expression evaluated against JWT claims on every request
+    pub fn with_cel_policy(mut self, expression: impl Into<String>) -> Self {
+        self.policy = Some(PolicyConfig::Cel(expression.into()));
         self
     }
 
@@ -227,7 +287,7 @@ impl<Response> ServerAuthenticator<Response> for Config
 where
     Response: Default + Send + 'static,
 {
-    type ServerLayer = ValidateJwtLayer<MetadataMap, OidcVerifier>;
+    type ServerLayer = Stack<PolicyCheckLayer, ValidateJwtLayer<MetadataMap, OidcVerifier>>;
 
     fn get_server_layer(&self) -> Result<Self::ServerLayer, ConfigAuthError> {
         if !self.can_verify() {
@@ -235,10 +295,16 @@ where
         }
 
         let verifier = self.create_verifier()?;
+        let jwt_layer = ValidateJwtLayer::new(verifier, MetadataMap::default());
 
-        let claims = MetadataMap::default();
+        let policy_layer = match &self.policy {
+            None => PolicyCheckLayer::none(),
+            Some(PolicyConfig::Rego(text)) => PolicyCheckLayer::rego(text)?,
+            Some(PolicyConfig::RegoFile(path)) => PolicyCheckLayer::rego_file(path)?,
+            Some(PolicyConfig::Cel(expr)) => PolicyCheckLayer::cel(expr)?,
+        };
 
-        Ok(Self::ServerLayer::new(verifier, claims))
+        Ok(Stack::new(policy_layer, jwt_layer))
     }
 }
 
@@ -329,6 +395,33 @@ mod tests {
         let deserialized: Config = serde_json::from_str(&json).expect("deserialize");
 
         assert_eq!(config, deserialized);
+    }
+
+    #[test]
+    fn test_policy_config_serde_rego() {
+        let policy = PolicyConfig::Rego("package slim.auth\ndefault allow = false".to_string());
+        let json = serde_json::to_string(&policy).expect("serialize");
+        assert!(json.contains("\"rego\""));
+        let back: PolicyConfig = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(policy, back);
+    }
+
+    #[test]
+    fn test_policy_config_serde_rego_file() {
+        let policy = PolicyConfig::RegoFile(PathBuf::from("/etc/slim/auth.rego"));
+        let json = serde_json::to_string(&policy).expect("serialize");
+        assert!(json.contains("\"rego_file\""));
+        let back: PolicyConfig = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(policy, back);
+    }
+
+    #[test]
+    fn test_policy_config_serde_cel() {
+        let policy = PolicyConfig::Cel("\"admin\" in claims.groups".to_string());
+        let json = serde_json::to_string(&policy).expect("serialize");
+        assert!(json.contains("\"cel\""));
+        let back: PolicyConfig = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(policy, back);
     }
 
     #[test]
