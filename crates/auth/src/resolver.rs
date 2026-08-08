@@ -15,6 +15,13 @@ use url::Url;
 
 use crate::errors::AuthError;
 
+/// True iff `candidate` shares the same scheme, host, and port as `base`.
+pub(crate) fn same_origin(base: &Url, candidate: &Url) -> bool {
+    base.scheme() == candidate.scheme()
+        && base.host() == candidate.host()
+        && base.port_or_known_default() == candidate.port_or_known_default()
+}
+
 /// Cache entry for a JWKS.
 ///
 /// `by_kid` is a precomputed index (`kid` -> JWK) built once when the entry is
@@ -334,13 +341,32 @@ impl KeyResolver {
         // Try to fetch the OpenID configuration
         let openid_config_response = self.client.get(openid_config_url.to_string()).send().await;
 
-        // If we successfully got the OpenID configuration, extract the jwks_uri
+        // If we successfully got the OpenID configuration, validate and extract the jwks_uri
         if let Ok(response) = openid_config_response
             && response.status() == StatusCode::OK
             && let Ok(config) = response.json::<serde_json::Value>().await
-            && let Some(jwks_uri) = config.get("jwks_uri").and_then(|v| v.as_str())
         {
-            return Ok(jwks_uri.to_string());
+            // Validate 'issuer' field if present (required by OIDC spec).
+            if let Some(doc_issuer) = config.get("issuer").and_then(|v| v.as_str())
+                && doc_issuer.trim_end_matches('/') != issuer.trim_end_matches('/')
+            {
+                return Err(AuthError::OidcDiscoveryIssuerMismatch {
+                    expected: issuer.to_string(),
+                    got: doc_issuer.to_string(),
+                });
+            }
+            // Only use jwks_uri if it shares the same origin as the issuer.
+            if let Some(jwks_uri) = config.get("jwks_uri").and_then(|v| v.as_str()) {
+                let jwks_url = Url::parse(jwks_uri)?;
+                if same_origin(&issuer_url, &jwks_url) {
+                    return Ok(jwks_uri.to_string());
+                } else {
+                    return Err(AuthError::OidcDiscoveryUrlOriginMismatch {
+                        field: "jwks_uri",
+                        url: jwks_uri.to_string(),
+                    });
+                }
+            }
         }
 
         // Fallback to standard well-known JWKS location

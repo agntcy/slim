@@ -21,7 +21,7 @@ use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
 use hyper_util::service::TowerToHyperService;
 use slim_auth::jwt::VerifierJwt;
-use slim_auth::jwt_middleware::{GroupCheckLayer, ValidateJwtLayer};
+use slim_auth::jwt_middleware::{PolicyCheckLayer, ValidateJwtLayer};
 use slim_auth::metadata::MetadataMap;
 use slim_auth::oidc::OidcVerifier;
 #[cfg(not(target_family = "windows"))]
@@ -140,7 +140,7 @@ enum AuthKind {
     None,
     Basic(#[allow(deprecated)] ValidateRequestHeaderLayer<Basic<Empty<Bytes>>>),
     Jwt(ValidateJwtLayer<MetadataMap, VerifierJwt>),
-    Oidc(Stack<GroupCheckLayer, ValidateJwtLayer<MetadataMap, OidcVerifier>>),
+    Oidc(Stack<PolicyCheckLayer, ValidateJwtLayer<MetadataMap, OidcVerifier>>),
     #[cfg(not(target_family = "windows"))]
     Spire(ValidateJwtLayer<MetadataMap, SpireIdentityManager>),
 }

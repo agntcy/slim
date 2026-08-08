@@ -10,8 +10,7 @@ use base64::engine::general_purpose::STANDARD as STANDARD_BASE64;
 use jsonwebtoken::jwk::KeyAlgorithm;
 pub use jsonwebtoken::{Algorithm, Validation};
 use jsonwebtoken::{
-    DecodingKey, EncodingKey, Header as JwtHeader, TokenData, decode, decode_header, encode,
-    jwk::Jwk,
+    DecodingKey, EncodingKey, Header as JwtHeader, TokenData, decode, encode, jwk::Jwk,
 };
 
 use parking_lot::RwLock;
@@ -75,7 +74,7 @@ pub enum AlgorithmRepr {
     EdDSA,
 }
 
-fn key_alg_to_algorithm(key: &KeyAlgorithm) -> Result<Algorithm, AuthError> {
+pub(crate) fn key_alg_to_algorithm(key: &KeyAlgorithm) -> Result<Algorithm, AuthError> {
     match key {
         KeyAlgorithm::ES256 => Ok(Algorithm::ES256),
         KeyAlgorithm::ES384 => Ok(Algorithm::ES384),
@@ -95,9 +94,6 @@ fn key_alg_to_algorithm(key: &KeyAlgorithm) -> Result<Algorithm, AuthError> {
 
 pub fn algorithm_from_jwk(jwk: &str) -> Result<Algorithm, AuthError> {
     let jwk: Jwk = serde_json::from_str(jwk)?;
-
-    tracing::info!(?jwk, "JWK parsed successfully");
-
     let alg = jwk
         .common
         .key_algorithm
@@ -472,14 +468,9 @@ impl<V> Jwt<V> {
     ) -> Result<Claims, AuthError> {
         let token = token.as_ref();
 
-        // Get the token header (propagate underlying jsonwebtoken error directly)
-        let token_header = decode_header(token)?;
-
-        // Derive a validation using the same algorithm
-        let validation = self.get_validation(token_header.alg);
-
-        // Decode and verify the token
-        let token_data: TokenData<Claims> = decode(token, &decoding_key, &validation)?;
+        // Decode and verify the token using the configured algorithm allowlist only —
+        // never trust the algorithm claimed in the token header.
+        let token_data: TokenData<Claims> = decode(token, &decoding_key, &self.validation)?;
 
         // Get the exp to cache the token - do not verify token again
         let token_exp_data: TokenData<ExpClaim> = jsonwebtoken::dangerous::insecure_decode(token)?;
@@ -512,14 +503,6 @@ impl<V> Jwt<V> {
     fn cache(&self, token: impl Into<String>, expiry: u64) {
         // Store the token in the cache with its expiry
         self.token_cache.store(token, expiry);
-    }
-
-    fn get_validation(&self, alg: Algorithm) -> Validation {
-        // Create a validation object with the configured issuer, audience, and subject
-        let mut ret = self.validation.clone();
-        ret.algorithms[0] = alg;
-
-        ret
     }
 
     fn unsecure_get_token_data<T: DeserializeOwned>(
