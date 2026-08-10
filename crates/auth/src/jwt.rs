@@ -722,6 +722,12 @@ impl Verifier for VerifierJwt {
     }
 }
 
+/// Extract the `exp` claim from a JWT without signature verification.
+pub(crate) fn extract_exp_claim_unsafe(token: &str) -> Result<u64, AuthError> {
+    let data = jsonwebtoken::dangerous::insecure_decode::<ExpClaim>(token)?;
+    Ok(data.claims.exp)
+}
+
 /// Helper function to extract the 'sub' claim from a JWT token without signature validation
 pub(crate) fn extract_sub_claim_unsafe(token: &str) -> Result<String, AuthError> {
     // Decode the token without signature validation

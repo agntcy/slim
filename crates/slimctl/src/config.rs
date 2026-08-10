@@ -4,12 +4,13 @@
 use std::fs::Permissions;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use duration_string::DurationString;
 use serde::{Deserialize, Serialize};
 use slim_config::auth::basic::Config as BasicAuthConfig;
+use slim_config::auth::oidc::Config as OidcConfig;
 use slim_config::auth::static_jwt::Config as StaticJwtConfig;
 use slim_config::grpc::client::{AuthenticationConfig, BackoffConfig, ClientConfig};
 use slim_config::tls::client::TlsClientConfig;
@@ -134,8 +135,15 @@ pub fn resolve_config(
             .ok_or_else(|| anyhow::anyhow!("basic-auth-creds must be 'username:password'"))?;
         config.auth = AuthenticationConfig::Basic(BasicAuthConfig::new(user, pass));
     } else if config.auth == AuthenticationConfig::None {
-        // Auto-inject token from `slimctl login` if no other auth is configured
-        if let Ok(token_path) = token_file_path()
+        // Prefer RefreshToken when available — handles token expiry and crash-restart automatically.
+        // Fall back to StaticJwt for credentials without a refresh token (e.g. id_token only).
+        if let Ok(Some(creds)) = load_credentials()
+            && creds.refresh_token.is_some()
+        {
+            // Let OidcConfig.get_client_layer load tokens from credentials.yaml at
+            // connect time; we only need the issuer here for config identity.
+            config.auth = AuthenticationConfig::Oidc(OidcConfig::new(creds.issuer));
+        } else if let Ok(token_path) = token_file_path()
             && token_path.exists()
         {
             config.auth = AuthenticationConfig::StaticJwt(StaticJwtConfig::with_file(
@@ -243,136 +251,6 @@ pub fn load_credentials() -> Result<Option<OidcCredentials>> {
     let creds = serde_yaml::from_str(&data)
         .with_context(|| format!("failed to parse credentials: {}", path.display()))?;
     Ok(Some(creds))
-}
-
-const REFRESH_BUFFER_SECS: u64 = 60;
-
-/// Returns true if the token is expired or within REFRESH_BUFFER_SECS of expiry.
-pub fn token_needs_refresh(token: Option<&str>) -> bool {
-    let exp = token
-        .and_then(|t| jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(t).ok())
-        .and_then(|d| d.claims.get("exp").and_then(|v| v.as_u64()));
-
-    let Some(exp) = exp else {
-        return false;
-    };
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    exp <= now + REFRESH_BUFFER_SECS
-}
-
-pub async fn refresh_credentials(creds: &OidcCredentials) -> Result<OidcCredentials> {
-    do_token_refresh(creds).await
-}
-
-fn token_refresh_delay(token: Option<&str>) -> Duration {
-    let exp = token
-        .and_then(|t| jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(t).ok())
-        .and_then(|d| d.claims.get("exp").and_then(|v| v.as_u64()));
-
-    let Some(exp) = exp else {
-        return Duration::from_secs(300);
-    };
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    Duration::from_secs(exp.saturating_sub(REFRESH_BUFFER_SECS).saturating_sub(now))
-}
-
-async fn do_token_refresh(creds: &OidcCredentials) -> Result<OidcCredentials> {
-    let refresh_token = creds
-        .refresh_token
-        .as_deref()
-        .context("no refresh token available")?;
-
-    if creds.token_endpoint.is_empty() {
-        bail!("token_endpoint not stored in credentials; re-run `slimctl login`");
-    }
-    if !creds
-        .token_endpoint
-        .to_ascii_lowercase()
-        .starts_with("https://")
-    {
-        bail!(
-            "token_endpoint must use https, got: {}",
-            creds.token_endpoint
-        );
-    }
-
-    let resp: serde_json::Value = reqwest::Client::new()
-        .post(&creds.token_endpoint)
-        .form(&[
-            ("grant_type", "refresh_token"),
-            ("refresh_token", refresh_token),
-            ("client_id", creds.client_id.as_str()),
-        ])
-        .send()
-        .await
-        .context("token refresh request")?
-        .json()
-        .await
-        .context("parsing token refresh response")?;
-
-    if let Some(err) = resp.get("error").and_then(|v| v.as_str()) {
-        let desc = resp
-            .get("error_description")
-            .and_then(|v| v.as_str())
-            .unwrap_or("no description");
-        bail!("token refresh failed: {err} - {desc}");
-    }
-
-    Ok(OidcCredentials {
-        id_token: resp["id_token"]
-            .as_str()
-            .unwrap_or(&creds.id_token)
-            .to_owned(),
-        access_token: resp["access_token"]
-            .as_str()
-            .map(str::to_owned)
-            .or_else(|| creds.access_token.clone()),
-        refresh_token: resp["refresh_token"]
-            .as_str()
-            .map(str::to_owned)
-            .or_else(|| creds.refresh_token.clone()),
-        client_id: creds.client_id.clone(),
-        issuer: creds.issuer.clone(),
-        token_endpoint: creds.token_endpoint.clone(),
-    })
-}
-
-pub fn start_token_refresh_task(creds: OidcCredentials) {
-    tokio::spawn(async move {
-        let mut current = creds;
-        loop {
-            let delay = token_refresh_delay(current.access_token.as_deref());
-            if !delay.is_zero() {
-                tokio::time::sleep(delay).await;
-            }
-            match do_token_refresh(&current).await {
-                Ok(new_creds) => {
-                    if let Err(e) = save_credentials(&new_creds) {
-                        tracing::error!(error = %e, "failed to save refreshed credentials");
-                    }
-                    current = new_creds;
-                }
-                Err(e) => {
-                    if e.to_string().contains("invalid_grant") {
-                        tracing::error!("refresh token revoked or expired; re-run `slimctl login`");
-                        break;
-                    }
-                    tracing::error!(error = %e, "token refresh failed, retrying in 30s");
-                    tokio::time::sleep(Duration::from_secs(30)).await;
-                }
-            }
-        }
-    });
 }
 
 /// Return the default config file path: `$HOME/.slimctl/config.yaml`

@@ -361,6 +361,10 @@ impl From<slim_config::grpc::client::AuthenticationConfig> for ClientAuthenticat
             slim_config::grpc::client::AuthenticationConfig::Jwt(jwt) => {
                 ClientAuthenticationConfig::Jwt { config: jwt.into() }
             }
+            slim_config::grpc::client::AuthenticationConfig::Oidc(_) => {
+                // OIDC (client-credentials / refresh-token) is set programmatically; not exposed to bindings.
+                ClientAuthenticationConfig::None
+            }
             #[cfg(not(target_family = "windows"))]
             slim_config::grpc::client::AuthenticationConfig::Spire(spire) => {
                 ClientAuthenticationConfig::Spire {

@@ -17,7 +17,7 @@ use crate::commands::{
 };
 use crate::config::{
     DEFAULT_CHANNEL_MANAGER_ENDPOINT, DEFAULT_CONTROLLER_ENDPOINT, DEFAULT_NODE_ENDPOINT,
-    load_config, load_credentials, resolve_config, start_token_refresh_task,
+    load_config, resolve_config,
 };
 
 fn styles() -> Styles {
@@ -160,31 +160,6 @@ pub(crate) async fn run(cli: Cli) -> Result<()> {
         cli.global.tls_key_file.as_deref(),
         cli.global.basic_auth_creds.as_deref(),
     )?;
-
-    // Ensure the token in ~/.slimctl/token is fresh before the subcommand connects.
-    // If the token is already expired (e.g. after a crash), refresh it synchronously
-    // so the initial connection succeeds; then hand off to the background task.
-    if let Ok(Some(creds)) = load_credentials()
-        && creds.refresh_token.is_some()
-    {
-        let creds = if crate::config::token_needs_refresh(creds.access_token.as_deref()) {
-            match crate::config::refresh_credentials(&creds).await {
-                Ok(refreshed) => {
-                    if let Err(e) = crate::config::save_credentials(&refreshed) {
-                        tracing::warn!(error = %e, "failed to save pre-start token refresh");
-                    }
-                    refreshed
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "pre-start token refresh failed, proceeding with existing token");
-                    creds
-                }
-            }
-        } else {
-            creds
-        };
-        start_token_refresh_task(creds);
-    }
 
     match cli.command {
         Commands::Version => {

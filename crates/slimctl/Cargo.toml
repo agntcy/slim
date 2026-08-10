@@ -68,7 +68,6 @@ tokio-stream = { workspace = true }
 # gRPC / protobuf
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
-tracing = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 
