@@ -443,34 +443,41 @@ On the next startup, create a new app using the **same name, secret, store path,
 
 ## Close and Rejoin
 
-Call `close` to broadcast an `OFFLINE` state update and pause participation. Other group members stop expecting acknowledgements from this participant and exclude it from future MLS key material — but do not remove it from the roster. Call `rejoin` when ready to resume; the session layer broadcasts an `ONLINE` update and performs an MLS re-key to include the participant in new key material.
+`close_with_mode` takes a `CloseMode` that controls whether the close is temporary or permanent:
+
+- **`CloseMode::Soft`** — Go offline temporarily. Broadcasts an `OFFLINE` state update so other members stop expecting acknowledgements, but you remain on the roster. The session state is preserved in the persistence store. Call `rejoin` to come back; the session is restored without repeating the full handshake. **Use this when working with persistence.**
+- **`CloseMode::Hard`** — Terminate the session permanently. The session is removed from the store and cannot be restored with `rejoin`.
 
 !!! note "Group sessions only"
-    `close` and `rejoin` are only valid for group sessions. Calling either on a point-to-point session returns an error.
+    `close_with_mode` and `rejoin` are only valid for group sessions. Calling either on a point-to-point session returns an error.
 
 ### Close
+
+Use `CloseMode::Soft` to pause participation while keeping the session alive in the store:
 
 === "Rust"
 
     ```rust
-    // Broadcast OFFLINE and wait for acknowledgements
-    session.close().await?.await?;
+    use slim_session::CloseMode;
+
+    // Soft close: go offline, stay on the roster, keep session in the store
+    session.close_with_mode(CloseMode::Soft).await?.await?;
     println!("Offline — other members will stop expecting acks from us");
     ```
 
 === "Python"
 
     ```python
-    # Broadcast OFFLINE and wait for acknowledgements
-    await session.close_and_wait_async()
+    # Soft close: go offline, stay on the roster, keep session in the store
+    await session.close_with_mode_and_wait_async(slim_bindings.CloseMode.SOFT)
     print("Offline — other members will stop expecting acks from us")
     ```
 
 === "Go"
 
     ```go
-    // Broadcast OFFLINE and wait for acknowledgements
-    if err := session.CloseAndWaitAsync(); err != nil {
+    // Soft close: go offline, stay on the roster, keep session in the store
+    if err := session.CloseWithModeAndWaitAsync(slim.CloseModeSoft); err != nil {
         log.Fatal(err)
     }
     fmt.Println("Offline — other members will stop expecting acks from us")
@@ -479,8 +486,8 @@ Call `close` to broadcast an `OFFLINE` state update and pause participation. Oth
 === "Java"
 
     ```java
-    // Broadcast OFFLINE and wait for acknowledgements
-    session.closeAndWait();
+    // Soft close: go offline, stay on the roster, keep session in the store
+    session.closeWithModeAndWait(CloseMode.SOFT);
     System.out.println("Offline — other members will stop expecting acks from us");
     ```
 
@@ -490,8 +497,8 @@ Call `close` to broadcast an `OFFLINE` state update and pause participation. Oth
     import kotlinx.coroutines.runBlocking
 
     runBlocking {
-        // Broadcast OFFLINE and wait for acknowledgements
-        session.closeAndWaitAsync()
+        // Soft close: go offline, stay on the roster, keep session in the store
+        session.closeWithModeAndWaitAsync(CloseMode.SOFT)
         println("Offline — other members will stop expecting acks from us")
     }
     ```
@@ -499,16 +506,16 @@ Call `close` to broadcast an `OFFLINE` state update and pause participation. Oth
 === "Node.js"
 
     ```typescript
-    // Broadcast OFFLINE and wait for acknowledgements
-    await session.closeAndWaitAsync();
+    // Soft close: go offline, stay on the roster, keep session in the store
+    await session.closeWithModeAndWaitAsync(slimBindings.CloseMode.Soft);
     console.log("Offline — other members will stop expecting acks from us");
     ```
 
 === ".NET"
 
     ```csharp
-    // Broadcast OFFLINE and wait for acknowledgements
-    await session.CloseAndWaitAsync();
+    // Soft close: go offline, stay on the roster, keep session in the store
+    await session.CloseWithModeAndWaitAsync(SlimCloseMode.Soft);
     Console.WriteLine("Offline — other members will stop expecting acks from us");
     ```
 

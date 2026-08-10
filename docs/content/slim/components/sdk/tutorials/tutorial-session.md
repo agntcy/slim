@@ -721,6 +721,64 @@ In a group session, `publish_to_and_wait_async` / `PublishToAndWaitAsync` sends 
     await session.publishToAndWaitAsync(msg.context, payload, undefined, undefined);
     ```
 
+## Close the Session
+
+Always call `close` when you are finished with a session. This notifies the remote peer (P2P) or all group members (group session) that you are leaving, flushes any in-flight messages, and releases local resources.
+
+=== "Rust"
+
+    ```rust
+    // Close the session and wait for the operation to complete
+    session.close().await?.await?;
+    ```
+
+=== "Python"
+
+    ```python
+    await session.close_and_wait_async()
+    ```
+
+=== "Go"
+
+    ```go
+    if err := session.CloseAndWaitAsync(); err != nil {
+        log.Fatal(err)
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    session.closeAndWait();
+    ```
+
+=== "Kotlin"
+
+    ```kotlin
+    session.closeAndWaitAsync()
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    await session.closeAndWaitAsync();
+    ```
+
+=== ".NET"
+
+    ```csharp
+    await session.CloseAndWaitAsync();
+    ```
+
+=== "React Native"
+
+    ```tsx
+    await session.closeAndWaitAsync();
+    ```
+
+!!! tip "Group sessions: soft close vs hard close"
+    `close_with_mode(CloseMode::Soft)` / `closeWithModeAndWaitAsync(CloseMode.SOFT)` goes offline temporarily without leaving the roster — the session can be restored later with `rejoin`. `CloseMode::Hard` (or the plain `close()` call) terminates the session permanently. When using persistence, prefer `CloseMode::Soft` so the session survives a restart. See [Session Persistence](./tutorial-persistence.md#close-and-rejoin).
+
 ## Advanced Session Config
 
 ### Reliability

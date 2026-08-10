@@ -346,6 +346,63 @@ There are two ways to reply:
     await session.publishToAndWaitAsync(msg.context, reply, undefined, undefined);
     ```
 
+## Close the Session
+
+When the message loop exits — either because you are done or because the remote side closed the session — call `close` to release local resources and signal the remote peer that you are leaving.
+
+For group sessions there are two close modes: `CloseMode::Soft` goes offline temporarily (you stay on the roster and can rejoin later, including after a process restart when using persistence); `CloseMode::Hard` terminates the session permanently. The examples below use a hard close. If you need to pause and resume, see [Session Persistence](./tutorial-persistence.md#close-and-rejoin).
+
+=== "Rust"
+
+    ```rust
+    // Session closed is signalled by None on the receiver; close on your side too
+    session.close().await?.await?;
+    ```
+
+=== "Python"
+
+    ```python
+    await session.close_and_wait_async()
+    ```
+
+=== "Go"
+
+    ```go
+    if err := session.CloseAndWaitAsync(); err != nil {
+        log.Fatal(err)
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    session.closeAndWait();
+    ```
+
+=== "Kotlin"
+
+    ```kotlin
+    session.closeAndWaitAsync()
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    await session.closeAndWaitAsync();
+    ```
+
+=== ".NET"
+
+    ```csharp
+    await session.CloseAndWaitAsync();
+    ```
+
+=== "React Native"
+
+    ```tsx
+    await session.closeAndWaitAsync();
+    ```
+
 ## Next Steps
 
 - [Sessions](../../../architecture/sessions/index.md) — Deep dive into session types, sequence diagrams, and the full API
