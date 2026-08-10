@@ -50,6 +50,7 @@ spiffe = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 aws-lc-rs = { workspace = true }
+cel = { workspace = true }
 display-error-chain = { workspace = true }
 futures = { workspace = true }
 headers = { workspace = true }
@@ -58,6 +59,7 @@ mls-rs-crypto-awslc = { workspace = true }
 notify = { workspace = true }
 oauth2 = { workspace = true, features = ["reqwest"] }
 pin-project = { workspace = true }
+regorus = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tokio-util = { workspace = true }

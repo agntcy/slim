@@ -69,6 +69,7 @@ aws-lc-rs = { version = "1.16", features = ["bindgen"] }
 base64 = "0.22"
 bincode = "2.0.1"
 bytes = "1.9.0"
+cel = "0.14.1"
 cfg-if = "1.0"
 chrono = "0.4"
 clap = { version = "4.5.23", features = ["derive", "env"] }
@@ -170,10 +171,12 @@ protoc-bin-vendored = "3.1.0"
 rand = "0.9.0"
 rand_core = "0.10"
 regex = "1.11.1"
+regorus = "0.11.0"
 
 reqwest = { version = "0.12", features = [
     "json",
     "rustls-tls-no-provider",
+    "rustls-tls-native-roots-no-provider",
     "charset",
     "http2",
     "system-proxy",
@@ -228,7 +231,9 @@ web-time = "1"
 wiremock = "0.6"
 # Pure-Rust X25519 ECDH for the wasm32 inter-node link negotiation (aws-lc-rs is
 # native-only). `static_secrets` exposes the bytes we need for HKDF.
-x25519-dalek = { version = "2", default-features = false, features = ["static_secrets"] }
+x25519-dalek = { version = "2", default-features = false, features = [
+    "static_secrets",
+] }
 zeroize = "1.9"
 
 [workspace.package]

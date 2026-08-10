@@ -6,9 +6,11 @@ use crate::jwt::extract_sub_claim_unsafe;
 use crate::resolver::JwksCache;
 use crate::traits::{TokenProvider, Verifier};
 use display_error_chain::ErrorChainExt;
-use futures::executor::block_on;
-use jsonwebtoken::jwk::JwkSet;
-use jsonwebtoken::{DecodingKey, Validation, decode, decode_header};
+use jsonwebtoken::jwk::{AlgorithmParameters, Jwk, JwkSet, KeyAlgorithm};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
+
+use crate::jwt::key_alg_to_algorithm;
+use crate::resolver::same_origin;
 use oauth2::{AuthUrl, ClientId, ClientSecret, Scope, TokenResponse, TokenUrl, basic::BasicClient};
 use parking_lot::RwLock;
 use reqwest::Client as ReqwestClient;
@@ -18,6 +20,19 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use url::Url;
+
+/// Returns an error if `url` does not use `https`, unless the host is localhost.
+fn require_https(url: &str) -> Result<Url, AuthError> {
+    let parsed = Url::parse(url)?;
+    let is_loopback = matches!(
+        parsed.host_str(),
+        Some("localhost") | Some("127.0.0.1") | Some("::1")
+    );
+    if parsed.scheme() != "https" && !is_loopback {
+        return Err(AuthError::OidcInsecureIssuerUrl(url.to_string()));
+    }
+    Ok(parsed)
+}
 
 // Default token refresh buffer (60 seconds before expiry)
 const REFRESH_BUFFER_SECONDS: u64 = 60;
@@ -161,8 +176,7 @@ impl OidcTokenProvider {
     /// Create a new OIDC Token Provider synchronously
     /// Note: Call `initialize()` after creation to start background tasks and fetch initial token
     pub fn new(config: OidcProviderConfig) -> Result<Self, AuthError> {
-        // Validate the issuer URL
-        Url::parse(&config.issuer_url)?;
+        require_https(&config.issuer_url)?;
 
         // Create HTTP client with timeout
         let client = ReqwestClient::builder()
@@ -223,7 +237,7 @@ impl OidcTokenProvider {
 
     /// Fetch a new token using client credentials flow
     async fn fetch_new_token(&self) -> Result<String, AuthError> {
-        // Discover the provider metadata to get the token endpoint
+        let issuer_parsed = require_https(&self.config.issuer_url)?;
         let discovery_url = format!(
             "{}/.well-known/openid-configuration",
             self.config.issuer_url
@@ -235,6 +249,14 @@ impl OidcTokenProvider {
             .get("token_endpoint")
             .and_then(|v| v.as_str())
             .ok_or(AuthError::OidcDiscoveryMissingTokenEndpoint)?;
+
+        let token_url = Url::parse(token_endpoint)?;
+        if !same_origin(&issuer_parsed, &token_url) {
+            return Err(AuthError::OidcDiscoveryUrlOriginMismatch {
+                field: "token_endpoint",
+                url: token_endpoint.to_string(),
+            });
+        }
 
         let auth_url_str = discovery_response
             .get("authorization_endpoint")
@@ -373,6 +395,26 @@ impl Drop for OidcTokenProvider {
     }
 }
 
+/// Derive the signing algorithm from a JWK — never from the untrusted token header.
+/// Prefers the explicit `alg` field; falls back to inferring from key type.
+/// Symmetric algorithms (HS*) are rejected: they have no place in a public JWKS.
+fn alg_from_jwk(jwk: &Jwk) -> Result<Algorithm, AuthError> {
+    if let Some(key_alg) = &jwk.common.key_algorithm {
+        match key_alg {
+            KeyAlgorithm::HS256 | KeyAlgorithm::HS384 | KeyAlgorithm::HS512 => {
+                return Err(AuthError::JwtUnsupportedKeyAlgorithm(*key_alg));
+            }
+            _ => return key_alg_to_algorithm(key_alg),
+        }
+    }
+    match &jwk.algorithm {
+        AlgorithmParameters::RSA(_) => Ok(Algorithm::RS256),
+        AlgorithmParameters::EllipticCurve(_) => Ok(Algorithm::ES256),
+        AlgorithmParameters::OctetKeyPair(_) => Ok(Algorithm::EdDSA),
+        AlgorithmParameters::OctetKey(_) => Err(AuthError::JwtMissingKeyAlgorithm),
+    }
+}
+
 /// OIDC Token Verifier that validates JWTs using JWKS
 #[derive(Clone)]
 pub struct OidcVerifier {
@@ -403,7 +445,7 @@ impl OidcVerifier {
 
     /// Fetch JWKS from the issuer
     async fn fetch_jwks(&self) -> Result<JwkSet, AuthError> {
-        // Discover provider metadata
+        let issuer_parsed = require_https(&self.issuer_url)?;
         let discovery_url = format!("{}/.well-known/openid-configuration", self.issuer_url);
         let discovery_response: serde_json::Value = self
             .http_client
@@ -413,13 +455,39 @@ impl OidcVerifier {
             .json()
             .await?;
 
+        // OIDC spec: 'issuer' in discovery doc must match the URL used to discover it.
+        let doc_issuer = discovery_response
+            .get("issuer")
+            .and_then(|v| v.as_str())
+            .ok_or(AuthError::OidcDiscoveryMissingIssuer)?;
+        if doc_issuer.trim_end_matches('/') != self.issuer_url.trim_end_matches('/') {
+            return Err(AuthError::OidcDiscoveryIssuerMismatch {
+                expected: self.issuer_url.clone(),
+                got: doc_issuer.to_string(),
+            });
+        }
+
         let jwks_uri = discovery_response
             .get("jwks_uri")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AuthError::OidcDiscoveryMissingJwksUri)?;
 
-        // Now fetch the JWKS from the discovered jwks_uri
-        let jwks: JwkSet = self.http_client.get(jwks_uri).send().await?.json().await?;
+        // jwks_uri must be on the same origin as the issuer.
+        let jwks_url = Url::parse(jwks_uri)?;
+        if !same_origin(&issuer_parsed, &jwks_url) {
+            return Err(AuthError::OidcDiscoveryUrlOriginMismatch {
+                field: "jwks_uri",
+                url: jwks_uri.to_string(),
+            });
+        }
+
+        let jwks: JwkSet = self
+            .http_client
+            .get(jwks_url.as_str())
+            .send()
+            .await?
+            .json()
+            .await?;
 
         Ok(jwks)
     }
@@ -473,8 +541,7 @@ impl OidcVerifier {
         // Create decoding key directly from JWK using the aws-lc method
         let decoding_key = DecodingKey::from_jwk(jwk)?;
 
-        // Set up validation
-        let mut validation = Validation::new(header.alg);
+        let mut validation = Validation::new(alg_from_jwk(jwk)?);
         validation.set_audience(&[&self.audience]);
         validation.set_issuer(&[&self.issuer_url]);
 
@@ -532,8 +599,11 @@ impl Verifier for OidcVerifier {
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
-        // For synchronous verification, we need a runtime
-        block_on(self.verify_token(token.as_ref()))
+        if let Some(cached_jwks) = self.jwks_cache.get(&self.issuer_url) {
+            self.verify_token_util(token.as_ref(), &cached_jwks)
+        } else {
+            Err(AuthError::WouldBlockOn)
+        }
     }
 }
 

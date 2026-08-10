@@ -21,8 +21,9 @@ use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
 use hyper_util::service::TowerToHyperService;
 use slim_auth::jwt::VerifierJwt;
-use slim_auth::jwt_middleware::ValidateJwtLayer;
+use slim_auth::jwt_middleware::{PolicyCheckLayer, ValidateJwtLayer};
 use slim_auth::metadata::MetadataMap;
+use slim_auth::oidc::OidcVerifier;
 #[cfg(not(target_family = "windows"))]
 use slim_auth::spire::SpireIdentityManager;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -35,10 +36,12 @@ use tower::{ServiceBuilder, service_fn};
 #[allow(deprecated)]
 use tower_http::auth::require_authorization::Basic;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
+use tower_layer::Stack;
 use tracing::{debug, warn};
 
 use crate::auth::ServerAuthenticator;
 use crate::auth::jwt::Config as JwtAuthenticationConfig;
+use crate::auth::oidc::Config as OidcConfig;
 #[cfg(not(target_family = "windows"))]
 use crate::auth::spire::SpireConfig as SpireAuthConfig;
 use crate::errors::ConfigError;
@@ -136,7 +139,8 @@ pub type OnAcceptedWebSocket = Arc<
 enum AuthKind {
     None,
     Basic(#[allow(deprecated)] ValidateRequestHeaderLayer<Basic<Empty<Bytes>>>),
-    Jwt(ValidateJwtLayer<MetadataMap, VerifierJwt>),
+    Jwt(Stack<PolicyCheckLayer, ValidateJwtLayer<MetadataMap, VerifierJwt>>),
+    Oidc(Stack<PolicyCheckLayer, ValidateJwtLayer<MetadataMap, OidcVerifier>>),
     #[cfg(not(target_family = "windows"))]
     Spire(ValidateJwtLayer<MetadataMap, SpireIdentityManager>),
 }
@@ -149,11 +153,17 @@ async fn build_auth_kind(config: &ServerConfig) -> Result<AuthKind, ConfigError>
             Ok(AuthKind::Basic(layer))
         }
         ServerAuthConfig::Jwt(jwt) => {
-            let mut layer = <JwtAuthenticationConfig as ServerAuthenticator<
+            let layer = <JwtAuthenticationConfig as ServerAuthenticator<
                 Response<Empty<Bytes>>,
             >>::get_server_layer(jwt)?;
-            layer.initialize().await?;
             Ok(AuthKind::Jwt(layer))
+        }
+        ServerAuthConfig::Oidc(oidc) => {
+            let layer =
+                <OidcConfig as ServerAuthenticator<Response<Empty<Bytes>>>>::get_server_layer(
+                    oidc,
+                )?;
+            Ok(AuthKind::Oidc(layer))
         }
         #[cfg(not(target_family = "windows"))]
         ServerAuthConfig::Spire(spire) => {
@@ -420,6 +430,12 @@ async fn serve_connection<S>(
                         .service(inner),
                 )
             }
+            AuthKind::Oidc(layer) => BoxCloneService::new(
+                ServiceBuilder::new()
+                    .layer(QueryTokenToAuthHeaderLayer::new())
+                    .layer(layer)
+                    .service(inner),
+            ),
             #[cfg(not(target_family = "windows"))]
             AuthKind::Spire(layer) => BoxCloneService::new(
                 ServiceBuilder::new()

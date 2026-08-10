@@ -1,0 +1,45 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+tracing:
+  log_level: debug
+  display_thread_names: true
+  display_thread_ids: true
+
+runtime:
+  n_cores: 0
+  thread_name: "slim-data-plane"
+  drain_timeout: 10s
+
+services:
+  slim/0:
+    dataplane:
+      servers:
+        - endpoint: "0.0.0.0:46357"
+          tls:
+            source:
+              type: file
+              cert: "./config/crypto/server-cert.pem"
+              key: "./config/crypto/server-key.pem"
+          auth:
+            type: oidc
+            # OIDC discovery endpoint. The server fetches JWKS from
+            # <issuer_url>/.well-known/openid-configuration at startup.
+            issuer_url: "https://auth.example.com"
+            audience: "slim"
+            # JWKS cache TTL (default: 1h)
+            jwks_ttl: 1h
+            # Only allow tokens whose `groups` claim contains "slim-node".
+            # Rego equivalent:
+            #   policy:
+            #     rego: |
+            #       package slim.auth
+            #       default allow = false
+            #       allow if "slim-node" in input.claims.groups
+            # Use `rego_file` to load the policy from a file instead:
+            #   policy:
+            #     rego_file: ./config/oidc-policy-filter/policy.rego
+            policy:
+              cel: '"slim-node" in claims.groups'
+
+      clients: []

@@ -1,15 +1,19 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use slim_auth::jwt_middleware::{AddJwtLayer, ValidateJwtLayer};
+use slim_auth::jwt_middleware::{AddJwtLayer, PolicyCheckLayer, ValidateJwtLayer};
 use slim_auth::metadata::MetadataMap;
+use tower_layer::Stack;
 
 use super::{ClientAuthenticator, ConfigAuthError, ServerAuthenticator};
 use slim_auth::oidc::{OidcProviderConfig, OidcTokenProvider, OidcVerifier};
+
+pub use super::PolicyConfig;
 
 /// Unified OIDC Configuration that can act as both provider and verifier
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -44,6 +48,13 @@ pub struct Config {
     #[schemars(with = "String")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jwks_ttl: Option<Duration>,
+
+    /// Rego policy evaluated against JWT claims on every request.
+    /// Input shape: `{ "claims": { <all JWT payload fields> } }`.
+    /// Must define `package slim.auth` with `default allow = false`.
+    /// Absent means all authenticated requests are allowed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub policy: Option<PolicyConfig>,
 }
 
 fn default_timeout() -> Option<Duration> {
@@ -65,6 +76,7 @@ impl Config {
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            policy: None,
         }
     }
 
@@ -82,6 +94,7 @@ impl Config {
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            policy: None,
         }
     }
 
@@ -95,6 +108,7 @@ impl Config {
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            policy: None,
         }
     }
 
@@ -113,6 +127,7 @@ impl Config {
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            policy: None,
         }
     }
 
@@ -148,6 +163,24 @@ impl Config {
     /// Set the JWKS cache TTL (verifier functionality)
     pub fn with_jwks_ttl(mut self, ttl: Duration) -> Self {
         self.jwks_ttl = Some(ttl);
+        self
+    }
+
+    /// Set an inline Rego policy evaluated against JWT claims on every request
+    pub fn with_rego_policy(mut self, text: impl Into<String>) -> Self {
+        self.policy = Some(PolicyConfig::Rego(text.into()));
+        self
+    }
+
+    /// Set a path to a `.rego` file read at server startup
+    pub fn with_rego_policy_file(mut self, path: impl Into<PathBuf>) -> Self {
+        self.policy = Some(PolicyConfig::RegoFile(path.into()));
+        self
+    }
+
+    /// Set a CEL expression evaluated against JWT claims on every request
+    pub fn with_cel_policy(mut self, expression: impl Into<String>) -> Self {
+        self.policy = Some(PolicyConfig::Cel(expression.into()));
         self
     }
 
@@ -227,7 +260,7 @@ impl<Response> ServerAuthenticator<Response> for Config
 where
     Response: Default + Send + 'static,
 {
-    type ServerLayer = ValidateJwtLayer<MetadataMap, OidcVerifier>;
+    type ServerLayer = Stack<PolicyCheckLayer, ValidateJwtLayer<MetadataMap, OidcVerifier>>;
 
     fn get_server_layer(&self) -> Result<Self::ServerLayer, ConfigAuthError> {
         if !self.can_verify() {
@@ -235,17 +268,66 @@ where
         }
 
         let verifier = self.create_verifier()?;
+        let jwt_layer = ValidateJwtLayer::new(verifier, MetadataMap::default());
 
-        let claims = MetadataMap::default();
+        let policy_layer = match &self.policy {
+            None => PolicyCheckLayer::none(),
+            Some(PolicyConfig::Rego(text)) => PolicyCheckLayer::rego(text)?,
+            Some(PolicyConfig::RegoFile(path)) => PolicyCheckLayer::rego_file(path)?,
+            Some(PolicyConfig::Cel(expr)) => PolicyCheckLayer::cel(expr)?,
+        };
 
-        Ok(Self::ServerLayer::new(verifier, claims))
+        Ok(Stack::new(policy_layer, jwt_layer))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::future::{self, Ready};
+    use http::{Request, Response, StatusCode};
     use serde_json;
+    use slim_auth::jwt_middleware::PolicyCheckLayer;
+    use slim_auth::metadata::MetadataMap;
+    use std::task::{Context, Poll};
+    use tower::{Service, ServiceBuilder};
+
+    type Body = Vec<u8>;
+
+    #[derive(Clone)]
+    struct OkService;
+    impl Service<Request<Body>> for OkService {
+        type Response = Response<Body>;
+        type Error = std::convert::Infallible;
+        type Future = Ready<Result<Self::Response, Self::Error>>;
+
+        fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn call(&mut self, _: Request<Body>) -> Self::Future {
+            future::ready(Ok(Response::builder()
+                .status(StatusCode::OK)
+                .body(vec![])
+                .unwrap()))
+        }
+    }
+
+    fn policy_layer_from(config: &PolicyConfig) -> PolicyCheckLayer {
+        match config {
+            PolicyConfig::Rego(text) => PolicyCheckLayer::rego(text).unwrap(),
+            PolicyConfig::RegoFile(path) => PolicyCheckLayer::rego_file(path).unwrap(),
+            PolicyConfig::Cel(expr) => PolicyCheckLayer::cel(expr).unwrap(),
+        }
+    }
+
+    fn request_with_groups(groups: Vec<&str>) -> Request<Body> {
+        let mut claims = MetadataMap::new();
+        claims.insert("groups", groups);
+        let mut req = Request::builder().body(vec![]).unwrap();
+        req.extensions_mut().insert(claims);
+        req
+    }
 
     #[test]
     fn test_provider_config_creation() {
@@ -332,6 +414,33 @@ mod tests {
     }
 
     #[test]
+    fn test_policy_config_serde_rego() {
+        let policy = PolicyConfig::Rego("package slim.auth\ndefault allow = false".to_string());
+        let json = serde_json::to_string(&policy).expect("serialize");
+        assert!(json.contains("\"rego\""));
+        let back: PolicyConfig = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(policy, back);
+    }
+
+    #[test]
+    fn test_policy_config_serde_rego_file() {
+        let policy = PolicyConfig::RegoFile(PathBuf::from("/etc/slim/auth.rego"));
+        let json = serde_json::to_string(&policy).expect("serialize");
+        assert!(json.contains("\"rego_file\""));
+        let back: PolicyConfig = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(policy, back);
+    }
+
+    #[test]
+    fn test_policy_config_serde_cel() {
+        let policy = PolicyConfig::Cel("\"admin\" in claims.groups".to_string());
+        let json = serde_json::to_string(&policy).expect("serialize");
+        assert!(json.contains("\"cel\""));
+        let back: PolicyConfig = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(policy, back);
+    }
+
+    #[test]
     fn test_client_layer_creation_fails_without_credentials() {
         let config = Config::verifier("https://auth.example.com", "test-audience");
 
@@ -355,5 +464,88 @@ mod tests {
         let combined = Config::combined("https://auth.example.com", "id", "secret", "audience");
         assert!(combined.can_provide());
         assert!(combined.can_verify());
+    }
+
+    #[test]
+    fn test_get_server_layer_builds_with_cel_policy() {
+        let config = Config::verifier("https://auth.example.com", "audience")
+            .with_cel_policy("\"slim-node\" in claims.groups");
+        assert!(
+            <Config as super::ServerAuthenticator<Response<Body>>>::get_server_layer(&config)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_get_server_layer_builds_with_rego_policy() {
+        let config = Config::verifier("https://auth.example.com", "audience").with_rego_policy(
+            "package slim.auth\ndefault allow = false\nallow if \"slim-node\" in input.claims.groups",
+        );
+        assert!(
+            <Config as super::ServerAuthenticator<Response<Body>>>::get_server_layer(&config)
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cel_policy_allows_member_of_group() {
+        let policy = PolicyConfig::Cel("\"slim-node\" in claims.groups".to_string());
+        let mut svc = ServiceBuilder::new()
+            .layer(policy_layer_from(&policy))
+            .service(OkService);
+
+        let resp = svc
+            .call(request_with_groups(vec!["slim-node", "ops"]))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_cel_policy_rejects_non_member() {
+        let policy = PolicyConfig::Cel("\"slim-node\" in claims.groups".to_string());
+        let mut svc = ServiceBuilder::new()
+            .layer(policy_layer_from(&policy))
+            .service(OkService);
+
+        let resp = svc
+            .call(request_with_groups(vec!["other-group"]))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_rego_policy_allows_member_of_group() {
+        let policy = PolicyConfig::Rego(
+            "package slim.auth\ndefault allow = false\nallow if \"slim-node\" in input.claims.groups"
+                .to_string(),
+        );
+        let mut svc = ServiceBuilder::new()
+            .layer(policy_layer_from(&policy))
+            .service(OkService);
+
+        let resp = svc
+            .call(request_with_groups(vec!["slim-node", "ops"]))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_rego_policy_rejects_non_member() {
+        let policy = PolicyConfig::Rego(
+            "package slim.auth\ndefault allow = false\nallow if \"slim-node\" in input.claims.groups"
+                .to_string(),
+        );
+        let mut svc = ServiceBuilder::new()
+            .layer(policy_layer_from(&policy))
+            .service(OkService);
+
+        let resp = svc
+            .call(request_with_groups(vec!["other-group"]))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
     }
 }

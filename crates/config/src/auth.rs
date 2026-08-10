@@ -12,6 +12,40 @@ pub mod static_jwt;
 
 pub use app_auth::AuthConfig;
 
+use std::path::PathBuf;
+
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+/// Policy evaluated against JWT claims on every authenticated request.
+///
+/// YAML shape (externally tagged — use exactly one key):
+/// ```yaml
+/// policy:
+///   rego: |
+///     package slim.auth
+///     default allow = false
+///     allow if "admin" in input.claims.groups
+///
+/// policy:
+///   rego_file: /etc/slim/auth.rego
+///
+/// policy:
+///   cel: '"admin" in claims.groups'
+/// ```
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PolicyConfig {
+    /// Inline Rego policy. Must define `package slim.auth` with `default allow = false`.
+    /// Claims available as `input.claims.*`.
+    Rego(String),
+    /// Path to a `.rego` file read at server startup.
+    RegoFile(PathBuf),
+    /// CEL expression that must evaluate to `true`.
+    /// Claims available as `claims.*` (e.g. `"admin" in claims.groups`).
+    Cel(String),
+}
+
 use slim_auth::errors::AuthError as SlimAuthError;
 
 use thiserror::Error;

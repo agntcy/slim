@@ -56,7 +56,7 @@ pub(crate) fn spawn_transport_tasks(
             let owned = match frame.opcode {
                 OpCode::Pong => Some(ControlFrame::Pong(frame.payload.to_vec())),
                 OpCode::Close => {
-                    let payload = frame.payload.as_ref();
+                    let payload: &[u8] = frame.payload.as_ref();
                     let (code, reason) = if payload.len() >= 2 {
                         let code = u16::from_be_bytes([payload[0], payload[1]]);
                         (code, payload[2..].to_vec())

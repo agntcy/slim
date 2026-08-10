@@ -8,13 +8,16 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use slim_auth::builder::JwtBuilder;
 
+use std::path::PathBuf;
+
 use crate::auth::ConfigAuthError;
 use slim_auth::errors::AuthError;
 
-use super::{ClientAuthenticator, ServerAuthenticator};
+use super::{ClientAuthenticator, PolicyConfig, ServerAuthenticator};
 use slim_auth::jwt::{Key, SignerJwt, VerifierJwt};
-use slim_auth::jwt_middleware::{AddJwtLayer, ValidateJwtLayer};
+use slim_auth::jwt_middleware::{AddJwtLayer, PolicyCheckLayer, ValidateJwtLayer};
 use slim_auth::metadata::MetadataMap;
+use tower_layer::Stack;
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 pub struct Claims {
@@ -119,6 +122,11 @@ pub struct Config {
     /// Decoding key is used for verifying JWTs (server-side).
     /// Autoresolve is used to automatically resolve the key based on the claims.
     key: JwtKey,
+
+    /// Optional policy evaluated against JWT claims on every authenticated request.
+    /// Absent means all authenticated requests are allowed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub policy: Option<PolicyConfig>,
 }
 
 fn default_duration() -> DurationString {
@@ -132,7 +140,26 @@ impl Config {
             claims,
             duration: duration.into(),
             key,
+            policy: None,
         }
+    }
+
+    /// Set an inline Rego policy evaluated against JWT claims on every request
+    pub fn with_rego_policy(mut self, text: impl Into<String>) -> Self {
+        self.policy = Some(PolicyConfig::Rego(text.into()));
+        self
+    }
+
+    /// Set a path to a `.rego` file read at server startup
+    pub fn with_rego_policy_file(mut self, path: impl Into<PathBuf>) -> Self {
+        self.policy = Some(PolicyConfig::RegoFile(path.into()));
+        self
+    }
+
+    /// Set a CEL expression evaluated against JWT claims on every request
+    pub fn with_cel_policy(mut self, expression: impl Into<String>) -> Self {
+        self.policy = Some(PolicyConfig::Cel(expression.into()));
+        self
     }
 
     /// Set claims
@@ -222,12 +249,18 @@ where
     Response: Default + Send + 'static,
 {
     // Associated types
-    type ServerLayer = ValidateJwtLayer<MetadataMap, VerifierJwt>;
+    type ServerLayer = Stack<PolicyCheckLayer, ValidateJwtLayer<MetadataMap, VerifierJwt>>;
 
     fn get_server_layer(&self) -> Result<Self::ServerLayer, ConfigAuthError> {
         let verifier = self.get_verifier()?;
-        let custom_claims = self.custom_claims();
-        Ok(ValidateJwtLayer::new(verifier, custom_claims))
+        let jwt_layer = ValidateJwtLayer::new(verifier, self.custom_claims());
+        let policy_layer = match &self.policy {
+            None => PolicyCheckLayer::none(),
+            Some(PolicyConfig::Rego(text)) => PolicyCheckLayer::rego(text)?,
+            Some(PolicyConfig::RegoFile(path)) => PolicyCheckLayer::rego_file(path)?,
+            Some(PolicyConfig::Cel(expr)) => PolicyCheckLayer::cel(expr)?,
+        };
+        Ok(Stack::new(policy_layer, jwt_layer))
     }
 }
 
@@ -236,14 +269,43 @@ where
 mod tests {
     use crate::testutils::tower_service::{Body, HeaderCheckService};
     use crate::tls::provider::initialize_crypto_provider;
-    use http::Response;
+    use http::{Response, StatusCode};
     use serde_json;
     use slim_auth::jwt::Algorithm;
     use slim_auth::jwt::KeyData;
     use slim_auth::jwt::KeyFormat;
-    use tower::ServiceBuilder;
+    use slim_auth::metadata::MetadataMap;
+    use slim_auth::traits::Signer;
+    use tower::{Service, ServiceBuilder};
 
     use super::*;
+
+    fn hs256_encoding_key() -> JwtKey {
+        JwtKey::Encoding(Key {
+            algorithm: Algorithm::HS256,
+            format: KeyFormat::Pem,
+            key: KeyData::Data("policy-test-secret".to_string()),
+        })
+    }
+
+    fn hs256_decoding_key() -> JwtKey {
+        JwtKey::Decoding(Key {
+            algorithm: Algorithm::HS256,
+            format: KeyFormat::Pem,
+            key: KeyData::Data("policy-test-secret".to_string()),
+        })
+    }
+
+    fn token_with_groups(groups: Vec<&str>) -> String {
+        let mut custom = MetadataMap::new();
+        custom.insert("groups", groups);
+        let cfg = Config::new(
+            Claims::new(None, None, None, Some(custom)),
+            Duration::from_secs(3600),
+            hs256_encoding_key(),
+        );
+        cfg.get_provider().unwrap().sign_standard_claims().unwrap()
+    }
 
     #[test]
     fn test_config() {
@@ -418,6 +480,110 @@ mod tests {
             "expected verifier with autoresolve: {:?}",
             verifier.err()
         );
+    }
+
+    #[test]
+    fn test_server_layer_with_cel_policy() {
+        let cfg = Config::new(
+            Claims::default(),
+            Duration::from_secs(60),
+            JwtKey::Decoding(Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Data("verification-key".to_string()),
+            }),
+        )
+        .with_cel_policy("\"admin\" in claims.groups");
+        assert!(
+            <Config as super::ServerAuthenticator<http::Response<Body>>>::get_server_layer(&cfg)
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cel_policy_allows_member_of_group() {
+        let token = token_with_groups(vec!["slim-node", "ops"]);
+        let server_cfg = Config::new(
+            Claims::default(),
+            Duration::from_secs(3600),
+            hs256_decoding_key(),
+        )
+        .with_cel_policy("\"slim-node\" in claims.groups");
+        let layer =
+            <Config as ServerAuthenticator<Response<Body>>>::get_server_layer(&server_cfg).unwrap();
+        let mut svc = ServiceBuilder::new()
+            .layer(layer)
+            .service(HeaderCheckService);
+
+        let req = http::Request::builder()
+            .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+            .body(vec![])
+            .unwrap();
+        assert_eq!(svc.call(req).await.unwrap().status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_cel_policy_rejects_non_member() {
+        let token = token_with_groups(vec!["other-group"]);
+        let server_cfg = Config::new(
+            Claims::default(),
+            Duration::from_secs(3600),
+            hs256_decoding_key(),
+        )
+        .with_cel_policy("\"slim-node\" in claims.groups");
+        let layer =
+            <Config as ServerAuthenticator<Response<Body>>>::get_server_layer(&server_cfg).unwrap();
+        let mut svc = ServiceBuilder::new()
+            .layer(layer)
+            .service(HeaderCheckService);
+
+        let req = http::Request::builder()
+            .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+            .body(vec![])
+            .unwrap();
+        assert_eq!(svc.call(req).await.unwrap().status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_rego_policy_allows_member_of_group() {
+        let token = token_with_groups(vec!["slim-node", "ops"]);
+        let server_cfg =
+            Config::new(Claims::default(), Duration::from_secs(3600), hs256_decoding_key())
+                .with_rego_policy(
+                    "package slim.auth\ndefault allow = false\nallow if \"slim-node\" in input.claims.groups",
+                );
+        let layer =
+            <Config as ServerAuthenticator<Response<Body>>>::get_server_layer(&server_cfg).unwrap();
+        let mut svc = ServiceBuilder::new()
+            .layer(layer)
+            .service(HeaderCheckService);
+
+        let req = http::Request::builder()
+            .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+            .body(vec![])
+            .unwrap();
+        assert_eq!(svc.call(req).await.unwrap().status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_rego_policy_rejects_non_member() {
+        let token = token_with_groups(vec!["other-group"]);
+        let server_cfg =
+            Config::new(Claims::default(), Duration::from_secs(3600), hs256_decoding_key())
+                .with_rego_policy(
+                    "package slim.auth\ndefault allow = false\nallow if \"slim-node\" in input.claims.groups",
+                );
+        let layer =
+            <Config as ServerAuthenticator<Response<Body>>>::get_server_layer(&server_cfg).unwrap();
+        let mut svc = ServiceBuilder::new()
+            .layer(layer)
+            .service(HeaderCheckService);
+
+        let req = http::Request::builder()
+            .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+            .body(vec![])
+            .unwrap();
+        assert_eq!(svc.call(req).await.unwrap().status(), StatusCode::FORBIDDEN);
     }
 
     #[test]

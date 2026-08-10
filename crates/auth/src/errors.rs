@@ -40,6 +40,14 @@ pub enum AuthError {
     // OIDC/Oauth2 errors
     #[error("token_endpoint not found in discovery document")]
     OidcDiscoveryMissingTokenEndpoint,
+    #[error("OIDC discovery document missing 'issuer' field")]
+    OidcDiscoveryMissingIssuer,
+    #[error("OIDC discovery 'issuer' mismatch: expected '{expected}', got '{got}'")]
+    OidcDiscoveryIssuerMismatch { expected: String, got: String },
+    #[error("OIDC discovery field '{field}' URL '{url}' does not share origin with issuer")]
+    OidcDiscoveryUrlOriginMismatch { field: &'static str, url: String },
+    #[error("OIDC issuer URL must use https (got: {0})")]
+    OidcInsecureIssuerUrl(String),
     #[error("key not found: {0}")]
     OidcKeyNotFound(String),
     #[error("kid is missing and multiple keys are available")]
@@ -163,6 +171,10 @@ pub enum AuthError {
     JsonError(#[from] serde_json::Error),
     #[error("base64 decode error")]
     Base64DecodeError(#[from] base64::DecodeError),
+
+    // Rego policy
+    #[error("rego policy compilation failed: {0}")]
+    PolicyCompile(String),
 
     // Operational
     #[error("operation would block on async I/O; call async variant")]
