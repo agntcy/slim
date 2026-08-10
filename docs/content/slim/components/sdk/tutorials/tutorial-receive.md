@@ -350,6 +350,8 @@ There are two ways to reply:
 
 When the message loop exits — either because you are done or because the remote side closed the session — call `close` to release local resources and signal the remote peer that you are leaving.
 
+For group sessions there are two close modes: `CloseMode::Soft` goes offline temporarily (you stay on the roster and can rejoin later, including after a process restart when using persistence); `CloseMode::Hard` terminates the session permanently. The examples below use a hard close. If you need to pause and resume, see [Session Persistence](./tutorial-persistence.md#close-and-rejoin).
+
 === "Rust"
 
     ```rust

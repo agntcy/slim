@@ -776,8 +776,8 @@ Always call `close` when you are finished with a session. This notifies the remo
     await session.closeAndWaitAsync();
     ```
 
-!!! tip "Group sessions: go offline and rejoin later"
-    For group sessions, you can go offline temporarily without leaving the roster and resume later with `rejoin`. See [Session Persistence](./tutorial-persistence.md#close-and-rejoin).
+!!! tip "Group sessions: soft close vs hard close"
+    `close_with_mode(CloseMode::Soft)` / `closeWithModeAndWaitAsync(CloseMode.SOFT)` goes offline temporarily without leaving the roster — the session can be restored later with `rejoin`. `CloseMode::Hard` (or the plain `close()` call) terminates the session permanently. When using persistence, prefer `CloseMode::Soft` so the session survives a restart. See [Session Persistence](./tutorial-persistence.md#close-and-rejoin).
 
 ## Advanced Session Config
 
