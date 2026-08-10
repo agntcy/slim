@@ -721,6 +721,64 @@ In a group session, `publish_to_and_wait_async` / `PublishToAndWaitAsync` sends 
     await session.publishToAndWaitAsync(msg.context, payload, undefined, undefined);
     ```
 
+## Close the Session
+
+Always call `close` when you are finished with a session. This notifies the remote peer (P2P) or all group members (group session) that you are leaving, flushes any in-flight messages, and releases local resources.
+
+=== "Rust"
+
+    ```rust
+    // Close the session and wait for the operation to complete
+    session.close().await?.await?;
+    ```
+
+=== "Python"
+
+    ```python
+    await session.close_and_wait_async()
+    ```
+
+=== "Go"
+
+    ```go
+    if err := session.CloseAndWaitAsync(); err != nil {
+        log.Fatal(err)
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    session.closeAndWait();
+    ```
+
+=== "Kotlin"
+
+    ```kotlin
+    session.closeAndWaitAsync()
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    await session.closeAndWaitAsync();
+    ```
+
+=== ".NET"
+
+    ```csharp
+    await session.CloseAndWaitAsync();
+    ```
+
+=== "React Native"
+
+    ```tsx
+    await session.closeAndWaitAsync();
+    ```
+
+!!! tip "Group sessions: go offline and rejoin later"
+    For group sessions, you can go offline temporarily without leaving the roster and resume later with `rejoin`. See [Session Persistence](./tutorial-persistence.md#close-and-rejoin).
+
 ## Advanced Session Config
 
 ### Reliability

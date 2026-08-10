@@ -346,6 +346,61 @@ There are two ways to reply:
     await session.publishToAndWaitAsync(msg.context, reply, undefined, undefined);
     ```
 
+## Close the Session
+
+When the message loop exits — either because you are done or because the remote side closed the session — call `close` to release local resources and signal the remote peer that you are leaving.
+
+=== "Rust"
+
+    ```rust
+    // Session closed is signalled by None on the receiver; close on your side too
+    session.close().await?.await?;
+    ```
+
+=== "Python"
+
+    ```python
+    await session.close_and_wait_async()
+    ```
+
+=== "Go"
+
+    ```go
+    if err := session.CloseAndWaitAsync(); err != nil {
+        log.Fatal(err)
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    session.closeAndWait();
+    ```
+
+=== "Kotlin"
+
+    ```kotlin
+    session.closeAndWaitAsync()
+    ```
+
+=== "Node.js"
+
+    ```typescript
+    await session.closeAndWaitAsync();
+    ```
+
+=== ".NET"
+
+    ```csharp
+    await session.CloseAndWaitAsync();
+    ```
+
+=== "React Native"
+
+    ```tsx
+    await session.closeAndWaitAsync();
+    ```
+
 ## Next Steps
 
 - [Sessions](../../../architecture/sessions/index.md) — Deep dive into session types, sequence diagrams, and the full API
