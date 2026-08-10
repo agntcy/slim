@@ -139,7 +139,7 @@ pub type OnAcceptedWebSocket = Arc<
 enum AuthKind {
     None,
     Basic(#[allow(deprecated)] ValidateRequestHeaderLayer<Basic<Empty<Bytes>>>),
-    Jwt(ValidateJwtLayer<MetadataMap, VerifierJwt>),
+    Jwt(Stack<PolicyCheckLayer, ValidateJwtLayer<MetadataMap, VerifierJwt>>),
     Oidc(Stack<PolicyCheckLayer, ValidateJwtLayer<MetadataMap, OidcVerifier>>),
     #[cfg(not(target_family = "windows"))]
     Spire(ValidateJwtLayer<MetadataMap, SpireIdentityManager>),
@@ -153,10 +153,9 @@ async fn build_auth_kind(config: &ServerConfig) -> Result<AuthKind, ConfigError>
             Ok(AuthKind::Basic(layer))
         }
         ServerAuthConfig::Jwt(jwt) => {
-            let mut layer = <JwtAuthenticationConfig as ServerAuthenticator<
+            let layer = <JwtAuthenticationConfig as ServerAuthenticator<
                 Response<Empty<Bytes>>,
             >>::get_server_layer(jwt)?;
-            layer.initialize().await?;
             Ok(AuthKind::Jwt(layer))
         }
         ServerAuthConfig::Oidc(oidc) => {

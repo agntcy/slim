@@ -13,34 +13,7 @@ use tower_layer::Stack;
 use super::{ClientAuthenticator, ConfigAuthError, ServerAuthenticator};
 use slim_auth::oidc::{OidcProviderConfig, OidcTokenProvider, OidcVerifier};
 
-/// Policy evaluated against JWT claims on every authenticated request.
-///
-/// YAML shape (externally tagged — use exactly one key):
-/// ```yaml
-/// policy:
-///   rego: |
-///     package slim.auth
-///     default allow = false
-///     allow if "admin" in input.claims.groups
-///
-/// policy:
-///   rego_file: /etc/slim/auth.rego
-///
-/// policy:
-///   cel: '"admin" in claims.groups'
-/// ```
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum PolicyConfig {
-    /// Inline Rego policy. Must define `package slim.auth` with `default allow = false`.
-    /// Claims available as `input.claims.*`.
-    Rego(String),
-    /// Path to a `.rego` file read at server startup.
-    RegoFile(PathBuf),
-    /// CEL expression that must evaluate to `true`.
-    /// Claims available as `claims.*` (e.g. `"admin" in claims.groups`).
-    Cel(String),
-}
+pub use super::PolicyConfig;
 
 /// Unified OIDC Configuration that can act as both provider and verifier
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -311,7 +284,50 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::future::{self, Ready};
+    use http::{Request, Response, StatusCode};
     use serde_json;
+    use slim_auth::jwt_middleware::PolicyCheckLayer;
+    use slim_auth::metadata::MetadataMap;
+    use std::task::{Context, Poll};
+    use tower::{Service, ServiceBuilder};
+
+    type Body = Vec<u8>;
+
+    #[derive(Clone)]
+    struct OkService;
+    impl Service<Request<Body>> for OkService {
+        type Response = Response<Body>;
+        type Error = std::convert::Infallible;
+        type Future = Ready<Result<Self::Response, Self::Error>>;
+
+        fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn call(&mut self, _: Request<Body>) -> Self::Future {
+            future::ready(Ok(Response::builder()
+                .status(StatusCode::OK)
+                .body(vec![])
+                .unwrap()))
+        }
+    }
+
+    fn policy_layer_from(config: &PolicyConfig) -> PolicyCheckLayer {
+        match config {
+            PolicyConfig::Rego(text) => PolicyCheckLayer::rego(text).unwrap(),
+            PolicyConfig::RegoFile(path) => PolicyCheckLayer::rego_file(path).unwrap(),
+            PolicyConfig::Cel(expr) => PolicyCheckLayer::cel(expr).unwrap(),
+        }
+    }
+
+    fn request_with_groups(groups: Vec<&str>) -> Request<Body> {
+        let mut claims = MetadataMap::new();
+        claims.insert("groups", groups);
+        let mut req = Request::builder().body(vec![]).unwrap();
+        req.extensions_mut().insert(claims);
+        req
+    }
 
     #[test]
     fn test_provider_config_creation() {
@@ -448,5 +464,86 @@ mod tests {
         let combined = Config::combined("https://auth.example.com", "id", "secret", "audience");
         assert!(combined.can_provide());
         assert!(combined.can_verify());
+    }
+
+    #[test]
+    fn test_get_server_layer_builds_with_cel_policy() {
+        let config = Config::verifier("https://auth.example.com", "audience")
+            .with_cel_policy("\"slim-node\" in claims.groups");
+        assert!(
+            <Config as super::ServerAuthenticator<Response<Body>>>::get_server_layer(&config).is_ok()
+        );
+    }
+
+    #[test]
+    fn test_get_server_layer_builds_with_rego_policy() {
+        let config = Config::verifier("https://auth.example.com", "audience").with_rego_policy(
+            "package slim.auth\ndefault allow = false\nallow if \"slim-node\" in input.claims.groups",
+        );
+        assert!(
+            <Config as super::ServerAuthenticator<Response<Body>>>::get_server_layer(&config).is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cel_policy_allows_member_of_group() {
+        let policy = PolicyConfig::Cel("\"slim-node\" in claims.groups".to_string());
+        let mut svc = ServiceBuilder::new()
+            .layer(policy_layer_from(&policy))
+            .service(OkService);
+
+        let resp = svc
+            .call(request_with_groups(vec!["slim-node", "ops"]))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_cel_policy_rejects_non_member() {
+        let policy = PolicyConfig::Cel("\"slim-node\" in claims.groups".to_string());
+        let mut svc = ServiceBuilder::new()
+            .layer(policy_layer_from(&policy))
+            .service(OkService);
+
+        let resp = svc
+            .call(request_with_groups(vec!["other-group"]))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_rego_policy_allows_member_of_group() {
+        let policy = PolicyConfig::Rego(
+            "package slim.auth\ndefault allow = false\nallow if \"slim-node\" in input.claims.groups"
+                .to_string(),
+        );
+        let mut svc = ServiceBuilder::new()
+            .layer(policy_layer_from(&policy))
+            .service(OkService);
+
+        let resp = svc
+            .call(request_with_groups(vec!["slim-node", "ops"]))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_rego_policy_rejects_non_member() {
+        let policy = PolicyConfig::Rego(
+            "package slim.auth\ndefault allow = false\nallow if \"slim-node\" in input.claims.groups"
+                .to_string(),
+        );
+        let mut svc = ServiceBuilder::new()
+            .layer(policy_layer_from(&policy))
+            .service(OkService);
+
+        let resp = svc
+            .call(request_with_groups(vec!["other-group"]))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
     }
 }
