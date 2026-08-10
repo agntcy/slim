@@ -363,6 +363,10 @@ pub fn start_token_refresh_task(creds: OidcCredentials) {
                     current = new_creds;
                 }
                 Err(e) => {
+                    if e.to_string().contains("invalid_grant") {
+                        tracing::error!("refresh token revoked or expired; re-run `slimctl login`");
+                        break;
+                    }
                     tracing::error!(error = %e, "token refresh failed, retrying in 30s");
                     tokio::time::sleep(Duration::from_secs(30)).await;
                 }
