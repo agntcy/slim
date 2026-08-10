@@ -471,7 +471,8 @@ mod tests {
         let config = Config::verifier("https://auth.example.com", "audience")
             .with_cel_policy("\"slim-node\" in claims.groups");
         assert!(
-            <Config as super::ServerAuthenticator<Response<Body>>>::get_server_layer(&config).is_ok()
+            <Config as super::ServerAuthenticator<Response<Body>>>::get_server_layer(&config)
+                .is_ok()
         );
     }
 
@@ -481,7 +482,8 @@ mod tests {
             "package slim.auth\ndefault allow = false\nallow if \"slim-node\" in input.claims.groups",
         );
         assert!(
-            <Config as super::ServerAuthenticator<Response<Body>>>::get_server_layer(&config).is_ok()
+            <Config as super::ServerAuthenticator<Response<Body>>>::get_server_layer(&config)
+                .is_ok()
         );
     }
 

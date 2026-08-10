@@ -503,12 +503,17 @@ mod tests {
     #[tokio::test]
     async fn test_cel_policy_allows_member_of_group() {
         let token = token_with_groups(vec!["slim-node", "ops"]);
-        let server_cfg =
-            Config::new(Claims::default(), Duration::from_secs(3600), hs256_decoding_key())
-                .with_cel_policy("\"slim-node\" in claims.groups");
+        let server_cfg = Config::new(
+            Claims::default(),
+            Duration::from_secs(3600),
+            hs256_decoding_key(),
+        )
+        .with_cel_policy("\"slim-node\" in claims.groups");
         let layer =
             <Config as ServerAuthenticator<Response<Body>>>::get_server_layer(&server_cfg).unwrap();
-        let mut svc = ServiceBuilder::new().layer(layer).service(HeaderCheckService);
+        let mut svc = ServiceBuilder::new()
+            .layer(layer)
+            .service(HeaderCheckService);
 
         let req = http::Request::builder()
             .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
@@ -520,12 +525,17 @@ mod tests {
     #[tokio::test]
     async fn test_cel_policy_rejects_non_member() {
         let token = token_with_groups(vec!["other-group"]);
-        let server_cfg =
-            Config::new(Claims::default(), Duration::from_secs(3600), hs256_decoding_key())
-                .with_cel_policy("\"slim-node\" in claims.groups");
+        let server_cfg = Config::new(
+            Claims::default(),
+            Duration::from_secs(3600),
+            hs256_decoding_key(),
+        )
+        .with_cel_policy("\"slim-node\" in claims.groups");
         let layer =
             <Config as ServerAuthenticator<Response<Body>>>::get_server_layer(&server_cfg).unwrap();
-        let mut svc = ServiceBuilder::new().layer(layer).service(HeaderCheckService);
+        let mut svc = ServiceBuilder::new()
+            .layer(layer)
+            .service(HeaderCheckService);
 
         let req = http::Request::builder()
             .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
@@ -544,7 +554,9 @@ mod tests {
                 );
         let layer =
             <Config as ServerAuthenticator<Response<Body>>>::get_server_layer(&server_cfg).unwrap();
-        let mut svc = ServiceBuilder::new().layer(layer).service(HeaderCheckService);
+        let mut svc = ServiceBuilder::new()
+            .layer(layer)
+            .service(HeaderCheckService);
 
         let req = http::Request::builder()
             .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
@@ -563,7 +575,9 @@ mod tests {
                 );
         let layer =
             <Config as ServerAuthenticator<Response<Body>>>::get_server_layer(&server_cfg).unwrap();
-        let mut svc = ServiceBuilder::new().layer(layer).service(HeaderCheckService);
+        let mut svc = ServiceBuilder::new()
+            .layer(layer)
+            .service(HeaderCheckService);
 
         let req = http::Request::builder()
             .header(http::header::AUTHORIZATION, format!("Bearer {}", token))

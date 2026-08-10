@@ -28,7 +28,7 @@ services:
               subject: "slim"
               # The `groups` claim must satisfy the server-side policy.
               custom_claims:
-                groups: ["slim-node1"]
+                groups: ["slim-node"]
             duration: 1h
             key:
               type: encoding
