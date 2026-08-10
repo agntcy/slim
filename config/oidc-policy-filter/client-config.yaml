@@ -1,0 +1,34 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+tracing:
+  log_level: debug
+  display_thread_names: true
+  display_thread_ids: true
+
+runtime:
+  n_cores: 0
+  thread_name: "slim-data-plane"
+  drain_timeout: 10s
+
+services:
+  slim/0:
+    dataplane:
+      clients:
+        - endpoint: "https://localhost:46357"
+          tls:
+            ca_source:
+              type: file
+              path: "./config/crypto/server-ca-cert.pem"
+          auth:
+            type: oidc
+            # Token provider (client credentials grant).
+            # The `groups` claim must be issued by the IdP and satisfy the
+            # server-side policy (i.e. include "slim-node").
+            issuer_url: "https://auth.example.com"
+            client_id: "slim-client"
+            client_secret: "changeme"
+            audience: "slim"
+            scope: "openid"
+
+      servers: []
