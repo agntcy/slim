@@ -52,13 +52,13 @@ pub struct Config {
     #[serde(default = "default_timeout")]
     #[schemars(with = "String")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<Duration>,
+    pub timeout: Option<DurationString>,
 
     /// JWKS cache TTL (default: 1 hour, verifier only)
     #[serde(default = "default_jwks_ttl")]
     #[schemars(with = "String")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub jwks_ttl: Option<Duration>,
+    pub jwks_ttl: Option<DurationString>,
 
     /// Cache TTL for merged JWT+userinfo claims (verifier only).
     /// When set, claims are cached per token for this duration (e.g. "5m", "300s").
@@ -75,12 +75,12 @@ pub struct Config {
     pub policy: Option<PolicyConfig>,
 }
 
-fn default_timeout() -> Option<Duration> {
-    Some(Duration::from_secs(30))
+fn default_timeout() -> Option<DurationString> {
+    Some(Duration::from_secs(30).into())
 }
 
-fn default_jwks_ttl() -> Option<Duration> {
-    Some(Duration::from_secs(3600)) // 1 hour
+fn default_jwks_ttl() -> Option<DurationString> {
+    Some(Duration::from_secs(3600).into()) // 1 hour
 }
 
 impl Config {
@@ -202,13 +202,13 @@ impl Config {
 
     /// Set the HTTP timeout for token requests (provider functionality)
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = Some(timeout);
+        self.timeout = Some(timeout.into());
         self
     }
 
     /// Set the JWKS cache TTL (verifier functionality)
     pub fn with_jwks_ttl(mut self, ttl: Duration) -> Self {
-        self.jwks_ttl = Some(ttl);
+        self.jwks_ttl = Some(ttl.into());
         self
     }
 
@@ -262,7 +262,7 @@ impl Config {
             client_secret: client_secret.clone(),
             issuer_url: self.issuer_url.clone(),
             scope: self.scope.clone(),
-            timeout: self.timeout,
+            timeout: self.timeout.map(|d| d.into()),
         })
     }
 
@@ -282,7 +282,7 @@ impl Config {
 
         let mut verifier = OidcVerifier::new(&self.issuer_url, audience);
         if let Some(ttl) = self.jwks_ttl {
-            verifier = verifier.with_jwks_ttl(ttl);
+            verifier = verifier.with_jwks_ttl(ttl.into());
         }
         if let Some(ttl) = &self.claim_cache_ttl {
             verifier = verifier.with_claim_cache(Duration::from(*ttl));
@@ -528,7 +528,7 @@ mod tests {
         assert_eq!(config.client_secret, Some("test-client-secret".to_string()));
         assert_eq!(config.issuer_url, "https://auth.example.com");
         assert_eq!(config.scope, Some("api:read".to_string()));
-        assert_eq!(config.timeout, Some(Duration::from_secs(45)));
+        assert_eq!(config.timeout, Some(Duration::from_secs(45).into()));
         assert!(config.can_provide());
         assert!(!config.can_verify());
     }
@@ -540,7 +540,7 @@ mod tests {
 
         assert_eq!(config.issuer_url, "https://auth.example.com");
         assert_eq!(config.audience, Some("test-audience".to_string()));
-        assert_eq!(config.jwks_ttl, Some(Duration::from_secs(1800)));
+        assert_eq!(config.jwks_ttl, Some(Duration::from_secs(1800).into()));
         assert!(!config.can_provide());
         assert!(config.can_verify());
     }
@@ -561,7 +561,7 @@ mod tests {
         assert_eq!(config.client_secret, Some("client-secret".to_string()));
         assert_eq!(config.audience, Some("audience".to_string()));
         assert_eq!(config.scope, Some("api:read".to_string()));
-        assert_eq!(config.jwks_ttl, Some(Duration::from_secs(1800)));
+        assert_eq!(config.jwks_ttl, Some(Duration::from_secs(1800).into()));
         assert!(config.can_provide());
         assert!(config.can_verify());
     }
@@ -578,8 +578,8 @@ mod tests {
         assert!(config.can_provide());
         assert!(config.can_verify());
         assert_eq!(config.scope, Some("api:read".to_string()));
-        assert_eq!(config.timeout, Some(Duration::from_secs(45)));
-        assert_eq!(config.jwks_ttl, Some(Duration::from_secs(1800)));
+        assert_eq!(config.timeout, Some(Duration::from_secs(45).into()));
+        assert_eq!(config.jwks_ttl, Some(Duration::from_secs(1800).into()));
     }
 
     #[test]
