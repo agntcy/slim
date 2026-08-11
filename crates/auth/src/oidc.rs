@@ -516,8 +516,11 @@ impl OidcVerifier {
     }
 
     /// Verify a token against JWKS; returns raw JSON claims.
-    fn verify_token_util(&self, token: &str, jwks: &JwkSet) -> Result<serde_json::Value, AuthError>
-    {
+    fn verify_token_util(
+        &self,
+        token: &str,
+        jwks: &JwkSet,
+    ) -> Result<serde_json::Value, AuthError> {
         let header = decode_header(token)?;
 
         let jwk = match header.kid {

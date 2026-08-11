@@ -65,7 +65,6 @@ pub struct Config {
     /// Absent means all authenticated requests are allowed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub policy: Option<PolicyConfig>,
-
 }
 
 fn default_timeout() -> Option<Duration> {
