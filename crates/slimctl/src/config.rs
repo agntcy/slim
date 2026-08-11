@@ -1,8 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::fs::Permissions;
-use std::os::unix::fs::PermissionsExt;
+use std::fs::OpenOptions;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -221,23 +221,30 @@ pub fn token_file_path() -> Result<PathBuf> {
     Ok(home.join(".slimctl").join("token"))
 }
 
+fn write_private(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?
+        .write_all(data)
+}
+
 pub fn save_credentials(creds: &OidcCredentials) -> Result<()> {
     let path = credentials_file_path()?;
     let dir = path.parent().expect("credentials path must have a parent");
     std::fs::create_dir_all(dir)
         .with_context(|| format!("failed to create config directory: {}", dir.display()))?;
     let data = serde_yaml::to_string(creds).context("failed to serialize credentials")?;
-    std::fs::write(&path, &data)
+    write_private(&path, data.as_bytes())
         .with_context(|| format!("failed to write credentials: {}", path.display()))?;
-    std::fs::set_permissions(&path, Permissions::from_mode(0o600))
-        .with_context(|| format!("failed to set permissions on: {}", path.display()))?;
     // Write bearer token for StaticJwt auto-injection; prefer access_token (longer TTL).
     let token = creds.access_token.as_deref().unwrap_or(&creds.id_token);
     let token_path = token_file_path()?;
-    std::fs::write(&token_path, token)
+    write_private(&token_path, token.as_bytes())
         .with_context(|| format!("failed to write token: {}", token_path.display()))?;
-    std::fs::set_permissions(&token_path, Permissions::from_mode(0o600))
-        .with_context(|| format!("failed to set permissions on: {}", token_path.display()))?;
     Ok(())
 }
 

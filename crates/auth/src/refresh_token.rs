@@ -38,6 +38,7 @@ pub struct RefreshTokenProviderConfig {
 
 struct CachedToken {
     token: String,
+    exp: u64,
     refresh_at: u64,
 }
 
@@ -172,6 +173,7 @@ impl RefreshTokenProvider {
 
         *self.cached.write() = Some(CachedToken {
             token: access_token,
+            exp: now + expires_in,
             refresh_at,
         });
 
@@ -193,22 +195,70 @@ impl TokenProvider for RefreshTokenProvider {
                 let refresh_at = now + (remaining * 2 / 3).max(REFRESH_BUFFER_SECS + 1);
                 *self.cached.write() = Some(CachedToken {
                     token: token.clone(),
+                    exp,
                     refresh_at,
                 });
                 self.config.initial_access_token = None;
                 tracing::debug!(exp, "seeded token cache from initial access token");
-                return Ok(());
+            } else {
+                self.config.initial_access_token = None;
+                tracing::debug!("initial access token is expired; fetching a new one");
+                self.fetch_new_token().await.inspect_err(|e| {
+                    tracing::error!(
+                        error = %e.chain(),
+                        "failed to obtain initial OIDC token; re-run `slimctl login`"
+                    );
+                })?;
             }
-            self.config.initial_access_token = None;
-            tracing::debug!("initial access token is expired; fetching a new one");
+        } else {
+            self.fetch_new_token().await.inspect_err(|e| {
+                tracing::error!(
+                    error = %e.chain(),
+                    "failed to obtain initial OIDC token; re-run `slimctl login`"
+                );
+            })?;
         }
 
-        self.fetch_new_token().await.inspect_err(|e| {
-            tracing::error!(
-                error = %e.chain(),
-                "failed to obtain initial OIDC token; re-run `slimctl login`"
-            );
-        })
+        // Proactive background renewal: wakes at refresh_at and fetches a new
+        // token before the current one expires, so get_token() always returns
+        // a valid token under normal conditions.
+        let provider = self.clone();
+        tokio::spawn(async move {
+            loop {
+                let refresh_at = provider.cached.read().as_ref().map(|c| c.refresh_at);
+                let Some(refresh_at) = refresh_at else { break };
+
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                if refresh_at > now {
+                    tokio::time::sleep(Duration::from_secs(refresh_at - now)).await;
+                }
+
+                if provider.refreshing.swap(true, Ordering::Relaxed) {
+                    // get_token() already triggered a refresh; wait for it.
+                    continue;
+                }
+                match provider.fetch_new_token().await {
+                    Ok(()) => {}
+                    Err(AuthError::RefreshTokenRevoked) => {
+                        tracing::error!("refresh token revoked; re-run `slimctl login`");
+                        provider.refreshing.store(false, Ordering::Relaxed);
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e.chain(), "background token refresh failed; retrying in 30s");
+                        provider.refreshing.store(false, Ordering::Relaxed);
+                        tokio::time::sleep(Duration::from_secs(30)).await;
+                        continue;
+                    }
+                }
+                provider.refreshing.store(false, Ordering::Relaxed);
+            }
+        });
+
+        Ok(())
     }
 
     fn get_token(&self) -> Result<String, AuthError> {
@@ -219,23 +269,11 @@ impl TokenProvider for RefreshTokenProvider {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let needs_refresh = now >= c.refresh_at;
+        let is_expired = now >= c.exp;
         drop(cached);
 
-        if needs_refresh && !self.refreshing.swap(true, Ordering::Relaxed) {
-            let provider = self.clone();
-            tokio::spawn(async move {
-                match provider.fetch_new_token().await {
-                    Ok(()) => {}
-                    Err(AuthError::RefreshTokenRevoked) => {
-                        tracing::error!("refresh token revoked or expired; re-run `slimctl login`");
-                    }
-                    Err(e) => {
-                        tracing::error!(error = %e.chain(), "token refresh failed");
-                    }
-                }
-                provider.refreshing.store(false, Ordering::Relaxed);
-            });
+        if is_expired {
+            return Err(AuthError::GetTokenError);
         }
 
         Ok(token)
