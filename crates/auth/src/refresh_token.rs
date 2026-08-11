@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use display_error_chain::ErrorChainExt;
@@ -17,6 +18,8 @@ const REFRESH_BUFFER_SECS: u64 = 60;
 
 #[derive(Clone)]
 pub struct RefreshTokenProviderConfig {
+    /// Initial refresh token. Copied into the provider's internal `current_refresh_token`
+    /// on construction; the internal field is the live value after that.
     pub refresh_token: String,
     /// OIDC issuer URL; the token endpoint is discovered from
     /// `{issuer_url}/.well-known/openid-configuration` on first use.
@@ -46,11 +49,15 @@ pub struct RefreshTokenProvider {
     cached: Arc<RwLock<Option<CachedToken>>>,
     // Discovered once on first fetch; avoids repeated discovery round-trips.
     cached_token_endpoint: Arc<RwLock<Option<String>>>,
+    // Prevents concurrent refresh spawns; only the first caller that sets this
+    // to true proceeds, avoiding spurious invalid_grant errors from rotation.
+    refreshing: Arc<AtomicBool>,
     client: ReqwestClient,
 }
 
 impl RefreshTokenProvider {
-    pub fn new(config: RefreshTokenProviderConfig) -> Result<Self, AuthError> {
+    pub fn new(mut config: RefreshTokenProviderConfig) -> Result<Self, AuthError> {
+        config.issuer_url = config.issuer_url.trim_end_matches('/').to_owned();
         let parsed = url::Url::parse(&config.issuer_url)?;
         let is_loopback = matches!(
             parsed.host_str(),
@@ -72,6 +79,7 @@ impl RefreshTokenProvider {
             current_refresh_token,
             cached: Arc::new(RwLock::new(None)),
             cached_token_endpoint: Arc::new(RwLock::new(None)),
+            refreshing: Arc::new(AtomicBool::new(false)),
             client,
         })
     }
@@ -87,13 +95,7 @@ impl RefreshTokenProvider {
             "{}/.well-known/openid-configuration",
             self.config.issuer_url
         );
-        let doc: serde_json::Value = self
-            .client
-            .get(&discovery_url)
-            .send()
-            .await?
-            .json()
-            .await?;
+        let doc: serde_json::Value = self.client.get(&discovery_url).send().await?.json().await?;
         let token_endpoint = doc
             .get("token_endpoint")
             .and_then(|v| v.as_str())
@@ -110,7 +112,7 @@ impl RefreshTokenProvider {
         Ok(token_endpoint)
     }
 
-    async fn fetch_new_token(&self) -> Result<String, AuthError> {
+    async fn fetch_new_token(&self) -> Result<(), AuthError> {
         let token_endpoint = self.get_token_endpoint().await?;
         let refresh_token = self.current_refresh_token.read().clone();
 
@@ -161,17 +163,19 @@ impl RefreshTokenProvider {
 
         if let Some(new_rt) = resp["refresh_token"].as_str() {
             *self.current_refresh_token.write() = new_rt.to_owned();
-            if let Some(cb) = &self.config.persist_credentials {
-                cb(access_token.clone(), new_rt.to_owned());
+            if let Some(cb) = self.config.persist_credentials.clone() {
+                let at = access_token.clone();
+                let rt = new_rt.to_owned();
+                tokio::task::spawn_blocking(move || cb(at, rt));
             }
         }
 
         *self.cached.write() = Some(CachedToken {
-            token: access_token.clone(),
+            token: access_token,
             refresh_at,
         });
 
-        Ok(access_token)
+        Ok(())
     }
 }
 
@@ -182,29 +186,29 @@ impl TokenProvider for RefreshTokenProvider {
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
-            if let Ok(exp) = extract_exp_claim_unsafe(token) {
-                if exp > now {
-                    let remaining = exp - now;
-                    let refresh_at = now + (remaining * 2 / 3).max(REFRESH_BUFFER_SECS + 1);
-                    *self.cached.write() = Some(CachedToken {
-                        token: token.clone(),
-                        refresh_at,
-                    });
-                    tracing::debug!(exp, "seeded token cache from initial access token");
-                    return Ok(());
-                }
+            if let Ok(exp) = extract_exp_claim_unsafe(token)
+                && exp > now
+            {
+                let remaining = exp - now;
+                let refresh_at = now + (remaining * 2 / 3).max(REFRESH_BUFFER_SECS + 1);
+                *self.cached.write() = Some(CachedToken {
+                    token: token.clone(),
+                    refresh_at,
+                });
+                self.config.initial_access_token = None;
+                tracing::debug!(exp, "seeded token cache from initial access token");
+                return Ok(());
             }
+            self.config.initial_access_token = None;
             tracing::debug!("initial access token is expired; fetching a new one");
         }
 
-        if let Err(e) = self.fetch_new_token().await {
+        self.fetch_new_token().await.inspect_err(|e| {
             tracing::error!(
                 error = %e.chain(),
                 "failed to obtain initial OIDC token; re-run `slimctl login`"
             );
-            return Err(e);
-        }
-        Ok(())
+        })
     }
 
     fn get_token(&self) -> Result<String, AuthError> {
@@ -218,23 +222,19 @@ impl TokenProvider for RefreshTokenProvider {
         let needs_refresh = now >= c.refresh_at;
         drop(cached);
 
-        if needs_refresh {
-            // Spawn a one-shot refresh; the current token is still valid until exp.
-            // Concurrent calls during the brief refresh window all get the old token
-            // and only the first spawn matters — subsequent fetches are harmless.
+        if needs_refresh && !self.refreshing.swap(true, Ordering::Relaxed) {
             let provider = self.clone();
             tokio::spawn(async move {
                 match provider.fetch_new_token().await {
-                    Ok(_) => {}
+                    Ok(()) => {}
                     Err(AuthError::RefreshTokenRevoked) => {
-                        tracing::error!(
-                            "refresh token revoked or expired; re-run `slimctl login`"
-                        );
+                        tracing::error!("refresh token revoked or expired; re-run `slimctl login`");
                     }
                     Err(e) => {
                         tracing::error!(error = %e.chain(), "token refresh failed");
                     }
                 }
+                provider.refreshing.store(false, Ordering::Relaxed);
             });
         }
 

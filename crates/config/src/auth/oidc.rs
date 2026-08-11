@@ -342,11 +342,16 @@ fn load_stored_credentials() -> Option<StoredCredentials> {
 fn persist_stored_credentials(path: std::path::PathBuf, creds: StoredCredentials) {
     match serde_yaml::to_string(&creds) {
         Ok(yaml) => {
-            if let Err(e) = std::fs::write(&path, yaml) {
+            if let Err(e) = std::fs::write(&path, &yaml) {
                 tracing::error!("failed to write rotated credentials to {path:?}: {e}");
-            } else {
-                tracing::debug!("persisted rotated refresh token to {path:?}");
+                return;
             }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            }
+            tracing::debug!("persisted rotated refresh token to {path:?}");
         }
         Err(e) => tracing::error!("failed to serialize credentials: {e}"),
     }
@@ -378,11 +383,15 @@ impl ClientAuthenticator for Config {
             OidcClientProvider::ClientCredentials(self.create_provider()?)
         } else {
             // No explicit tokens — load from ~/.slimctl/credentials.yaml.
-            let creds = load_stored_credentials().ok_or(ConfigAuthError::IdentityProviderNotConfigured)?;
+            let creds =
+                load_stored_credentials().ok_or(ConfigAuthError::IdentityProviderNotConfigured)?;
             if !self.issuer_url.is_empty() && creds.issuer != self.issuer_url {
                 return Err(ConfigAuthError::IdentityProviderNotConfigured);
             }
-            let refresh_token = creds.refresh_token.clone().ok_or(ConfigAuthError::IdentityProviderNotConfigured)?;
+            let refresh_token = creds
+                .refresh_token
+                .clone()
+                .ok_or(ConfigAuthError::IdentityProviderNotConfigured)?;
             let persist = credentials_file_path().map(|path| {
                 let creds = creds.clone();
                 let cb: Arc<dyn Fn(String, String) + Send + Sync> =
