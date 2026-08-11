@@ -424,6 +424,9 @@ pub struct OidcVerifier {
     http_client: ReqwestClient,
     jwks_ttl: Duration,
     userinfo_endpoint: Arc<std::sync::OnceLock<String>>,
+    // When Some, merged claims are cached for claim_cache_ttl per token.
+    claim_cache: Option<Arc<RwLock<HashMap<String, (serde_json::Value, Instant)>>>>,
+    claim_cache_ttl: Duration,
 }
 
 impl OidcVerifier {
@@ -436,12 +439,22 @@ impl OidcVerifier {
             http_client: reqwest::Client::new(),
             jwks_ttl: Duration::from_secs(3600), // Default 1 hour
             userinfo_endpoint: Arc::new(std::sync::OnceLock::new()),
+            claim_cache: None,
+            claim_cache_ttl: Duration::ZERO,
         }
     }
 
     /// Create a new OIDC Token Verifier with custom JWKS TTL
     pub fn with_jwks_ttl(mut self, ttl: Duration) -> Self {
         self.jwks_ttl = ttl;
+        self
+    }
+
+    /// Enable claim caching with the given TTL.
+    /// When enabled, merged JWT+userinfo claims are cached per token for `ttl`.
+    pub fn with_claim_cache(mut self, ttl: Duration) -> Self {
+        self.claim_cache_ttl = ttl;
+        self.claim_cache = Some(Arc::new(RwLock::new(HashMap::new())));
         self
     }
 
@@ -571,6 +584,13 @@ impl OidcVerifier {
     where
         Claims: serde::de::DeserializeOwned,
     {
+        if let Some(cache) = &self.claim_cache
+            && let Some((cached_claims, expiry)) = cache.read().get(token)
+            && Instant::now() < *expiry
+        {
+            return Ok(serde_json::from_value(cached_claims.clone())?);
+        }
+
         let jwks = self.get_jwks().await?;
         let mut claims = self.verify_token_util(token, &jwks)?;
         let extra = self.userinfo_claims(token).await;
@@ -579,6 +599,14 @@ impl OidcVerifier {
                 obj.entry(k).or_insert_with(|| v.clone());
             }
         }
+
+        if let Some(cache) = &self.claim_cache {
+            cache.write().insert(
+                token.to_owned(),
+                (claims.clone(), Instant::now() + self.claim_cache_ttl),
+            );
+        }
+
         Ok(serde_json::from_value(claims)?)
     }
 }
@@ -610,11 +638,16 @@ impl Verifier for OidcVerifier {
         self.verify_token(token.as_ref()).await
     }
 
-    fn try_get_claims<Claims>(&self, _token: impl AsRef<str>) -> Result<Claims, AuthError>
+    fn try_get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
-        // ponytail: always async — userinfo fetch has no sync path
+        if let Some(cache) = &self.claim_cache
+            && let Some((cached_claims, expiry)) = cache.read().get(token.as_ref())
+            && Instant::now() < *expiry
+        {
+            return Ok(serde_json::from_value(cached_claims.clone())?);
+        }
         Err(AuthError::WouldBlockOn)
     }
 }

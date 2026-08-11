@@ -234,7 +234,8 @@ impl TokenProvider for RefreshTokenProvider {
                         break;
                     }
                     Err(e) => {
-                        tracing::warn!(error = %e.chain(), "background token refresh failed; retrying in 30s");
+                        let err = e;
+                        tracing::warn!(error = %err.chain(), "background token refresh failed; retrying in 30s");
                         tokio::time::sleep(Duration::from_secs(30)).await;
                         continue;
                     }

@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use duration_string::DurationString;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use slim_auth::errors::AuthError;
@@ -59,6 +60,13 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jwks_ttl: Option<Duration>,
 
+    /// Cache TTL for merged JWT+userinfo claims (verifier only).
+    /// When set, claims are cached per token for this duration (e.g. "5m", "300s").
+    /// Absent means no caching — userinfo is fetched on every request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
+    pub claim_cache_ttl: Option<DurationString>,
+
     /// Rego policy evaluated against JWT claims on every request.
     /// Input shape: `{ "claims": { <all JWT payload fields> } }`.
     /// Must define `package slim.auth` with `default allow = false`.
@@ -87,6 +95,7 @@ impl Config {
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            claim_cache_ttl: None,
             policy: None,
         }
     }
@@ -106,6 +115,7 @@ impl Config {
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            claim_cache_ttl: None,
             policy: None,
         }
     }
@@ -125,6 +135,7 @@ impl Config {
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            claim_cache_ttl: None,
             policy: None,
         }
     }
@@ -140,6 +151,7 @@ impl Config {
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            claim_cache_ttl: None,
             policy: None,
         }
     }
@@ -160,6 +172,7 @@ impl Config {
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            claim_cache_ttl: None,
             policy: None,
         }
     }
@@ -217,6 +230,12 @@ impl Config {
         self
     }
 
+    /// Enable claim caching with the given TTL (verifier only)
+    pub fn with_claim_cache_ttl(mut self, ttl: DurationString) -> Self {
+        self.claim_cache_ttl = Some(ttl);
+        self
+    }
+
     /// Check if this configuration can act as a provider
     pub fn can_provide(&self) -> bool {
         self.client_id.is_some() && self.client_secret.is_some()
@@ -261,12 +280,14 @@ impl Config {
             .as_ref()
             .ok_or(ConfigAuthError::AuthJwtAudienceRequired)?;
 
-        let verifier = OidcVerifier::new(&self.issuer_url, audience);
-        Ok(if let Some(ttl) = self.jwks_ttl {
-            verifier.with_jwks_ttl(ttl)
-        } else {
-            verifier
-        })
+        let mut verifier = OidcVerifier::new(&self.issuer_url, audience);
+        if let Some(ttl) = self.jwks_ttl {
+            verifier = verifier.with_jwks_ttl(ttl);
+        }
+        if let Some(ttl) = &self.claim_cache_ttl {
+            verifier = verifier.with_claim_cache(Duration::from(*ttl));
+        }
+        Ok(verifier)
     }
 }
 
