@@ -90,7 +90,9 @@ of listeners is declared exactly once. Accepts either shape:
       port: 50451
       tls:                                     # per-listener, optional
         insecure: false
-        useSpiffe: true
+        source:
+          type: spire
+          socket_path: "unix:///run/spire/agent-sockets/api.sock"
 
 `ports` wins when both are set. Names default to "<prefix>-<index>" and are
 truncated to the 15 characters Kubernetes allows for a port name. `tls` falls

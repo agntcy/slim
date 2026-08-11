@@ -377,7 +377,9 @@ service:
         port: 50451
         tls:
           insecure: false
-          useSpiffe: true
+          source:
+            type: spire
+            socket_path: "unix:///run/spire/agent-sockets/api.sock"
 ```
 
 Port names are capped at the 15 characters Kubernetes allows and default to

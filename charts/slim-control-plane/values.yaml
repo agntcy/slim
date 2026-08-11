@@ -38,7 +38,9 @@ config:
   #     - endpoint: "0.0.0.0:50451"
   #       tls:
   #         insecure: false
-  #         useSpiffe: true
+  #         source:
+  #           type: spire
+  #           socket_path: "unix:///run/spire/agent-sockets/api.sock"
 
   # Uncomment below to enable node registration auth by Spire
   # (also set spire.enabled: true, and TLS on the southbound port)
@@ -132,7 +134,9 @@ service:
   #         port: 50451
   #         tls:
   #           insecure: false
-  #           useSpiffe: true
+  #           source:
+  #             type: spire
+  #             socket_path: "unix:///run/spire/agent-sockets/api.sock"
   south:
     port: 50052
     tls:

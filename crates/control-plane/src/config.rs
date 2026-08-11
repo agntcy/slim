@@ -46,8 +46,11 @@ pub struct NodeConnectionParams {
 ///       insecure: true
 ///   - endpoint: "0.0.0.0:50451"
 ///     tls:
-///       cert_file: /etc/slim/tls.crt
-///       key_file: /etc/slim/tls.key
+///       insecure: false
+///       source:
+///         type: file
+///         cert: /etc/slim/tls.crt
+///         key: /etc/slim/tls.key
 /// ```
 ///
 /// Every listener serves the same service, so a deployment can expose one API on
@@ -1322,5 +1325,75 @@ southbound:
     fn empty_document_yields_defaults() {
         let c: Config = serde_yaml::from_str("{}").unwrap();
         assert_eq!(c.northbound.endpoints(), vec!["0.0.0.0:50051"]);
+    }
+
+    /// The TLS shapes used in this module's docs and in the chart must be the
+    /// ones the deserializer actually understands. `TlsServerConfig` silently
+    /// ignores unknown keys, so a wrong field name here yields TLS enabled with
+    /// no certificate source rather than a config error — worth pinning.
+    #[test]
+    fn documented_tls_forms_populate_a_source() {
+        use slim_config::tls::common::TlsSource;
+
+        let file_form = r#"
+northbound:
+  - endpoint: "0.0.0.0:50451"
+    tls:
+      insecure: false
+      source:
+        type: file
+        cert: /etc/slim/tls.crt
+        key: /etc/slim/tls.key
+"#;
+        let c: Config = serde_yaml::from_str(file_form).unwrap();
+        let nb: Vec<&ServerConfig> = c.northbound.iter().collect();
+        assert!(!nb[0].tls_setting.insecure);
+        assert!(
+            matches!(nb[0].tls_setting.config.source, TlsSource::File { .. }),
+            "expected a file source, got {:?}",
+            nb[0].tls_setting.config.source
+        );
+
+        #[cfg(not(target_family = "windows"))]
+        {
+            let spire_form = r#"
+northbound:
+  - endpoint: "0.0.0.0:50451"
+    tls:
+      insecure: false
+      source:
+        type: spire
+        socket_path: "unix:///run/spire/agent-sockets/api.sock"
+"#;
+            let c: Config = serde_yaml::from_str(spire_form).unwrap();
+            let nb: Vec<&ServerConfig> = c.northbound.iter().collect();
+            assert!(
+                matches!(nb[0].tls_setting.config.source, TlsSource::Spire { .. }),
+                "expected a spire source, got {:?}",
+                nb[0].tls_setting.config.source
+            );
+        }
+    }
+
+    /// Guards the failure mode that made the bad docs dangerous: an unknown key
+    /// under `tls` is dropped, leaving TLS on with no source.
+    #[test]
+    fn unknown_tls_key_is_silently_ignored() {
+        use slim_config::tls::common::TlsSource;
+
+        let yaml = r#"
+northbound:
+  - endpoint: "0.0.0.0:50451"
+    tls:
+      insecure: false
+      useSpiffe: true
+"#;
+        let c: Config = serde_yaml::from_str(yaml).unwrap();
+        let nb: Vec<&ServerConfig> = c.northbound.iter().collect();
+        assert!(!nb[0].tls_setting.insecure);
+        assert!(
+            matches!(nb[0].tls_setting.config.source, TlsSource::None),
+            "an unknown key must not somehow configure a source"
+        );
     }
 }

@@ -31,8 +31,10 @@ northbound:
   - endpoint: "0.0.0.0:50451"      # routable, TLS
     tls:
       insecure: false
-      cert_file: /etc/slim/tls.crt
-      key_file: /etc/slim/tls.key
+      source:
+        type: file
+        cert: /etc/slim/tls.crt
+        key: /etc/slim/tls.key
 
 southbound:
   - endpoint: "0.0.0.0:50052"
@@ -60,7 +62,9 @@ service:
         port: 50451
         tls:
           insecure: false
-          useSpiffe: true
+          source:
+            type: spire
+            socket_path: "unix:///run/spire/agent-sockets/api.sock"
 ```
 
 That renders both the Service ports and:
@@ -73,7 +77,9 @@ northbound:
   - endpoint: "0.0.0.0:50451"
     tls:
       insecure: false
-      useSpiffe: true
+      source:
+        type: spire
+        socket_path: "unix:///run/spire/agent-sockets/api.sock"
 ```
 
 `tls` — and any other server field such as `auth` or `keepalive` — can be set on
