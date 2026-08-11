@@ -824,12 +824,20 @@ mod tests {
             source: dummy_name.clone(),
         })
         .unwrap();
-        // EOS: explicit end-of-stream marker
+        // Zero-byte data frame: empty payload tagged as data, so it must be
+        // delivered rather than ending the stream.
         tx.send(ReceivedMessage {
             metadata: std::collections::HashMap::from([(
-                crate::RPC_EOS_KEY.to_string(),
-                crate::RPC_EOS_TRUE.to_string(),
+                crate::RPC_EMPTY_DATA_KEY.to_string(),
+                crate::RPC_EMPTY_DATA_TRUE.to_string(),
             )]),
+            payload: vec![],
+            source: dummy_name.clone(),
+        })
+        .unwrap();
+        // EOS: empty payload with default (Ok) status code and no data tag
+        tx.send(ReceivedMessage {
+            metadata: std::collections::HashMap::new(),
             payload: vec![],
             source: dummy_name,
         })
@@ -857,8 +865,15 @@ mod tests {
             _ => panic!("Expected data"),
         }
 
+        // The tagged zero-byte frame is data, not the terminator.
         let msg3 = request_stream.next_async().await;
         match msg3 {
+            StreamMessage::Data(d) => assert!(d.is_empty()),
+            _ => panic!("Expected empty data frame, not end of stream"),
+        }
+
+        let msg4 = request_stream.next_async().await;
+        match msg4 {
             StreamMessage::End => {}
             _ => panic!("Expected end"),
         }

@@ -19,7 +19,7 @@ use slim_session::context::SessionContext;
 use slim_session::errors::SessionError;
 use slim_session::{AppChannelReceiver, CompletionHandle};
 
-use super::{RPC_EOS_KEY, RPC_EOS_TRUE, RpcError};
+use super::{RPC_EMPTY_DATA_KEY, RpcCode, RpcError, STATUS_CODE_KEY};
 
 /// Received message from a session
 #[derive(Debug, Clone)]
@@ -33,16 +33,21 @@ pub struct ReceivedMessage {
 }
 
 impl ReceivedMessage {
-    /// Returns `true` when this message is an end-of-stream marker, i.e. when
-    /// it carries the explicit [`RPC_EOS_KEY`] marker set by
-    /// [`send_eos`](crate::send_eos).
+    /// Returns `true` when this message is an end-of-stream marker: status
+    /// code is `Ok`, the payload is empty, and it is not tagged as a data
+    /// frame with [`RPC_EMPTY_DATA_KEY`].
     ///
-    /// The marker is explicit on purpose. Inferring EOS from an empty payload
-    /// would swallow any response that encodes to zero bytes — such as
-    /// `google.protobuf.Empty`, or a message with no fields set — because it
-    /// is indistinguishable on the wire from the terminator.
+    /// That last clause is what keeps a legitimately zero-byte response —
+    /// `google.protobuf.Empty`, or any message with no fields set — from
+    /// being swallowed as the terminator. Senders tag such frames via
+    /// [`mark_empty_data_frame`](crate::mark_empty_data_frame); an untagged
+    /// empty payload is still read as EOS, which is what keeps this
+    /// compatible with peers that predate the tag.
     pub fn is_eos(&self) -> bool {
-        self.metadata.get(RPC_EOS_KEY).map(String::as_str) == Some(RPC_EOS_TRUE)
+        RpcCode::from_metadata_str(self.metadata.get(STATUS_CODE_KEY).map(String::as_str))
+            == RpcCode::Ok
+            && self.payload.is_empty()
+            && !self.metadata.contains_key(RPC_EMPTY_DATA_KEY)
     }
 }
 

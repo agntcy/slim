@@ -15,8 +15,8 @@ use tokio::sync::mpsc;
 use slim_datapath::api::ProtoName as Name;
 
 use super::{
-    Context, RPC_EOS_KEY, RPC_EOS_TRUE, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcHandler,
-    STATUS_CODE_KEY, SessionTx, StreamRpcHandler, StreamSource,
+    Context, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcHandler, STATUS_CODE_KEY,
+    SessionTx, StreamRpcHandler, StreamSource, mark_empty_data_frame,
 };
 
 /// Handler information retrieved from registry
@@ -160,13 +160,14 @@ pub async fn send_error_for_rpc(
 
 /// Send an end-of-stream marker to `target`.
 ///
-/// An EOS is an empty-payload message with `slimrpc-code = Ok` carrying the
-/// explicit [`RPC_EOS_KEY`] marker. Every server handler must send one after
-/// its final response so GROUP/multicast callers can count per-member stream
+/// An EOS is an empty-payload message with `slimrpc-code = Ok` and no
+/// [`RPC_EMPTY_DATA_KEY`](crate::RPC_EMPTY_DATA_KEY) tag. Every server
+/// handler must send one after its
+/// final response so GROUP/multicast callers can count per-member stream
 /// ends. P2P callers discard it harmlessly.
 ///
-/// The marker is what makes an EOS distinguishable from a data frame whose
-/// payload happens to encode to zero bytes; see
+/// Data frames whose payload encodes to zero bytes carry the tag so they are
+/// not mistaken for this marker; see
 /// [`ReceivedMessage::is_eos`](crate::ReceivedMessage::is_eos).
 ///
 /// `extra` is merged into the EOS metadata after the status code. Pass
@@ -180,7 +181,6 @@ pub async fn send_eos(
     extra: Option<HashMap<String, String>>,
 ) -> Result<CompletionHandle, RpcError> {
     let mut metadata = create_status_metadata(RpcCode::Ok, rpc_id);
-    metadata.insert(RPC_EOS_KEY.to_string(), RPC_EOS_TRUE.to_string());
     if let Some(extra) = extra {
         metadata.extend(extra);
     }
@@ -220,13 +220,15 @@ where
     while let Some(result) = stream.next().await {
         match result {
             Ok(response_bytes) => {
+                let mut metadata = create_status_metadata(RpcCode::Ok, rpc_id);
+                mark_empty_data_frame(&mut metadata, &response_bytes);
                 handles.push(
                     session_tx
                         .publish(
                             target,
                             response_bytes,
                             Some("msg".to_string()),
-                            Some(create_status_metadata(RpcCode::Ok, rpc_id)),
+                            Some(metadata),
                         )
                         .await
                         .map_err(|e| RpcError::internal(format!("Failed to send response: {e}")))?,
