@@ -33,11 +33,22 @@ pub struct ReceivedMessage {
 }
 
 impl ReceivedMessage {
-    /// Returns `true` when this message is an end-of-stream marker:
-    /// status code is `Ok` **and** the payload is empty.
+    /// Returns `true` when this message is an end-of-stream marker: it carries
+    /// a `slimrpc-code` status of `Ok` and an empty payload.
+    ///
+    /// The *presence* of the status header is the terminal signal, mirroring
+    /// gRPC's `grpc-status` trailer: data frames carry no status, so a
+    /// response that encodes to zero bytes — `google.protobuf.Empty`, or any
+    /// message with no fields set — stays distinguishable from the
+    /// terminator instead of being swallowed by it.
+    ///
+    /// The empty-payload clause is retained so that a peer predating this
+    /// convention, which stamps `Ok` on its data frames too, still has its
+    /// non-empty responses delivered rather than read as EOS.
     pub fn is_eos(&self) -> bool {
-        RpcCode::from_metadata_str(self.metadata.get(STATUS_CODE_KEY).map(String::as_str))
-            == RpcCode::Ok
+        self.metadata.contains_key(STATUS_CODE_KEY)
+            && RpcCode::from_metadata_str(self.metadata.get(STATUS_CODE_KEY).map(String::as_str))
+                == RpcCode::Ok
             && self.payload.is_empty()
     }
 }
