@@ -31,8 +31,14 @@ async fn main() -> Result<()> {
         .setup_tracing_subscriber()
         .context("failed to initialise tracing")?;
 
-    tracing::info!("northbound endpoint: {}", cfg.northbound.endpoint);
-    tracing::info!("southbound endpoint: {}", cfg.southbound.endpoint);
+    tracing::info!(
+        "northbound endpoint(s): {}",
+        cfg.northbound.endpoints().join(", ")
+    );
+    tracing::info!(
+        "southbound endpoint(s): {}",
+        cfg.southbound.endpoints().join(", ")
+    );
 
     let cp = ControlPlane::start(cfg).await?;
 

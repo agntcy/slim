@@ -23,6 +23,18 @@ nameOverride: ""
 fullnameOverride: "slim-control"
 
 config:
+  # `northbound` and `southbound` each accept either a single server mapping
+  # (as below) or a list of them, to listen on several addresses at once with
+  # independent TLS settings:
+  #
+  #   northbound:
+  #     - endpoint: "127.0.0.1:50051"
+  #       tls:
+  #         insecure: true
+  #     - endpoint: "0.0.0.0:50451"
+  #       tls:
+  #         insecure: false
+  #         useSpiffe: true
   northbound:
     endpoint: "0.0.0.0:{{ .Values.service.north.port }}"
     tls:

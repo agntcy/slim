@@ -27,6 +27,9 @@ const REGISTER_TIMEOUT_SECS: u64 = 15;
 
 pub type SharedDrain = Arc<Mutex<Option<drain::Watch>>>;
 
+/// Cloned once per configured listener; every field is a handle to
+/// shared state, so all listeners serve the same control plane.
+#[derive(Clone)]
 pub struct SouthboundApiService {
     db: SharedDb,
     cmd_handler: DefaultNodeCommandHandler,

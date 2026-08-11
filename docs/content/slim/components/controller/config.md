@@ -15,6 +15,35 @@ tracing:
   log_level: info
 ```
 
+## Multiple Listeners
+
+`northbound` and `southbound` each accept either a single server mapping or a
+list of them. With a list, the same API is served on every configured address,
+each with its own TLS settings — useful for exposing plaintext on loopback for
+local tooling while requiring mTLS on a routable address, or for binding one
+listener per network interface.
+
+```yaml
+northbound:
+  - endpoint: "127.0.0.1:50051"    # local tooling, plaintext
+    tls:
+      insecure: true
+  - endpoint: "0.0.0.0:50451"      # routable, TLS
+    tls:
+      insecure: false
+      cert_file: /etc/slim/tls.crt
+      key_file: /etc/slim/tls.key
+
+southbound:
+  - endpoint: "0.0.0.0:50052"
+    tls:
+      insecure: true
+```
+
+An empty list is rejected at startup; omit the key entirely to use the default
+single listener. Reusing the same address across two listeners fails at startup
+with the offending endpoint named.
+
 ## Full Configuration Reference
 
 ```yaml
