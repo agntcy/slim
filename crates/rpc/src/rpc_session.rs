@@ -15,8 +15,8 @@ use tokio::sync::mpsc;
 use slim_datapath::api::ProtoName as Name;
 
 use super::{
-    Context, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcHandler, STATUS_CODE_KEY,
-    SessionTx, StreamRpcHandler, StreamSource,
+    Context, RPC_EOS_KEY, RPC_EOS_TRUE, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcHandler,
+    STATUS_CODE_KEY, SessionTx, StreamRpcHandler, StreamSource,
 };
 
 /// Handler information retrieved from registry
@@ -160,9 +160,14 @@ pub async fn send_error_for_rpc(
 
 /// Send an end-of-stream marker to `target`.
 ///
-/// An EOS is an empty-payload message with `slimrpc-code = Ok`. Every server
-/// handler must send one after its final response so GROUP/multicast callers
-/// can count per-member stream ends. P2P callers discard it harmlessly.
+/// An EOS is an empty-payload message with `slimrpc-code = Ok` carrying the
+/// explicit [`RPC_EOS_KEY`] marker. Every server handler must send one after
+/// its final response so GROUP/multicast callers can count per-member stream
+/// ends. P2P callers discard it harmlessly.
+///
+/// The marker is what makes an EOS distinguishable from a data frame whose
+/// payload happens to encode to zero bytes; see
+/// [`ReceivedMessage::is_eos`](crate::ReceivedMessage::is_eos).
 ///
 /// `extra` is merged into the EOS metadata after the status code. Pass
 /// `None` for the common case where no additional metadata is needed.
@@ -175,6 +180,7 @@ pub async fn send_eos(
     extra: Option<HashMap<String, String>>,
 ) -> Result<CompletionHandle, RpcError> {
     let mut metadata = create_status_metadata(RpcCode::Ok, rpc_id);
+    metadata.insert(RPC_EOS_KEY.to_string(), RPC_EOS_TRUE.to_string());
     if let Some(extra) = extra {
         metadata.extend(extra);
     }

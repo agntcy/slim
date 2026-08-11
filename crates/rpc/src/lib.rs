@@ -204,6 +204,17 @@ pub const RPC_DIR_KEY: &str = "slimrpc-dir";
 /// Value for [`RPC_DIR_KEY`] that marks a message as a client request.
 pub const RPC_DIR_REQ: &str = "req";
 
+/// Key used in metadata to mark a message as the end-of-stream marker.
+///
+/// EOS is signalled explicitly rather than inferred from an empty payload:
+/// a response that encodes to zero bytes (`google.protobuf.Empty`, or any
+/// message with no fields set) is a legitimate data frame and must not be
+/// mistaken for the end of the stream.
+pub const RPC_EOS_KEY: &str = "slimrpc-eos";
+
+/// Value for [`RPC_EOS_KEY`] that marks a message as end-of-stream.
+pub const RPC_EOS_TRUE: &str = "1";
+
 /// Maximum timeout in seconds (10 hours)
 pub const MAX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(36000);
 

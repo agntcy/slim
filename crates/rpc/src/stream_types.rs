@@ -824,9 +824,12 @@ mod tests {
             source: dummy_name.clone(),
         })
         .unwrap();
-        // EOS: empty payload with default (Ok) status code
+        // EOS: explicit end-of-stream marker
         tx.send(ReceivedMessage {
-            metadata: std::collections::HashMap::new(),
+            metadata: std::collections::HashMap::from([(
+                crate::RPC_EOS_KEY.to_string(),
+                crate::RPC_EOS_TRUE.to_string(),
+            )]),
             payload: vec![],
             source: dummy_name,
         })

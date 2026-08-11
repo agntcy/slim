@@ -19,7 +19,7 @@ use slim_session::context::SessionContext;
 use slim_session::errors::SessionError;
 use slim_session::{AppChannelReceiver, CompletionHandle};
 
-use super::{RpcCode, RpcError, STATUS_CODE_KEY};
+use super::{RPC_EOS_KEY, RPC_EOS_TRUE, RpcError};
 
 /// Received message from a session
 #[derive(Debug, Clone)]
@@ -33,12 +33,16 @@ pub struct ReceivedMessage {
 }
 
 impl ReceivedMessage {
-    /// Returns `true` when this message is an end-of-stream marker:
-    /// status code is `Ok` **and** the payload is empty.
+    /// Returns `true` when this message is an end-of-stream marker, i.e. when
+    /// it carries the explicit [`RPC_EOS_KEY`] marker set by
+    /// [`send_eos`](crate::send_eos).
+    ///
+    /// The marker is explicit on purpose. Inferring EOS from an empty payload
+    /// would swallow any response that encodes to zero bytes — such as
+    /// `google.protobuf.Empty`, or a message with no fields set — because it
+    /// is indistinguishable on the wire from the terminator.
     pub fn is_eos(&self) -> bool {
-        RpcCode::from_metadata_str(self.metadata.get(STATUS_CODE_KEY).map(String::as_str))
-            == RpcCode::Ok
-            && self.payload.is_empty()
+        self.metadata.get(RPC_EOS_KEY).map(String::as_str) == Some(RPC_EOS_TRUE)
     }
 }
 
