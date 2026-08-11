@@ -16,7 +16,7 @@ use slim_datapath::api::ProtoName as Name;
 
 use super::{
     Context, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcHandler, STATUS_CODE_KEY,
-    SessionTx, StreamRpcHandler, StreamSource, mark_empty_data_frame,
+    SessionTx, StreamRpcHandler, StreamSource,
 };
 
 /// Handler information retrieved from registry
@@ -160,15 +160,9 @@ pub async fn send_error_for_rpc(
 
 /// Send an end-of-stream marker to `target`.
 ///
-/// An EOS is an empty-payload message with `slimrpc-code = Ok` and no
-/// [`RPC_EMPTY_DATA_KEY`](crate::RPC_EMPTY_DATA_KEY) tag. Every server
-/// handler must send one after its
-/// final response so GROUP/multicast callers can count per-member stream
-/// ends. P2P callers discard it harmlessly.
-///
-/// Data frames whose payload encodes to zero bytes carry the tag so they are
-/// not mistaken for this marker; see
-/// [`ReceivedMessage::is_eos`](crate::ReceivedMessage::is_eos).
+/// An EOS is an empty-payload message with `slimrpc-code = Ok`. Every server
+/// handler must send one after its final response so GROUP/multicast callers
+/// can count per-member stream ends. P2P callers discard it harmlessly.
 ///
 /// `extra` is merged into the EOS metadata after the status code. Pass
 /// `None` for the common case where no additional metadata is needed.
@@ -220,15 +214,13 @@ where
     while let Some(result) = stream.next().await {
         match result {
             Ok(response_bytes) => {
-                let mut metadata = create_status_metadata(RpcCode::Ok, rpc_id);
-                mark_empty_data_frame(&mut metadata, &response_bytes);
                 handles.push(
                     session_tx
                         .publish(
                             target,
                             response_bytes,
                             Some("msg".to_string()),
-                            Some(metadata),
+                            Some(create_status_metadata(RpcCode::Ok, rpc_id)),
                         )
                         .await
                         .map_err(|e| RpcError::internal(format!("Failed to send response: {e}")))?,

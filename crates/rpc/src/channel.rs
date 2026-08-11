@@ -63,7 +63,7 @@ use super::{
     Context, METHOD_KEY, Metadata, RPC_DIR_KEY, RPC_DIR_REQ, RPC_ID_KEY, ReceivedMessage, RpcCode,
     RpcError, SERVICE_KEY, STATUS_CODE_KEY, calculate_timeout_duration,
     codec::{Decoder, Encoder},
-    mark_empty_data_frame, send_eos,
+    send_eos,
     session_wrapper::{SessionRx, SessionTx, new_session},
 };
 
@@ -457,13 +457,12 @@ impl Channel {
         let mut first = true;
         while let Some(request) = request_stream.next().await {
             let request_bytes = request.encode()?;
-            let mut msg_meta = if first {
+            let msg_meta = if first {
                 first = false;
                 first_msg_metadata(ctx, service_name, method_name, rpc_id)
             } else {
                 continuation_metadata(rpc_id)
             };
-            mark_empty_data_frame(&mut msg_meta, &request_bytes);
             let handle = session
                 .publish(
                     session.destination(),

@@ -204,41 +204,6 @@ pub const RPC_DIR_KEY: &str = "slimrpc-dir";
 /// Value for [`RPC_DIR_KEY`] that marks a message as a client request.
 pub const RPC_DIR_REQ: &str = "req";
 
-/// Key used in metadata to mark a zero-byte message as a *data* frame rather
-/// than the end-of-stream marker.
-///
-/// End-of-stream is an empty-payload message, so a response that legitimately
-/// encodes to zero bytes — `google.protobuf.Empty`, or any message with no
-/// fields set — is otherwise indistinguishable from the terminator and gets
-/// swallowed. Senders tag those frames with this key; see
-/// [`mark_empty_data_frame`] and [`ReceivedMessage::is_eos`].
-///
-/// Only zero-byte data frames carry it, so the common path is unaffected.
-/// Tagging the data frame rather than the EOS keeps the change backward
-/// compatible: a peer that does not know this key still terminates streams
-/// exactly as before instead of hanging on an unrecognised terminator.
-pub const RPC_EMPTY_DATA_KEY: &str = "slimrpc-data";
-
-/// Value for [`RPC_EMPTY_DATA_KEY`] that marks an empty payload as data.
-pub const RPC_EMPTY_DATA_TRUE: &str = "1";
-
-/// Tag `metadata` as belonging to a data frame when `payload` is zero bytes.
-///
-/// Call this on every outgoing data frame — request or response — so a
-/// zero-byte payload is not read as end-of-stream. No-op for non-empty
-/// payloads, which are already unambiguous.
-pub fn mark_empty_data_frame(
-    metadata: &mut std::collections::HashMap<String, String>,
-    payload: &[u8],
-) {
-    if payload.is_empty() {
-        metadata.insert(
-            RPC_EMPTY_DATA_KEY.to_string(),
-            RPC_EMPTY_DATA_TRUE.to_string(),
-        );
-    }
-}
-
 /// Maximum timeout in seconds (10 hours)
 pub const MAX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(36000);
 
