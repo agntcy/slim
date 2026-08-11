@@ -366,7 +366,7 @@ pub async fn run(args: &LoginArgs) -> Result<()> {
         .append_pair("response_type", "code")
         .append_pair("client_id", &args.client_id)
         .append_pair("redirect_uri", &args.redirect_uri)
-        .append_pair("scope", "openid profile email offline_access")
+        .append_pair("scope", "openid profile email offline_access groups")
         .append_pair("state", state.secret())
         .append_pair("nonce", &nonce)
         .append_pair("code_challenge", pkce_challenge.as_str())
