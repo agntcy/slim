@@ -2,13 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use duration_string::DurationString;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use slim_auth::errors::AuthError;
 use slim_auth::jwt_middleware::{AddJwtLayer, PolicyCheckLayer, ValidateJwtLayer};
 use slim_auth::metadata::MetadataMap;
+use slim_auth::refresh_token::{RefreshTokenProvider, RefreshTokenProviderConfig};
+use slim_auth::traits::TokenProvider;
 use tower_layer::Stack;
 
 use super::{ClientAuthenticator, ConfigAuthError, ServerAuthenticator};
@@ -34,6 +38,12 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub audience: Option<String>,
 
+    /// Refresh token obtained from `slimctl login` (provider only).
+    /// When set, uses the OAuth2 refresh-token grant instead of client credentials.
+    /// Only one of `client_secret` or `refresh_token` may be set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+
     /// Optional scope parameter for the token request (provider only)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
@@ -49,6 +59,13 @@ pub struct Config {
     #[schemars(with = "String")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jwks_ttl: Option<DurationString>,
+
+    /// Cache TTL for merged JWT+userinfo claims (verifier only).
+    /// When set, claims are cached per token for this duration (e.g. "5m", "300s").
+    /// Absent means no caching — userinfo is fetched on every request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
+    pub claim_cache_ttl: Option<DurationString>,
 
     /// Rego policy evaluated against JWT claims on every request.
     /// Input shape: `{ "claims": { <all JWT payload fields> } }`.
@@ -73,15 +90,17 @@ impl Config {
             issuer_url: issuer_url.into(),
             client_id: None,
             client_secret: None,
+            refresh_token: None,
             audience: None,
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            claim_cache_ttl: None,
             policy: None,
         }
     }
 
-    /// Create a provider-only configuration
+    /// Create a provider-only configuration (client credentials flow)
     pub fn provider(
         client_id: impl Into<String>,
         client_secret: impl Into<String>,
@@ -91,10 +110,32 @@ impl Config {
             issuer_url: issuer_url.into(),
             client_id: Some(client_id.into()),
             client_secret: Some(client_secret.into()),
+            refresh_token: None,
             audience: None,
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            claim_cache_ttl: None,
+            policy: None,
+        }
+    }
+
+    /// Create a provider configuration using a refresh token (authorization-code flow).
+    pub fn with_refresh_token(
+        issuer_url: impl Into<String>,
+        client_id: impl Into<String>,
+        refresh_token: impl Into<String>,
+    ) -> Self {
+        Self {
+            issuer_url: issuer_url.into(),
+            client_id: Some(client_id.into()),
+            client_secret: None,
+            refresh_token: Some(refresh_token.into()),
+            audience: None,
+            scope: None,
+            timeout: default_timeout(),
+            jwks_ttl: default_jwks_ttl(),
+            claim_cache_ttl: None,
             policy: None,
         }
     }
@@ -105,10 +146,12 @@ impl Config {
             issuer_url: issuer_url.into(),
             client_id: None,
             client_secret: None,
+            refresh_token: None,
             audience: Some(audience.into()),
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            claim_cache_ttl: None,
             policy: None,
         }
     }
@@ -124,10 +167,12 @@ impl Config {
             issuer_url: issuer_url.into(),
             client_id: Some(client_id.into()),
             client_secret: Some(client_secret.into()),
+            refresh_token: None,
             audience: Some(audience.into()),
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
+            claim_cache_ttl: None,
             policy: None,
         }
     }
@@ -185,6 +230,12 @@ impl Config {
         self
     }
 
+    /// Enable claim caching with the given TTL (verifier only)
+    pub fn with_claim_cache_ttl(mut self, ttl: DurationString) -> Self {
+        self.claim_cache_ttl = Some(ttl);
+        self
+    }
+
     /// Check if this configuration can act as a provider
     pub fn can_provide(&self) -> bool {
         self.client_id.is_some() && self.client_secret.is_some()
@@ -233,24 +284,158 @@ impl Config {
         if let Some(ttl) = self.jwks_ttl {
             verifier = verifier.with_jwks_ttl(ttl.into());
         }
+        if let Some(ttl) = &self.claim_cache_ttl {
+            verifier = verifier.with_claim_cache(Duration::from(*ttl));
+        }
         Ok(verifier)
+    }
+}
+
+/// Wraps either OIDC flow behind a single `TokenProvider + Clone` so
+/// `ClientAuthenticator` can return a concrete `AddJwtLayer` regardless of
+/// which grant type is configured.
+#[derive(Clone)]
+pub enum OidcClientProvider {
+    ClientCredentials(OidcTokenProvider),
+    RefreshToken(RefreshTokenProvider),
+}
+
+impl TokenProvider for OidcClientProvider {
+    async fn initialize(&mut self) -> Result<(), AuthError> {
+        match self {
+            OidcClientProvider::ClientCredentials(p) => p.initialize().await,
+            OidcClientProvider::RefreshToken(p) => p.initialize().await,
+        }
+    }
+
+    fn get_token(&self) -> Result<String, AuthError> {
+        match self {
+            OidcClientProvider::ClientCredentials(p) => p.get_token(),
+            OidcClientProvider::RefreshToken(p) => p.get_token(),
+        }
+    }
+
+    fn get_id(&self) -> Result<String, AuthError> {
+        match self {
+            OidcClientProvider::ClientCredentials(p) => p.get_id(),
+            OidcClientProvider::RefreshToken(p) => p.get_id(),
+        }
+    }
+
+    async fn set_signature_keys(
+        &mut self,
+        _private_key: Vec<u8>,
+        _public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        Err(AuthError::MlsNotSupported)
+    }
+}
+
+/// Round-trippable view of `~/.slimctl/credentials.yaml`.
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+struct StoredCredentials {
+    #[serde(default)]
+    id_token: String,
+    #[serde(default)]
+    access_token: Option<String>,
+    #[serde(default)]
+    refresh_token: Option<String>,
+    client_id: String,
+    issuer: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    token_endpoint: String,
+}
+
+fn credentials_file_path() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME").map(|h| {
+        std::path::PathBuf::from(h)
+            .join(".slimctl")
+            .join("credentials.yaml")
+    })
+}
+
+fn load_stored_credentials() -> Option<StoredCredentials> {
+    let path = credentials_file_path()?;
+    let data = std::fs::read_to_string(&path).ok()?;
+    serde_yaml::from_str(&data).ok()
+}
+
+fn persist_stored_credentials(path: std::path::PathBuf, creds: StoredCredentials) {
+    match serde_yaml::to_string(&creds) {
+        Ok(yaml) => {
+            if let Err(e) = std::fs::write(&path, &yaml) {
+                tracing::error!("failed to write rotated credentials to {path:?}: {e}");
+                return;
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            }
+            tracing::debug!("persisted rotated refresh token to {path:?}");
+        }
+        Err(e) => tracing::error!("failed to serialize credentials: {e}"),
     }
 }
 
 // Implement ClientAuthenticator for Config
 impl ClientAuthenticator for Config {
-    type ClientLayer = AddJwtLayer<OidcTokenProvider>;
+    type ClientLayer = AddJwtLayer<OidcClientProvider>;
 
     fn get_client_layer(&self) -> Result<Self::ClientLayer, ConfigAuthError> {
-        if self.client_id.is_none() {
-            return Err(ConfigAuthError::AuthOidcEmptyClientId);
-        }
+        let provider = if let Some(rt) = &self.refresh_token {
+            // Explicit refresh token (programmatic use, e.g. slimctl).
+            let client_id = self
+                .client_id
+                .as_ref()
+                .ok_or(ConfigAuthError::AuthOidcEmptyClientId)?;
+            OidcClientProvider::RefreshToken(RefreshTokenProvider::new(
+                RefreshTokenProviderConfig {
+                    refresh_token: rt.clone(),
+                    issuer_url: self.issuer_url.clone(),
+                    client_id: client_id.clone(),
+                    timeout: self.timeout.map(Into::into),
+                    initial_access_token: None,
+                    persist_credentials: None,
+                },
+            )?)
+        } else if self.client_secret.is_some() {
+            // Client-credentials flow.
+            OidcClientProvider::ClientCredentials(self.create_provider()?)
+        } else {
+            // No explicit tokens — load from ~/.slimctl/credentials.yaml.
+            let creds =
+                load_stored_credentials().ok_or(ConfigAuthError::IdentityProviderNotConfigured)?;
+            if !self.issuer_url.is_empty() && creds.issuer != self.issuer_url {
+                return Err(ConfigAuthError::IdentityProviderNotConfigured);
+            }
+            let refresh_token = creds
+                .refresh_token
+                .clone()
+                .ok_or(ConfigAuthError::IdentityProviderNotConfigured)?;
+            let persist = credentials_file_path().map(|path| {
+                let creds = creds.clone();
+                let cb: Arc<dyn Fn(String, String) + Send + Sync> =
+                    Arc::new(move |access_token, new_refresh_token| {
+                        let mut updated = creds.clone();
+                        updated.access_token = Some(access_token);
+                        updated.refresh_token = Some(new_refresh_token);
+                        persist_stored_credentials(path.clone(), updated);
+                    });
+                cb
+            });
+            OidcClientProvider::RefreshToken(RefreshTokenProvider::new(
+                RefreshTokenProviderConfig {
+                    refresh_token,
+                    issuer_url: creds.issuer,
+                    client_id: self.client_id.clone().unwrap_or(creds.client_id),
+                    timeout: self.timeout.map(Into::into),
+                    initial_access_token: creds.access_token,
+                    persist_credentials: persist,
+                },
+            )?)
+        };
 
-        if self.client_secret.is_none() {
-            return Err(ConfigAuthError::AuthOidcEmptyClientSecret);
-        }
-
-        let provider = self.create_provider()?;
         Ok(Self::ClientLayer::new(provider))
     }
 }

@@ -60,6 +60,8 @@ pub enum AuthError {
     TokenEndpointError { status: u16, body: String },
     #[error("Invalid client credentials")]
     InvalidClientCredentials,
+    #[error("refresh token revoked or expired")]
+    RefreshTokenRevoked,
 
     // hmac
     #[error("hmac key is too short")]

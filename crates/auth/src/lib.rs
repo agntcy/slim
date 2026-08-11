@@ -19,6 +19,7 @@ pub mod file_watcher;
 pub mod jwt;
 pub mod jwt_middleware;
 pub mod oidc;
+pub mod refresh_token;
 pub mod resolver;
 #[cfg(not(target_family = "windows"))]
 pub mod spire;

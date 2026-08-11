@@ -483,6 +483,9 @@ impl ClientConfig {
             AuthenticationConfig::Jwt(jwt) => {
                 create_auth_service_with_init!(self, jwt, header_map, channel)
             }
+            AuthenticationConfig::Oidc(cfg) => {
+                create_auth_service_with_init!(self, cfg, header_map, channel)
+            }
             #[cfg(not(target_family = "windows"))]
             AuthenticationConfig::Spire(spire) => {
                 create_auth_service_with_init!(self, spire, header_map, channel)

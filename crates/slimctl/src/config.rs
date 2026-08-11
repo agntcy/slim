@@ -1,6 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::fs::OpenOptions;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -8,6 +10,7 @@ use anyhow::{Context, Result, bail};
 use duration_string::DurationString;
 use serde::{Deserialize, Serialize};
 use slim_config::auth::basic::Config as BasicAuthConfig;
+use slim_config::auth::oidc::Config as OidcConfig;
 use slim_config::auth::static_jwt::Config as StaticJwtConfig;
 use slim_config::grpc::client::{AuthenticationConfig, BackoffConfig, ClientConfig};
 use slim_config::tls::client::TlsClientConfig;
@@ -32,6 +35,8 @@ pub struct OidcCredentials {
     pub refresh_token: Option<String>,
     pub client_id: String,
     pub issuer: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub token_endpoint: String,
 }
 
 /// Merge a file-level `ClientConfig` with CLI overrides.
@@ -130,8 +135,15 @@ pub fn resolve_config(
             .ok_or_else(|| anyhow::anyhow!("basic-auth-creds must be 'username:password'"))?;
         config.auth = AuthenticationConfig::Basic(BasicAuthConfig::new(user, pass));
     } else if config.auth == AuthenticationConfig::None {
-        // Auto-inject token from `slimctl login` if no other auth is configured
-        if let Ok(token_path) = token_file_path()
+        // Prefer RefreshToken when available — handles token expiry and crash-restart automatically.
+        // Fall back to StaticJwt for credentials without a refresh token (e.g. id_token only).
+        if let Ok(Some(creds)) = load_credentials()
+            && creds.refresh_token.is_some()
+        {
+            // Let OidcConfig.get_client_layer load tokens from credentials.yaml at
+            // connect time; we only need the issuer here for config identity.
+            config.auth = AuthenticationConfig::Oidc(OidcConfig::new(creds.issuer));
+        } else if let Ok(token_path) = token_file_path()
             && token_path.exists()
         {
             config.auth = AuthenticationConfig::StaticJwt(StaticJwtConfig::with_file(
@@ -209,20 +221,43 @@ pub fn token_file_path() -> Result<PathBuf> {
     Ok(home.join(".slimctl").join("token"))
 }
 
+fn write_private(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?
+        .write_all(data)
+}
+
 pub fn save_credentials(creds: &OidcCredentials) -> Result<()> {
     let path = credentials_file_path()?;
     let dir = path.parent().expect("credentials path must have a parent");
     std::fs::create_dir_all(dir)
         .with_context(|| format!("failed to create config directory: {}", dir.display()))?;
     let data = serde_yaml::to_string(creds).context("failed to serialize credentials")?;
-    std::fs::write(&path, data)
+    write_private(&path, data.as_bytes())
         .with_context(|| format!("failed to write credentials: {}", path.display()))?;
     // Write bearer token for StaticJwt auto-injection; prefer access_token (longer TTL).
     let token = creds.access_token.as_deref().unwrap_or(&creds.id_token);
     let token_path = token_file_path()?;
-    std::fs::write(&token_path, token)
+    write_private(&token_path, token.as_bytes())
         .with_context(|| format!("failed to write token: {}", token_path.display()))?;
     Ok(())
+}
+
+pub fn load_credentials() -> Result<Option<OidcCredentials>> {
+    let path = credentials_file_path()?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    let data = std::fs::read_to_string(&path)
+        .with_context(|| format!("failed to read credentials: {}", path.display()))?;
+    let creds = serde_yaml::from_str(&data)
+        .with_context(|| format!("failed to parse credentials: {}", path.display()))?;
+    Ok(Some(creds))
 }
 
 /// Return the default config file path: `$HOME/.slimctl/config.yaml`

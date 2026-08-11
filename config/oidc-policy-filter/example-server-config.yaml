@@ -29,6 +29,9 @@ services:
             audience: "slim"
             # JWKS cache TTL (default: 1h)
             jwks_ttl: 1h
+            # Claim cache TTL: merged JWT+userinfo claims are cached per token for this duration.
+            # Absent means no caching — userinfo is fetched on every request.
+            claim_cache_ttl: 5m
             # Only allow tokens whose `groups` claim contains "slim-node".
             # Rego equivalent:
             #   policy:

@@ -423,6 +423,10 @@ pub struct OidcVerifier {
     jwks_cache: Arc<OidcJwksCache>,
     http_client: ReqwestClient,
     jwks_ttl: Duration,
+    userinfo_endpoint: Arc<std::sync::OnceLock<String>>,
+    // When Some, merged claims are cached for claim_cache_ttl per token.
+    claim_cache: Option<Arc<RwLock<HashMap<String, (serde_json::Value, Instant)>>>>,
+    claim_cache_ttl: Duration,
 }
 
 impl OidcVerifier {
@@ -434,12 +438,23 @@ impl OidcVerifier {
             jwks_cache: Arc::new(OidcJwksCache::new()),
             http_client: reqwest::Client::new(),
             jwks_ttl: Duration::from_secs(3600), // Default 1 hour
+            userinfo_endpoint: Arc::new(std::sync::OnceLock::new()),
+            claim_cache: None,
+            claim_cache_ttl: Duration::ZERO,
         }
     }
 
     /// Create a new OIDC Token Verifier with custom JWKS TTL
     pub fn with_jwks_ttl(mut self, ttl: Duration) -> Self {
         self.jwks_ttl = ttl;
+        self
+    }
+
+    /// Enable claim caching with the given TTL.
+    /// When enabled, merged JWT+userinfo claims are cached per token for `ttl`.
+    pub fn with_claim_cache(mut self, ttl: Duration) -> Self {
+        self.claim_cache_ttl = ttl;
+        self.claim_cache = Some(Arc::new(RwLock::new(HashMap::new())));
         self
     }
 
@@ -481,6 +496,13 @@ impl OidcVerifier {
             });
         }
 
+        if let Some(ep) = discovery_response
+            .get("userinfo_endpoint")
+            .and_then(|v| v.as_str())
+        {
+            let _ = self.userinfo_endpoint.set(ep.to_string());
+        }
+
         let jwks: JwkSet = self
             .http_client
             .get(jwks_url.as_str())
@@ -506,60 +528,86 @@ impl OidcVerifier {
         Ok(jwks)
     }
 
-    /// Utility function to verify a token against JWKS
-    fn verify_token_util<Claims>(&self, token: &str, jwks: &JwkSet) -> Result<Claims, AuthError>
-    where
-        Claims: serde::de::DeserializeOwned,
-    {
-        // Decode header to get kid
+    /// Verify a token against JWKS; returns raw JSON claims.
+    fn verify_token_util(
+        &self,
+        token: &str,
+        jwks: &JwkSet,
+    ) -> Result<serde_json::Value, AuthError> {
         let header = decode_header(token)?;
 
-        // Find matching key
         let jwk = match header.kid {
-            Some(kid) => {
-                // Look for specific key by kid
-                jwks.keys
-                    .iter()
-                    .find(|k| {
-                        if let Some(key_id) = &k.common.key_id {
-                            key_id == &kid
-                        } else {
-                            false
-                        }
-                    })
-                    .ok_or(AuthError::OidcKeyNotFound(kid))?
-            }
-            None => {
-                // No kid provided - if there's only one key, use it
-                match jwks.keys.as_slice() {
-                    [single] => single,
-                    _ => return Err(AuthError::OidcMissingKidWithMultipleKeys),
-                }
-            }
+            Some(kid) => jwks
+                .keys
+                .iter()
+                .find(|k| k.common.key_id.as_deref() == Some(&kid))
+                .ok_or(AuthError::OidcKeyNotFound(kid))?,
+            None => match jwks.keys.as_slice() {
+                [single] => single,
+                _ => return Err(AuthError::OidcMissingKidWithMultipleKeys),
+            },
         };
 
-        // Create decoding key directly from JWK using the aws-lc method
         let decoding_key = DecodingKey::from_jwk(jwk)?;
-
         let mut validation = Validation::new(alg_from_jwk(jwk)?);
         validation.set_audience(&[&self.audience]);
         validation.set_issuer(&[&self.issuer_url]);
 
-        // Decode and validate token
-        let token_data = decode::<Claims>(token, &decoding_key, &validation)?;
+        let token_data = decode::<serde_json::Value>(token, &decoding_key, &validation)?;
         Ok(token_data.claims)
     }
 
-    /// Verify a JWT token
+    /// Fetch userinfo claims; returns empty object on any error (best effort).
+    async fn userinfo_claims(&self, token: &str) -> serde_json::Value {
+        let Some(endpoint) = self.userinfo_endpoint.get() else {
+            tracing::debug!("userinfo_endpoint not discovered yet");
+            return serde_json::Value::Object(Default::default());
+        };
+        match self
+            .http_client
+            .get(endpoint)
+            .bearer_auth(token)
+            .send()
+            .await
+            .and_then(|r| r.error_for_status())
+        {
+            Ok(resp) => resp.json::<serde_json::Value>().await.unwrap_or_default(),
+            Err(e) => {
+                tracing::debug!(error=%e, "userinfo fetch failed, proceeding without");
+                serde_json::Value::Object(Default::default())
+            }
+        }
+    }
+
+    /// Verify a JWT token and enrich claims from userinfo.
     async fn verify_token<Claims>(&self, token: &str) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned,
     {
-        // Get JWKS
-        let jwks = self.get_jwks().await?;
+        if let Some(cache) = &self.claim_cache
+            && let Some((cached_claims, expiry)) = cache.read().get(token)
+            && Instant::now() < *expiry
+        {
+            return Ok(serde_json::from_value(cached_claims.clone())?);
+        }
 
-        // Use the utility function to verify the token
-        self.verify_token_util(token, &jwks)
+        let jwks = self.get_jwks().await?;
+        let mut claims = self.verify_token_util(token, &jwks)?;
+        let extra = self.userinfo_claims(token).await;
+        if let (Some(obj), Some(extra_obj)) = (claims.as_object_mut(), extra.as_object()) {
+            for (k, v) in extra_obj {
+                obj.entry(k).or_insert_with(|| v.clone());
+            }
+        }
+
+        if let Some(cache) = &self.claim_cache {
+            cache.write().insert(
+                token.to_owned(),
+                (claims.clone(), Instant::now() + self.claim_cache_ttl),
+            );
+        }
+
+        Ok(serde_json::from_value(claims)?)
     }
 }
 
@@ -575,15 +623,10 @@ impl Verifier for OidcVerifier {
     }
 
     fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
-        let token = token.as_ref();
-
-        // First try to verify with cached JWKS only
         if let Some(cached_jwks) = self.jwks_cache.get(&self.issuer_url) {
-            // Use the utility function to verify the token with cached JWKS
-            let _: serde_json::Value = self.verify_token_util(token, &cached_jwks)?;
+            self.verify_token_util(token.as_ref(), &cached_jwks)?;
             Ok(())
         } else {
-            // Indicate that a blocking (network) operation would be required
             Err(AuthError::WouldBlockOn)
         }
     }
@@ -599,11 +642,13 @@ impl Verifier for OidcVerifier {
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
-        if let Some(cached_jwks) = self.jwks_cache.get(&self.issuer_url) {
-            self.verify_token_util(token.as_ref(), &cached_jwks)
-        } else {
-            Err(AuthError::WouldBlockOn)
+        if let Some(cache) = &self.claim_cache
+            && let Some((cached_claims, expiry)) = cache.read().get(token.as_ref())
+            && Instant::now() < *expiry
+        {
+            return Ok(serde_json::from_value(cached_claims.clone())?);
         }
+        Err(AuthError::WouldBlockOn)
     }
 }
 
@@ -1127,38 +1172,13 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_oidc_verifier_try_verify_sync() {
-        let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
-        let issuer_url = mock_server.uri();
-
-        let claims = TestClaims {
-            sub: "user123".to_string(),
-            iss: issuer_url.clone(),
-            aud: "test-audience".to_string(),
-            exp: (SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                + 3600),
-            iat: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        };
-
-        let header = Header::new(Algorithm::RS256);
-        let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes()).unwrap();
-        let token = encode(&header, &claims, &encoding_key).unwrap();
-
-        let verifier = OidcVerifier::new(issuer_url, "test-audience");
-
-        // First populate the JWKS cache with an async call to avoid hanging in try_verify
-        let _jwks = verifier.get_jwks().await.unwrap();
-
-        // Now test synchronous verification (uses cached JWKS)
-        let verified_claims: TestClaims = verifier.try_get_claims(token).unwrap();
-        assert_eq!(verified_claims.sub, "user123");
+    #[test]
+    fn test_oidc_verifier_try_get_claims_always_async() {
+        // try_get_claims always signals WouldBlockOn so the middleware takes the async path,
+        // which is required for the userinfo fetch.
+        let verifier = OidcVerifier::new("https://example.com", "test-audience");
+        let result: Result<TestClaims, _> = verifier.try_get_claims("any.token.value");
+        assert!(matches!(result, Err(AuthError::WouldBlockOn)));
     }
 
     #[tokio::test]

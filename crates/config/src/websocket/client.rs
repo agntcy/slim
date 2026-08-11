@@ -240,6 +240,13 @@ impl ClientConfig {
                 let svc = ServiceBuilder::new().layer(layer).service(client);
                 run_send(svc.oneshot(request), timeout).await
             }
+            ClientAuthConfig::Oidc(cfg) => {
+                let mut layer = cfg.get_client_layer()?;
+                layer.initialize().await?;
+                self.warn_insecure_auth();
+                let svc = ServiceBuilder::new().layer(layer).service(client);
+                run_send(svc.oneshot(request), timeout).await
+            }
             #[cfg(not(target_family = "windows"))]
             ClientAuthConfig::Spire(spire) => {
                 let mut layer = spire.get_client_layer()?;

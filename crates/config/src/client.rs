@@ -42,6 +42,7 @@ cfg_if::cfg_if! {
 
         use crate::auth::basic::Config as BasicAuthenticationConfig;
         use crate::auth::jwt::Config as JwtAuthenticationConfig;
+        use crate::auth::oidc::Config as OidcAuthConfig;
         #[cfg(not(target_family = "windows"))]
         use crate::auth::spire::SpireConfig as SpireAuthConfig;
         use crate::auth::static_jwt::Config as BearerAuthenticationConfig;
@@ -128,6 +129,8 @@ cfg_if::cfg_if! {
             StaticJwt(BearerAuthenticationConfig),
             /// JWT authentication configuration.
             Jwt(JwtAuthenticationConfig),
+            /// OIDC client-credentials or refresh-token flow.
+            Oidc(OidcAuthConfig),
             /// SPIRE/SPIFFE authentication configuration.
             #[cfg(not(target_family = "windows"))]
             Spire(SpireAuthConfig),
@@ -652,9 +655,9 @@ impl ServerConnectionConfig {
         let auth_method = match &client.auth {
             AuthenticationConfig::None => RequiredAuthMethod::None,
             AuthenticationConfig::Basic(_) => RequiredAuthMethod::Basic,
-            AuthenticationConfig::StaticJwt(_) | AuthenticationConfig::Jwt(_) => {
-                RequiredAuthMethod::Jwt
-            }
+            AuthenticationConfig::StaticJwt(_)
+            | AuthenticationConfig::Jwt(_)
+            | AuthenticationConfig::Oidc(_) => RequiredAuthMethod::Jwt,
             #[cfg(not(target_family = "windows"))]
             AuthenticationConfig::Spire(cfg) => RequiredAuthMethod::Spire {
                 trust_domain: cfg.trust_domains.first().cloned(),
