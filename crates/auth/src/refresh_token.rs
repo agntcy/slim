@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use display_error_chain::ErrorChainExt;
@@ -39,7 +38,7 @@ pub struct RefreshTokenProviderConfig {
 struct CachedToken {
     token: String,
     exp: u64,
-    refresh_at: u64,
+    refresh_at: tokio::time::Instant,
 }
 
 #[derive(Clone)]
@@ -50,9 +49,6 @@ pub struct RefreshTokenProvider {
     cached: Arc<RwLock<Option<CachedToken>>>,
     // Discovered once on first fetch; avoids repeated discovery round-trips.
     cached_token_endpoint: Arc<RwLock<Option<String>>>,
-    // Prevents concurrent refresh spawns; only the first caller that sets this
-    // to true proceeds, avoiding spurious invalid_grant errors from rotation.
-    refreshing: Arc<AtomicBool>,
     client: ReqwestClient,
 }
 
@@ -80,7 +76,6 @@ impl RefreshTokenProvider {
             current_refresh_token,
             cached: Arc::new(RwLock::new(None)),
             cached_token_endpoint: Arc::new(RwLock::new(None)),
-            refreshing: Arc::new(AtomicBool::new(false)),
             client,
         })
     }
@@ -160,7 +155,8 @@ impl RefreshTokenProvider {
 
         let expires_in = resp["expires_in"].as_u64().unwrap_or(3600);
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        let refresh_at = now + (expires_in * 2 / 3).max(REFRESH_BUFFER_SECS + 1);
+        let refresh_at = tokio::time::Instant::now()
+            + Duration::from_secs((expires_in * 2 / 3).max(REFRESH_BUFFER_SECS + 1));
 
         if let Some(new_rt) = resp["refresh_token"].as_str() {
             *self.current_refresh_token.write() = new_rt.to_owned();
@@ -192,7 +188,8 @@ impl TokenProvider for RefreshTokenProvider {
                 && exp > now
             {
                 let remaining = exp - now;
-                let refresh_at = now + (remaining * 2 / 3).max(REFRESH_BUFFER_SECS + 1);
+                let refresh_at = tokio::time::Instant::now()
+                    + Duration::from_secs((remaining * 2 / 3).max(REFRESH_BUFFER_SECS + 1));
                 *self.cached.write() = Some(CachedToken {
                     token: token.clone(),
                     exp,
@@ -228,33 +225,20 @@ impl TokenProvider for RefreshTokenProvider {
                 let refresh_at = provider.cached.read().as_ref().map(|c| c.refresh_at);
                 let Some(refresh_at) = refresh_at else { break };
 
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
-                if refresh_at > now {
-                    tokio::time::sleep(Duration::from_secs(refresh_at - now)).await;
-                }
+                tokio::time::sleep_until(refresh_at).await;
 
-                if provider.refreshing.swap(true, Ordering::Relaxed) {
-                    // get_token() already triggered a refresh; wait for it.
-                    continue;
-                }
                 match provider.fetch_new_token().await {
                     Ok(()) => {}
                     Err(AuthError::RefreshTokenRevoked) => {
                         tracing::error!("refresh token revoked; re-run `slimctl login`");
-                        provider.refreshing.store(false, Ordering::Relaxed);
                         break;
                     }
                     Err(e) => {
                         tracing::warn!(error = %e.chain(), "background token refresh failed; retrying in 30s");
-                        provider.refreshing.store(false, Ordering::Relaxed);
                         tokio::time::sleep(Duration::from_secs(30)).await;
                         continue;
                     }
                 }
-                provider.refreshing.store(false, Ordering::Relaxed);
             }
         });
 
