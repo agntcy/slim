@@ -23,31 +23,26 @@ nameOverride: ""
 fullnameOverride: "slim-control"
 
 config:
-  # `northbound` and `southbound` are derived from `service.north` / `service.south`
-  # below — one listener per port, with that port's TLS settings. Declaring the
-  # ports there is enough; there is no second list to keep in step.
-  #
-  # Set `northbound` / `southbound` here to override a bound explicitly, e.g. to
-  # bind an address the Service does not expose. Both a single mapping and a list
-  # are accepted:
-  #
-  #   northbound:
-  #     - endpoint: "127.0.0.1:50051"
-  #       tls:
-  #         insecure: true
-  #     - endpoint: "0.0.0.0:50451"
-  #       tls:
-  #         insecure: false
-  #         source:
-  #           type: spire
-  #           socket_path: "unix:///run/spire/agent-sockets/api.sock"
+  # One entry per listener. Add an entry here and a matching one under
+  # service.north / service.south to serve the API on another address.
+  northbound:
+    - endpoint: "0.0.0.0:{{ (index .Values.service.north 0).port }}"
+      tls:
+        insecure: true
 
-  # Uncomment below to enable node registration auth by Spire
-  # (also set spire.enabled: true, and TLS on the southbound port)
-  # topology:
-  #   registration_auth:
-  #     type: spire
-  #     socket_path: "unix:///run/spire/agent-sockets/api.sock"
+  southbound:
+    - endpoint: "0.0.0.0:{{ (index .Values.service.south 0).port }}"
+      tls:
+        insecure: true
+  # Uncomment below to enable MTLS by Spire (also set spire.enabled: true)
+  #     tls:
+  #       insecure: false
+  #       source:
+  #         type: spire
+  #         socket_path: "unix:///run/spire/agent-sockets/api.sock"
+  #     auth:
+  #       type: spire
+  #       socket_path: "unix:///run/spire/agent-sockets/api.sock"
 
   database:
     type: sqlite
@@ -114,37 +109,17 @@ securityContext:
 service:
   # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
   type: ClusterIP
-  # These are the single source of truth for a bound's listeners: the Service
-  # ports, the container ports, and the control plane's own northbound/southbound
-  # config are all derived from them.
-  #
-  # Each bound takes either a single `port` or a `ports` list. `ports` wins when
-  # both are given; the first entry is what an Ingress targets. Port names are
-  # capped at the 15 characters Kubernetes allows and default to
-  # "<north|south>-<index>".
-  #
-  # `tls` may be set per port, or per bound as a default; it lands on the derived
-  # listener. `bindAddress` overrides the derived bind host (default 0.0.0.0).
-  #
-  #   north:
-  #     ports:
-  #       - name: north
-  #         port: 50051
-  #       - name: north-tls
-  #         port: 50451
-  #         tls:
-  #           insecure: false
-  #           source:
-  #             type: spire
-  #             socket_path: "unix:///run/spire/agent-sockets/api.sock"
-  south:
-    port: 50052
-    tls:
-      insecure: true
+  # List of northbound server ports to expose. One entry per northbound listener
+  # in config.northbound above.
+  # Each entry may include an optional 'name' field (max 15 chars, lowercase
+  # alphanumeric and dashes). If omitted, the port is named north-{index}.
   north:
-    port: 50051
-    tls:
-      insecure: true
+    - port: 50051
+      name: north
+  # List of southbound server ports to expose. One entry per southbound listener.
+  south:
+    - port: 50052
+      name: south
 
 persistence:
   enabled: true

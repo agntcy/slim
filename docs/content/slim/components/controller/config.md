@@ -48,45 +48,33 @@ with the offending endpoint named.
 
 ### With the Helm chart
 
-`service.north` / `service.south` are the single source of truth: the Service
-ports, the container ports, and the `northbound` / `southbound` config are all
-derived from them, so the listeners are declared once.
+`service.north` and `service.south` are lists of ports to expose — one entry per
+listener. Add an entry there and a matching one under `config.northbound` /
+`config.southbound`, referencing the port by index:
 
 ```yaml
 service:
   north:
-    ports:
-      - name: north
-        port: 50051
-      - name: north-tls
-        port: 50451
-        tls:
-          insecure: false
-          source:
-            type: spire
-            socket_path: "unix:///run/spire/agent-sockets/api.sock"
+    - port: 50051
+      name: north
+    - port: 50451
+      name: north-tls
+
+config:
+  northbound:
+    - endpoint: "0.0.0.0:{{ (index .Values.service.north 0).port }}"
+      tls:
+        insecure: true
+    - endpoint: "0.0.0.0:{{ (index .Values.service.north 1).port }}"
+      tls:
+        insecure: false
+        source:
+          type: spire
+          socket_path: "unix:///run/spire/agent-sockets/api.sock"
 ```
 
-That renders both the Service ports and:
-
-```yaml
-northbound:
-  - endpoint: "0.0.0.0:50051"
-    tls:
-      insecure: true
-  - endpoint: "0.0.0.0:50451"
-    tls:
-      insecure: false
-      source:
-        type: spire
-        socket_path: "unix:///run/spire/agent-sockets/api.sock"
-```
-
-`tls` — and any other server field such as `auth` or `keepalive` — can be set on
-the bound to apply to every listener, or on a single port to apply to just that
-one. Port names are capped at the 15 characters Kubernetes allows and default to
-`<north|south>-<index>`; the first entry is what an Ingress targets. Setting
-`config.northbound` / `config.southbound` overrides the derivation for that bound.
+Port names are optional, capped at the 15 characters Kubernetes allows, and
+default to `<north|south>-<index>`. An Ingress targets the bound's first port.
 
 ## Full Configuration Reference
 

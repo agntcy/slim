@@ -43,15 +43,14 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
-            {{- /* Must mirror the Service: targetPort references these names. */}}
-            {{- range $p := (include "control-plane.listenerPorts" (dict "bound" .Values.service.south "prefix" "south") | fromYamlArray) }}
-            - name: {{ $p.name }}
-              containerPort: {{ $p.port }}
+            {{- range $i, $south := .Values.service.south }}
+            - name: {{ $south.name | default (printf "south-%d" $i) }}
+              containerPort: {{ $south.port }}
               protocol: TCP
             {{- end }}
-            {{- range $p := (include "control-plane.listenerPorts" (dict "bound" .Values.service.north "prefix" "north") | fromYamlArray) }}
-            - name: {{ $p.name }}
-              containerPort: {{ $p.port }}
+            {{- range $i, $north := .Values.service.north }}
+            - name: {{ $north.name | default (printf "north-%d" $i) }}
+              containerPort: {{ $north.port }}
               protocol: TCP
             {{- end }}
           {{ with .Values.env }}

@@ -47,7 +47,7 @@ spec:
               service:
                 name: {{ include "control-plane.fullname" $ }}
                 port:
-                  number: {{ include "control-plane.primaryPort" (dict "bound" $.Values.service.south "prefix" "south") }}
+                  number: {{ (index $.Values.service.south 0).port }}
           {{- end }}
     {{- end }}
 {{- end }}

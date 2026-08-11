@@ -41,9 +41,9 @@ The `config` block is rendered into a `ConfigMap` and mounted as `/config.yaml` 
 
 #### Northbound and southbound endpoints
 
-`northbound` and `southbound` are **derived from `service.north` / `service.south`** — one listener per exposed port, carrying that port's TLS settings. Set them under `config` only to override a bound explicitly.
+`northbound` and `southbound` each accept a single `ServerConfig` mapping or a list of them, one entry per listener. The northbound API is the gRPC API consumed by `slimctl` and external management clients; the southbound API is used by SLIM nodes to register and receive routing updates.
 
-Each accepts a single `ServerConfig` mapping or a list of them. The northbound API is the gRPC API consumed by `slimctl` and external management clients; the southbound API is used by SLIM nodes to register and receive routing updates.
+Ports are templated from `service.north` / `service.south` so the addresses the control plane binds stay in step with the ones the `Service` exposes.
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
@@ -123,9 +123,6 @@ auth:
 
 ##### Full TLS + mTLS example
 
-Set these on `service.north` / `service.south` and they land on every derived
-listener. The equivalent explicit override under `config` looks like this:
-
 ```yaml
 config:
   northbound:
@@ -144,7 +141,7 @@ config:
       type: none
 ```
 
-To use SPIRE for both TLS and auth, as an explicit override:
+To use SPIRE for both TLS and auth:
 
 ```yaml
 config:
@@ -276,23 +273,21 @@ When `spire.enabled: true` the chart:
 - Mounts the SPIRE agent socket from the host at `/run/spire/agent-sockets`
 - Creates a `ClusterSPIFFEID` that assigns an SVID to the control-plane pod
 
-To fully enable mTLS you also need TLS on the southbound listener (and/or the
-northbound one). Listeners are derived from the exposed ports, so set `tls` — and
-any other `ServerConfig` field such as `auth` — on the bound or on an individual
-port:
+To fully enable mTLS you also need to update `config.southbound` (and/or
+`config.northbound`):
 
 ```yaml
-service:
-  south:
-    port: 50052
-    tls:
-      insecure: false
-      source:
+config:
+  southbound:
+    - endpoint: "0.0.0.0:{{ (index .Values.service.south 0).port }}"
+      tls:
+        insecure: false
+        source:
+          type: spire
+          socket_path: "unix:///run/spire/agent-sockets/api.sock"
+      auth:
         type: spire
         socket_path: "unix:///run/spire/agent-sockets/api.sock"
-    auth:
-      type: spire
-      socket_path: "unix:///run/spire/agent-sockets/api.sock"
 
 spire:
   enabled: true
@@ -347,47 +342,38 @@ env:
 The chart exposes one named port per control-plane listener on a single
 Kubernetes `Service`.
 
-`service.north` and `service.south` are the single source of truth for a bound's
-listeners: the `Service` ports, the container ports, and the control plane's own
-`northbound` / `southbound` config are all derived from them, so the number of
-listeners is declared once.
-
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `service.type` | Kubernetes service type | `ClusterIP` |
-| `service.north.port` | Northbound gRPC port (single listener) | `50051` |
-| `service.north.ports` | List of `{name, port, tls}` for several northbound listeners; wins over `port` | unset |
-| `service.north.tls` | Default TLS settings for the bound's derived listeners | `insecure: true` |
-| `service.north.bindAddress` | Bind host for the derived endpoints | `0.0.0.0` |
-| `service.south.port` | Southbound gRPC port (single listener) | `50052` |
-| `service.south.ports` | As `service.north.ports`, for the southbound API | unset |
-| `service.south.tls` | Default TLS settings for the bound's derived listeners | `insecure: true` |
-| `service.south.bindAddress` | Bind host for the derived endpoints | `0.0.0.0` |
+| `service.north` | List of northbound ports to expose, one entry per northbound listener. Each entry takes `port` and an optional `name` (max 15 chars); the name defaults to `north-{index}` | `[{port: 50051, name: north}]` |
+| `service.south` | List of southbound ports to expose, one entry per southbound listener. Name defaults to `south-{index}` | `[{port: 50052, name: south}]` |
 
-To serve one API on several addresses — e.g. plaintext for in-cluster tooling
-alongside mTLS for external clients:
+To serve an API on several addresses, add an entry here and a matching one under
+`config.northbound` / `config.southbound`, referencing the port by index the same
+way the default values do:
 
 ```yaml
 service:
   north:
-    ports:
-      - name: north
-        port: 50051
-      - name: north-tls
-        port: 50451
-        tls:
-          insecure: false
-          source:
-            type: spire
-            socket_path: "unix:///run/spire/agent-sockets/api.sock"
+    - port: 50051
+      name: north
+    - port: 50451
+      name: north-tls
+
+config:
+  northbound:
+    - endpoint: "0.0.0.0:{{ (index .Values.service.north 0).port }}"
+      tls:
+        insecure: true
+    - endpoint: "0.0.0.0:{{ (index .Values.service.north 1).port }}"
+      tls:
+        insecure: false
+        source:
+          type: spire
+          socket_path: "unix:///run/spire/agent-sockets/api.sock"
 ```
 
-Port names are capped at the 15 characters Kubernetes allows and default to
-`<north|south>-<index>`. The first entry is the port an Ingress targets.
-
-Setting `config.northbound` / `config.southbound` explicitly overrides the
-derived listeners for that bound, at the cost of having to keep them in step with
-the exposed ports by hand.
+An Ingress targets the bound's first port.
 
 ---
 
@@ -424,7 +410,7 @@ Two independent `Ingress` objects can be created — one per port. Both share th
 
 #### Southbound ingress (`ingressSouth`)
 
-Same fields as `ingressNorth`, applies to the southbound API. The backend port is the bound's first listener.
+Same fields as `ingressNorth`, applies to the southbound API. The backend port is the first entry of `service.south`.
 
 ---
 
