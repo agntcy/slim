@@ -41,8 +41,37 @@ pub struct Config {
     /// Refresh token obtained from `slimctl login` (provider only).
     /// When set, uses the OAuth2 refresh-token grant instead of client credentials.
     /// Only one of `client_secret` or `refresh_token` may be set.
+    ///
+    /// Prefer `refresh_token_file` for anything long-lived: an inline token (or one
+    /// substituted in via `${file:...}`) cannot be written back, so a rotating IdP
+    /// invalidates it after the first exchange.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
+
+    /// Path to a file holding the refresh token (provider only).
+    ///
+    /// Unlike `refresh_token`, this is a *read-write* binding: the token is read
+    /// from the file, and when the IdP rotates it the new value is written back
+    /// to the same path (mode 0600), so the next start resumes the chain instead
+    /// of replaying a token the IdP already invalidated.  Required for IdPs that
+    /// issue single-use refresh tokens.
+    ///
+    /// A refresh token serves **one process at a time**: whoever exchanges it
+    /// invalidates the copy everyone else holds.  Nothing here enforces that, so
+    /// point each long-lived consumer at its own file.
+    ///
+    /// Takes precedence over `refresh_token` when both are set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_token_file: Option<String>,
+
+    /// Path to a file caching the current access token (provider only).
+    ///
+    /// Optional companion to `refresh_token_file`.  A still-valid token found here
+    /// seeds the provider's cache, sparing short-lived processes a token-endpoint
+    /// round-trip — and a refresh-token rotation — on every invocation.  Refreshed
+    /// tokens are written back (mode 0600).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_token_file: Option<String>,
 
     /// Optional scope parameter for the token request (provider only)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -91,6 +120,8 @@ impl Config {
             client_id: None,
             client_secret: None,
             refresh_token: None,
+            refresh_token_file: None,
+            access_token_file: None,
             audience: None,
             scope: None,
             timeout: default_timeout(),
@@ -111,6 +142,8 @@ impl Config {
             client_id: Some(client_id.into()),
             client_secret: Some(client_secret.into()),
             refresh_token: None,
+            refresh_token_file: None,
+            access_token_file: None,
             audience: None,
             scope: None,
             timeout: default_timeout(),
@@ -131,12 +164,31 @@ impl Config {
             client_id: Some(client_id.into()),
             client_secret: None,
             refresh_token: Some(refresh_token.into()),
+            refresh_token_file: None,
+            access_token_file: None,
             audience: None,
             scope: None,
             timeout: default_timeout(),
             jwks_ttl: default_jwks_ttl(),
             claim_cache_ttl: None,
             policy: None,
+        }
+    }
+
+    /// Create a provider configuration backed by a refresh token *file*, so that
+    /// rotated tokens survive process restarts.  `access_token_file` is an
+    /// optional cache that lets short-lived processes skip a token exchange.
+    pub fn with_token_files(
+        issuer_url: impl Into<String>,
+        client_id: impl Into<String>,
+        refresh_token_file: impl Into<String>,
+        access_token_file: Option<String>,
+    ) -> Self {
+        Self {
+            client_id: Some(client_id.into()),
+            refresh_token_file: Some(refresh_token_file.into()),
+            access_token_file,
+            ..Self::new(issuer_url)
         }
     }
 
@@ -147,6 +199,8 @@ impl Config {
             client_id: None,
             client_secret: None,
             refresh_token: None,
+            refresh_token_file: None,
+            access_token_file: None,
             audience: Some(audience.into()),
             scope: None,
             timeout: default_timeout(),
@@ -168,6 +222,8 @@ impl Config {
             client_id: Some(client_id.into()),
             client_secret: Some(client_secret.into()),
             refresh_token: None,
+            refresh_token_file: None,
+            access_token_file: None,
             audience: Some(audience.into()),
             scope: None,
             timeout: default_timeout(),
@@ -378,12 +434,89 @@ fn persist_stored_credentials(path: std::path::PathBuf, creds: StoredCredentials
     }
 }
 
+/// Write a bare secret to `path`, owner-readable only.
+///
+/// Truncates in place rather than writing-then-renaming: these files are read by
+/// the same user on the next invocation, and a rename would drop the 0600 mode
+/// if the destination were pre-created differently.
+fn write_secret_file(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    opts.open(path)?.write_all(contents.as_bytes())
+}
+
+/// Read a secret written by [`write_secret_file`], trimming the trailing newline
+/// a user's editor may have added.
+fn read_secret_file(path: &str) -> Result<String, ConfigAuthError> {
+    let raw = std::fs::read_to_string(path).map_err(|e| {
+        tracing::error!("failed to read token file {path}: {e}");
+        ConfigAuthError::IdentityProviderNotConfigured
+    })?;
+    let token = raw.trim();
+    if token.is_empty() {
+        tracing::error!("token file {path} is empty");
+        return Err(ConfigAuthError::IdentityProviderNotConfigured);
+    }
+    Ok(token.to_owned())
+}
+
 // Implement ClientAuthenticator for Config
 impl ClientAuthenticator for Config {
     type ClientLayer = AddJwtLayer<OidcClientProvider>;
 
     fn get_client_layer(&self) -> Result<Self::ClientLayer, ConfigAuthError> {
-        let provider = if let Some(rt) = &self.refresh_token {
+        let provider = if let Some(rt_file) = &self.refresh_token_file {
+            // File-backed refresh token: read it, and write rotations straight
+            // back so the next start resumes from the live token.
+            let client_id = self
+                .client_id
+                .as_ref()
+                .ok_or(ConfigAuthError::AuthOidcEmptyClientId)?;
+            let refresh_token = read_secret_file(rt_file)?;
+
+            // Only seed from a cached access token, never fail on one — a missing
+            // or stale cache just costs one token exchange.
+            let initial_access_token = self
+                .access_token_file
+                .as_deref()
+                .and_then(|p| read_secret_file(p).ok());
+
+            let rt_path = PathBuf::from(rt_file);
+            let at_path = self.access_token_file.as_deref().map(PathBuf::from);
+            let persist: Arc<dyn Fn(String, String) + Send + Sync> =
+                Arc::new(move |access_token, new_refresh_token| {
+                    if let Err(e) = write_secret_file(&rt_path, &new_refresh_token) {
+                        tracing::error!(
+                            "failed to write rotated refresh token to {rt_path:?}: {e}"
+                        );
+                    } else {
+                        tracing::debug!("persisted rotated refresh token to {rt_path:?}");
+                    }
+                    if let Some(at_path) = &at_path
+                        && let Err(e) = write_secret_file(at_path, &access_token)
+                    {
+                        tracing::error!("failed to write access token to {at_path:?}: {e}");
+                    }
+                });
+
+            OidcClientProvider::RefreshToken(RefreshTokenProvider::new(
+                RefreshTokenProviderConfig {
+                    refresh_token,
+                    issuer_url: self.issuer_url.clone(),
+                    client_id: client_id.clone(),
+                    timeout: self.timeout.map(Into::into),
+                    initial_access_token,
+                    persist_credentials: Some(persist),
+                },
+            )?)
+        } else if let Some(rt) = &self.refresh_token {
             // Explicit refresh token (programmatic use, e.g. slimctl).
             let client_id = self
                 .client_id
@@ -732,5 +865,172 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    // ── file-backed refresh token ───────────────────────────────────────────
+
+    fn write_tmp(dir: &std::path::Path, name: &str, contents: &str) -> String {
+        let path = dir.join(name);
+        std::fs::write(&path, contents).unwrap();
+        path.to_str().unwrap().to_owned()
+    }
+
+    #[test]
+    fn read_secret_file_trims_trailing_newline() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_tmp(dir.path(), "rt", "the-token\n");
+        assert_eq!(read_secret_file(&path).unwrap(), "the-token");
+    }
+
+    #[test]
+    fn read_secret_file_rejects_empty_and_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let empty = write_tmp(dir.path(), "empty", "   \n");
+        assert!(read_secret_file(&empty).is_err());
+        assert!(read_secret_file("/nonexistent/token").is_err());
+    }
+
+    #[test]
+    fn write_secret_file_is_owner_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("secret");
+        write_secret_file(&path, "s3cret").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "s3cret");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "got {:o}", mode & 0o777);
+        }
+    }
+
+    /// Overwriting a longer secret must not leave a tail of the old one behind.
+    #[test]
+    fn write_secret_file_truncates() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("secret");
+        write_secret_file(&path, "a-very-long-refresh-token").unwrap();
+        write_secret_file(&path, "short").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "short");
+    }
+
+    #[test]
+    fn with_token_files_sets_paths_and_no_inline_token() {
+        let cfg = Config::with_token_files(
+            "https://issuer.example.com",
+            "myclient",
+            "/tmp/rt",
+            Some("/tmp/at".to_string()),
+        );
+        assert_eq!(cfg.refresh_token_file.as_deref(), Some("/tmp/rt"));
+        assert_eq!(cfg.access_token_file.as_deref(), Some("/tmp/at"));
+        assert!(cfg.refresh_token.is_none());
+        assert!(cfg.client_secret.is_none());
+        assert_eq!(cfg.client_id.as_deref(), Some("myclient"));
+    }
+
+    #[test]
+    fn token_file_fields_round_trip_through_yaml() {
+        let cfg = Config::with_token_files(
+            "https://issuer.example.com",
+            "myclient",
+            "/tmp/rt",
+            Some("/tmp/at".to_string()),
+        );
+        let yaml = serde_yaml::to_string(&cfg).unwrap();
+        assert!(yaml.contains("refresh_token_file: /tmp/rt"), "{yaml}");
+        assert!(yaml.contains("access_token_file: /tmp/at"), "{yaml}");
+        let back: Config = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(back, cfg);
+    }
+
+    /// Absent fields must stay absent, so existing configs are unaffected.
+    #[test]
+    fn token_file_fields_are_omitted_when_unset() {
+        let yaml = serde_yaml::to_string(&Config::new("https://issuer.example.com")).unwrap();
+        assert!(!yaml.contains("refresh_token_file"), "{yaml}");
+        assert!(!yaml.contains("access_token_file"), "{yaml}");
+    }
+
+    #[test]
+    fn refresh_token_file_requires_client_id() {
+        crate::tls::provider::initialize_crypto_provider();
+        let dir = tempfile::tempdir().unwrap();
+        let rt = write_tmp(dir.path(), "rt", "the-refresh-token");
+        let mut cfg = Config::new("https://issuer.example.com");
+        cfg.refresh_token_file = Some(rt);
+        assert!(matches!(
+            cfg.get_client_layer(),
+            Err(ConfigAuthError::AuthOidcEmptyClientId)
+        ));
+    }
+
+    #[test]
+    fn refresh_token_file_missing_is_an_error() {
+        crate::tls::provider::initialize_crypto_provider();
+        let cfg = Config::with_token_files(
+            "https://issuer.example.com",
+            "myclient",
+            "/nonexistent/refresh_token",
+            None,
+        );
+        assert!(cfg.get_client_layer().is_err());
+    }
+
+    /// A file-backed refresh token builds a provider; an unreadable access-token
+    /// cache is only a cache, so it must not fail the build.
+    #[test]
+    fn refresh_token_file_builds_provider_despite_missing_access_token_cache() {
+        crate::tls::provider::initialize_crypto_provider();
+        let dir = tempfile::tempdir().unwrap();
+        let rt = write_tmp(dir.path(), "rt", "the-refresh-token\n");
+        let cfg = Config::with_token_files(
+            "https://issuer.example.com",
+            "myclient",
+            rt,
+            Some("/nonexistent/access_token".to_string()),
+        );
+        assert!(cfg.get_client_layer().is_ok());
+    }
+
+    /// `refresh_token_file` wins over an inline `refresh_token`, so a stale
+    /// inline value can never shadow the live file.
+    #[test]
+    fn refresh_token_file_takes_precedence_over_inline() {
+        crate::tls::provider::initialize_crypto_provider();
+        let dir = tempfile::tempdir().unwrap();
+        let rt = write_tmp(dir.path(), "rt", "from-file");
+        let mut cfg =
+            Config::with_token_files("https://issuer.example.com", "myclient", rt.clone(), None);
+        cfg.refresh_token = Some("inline-and-stale".to_string());
+        // Both are set; the file branch is the one that must run. It succeeds
+        // because the file is readable — the inline branch would too, so assert
+        // on the observable difference: deleting the file now fails the build.
+        assert!(cfg.get_client_layer().is_ok());
+        std::fs::remove_file(&rt).unwrap();
+        assert!(
+            cfg.get_client_layer().is_err(),
+            "inline token shadowed the file"
+        );
+    }
+
+    /// The same file is both source and sink, so a rotation persisted on one run
+    /// is what the next run reads back.
+    #[test]
+    fn refresh_token_file_round_trips_a_rotation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rt");
+        write_secret_file(&path, "seed-token").unwrap();
+        assert_eq!(
+            read_secret_file(path.to_str().unwrap()).unwrap(),
+            "seed-token"
+        );
+
+        // What the persist callback does on rotation.
+        write_secret_file(&path, "rotated-token").unwrap();
+        assert_eq!(
+            read_secret_file(path.to_str().unwrap()).unwrap(),
+            "rotated-token"
+        );
     }
 }

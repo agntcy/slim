@@ -184,7 +184,12 @@ pub(crate) async fn run(cli: Cli) -> Result<()> {
             bench::run(&args).await?;
         }
         Commands::Login(args) => {
-            login::run(&args).await?;
+            login::run(
+                &args,
+                cli.global.config.as_deref(),
+                cli.global.server.as_deref(),
+            )
+            .await?;
         }
     }
 

@@ -7,8 +7,9 @@ use duration_string::DurationString;
 
 use slim_config::auth::basic::Config as BasicAuthConfig;
 use slim_config::grpc::client::AuthenticationConfig;
+use slim_config::tls::client::TlsClientConfig;
 
-use crate::config::{load_config, parse_duration, save_config};
+use crate::config::{get_config_key, load_config, parse_duration, set_config_key};
 
 #[derive(Args)]
 pub struct ConfigArgs {
@@ -66,34 +67,39 @@ fn run_list(config_file: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+/// Set a single config key, leaving every other key in the file untouched —
+/// including any `${env:...}`/`${file:...}` references, which a full
+/// deserialize-modify-serialize cycle would replace with their expansions.
 fn run_set(cmd: &SetCommand, config_file: Option<&str>) -> Result<()> {
-    let mut config = load_config(config_file)?;
     match cmd {
         SetCommand::BasicAuthCreds { value } => {
             let (user, pass) = value
                 .split_once(':')
                 .ok_or_else(|| anyhow::anyhow!("basic-auth-creds must be 'username:password'"))?;
-            config.auth = AuthenticationConfig::Basic(BasicAuthConfig::new(user, pass));
+            set_config_key(
+                "auth",
+                &AuthenticationConfig::Basic(BasicAuthConfig::new(user, pass)),
+                config_file,
+            )?;
         }
         SetCommand::Server { value } => {
-            config.endpoint = value.clone();
+            set_config_key("endpoint", value, config_file)?;
         }
         SetCommand::Timeout { value } => {
-            let dur = parse_duration(value)?;
-            config.connect_timeout = DurationString::from(dur);
-            config.request_timeout = DurationString::from(dur);
+            let dur = DurationString::from(parse_duration(value)?);
+            set_config_key("connect_timeout", &dur, config_file)?;
+            set_config_key("request_timeout", &dur, config_file)?;
         }
         SetCommand::TlsCaFile { value } => {
-            config.tls_setting = config.tls_setting.clone().with_ca_file(value);
+            update_tls(config_file, |tls| tls.with_ca_file(value))?;
         }
         SetCommand::TlsCert {
             cert_file,
             key_file,
         } => {
-            config.tls_setting = config
-                .tls_setting
-                .clone()
-                .with_cert_and_key_file(cert_file, key_file);
+            update_tls(config_file, |tls| {
+                tls.with_cert_and_key_file(cert_file, key_file)
+            })?;
         }
         SetCommand::TlsInsecureSkipVerify { value } => {
             let skip_verify: bool = value.parse().map_err(|_| {
@@ -102,13 +108,23 @@ fn run_set(cmd: &SetCommand, config_file: Option<&str>) -> Result<()> {
                     value
                 )
             })?;
-            config.tls_setting = config
-                .tls_setting
-                .clone()
-                .with_insecure_skip_verify(skip_verify);
+            update_tls(config_file, |tls| {
+                tls.with_insecure_skip_verify(skip_verify)
+            })?;
         }
     }
-    save_config(&config, config_file)?;
+    Ok(())
+}
+
+/// Apply `f` to the config's current `tls` block (default when absent) and write
+/// just that key back.  The TLS builders need the existing value, so this is a
+/// read-modify-write scoped to the one key rather than the whole file.
+fn update_tls<F>(config_file: Option<&str>, f: F) -> Result<()>
+where
+    F: FnOnce(TlsClientConfig) -> TlsClientConfig,
+{
+    let current: TlsClientConfig = get_config_key("tls", config_file)?;
+    set_config_key("tls", &f(current), config_file)?;
     Ok(())
 }
 
