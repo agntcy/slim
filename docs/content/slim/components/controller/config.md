@@ -44,6 +44,44 @@ An empty list is rejected at startup; omit the key entirely to use the default
 single listener. Reusing the same address across two listeners fails at startup
 with the offending endpoint named.
 
+### With the Helm chart
+
+`service.north` / `service.south` are the single source of truth: the Service
+ports, the container ports, and the `northbound` / `southbound` config are all
+derived from them, so the listeners are declared once.
+
+```yaml
+service:
+  north:
+    ports:
+      - name: north
+        port: 50051
+      - name: north-tls
+        port: 50451
+        tls:
+          insecure: false
+          useSpiffe: true
+```
+
+That renders both the Service ports and:
+
+```yaml
+northbound:
+  - endpoint: "0.0.0.0:50051"
+    tls:
+      insecure: true
+  - endpoint: "0.0.0.0:50451"
+    tls:
+      insecure: false
+      useSpiffe: true
+```
+
+`tls` — and any other server field such as `auth` or `keepalive` — can be set on
+the bound to apply to every listener, or on a single port to apply to just that
+one. Port names are capped at the 15 characters Kubernetes allows and default to
+`<north|south>-<index>`; the first entry is what an Ingress targets. Setting
+`config.northbound` / `config.southbound` overrides the derivation for that bound.
+
 ## Full Configuration Reference
 
 ```yaml

@@ -12,13 +12,18 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
-    - port: {{ .Values.service.north.port }}
-      targetPort: north
+    {{- /* One Service port per configured control-plane listener. */}}
+    {{- range $p := (include "control-plane.listenerPorts" (dict "bound" .Values.service.north "prefix" "north") | fromYamlArray) }}
+    - port: {{ $p.port }}
+      targetPort: {{ $p.name }}
       protocol: TCP
-      name: north
-    - port: {{ .Values.service.south.port }}
-      name: south
-      targetPort: south
+      name: {{ $p.name }}
+    {{- end }}
+    {{- range $p := (include "control-plane.listenerPorts" (dict "bound" .Values.service.south "prefix" "south") | fromYamlArray) }}
+    - port: {{ $p.port }}
+      targetPort: {{ $p.name }}
       protocol: TCP
+      name: {{ $p.name }}
+    {{- end }}
   selector:
     {{- include "control-plane.selectorLabels" . | nindent 4 }}

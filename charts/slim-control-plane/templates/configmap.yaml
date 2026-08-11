@@ -11,4 +11,22 @@ metadata:
     {{- include "control-plane.labels" . | nindent 4 }}
 data:
   config.yaml: |
-    {{- tpl (toYaml .Values.config) . | nindent 4 }}
+    {{- /*
+      northbound/southbound are derived from service.north/service.south, so the
+      addresses the control plane binds cannot drift from the ports the Service
+      exposes. Set config.northbound / config.southbound in values to override a
+      bound explicitly.
+    */}}
+    {{- tpl (toYaml (omit .Values.config "northbound" "southbound")) . | nindent 4 }}
+    northbound:
+      {{- if hasKey .Values.config "northbound" }}
+      {{- tpl (toYaml (index .Values.config "northbound")) . | nindent 6 }}
+      {{- else }}
+      {{- include "control-plane.boundConfig" (dict "bound" .Values.service.north "prefix" "north") | nindent 6 }}
+      {{- end }}
+    southbound:
+      {{- if hasKey .Values.config "southbound" }}
+      {{- tpl (toYaml (index .Values.config "southbound")) . | nindent 6 }}
+      {{- else }}
+      {{- include "control-plane.boundConfig" (dict "bound" .Values.service.south "prefix" "south") | nindent 6 }}
+      {{- end }}

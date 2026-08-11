@@ -37,11 +37,13 @@ All parameters are set under `values.yaml`. The sections below describe each fie
 
 ### Controller configuration (`config`)
 
-The `config` block is rendered verbatim into a `ConfigMap` and mounted as `/config.yaml` inside the container.
+The `config` block is rendered into a `ConfigMap` and mounted as `/config.yaml` inside the container.
 
 #### Northbound and southbound endpoints
 
-`northbound` and `southbound` share the same `ServerConfig` structure. The northbound port is the gRPC API consumed by `slimctl` and external management clients; the southbound port is used by SLIM agents to register and receive routing updates.
+`northbound` and `southbound` are **derived from `service.north` / `service.south`** — one listener per exposed port, carrying that port's TLS settings. Set them under `config` only to override a bound explicitly.
+
+Each accepts a single `ServerConfig` mapping or a list of them. The northbound API is the gRPC API consumed by `slimctl` and external management clients; the southbound API is used by SLIM nodes to register and receive routing updates.
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
@@ -121,6 +123,9 @@ auth:
 
 ##### Full TLS + mTLS example
 
+Set these on `service.north` / `service.south` and they land on every derived
+listener. The equivalent explicit override under `config` looks like this:
+
 ```yaml
 config:
   northbound:
@@ -139,7 +144,7 @@ config:
       type: none
 ```
 
-To use SPIRE for both TLS and auth:
+To use SPIRE for both TLS and auth, as an explicit override:
 
 ```yaml
 config:
@@ -271,11 +276,15 @@ When `spire.enabled: true` the chart:
 - Mounts the SPIRE agent socket from the host at `/run/spire/agent-sockets`
 - Creates a `ClusterSPIFFEID` that assigns an SVID to the control-plane pod
 
-To fully enable mTLS you also need to update `config.southbound.tls` (and/or `config.northbound.tls`):
+To fully enable mTLS you also need TLS on the southbound listener (and/or the
+northbound one). Listeners are derived from the exposed ports, so set `tls` — and
+any other `ServerConfig` field such as `auth` — on the bound or on an individual
+port:
 
 ```yaml
-config:
-  southbound:
+service:
+  south:
+    port: 50052
     tls:
       insecure: false
       source:
@@ -335,13 +344,48 @@ env:
 
 ### Service
 
-The chart exposes two named ports on a single Kubernetes `Service`.
+The chart exposes one named port per control-plane listener on a single
+Kubernetes `Service`.
+
+`service.north` and `service.south` are the single source of truth for a bound's
+listeners: the `Service` ports, the container ports, and the control plane's own
+`northbound` / `southbound` config are all derived from them, so the number of
+listeners is declared once.
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `service.type` | Kubernetes service type | `ClusterIP` |
-| `service.north.port` | Northbound gRPC port | `50051` |
-| `service.south.port` | Southbound gRPC port | `50052` |
+| `service.north.port` | Northbound gRPC port (single listener) | `50051` |
+| `service.north.ports` | List of `{name, port, tls}` for several northbound listeners; wins over `port` | unset |
+| `service.north.tls` | Default TLS settings for the bound's derived listeners | `insecure: true` |
+| `service.north.bindAddress` | Bind host for the derived endpoints | `0.0.0.0` |
+| `service.south.port` | Southbound gRPC port (single listener) | `50052` |
+| `service.south.ports` | As `service.north.ports`, for the southbound API | unset |
+| `service.south.tls` | Default TLS settings for the bound's derived listeners | `insecure: true` |
+| `service.south.bindAddress` | Bind host for the derived endpoints | `0.0.0.0` |
+
+To serve one API on several addresses — e.g. plaintext for in-cluster tooling
+alongside mTLS for external clients:
+
+```yaml
+service:
+  north:
+    ports:
+      - name: north
+        port: 50051
+      - name: north-tls
+        port: 50451
+        tls:
+          insecure: false
+          useSpiffe: true
+```
+
+Port names are capped at the 15 characters Kubernetes allows and default to
+`<north|south>-<index>`. The first entry is the port an Ingress targets.
+
+Setting `config.northbound` / `config.southbound` explicitly overrides the
+derived listeners for that bound, at the cost of having to keep them in step with
+the exposed ports by hand.
 
 ---
 
@@ -378,7 +422,7 @@ Two independent `Ingress` objects can be created — one per port. Both share th
 
 #### Southbound ingress (`ingressSouth`)
 
-Same fields as `ingressNorth`, applies to the southbound port (`service.south.port`).
+Same fields as `ingressNorth`, applies to the southbound API. The backend port is the bound's first listener.
 
 ---
 

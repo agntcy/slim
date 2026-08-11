@@ -1250,4 +1250,77 @@ southbound:
         assert_eq!(via_iter, via_into);
         assert_eq!(via_iter, vec!["a:1", "b:2"]);
     }
+
+    /// The exact YAML the Helm chart emits for a single-listener bound, so a
+    /// drift on either side is caught here rather than at deploy time.
+    #[test]
+    fn parses_chart_rendered_single_listener() {
+        let yaml = r#"
+database:
+  path: /db/controlplane.db
+  type: sqlite
+reconciler:
+  max_requeues: 15
+  workers: 4
+topology: {}
+tracing:
+  log_level: debug
+northbound:
+  endpoint: 0.0.0.0:50051
+  tls:
+    insecure: true
+southbound:
+  endpoint: 0.0.0.0:50052
+  tls:
+    insecure: true
+"#;
+        let c: Config = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(c.northbound.endpoints(), vec!["0.0.0.0:50051"]);
+        assert_eq!(c.southbound.endpoints(), vec!["0.0.0.0:50052"]);
+    }
+
+    /// The chart's multi-listener rendering, including an unquoted `host:port`
+    /// scalar and per-listener TLS.
+    #[test]
+    fn parses_chart_rendered_multiple_listeners() {
+        let yaml = r#"
+tracing:
+  log_level: debug
+northbound:
+  - endpoint: 0.0.0.0:50051
+    tls:
+      insecure: true
+  - endpoint: 0.0.0.0:50451
+    tls:
+      insecure: false
+southbound:
+  - endpoint: 0.0.0.0:50052
+    tls:
+      insecure: true
+  - endpoint: 0.0.0.0:50053
+    tls:
+      insecure: true
+"#;
+        let c: Config = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            c.northbound.endpoints(),
+            vec!["0.0.0.0:50051", "0.0.0.0:50451"]
+        );
+        let nb: Vec<&ServerConfig> = c.northbound.iter().collect();
+        assert!(nb[0].tls_setting.insecure);
+        assert!(!nb[1].tls_setting.insecure);
+        assert_eq!(
+            c.southbound.endpoints(),
+            vec!["0.0.0.0:50052", "0.0.0.0:50053"]
+        );
+    }
+
+    /// An empty document must not silently yield defaults in a way that hides a
+    /// broken render — it deserializes to the documented defaults, and callers
+    /// that care about real content should assert on it.
+    #[test]
+    fn empty_document_yields_defaults() {
+        let c: Config = serde_yaml::from_str("{}").unwrap();
+        assert_eq!(c.northbound.endpoints(), vec!["0.0.0.0:50051"]);
+    }
 }
