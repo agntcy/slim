@@ -195,6 +195,13 @@
     "aliases": []
   },
   {
+    "version": "slim-tracing-v0.4.16",
+    "title": "slim-tracing-v0.4.16",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-tracing-v0.4.11",
     "title": "slim-tracing-v0.4.11",
     "aliases": []
@@ -532,9 +539,7 @@
   {
     "version": "slim-config-v0.15.0",
     "title": "slim-config-v0.15.0",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-config-v0.14.5",
