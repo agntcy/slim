@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::fs::OpenOptions;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -337,11 +336,22 @@ pub fn refresh_token_file_path() -> Result<PathBuf> {
 
 fn write_private(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        return OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?
+            .write_all(data);
+    }
+    #[cfg(not(unix))]
     OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
-        .mode(0o600)
         .open(path)?
         .write_all(data)
 }
@@ -468,7 +478,11 @@ pub fn config_file_path() -> Result<PathBuf> {
 }
 
 fn dirs_home() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
+    // Unix: $HOME. Windows: $USERPROFILE (Git for Windows also sets $HOME, but
+    // $USERPROFILE is the canonical variable the OS guarantees).
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
 }
 
 /// Parse a duration string like "15s", "1m", "500ms" into a std::time::Duration.
@@ -1206,6 +1220,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     #[allow(clippy::disallowed_methods)]
     fn save_login_auth_refresh_token_file_is_private() {
         let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());

@@ -45,6 +45,28 @@ jobs:
       rust-test-wasm: true
       rust-test-wasm-browser: false
 
+  windows-build:
+    name: Build (Windows)
+    # Run only on pushes to main, not on PRs
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-key-suffix: "-windows-x86_64-debug"
+
+      - name: Build
+        run: cargo build --locked --all-targets
+
   docker-build:
     name: Build SLIM docker image
     uses: ./.github/workflows/reusable-docker-build-push.yaml
