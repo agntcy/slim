@@ -471,12 +471,8 @@ dependencies = [
  "maybe-async",
  "parking_lot",
  "prost",
-<<<<<<< HEAD
  "prost-types",
  "rand 0.10.2",
-=======
- "rand 0.9.5",
->>>>>>> e87336f0 (    feat(proto): support typed message metadata (#1645))
  "serde",
  "serde_json",
  "smallvec",
