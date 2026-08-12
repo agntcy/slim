@@ -197,9 +197,7 @@
   {
     "version": "slim-tracing-v0.4.16",
     "title": "slim-tracing-v0.4.16",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-tracing-v0.4.11",
@@ -410,6 +408,13 @@
     "version": "slim-mls-v0.2.0",
     "title": "slim-mls-v0.2.0",
     "aliases": []
+  },
+  {
+    "version": "slim-datapath-v0.18.3",
+    "title": "slim-datapath-v0.18.3",
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "slim-datapath-v0.17.0",
