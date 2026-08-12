@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0](https://github.com/agntcy/slim/compare/slim-rpc-v2.0.0...slim-rpc-v2.1.0) - 2026-08-12
+
+### Fixed
+
+- *(rpc)* signal end-of-stream with the status header, not an empty payload ([#1961](https://github.com/agntcy/slim/pull/1961))
+
 ## [2.0.0-alpha.11](https://github.com/agntcy/slim/compare/slim-rpc-v2.0.0-alpha.10...slim-rpc-v2.0.0-alpha.11) - 2026-08-03
 
 ### Other

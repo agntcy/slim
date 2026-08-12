@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0](https://github.com/agntcy/slim/compare/slim-bindings-v2.0.0...slim-bindings-v2.1.0) - 2026-08-12
+
+### Added
+
+- *(slimctl)* OIDC token refresh for long-lived nodes ([#1960](https://github.com/agntcy/slim/pull/1960))
+- *(auth)* OIDC and static JWT validation with claim-based access control ([#1957](https://github.com/agntcy/slim/pull/1957))
+
 ## [2.0.0](https://github.com/agntcy/slim/compare/slim-bindings-v2.0.0-alpha.15...slim-bindings-v2.0.0) - 2026-08-04
 
 ### Added
