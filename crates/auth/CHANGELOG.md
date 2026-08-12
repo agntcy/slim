@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0](https://github.com/agntcy/slim/compare/slim-auth-v0.14.6...slim-auth-v0.15.0) - 2026-08-12
+
+### Added
+
+- *(slimctl)* OIDC token refresh for long-lived nodes ([#1960](https://github.com/agntcy/slim/pull/1960))
+- *(auth)* OIDC and static JWT validation with claim-based access control ([#1957](https://github.com/agntcy/slim/pull/1957))
+
+### Fixed
+
+- *(auth)* serialize concurrent refresh-token exchanges with file lock ([#1971](https://github.com/agntcy/slim/pull/1971))
+- *(auth)* await the rotated-credential persist instead of detaching it ([#1967](https://github.com/agntcy/slim/pull/1967))
+
 ## [0.14.6](https://github.com/agntcy/slim/compare/slim-auth-v0.14.5...slim-auth-v0.14.6) - 2026-08-04
 
 ### Other
