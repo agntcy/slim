@@ -2,366 +2,366 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://agntcy.github.io/slim/latest/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/community/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/slim-howto/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/slim-overview/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/architecture/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/architecture/authentication/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/architecture/naming/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/architecture/routing/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/architecture/sessions/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/architecture/sessions/group/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/architecture/sessions/session-p2p/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/channel-manager/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/channel-manager/config/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/channel-manager/install/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/install/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/version/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/bench/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/bench/pub/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/bench/sub/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/bench/channel/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/bench/channel/pub/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/bench/channel/sub/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/channel-manager/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/channel-manager/add-participant/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/channel-manager/create-channel/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/channel-manager/delete-channel/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/channel-manager/delete-participant/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/channel-manager/list-channels/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/channel-manager/list-participants/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/config/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/config/list/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/config/set/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/controller/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/controller/connection/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/controller/connection/list/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/controller/domain/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/controller/domain/add/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/controller/domain/list/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/controller/domain/remove/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/controller/link/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/controller/link/add/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/controller/link/list/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/controller/link/remove/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/controller/node/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/controller/node/list/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/controller/route/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/controller/route/list/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/controller/segment/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/controller/segment/add/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/controller/segment/list/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/controller/segment/remove/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/node/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/node/connection/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/node/connection/list/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/node/route/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/node/route/list/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/slim/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/cli/reference/slim/start/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/controller/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/controller/config/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/controller/install/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/data-plane/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/data-plane/config/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/data-plane/install/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/sdk/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/sdk/install/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/sdk/slimrpc/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/sdk/slimrpc/compiler/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/sdk/tutorials/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/sdk/tutorials/tutorial-app/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/sdk/tutorials/tutorial-connect/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/sdk/tutorials/tutorial-persistence/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/sdk/tutorials/tutorial-receive/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/sdk/tutorials/tutorial-session/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/sdk/tutorials/_snippets/putting-it-together/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/sdk/tutorials/slimrpc/tutorial-client/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/sdk/tutorials/slimrpc/tutorial-multicast/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/components/sdk/tutorials/slimrpc/tutorial-serve/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/deploy/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/deploy/daemonset/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/deploy/docker/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/deploy/kubernetes/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/deploy/local/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/deploy/multicluster/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/integrations/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/integrations/a2a/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/integrations/mcp/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
     <url>
          <loc>https://agntcy.github.io/slim/latest/slim/integrations/otel/</loc>
-         <lastmod>2026-08-10</lastmod>
+         <lastmod>2026-08-12</lastmod>
     </url>
 </urlset>
