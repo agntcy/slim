@@ -6431,8 +6431,8 @@
 <p>This document provides comprehensive documentation for configuring the SLIM data plane. The configuration is written in YAML format and defines how the data plane runtime, services, authentication, and observability components operate.</p>
 <p>This documentation corresponds to the JSON schemas in the SLIM repository:</p>
 <ul>
-<li><a href="https://github.com/agntcy/slim/blob/slim-v2.0.0-alpha.12/crates/config/src/schema/client-config.schema.json">Client Configuration Schema</a></li>
-<li><a href="https://github.com/agntcy/slim/blob/slim-v2.0.0-alpha.12/crates/config/src/schema/server-config.schema.json">Server Configuration Schema</a></li>
+<li><a href="https://github.com/agntcy/slim/blob/slim-v2.0.0/crates/config/src/schema/client-config.schema.json">Client Configuration Schema</a></li>
+<li><a href="https://github.com/agntcy/slim/blob/slim-v2.0.0/crates/config/src/schema/server-config.schema.json">Server Configuration Schema</a></li>
 </ul>
 <h2 id="configuration-structure-overview">Configuration Structure Overview</h2>
 <p>The SLIM configuration file consists of three main sections:</p>
@@ -7598,11 +7598,9 @@
 </div>
 <p>The following rules apply to substitution:</p>
 <ul>
-<li>Exact Replacement: The entire value must be a substitution expression.<ul>
+<li>Exact Replacement: The entire value must be a substitution expression.</li>
 <li>Valid: <code>password: "${env:PASSWORD}"</code></li>
 <li>Invalid: <code>password: "prefix-${env:PASSWORD}-suffix"</code></li>
-</ul>
-</li>
 <li>Error Handling: If substitution fails, configuration loading will fail.</li>
 <li>File Content: Reads entire file content as string, including newlines.</li>
 <li>Security: File paths are relative to working directory or absolute.</li>

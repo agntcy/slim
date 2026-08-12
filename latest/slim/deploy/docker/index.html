@@ -4907,7 +4907,7 @@
 <div class="highlight"><pre><span></span><code>docker<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-v<span class="w"> </span>./config.yaml:/config.yaml<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-p<span class="w"> </span><span class="m">46357</span>:46357<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>ghcr.io/agntcy/slim:2.0.0-alpha.12<span class="w"> </span>/slim<span class="w"> </span>--config<span class="w"> </span>/config.yaml
+<span class="w">    </span>ghcr.io/agntcy/slim:2.0.0<span class="w"> </span>/slim<span class="w"> </span>--config<span class="w"> </span>/config.yaml
 </code></pre></div>
 <p>SDK applications on the host connect to <code>http://127.0.0.1:46357</code>.</p>
 <h2 id="docker-compose-data-plane-with-client-apps">Docker Compose: Data Plane with Client Apps</h2>
@@ -4915,7 +4915,7 @@
 <div class="highlight"><pre><span></span><code><span class="c1"># docker-compose.yml</span>
 <span class="nt">services</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">slim-server</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/agntcy/slim:2.0.0-alpha.12</span>
+<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/agntcy/slim:2.0.0</span>
 <span class="w">    </span><span class="nt">entrypoint</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;/slim&quot;</span><span class="p p-Indicator">]</span>
 <span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;--config&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;/config/server-config.yaml&quot;</span><span class="p p-Indicator">]</span>
 <span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
@@ -4926,7 +4926,7 @@
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">slim-network</span>
 
 <span class="w">  </span><span class="nt">mock-app-server</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/agntcy/slim/examples:2.0.0-alpha.12</span>
+<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/agntcy/slim/examples:2.0.0</span>
 <span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;--config&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;/config/client-config.yaml&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;--local-name&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;server&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;--remote-name&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;client&quot;</span><span class="p p-Indicator">]</span>
 <span class="w">    </span><span class="nt">depends_on</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">slim-server</span>
@@ -4936,7 +4936,7 @@
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./config/docker-client-config.yaml:/config/client-config.yaml</span>
 
 <span class="w">  </span><span class="nt">mock-app-client</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/agntcy/slim/examples:2.0.0-alpha.12</span>
+<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ghcr.io/agntcy/slim/examples:2.0.0</span>
 <span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;--config&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;/config/client-config.yaml&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;--local-name&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;client&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;--remote-name&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;server&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;--message&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;hello</span><span class="nv"> </span><span class="s">from</span><span class="nv"> </span><span class="s">Docker!&quot;</span><span class="p p-Indicator">]</span>
 <span class="w">    </span><span class="nt">depends_on</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">slim-server</span>
@@ -4992,7 +4992,7 @@
 <span class="w">    </span>-v<span class="w"> </span>./controller-config.yaml:/config.yaml<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-v<span class="w"> </span>./db:/db<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-p<span class="w"> </span><span class="m">50051</span>:50051<span class="w"> </span>-p<span class="w"> </span><span class="m">50052</span>:50052<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>ghcr.io/agntcy/slim/control-plane:2.0.0-alpha.12<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>ghcr.io/agntcy/slim/control-plane:2.0.0<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>--config<span class="w"> </span>/config.yaml
 </code></pre></div>
 <p>See the <a href="../../components/controller/config/">Controller Configuration Reference</a> for the controller config format.</p>

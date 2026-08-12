@@ -4823,7 +4823,7 @@
 </div>
 <h2 id="docker">Docker</h2>
 <p>Pull the controller image:</p>
-<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>pull<span class="w"> </span>ghcr.io/agntcy/slim/control-plane:2.0.0-alpha.12
+<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>pull<span class="w"> </span>ghcr.io/agntcy/slim/control-plane:2.0.0
 </code></pre></div>
 <p>Create a configuration file:</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># slim-control-plane.yaml</span>
@@ -4848,12 +4848,12 @@
 <div class="highlight"><pre><span></span><code>docker<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-v<span class="w"> </span>./slim-control-plane.yaml:/config.yaml<span class="w"> </span>-v<span class="w"> </span>.:/db<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-p<span class="w"> </span><span class="m">50051</span>:50051<span class="w"> </span>-p<span class="w"> </span><span class="m">50052</span>:50052<span class="w">                      </span><span class="se">\</span>
-<span class="w">    </span>ghcr.io/agntcy/slim/control-plane:2.0.0-alpha.12<span class="w">            </span><span class="se">\</span>
+<span class="w">    </span>ghcr.io/agntcy/slim/control-plane:2.0.0
 <span class="w">    </span>--config<span class="w"> </span>/config.yaml
 </code></pre></div>
 <h2 id="helm">Helm</h2>
 <p>For Kubernetes deployments:</p>
-<div class="highlight"><pre><span></span><code>helm<span class="w"> </span>pull<span class="w"> </span>oci://ghcr.io/agntcy/slim/helm/slim-control-plane<span class="w"> </span>--version<span class="w"> </span>v2.0.0-rc.0
+<div class="highlight"><pre><span></span><code>helm<span class="w"> </span>pull<span class="w"> </span>oci://ghcr.io/agntcy/slim/helm/slim-control-plane<span class="w"> </span>--version<span class="w"> </span>v2.0.0
 </code></pre></div>
 <h2 id="building-from-source">Building from Source</h2>
 <p><strong>Prerequisites</strong>: Rust toolchain (pinned to 1.95.0), <a href="https://taskfile.dev/">Taskfile</a></p>

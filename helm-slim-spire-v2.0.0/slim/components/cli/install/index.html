@@ -4866,7 +4866,7 @@
 <div class="tabbed-set tabbed-alternate" data-tabs="1:6"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><input id="__tabbed_1_5" name="__tabbed_1" type="radio" /><input id="__tabbed_1_6" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">macOS (Apple Silicon)</label><label for="__tabbed_1_2">macOS (Intel)</label><label for="__tabbed_1_3">Linux (AMD64)</label><label for="__tabbed_1_4">Linux (ARM64)</label><label for="__tabbed_1_5">Windows (AMD64)</label><label for="__tabbed_1_6">Windows (ARM64)</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.8/slimctl-darwin-arm64.tar.gz
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-darwin-arm64.tar.gz
 tar<span class="w"> </span>-xzf<span class="w"> </span>slimctl-darwin-arm64.tar.gz
 sudo<span class="w"> </span>mv<span class="w"> </span>slimctl<span class="w"> </span>/usr/local/bin/slimctl
 sudo<span class="w"> </span>chmod<span class="w"> </span>+x<span class="w"> </span>/usr/local/bin/slimctl
@@ -4880,7 +4880,7 @@ sudo<span class="w"> </span>chmod<span class="w"> </span>+x<span class="w"> </sp
 </div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.8/slimctl-darwin-amd64.tar.gz
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-darwin-amd64.tar.gz
 tar<span class="w"> </span>-xzf<span class="w"> </span>slimctl-darwin-amd64.tar.gz
 sudo<span class="w"> </span>mv<span class="w"> </span>slimctl<span class="w"> </span>/usr/local/bin/slimctl
 sudo<span class="w"> </span>chmod<span class="w"> </span>+x<span class="w"> </span>/usr/local/bin/slimctl
@@ -4894,34 +4894,34 @@ sudo<span class="w"> </span>chmod<span class="w"> </span>+x<span class="w"> </sp
 </div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.8/slimctl-linux-amd64-gnu.tar.gz
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-linux-amd64-gnu.tar.gz
 tar<span class="w"> </span>-xzf<span class="w"> </span>slimctl-linux-amd64-gnu.tar.gz
 sudo<span class="w"> </span>mv<span class="w"> </span>slimctl<span class="w"> </span>/usr/local/bin/slimctl
 sudo<span class="w"> </span>chmod<span class="w"> </span>+x<span class="w"> </span>/usr/local/bin/slimctl
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.8/slimctl-linux-arm64-gnu.tar.gz
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-linux-arm64-gnu.tar.gz
 tar<span class="w"> </span>-xzf<span class="w"> </span>slimctl-linux-arm64-gnu.tar.gz
 sudo<span class="w"> </span>mv<span class="w"> </span>slimctl<span class="w"> </span>/usr/local/bin/slimctl
 sudo<span class="w"> </span>chmod<span class="w"> </span>+x<span class="w"> </span>/usr/local/bin/slimctl
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="nb">Invoke-WebRequest</span> <span class="n">-Uri</span> <span class="s2">&quot;https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.8/slimctl-windows-amd64.zip&quot;</span> <span class="n">-OutFile</span> <span class="s2">&quot;slimctl.zip&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="nb">Invoke-WebRequest</span> <span class="n">-Uri</span> <span class="s2">&quot;https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-windows-amd64.zip&quot;</span> <span class="n">-OutFile</span> <span class="s2">&quot;slimctl.zip&quot;</span>
 <span class="nb">Expand-Archive</span> <span class="n">-Path</span> <span class="s2">&quot;slimctl.zip&quot;</span> <span class="n">-DestinationPath</span> <span class="s2">&quot;.&quot;</span>
 
 <span class="c"># Move to a directory in your PATH (e.g., C:\Program Files\slimctl\)</span>
 </code></pre></div>
-<p>Alternatively, download directly from the <a href="https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.8/slimctl-windows-amd64.zip">releases page</a>.</p>
+<p>Alternatively, download directly from the <a href="https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-windows-amd64.zip">releases page</a>.</p>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="nb">Invoke-WebRequest</span> <span class="n">-Uri</span> <span class="s2">&quot;https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.8/slimctl-windows-arm64.zip&quot;</span> <span class="n">-OutFile</span> <span class="s2">&quot;slimctl.zip&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="nb">Invoke-WebRequest</span> <span class="n">-Uri</span> <span class="s2">&quot;https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-windows-arm64.zip&quot;</span> <span class="n">-OutFile</span> <span class="s2">&quot;slimctl.zip&quot;</span>
 <span class="nb">Expand-Archive</span> <span class="n">-Path</span> <span class="s2">&quot;slimctl.zip&quot;</span> <span class="n">-DestinationPath</span> <span class="s2">&quot;.&quot;</span>
 
 <span class="c"># Move to a directory in your PATH (e.g., C:\Program Files\slimctl\)</span>
 </code></pre></div>
-<p>Alternatively, download directly from the <a href="https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0-alpha.8/slimctl-windows-arm64.zip">releases page</a>.</p>
+<p>Alternatively, download directly from the <a href="https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-windows-arm64.zip">releases page</a>.</p>
 </div>
 </div>
 </div>

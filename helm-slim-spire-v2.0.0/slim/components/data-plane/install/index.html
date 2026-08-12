@@ -4867,7 +4867,7 @@
 </div>
 <h2 id="docker">Docker</h2>
 <p>Pull the SLIM container image and run it with a configuration file:</p>
-<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>pull<span class="w"> </span>ghcr.io/agntcy/slim:2.0.0-alpha.8
+<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>pull<span class="w"> </span>ghcr.io/agntcy/slim:2.0.0
 </code></pre></div>
 <p>Create a minimal configuration file:</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># config.yaml</span>
@@ -4894,7 +4894,7 @@
 <p>Run the container:</p>
 <div class="highlight"><pre><span></span><code>docker<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-v<span class="w"> </span>./config.yaml:/config.yaml<span class="w"> </span>-p<span class="w"> </span><span class="m">46357</span>:46357<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>ghcr.io/agntcy/slim:2.0.0-alpha.8<span class="w"> </span>/slim<span class="w"> </span>--config<span class="w"> </span>/config.yaml
+<span class="w">    </span>ghcr.io/agntcy/slim:2.0.0<span class="w"> </span>/slim<span class="w"> </span>--config<span class="w"> </span>/config.yaml
 </code></pre></div>
 <h2 id="cargo">Cargo</h2>
 <p>Install SLIM using Rust's package manager:</p>
@@ -4905,11 +4905,11 @@
 </code></pre></div>
 <h2 id="helm">Helm</h2>
 <p>For Kubernetes deployments, use the official Helm chart:</p>
-<div class="highlight"><pre><span></span><code>helm<span class="w"> </span>pull<span class="w"> </span>oci://ghcr.io/agntcy/slim/helm/slim<span class="w"> </span>--version<span class="w"> </span>v2.0.0-alpha.8
+<div class="highlight"><pre><span></span><code>helm<span class="w"> </span>pull<span class="w"> </span>oci://ghcr.io/agntcy/slim/helm/slim<span class="w"> </span>--version<span class="w"> </span>v2.0.0
 </code></pre></div>
 <div class="admonition note">
 <p class="admonition-title">Configuration</p>
-<p>For detailed Helm configuration options, see the <a href="https://github.com/agntcy/slim/blob/slim-v2.0.0-alpha.12/charts/slim/values.yaml">values.yaml</a> in the repository.</p>
+<p>For detailed Helm configuration options, see the <a href="https://github.com/agntcy/slim/blob/slim-v2.0.0/charts/slim/values.yaml">values.yaml</a> in the repository.</p>
 </div>
 <h2 id="cli-binary-slimctl">CLI Binary (<code>slimctl</code>)</h2>
 <p>For local development and testing, use the <code>slimctl</code> binary. First <a href="../../cli/install/">install slimctl</a>, then:</p>

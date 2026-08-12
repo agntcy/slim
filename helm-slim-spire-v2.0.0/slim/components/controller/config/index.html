@@ -1232,6 +1232,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#multiple-listeners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiple Listeners
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Multiple Listeners">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#with-the-helm-chart" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        With the Helm chart
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#full-configuration-reference" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4766,6 +4794,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#multiple-listeners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiple Listeners
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Multiple Listeners">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#with-the-helm-chart" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        With the Helm chart
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#full-configuration-reference" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5027,6 +5083,67 @@
 <span class="nt">tracing</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">log_level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">info</span>
 </code></pre></div>
+<h2 id="multiple-listeners">Multiple Listeners</h2>
+<p><code>northbound</code> and <code>southbound</code> each accept either a single server mapping or a
+list of them. With a list, the same API is served on every configured address,
+each with its own TLS settings — useful for exposing plaintext on loopback for
+local tooling while requiring mTLS on a routable address, or for binding one
+listener per network interface.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">northbound</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;127.0.0.1:50051&quot;</span><span class="w">    </span><span class="c1"># local tooling, plaintext</span>
+<span class="w">    </span><span class="nt">tls</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">insecure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0.0.0.0:50451&quot;</span><span class="w">      </span><span class="c1"># routable, TLS</span>
+<span class="w">    </span><span class="nt">tls</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">insecure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">      </span><span class="nt">source</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">file</span>
+<span class="w">        </span><span class="nt">cert</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/slim/tls.crt</span>
+<span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/slim/tls.key</span>
+
+<span class="nt">southbound</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0.0.0.0:50052&quot;</span>
+<span class="w">    </span><span class="nt">tls</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">insecure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</code></pre></div>
+<p>An empty list is rejected at startup; omit the key entirely to use the default
+single listener. Reusing the same address across two listeners fails at startup
+with the offending endpoint named.</p>
+<h3 id="with-the-helm-chart">With the Helm chart</h3>
+<p><code>service.north</code> and <code>service.south</code> are lists of ports to expose — one entry per
+listener. Add an entry there and a matching one under <code>config.northbound</code> /
+<code>config.southbound</code>, referencing the port by index:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">service</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">north</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50051</span>
+<span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">north</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50451</span>
+<span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">north-tls</span>
+
+<span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">northbound</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0.0.0.0:{{</span><span class="nv"> </span><span class="s">(index</span><span class="nv"> </span><span class="s">.Values.service.north</span><span class="nv"> </span><span class="s">0).port</span><span class="nv"> </span><span class="s">}}&quot;</span>
+<span class="w">      </span><span class="nt">tls</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">insecure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0.0.0.0:{{</span><span class="nv"> </span><span class="s">(index</span><span class="nv"> </span><span class="s">.Values.service.north</span><span class="nv"> </span><span class="s">1).port</span><span class="nv"> </span><span class="s">}}&quot;</span>
+<span class="w">      </span><span class="nt">tls</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">insecure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">        </span><span class="nt">source</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">spire</span>
+<span class="w">          </span><span class="nt">socket_path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;unix:///run/spire/agent-sockets/api.sock&quot;</span>
+</code></pre></div>
+<p>Port names are optional, capped at the 15 characters Kubernetes allows, and
+default to <code>&lt;north|south&gt;-&lt;index&gt;</code>.</p>
+<p>An Ingress publishes one listener — <code>ingressNorth.servicePort</code> /
+<code>ingressSouth.servicePort</code> name it, defaulting to the first. With
+<code>service.type: ClusterIP</code> the others stay reachable only inside the cluster, so
+one listener can be public while another is internal:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">ingressNorth</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">servicePort</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">north-tls</span>
+</code></pre></div>
+<p><code>LoadBalancer</code> and <code>NodePort</code> expose every Service port regardless of the Ingress,
+so that split depends on <code>ClusterIP</code>.</p>
 <h2 id="full-configuration-reference">Full Configuration Reference</h2>
 <div class="highlight"><pre><span></span><code><span class="c1"># Northbound interface — used by slimctl and external management tools</span>
 <span class="nt">northbound</span><span class="p">:</span>

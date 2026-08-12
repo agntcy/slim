@@ -5351,37 +5351,44 @@
 </div>
 </div>
 <h2 id="close-and-rejoin">Close and Rejoin</h2>
-<p>Call <code>close</code> to broadcast an <code>OFFLINE</code> state update and pause participation. Other group members stop expecting acknowledgements from this participant and exclude it from future MLS key material — but do not remove it from the roster. Call <code>rejoin</code> when ready to resume; the session layer broadcasts an <code>ONLINE</code> update and performs an MLS re-key to include the participant in new key material.</p>
+<p><code>close_with_mode</code> takes a <code>CloseMode</code> that controls whether the close is temporary or permanent:</p>
+<ul>
+<li><strong><code>CloseMode::Soft</code></strong> — Go offline temporarily. Broadcasts an <code>OFFLINE</code> state update so other members stop expecting acknowledgements, but you remain on the roster. The session state is preserved in the persistence store. Call <code>rejoin</code> to come back; the session is restored without repeating the full handshake. <strong>Use this when working with persistence.</strong></li>
+<li><strong><code>CloseMode::Hard</code></strong> — Terminate the session permanently. The session is removed from the store and cannot be restored with <code>rejoin</code>.</li>
+</ul>
 <div class="admonition note">
 <p class="admonition-title">Group sessions only</p>
-<p><code>close</code> and <code>rejoin</code> are only valid for group sessions. Calling either on a point-to-point session returns an error.</p>
+<p><code>close_with_mode</code> and <code>rejoin</code> are only valid for group sessions. Calling either on a point-to-point session returns an error.</p>
 </div>
 <h3 id="close">Close</h3>
+<p>Use <code>CloseMode::Soft</code> to pause participation while keeping the session alive in the store:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="3:7"><input checked="checked" id="__tabbed_3_1" name="__tabbed_3" type="radio" /><input id="__tabbed_3_2" name="__tabbed_3" type="radio" /><input id="__tabbed_3_3" name="__tabbed_3" type="radio" /><input id="__tabbed_3_4" name="__tabbed_3" type="radio" /><input id="__tabbed_3_5" name="__tabbed_3" type="radio" /><input id="__tabbed_3_6" name="__tabbed_3" type="radio" /><input id="__tabbed_3_7" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="__tabbed_3_1">Rust</label><label for="__tabbed_3_2">Python</label><label for="__tabbed_3_3">Go</label><label for="__tabbed_3_4">Java</label><label for="__tabbed_3_5">Kotlin</label><label for="__tabbed_3_6">Node.js</label><label for="__tabbed_3_7">.NET</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="c1">// Broadcast OFFLINE and wait for acknowledgements</span>
-<span class="n">session</span><span class="p">.</span><span class="n">close</span><span class="p">().</span><span class="k">await</span><span class="o">?</span><span class="p">.</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">slim_session</span><span class="p">::</span><span class="n">CloseMode</span><span class="p">;</span>
+
+<span class="c1">// Soft close: go offline, stay on the roster, keep session in the store</span>
+<span class="n">session</span><span class="p">.</span><span class="n">close_with_mode</span><span class="p">(</span><span class="n">CloseMode</span><span class="p">::</span><span class="n">Soft</span><span class="p">).</span><span class="k">await</span><span class="o">?</span><span class="p">.</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
 <span class="fm">println!</span><span class="p">(</span><span class="s">&quot;Offline — other members will stop expecting acks from us&quot;</span><span class="p">);</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="c1"># Broadcast OFFLINE and wait for acknowledgements</span>
-<span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">close_and_wait_async</span><span class="p">()</span>
+<div class="highlight"><pre><span></span><code><span class="c1"># Soft close: go offline, stay on the roster, keep session in the store</span>
+<span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">close_with_mode_and_wait_async</span><span class="p">(</span><span class="n">slim_bindings</span><span class="o">.</span><span class="n">CloseMode</span><span class="o">.</span><span class="n">SOFT</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Offline — other members will stop expecting acks from us&quot;</span><span class="p">)</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="c1">// Broadcast OFFLINE and wait for acknowledgements</span>
-<span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">session</span><span class="p">.</span><span class="nx">CloseAndWaitAsync</span><span class="p">();</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<div class="highlight"><pre><span></span><code><span class="c1">// Soft close: go offline, stay on the roster, keep session in the store</span>
+<span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">session</span><span class="p">.</span><span class="nx">CloseWithModeAndWaitAsync</span><span class="p">(</span><span class="nx">slim</span><span class="p">.</span><span class="nx">CloseModeSoft</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Fatal</span><span class="p">(</span><span class="nx">err</span><span class="p">)</span>
 <span class="p">}</span>
 <span class="nx">fmt</span><span class="p">.</span><span class="nx">Println</span><span class="p">(</span><span class="s">&quot;Offline — other members will stop expecting acks from us&quot;</span><span class="p">)</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="c1">// Broadcast OFFLINE and wait for acknowledgements</span>
-<span class="n">session</span><span class="p">.</span><span class="na">closeAndWait</span><span class="p">();</span>
+<div class="highlight"><pre><span></span><code><span class="c1">// Soft close: go offline, stay on the roster, keep session in the store</span>
+<span class="n">session</span><span class="p">.</span><span class="na">closeWithModeAndWait</span><span class="p">(</span><span class="n">CloseMode</span><span class="p">.</span><span class="na">SOFT</span><span class="p">);</span>
 <span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&quot;Offline — other members will stop expecting acks from us&quot;</span><span class="p">);</span>
 </code></pre></div>
 </div>
@@ -5389,21 +5396,21 @@
 <div class="highlight"><pre><span></span><code><span class="k">import</span><span class="w"> </span><span class="nn">kotlinx.coroutines.runBlocking</span>
 
 <span class="n">runBlocking</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="c1">// Broadcast OFFLINE and wait for acknowledgements</span>
-<span class="w">    </span><span class="n">session</span><span class="p">.</span><span class="na">closeAndWaitAsync</span><span class="p">()</span>
+<span class="w">    </span><span class="c1">// Soft close: go offline, stay on the roster, keep session in the store</span>
+<span class="w">    </span><span class="n">session</span><span class="p">.</span><span class="na">closeWithModeAndWaitAsync</span><span class="p">(</span><span class="n">CloseMode</span><span class="p">.</span><span class="na">SOFT</span><span class="p">)</span>
 <span class="w">    </span><span class="n">println</span><span class="p">(</span><span class="s">&quot;Offline — other members will stop expecting acks from us&quot;</span><span class="p">)</span>
 <span class="p">}</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="c1">// Broadcast OFFLINE and wait for acknowledgements</span>
-<span class="k">await</span><span class="w"> </span><span class="nx">session</span><span class="p">.</span><span class="nx">closeAndWaitAsync</span><span class="p">();</span>
+<div class="highlight"><pre><span></span><code><span class="c1">// Soft close: go offline, stay on the roster, keep session in the store</span>
+<span class="k">await</span><span class="w"> </span><span class="nx">session</span><span class="p">.</span><span class="nx">closeWithModeAndWaitAsync</span><span class="p">(</span><span class="nx">slimBindings</span><span class="p">.</span><span class="nx">CloseMode</span><span class="p">.</span><span class="nx">Soft</span><span class="p">);</span>
 <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s2">&quot;Offline — other members will stop expecting acks from us&quot;</span><span class="p">);</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="c1">// Broadcast OFFLINE and wait for acknowledgements</span>
-<span class="k">await</span><span class="w"> </span><span class="n">session</span><span class="p">.</span><span class="n">CloseAndWaitAsync</span><span class="p">();</span>
+<div class="highlight"><pre><span></span><code><span class="c1">// Soft close: go offline, stay on the roster, keep session in the store</span>
+<span class="k">await</span><span class="w"> </span><span class="n">session</span><span class="p">.</span><span class="n">CloseWithModeAndWaitAsync</span><span class="p">(</span><span class="n">SlimCloseMode</span><span class="p">.</span><span class="n">Soft</span><span class="p">);</span>
 <span class="n">Console</span><span class="p">.</span><span class="n">WriteLine</span><span class="p">(</span><span class="s">&quot;Offline — other members will stop expecting acks from us&quot;</span><span class="p">);</span>
 </code></pre></div>
 </div>
