@@ -32,6 +32,11 @@ pub struct RefreshTokenProviderConfig {
     /// Called after a successful token exchange when the IdP issues a new
     /// refresh token (rotation). Arguments: (new_access_token, new_refresh_token).
     /// Use this to persist the rotated tokens so process restarts don't lose them.
+    ///
+    /// Runs on the blocking pool and is awaited before the exchange completes, so
+    /// the rotated token is on disk before the new access token is handed out.
+    /// Implementations may block (file I/O) but should not be slow: they sit in
+    /// the path of every renewal.
     pub persist_credentials: Option<Arc<dyn Fn(String, String) + Send + Sync>>,
 }
 
@@ -163,7 +168,21 @@ impl RefreshTokenProvider {
             if let Some(cb) = self.config.persist_credentials.clone() {
                 let at = access_token.clone();
                 let rt = new_rt.to_owned();
-                tokio::task::spawn_blocking(move || cb(at, rt));
+                // Awaited, not detached: the in-memory refresh token has just
+                // moved on, so until this lands the copy on disk is one the IdP
+                // may already have invalidated. Losing the write means the next
+                // process start replays a spent token and fails with
+                // invalid_grant — exactly what persisting is meant to prevent.
+                //
+                // spawn_blocking because the callback does synchronous file I/O;
+                // no lock is held across the await (the guard above is a
+                // statement-level temporary).
+                if let Err(e) = tokio::task::spawn_blocking(move || cb(at, rt)).await {
+                    tracing::error!(
+                        error = %e,
+                        "failed to persist rotated refresh token; the copy on disk is now stale"
+                    );
+                }
             }
         }
 
@@ -274,5 +293,167 @@ impl TokenProvider for RefreshTokenProvider {
         _public_key: Vec<u8>,
     ) -> Result<(), AuthError> {
         Err(AuthError::MlsNotSupported)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// Mock IdP: discovery pointing at its own token endpoint, which rotates the
+    /// refresh token on every exchange.
+    async fn mock_idp(new_refresh_token: &str) -> MockServer {
+        let server = MockServer::start().await;
+        let uri = server.uri();
+
+        Mock::given(method("GET"))
+            .and(path("/.well-known/openid-configuration"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "issuer": uri,
+                "token_endpoint": format!("{uri}/token"),
+            })))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": "new-access-token",
+                "refresh_token": new_refresh_token,
+                "expires_in": 3600,
+            })))
+            .mount(&server)
+            .await;
+
+        server
+    }
+
+    fn provider(
+        server: &MockServer,
+        persist: Option<Arc<dyn Fn(String, String) + Send + Sync>>,
+    ) -> RefreshTokenProvider {
+        // reqwest builds its TLS backend eagerly, so a crypto provider must be
+        // installed even though the mock server speaks plaintext.
+        slim_config::tls::provider::initialize_crypto_provider();
+        RefreshTokenProvider::new(RefreshTokenProviderConfig {
+            refresh_token: "seed-token".to_string(),
+            issuer_url: server.uri(),
+            client_id: "test-client".to_string(),
+            timeout: Some(Duration::from_secs(5)),
+            initial_access_token: None,
+            persist_credentials: persist,
+        })
+        .expect("provider")
+    }
+
+    /// The persist callback must have completed by the time the exchange returns.
+    ///
+    /// This is the regression guard for detaching it: the callback sleeps, so with
+    /// a fire-and-forget `spawn_blocking` the flag is still unset when
+    /// `fetch_new_token` resolves.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn persist_completes_before_fetch_returns() {
+        let server = mock_idp("rotated-token").await;
+
+        let done = Arc::new(AtomicBool::new(false));
+        let seen: Arc<parking_lot::Mutex<Option<(String, String)>>> =
+            Arc::new(parking_lot::Mutex::new(None));
+
+        let cb_done = done.clone();
+        let cb_seen = seen.clone();
+        let p = provider(
+            &server,
+            Some(Arc::new(move |access, refresh| {
+                // Blocking work, as a real file write would be.
+                std::thread::sleep(Duration::from_millis(150));
+                *cb_seen.lock() = Some((access, refresh));
+                cb_done.store(true, Ordering::SeqCst);
+            })),
+        );
+
+        p.fetch_new_token().await.expect("exchange");
+
+        assert!(
+            done.load(Ordering::SeqCst),
+            "fetch_new_token returned before the rotated token was persisted"
+        );
+        assert_eq!(
+            *seen.lock(),
+            Some(("new-access-token".to_string(), "rotated-token".to_string()))
+        );
+    }
+
+    /// The in-memory token and the persisted one must agree — the whole point of
+    /// ordering the write.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn persisted_token_matches_in_memory_token() {
+        let server = mock_idp("rotated-token").await;
+        let persisted: Arc<parking_lot::Mutex<Option<String>>> =
+            Arc::new(parking_lot::Mutex::new(None));
+        let sink = persisted.clone();
+
+        let p = provider(
+            &server,
+            Some(Arc::new(move |_access, refresh| {
+                *sink.lock() = Some(refresh);
+            })),
+        );
+
+        p.fetch_new_token().await.expect("exchange");
+
+        assert_eq!(persisted.lock().as_deref(), Some("rotated-token"));
+        assert_eq!(*p.current_refresh_token.read(), "rotated-token");
+    }
+
+    /// No callback configured is not an error; rotation still updates memory.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn rotation_without_persist_callback_is_fine() {
+        let server = mock_idp("rotated-token").await;
+        let p = provider(&server, None);
+
+        p.fetch_new_token().await.expect("exchange");
+
+        assert_eq!(*p.current_refresh_token.read(), "rotated-token");
+        assert_eq!(p.get_token().expect("token"), "new-access-token");
+    }
+
+    /// A response with no `refresh_token` must not invoke the callback: there is
+    /// nothing new to persist, and overwriting with the old value is pointless.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn no_rotation_means_no_persist() {
+        let server = MockServer::start().await;
+        let uri = server.uri();
+        Mock::given(method("GET"))
+            .and(path("/.well-known/openid-configuration"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "issuer": uri, "token_endpoint": format!("{uri}/token"),
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": "new-access-token",
+                "expires_in": 3600,
+            })))
+            .mount(&server)
+            .await;
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counter = calls.clone();
+        let p = provider(
+            &server,
+            Some(Arc::new(move |_a, _r| {
+                counter.fetch_add(1, Ordering::SeqCst);
+            })),
+        );
+
+        p.fetch_new_token().await.expect("exchange");
+
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert_eq!(*p.current_refresh_token.read(), "seed-token");
     }
 }
