@@ -160,9 +160,12 @@ pub async fn send_error_for_rpc(
 
 /// Send an end-of-stream marker to `target`.
 ///
-/// An EOS is an empty-payload message with `slimrpc-code = Ok`. Every server
-/// handler must send one after its final response so GROUP/multicast callers
-/// can count per-member stream ends. P2P callers discard it harmlessly.
+/// An EOS is an empty-payload message carrying `slimrpc-code = Ok`. The
+/// status header is what marks it terminal — data frames carry no status —
+/// so a response that encodes to zero bytes is not mistaken for the end of
+/// the stream. Every server handler must send one after its final response so
+/// GROUP/multicast callers can count per-member stream ends. P2P callers
+/// discard it harmlessly.
 ///
 /// `extra` is merged into the EOS metadata after the status code. Pass
 /// `None` for the common case where no additional metadata is needed.
@@ -184,10 +187,29 @@ pub async fn send_eos(
         .map_err(|e| RpcError::internal(format!("Failed to send EOS: {e}")))
 }
 
+/// Metadata for a terminal message — an EOS or an error.
+///
+/// The presence of [`STATUS_CODE_KEY`] is what makes a message terminal, so
+/// this must never be used for a data frame; see [`create_data_metadata`] and
+/// [`ReceivedMessage::is_eos`](crate::ReceivedMessage::is_eos).
 fn create_status_metadata(code: RpcCode, rpc_id: &str) -> HashMap<String, String> {
     let mut metadata = HashMap::new();
     let code_i32: i32 = code.into();
     metadata.insert(STATUS_CODE_KEY.to_string(), code_i32.to_string());
+    if !rpc_id.is_empty() {
+        metadata.insert(RPC_ID_KEY.to_string(), rpc_id.to_string());
+    }
+    metadata
+}
+
+/// Metadata for a response data frame.
+///
+/// Deliberately omits [`STATUS_CODE_KEY`]: a status marks the end of the
+/// stream, so attaching one to a data frame makes a response that encodes to
+/// zero bytes indistinguishable from the terminator. Mirrors the client side,
+/// where `first_msg_metadata` / `continuation_metadata` already omit it.
+fn create_data_metadata(rpc_id: &str) -> HashMap<String, String> {
+    let mut metadata = HashMap::new();
     if !rpc_id.is_empty() {
         metadata.insert(RPC_ID_KEY.to_string(), rpc_id.to_string());
     }
@@ -220,7 +242,7 @@ where
                             target,
                             response_bytes,
                             Some("msg".to_string()),
-                            Some(create_status_metadata(RpcCode::Ok, rpc_id)),
+                            Some(create_data_metadata(rpc_id)),
                         )
                         .await
                         .map_err(|e| RpcError::internal(format!("Failed to send response: {e}")))?,

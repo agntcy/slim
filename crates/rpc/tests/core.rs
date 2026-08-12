@@ -81,6 +81,24 @@ impl Decoder for TestResponse {
     }
 }
 
+/// Response that encodes to zero bytes — the analogue of
+/// `google.protobuf.Empty`, or of any generated message with no fields set.
+/// Used to pin down that an empty payload is a data frame, not end-of-stream.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct EmptyResponse;
+
+impl Encoder for EmptyResponse {
+    fn encode(self) -> Result<Vec<u8>, RpcError> {
+        Ok(Vec::new())
+    }
+}
+
+impl Decoder for EmptyResponse {
+    fn decode(_buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> {
+        Ok(EmptyResponse)
+    }
+}
+
 // ============================================================================
 // Test Helpers
 // ============================================================================
@@ -552,6 +570,74 @@ async fn test_unary_stream_rpc() {
     assert_eq!(responses[0].count, 1);
     assert_eq!(responses[4].result, "item-5");
     assert_eq!(responses[4].count, 5);
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test 3a: Zero-byte payloads are data, not end-of-stream
+// ============================================================================
+//
+// EOS is signalled by an explicit metadata marker. These tests pin that down:
+// a response that encodes to zero bytes must reach the caller intact rather
+// than being swallowed as the stream terminator.
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_unary_unary_empty_payload_response() {
+    let mut env = TestEnv::new("test-service-empty-response").await;
+
+    env.server.register_unary_unary(
+        "TestService",
+        "Empty",
+        |_request: TestRequest, _ctx: Context| async move { Ok(EmptyResponse) },
+    );
+
+    env.start_server().await;
+
+    let response: EmptyResponse = env
+        .channel
+        .unary("TestService", "Empty", TestRequest::default(), None, None)
+        .await
+        .expect("zero-byte response must not be mistaken for end-of-stream");
+
+    assert_eq!(response, EmptyResponse);
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_unary_stream_empty_payload_responses() {
+    let mut env = TestEnv::new("test-service-empty-stream").await;
+
+    env.server.register_unary_stream(
+        "TestService",
+        "EmptyStream",
+        |_request: TestRequest, _ctx: Context| async move {
+            Ok(stream::iter(
+                (0..3).map(|_| Ok::<EmptyResponse, RpcError>(EmptyResponse)),
+            ))
+        },
+    );
+
+    env.start_server().await;
+
+    let responses: Vec<EmptyResponse> = {
+        let response_stream = env.channel.unary_stream::<TestRequest, EmptyResponse>(
+            "TestService",
+            "EmptyStream",
+            TestRequest::default(),
+            None,
+            None,
+        );
+        pin_mut!(response_stream);
+
+        collect_stream_responses(response_stream).await
+    };
+
+    // All three arrive: none of them terminates the stream early.
+    assert_eq!(responses.len(), 3);
 
     env.shutdown().await;
 }
