@@ -1,7 +1,11 @@
 {
   "charts/slim": "2.2.0",
   "crates/testing": "0.7.1",
+<<<<<<< HEAD
   "charts/slim-control-plane": "2.2.0",
+=======
+  "charts/slim-control-plane": "2.1.0",
+>>>>>>> 6ce72572 (chore(main): release helm-slim-control-plane 2.1.0 (#1969))
   "charts/slim-spire": "2.0.0",
   "charts/slim-channel-manager": "2.1.0"
 }
