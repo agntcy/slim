@@ -65,6 +65,13 @@
     "aliases": []
   },
   {
+    "version": "slim-version-v2.1.0",
+    "title": "slim-version-v2.1.0",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-version-v2.0.0",
     "title": "slim-version-v2.0.0",
     "aliases": []
@@ -812,9 +819,7 @@
   {
     "version": "helm-slim-spire-v2.0.0",
     "title": "helm-slim-spire-v2.0.0",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "helm-slim-control-plane-v2.0.0",
