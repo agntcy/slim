@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0](https://github.com/agntcy/slim/compare/slim-config-v0.14.5...slim-config-v0.15.0) - 2026-08-12
+
+### Added
+
+- *(slimctl)* record login credentials in the connection config ([#1965](https://github.com/agntcy/slim/pull/1965))
+- *(slimctl)* OIDC token refresh for long-lived nodes ([#1960](https://github.com/agntcy/slim/pull/1960))
+- *(auth)* OIDC and static JWT validation with claim-based access control ([#1957](https://github.com/agntcy/slim/pull/1957))
+
+### Fixed
+
+- *(auth)* serialize concurrent refresh-token exchanges with file lock ([#1971](https://github.com/agntcy/slim/pull/1971))
+
+### Other
+
+- *(config)* use DurationString for timeout and jwks_ttl in OIDC config ([#1964](https://github.com/agntcy/slim/pull/1964))
+
 ## [0.14.5](https://github.com/agntcy/slim/compare/slim-config-v0.14.4...slim-config-v0.14.5) - 2026-08-04
 
 ### Added
