@@ -217,9 +217,7 @@
   {
     "version": "slim-signal-v0.1.22",
     "title": "slim-signal-v0.1.22",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-signal-v0.1.18",
@@ -460,6 +458,13 @@
     "version": "slim-datapath-v0.15.0",
     "title": "slim-datapath-v0.15.0",
     "aliases": []
+  },
+  {
+    "version": "slim-controller-v0.12.7",
+    "title": "slim-controller-v0.12.7",
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "slim-controller-v0.12.4",
