@@ -9,11 +9,17 @@ use parking_lot::RwLock;
 use reqwest::Client as ReqwestClient;
 
 use crate::errors::AuthError;
-use crate::jwt::{extract_exp_claim_unsafe, extract_sub_claim_unsafe};
+use crate::jwt::{
+    extract_exp_claim_unsafe, extract_exp_iat_claims_unsafe, extract_sub_claim_unsafe,
+};
 use crate::resolver::same_origin;
 use crate::traits::TokenProvider;
 
 const REFRESH_BUFFER_SECS: u64 = 60;
+
+/// Return type of the `lock_and_reload` callback: `(refresh_token, maybe_access_token, lock_guard)`.
+pub type LockAndReloadFn =
+    Arc<dyn Fn() -> Option<(String, Option<String>, Box<dyn Send>)> + Send + Sync>;
 
 #[derive(Clone)]
 pub struct RefreshTokenProviderConfig {
@@ -38,6 +44,18 @@ pub struct RefreshTokenProviderConfig {
     /// Implementations may block (file I/O) but should not be slow: they sit in
     /// the path of every renewal.
     pub persist_credentials: Option<Arc<dyn Fn(String, String) + Send + Sync>>,
+    /// Called at the start of every token exchange to acquire an exclusive lock on
+    /// the backing store and return the current tokens from it. The tuple is
+    /// (refresh_token, maybe_access_token, guard). The guard holds the lock; it is
+    /// dropped after `persist_credentials` completes, so no concurrent process can
+    /// exchange the same token.
+    ///
+    /// When `maybe_access_token` is `Some` and still fresh, `fetch_new_token` skips
+    /// the IdP call and updates the in-memory cache from the on-disk value instead —
+    /// avoiding a redundant rotation when another process already refreshed.
+    ///
+    /// `None` means the provider is not file-backed and no locking is needed.
+    pub lock_and_reload: Option<LockAndReloadFn>,
 }
 
 struct CachedToken {
@@ -115,7 +133,53 @@ impl RefreshTokenProvider {
 
     async fn fetch_new_token(&self) -> Result<(), AuthError> {
         let token_endpoint = self.get_token_endpoint().await?;
-        let refresh_token = self.current_refresh_token.read().clone();
+
+        // File-backed path: acquire an exclusive lock on the backing store and
+        // re-read the refresh token from disk under that lock. If another process
+        // finished an exchange while we were waiting, we get its rotated token here
+        // instead of replaying the one it already consumed.
+        //
+        // _lock_guard is held for the rest of this function — including across the
+        // IdP call and the persist_credentials write — so no other process can start
+        // an exchange until ours is fully committed to disk.
+        let _lock_guard: Option<Box<dyn Send>>;
+        let refresh_token = if let Some(ref lock_fn) = self.config.lock_and_reload {
+            let Some((rt, maybe_at, guard)) = lock_fn() else {
+                return Err(AuthError::GetTokenError);
+            };
+            *self.current_refresh_token.write() = rt.clone();
+            _lock_guard = Some(guard);
+
+            // If the backing store returned a cached access token, check whether it
+            // is still fresh enough to skip the IdP call. Another process may have
+            // just refreshed; reusing its token avoids an unnecessary rotation.
+            //
+            // The threshold matches the background task: refresh_at = iat + lifetime*2/3.
+            // If we haven't reached that point yet, the token is fresh.
+            if let Some(at) = maybe_at
+                && let Ok((exp, iat)) = extract_exp_iat_claims_unsafe(&at)
+            {
+                let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+                let lifetime = exp.saturating_sub(iat);
+                let refresh_at_unix = iat + lifetime * 2 / 3;
+                if now < refresh_at_unix {
+                    let remaining = exp.saturating_sub(now);
+                    let refresh_at = tokio::time::Instant::now()
+                        + Duration::from_secs((remaining * 2 / 3).max(REFRESH_BUFFER_SECS + 1));
+                    *self.cached.write() = Some(CachedToken {
+                        token: at,
+                        exp,
+                        refresh_at,
+                    });
+                    return Ok(());
+                }
+            }
+
+            rt
+        } else {
+            _lock_guard = None;
+            self.current_refresh_token.read().clone()
+        };
 
         let http_resp = self
             .client
@@ -345,6 +409,7 @@ mod tests {
             timeout: Some(Duration::from_secs(5)),
             initial_access_token: None,
             persist_credentials: persist,
+            lock_and_reload: None,
         })
         .expect("provider")
     }
