@@ -537,6 +537,9 @@ impl ClientAuthenticator for Config {
                     // Re-read both token files now that we hold the lock. Another
                     // process may have rotated them while we were waiting. The access
                     // token lets fetch_new_token skip the IdP call if it is still fresh.
+                    // Note: the freshness optimization only activates when access_token_file
+                    // is configured alongside refresh_token_file. Without it, access_token
+                    // is None here and the full exchange always runs.
                     let token = read_secret_file(rt_path.to_str()?).ok()?;
                     let access_token = at_path
                         .as_ref()
