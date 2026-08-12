@@ -12,6 +12,29 @@ use slim_session::SessionError;
 // Import the FFI Name type for use in MessageContext fields
 use crate::Name;
 
+#[cfg(test)]
+pub(crate) fn metadata_from_strings(metadata: HashMap<String, String>) -> prost_types::Struct {
+    prost_types::Struct {
+        fields: metadata
+            .into_iter()
+            .map(|(key, value)| (key, value.into()))
+            .collect(),
+    }
+}
+
+fn metadata_to_strings(metadata: Option<&prost_types::Struct>) -> HashMap<String, String> {
+    metadata
+        .into_iter()
+        .flat_map(|metadata| &metadata.fields)
+        .filter_map(|(key, value)| match value.kind.as_ref() {
+            Some(prost_types::value::Kind::StringValue(value)) => {
+                Some((key.clone(), value.clone()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// Generic message context for language bindings (UniFFI-compatible)
 ///
 /// Provides routing and descriptive metadata needed for replying,
@@ -95,7 +118,7 @@ impl MessageContext {
                 }
             })
             .unwrap_or_else(|| "msg".to_string());
-        let metadata = msg.get_metadata_map();
+        let metadata = metadata_to_strings(msg.get_metadata_map());
         let identity = msg.get_identity();
 
         let ctx = Self::new(
@@ -162,10 +185,16 @@ mod tests {
 
         let mut proto_msg = ProtoMessage {
             message_type: Some(ProtoPublishType(publish)),
+<<<<<<< HEAD
             metadata: Default::default(),
             metadata_v3: None,
         };
         proto_msg.set_metadata_map(metadata);
+=======
+            metadata: None,
+        };
+        proto_msg.set_metadata_map(metadata_from_strings(metadata));
+>>>>>>> 3d0a77a7 (feat(proto): support typed message metadata (#1645))
 
         proto_msg.set_incoming_conn(Some(connection_id));
 

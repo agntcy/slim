@@ -29,6 +29,7 @@ pub struct Publish {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Message {
+<<<<<<< HEAD
     #[prost(map = "string, string", tag = "4")]
     pub metadata: ::std::collections::HashMap<
         ::prost::alloc::string::String,
@@ -38,6 +39,10 @@ pub struct Message {
     /// adding typed metadata does not change the wire format of existing links.
     #[prost(message, optional, tag = "7")]
     pub metadata_v3: ::core::option::Option<::prost_types::Struct>,
+=======
+    #[prost(message, optional, tag = "4")]
+    pub metadata: ::core::option::Option<::prost_types::Struct>,
+>>>>>>> 3d0a77a7 (feat(proto): support typed message metadata (#1645))
     #[prost(oneof = "message::MessageType", tags = "1, 2, 3, 5, 6")]
     pub message_type: ::core::option::Option<message::MessageType>,
 }

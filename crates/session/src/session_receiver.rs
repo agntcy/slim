@@ -189,7 +189,7 @@ impl SessionReceiver {
             .application_payload("", vec![]);
 
         if let Some(meta) = publish_meta {
-            builder = builder.metadata_map(meta);
+            builder = builder.metadata_map(crate::common::metadata_from_strings(meta));
         }
 
         let mut output = SessionOutput::new();
