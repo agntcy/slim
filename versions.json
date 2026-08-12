@@ -887,9 +887,7 @@
   {
     "version": "helm-slim-control-plane-v2.1.0",
     "title": "helm-slim-control-plane-v2.1.0",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "helm-slim-control-plane-v2.0.0",
@@ -905,6 +903,13 @@
     "version": "helm-slim-control-plane-v1.5.0",
     "title": "helm-slim-control-plane-v1.5.0",
     "aliases": []
+  },
+  {
+    "version": "helm-slim-channel-manager-v2.1.0",
+    "title": "helm-slim-channel-manager-v2.1.0",
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "helm-slim-channel-manager-v2.0.0",
