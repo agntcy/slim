@@ -121,6 +121,7 @@ pub(super) fn generate_config_data(
     };
 
     let auth_method = match detail.auth_method {
+        #[cfg(not(target_family = "windows"))]
         model::AuthMethod::Spire => {
             let trust_domain = detail
                 .spire_trust_domain
@@ -128,6 +129,12 @@ pub(super) fn generate_config_data(
                 .or(dest_node.domain_name.as_deref())
                 .map(|s| s.to_string());
             RequiredAuthMethod::Spire { trust_domain }
+        }
+        #[cfg(target_family = "windows")]
+        model::AuthMethod::Spire => {
+            return Err(Error::InvalidInput(
+                "SPIRE authentication is not supported on Windows".to_string(),
+            ));
         }
         model::AuthMethod::None => RequiredAuthMethod::None,
         model::AuthMethod::Basic => RequiredAuthMethod::Basic,
@@ -408,6 +415,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_family = "windows"))]
     fn generate_config_data_tls_spire_returns_https_and_spire_auth() {
         let cd = crate::db::ConnectionDetails {
             endpoint: "host:8080".to_string(),
@@ -430,6 +438,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_family = "windows"))]
     fn generate_config_data_tls_spire_falls_back_to_group_trust_domain() {
         let cd = crate::db::ConnectionDetails {
             endpoint: "host:8080".to_string(),
