@@ -3,5 +3,5 @@
   "crates/testing": "0.7.1",
   "charts/slim-control-plane": "2.0.0",
   "charts/slim-spire": "2.0.0",
-  "charts/slim-channel-manager": "2.0.0"
+  "charts/slim-channel-manager": "2.1.0"
 }
