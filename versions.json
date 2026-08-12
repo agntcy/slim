@@ -215,6 +215,13 @@
     "aliases": []
   },
   {
+    "version": "slim-signal-v0.1.22",
+    "title": "slim-signal-v0.1.22",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-signal-v0.1.18",
     "title": "slim-signal-v0.1.18",
     "aliases": []
@@ -372,9 +379,7 @@
   {
     "version": "slim-mls-v0.3.6",
     "title": "slim-mls-v0.3.6",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-mls-v0.3.5",
