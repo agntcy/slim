@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use slim_auth::errors::AuthError;
 use slim_auth::jwt_middleware::{AddJwtLayer, PolicyCheckLayer, ValidateJwtLayer};
 use slim_auth::metadata::MetadataMap;
-use slim_auth::refresh_token::{RefreshTokenProvider, RefreshTokenProviderConfig};
+use slim_auth::refresh_token::{LockAndReloadFn, RefreshTokenProvider, RefreshTokenProviderConfig};
 use slim_auth::traits::TokenProvider;
 use tower_layer::Stack;
 
@@ -490,7 +490,12 @@ impl ClientAuthenticator for Config {
 
             let rt_path = PathBuf::from(rt_file);
             let at_path = self.access_token_file.as_deref().map(PathBuf::from);
-            let persist: Arc<dyn Fn(String, String) + Send + Sync> =
+
+            // Wrapped in a block so rt_path and at_path can be cloned before they
+            // are moved into the persist closure below.
+            let persist: Arc<dyn Fn(String, String) + Send + Sync> = {
+                let rt_path = rt_path.clone();
+                let at_path = at_path.clone();
                 Arc::new(move |access_token, new_refresh_token| {
                     if let Err(e) = write_secret_file(&rt_path, &new_refresh_token) {
                         tracing::error!(
@@ -504,7 +509,41 @@ impl ClientAuthenticator for Config {
                     {
                         tracing::error!("failed to write access token to {at_path:?}: {e}");
                     }
-                });
+                })
+            };
+
+            let lock_and_reload: LockAndReloadFn = {
+                // Companion lock file: a sibling path used only as a locking target.
+                // Keeping it separate from the token file means write_secret_file can
+                // open and truncate the token file freely without hitting a re-entrant
+                // flock from the same process.
+                let lock_path = {
+                    let mut s = rt_path.clone().into_os_string();
+                    s.push(".lock");
+                    PathBuf::from(s)
+                };
+                let rt_path = rt_path.clone();
+                Arc::new(move || {
+                    use fs2::FileExt;
+                    // Create the lock file if absent, then block until we hold an
+                    // exclusive lock. The fd is the guard: closing it releases the lock.
+                    let lock_file = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        .truncate(false)
+                        .open(&lock_path)
+                        .ok()?;
+                    lock_file.lock_exclusive().ok()?;
+                    // Re-read both token files now that we hold the lock. Another
+                    // process may have rotated them while we were waiting. The access
+                    // token lets fetch_new_token skip the IdP call if it is still fresh.
+                    let token = read_secret_file(rt_path.to_str()?).ok()?;
+                    let access_token = at_path
+                        .as_ref()
+                        .and_then(|p| read_secret_file(p.to_str()?).ok());
+                    Some((token, access_token, Box::new(lock_file) as Box<dyn Send>))
+                })
+            };
 
             OidcClientProvider::RefreshToken(RefreshTokenProvider::new(
                 RefreshTokenProviderConfig {
@@ -514,6 +553,7 @@ impl ClientAuthenticator for Config {
                     timeout: self.timeout.map(Into::into),
                     initial_access_token,
                     persist_credentials: Some(persist),
+                    lock_and_reload: Some(lock_and_reload),
                 },
             )?)
         } else if let Some(rt) = &self.refresh_token {
@@ -530,6 +570,7 @@ impl ClientAuthenticator for Config {
                     timeout: self.timeout.map(Into::into),
                     initial_access_token: None,
                     persist_credentials: None,
+                    lock_and_reload: None,
                 },
             )?)
         } else if self.client_secret.is_some() {
@@ -565,6 +606,7 @@ impl ClientAuthenticator for Config {
                     timeout: self.timeout.map(Into::into),
                     initial_access_token: creds.access_token,
                     persist_credentials: persist,
+                    lock_and_reload: None,
                 },
             )?)
         };
@@ -1031,6 +1073,70 @@ mod tests {
         assert_eq!(
             read_secret_file(path.to_str().unwrap()).unwrap(),
             "rotated-token"
+        );
+    }
+
+    /// Two concurrent callers of the lock_and_reload closure must never read the
+    /// same refresh token. The second caller blocks at flock until the first has
+    /// written the rotated token to disk, then reads that new value.
+    #[test]
+    fn concurrent_lock_and_reload_closures_serialize_token_reads() {
+        use fs2::FileExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let rt_path = dir.path().join("rt");
+        let lock_path = {
+            let mut s = rt_path.clone().into_os_string();
+            s.push(".lock");
+            PathBuf::from(s)
+        };
+
+        write_secret_file(&rt_path, "token-1").unwrap();
+
+        // Replicates the lock_and_reload closure built in get_client_layer.
+        let make_closure = |rt: PathBuf, lk: PathBuf| -> LockAndReloadFn {
+            Arc::new(move || {
+                let lock_file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(false)
+                    .open(&lk)
+                    .ok()?;
+                lock_file.lock_exclusive().ok()?;
+                let token = read_secret_file(rt.to_str()?).ok()?;
+                Some((token, None, Box::new(lock_file) as Box<dyn Send>))
+            })
+        };
+
+        let cb_a = make_closure(rt_path.clone(), lock_path.clone());
+        let cb_b = make_closure(rt_path.clone(), lock_path.clone());
+
+        // Thread A: acquires the lock, writes the rotated token (simulating persist),
+        // signals B that the new token is on disk, then holds the lock a moment longer
+        // to ensure B is already blocking on flock before the lock releases.
+        let rt_for_write = rt_path.clone();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
+        let thread_a = std::thread::spawn(move || {
+            let (token, _at, guard) = cb_a().expect("cb_a");
+            write_secret_file(&rt_for_write, "token-2").unwrap();
+            ready_tx.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            drop(guard);
+            token
+        });
+
+        // Wait until A has written token-2, then contend on the lock.
+        // B will block at flock until A's sleep expires and the guard drops.
+        ready_rx.recv().unwrap();
+        let (token_b, _at_b, guard_b) = cb_b().expect("cb_b");
+        drop(guard_b);
+
+        let token_a = thread_a.join().unwrap();
+
+        assert_eq!(token_a, "token-1");
+        assert_eq!(
+            token_b, "token-2",
+            "B must read the token A wrote, not the original"
         );
     }
 }

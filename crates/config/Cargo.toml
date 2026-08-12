@@ -29,6 +29,7 @@ display-error-chain = { workspace = true }
 drain = { workspace = true }
 duration-string = { workspace = true }
 fastwebsockets = { workspace = true }
+fs2 = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
