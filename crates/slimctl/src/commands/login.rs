@@ -306,7 +306,7 @@ fn ct_str_eq(a: &str, b: &str) -> bool {
     }
 }
 
-pub async fn run(args: &LoginArgs) -> Result<()> {
+pub async fn run(args: &LoginArgs, config_file: Option<&str>, server: Option<&str>) -> Result<()> {
     let http = Client::builder()
         .user_agent("slimctl")
         .timeout(Duration::from_secs(30))
@@ -438,6 +438,31 @@ pub async fn run(args: &LoginArgs) -> Result<()> {
     crate::config::save_credentials(&creds)?;
     let creds_path = crate::config::credentials_file_path()?;
     eprintln!("Credentials saved to {}", creds_path.display());
+
+    // Point the connection config at the credential we just obtained, so
+    // `slimctl node|controller|channel-manager` authenticate with no extra flags.
+    let written = crate::config::save_login_auth(&creds, config_file, server)?;
+    eprintln!(
+        "Connection config {} points at the access token in {}.",
+        written.config_path.display(),
+        written.access_token_path.display()
+    );
+    if server.is_none() {
+        eprintln!(
+            "No --server given, so no endpoint was recorded: pass --server, or run \
+             `slimctl config set server <host:port>`."
+        );
+    }
+    eprintln!("That token expires; re-run `slimctl login` when commands stop authenticating.");
+    match &written.refresh_token_path {
+        Some(path) => eprintln!(
+            "Refresh token saved to {} for long-lived processes (set `refresh_token_file` in their \
+             OIDC auth config). slimctl does not use it.",
+            path.display()
+        ),
+        None => eprintln!("No refresh token was issued by the provider."),
+    }
+
     Ok(())
 }
 

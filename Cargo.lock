@@ -178,6 +178,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha1",
+ "tempfile",
  "thiserror 2.0.19",
  "tokio",
  "tokio-retry",
