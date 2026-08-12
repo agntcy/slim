@@ -27,7 +27,6 @@ use slim_session::errors::SessionError;
 use slim_session::notification::Notification;
 
 use super::{RPC_DIR_KEY, RPC_DIR_REQ};
-use crate::STATUS_CODE_KEY;
 
 use super::{
     Context, HandlerInfo, METHOD_KEY, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcSession,
@@ -450,12 +449,12 @@ async fn run_session_demux(
         }
 
         // No active stream for this rpc_id.
-        // Drop server responses: they have STATUS_CODE_KEY but are NOT tagged as client
-        // requests.  An empty-stream client EOS also has STATUS_CODE_KEY but carries
-        // RPC_DIR_KEY="req", so it passes through and is dispatched as a new RPC call.
-        if msg.metadata.contains_key(STATUS_CODE_KEY)
-            && msg.metadata.get(RPC_DIR_KEY).map(String::as_str) != Some(RPC_DIR_REQ)
-        {
+        // Drop server responses: every client-originated message — data frame or
+        // EOS — carries RPC_DIR_KEY="req", so anything without it is a response
+        // echoed back to us on a shared session.  (This used to key off
+        // STATUS_CODE_KEY, which no longer holds now that response data frames
+        // carry no status.)
+        if msg.metadata.get(RPC_DIR_KEY).map(String::as_str) != Some(RPC_DIR_REQ) {
             tracing::trace!("Skipping server response (no pending stream)");
             continue;
         }

@@ -817,16 +817,39 @@ mod tests {
         let dummy_name = Name::from_strings(["", "", ""]);
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ReceivedMessage>();
 
-        // Second message
+        // Second message: data frame, no status header
         tx.send(ReceivedMessage {
             metadata: std::collections::HashMap::new(),
             payload: vec![4, 5, 6],
             source: dummy_name.clone(),
         })
         .unwrap();
-        // EOS: empty payload with default (Ok) status code
+        // Third message: zero-byte data frame. No status header, so it is data
+        // and must be delivered rather than ending the stream.
         tx.send(ReceivedMessage {
             metadata: std::collections::HashMap::new(),
+            payload: vec![],
+            source: dummy_name.clone(),
+        })
+        .unwrap();
+        // Fourth message: a data frame that also carries an Ok status, as a
+        // peer predating this convention would send. Still data, because the
+        // payload is non-empty.
+        tx.send(ReceivedMessage {
+            metadata: std::collections::HashMap::from([(
+                crate::STATUS_CODE_KEY.to_string(),
+                (i32::from(RpcCode::Ok)).to_string(),
+            )]),
+            payload: vec![7, 8, 9],
+            source: dummy_name.clone(),
+        })
+        .unwrap();
+        // EOS: empty payload carrying an explicit Ok status header
+        tx.send(ReceivedMessage {
+            metadata: std::collections::HashMap::from([(
+                crate::STATUS_CODE_KEY.to_string(),
+                (i32::from(RpcCode::Ok)).to_string(),
+            )]),
             payload: vec![],
             source: dummy_name,
         })
@@ -854,8 +877,22 @@ mod tests {
             _ => panic!("Expected data"),
         }
 
+        // Untagged zero-byte frame is data, not the terminator.
         let msg3 = request_stream.next_async().await;
         match msg3 {
+            StreamMessage::Data(d) => assert!(d.is_empty()),
+            _ => panic!("Expected empty data frame, not end of stream"),
+        }
+
+        // A legacy-style data frame carrying a status is still data.
+        let msg4 = request_stream.next_async().await;
+        match msg4 {
+            StreamMessage::Data(d) => assert_eq!(d, vec![7, 8, 9]),
+            _ => panic!("Expected data"),
+        }
+
+        let msg5 = request_stream.next_async().await;
+        match msg5 {
             StreamMessage::End => {}
             _ => panic!("Expected end"),
         }
