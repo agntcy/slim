@@ -10,9 +10,9 @@ use anyhow::{Context, Result, bail};
 use duration_string::DurationString;
 use serde::{Deserialize, Serialize};
 use slim_config::auth::basic::Config as BasicAuthConfig;
-use slim_config::auth::oidc::Config as OidcConfig;
 use slim_config::auth::static_jwt::Config as StaticJwtConfig;
 use slim_config::grpc::client::{AuthenticationConfig, BackoffConfig, ClientConfig};
+use slim_config::provider::ConfigResolver;
 use slim_config::tls::client::TlsClientConfig;
 
 /// Default timeout for gRPC requests when not specified in config or CLI.
@@ -134,28 +134,49 @@ pub fn resolve_config(
             .split_once(':')
             .ok_or_else(|| anyhow::anyhow!("basic-auth-creds must be 'username:password'"))?;
         config.auth = AuthenticationConfig::Basic(BasicAuthConfig::new(user, pass));
-    } else if config.auth == AuthenticationConfig::None {
-        // Prefer RefreshToken when available — handles token expiry and crash-restart automatically.
-        // Fall back to StaticJwt for credentials without a refresh token (e.g. id_token only).
-        if let Ok(Some(creds)) = load_credentials()
-            && creds.refresh_token.is_some()
-        {
-            // Let OidcConfig.get_client_layer load tokens from credentials.yaml at
-            // connect time; we only need the issuer here for config identity.
-            config.auth = AuthenticationConfig::Oidc(OidcConfig::new(creds.issuer));
-        } else if let Ok(token_path) = token_file_path()
-            && token_path.exists()
-        {
-            config.auth = AuthenticationConfig::StaticJwt(StaticJwtConfig::with_file(
-                token_path.to_string_lossy(),
-            ));
-        }
+    } else if config.auth == AuthenticationConfig::None
+        && let Ok(token_path) = token_file_path()
+        && token_path.exists()
+    {
+        // Configs written before `login` started recording an auth block, or
+        // hand-written ones: fall back to the bearer token on disk.
+        //
+        // Deliberately *not* the refresh token, even when `credentials.yaml` has
+        // one. Exchanging it invalidates the stored copy, so a CLI doing so on
+        // every invocation would race any long-lived process seeded from the same
+        // token. An expired access token is a prompt to re-run `slimctl login`.
+        config.auth = AuthenticationConfig::StaticJwt(StaticJwtConfig::with_file(
+            token_path.to_string_lossy(),
+        ));
     }
 
     // ── backoff (no retries by default for CLI) ─────────────────────
     config.backoff = BackoffConfig::new_fixed_interval(Duration::from_millis(0), 0);
 
     Ok(config)
+}
+
+/// Parse config YAML, expanding `${env:VAR}` / `${file:/path}` references first.
+///
+/// Mirrors what the node, control-plane and channel-manager loaders do, so a
+/// slimctl config can keep secrets out of the YAML itself.  Note that a value
+/// must consist *only* of the reference — `"Bearer ${file:...}"` is not expanded.
+fn parse_config_str(data: &str) -> Result<ClientConfig> {
+    let mut value: serde_yaml::Value = serde_yaml::from_str(data).context("invalid YAML")?;
+    ConfigResolver::new()
+        .resolve(&mut value)
+        .context("failed to resolve ${env:...}/${file:...} reference")?;
+
+    // `endpoint` is the only field `ClientConfig` requires, but slimctl writes
+    // configs surgically (see `set_config_key`) so a file may legitimately hold
+    // just an `auth` block. Supply the empty default rather than rejecting it —
+    // `resolve_config` substitutes the per-subcommand endpoint anyway.
+    if let serde_yaml::Value::Mapping(map) = &mut value {
+        map.entry(serde_yaml::Value::String("endpoint".to_string()))
+            .or_insert_with(|| serde_yaml::Value::String(String::new()));
+    }
+
+    serde_yaml::from_value(value).context("invalid configuration")
 }
 
 /// Load configuration from the first existing candidate path:
@@ -169,18 +190,99 @@ pub fn load_config(config_file: Option<&str>) -> Result<ClientConfig> {
         let path = PathBuf::from(path_str);
         let data = std::fs::read_to_string(&path)
             .with_context(|| format!("failed to read config file: {}", path.display()))?;
-        return serde_yaml::from_str(&data)
+        return parse_config_str(&data)
             .with_context(|| format!("failed to parse config file: {}", path.display()));
     }
     for path in config_search_paths() {
         if path.exists() {
             let data = std::fs::read_to_string(&path)
                 .with_context(|| format!("failed to read config file: {}", path.display()))?;
-            return serde_yaml::from_str(&data)
+            return parse_config_str(&data)
                 .with_context(|| format!("failed to parse config file: {}", path.display()));
         }
     }
     Ok(ClientConfig::default())
+}
+
+/// Resolve which file a read-modify-write cycle should operate on: the explicit
+/// `--config` path, else the first existing search path, else the default.
+fn update_target_path(config_file: Option<&str>) -> Result<PathBuf> {
+    match config_file {
+        Some(p) => Ok(PathBuf::from(p)),
+        None => match config_search_paths().into_iter().find(|p| p.exists()) {
+            Some(p) => Ok(p),
+            None => config_file_path(),
+        },
+    }
+}
+
+/// Load the config file as a raw YAML mapping for a read-modify-write cycle
+/// (`config set`, `login`).  Returns an empty mapping when the file is absent.
+///
+/// Working at the mapping level rather than through `ClientConfig` keeps writes
+/// surgical: only the keys a command actually sets are emitted, so a fresh login
+/// does not litter the file with every defaulted field (`endpoint: ''`,
+/// `connect_timeout: 0y`, a pinned random `link_id`, a dozen `null`s).
+///
+/// It also means `${env:...}`/`${file:...}` references survive verbatim — the
+/// value is about to be written back, and resolving first would replace a
+/// reference with its expansion, baking a secret read from a file into the YAML.
+pub fn load_config_mapping(config_file: Option<&str>) -> Result<serde_yaml::Mapping> {
+    let path = update_target_path(config_file)?;
+    if !path.exists() {
+        return Ok(serde_yaml::Mapping::new());
+    }
+    let data = std::fs::read_to_string(&path)
+        .with_context(|| format!("failed to read config file: {}", path.display()))?;
+    match serde_yaml::from_str::<Option<serde_yaml::Value>>(&data)
+        .with_context(|| format!("failed to parse config file: {}", path.display()))?
+    {
+        None | Some(serde_yaml::Value::Null) => Ok(serde_yaml::Mapping::new()),
+        Some(serde_yaml::Value::Mapping(m)) => Ok(m),
+        Some(_) => bail!(
+            "config file must contain a YAML mapping: {}",
+            path.display()
+        ),
+    }
+}
+
+/// Write a raw config mapping back, creating parent directories as needed.
+pub fn save_config_mapping(map: &serde_yaml::Mapping, config_file: Option<&str>) -> Result<()> {
+    let path = update_target_path(config_file)?;
+    let dir = path.parent().expect("config path must have a parent");
+    std::fs::create_dir_all(dir)
+        .with_context(|| format!("failed to create config directory: {}", dir.display()))?;
+    let data = serde_yaml::to_string(map).context("failed to serialize config")?;
+    std::fs::write(&path, data)
+        .with_context(|| format!("failed to write config file: {}", path.display()))?;
+    Ok(())
+}
+
+/// Set one top-level key in the config file, leaving every other key byte-identical.
+pub fn set_config_key<T: Serialize>(
+    key: &str,
+    value: &T,
+    config_file: Option<&str>,
+) -> Result<PathBuf> {
+    let mut map = load_config_mapping(config_file)?;
+    let encoded =
+        serde_yaml::to_value(value).with_context(|| format!("failed to serialize '{key}'"))?;
+    map.insert(serde_yaml::Value::String(key.to_string()), encoded);
+    save_config_mapping(&map, config_file)?;
+    update_target_path(config_file)
+}
+
+/// Read one top-level key, deserialized into `T`, or `T::default()` when absent.
+pub fn get_config_key<T: serde::de::DeserializeOwned + Default>(
+    key: &str,
+    config_file: Option<&str>,
+) -> Result<T> {
+    let map = load_config_mapping(config_file)?;
+    match map.get(serde_yaml::Value::String(key.to_string())) {
+        Some(v) => serde_yaml::from_value(v.clone())
+            .with_context(|| format!("failed to parse '{key}' in config file")),
+        None => Ok(T::default()),
+    }
 }
 
 /// Return candidate config file paths in priority order:
@@ -195,7 +297,12 @@ fn config_search_paths() -> Vec<PathBuf> {
     paths
 }
 
-/// Save configuration to `config_file` if provided, otherwise to `$HOME/.slimctl/config.yaml`.
+/// Write a whole `ClientConfig`, every field included.
+///
+/// Test-only: production writes are surgical (see [`set_config_key`]) so that a
+/// login does not litter the file with defaulted fields. Tests use this to build
+/// a fully-populated file and then assert those fields survive an update.
+#[cfg(test)]
 pub fn save_config(config: &ClientConfig, config_file: Option<&str>) -> Result<()> {
     let path = match config_file {
         Some(p) => PathBuf::from(p),
@@ -219,6 +326,13 @@ pub fn credentials_file_path() -> Result<PathBuf> {
 pub fn token_file_path() -> Result<PathBuf> {
     let home = dirs_home().context("could not determine home directory")?;
     Ok(home.join(".slimctl").join("token"))
+}
+
+/// Path to the bare refresh token referenced by the generated config:
+/// `~/.slimctl/refresh_token`
+pub fn refresh_token_file_path() -> Result<PathBuf> {
+    let home = dirs_home().context("could not determine home directory")?;
+    Ok(home.join(".slimctl").join("refresh_token"))
 }
 
 fn write_private(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
@@ -248,16 +362,103 @@ pub fn save_credentials(creds: &OidcCredentials) -> Result<()> {
     Ok(())
 }
 
-pub fn load_credentials() -> Result<Option<OidcCredentials>> {
-    let path = credentials_file_path()?;
-    if !path.exists() {
-        return Ok(None);
+/// Where `save_login_auth` wrote things.
+pub struct LoginAuthWritten {
+    /// Connection config now carrying a `static_jwt` block.
+    pub config_path: PathBuf,
+    /// Bearer token slimctl itself authenticates with.
+    pub access_token_path: PathBuf,
+    /// Refresh token, written for long-lived processes to seed from.
+    /// `None` when the IdP issued no refresh token.
+    pub refresh_token_path: Option<PathBuf>,
+}
+
+/// Record the credential established by `slimctl login` in the connection config,
+/// so subsequent commands authenticate with no extra flags.
+///
+/// Only the `auth` section is touched — `endpoint`, `tls` and everything else in
+/// an existing config are preserved, `${env:...}`/`${file:...}` references
+/// included (see [`load_config_for_update`]).
+///
+/// Secrets are never inlined into the config; it only names the files holding
+/// them.  slimctl authenticates with the access token alone:
+///
+/// ```yaml
+/// auth:
+///   type: static_jwt
+///   file: /home/user/.slimctl/token
+/// ```
+///
+/// The refresh token, when the IdP issued one, is written to
+/// `~/.slimctl/refresh_token` (mode 0600) for a *long-lived* process to seed
+/// from — typically a data-plane node with `refresh_token_file` set, plus its own
+/// `refresh_token_out_file` so its rotation chain doesn't clobber this seed.
+/// slimctl never spends it: the access token expiring is a prompt to re-run
+/// `slimctl login` (see [`auth_failure_hint`]).
+pub fn save_login_auth(
+    creds: &OidcCredentials,
+    config_file: Option<&str>,
+    server: Option<&str>,
+) -> Result<LoginAuthWritten> {
+    // Record the endpoint when `--server` was passed, so `slimctl --server host
+    // login` leaves behind a config that points somewhere. Without it the file
+    // holds only auth and the endpoint comes from `--server` / the per-subcommand
+    // default on each invocation, as before.
+    if let Some(server) = server {
+        set_config_key("endpoint", &server, config_file)?;
     }
-    let data = std::fs::read_to_string(&path)
-        .with_context(|| format!("failed to read credentials: {}", path.display()))?;
-    let creds = serde_yaml::from_str(&data)
-        .with_context(|| format!("failed to parse credentials: {}", path.display()))?;
-    Ok(Some(creds))
+    // slimctl authenticates with the access token *only*.  It deliberately does
+    // not consume the refresh token: a refresh token serves one process at a
+    // time, and every exchange invalidates the copy on disk.  A CLI that spent a
+    // rotation per invocation would race any long-lived process seeded from the
+    // same file — and would still have to re-authenticate constantly, since it
+    // exits long before background renewal could help.  When the access token
+    // expires the user re-runs `slimctl login`; see `auth_failure_hint`.
+    let access_token_path = token_file_path()?;
+    let auth = AuthenticationConfig::StaticJwt(StaticJwtConfig::with_file(
+        access_token_path.to_string_lossy(),
+    ));
+    let config_path = set_config_key("auth", &auth, config_file)?;
+
+    // The refresh token is written for *other* processes — a data-plane node
+    // configured with `refresh_token_file` seeds its rotation chain from here.
+    let refresh_token_path = match creds.refresh_token.as_deref() {
+        Some(refresh_token) => {
+            let path = refresh_token_file_path()?;
+            let dir = path
+                .parent()
+                .expect("refresh token path must have a parent");
+            std::fs::create_dir_all(dir)
+                .with_context(|| format!("failed to create config directory: {}", dir.display()))?;
+            write_private(&path, refresh_token.as_bytes())
+                .with_context(|| format!("failed to write refresh token: {}", path.display()))?;
+            Some(path)
+        }
+        None => None,
+    };
+
+    Ok(LoginAuthWritten {
+        config_path,
+        access_token_path,
+        refresh_token_path,
+    })
+}
+
+/// Hint appended to authentication failures, telling the user how to recover.
+///
+/// A `static_jwt` config carries a fixed access token that simply expires, and a
+/// refresh token can be revoked or rotated out from under us; in both cases the
+/// fix is the same.
+pub fn auth_failure_hint() -> &'static str {
+    "authentication failed — your session may have expired; re-run `slimctl login`"
+}
+
+/// True when `status` indicates the server rejected our credentials.
+pub fn is_auth_failure(status: &tonic::Status) -> bool {
+    matches!(
+        status.code(),
+        tonic::Code::Unauthenticated | tonic::Code::PermissionDenied
+    )
 }
 
 /// Return the default config file path: `$HOME/.slimctl/config.yaml`
@@ -285,6 +486,16 @@ pub(crate) static HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 mod tests {
     use super::*;
     use slim_config::tls::client::TlsClientConfig;
+
+    /// Point HOME at a fresh temp directory for the duration of the caller's
+    /// scope.  Caller must hold [`HOME_LOCK`].
+    #[allow(clippy::disallowed_methods)]
+    fn setup_home() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        // SAFETY: serialized by HOME_LOCK held by the caller.
+        unsafe { std::env::set_var("HOME", dir.path()) };
+        dir
+    }
 
     // ── parse_duration ──────────────────────────────────────────────────────
 
@@ -709,6 +920,467 @@ mod tests {
     #[test]
     fn load_config_explicit_path_missing_returns_error() {
         assert!(load_config(Some("/nonexistent/path/config.yaml")).is_err());
+    }
+
+    // ── ${env:...} / ${file:...} resolution ─────────────────────────────────
+
+    #[test]
+    #[allow(clippy::disallowed_methods)]
+    fn load_config_resolves_env_reference() {
+        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // SAFETY: serialized by HOME_LOCK; no other threads read this var.
+        unsafe { std::env::set_var("SLIMCTL_TEST_ENDPOINT", "env-host:7777") };
+        let mut f = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
+        std::io::Write::write_all(&mut f, b"endpoint: ${env:SLIMCTL_TEST_ENDPOINT}\n").unwrap();
+        let config = load_config(Some(f.path().to_str().unwrap())).unwrap();
+        assert_eq!(config.endpoint, "env-host:7777");
+    }
+
+    #[test]
+    fn load_config_resolves_file_reference() {
+        let dir = tempfile::tempdir().unwrap();
+        let secret = dir.path().join("endpoint.txt");
+        std::fs::write(&secret, "file-host:8888").unwrap();
+        let cfg = dir.path().join("config.yaml");
+        std::fs::write(&cfg, format!("endpoint: ${{file:{}}}\n", secret.display())).unwrap();
+        let config = load_config(Some(cfg.to_str().unwrap())).unwrap();
+        assert_eq!(config.endpoint, "file-host:8888");
+    }
+
+    #[test]
+    fn load_config_unresolvable_reference_returns_error() {
+        let mut f = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
+        std::io::Write::write_all(&mut f, b"endpoint: ${file:/nonexistent/token}\n").unwrap();
+        assert!(load_config(Some(f.path().to_str().unwrap())).is_err());
+    }
+
+    #[test]
+    fn load_config_mapping_returns_empty_for_missing_file() {
+        let map = load_config_mapping(Some("/nonexistent/path/config.yaml")).unwrap();
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn load_config_mapping_rejects_a_non_mapping_document() {
+        let mut f = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
+        std::io::Write::write_all(&mut f, b"- just\n- a list\n").unwrap();
+        assert!(load_config_mapping(Some(f.path().to_str().unwrap())).is_err());
+    }
+
+    /// An empty file is a valid starting point, not an error.
+    #[test]
+    fn load_config_mapping_treats_empty_file_as_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.yaml");
+        std::fs::write(&path, "").unwrap();
+        assert!(
+            load_config_mapping(Some(path.to_str().unwrap()))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    /// The point of writing at the mapping level: a `${...}` reference in an
+    /// untouched key survives, where a deserialize-modify-serialize cycle would
+    /// have replaced it with the file's contents.
+    #[test]
+    fn set_config_key_preserves_references_in_other_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let secret = dir.path().join("endpoint.txt");
+        std::fs::write(&secret, "file-host:8888").unwrap();
+        let cfg = dir.path().join("config.yaml");
+        let reference = format!("${{file:{}}}", secret.display());
+        std::fs::write(&cfg, format!("endpoint: {reference}\n")).unwrap();
+
+        set_config_key("request_timeout", &"42s", Some(cfg.to_str().unwrap())).unwrap();
+
+        let raw = std::fs::read_to_string(&cfg).unwrap();
+        assert!(raw.contains(&reference), "reference was expanded: {raw}");
+        assert!(!raw.contains("file-host:8888"));
+        assert!(raw.contains("42s"), "new key missing: {raw}");
+    }
+
+    /// Only the requested key is written — no defaulted fields tag along.
+    #[test]
+    fn set_config_key_writes_only_that_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.yaml");
+        set_config_key("endpoint", &"myhost:50051", Some(path.to_str().unwrap())).unwrap();
+
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(raw.trim(), "endpoint: myhost:50051");
+    }
+
+    #[test]
+    fn set_config_key_leaves_unrelated_keys_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.yaml");
+        std::fs::write(&path, "endpoint: keep-me:1234\nrequest_timeout: 9s\n").unwrap();
+
+        set_config_key("endpoint", &"changed:1", Some(path.to_str().unwrap())).unwrap();
+
+        let map = load_config_mapping(Some(path.to_str().unwrap())).unwrap();
+        assert_eq!(
+            map.get(serde_yaml::Value::String("request_timeout".into()))
+                .and_then(|v| v.as_str()),
+            Some("9s")
+        );
+        assert_eq!(
+            map.get(serde_yaml::Value::String("endpoint".into()))
+                .and_then(|v| v.as_str()),
+            Some("changed:1")
+        );
+    }
+
+    #[test]
+    fn get_config_key_defaults_when_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.yaml");
+        std::fs::write(&path, "endpoint: x:1\n").unwrap();
+        let tls: TlsClientConfig = get_config_key("tls", Some(path.to_str().unwrap())).unwrap();
+        assert_eq!(tls, TlsClientConfig::default());
+    }
+
+    // ── save_login_auth ─────────────────────────────────────────────────────
+
+    fn creds_with(refresh_token: Option<&str>) -> OidcCredentials {
+        OidcCredentials {
+            id_token: "the-id-token".to_string(),
+            access_token: Some("the-access-token".to_string()),
+            refresh_token: refresh_token.map(str::to_owned),
+            client_id: "myclient".to_string(),
+            issuer: "https://issuer.example.com".to_string(),
+            token_endpoint: "https://issuer.example.com/token".to_string(),
+        }
+    }
+
+    #[test]
+    #[allow(clippy::disallowed_methods)]
+    /// slimctl authenticates with the access token only; the refresh token is
+    /// written to disk for other processes but never referenced by its config.
+    fn save_login_auth_uses_access_token_only() {
+        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = setup_home();
+        let path = home.path().join("config.yaml");
+        let path_str = path.to_str().unwrap();
+
+        let creds = creds_with(Some("the-refresh-token"));
+        save_credentials(&creds).unwrap();
+        let written = save_login_auth(&creds, Some(path_str), None).expect("save_login_auth");
+
+        assert_eq!(written.config_path, path);
+        assert_eq!(written.access_token_path, token_file_path().unwrap());
+        assert_eq!(
+            written.refresh_token_path,
+            Some(refresh_token_file_path().unwrap())
+        );
+
+        let loaded = load_config(Some(path_str)).unwrap();
+        let AuthenticationConfig::StaticJwt(jwt) = loaded.auth else {
+            panic!("expected static_jwt auth, got {:?}", loaded.auth);
+        };
+        assert_eq!(
+            jwt.source().file,
+            token_file_path().unwrap().to_str().unwrap()
+        );
+
+        // Neither token may appear in the config, and it must not point at the
+        // refresh token in any form.
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("the-refresh-token"), "leaked: {raw}");
+        assert!(!raw.contains("the-access-token"), "leaked: {raw}");
+        assert!(!raw.contains("refresh_token"), "references refresh: {raw}");
+    }
+
+    /// `slimctl --server host login` should leave behind a config that points
+    /// somewhere, not just an auth block.
+    #[test]
+    #[allow(clippy::disallowed_methods)]
+    fn save_login_auth_records_server_when_given() {
+        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = setup_home();
+        let path = home.path().join("config.yaml");
+        let path_str = path.to_str().unwrap();
+
+        let creds = creds_with(Some("the-refresh-token"));
+        save_credentials(&creds).unwrap();
+        save_login_auth(&creds, Some(path_str), Some("ctrl.example.com:50051")).unwrap();
+
+        let loaded = load_config(Some(path_str)).unwrap();
+        assert_eq!(loaded.endpoint, "ctrl.example.com:50051");
+        assert!(matches!(loaded.auth, AuthenticationConfig::StaticJwt(_)));
+    }
+
+    /// Recording a bare `host:port` means the endpoint now comes from the file,
+    /// which `resolve_config` treats as intentionally secure — so it resolves to
+    /// https. Including a scheme in `--server` is how a plaintext endpoint is
+    /// recorded.
+    #[test]
+    #[allow(clippy::disallowed_methods)]
+    fn recorded_endpoint_scheme_follows_what_was_passed() {
+        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = setup_home();
+        let creds = creds_with(Some("rt"));
+        save_credentials(&creds).unwrap();
+
+        for (passed, expected) in [
+            ("ctrl.example.com:50051", "https://ctrl.example.com:50051"),
+            (
+                "http://ctrl.example.com:50051",
+                "http://ctrl.example.com:50051",
+            ),
+        ] {
+            let path = home.path().join(format!("cfg-{}.yaml", expected.len()));
+            let path_str = path.to_str().unwrap();
+            save_login_auth(&creds, Some(path_str), Some(passed)).unwrap();
+            let opts = resolve_config(
+                &load_config(Some(path_str)).unwrap(),
+                DEFAULT_CONTROLLER_ENDPOINT,
+                None,
+                None,
+                false,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+            assert_eq!(opts.endpoint, expected, "for --server {passed}");
+        }
+    }
+
+    /// Without `--server` the endpoint is left alone rather than blanked.
+    #[test]
+    #[allow(clippy::disallowed_methods)]
+    fn save_login_auth_preserves_existing_endpoint_without_server() {
+        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = setup_home();
+        let path = home.path().join("config.yaml");
+        let path_str = path.to_str().unwrap();
+        std::fs::write(&path, "endpoint: already-set:1234\n").unwrap();
+
+        let creds = creds_with(Some("the-refresh-token"));
+        save_credentials(&creds).unwrap();
+        save_login_auth(&creds, Some(path_str), None).unwrap();
+
+        let loaded = load_config(Some(path_str)).unwrap();
+        assert_eq!(loaded.endpoint, "already-set:1234");
+    }
+
+    /// …and `--server` replaces one that was already there.
+    #[test]
+    #[allow(clippy::disallowed_methods)]
+    fn save_login_auth_server_overrides_existing_endpoint() {
+        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = setup_home();
+        let path = home.path().join("config.yaml");
+        let path_str = path.to_str().unwrap();
+        std::fs::write(&path, "endpoint: old-host:1\n").unwrap();
+
+        let creds = creds_with(Some("the-refresh-token"));
+        save_credentials(&creds).unwrap();
+        save_login_auth(&creds, Some(path_str), Some("new-host:2")).unwrap();
+
+        assert_eq!(load_config(Some(path_str)).unwrap().endpoint, "new-host:2");
+    }
+
+    /// The refresh token is still persisted — a data-plane node seeds from it.
+    #[test]
+    #[allow(clippy::disallowed_methods)]
+    fn save_login_auth_writes_refresh_token_for_other_processes() {
+        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = setup_home();
+        let path = home.path().join("config.yaml");
+
+        save_login_auth(
+            &creds_with(Some("the-refresh-token")),
+            Some(path.to_str().unwrap()),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(refresh_token_file_path().unwrap()).unwrap(),
+            "the-refresh-token"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::disallowed_methods)]
+    fn save_login_auth_refresh_token_file_is_private() {
+        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = setup_home();
+        let path = home.path().join("config.yaml");
+        save_login_auth(
+            &creds_with(Some("the-refresh-token")),
+            Some(path.to_str().unwrap()),
+            None,
+        )
+        .unwrap();
+
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(refresh_token_file_path().unwrap())
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600, "got mode {:o}", mode & 0o777);
+    }
+
+    #[test]
+    #[allow(clippy::disallowed_methods)]
+    fn save_login_auth_without_refresh_token_uses_static_jwt() {
+        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = setup_home();
+        let path = home.path().join("config.yaml");
+        let path_str = path.to_str().unwrap();
+
+        let creds = creds_with(None);
+        // login always writes the bearer token file first.
+        save_credentials(&creds).unwrap();
+
+        let written = save_login_auth(&creds, Some(path_str), None).expect("save_login_auth");
+        assert_eq!(written.access_token_path, token_file_path().unwrap());
+        // No refresh token was issued, so none is persisted.
+        assert!(written.refresh_token_path.is_none());
+        assert!(!refresh_token_file_path().unwrap().exists());
+
+        let loaded = load_config(Some(path_str)).unwrap();
+        let AuthenticationConfig::StaticJwt(jwt) = loaded.auth else {
+            panic!("expected static_jwt auth, got {:?}", loaded.auth);
+        };
+        assert_eq!(
+            jwt.source().file,
+            token_file_path().unwrap().to_str().unwrap()
+        );
+        // The token itself is only ever in the token file.
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("the-access-token"), "token leaked: {raw}");
+    }
+
+    #[test]
+    #[allow(clippy::disallowed_methods)]
+    fn save_login_auth_preserves_existing_settings() {
+        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = setup_home();
+        let path = home.path().join("config.yaml");
+        let path_str = path.to_str().unwrap();
+
+        let existing = ClientConfig::with_endpoint("myhost:50051")
+            .with_tls_setting(TlsClientConfig::new().with_ca_file("/etc/ca.pem"))
+            .with_request_timeout(Duration::from_secs(42));
+        save_config(&existing, Some(path_str)).unwrap();
+
+        save_login_auth(&creds_with(Some("the-refresh-token")), Some(path_str), None).unwrap();
+
+        let loaded = load_config(Some(path_str)).unwrap();
+        assert_eq!(loaded.endpoint, "myhost:50051");
+        assert!(!loaded.tls_setting.insecure);
+        assert_eq!(
+            Duration::from(loaded.request_timeout),
+            Duration::from_secs(42)
+        );
+        assert!(matches!(loaded.auth, AuthenticationConfig::StaticJwt(_)));
+    }
+
+    #[test]
+    #[allow(clippy::disallowed_methods)]
+    fn save_login_auth_creates_config_when_absent() {
+        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = setup_home();
+        let path = home.path().join("nested").join("config.yaml");
+        save_login_auth(
+            &creds_with(Some("the-refresh-token")),
+            Some(path.to_str().unwrap()),
+            None,
+        )
+        .unwrap();
+        assert!(path.exists());
+    }
+
+    #[test]
+    #[allow(clippy::disallowed_methods)]
+    fn save_login_auth_overwrites_previous_auth() {
+        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = setup_home();
+        let path = home.path().join("config.yaml");
+        let path_str = path.to_str().unwrap();
+
+        let mut existing = ClientConfig::with_endpoint("myhost:50051");
+        existing.auth = AuthenticationConfig::Basic(BasicAuthConfig::new("u", "p"));
+        save_config(&existing, Some(path_str)).unwrap();
+
+        save_login_auth(&creds_with(Some("the-refresh-token")), Some(path_str), None).unwrap();
+        let loaded = load_config(Some(path_str)).unwrap();
+        assert!(matches!(loaded.auth, AuthenticationConfig::StaticJwt(_)));
+    }
+
+    /// Re-running login must not accumulate stale references or leak the old
+    /// secret once resolution is in play.
+    #[test]
+    #[allow(clippy::disallowed_methods)]
+    fn save_login_auth_is_idempotent_across_relogin() {
+        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = setup_home();
+        let path = home.path().join("config.yaml");
+        let path_str = path.to_str().unwrap();
+
+        save_login_auth(&creds_with(Some("first-token")), Some(path_str), None).unwrap();
+        save_login_auth(&creds_with(Some("second-token")), Some(path_str), None).unwrap();
+
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("first-token"), "old token baked in: {raw}");
+        assert!(!raw.contains("second-token"), "new token baked in: {raw}");
+
+        // The file the config points at holds the latest token.
+        assert_eq!(
+            std::fs::read_to_string(refresh_token_file_path().unwrap()).unwrap(),
+            "second-token"
+        );
+        let loaded = load_config(Some(path_str)).unwrap();
+        assert!(matches!(loaded.auth, AuthenticationConfig::StaticJwt(_)));
+    }
+
+    /// A login-written config must take effect through `resolve_config` without
+    /// depending on the implicit credentials-file fallback.
+    #[test]
+    #[allow(clippy::disallowed_methods)]
+    fn resolve_config_uses_login_written_auth() {
+        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = setup_home();
+        let path = home.path().join("config.yaml");
+        let path_str = path.to_str().unwrap();
+        save_login_auth(&creds_with(Some("the-refresh-token")), Some(path_str), None).unwrap();
+
+        let file_config = load_config(Some(path_str)).unwrap();
+        let opts = resolve_config(
+            &file_config,
+            DEFAULT_CONTROLLER_ENDPOINT,
+            Some("myhost:50051"),
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let AuthenticationConfig::StaticJwt(jwt) = opts.auth else {
+            panic!("expected static_jwt auth to survive resolve_config");
+        };
+        assert_eq!(
+            jwt.source().file,
+            token_file_path().unwrap().to_str().unwrap()
+        );
+    }
+
+    // ── auth failure hint ───────────────────────────────────────────────────
+
+    #[test]
+    fn is_auth_failure_detects_rejected_credentials() {
+        assert!(is_auth_failure(&tonic::Status::unauthenticated("nope")));
+        assert!(is_auth_failure(&tonic::Status::permission_denied("nope")));
+        assert!(!is_auth_failure(&tonic::Status::unavailable("down")));
+        assert!(!is_auth_failure(&tonic::Status::internal("boom")));
     }
 
     #[test]
