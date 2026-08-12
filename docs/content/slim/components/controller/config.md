@@ -74,7 +74,21 @@ config:
 ```
 
 Port names are optional, capped at the 15 characters Kubernetes allows, and
-default to `<north|south>-<index>`. An Ingress targets the bound's first port.
+default to `<north|south>-<index>`.
+
+An Ingress publishes one listener — `ingressNorth.servicePort` /
+`ingressSouth.servicePort` name it, defaulting to the first. With
+`service.type: ClusterIP` the others stay reachable only inside the cluster, so
+one listener can be public while another is internal:
+
+```yaml
+ingressNorth:
+  enabled: true
+  servicePort: north-tls
+```
+
+`LoadBalancer` and `NodePort` expose every Service port regardless of the Ingress,
+so that split depends on `ClusterIP`.
 
 ## Full Configuration Reference
 

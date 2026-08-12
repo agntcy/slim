@@ -399,7 +399,8 @@ Two independent `Ingress` objects can be created — one per port. Both share th
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `ingressNorth.enabled` | Create an Ingress for the northbound port | `false` |
+| `ingressNorth.enabled` | Create an Ingress for the northbound API | `false` |
+| `ingressNorth.servicePort` | Which listener to expose, by port name or number from `service.north`. Unset selects the first listener | `""` |
 | `ingressNorth.className` | `ingressClassName` value | `""` |
 | `ingressNorth.annotations` | Ingress annotations (e.g. `nginx.ingress.kubernetes.io/backend-protocol: GRPC`) | see values |
 | `ingressNorth.hosts` | List of host rules (`host`, `paths[].path`, `paths[].pathType`) | example host |
@@ -410,7 +411,36 @@ Two independent `Ingress` objects can be created — one per port. Both share th
 
 #### Southbound ingress (`ingressSouth`)
 
-Same fields as `ingressNorth`, applies to the southbound API. The backend port is the first entry of `service.south`.
+Same fields as `ingressNorth` (including `servicePort`), applies to the southbound API.
+
+#### Exposing only some listeners
+
+An Ingress publishes exactly one listener — the one `servicePort` names, or the
+first by default. With `service.type: ClusterIP` the remaining listeners are
+reachable only inside the cluster, which is how you keep one address public and
+another internal:
+
+```yaml
+service:
+  type: ClusterIP
+  north:
+    - port: 50051          # in-cluster only
+      name: north
+    - port: 50451          # published below
+      name: north-tls
+
+ingressNorth:
+  enabled: true
+  servicePort: north-tls
+```
+
+A `servicePort` that matches no listener fails rendering with the available names
+listed, rather than producing an Ingress that 503s.
+
+Note that `service.type: LoadBalancer` or `NodePort` exposes **every** port on the
+Service regardless of the Ingress, so the in-cluster-only property depends on
+`ClusterIP`. Splitting listeners across trust boundaries with a LoadBalancer needs
+a second Service selecting the same pod, which this chart does not create.
 
 ---
 

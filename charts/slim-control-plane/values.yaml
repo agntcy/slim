@@ -132,6 +132,10 @@ persistence:
 # This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
 ingressNorth:
   enabled: false
+  # Which listener to expose, by port name or number from service.north above.
+  # Unset selects the first listener. Only the selected one is reachable through
+  # the Ingress; the others stay in-cluster when service.type is ClusterIP.
+  servicePort: ""
   className: ""
   annotations:
     nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
@@ -153,6 +157,10 @@ ingressNorth:
 
 ingressSouth:
   enabled: false
+  # Which listener to expose, by port name or number from service.south above.
+  # Unset selects the first listener. Only the selected one is reachable through
+  # the Ingress; the others stay in-cluster when service.type is ClusterIP.
+  servicePort: ""
   className: ""
   annotations:
     nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
