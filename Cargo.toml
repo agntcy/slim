@@ -89,6 +89,7 @@ fastwebsockets = { version = "0.10.0", features = [
     "upgrade",
     "unstable-split",
 ] }
+fs2 = "0.4"
 futures = "0.3.31"
 futures-timer = "3.0.3"
 

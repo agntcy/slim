@@ -162,6 +162,12 @@ struct ExpClaim {
     exp: u64,
 }
 
+#[derive(serde::Deserialize)]
+struct ExpIatClaim {
+    exp: u64,
+    iat: u64,
+}
+
 /// JWT implementation that uses the jsonwebtoken crate.
 #[derive(Clone)]
 pub struct Jwt<T> {
@@ -726,6 +732,12 @@ impl Verifier for VerifierJwt {
 pub(crate) fn extract_exp_claim_unsafe(token: &str) -> Result<u64, AuthError> {
     let data = jsonwebtoken::dangerous::insecure_decode::<ExpClaim>(token)?;
     Ok(data.claims.exp)
+}
+
+/// Extract `exp` and `iat` from a JWT without signature verification.
+pub(crate) fn extract_exp_iat_claims_unsafe(token: &str) -> Result<(u64, u64), AuthError> {
+    let data = jsonwebtoken::dangerous::insecure_decode::<ExpIatClaim>(token)?;
+    Ok((data.claims.exp, data.claims.iat))
 }
 
 /// Helper function to extract the 'sub' claim from a JWT token without signature validation
