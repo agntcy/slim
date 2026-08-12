@@ -12,13 +12,17 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
-    - port: {{ .Values.service.north.port }}
-      targetPort: north
+    {{- range $i, $north := .Values.service.north }}
+    - port: {{ $north.port }}
+      targetPort: {{ $north.name | default (printf "north-%d" $i) }}
       protocol: TCP
-      name: north
-    - port: {{ .Values.service.south.port }}
-      name: south
-      targetPort: south
+      name: {{ $north.name | default (printf "north-%d" $i) }}
+    {{- end }}
+    {{- range $i, $south := .Values.service.south }}
+    - port: {{ $south.port }}
+      targetPort: {{ $south.name | default (printf "south-%d" $i) }}
       protocol: TCP
+      name: {{ $south.name | default (printf "south-%d" $i) }}
+    {{- end }}
   selector:
     {{- include "control-plane.selectorLabels" . | nindent 4 }}

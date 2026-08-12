@@ -43,12 +43,16 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
-            - name: south
-              containerPort: {{ .Values.service.south.port }}
+            {{- range $i, $south := .Values.service.south }}
+            - name: {{ $south.name | default (printf "south-%d" $i) }}
+              containerPort: {{ $south.port }}
               protocol: TCP
-            - name: north
-              containerPort: {{ .Values.service.north.port }}
+            {{- end }}
+            {{- range $i, $north := .Values.service.north }}
+            - name: {{ $north.name | default (printf "north-%d" $i) }}
+              containerPort: {{ $north.port }}
               protocol: TCP
+            {{- end }}
           {{ with .Values.env }}
           env:
             {{- toYaml . | nindent 12 }}

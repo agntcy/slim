@@ -24,6 +24,9 @@ use crate::node_transport::{DefaultNodeCommandHandler, NodeStatus};
 use crate::route_service::RouteService;
 use crate::types::DEFAULT_SEGMENT;
 
+/// Cloned once per configured listener; every field is a handle to
+/// shared state, so all listeners serve the same control plane.
+#[derive(Clone)]
 pub struct NorthboundApiService {
     db: SharedDb,
     cmd_handler: DefaultNodeCommandHandler,

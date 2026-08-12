@@ -157,9 +157,11 @@ async fn start_control_plane(topology: TopologyConfig) -> TestControlPlane {
 
     let cfg = Config {
         northbound: ServerConfig::with_endpoint(&format!("127.0.0.1:{northbound_port}"))
-            .with_tls_settings(TlsServerConfig::insecure()),
+            .with_tls_settings(TlsServerConfig::insecure())
+            .into(),
         southbound: ServerConfig::with_endpoint(&format!("127.0.0.1:{southbound_port}"))
-            .with_tls_settings(TlsServerConfig::insecure()),
+            .with_tls_settings(TlsServerConfig::insecure())
+            .into(),
         database: DatabaseConfig::InMemory,
         reconciler: test_reconciler_config(),
         topology: TopologySettings {
@@ -2536,9 +2538,11 @@ async fn start_control_plane_api_mode() -> TestControlPlane {
 
     let cfg = Config {
         northbound: ServerConfig::with_endpoint(&format!("127.0.0.1:{northbound_port}"))
-            .with_tls_settings(TlsServerConfig::insecure()),
+            .with_tls_settings(TlsServerConfig::insecure())
+            .into(),
         southbound: ServerConfig::with_endpoint(&format!("127.0.0.1:{southbound_port}"))
-            .with_tls_settings(TlsServerConfig::insecure()),
+            .with_tls_settings(TlsServerConfig::insecure())
+            .into(),
         database: DatabaseConfig::InMemory,
         reconciler: test_reconciler_config(),
         topology: TopologySettings {
@@ -2723,9 +2727,11 @@ async fn start_control_plane_with_node_connection(
 
     let cfg = Config {
         northbound: ServerConfig::with_endpoint(&format!("127.0.0.1:{northbound_port}"))
-            .with_tls_settings(TlsServerConfig::insecure()),
+            .with_tls_settings(TlsServerConfig::insecure())
+            .into(),
         southbound: ServerConfig::with_endpoint(&format!("127.0.0.1:{southbound_port}"))
-            .with_tls_settings(TlsServerConfig::insecure()),
+            .with_tls_settings(TlsServerConfig::insecure())
+            .into(),
         database: DatabaseConfig::InMemory,
         reconciler: test_reconciler_config(),
         topology: TopologySettings {
@@ -2825,4 +2831,145 @@ async fn test_cp_enforces_node_connection_params() {
     node_a.shutdown().await.ok();
     node_b.shutdown().await.ok();
     stop_control_plane(cp).await;
+}
+
+/// Multiple northbound / southbound listeners.
+///
+/// Scenario:
+///   - Configure two northbound and two southbound listeners on distinct ports.
+///   - Register one node through each southbound listener.
+///   - Query both northbound listeners.
+///
+/// Validates that every configured endpoint is bound and backed by the *same*
+/// control-plane state: a node registered via southbound listener #2 must be
+/// visible from northbound listener #1, and both northbound listeners must
+/// return identical results.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_multiple_northbound_and_southbound_listeners() {
+    init_tracing();
+
+    let permit = CP_TEST_SLOTS
+        .clone()
+        .acquire_owned()
+        .await
+        .expect("CP_TEST_SLOTS semaphore closed");
+    initialize_crypto_provider();
+
+    let nb_port_1 = reserve_port();
+    let nb_port_2 = reserve_port();
+    let sb_port_1 = reserve_port();
+    let sb_port_2 = reserve_port();
+
+    let insecure = |port: u16| {
+        ServerConfig::with_endpoint(&format!("127.0.0.1:{port}"))
+            .with_tls_settings(TlsServerConfig::insecure())
+    };
+
+    let cfg = Config {
+        northbound: vec![insecure(nb_port_1), insecure(nb_port_2)].into(),
+        southbound: vec![insecure(sb_port_1), insecure(sb_port_2)].into(),
+        database: DatabaseConfig::InMemory,
+        reconciler: test_reconciler_config(),
+        topology: TopologySettings {
+            config: full_mesh_topology(),
+            auth: None,
+        },
+        ..Default::default()
+    };
+
+    let cp = ControlPlane::start(cfg)
+        .await
+        .expect("failed to start control plane with multiple listeners");
+
+    // Both northbound listeners must accept connections.
+    let mut client_1 = create_nb_client(nb_port_1).await;
+    let mut client_2 = create_nb_client(nb_port_2).await;
+
+    // One node per southbound listener, proving both are live.
+    let a_port = reserve_port();
+    let b_port = reserve_port();
+    let node_a = start_single_node("node-a", "domain-a", sb_port_1, a_port).await;
+    let node_b = start_single_node("node-b", "domain-b", sb_port_2, b_port).await;
+
+    let id_a = domain_node_id("domain-a", "node-a");
+    let id_b = domain_node_id("domain-b", "node-b");
+
+    // Shared state: a node registered on sb#2 is visible from nb#1.
+    wait_for_nodes_connected(&mut client_1, &[&id_a, &id_b], SHORT_TIMEOUT).await;
+
+    let mut from_1: Vec<String> = collect_nodes(&mut client_1)
+        .await
+        .into_iter()
+        .map(|n| n.id)
+        .collect();
+    let mut from_2: Vec<String> = collect_nodes(&mut client_2)
+        .await
+        .into_iter()
+        .map(|n| n.id)
+        .collect();
+    from_1.sort();
+    from_2.sort();
+
+    assert_eq!(
+        from_1, from_2,
+        "both northbound listeners must serve the same control-plane state"
+    );
+    assert!(
+        from_1.contains(&id_a) && from_1.contains(&id_b),
+        "expected both nodes registered across the two southbound listeners, got {from_1:?}"
+    );
+
+    node_a.shutdown().await.ok();
+    node_b.shutdown().await.ok();
+    cp.shutdown().await;
+    drop(permit);
+}
+
+/// A duplicate endpoint across listeners must fail loudly at startup with the
+/// offending address named, rather than silently binding only the first.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_duplicate_listener_endpoint_fails_to_start() {
+    init_tracing();
+
+    let permit = CP_TEST_SLOTS
+        .clone()
+        .acquire_owned()
+        .await
+        .expect("CP_TEST_SLOTS semaphore closed");
+    initialize_crypto_provider();
+
+    let port = reserve_port();
+    let dup = || {
+        ServerConfig::with_endpoint(&format!("127.0.0.1:{port}"))
+            .with_tls_settings(TlsServerConfig::insecure())
+    };
+
+    let cfg = Config {
+        northbound: vec![dup(), dup()].into(),
+        southbound: ServerConfig::with_endpoint(&format!("127.0.0.1:{}", reserve_port()))
+            .with_tls_settings(TlsServerConfig::insecure())
+            .into(),
+        database: DatabaseConfig::InMemory,
+        reconciler: test_reconciler_config(),
+        topology: TopologySettings {
+            config: full_mesh_topology(),
+            auth: None,
+        },
+        ..Default::default()
+    };
+
+    let err = match ControlPlane::start(cfg).await {
+        Err(e) => e,
+        Ok(cp) => {
+            cp.shutdown().await;
+            panic!("binding the same endpoint twice must fail");
+        }
+    };
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains(&port.to_string()),
+        "error should name the offending endpoint, got: {msg}"
+    );
+
+    drop(permit);
 }

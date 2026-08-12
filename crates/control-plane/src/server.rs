@@ -111,15 +111,38 @@ impl ControlPlane {
             cfg.node_connection_params,
         );
 
-        cfg.northbound
-            .run_grpc_server(&[ControlPlaneServiceServer::new(nb_svc)], drain_rx.clone())
-            .await
-            .context("failed to start northbound server")?;
+        // Each configured endpoint gets its own listener serving the same
+        // service, so one API can be exposed on several addresses with
+        // independent TLS settings.
+        for server in &cfg.northbound {
+            server
+                .run_grpc_server(
+                    &[ControlPlaneServiceServer::new(nb_svc.clone())],
+                    drain_rx.clone(),
+                )
+                .await
+                .with_context(|| {
+                    format!(
+                        "failed to start northbound server on {}",
+                        server.endpoint.as_str()
+                    )
+                })?;
+        }
 
-        cfg.southbound
-            .run_grpc_server(&[ControllerServiceServer::new(sb_svc)], drain_rx)
-            .await
-            .context("failed to start southbound server")?;
+        for server in &cfg.southbound {
+            server
+                .run_grpc_server(
+                    &[ControllerServiceServer::new(sb_svc.clone())],
+                    drain_rx.clone(),
+                )
+                .await
+                .with_context(|| {
+                    format!(
+                        "failed to start southbound server on {}",
+                        server.endpoint.as_str()
+                    )
+                })?;
+        }
 
         Ok(Self {
             route_service,

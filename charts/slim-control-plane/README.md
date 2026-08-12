@@ -37,11 +37,13 @@ All parameters are set under `values.yaml`. The sections below describe each fie
 
 ### Controller configuration (`config`)
 
-The `config` block is rendered verbatim into a `ConfigMap` and mounted as `/config.yaml` inside the container.
+The `config` block is rendered into a `ConfigMap` and mounted as `/config.yaml` inside the container.
 
 #### Northbound and southbound endpoints
 
-`northbound` and `southbound` share the same `ServerConfig` structure. The northbound port is the gRPC API consumed by `slimctl` and external management clients; the southbound port is used by SLIM agents to register and receive routing updates.
+`northbound` and `southbound` each accept a single `ServerConfig` mapping or a list of them, one entry per listener. The northbound API is the gRPC API consumed by `slimctl` and external management clients; the southbound API is used by SLIM nodes to register and receive routing updates.
+
+Ports are templated from `service.north` / `service.south` so the addresses the control plane binds stay in step with the ones the `Service` exposes.
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
@@ -271,19 +273,21 @@ When `spire.enabled: true` the chart:
 - Mounts the SPIRE agent socket from the host at `/run/spire/agent-sockets`
 - Creates a `ClusterSPIFFEID` that assigns an SVID to the control-plane pod
 
-To fully enable mTLS you also need to update `config.southbound.tls` (and/or `config.northbound.tls`):
+To fully enable mTLS you also need to update `config.southbound` (and/or
+`config.northbound`):
 
 ```yaml
 config:
   southbound:
-    tls:
-      insecure: false
-      source:
+    - endpoint: "0.0.0.0:{{ (index .Values.service.south 0).port }}"
+      tls:
+        insecure: false
+        source:
+          type: spire
+          socket_path: "unix:///run/spire/agent-sockets/api.sock"
+      auth:
         type: spire
         socket_path: "unix:///run/spire/agent-sockets/api.sock"
-    auth:
-      type: spire
-      socket_path: "unix:///run/spire/agent-sockets/api.sock"
 
 spire:
   enabled: true
@@ -335,13 +339,41 @@ env:
 
 ### Service
 
-The chart exposes two named ports on a single Kubernetes `Service`.
+The chart exposes one named port per control-plane listener on a single
+Kubernetes `Service`.
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `service.type` | Kubernetes service type | `ClusterIP` |
-| `service.north.port` | Northbound gRPC port | `50051` |
-| `service.south.port` | Southbound gRPC port | `50052` |
+| `service.north` | List of northbound ports to expose, one entry per northbound listener. Each entry takes `port` and an optional `name` (max 15 chars); the name defaults to `north-{index}` | `[{port: 50051, name: north}]` |
+| `service.south` | List of southbound ports to expose, one entry per southbound listener. Name defaults to `south-{index}` | `[{port: 50052, name: south}]` |
+
+To serve an API on several addresses, add an entry here and a matching one under
+`config.northbound` / `config.southbound`, referencing the port by index the same
+way the default values do:
+
+```yaml
+service:
+  north:
+    - port: 50051
+      name: north
+    - port: 50451
+      name: north-tls
+
+config:
+  northbound:
+    - endpoint: "0.0.0.0:{{ (index .Values.service.north 0).port }}"
+      tls:
+        insecure: true
+    - endpoint: "0.0.0.0:{{ (index .Values.service.north 1).port }}"
+      tls:
+        insecure: false
+        source:
+          type: spire
+          socket_path: "unix:///run/spire/agent-sockets/api.sock"
+```
+
+An Ingress targets the bound's first port.
 
 ---
 
@@ -367,7 +399,8 @@ Two independent `Ingress` objects can be created — one per port. Both share th
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `ingressNorth.enabled` | Create an Ingress for the northbound port | `false` |
+| `ingressNorth.enabled` | Create an Ingress for the northbound API | `false` |
+| `ingressNorth.servicePort` | Which listener to expose, by port name or number from `service.north`. Unset selects the first listener | `""` |
 | `ingressNorth.className` | `ingressClassName` value | `""` |
 | `ingressNorth.annotations` | Ingress annotations (e.g. `nginx.ingress.kubernetes.io/backend-protocol: GRPC`) | see values |
 | `ingressNorth.hosts` | List of host rules (`host`, `paths[].path`, `paths[].pathType`) | example host |
@@ -378,7 +411,36 @@ Two independent `Ingress` objects can be created — one per port. Both share th
 
 #### Southbound ingress (`ingressSouth`)
 
-Same fields as `ingressNorth`, applies to the southbound port (`service.south.port`).
+Same fields as `ingressNorth` (including `servicePort`), applies to the southbound API.
+
+#### Exposing only some listeners
+
+An Ingress publishes exactly one listener — the one `servicePort` names, or the
+first by default. With `service.type: ClusterIP` the remaining listeners are
+reachable only inside the cluster, which is how you keep one address public and
+another internal:
+
+```yaml
+service:
+  type: ClusterIP
+  north:
+    - port: 50051          # in-cluster only
+      name: north
+    - port: 50451          # published below
+      name: north-tls
+
+ingressNorth:
+  enabled: true
+  servicePort: north-tls
+```
+
+A `servicePort` that matches no listener fails rendering with the available names
+listed, rather than producing an Ingress that 503s.
+
+Note that `service.type: LoadBalancer` or `NodePort` exposes **every** port on the
+Service regardless of the Ingress, so the in-cluster-only property depends on
+`ClusterIP`. Splitting listeners across trust boundaries with a LoadBalancer needs
+a second Service selecting the same pod, which this chart does not create.
 
 ---
 

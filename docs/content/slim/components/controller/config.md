@@ -15,6 +15,81 @@ tracing:
   log_level: info
 ```
 
+## Multiple Listeners
+
+`northbound` and `southbound` each accept either a single server mapping or a
+list of them. With a list, the same API is served on every configured address,
+each with its own TLS settings — useful for exposing plaintext on loopback for
+local tooling while requiring mTLS on a routable address, or for binding one
+listener per network interface.
+
+```yaml
+northbound:
+  - endpoint: "127.0.0.1:50051"    # local tooling, plaintext
+    tls:
+      insecure: true
+  - endpoint: "0.0.0.0:50451"      # routable, TLS
+    tls:
+      insecure: false
+      source:
+        type: file
+        cert: /etc/slim/tls.crt
+        key: /etc/slim/tls.key
+
+southbound:
+  - endpoint: "0.0.0.0:50052"
+    tls:
+      insecure: true
+```
+
+An empty list is rejected at startup; omit the key entirely to use the default
+single listener. Reusing the same address across two listeners fails at startup
+with the offending endpoint named.
+
+### With the Helm chart
+
+`service.north` and `service.south` are lists of ports to expose — one entry per
+listener. Add an entry there and a matching one under `config.northbound` /
+`config.southbound`, referencing the port by index:
+
+```yaml
+service:
+  north:
+    - port: 50051
+      name: north
+    - port: 50451
+      name: north-tls
+
+config:
+  northbound:
+    - endpoint: "0.0.0.0:{{ (index .Values.service.north 0).port }}"
+      tls:
+        insecure: true
+    - endpoint: "0.0.0.0:{{ (index .Values.service.north 1).port }}"
+      tls:
+        insecure: false
+        source:
+          type: spire
+          socket_path: "unix:///run/spire/agent-sockets/api.sock"
+```
+
+Port names are optional, capped at the 15 characters Kubernetes allows, and
+default to `<north|south>-<index>`.
+
+An Ingress publishes one listener — `ingressNorth.servicePort` /
+`ingressSouth.servicePort` name it, defaulting to the first. With
+`service.type: ClusterIP` the others stay reachable only inside the cluster, so
+one listener can be public while another is internal:
+
+```yaml
+ingressNorth:
+  enabled: true
+  servicePort: north-tls
+```
+
+`LoadBalancer` and `NodePort` expose every Service port regardless of the Ingress,
+so that split depends on `ClusterIP`.
+
 ## Full Configuration Reference
 
 ```yaml

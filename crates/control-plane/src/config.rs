@@ -27,14 +27,136 @@ pub struct NodeConnectionParams {
     pub keepalive: Option<KeepaliveConfig>,
 }
 
+/// One or more gRPC listeners for a single API surface.
+///
+/// Accepts either a single server mapping or a sequence of them, so an existing
+/// single-listener config keeps working unchanged:
+///
+/// ```yaml
+/// northbound:                      # one listener
+///   endpoint: "0.0.0.0:50051"
+///   tls:
+///     insecure: true
+/// ```
+///
+/// ```yaml
+/// northbound:                      # two listeners, independent TLS
+///   - endpoint: "127.0.0.1:50051"
+///     tls:
+///       insecure: true
+///   - endpoint: "0.0.0.0:50451"
+///     tls:
+///       insecure: false
+///       source:
+///         type: file
+///         cert: /etc/slim/tls.crt
+///         key: /etc/slim/tls.key
+/// ```
+///
+/// Every listener serves the same service, so a deployment can expose one API on
+/// several addresses at once — e.g. plaintext on loopback for local tooling and
+/// mTLS on a routable address, or one listener per network interface.
+#[derive(Debug, Clone)]
+pub struct ServerConfigs(Vec<ServerConfig>);
+
+impl ServerConfigs {
+    /// Wrap a single server config.
+    pub fn single(cfg: ServerConfig) -> Self {
+        Self(vec![cfg])
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, ServerConfig> {
+        self.0.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The configured endpoints, for logging.
+    pub fn endpoints(&self) -> Vec<&str> {
+        self.0.iter().map(|c| c.endpoint.as_str()).collect()
+    }
+}
+
+impl<'a> IntoIterator for &'a ServerConfigs {
+    type Item = &'a ServerConfig;
+    type IntoIter = std::slice::Iter<'a, ServerConfig>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+impl From<ServerConfig> for ServerConfigs {
+    fn from(cfg: ServerConfig) -> Self {
+        Self::single(cfg)
+    }
+}
+
+impl From<Vec<ServerConfig>> for ServerConfigs {
+    fn from(cfgs: Vec<ServerConfig>) -> Self {
+        Self(cfgs)
+    }
+}
+
+/// Accepts a single server mapping or a sequence of them.
+impl<'de> Deserialize<'de> for ServerConfigs {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct ServerConfigsVisitor;
+
+        impl<'de> Visitor<'de> for ServerConfigsVisitor {
+            type Value = ServerConfigs;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a server config mapping, or a sequence of them")
+            }
+
+            fn visit_map<M>(self, map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let cfg = ServerConfig::deserialize(de::value::MapAccessDeserializer::new(map))?;
+                Ok(ServerConfigs(vec![cfg]))
+            }
+
+            fn visit_seq<S>(self, seq: S) -> Result<Self::Value, S::Error>
+            where
+                S: de::SeqAccess<'de>,
+            {
+                let cfgs =
+                    Vec::<ServerConfig>::deserialize(de::value::SeqAccessDeserializer::new(seq))?;
+                if cfgs.is_empty() {
+                    return Err(de::Error::custom(
+                        "at least one server must be configured; remove the key to use the default \
+                         endpoint instead of an empty list",
+                    ));
+                }
+                Ok(ServerConfigs(cfgs))
+            }
+        }
+
+        deserializer.deserialize_any(ServerConfigsVisitor)
+    }
+}
+
 /// Top-level control-plane configuration.
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct Config {
     /// Northbound gRPC API (management / ControlPlaneService).
-    pub northbound: ServerConfig,
+    /// One or more listeners; see [`ServerConfigs`].
+    pub northbound: ServerConfigs,
     /// Southbound gRPC API (node registration / ControllerService).
-    pub southbound: ServerConfig,
+    /// One or more listeners; see [`ServerConfigs`].
+    pub southbound: ServerConfigs,
     /// Settings for the route and link reconcilers.
     pub reconciler: ReconcilerConfig,
     /// Database backend configuration.
@@ -52,16 +174,16 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            northbound: ServerConfig {
+            northbound: ServerConfigs::single(ServerConfig {
                 endpoint: "0.0.0.0:50051".to_string(),
                 tls_setting: TlsServerConfig::insecure(),
                 ..Default::default()
-            },
-            southbound: ServerConfig {
+            }),
+            southbound: ServerConfigs::single(ServerConfig {
                 endpoint: "0.0.0.0:50052".to_string(),
                 tls_setting: TlsServerConfig::insecure(),
                 ..Default::default()
-            },
+            }),
             reconciler: ReconcilerConfig::default(),
             database: DatabaseConfig::default(),
             tracing: TracingConfiguration::default(),
@@ -661,8 +783,8 @@ mod tests {
     #[test]
     fn config_defaults() {
         let c = Config::default();
-        assert_eq!(c.northbound.endpoint, "0.0.0.0:50051");
-        assert_eq!(c.southbound.endpoint, "0.0.0.0:50052");
+        assert_eq!(c.northbound.endpoints(), vec!["0.0.0.0:50051"]);
+        assert_eq!(c.southbound.endpoints(), vec!["0.0.0.0:50052"]);
         assert_eq!(c.topology.config, TopologyConfig::default());
     }
 
@@ -1024,5 +1146,254 @@ segments:
         assert!(t.can_link("hub", "b"));
         // a and b not in any common segment link
         assert!(!t.can_link("a", "b"));
+    }
+
+    // --- ServerConfigs deserialization ---
+
+    /// The pre-existing single-mapping shape must keep working untouched.
+    #[test]
+    fn deserialize_single_server_mapping() {
+        let yaml = r#"
+endpoint: "127.0.0.1:50051"
+tls:
+  insecure: true
+"#;
+        let s: ServerConfigs = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(s.len(), 1);
+        assert_eq!(s.endpoints(), vec!["127.0.0.1:50051"]);
+    }
+
+    #[test]
+    fn deserialize_server_sequence() {
+        let yaml = r#"
+- endpoint: "127.0.0.1:50051"
+  tls:
+    insecure: true
+- endpoint: "0.0.0.0:50451"
+  tls:
+    insecure: true
+"#;
+        let s: ServerConfigs = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(s.len(), 2);
+        assert_eq!(s.endpoints(), vec!["127.0.0.1:50051", "0.0.0.0:50451"]);
+    }
+
+    /// Per-listener settings must be independent, not copied from the first.
+    #[test]
+    fn deserialize_server_sequence_keeps_per_listener_tls() {
+        let yaml = r#"
+- endpoint: "127.0.0.1:50051"
+  tls:
+    insecure: true
+- endpoint: "0.0.0.0:50451"
+  tls:
+    insecure: false
+"#;
+        let s: ServerConfigs = serde_yaml::from_str(yaml).unwrap();
+        let listeners: Vec<&ServerConfig> = s.iter().collect();
+        assert!(listeners[0].tls_setting.insecure);
+        assert!(!listeners[1].tls_setting.insecure);
+    }
+
+    /// An empty list would silently leave the API unreachable.
+    #[test]
+    fn deserialize_empty_server_sequence_errors() {
+        let err = serde_yaml::from_str::<ServerConfigs>("[]").unwrap_err();
+        assert!(
+            err.to_string().contains("at least one server"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn deserialize_server_scalar_errors() {
+        assert!(serde_yaml::from_str::<ServerConfigs>("\"127.0.0.1:50051\"").is_err());
+    }
+
+    #[test]
+    fn full_config_accepts_single_and_multiple_together() {
+        let yaml = r#"
+northbound:
+  endpoint: "127.0.0.1:50051"
+  tls:
+    insecure: true
+southbound:
+  - endpoint: "127.0.0.1:50052"
+    tls:
+      insecure: true
+  - endpoint: "127.0.0.1:50053"
+    tls:
+      insecure: true
+"#;
+        let c: Config = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(c.northbound.endpoints(), vec!["127.0.0.1:50051"]);
+        assert_eq!(
+            c.southbound.endpoints(),
+            vec!["127.0.0.1:50052", "127.0.0.1:50053"]
+        );
+    }
+
+    /// Omitting a key falls back to the single default listener.
+    #[test]
+    fn full_config_omitted_bounds_use_defaults() {
+        let c: Config = serde_yaml::from_str("tracing:\n  log_level: debug\n").unwrap();
+        assert_eq!(c.northbound.endpoints(), vec!["0.0.0.0:50051"]);
+        assert_eq!(c.southbound.endpoints(), vec!["0.0.0.0:50052"]);
+    }
+
+    #[test]
+    fn server_configs_iter_matches_into_iter() {
+        let s = ServerConfigs::from(vec![
+            ServerConfig::with_endpoint("a:1"),
+            ServerConfig::with_endpoint("b:2"),
+        ]);
+        assert!(!s.is_empty());
+        let via_iter: Vec<&str> = s.iter().map(|c| c.endpoint.as_str()).collect();
+        let via_into: Vec<&str> = (&s).into_iter().map(|c| c.endpoint.as_str()).collect();
+        assert_eq!(via_iter, via_into);
+        assert_eq!(via_iter, vec!["a:1", "b:2"]);
+    }
+
+    /// The exact YAML the Helm chart emits for a single-listener bound, so a
+    /// drift on either side is caught here rather than at deploy time.
+    #[test]
+    fn parses_chart_rendered_single_listener() {
+        let yaml = r#"
+database:
+  path: /db/controlplane.db
+  type: sqlite
+reconciler:
+  max_requeues: 15
+  workers: 4
+topology: {}
+tracing:
+  log_level: debug
+northbound:
+  endpoint: 0.0.0.0:50051
+  tls:
+    insecure: true
+southbound:
+  endpoint: 0.0.0.0:50052
+  tls:
+    insecure: true
+"#;
+        let c: Config = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(c.northbound.endpoints(), vec!["0.0.0.0:50051"]);
+        assert_eq!(c.southbound.endpoints(), vec!["0.0.0.0:50052"]);
+    }
+
+    /// The chart's multi-listener rendering, including an unquoted `host:port`
+    /// scalar and per-listener TLS.
+    #[test]
+    fn parses_chart_rendered_multiple_listeners() {
+        let yaml = r#"
+tracing:
+  log_level: debug
+northbound:
+  - endpoint: 0.0.0.0:50051
+    tls:
+      insecure: true
+  - endpoint: 0.0.0.0:50451
+    tls:
+      insecure: false
+southbound:
+  - endpoint: 0.0.0.0:50052
+    tls:
+      insecure: true
+  - endpoint: 0.0.0.0:50053
+    tls:
+      insecure: true
+"#;
+        let c: Config = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            c.northbound.endpoints(),
+            vec!["0.0.0.0:50051", "0.0.0.0:50451"]
+        );
+        let nb: Vec<&ServerConfig> = c.northbound.iter().collect();
+        assert!(nb[0].tls_setting.insecure);
+        assert!(!nb[1].tls_setting.insecure);
+        assert_eq!(
+            c.southbound.endpoints(),
+            vec!["0.0.0.0:50052", "0.0.0.0:50053"]
+        );
+    }
+
+    /// An empty document must not silently yield defaults in a way that hides a
+    /// broken render — it deserializes to the documented defaults, and callers
+    /// that care about real content should assert on it.
+    #[test]
+    fn empty_document_yields_defaults() {
+        let c: Config = serde_yaml::from_str("{}").unwrap();
+        assert_eq!(c.northbound.endpoints(), vec!["0.0.0.0:50051"]);
+    }
+
+    /// The TLS shapes used in this module's docs and in the chart must be the
+    /// ones the deserializer actually understands. `TlsServerConfig` silently
+    /// ignores unknown keys, so a wrong field name here yields TLS enabled with
+    /// no certificate source rather than a config error — worth pinning.
+    #[test]
+    fn documented_tls_forms_populate_a_source() {
+        use slim_config::tls::common::TlsSource;
+
+        let file_form = r#"
+northbound:
+  - endpoint: "0.0.0.0:50451"
+    tls:
+      insecure: false
+      source:
+        type: file
+        cert: /etc/slim/tls.crt
+        key: /etc/slim/tls.key
+"#;
+        let c: Config = serde_yaml::from_str(file_form).unwrap();
+        let nb: Vec<&ServerConfig> = c.northbound.iter().collect();
+        assert!(!nb[0].tls_setting.insecure);
+        assert!(
+            matches!(nb[0].tls_setting.config.source, TlsSource::File { .. }),
+            "expected a file source, got {:?}",
+            nb[0].tls_setting.config.source
+        );
+
+        #[cfg(not(target_family = "windows"))]
+        {
+            let spire_form = r#"
+northbound:
+  - endpoint: "0.0.0.0:50451"
+    tls:
+      insecure: false
+      source:
+        type: spire
+        socket_path: "unix:///run/spire/agent-sockets/api.sock"
+"#;
+            let c: Config = serde_yaml::from_str(spire_form).unwrap();
+            let nb: Vec<&ServerConfig> = c.northbound.iter().collect();
+            assert!(
+                matches!(nb[0].tls_setting.config.source, TlsSource::Spire { .. }),
+                "expected a spire source, got {:?}",
+                nb[0].tls_setting.config.source
+            );
+        }
+    }
+
+    /// Guards the failure mode that made the bad docs dangerous: an unknown key
+    /// under `tls` is dropped, leaving TLS on with no source.
+    #[test]
+    fn unknown_tls_key_is_silently_ignored() {
+        use slim_config::tls::common::TlsSource;
+
+        let yaml = r#"
+northbound:
+  - endpoint: "0.0.0.0:50451"
+    tls:
+      insecure: false
+      useSpiffe: true
+"#;
+        let c: Config = serde_yaml::from_str(yaml).unwrap();
+        let nb: Vec<&ServerConfig> = c.northbound.iter().collect();
+        assert!(!nb[0].tls_setting.insecure);
+        assert!(
+            matches!(nb[0].tls_setting.config.source, TlsSource::None),
+            "an unknown key must not somehow configure a source"
+        );
     }
 }

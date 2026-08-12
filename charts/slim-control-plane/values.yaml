@@ -23,22 +23,26 @@ nameOverride: ""
 fullnameOverride: "slim-control"
 
 config:
+  # One entry per listener. Add an entry here and a matching one under
+  # service.north / service.south to serve the API on another address.
   northbound:
-    endpoint: "0.0.0.0:{{ .Values.service.north.port }}"
-    tls:
-      insecure: true
+    - endpoint: "0.0.0.0:{{ (index .Values.service.north 0).port }}"
+      tls:
+        insecure: true
 
   southbound:
-    endpoint: "0.0.0.0:{{ .Values.service.south.port }}"
-    tls:
-      insecure: true
+    - endpoint: "0.0.0.0:{{ (index .Values.service.south 0).port }}"
+      tls:
+        insecure: true
   # Uncomment below to enable MTLS by Spire (also set spire.enabled: true)
   #     tls:
   #       insecure: false
-  #       useSpiffe: true
+  #       source:
+  #         type: spire
+  #         socket_path: "unix:///run/spire/agent-sockets/api.sock"
   #     auth:
   #       type: spire
-  #       socketPath: "unix:///run/spire/agent-sockets/api.sock"
+  #       socket_path: "unix:///run/spire/agent-sockets/api.sock"
 
   database:
     type: sqlite
@@ -105,10 +109,17 @@ securityContext:
 service:
   # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
   type: ClusterIP
-  south:
-    port: 50052
+  # List of northbound server ports to expose. One entry per northbound listener
+  # in config.northbound above.
+  # Each entry may include an optional 'name' field (max 15 chars, lowercase
+  # alphanumeric and dashes). If omitted, the port is named north-{index}.
   north:
-    port: 50051
+    - port: 50051
+      name: north
+  # List of southbound server ports to expose. One entry per southbound listener.
+  south:
+    - port: 50052
+      name: south
 
 persistence:
   enabled: true
@@ -121,6 +132,10 @@ persistence:
 # This block is for setting up the ingress for more information can be found here: https://kubernetes.io/docs/concepts/services-networking/ingress/
 ingressNorth:
   enabled: false
+  # Which listener to expose, by port name or number from service.north above.
+  # Unset selects the first listener. Only the selected one is reachable through
+  # the Ingress; the others stay in-cluster when service.type is ClusterIP.
+  servicePort: ""
   className: ""
   annotations:
     nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
@@ -142,6 +157,10 @@ ingressNorth:
 
 ingressSouth:
   enabled: false
+  # Which listener to expose, by port name or number from service.south above.
+  # Unset selects the first listener. Only the selected one is reachable through
+  # the Ingress; the others stay in-cluster when service.type is ClusterIP.
+  servicePort: ""
   className: ""
   annotations:
     nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
