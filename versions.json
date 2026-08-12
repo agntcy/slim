@@ -70,6 +70,13 @@
     "aliases": []
   },
   {
+    "version": "slim-version-v2.1.1",
+    "title": "slim-version-v2.1.1",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-version-v2.1.0",
     "title": "slim-version-v2.1.0",
     "aliases": []
@@ -907,9 +914,7 @@
   {
     "version": "helm-slim-channel-manager-v2.1.0",
     "title": "helm-slim-channel-manager-v2.1.0",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "helm-slim-channel-manager-v2.0.0",
