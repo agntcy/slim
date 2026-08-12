@@ -17,7 +17,6 @@ use slim_testing::{
     helpers::*,
 };
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -51,30 +50,6 @@ fn channel_manager_port_replacements(
             format!("0.0.0.0:{channel_manager_port}"),
         ),
     ])
-}
-
-struct TempDirCleanup(PathBuf);
-
-impl Drop for TempDirCleanup {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
-fn spawn_slim(slim: &Path, config: &Path) -> std::process::Child {
-    Command::new(slim)
-        .arg("--config")
-        .arg(config)
-        .current_dir(workspace_root())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap_or_else(|err| {
-            panic!(
-                "failed to start slim with config {}: {err}",
-                config.display()
-            )
-        })
 }
 
 fn spawn_channel_manager(channel_manager: &Path, config: &Path) -> std::process::Child {
@@ -127,7 +102,6 @@ fn spawn_client(
 #[test]
 fn slim_node_manages_channel_participants_and_messaging() {
     let temp_dir = new_temp_dir("slim-integration-gm-");
-    let _cleanup = TempDirCleanup(temp_dir.clone());
 
     let data_plane_port = reserve_port();
     let channel_manager_port = reserve_port();
@@ -135,31 +109,31 @@ fn slim_node_manages_channel_participants_and_messaging() {
     let testdata = testdata_dir();
 
     let server_config = write_temp_config(
-        &temp_dir,
+        temp_dir.path(),
         &testdata.join("server.yaml"),
         "server-a-config.yaml",
         &replacements,
     );
     let client_a_config = write_temp_config(
-        &temp_dir,
+        temp_dir.path(),
         &testdata.join("client.yaml"),
         "client-a-config.yaml",
         &replacements,
     );
     let client_b_config = write_temp_config(
-        &temp_dir,
+        temp_dir.path(),
         &testdata.join("client.yaml"),
         "client-b-config.yaml",
         &replacements,
     );
     let client_c_config = write_temp_config(
-        &temp_dir,
+        temp_dir.path(),
         &testdata.join("client.yaml"),
         "client-c-config.yaml",
         &replacements,
     );
     let channel_manager_config = write_temp_config(
-        &temp_dir,
+        temp_dir.path(),
         &testdata.join("channel-manager-config.yaml"),
         "channel-manager-config.yaml",
         &replacements,

@@ -5,28 +5,16 @@
 //! `#[ignore]` until topology-based routing replaces manual route wiring.
 
 use slim_testing::{
-    binaries::{
-        require_sdk_mock_binary, require_slim_binary, require_slimctl_binary, workspace_root,
-    },
+    binaries::{require_sdk_mock_binary, require_slim_binary, require_slimctl_binary},
     constants::{MSG_CONTROLPLANE_SERVER_STARTED, MSG_HEADER_INTEGRITY_FAILED, MSG_HELLO_FROM_A},
     helpers::*,
 };
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
 fn testdata_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata")
-}
-
-struct TempDirCleanup(PathBuf);
-
-impl Drop for TempDirCleanup {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
 }
 
 fn header_integrity_replacements(
@@ -59,70 +47,6 @@ fn header_integrity_replacements(
     ])
 }
 
-fn spawn_slim(slim: &Path, config: &Path) -> std::process::Child {
-    Command::new(slim)
-        .arg("--config")
-        .arg(config)
-        .current_dir(workspace_root())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap_or_else(|err| {
-            panic!(
-                "failed to start slim with config {}: {err}",
-                config.display()
-            )
-        })
-}
-
-fn spawn_slim_with_env(slim: &Path, config: &Path, env: &[(&str, &str)]) -> std::process::Child {
-    let mut cmd = Command::new(slim);
-    cmd.arg("--config")
-        .arg(config)
-        .current_dir(workspace_root())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    for (key, value) in env {
-        cmd.env(key, value);
-    }
-    cmd.spawn().unwrap_or_else(|err| {
-        panic!(
-            "failed to start slim with config {}: {err}",
-            config.display()
-        )
-    })
-}
-
-fn spawn_sdk_mock(
-    sdk_mock: &Path,
-    config: &Path,
-    local_name: &str,
-    remote_name: &str,
-    message: Option<&str>,
-) -> std::process::Child {
-    let mut cmd = Command::new(sdk_mock);
-    cmd.arg("--config")
-        .arg(config)
-        .arg("--local-name")
-        .arg(local_name)
-        .arg("--remote-name")
-        .arg(remote_name)
-        .current_dir(workspace_root())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    if let Some(message) = message {
-        cmd.arg("--message").arg(message);
-    }
-
-    cmd.spawn().unwrap_or_else(|err| {
-        panic!(
-            "failed to start sdk-mock with config {}: {err}",
-            config.display()
-        )
-    })
-}
-
 fn wait_for_federated_link(node_a_logs: &ProcessLogWatcher, node_b_logs: &ProcessLogWatcher) {
     node_b_logs
         .wait_contains("client connected", Duration::from_secs(15))
@@ -149,7 +73,6 @@ struct HeaderMacTopology {
 
 fn setup_header_mac_topology(tamper_destination: bool) -> HeaderMacTopology {
     let temp_dir = new_temp_dir("slim-integration-header-mac-");
-    let _cleanup = TempDirCleanup(temp_dir.clone());
 
     let node_a_port = reserve_port();
     let node_b_port = reserve_port();
@@ -174,13 +97,13 @@ fn setup_header_mac_topology(tamper_destination: bool) -> HeaderMacTopology {
         "node-b.yaml"
     };
     let node_a_config = write_temp_config(
-        &temp_dir,
+        temp_dir.path(),
         &testdata.join("header-mac-node-a.yaml"),
         node_a_name,
         &repl,
     );
     let node_b_config = write_temp_config(
-        &temp_dir,
+        temp_dir.path(),
         &testdata.join("header-mac-node-b.yaml"),
         node_b_name,
         &repl,
@@ -205,13 +128,13 @@ fn setup_header_mac_topology(tamper_destination: bool) -> HeaderMacTopology {
         "header-mac-client-b.yaml"
     };
     let client_a_config = write_temp_config(
-        &temp_dir,
+        temp_dir.path(),
         &testdata.join("client.yaml"),
         client_a_name,
         &client_replacements_a,
     );
     let client_b_config = write_temp_config(
-        &temp_dir,
+        temp_dir.path(),
         &testdata.join("client.yaml"),
         client_b_name,
         &client_replacements_b,
@@ -236,13 +159,13 @@ fn setup_header_mac_topology(tamper_destination: bool) -> HeaderMacTopology {
         "header-mac-client-b-via.json"
     };
     let client_a_via = write_temp_config(
-        &temp_dir,
+        temp_dir.path(),
         &testdata.join("header-mac-via-peer-b.json"),
         via_a_name,
         &via_peer_b,
     );
     let client_b_via = write_temp_config(
-        &temp_dir,
+        temp_dir.path(),
         &testdata.join("header-mac-via-peer-a.json"),
         via_b_name,
         &via_peer_a,

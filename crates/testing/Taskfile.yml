@@ -152,12 +152,7 @@ tasks:
     desc: "Build SLIM binaries required by the integration tests"
     dir: "../.."
     cmds:
-      - cargo build --bin slim -p agntcy-slim
-      - cargo build --bin sdk-mock -p slim-examples
-      - cargo build --bin client -p slim-examples
-      - cargo build --bin channel-manager -p agntcy-slim-channel-manager
-      - cargo build --bin slimctl -p agntcy-slimctl
-      - cargo build --bin slim-control-plane -p agntcy-slim-control-plane
+      - cargo build --bin slim --bin sdk-mock --bin client --bin channel-manager --bin slimctl --bin slim-control-plane
 
   tests:integration:
     desc: "Run active Rust integration tests"

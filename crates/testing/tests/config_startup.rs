@@ -120,14 +120,24 @@ fn run_config_startup_case(case: &ConfigCase) {
     let data_plane_port = reserve_port();
     let replacements = port_replacements(data_plane_port);
 
-    let server_config =
-        write_temp_config_near_source(&case.server_path, "tmp-server-config-", &replacements);
-    let client_config =
-        write_temp_config_near_source(&case.client_path, "tmp-client-config-", &replacements);
-
-    let _temp_configs = TempConfigCleanup {
-        paths: vec![server_config.clone(), client_config.clone()],
-    };
+    // Config file paths inside `config/<dir>/` reference sibling assets using
+    // repo-root-relative paths (e.g. `./config/crypto/...`), and slim runs with
+    // its CWD set to the repo root below, so the rewritten copies can live in an
+    // OS temp dir instead of next to the source. `temp_dir` is kept alive for the
+    // duration of the case so its contents are removed on drop.
+    let temp_dir = new_temp_dir("slim-config-startup-");
+    let server_config = write_temp_config(
+        temp_dir.path(),
+        &case.server_path,
+        "server-config.yaml",
+        &replacements,
+    );
+    let client_config = write_temp_config(
+        temp_dir.path(),
+        &case.client_path,
+        "client-config.yaml",
+        &replacements,
+    );
 
     let repo_root = workspace_root();
     let slim = require_slim_binary();
@@ -195,18 +205,6 @@ fn run_config_startup_case(case: &ConfigCase) {
 
     terminate_session(&mut client_session, Duration::from_secs(5));
     terminate_session(&mut server_session, Duration::from_secs(5));
-}
-
-struct TempConfigCleanup {
-    paths: Vec<PathBuf>,
-}
-
-impl Drop for TempConfigCleanup {
-    fn drop(&mut self) {
-        for path in &self.paths {
-            let _ = fs::remove_file(path);
-        }
-    }
 }
 
 /// For each discovered config pair, start server then client and wait for connection logs.

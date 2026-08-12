@@ -7,7 +7,7 @@ use regex::Regex;
 use slim_testing::{
     binaries::{
         require_control_plane_binary, require_sdk_mock_binary, require_slim_binary,
-        require_slimctl_binary, workspace_root,
+        require_slimctl_binary,
     },
     constants::{
         MSG_CONNECTED_TO_CONTROL_PLANE, MSG_CONTROL_PLANE_STARTED, MSG_HELLO_FROM_A,
@@ -17,84 +17,13 @@ use slim_testing::{
 };
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::path::PathBuf;
+use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
 fn testdata_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata")
-}
-
-struct TempDirCleanup(PathBuf);
-
-impl Drop for TempDirCleanup {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
-fn spawn_slim(slim: &Path, config: &Path) -> std::process::Child {
-    Command::new(slim)
-        .arg("--config")
-        .arg(config)
-        .current_dir(workspace_root())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap_or_else(|err| {
-            panic!(
-                "failed to start slim with config {}: {err}",
-                config.display()
-            )
-        })
-}
-
-fn spawn_control_plane(control_plane: &Path, config: &Path, db_path: &Path) -> std::process::Child {
-    Command::new(control_plane)
-        .arg("--config")
-        .arg(config)
-        .env("DATABASE_FILEPATH", db_path)
-        .current_dir(workspace_root())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap_or_else(|err| {
-            panic!(
-                "failed to start control plane with config {}: {err}",
-                config.display()
-            )
-        })
-}
-
-fn spawn_sdk_mock(
-    sdk_mock: &Path,
-    config: &Path,
-    local_name: &str,
-    remote_name: &str,
-    message: Option<&str>,
-) -> std::process::Child {
-    let mut cmd = Command::new(sdk_mock);
-    cmd.arg("--config")
-        .arg(config)
-        .arg("--local-name")
-        .arg(local_name)
-        .arg("--remote-name")
-        .arg(remote_name)
-        .current_dir(workspace_root())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    if let Some(message) = message {
-        cmd.arg("--message").arg(message);
-    }
-
-    cmd.spawn().unwrap_or_else(|err| {
-        panic!(
-            "failed to start sdk-mock with config {}: {err}",
-            config.display()
-        )
-    })
 }
 
 fn assert_output_contains(output: &[u8], needle: &str, context: &str) {
@@ -118,7 +47,6 @@ fn assert_output_not_contains(output: &[u8], needle: &str, context: &str) {
 #[ignore = "pending: fix route cleanup for Edge connections in a follow-up PR"]
 fn delivers_messages_and_cleans_up_routes_via_control_plane() {
     let temp_dir = new_temp_dir("slim-integration-control-plane-");
-    let _cleanup = TempDirCleanup(temp_dir.clone());
 
     let data_plane_a_port = reserve_port();
     let data_plane_b_port = reserve_port();
@@ -171,36 +99,36 @@ fn delivers_messages_and_cleans_up_routes_via_control_plane() {
 
     let testdata = testdata_dir();
     let server_a_config = write_temp_config(
-        &temp_dir,
+        temp_dir.path(),
         &testdata.join("server-a-config-cp.yaml"),
         "server-a-config-cp.yaml",
         &server_a_replacements,
     );
     let server_b_config = write_temp_config(
-        &temp_dir,
+        temp_dir.path(),
         &testdata.join("server-b-config-cp.yaml"),
         "server-b-config-cp.yaml",
         &server_b_replacements,
     );
     let client_a_config = write_temp_config(
-        &temp_dir,
+        temp_dir.path(),
         &testdata.join("client.yaml"),
         "client-a-config.yaml",
         &client_a_replacements,
     );
     let client_b_config = write_temp_config(
-        &temp_dir,
+        temp_dir.path(),
         &testdata.join("client.yaml"),
         "client-b-config.yaml",
         &client_b_replacements,
     );
     let control_plane_config = write_temp_config(
-        &temp_dir,
+        temp_dir.path(),
         &testdata.join("control-plane-config.yaml"),
         "control-plane-config.yaml",
         &control_plane_replacements,
     );
-    let db_path = temp_dir.join("controlplane.db");
+    let db_path = temp_dir.path().join("controlplane.db");
     fs::write(&db_path, []).expect("create control plane db file");
 
     let slim = require_slim_binary();

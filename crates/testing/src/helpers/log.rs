@@ -1,10 +1,11 @@
 use std::io::{BufRead, BufReader};
 use std::process::Child;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
+use regex::Regex;
 
 /// Follows a child process stdout/stderr and accumulates output for repeated assertions.
 pub struct ProcessLogWatcher {
@@ -94,44 +95,10 @@ pub fn wait_for_log(child: &mut Child, needle: &str, timeout: Duration) -> Resul
 
 /// Returns true when `text` contains a semver-like fragment (e.g. `2.0.0`).
 pub fn contains_semver_fragment(text: &str) -> bool {
-    let bytes = text.as_bytes();
-    let mut i = 0;
-    while i + 4 < bytes.len() {
-        if !bytes[i].is_ascii_digit() {
-            i += 1;
-            continue;
-        }
-        let mut j = i;
-        while j < bytes.len() && bytes[j].is_ascii_digit() {
-            j += 1;
-        }
-        if j >= bytes.len() || bytes[j] != b'.' {
-            i += 1;
-            continue;
-        }
-        j += 1;
-        if j >= bytes.len() || !bytes[j].is_ascii_digit() {
-            i += 1;
-            continue;
-        }
-        while j < bytes.len() && bytes[j].is_ascii_digit() {
-            j += 1;
-        }
-        if j >= bytes.len() || bytes[j] != b'.' {
-            i += 1;
-            continue;
-        }
-        j += 1;
-        if j >= bytes.len() || !bytes[j].is_ascii_digit() {
-            i += 1;
-            continue;
-        }
-        while j < bytes.len() && bytes[j].is_ascii_digit() {
-            j += 1;
-        }
-        return true;
-    }
-    false
+    static SEMVER_FRAGMENT: OnceLock<Regex> = OnceLock::new();
+    SEMVER_FRAGMENT
+        .get_or_init(|| Regex::new(r"\d+\.\d+\.\d+").expect("valid semver fragment regex"))
+        .is_match(text)
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 /// Workspace root (`slim/`), two levels above this crate manifest dir
 /// (`slim/crates/testing`).
@@ -205,22 +206,25 @@ fn require_binary(path: PathBuf, name: &str, build_hint: &str) -> PathBuf {
 }
 
 fn rustc_host_target() -> Result<String, String> {
-    let output = Command::new("rustc")
-        .arg("-vV")
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
-    }
-
-    output
-        .stdout
-        .split(|b| *b == b'\n')
-        .find_map(|line| {
-            let line = std::str::from_utf8(line).ok()?;
-            line.strip_prefix("host: ").map(str::trim)
+    static HOST_TARGET: OnceLock<Result<String, String>> = OnceLock::new();
+    HOST_TARGET
+        .get_or_init(|| {
+            let output = Command::new("rustc")
+                .arg("-vV")
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !output.status.success() {
+                return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+            }
+            output
+                .stdout
+                .split(|b| *b == b'\n')
+                .find_map(|line| {
+                    let line = std::str::from_utf8(line).ok()?;
+                    line.strip_prefix("host: ").map(str::trim)
+                })
+                .map(str::to_string)
+                .ok_or_else(|| "failed to parse rustc host target".to_string())
         })
-        .map(str::to_string)
-        .ok_or_else(|| "failed to parse rustc host target".to_string())
+        .clone()
 }

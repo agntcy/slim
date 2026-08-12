@@ -40,7 +40,7 @@ path = "src/bin/receiver_app.rs"
 [features]
 # Enables the black-box integration-test harness and its `tests/*.rs` suites.
 # Kept off by default so normal `cargo test`/`task test` stays fast.
-integration = ["dep:assert_cmd", "dep:predicates", "dep:regex"]
+integration = ["dep:regex", "dep:tempfile"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim = { workspace = true }
@@ -52,7 +52,6 @@ agntcy-slim-service = { workspace = true, features = ["session"] }
 agntcy-slim-session = { workspace = true }
 agntcy-slim-tracing = { workspace = true }
 anyhow = { workspace = true }
-assert_cmd = { version = "2.0", optional = true }
 aws-lc-rs = { workspace = true }
 base64 = { workspace = true }
 bollard = { version = "0.17" }
@@ -61,16 +60,23 @@ futures = { workspace = true }
 jsonwebtoken = { workspace = true }
 libc = { version = "0.2.177" }
 parking_lot = { workspace = true }
-predicates = { version = "3.0", optional = true }
 rand = { workspace = true }
 regex = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tempfile = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
 tracing = { workspace = true }
 uuid = { workspace = true }
 wiremock = { workspace = true }
+
+# Only used by the `tests/*.rs` integration suites, never by the library itself.
+# Cargo does not allow optional dev-dependencies, so these cannot hang off the
+# `integration` feature; the suites are gated by `required-features` instead.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+assert_cmd = { version = "2.0" }
+predicates = { version = "3.0" }
 
 [[test]]
 name = "channel_manager"

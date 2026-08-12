@@ -3,14 +3,9 @@
 //! Covers bidirectional negotiation (request on the server, reply on the client)
 //! and remote version advertisement in logs.
 
-use slim_testing::{
-    binaries::{require_slim_binary, workspace_root},
-    helpers::*,
-};
+use slim_testing::{binaries::require_slim_binary, helpers::*};
 use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::path::PathBuf;
 use std::time::Duration;
 
 fn testdata_dir() -> PathBuf {
@@ -34,34 +29,9 @@ fn link_neg_port_replacements(server_port: u16, node_b_port: u16) -> HashMap<Str
     ])
 }
 
-struct TempDirCleanup(PathBuf);
-
-impl Drop for TempDirCleanup {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
-fn spawn_slim(slim: &Path, config: &Path) -> std::process::Child {
-    Command::new(slim)
-        .arg("--config")
-        .arg(config)
-        .current_dir(workspace_root())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap_or_else(|err| {
-            panic!(
-                "failed to start slim with config {}: {err}",
-                config.display()
-            )
-        })
-}
-
 /// Shared two-node topology.
 fn run_two_new_nodes_link_negotiation(verify_version: bool) {
     let temp_dir = new_temp_dir("slim-integration-link-neg-");
-    let _cleanup = TempDirCleanup(temp_dir.clone());
 
     let server_port = reserve_port();
     let node_b_port = reserve_port();
@@ -69,13 +39,13 @@ fn run_two_new_nodes_link_negotiation(verify_version: bool) {
 
     let testdata = testdata_dir();
     let server_config = write_temp_config(
-        &temp_dir,
+        temp_dir.path(),
         &testdata.join("server.yaml"),
         "server.yaml",
         &replacements,
     );
     let node_b_config = write_temp_config(
-        &temp_dir,
+        temp_dir.path(),
         &testdata.join("link-neg-node-with-client-config.yaml"),
         "node-b.yaml",
         &replacements,

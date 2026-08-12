@@ -4,14 +4,12 @@
 //! path, and exchange messages end-to-end through a central relay node.
 
 use slim_testing::{
-    binaries::{require_sdk_mock_binary, require_slim_binary, workspace_root},
+    binaries::{require_sdk_mock_binary, require_slim_binary},
     constants::{MSG_HELLO_FROM_A, MSG_QUEUEING_REPLY, MSG_SUBSCRIPTION_REMOTE_ACK},
     helpers::*,
 };
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
 fn testdata_dir() -> PathBuf {
@@ -25,15 +23,15 @@ fn relay_port_replacements(relay_port: u16) -> HashMap<String, String> {
             "http://localhost:46357".to_string(),
             format!("http://localhost:{relay_port}"),
         ),
+        (
+            "127.0.0.1:46357".to_string(),
+            format!("127.0.0.1:{relay_port}"),
+        ),
+        (
+            "http://127.0.0.1:46357".to_string(),
+            format!("http://127.0.0.1:{relay_port}"),
+        ),
     ])
-}
-
-struct TempDirCleanup(PathBuf);
-
-impl Drop for TempDirCleanup {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
 }
 
 struct RelayConfigs {
@@ -66,52 +64,6 @@ fn setup_relay_configs(temp_dir: &Path, relay_port: u16) -> RelayConfigs {
             &replacements,
         ),
     }
-}
-
-fn spawn_slim(slim: &Path, config: &Path) -> std::process::Child {
-    Command::new(slim)
-        .arg("--config")
-        .arg(config)
-        .current_dir(workspace_root())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap_or_else(|err| {
-            panic!(
-                "failed to start slim with config {}: {err}",
-                config.display()
-            )
-        })
-}
-
-fn spawn_sdk_mock(
-    sdk_mock: &Path,
-    config: &Path,
-    local_name: &str,
-    remote_name: &str,
-    message: Option<&str>,
-) -> std::process::Child {
-    let mut cmd = Command::new(sdk_mock);
-    cmd.arg("--config")
-        .arg(config)
-        .arg("--local-name")
-        .arg(local_name)
-        .arg("--remote-name")
-        .arg(remote_name)
-        .current_dir(workspace_root())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    if let Some(message) = message {
-        cmd.arg("--message").arg(message);
-    }
-
-    cmd.spawn().unwrap_or_else(|err| {
-        panic!(
-            "failed to start sdk-mock with config {}: {err}",
-            config.display()
-        )
-    })
 }
 
 fn terminate_all(sessions: &mut [Option<std::process::Child>]) {
@@ -177,13 +129,14 @@ fn start_sender(
     (app_b, app_b_logs)
 }
 
-/// Current relay + current apps on the remote ACK subscription path.
-fn run_new_relay_remote_ack_message_delivery() {
+/// Two apps subscribe through a fresh relay, confirm the remote-ACK
+/// subscription path, and exchange a message end-to-end.
+#[test]
+fn routes_messages_between_two_apps_via_new_relay() {
     let temp_dir = new_temp_dir("slim-integration-sub-ack-");
-    let _cleanup = TempDirCleanup(temp_dir.clone());
 
     let relay_port = reserve_port();
-    let configs = setup_relay_configs(&temp_dir, relay_port);
+    let configs = setup_relay_configs(temp_dir.path(), relay_port);
 
     let slim = require_slim_binary();
     let sdk_mock = require_sdk_mock_binary();
@@ -202,14 +155,4 @@ fn run_new_relay_remote_ack_message_delivery() {
 
     assert_message_delivery(&mut relay, &mut app_a, &mut app_b, &app_a_logs, &app_b_logs);
     terminate_all(&mut [app_b, app_a, relay]);
-}
-
-#[test]
-fn upgrades_subscription_to_remote_ack_path_and_delivers_messages() {
-    run_new_relay_remote_ack_message_delivery();
-}
-
-#[test]
-fn routes_messages_between_two_apps_via_new_relay() {
-    run_new_relay_remote_ack_message_delivery();
 }

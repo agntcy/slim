@@ -5,18 +5,6 @@ use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// Poll `slimctl n route list` until a route matching `prefix/<uuid>` appears.
-pub fn wait_for_route_with_uuid_suffix(
-    slimctl: &Path,
-    controller_endpoint: &str,
-    route_prefix: &str,
-    timeout: Duration,
-) -> String {
-    let pattern = format!(r"({}/[0-9a-f-]+)", regex::escape(route_prefix));
-    let re = Regex::new(&pattern).expect("valid route uuid regex");
-    wait_for_route_match(slimctl, controller_endpoint, &re, route_prefix, timeout)
-}
-
 /// Poll `slimctl n route list` until a route matching `prefix/<id> connections=` appears.
 pub fn wait_for_route_with_connections_format(
     slimctl: &Path,
