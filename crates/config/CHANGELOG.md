@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.2](https://github.com/agntcy/slim/compare/slim-config-v0.15.1...slim-config-v0.15.2) - 2026-08-13
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth
+
 ## [0.15.1](https://github.com/agntcy/slim/compare/slim-config-v0.15.0...slim-config-v0.15.1) - 2026-08-12
 
 ### Other

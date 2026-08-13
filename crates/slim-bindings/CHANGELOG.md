@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0](https://github.com/agntcy/slim/compare/slim-bindings-v2.1.1...slim-bindings-v2.2.0) - 2026-08-13
+
+### Added
+
+- *(bindings)* expose OIDC authentication in language bindings ([#1982](https://github.com/agntcy/slim/pull/1982))
+
 ## [2.1.0](https://github.com/agntcy/slim/compare/slim-bindings-v2.0.0...slim-bindings-v2.1.0) - 2026-08-12
 
 ### Added
