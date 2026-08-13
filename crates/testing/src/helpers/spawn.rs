@@ -1,3 +1,6 @@
+//! Copyright AGNTCY Contributors (https://github.com/agntcy)
+//! SPDX-License-Identifier: Apache-2.0
+//!
 //! Helpers for spawning SLIM test processes (data-plane nodes, the external
 //! control plane, and `sdk-mock` apps) with a consistent working directory and
 //! piped stdout/stderr so their logs can be inspected via [`ProcessLogWatcher`].
