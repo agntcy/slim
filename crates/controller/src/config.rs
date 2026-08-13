@@ -129,6 +129,11 @@ impl Config {
         // Used to extract connection type information required to connect to the node
         // (e.g., TLS settings). This information is used by the control plane.
         dataplane_servers: &[ServerConfig],
+        // List of client configurations for the dataplane services.
+        // Used as a credential fallback for CP-managed outbound links when no
+        // matching outbound_clients entry exists, so the client does not need to
+        // duplicate credentials it already has for a given endpoint.
+        dataplane_clients: &[ClientConfig],
         auth_provider: Option<slim_auth::auth_provider::AuthProvider>,
     ) -> ControlPlane {
         let connection_details = dataplane_servers.iter().map(from_server_config).collect();
@@ -139,6 +144,7 @@ impl Config {
             servers: self.servers.clone(),
             clients: self.clients.clone(),
             outbound_clients: self.outbound_clients.clone(),
+            dataplane_clients: dataplane_clients.to_vec(),
             message_processor,
             connection_details,
             auth_provider,
@@ -317,6 +323,7 @@ mod tests {
             domain_name,
             message_processor,
             &[server_config],
+            &[],
             None,
         );
     }

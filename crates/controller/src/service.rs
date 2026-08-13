@@ -70,6 +70,10 @@ pub struct ControlPlaneSettings {
     pub clients: Vec<ClientConfig>,
     /// Client configurations for server nodes
     pub outbound_clients: Vec<ClientConfig>,
+    /// Data-plane client configurations (dataplane.clients in the service config).
+    /// Used as a credential fallback for CP-managed outbound links when no
+    /// outbound_clients entry matches, so users don't have to duplicate credentials.
+    pub dataplane_clients: Vec<ClientConfig>,
     /// Message processor instance
     pub message_processor: MessageProcessor,
     /// array of connection details used by the control
@@ -126,6 +130,11 @@ struct ControllerServiceInternal {
 
     /// connection details for CP reconciled outbound data-plane connections
     outbound_clients: Vec<ClientConfig>,
+
+    /// Data-plane client configurations (dataplane.clients in the service config).
+    /// Used as a credential fallback for CP-managed outbound links when no
+    /// outbound_clients entry matches, so users don't need to duplicate credentials.
+    dataplane_clients: Vec<ClientConfig>,
 
     /// Optional auth provider for generating registration credentials.
     auth_provider: Option<AuthProvider>,
@@ -315,6 +324,7 @@ impl ControlPlane {
                     link_id_to_conn_id: parking_lot::RwLock::new(HashMap::new()),
                     stream_handles: parking_lot::Mutex::new(HashMap::new()),
                     outbound_clients: config.outbound_clients,
+                    dataplane_clients: config.dataplane_clients,
                     auth_provider: config.auth_provider,
                 }),
             },
@@ -756,6 +766,15 @@ impl ControllerService {
                                 .outbound_clients
                                 .iter()
                                 .find(|c| c.endpoint.is_empty())
+                        })
+                        .or_else(|| {
+                            // Finally fall back to dataplane.clients: reuse credentials
+                            // the node already has for this endpoint so users don't have
+                            // to duplicate them under controller.outbound_clients.
+                            self.inner
+                                .dataplane_clients
+                                .iter()
+                                .find(|c| c.endpoint == server_config.endpoint)
                         })
                         .cloned()
                         .unwrap_or_default();
@@ -2274,6 +2293,7 @@ mod tests {
             servers: vec![server_config.clone()],
             clients: vec![],
             outbound_clients: vec![],
+            dataplane_clients: vec![],
             message_processor: message_processor_server,
             connection_details: vec![from_server_config(&server_config)],
             auth_provider: None,
@@ -2285,6 +2305,7 @@ mod tests {
             servers: vec![],
             clients: vec![client_config.clone()],
             outbound_clients: vec![],
+            dataplane_clients: vec![],
             message_processor: message_processor_client,
             connection_details: vec![],
             auth_provider: None,
@@ -2880,6 +2901,7 @@ mod tests {
             servers: vec![],
             clients: vec![],
             outbound_clients,
+            dataplane_clients: vec![],
             message_processor: MessageProcessor::new(),
             connection_details: vec![],
             auth_provider: None,
