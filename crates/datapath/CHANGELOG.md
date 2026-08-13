@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.6](https://github.com/agntcy/slim/compare/slim-datapath-v0.18.5...slim-datapath-v0.18.6) - 2026-08-13
+
+### Fixed
+
+- prevent unbounded span nesting on reconnect cycles ([#1986](https://github.com/agntcy/slim/pull/1986))
+
 ## [0.18.5](https://github.com/agntcy/slim/compare/slim-datapath-v0.18.4...slim-datapath-v0.18.5) - 2026-08-13
 
 ### Other
