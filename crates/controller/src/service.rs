@@ -777,7 +777,7 @@ impl ControllerService {
                         .inner
                         .outbound_clients
                         .iter()
-                        .find(|c| canonical_endpoint(&c.endpoint) == target_ep)
+                        .find(|c| c.endpoint == server_config.endpoint)
                         .or_else(|| {
                             // Fall back to the default outbound entry (empty endpoint),
                             // which acts as a credential template for any CP-assigned link
@@ -786,15 +786,6 @@ impl ControllerService {
                                 .outbound_clients
                                 .iter()
                                 .find(|c| c.endpoint.is_empty())
-                        })
-                        .or_else(|| {
-                            // Finally fall back to dataplane.clients: reuse credentials
-                            // the node already has for this endpoint so users don't have
-                            // to duplicate them under controller.outbound_clients.
-                            self.inner
-                                .dataplane_clients
-                                .iter()
-                                .find(|c| canonical_endpoint(&c.endpoint) == target_ep)
                         })
                         .cloned()
                         .unwrap_or_default();
