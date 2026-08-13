@@ -139,6 +139,7 @@ pub(super) fn generate_config_data(
         model::AuthMethod::None => RequiredAuthMethod::None,
         model::AuthMethod::Basic => RequiredAuthMethod::Basic,
         model::AuthMethod::Jwt => RequiredAuthMethod::Jwt,
+        model::AuthMethod::Oidc => RequiredAuthMethod::Oidc,
     };
 
     let server_config = ServerConnectionConfig {

@@ -180,6 +180,7 @@ impl ControlPlaneService for NorthboundApiService {
                             model::AuthMethod::Basic => ProtoAuthMethod::Basic as i32,
                             model::AuthMethod::Jwt => ProtoAuthMethod::Jwt as i32,
                             model::AuthMethod::None => ProtoAuthMethod::None as i32,
+                            model::AuthMethod::Oidc => ProtoAuthMethod::Oidc as i32,
                         },
                         spire_trust_domain: cd.spire_trust_domain.clone(),
                         ..Default::default()

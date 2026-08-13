@@ -280,6 +280,7 @@ pub enum AuthMethod {
     Spire = 1,
     Basic = 2,
     Jwt = 3,
+    Oidc = 4,
 }
 impl AuthMethod {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -292,6 +293,7 @@ impl AuthMethod {
             Self::Spire => "AUTH_METHOD_SPIRE",
             Self::Basic => "AUTH_METHOD_BASIC",
             Self::Jwt => "AUTH_METHOD_JWT",
+            Self::Oidc => "AUTH_METHOD_OIDC",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -301,6 +303,7 @@ impl AuthMethod {
             "AUTH_METHOD_SPIRE" => Some(Self::Spire),
             "AUTH_METHOD_BASIC" => Some(Self::Basic),
             "AUTH_METHOD_JWT" => Some(Self::Jwt),
+            "AUTH_METHOD_OIDC" => Some(Self::Oidc),
             _ => None,
         }
     }
