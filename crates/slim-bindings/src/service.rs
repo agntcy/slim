@@ -688,6 +688,7 @@ mod tests {
         let config = DataplaneConfig {
             servers: vec![server_config],
             clients: vec![client_config],
+            outbound_clients: vec![],
         };
 
         let core_config: CoreControllerConfig = config.clone().into();
@@ -711,6 +712,7 @@ mod tests {
         let original = DataplaneConfig {
             servers: vec![ServerConfig::default()],
             clients: vec![ClientConfig::default()],
+            outbound_clients: vec![ClientConfig::default()],
         };
 
         let core: CoreControllerConfig = original.clone().into();
@@ -718,6 +720,7 @@ mod tests {
 
         assert_eq!(original.servers.len(), roundtrip.servers.len());
         assert_eq!(original.clients.len(), roundtrip.clients.len());
+        assert_eq!(original.outbound_clients.len(), roundtrip.outbound_clients.len());
     }
 
     #[test]
@@ -1223,6 +1226,7 @@ mod tests {
         let dataplane = DataplaneConfig {
             servers: vec![server_config.clone(), server_config],
             clients: vec![client_config.clone(), client_config],
+            outbound_clients: vec![],
         };
 
         let service_config = ServiceConfig {
