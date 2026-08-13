@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.10](https://github.com/agntcy/slim/compare/slim-service-v0.12.9...slim-service-v0.12.10) - 2026-08-13
+
+### Fixed
+
+- OIDC credentials for CP-managed links using dataplane.clients fallback ([#1989](https://github.com/agntcy/slim/pull/1989))
+
 ## [0.12.9](https://github.com/agntcy/slim/compare/slim-service-v0.12.8...slim-service-v0.12.9) - 2026-08-13
 
 ### Other
