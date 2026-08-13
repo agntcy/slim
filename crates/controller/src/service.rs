@@ -33,6 +33,7 @@ use prost_types::Struct;
 use slim_config::client::{
     ClientConfig, RequiredAuthMethod, ServerConnectionConfig, TransportChannel,
 };
+use slim_config::grpc::client::AuthenticationConfig as ClientAuthenticationConfig;
 use slim_config::server::AuthenticationConfig;
 use slim_datapath::api::{
     MessageType::Link as LinkMessageType, MessageType::Subscribe,
@@ -122,6 +123,12 @@ struct ControllerServiceInternal {
 
     /// JoinHandles for control-plane stream processing tasks, keyed by endpoint.
     stream_handles: parking_lot::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
+
+    /// Client configurations used to connect to the control plane.
+    /// Used as an auth fallback when no matching outbound_clients entry exists
+    /// for a CP-managed link — allows OIDC credentials configured here to be
+    /// reused for outbound data-plane connections without duplicating config.
+    clients: Vec<ClientConfig>,
 
     /// connection details for CP reconciled outbound data-plane connections
     outbound_clients: Vec<ClientConfig>,
@@ -296,7 +303,7 @@ impl ControlPlane {
 
         ControlPlane {
             servers: config.servers,
-            clients: config.clients,
+            clients: config.clients.clone(),
             controller: ControllerService {
                 inner: Arc::new(ControllerServiceInternal {
                     id: config.id,
@@ -312,6 +319,7 @@ impl ControlPlane {
                     route_subscription_ids: parking_lot::Mutex::new(HashMap::new()),
                     link_id_to_conn_id: parking_lot::RwLock::new(HashMap::new()),
                     stream_handles: parking_lot::Mutex::new(HashMap::new()),
+                    clients: config.clients,
                     outbound_clients: config.outbound_clients,
                     auth_provider: config.auth_provider,
                 }),
@@ -747,7 +755,21 @@ impl ControllerService {
                         .iter()
                         .find(|c| c.endpoint == server_config.endpoint)
                         .cloned()
-                        .unwrap_or_default();
+                        .unwrap_or_else(|| {
+                            // No specific outbound entry: inherit auth from controller.clients
+                            // so OIDC (or any JWT) credentials configured for the CP connection
+                            // are reused for CP-managed outbound links without requiring a
+                            // duplicate outbound_clients entry.
+                            let mut cfg = ClientConfig::default();
+                            if let Some(cp_client) =
+                                self.inner.clients.iter().find(|c| {
+                                    !matches!(c.auth, ClientAuthenticationConfig::None)
+                                })
+                            {
+                                cfg.auth = cp_client.auth.clone();
+                            }
+                            cfg
+                        });
                     match client_config.merge_server_requirements(&server_config) {
                         Err(err) => {
                             success = false;
@@ -759,14 +781,12 @@ impl ControllerService {
                         Ok(()) => {
                             if matches!(
                                 server_config.auth_method,
-                                // Spire config it not mandatory. If not set falls back to default
+                                // Spire config is not mandatory. If not set falls back to default
                                 // socket path.
-                                RequiredAuthMethod::Basic | RequiredAuthMethod::Jwt
-                            ) && !self
-                                .inner
-                                .outbound_clients
-                                .iter()
-                                .any(|c| c.endpoint == server_config.endpoint)
+                                RequiredAuthMethod::Basic
+                                    | RequiredAuthMethod::Jwt
+                                    | RequiredAuthMethod::Oidc
+                            ) && matches!(client_config.auth, ClientAuthenticationConfig::None)
                             {
                                 success = false;
                                 error_msg = format!(

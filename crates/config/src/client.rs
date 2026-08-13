@@ -496,6 +496,7 @@ impl ClientConfig {
             }
             RequiredAuthMethod::Basic => {}
             RequiredAuthMethod::Jwt => {}
+            RequiredAuthMethod::Oidc => {}
         }
         if let Some(ms) = server.timeout {
             self.connect_timeout = Duration::from_millis(ms as u64).into();
@@ -632,6 +633,7 @@ pub enum RequiredAuthMethod {
     None,
     Basic,
     Jwt,
+    Oidc,
     #[cfg(not(target_family = "windows"))]
     Spire {
         trust_domain: Option<String>,
@@ -655,9 +657,10 @@ impl ServerConnectionConfig {
         let auth_method = match &client.auth {
             AuthenticationConfig::None => RequiredAuthMethod::None,
             AuthenticationConfig::Basic(_) => RequiredAuthMethod::Basic,
-            AuthenticationConfig::StaticJwt(_)
-            | AuthenticationConfig::Jwt(_)
-            | AuthenticationConfig::Oidc(_) => RequiredAuthMethod::Jwt,
+            AuthenticationConfig::StaticJwt(_) | AuthenticationConfig::Jwt(_) => {
+                RequiredAuthMethod::Jwt
+            }
+            AuthenticationConfig::Oidc(_) => RequiredAuthMethod::Oidc,
             #[cfg(not(target_family = "windows"))]
             AuthenticationConfig::Spire(cfg) => RequiredAuthMethod::Spire {
                 trust_domain: cfg.trust_domains.first().cloned(),
