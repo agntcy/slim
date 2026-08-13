@@ -160,6 +160,7 @@ pub enum AuthMethod {
     Spire,
     Basic,
     Jwt,
+    Oidc,
 }
 
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable, Insertable)]

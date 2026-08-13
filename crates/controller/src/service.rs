@@ -33,6 +33,7 @@ use prost_types::Struct;
 use slim_config::client::{
     ClientConfig, RequiredAuthMethod, ServerConnectionConfig, TransportChannel,
 };
+use slim_config::grpc::client::AuthenticationConfig as ClientAuthenticationConfig;
 use slim_config::server::AuthenticationConfig;
 use slim_datapath::api::{
     MessageType::Link as LinkMessageType, MessageType::Subscribe,
@@ -746,6 +747,15 @@ impl ControllerService {
                         .outbound_clients
                         .iter()
                         .find(|c| c.endpoint == server_config.endpoint)
+                        .or_else(|| {
+                            // Fall back to the default outbound entry (empty endpoint),
+                            // which acts as a credential template for any CP-assigned link
+                            // that has no specific per-endpoint entry.
+                            self.inner
+                                .outbound_clients
+                                .iter()
+                                .find(|c| c.endpoint.is_empty())
+                        })
                         .cloned()
                         .unwrap_or_default();
                     match client_config.merge_server_requirements(&server_config) {
@@ -759,14 +769,12 @@ impl ControllerService {
                         Ok(()) => {
                             if matches!(
                                 server_config.auth_method,
-                                // Spire config it not mandatory. If not set falls back to default
+                                // Spire config is not mandatory. If not set falls back to default
                                 // socket path.
-                                RequiredAuthMethod::Basic | RequiredAuthMethod::Jwt
-                            ) && !self
-                                .inner
-                                .outbound_clients
-                                .iter()
-                                .any(|c| c.endpoint == server_config.endpoint)
+                                RequiredAuthMethod::Basic
+                                    | RequiredAuthMethod::Jwt
+                                    | RequiredAuthMethod::Oidc
+                            ) && matches!(client_config.auth, ClientAuthenticationConfig::None)
                             {
                                 success = false;
                                 error_msg = format!(

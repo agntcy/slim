@@ -130,6 +130,7 @@ enum AuthMethod {
   AUTH_METHOD_SPIRE = 1;
   AUTH_METHOD_BASIC = 2;
   AUTH_METHOD_JWT = 3;
+  AUTH_METHOD_OIDC = 4;
 }
 
 message ConnectionDetails {
