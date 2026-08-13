@@ -1,7 +1,10 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::time::Duration;
+
 use slim_config::auth::basic::Config as BasicAuthConfig;
+use slim_config::auth::oidc::Config as OidcAuthConfig;
 use slim_config::tls::client::TlsClientConfig as CoreTlsClientConfig;
 use slim_config::tls::server::TlsServerConfig as CoreTlsServerConfig;
 
@@ -279,6 +282,112 @@ impl From<CoreTlsServerConfig> for TlsServerConfig {
     }
 }
 
+/// Policy evaluated against JWT claims on every authenticated request (server-side OIDC only)
+#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+pub enum OidcPolicyConfig {
+    /// Inline Rego policy (must define `package slim.auth` with `default allow = false`)
+    Rego { text: String },
+    /// Path to a Rego policy file read at server startup
+    RegoFile { path: String },
+    /// CEL expression evaluated against JWT claims (e.g. `"admin" in claims.groups`)
+    Cel { expression: String },
+}
+
+impl From<OidcPolicyConfig> for slim_config::auth::PolicyConfig {
+    fn from(config: OidcPolicyConfig) -> Self {
+        match config {
+            OidcPolicyConfig::Rego { text } => slim_config::auth::PolicyConfig::Rego(text),
+            OidcPolicyConfig::RegoFile { path } => {
+                slim_config::auth::PolicyConfig::RegoFile(std::path::PathBuf::from(path))
+            }
+            OidcPolicyConfig::Cel { expression } => {
+                slim_config::auth::PolicyConfig::Cel(expression)
+            }
+        }
+    }
+}
+
+impl From<slim_config::auth::PolicyConfig> for OidcPolicyConfig {
+    fn from(config: slim_config::auth::PolicyConfig) -> Self {
+        match config {
+            slim_config::auth::PolicyConfig::Rego(text) => OidcPolicyConfig::Rego { text },
+            slim_config::auth::PolicyConfig::RegoFile(path) => OidcPolicyConfig::RegoFile {
+                path: path.to_string_lossy().to_string(),
+            },
+            slim_config::auth::PolicyConfig::Cel(expression) => {
+                OidcPolicyConfig::Cel { expression }
+            }
+        }
+    }
+}
+
+/// OIDC authentication configuration (client-credentials, refresh-token, or JWKS verification)
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct OidcConfig {
+    /// OIDC issuer URL (e.g., https://auth.example.com)
+    pub issuer_url: String,
+    /// OAuth2 client ID (required for client-credentials and refresh-token flows)
+    pub client_id: Option<String>,
+    /// OAuth2 client secret (for client-credentials flow)
+    pub client_secret: Option<String>,
+    /// Expected audience for JWT tokens (required for server-side verification)
+    pub audience: Option<String>,
+    /// Inline refresh token (for authorization-code flow)
+    pub refresh_token: Option<String>,
+    /// Path to file holding the refresh token (rotated tokens are written back automatically)
+    pub refresh_token_file: Option<String>,
+    /// Path to a file caching the current access token (optional companion to refresh_token_file)
+    pub access_token_file: Option<String>,
+    /// OAuth2 scope parameter (client-side only)
+    pub scope: Option<String>,
+    /// HTTP timeout for token requests in seconds (default: 30, client-side only)
+    pub timeout: Option<Duration>,
+    /// JWKS cache TTL in seconds (default: 3600, server-side only)
+    pub jwks_ttl: Option<Duration>,
+    /// Cache TTL for merged JWT+userinfo claims in seconds (server-side only, absent = no cache)
+    pub claim_cache_ttl: Option<Duration>,
+    /// Policy evaluated against JWT claims on every authenticated request (server-side only)
+    pub policy: Option<OidcPolicyConfig>,
+}
+
+impl From<OidcConfig> for OidcAuthConfig {
+    fn from(config: OidcConfig) -> Self {
+        OidcAuthConfig {
+            issuer_url: config.issuer_url,
+            client_id: config.client_id,
+            client_secret: config.client_secret,
+            audience: config.audience,
+            refresh_token: config.refresh_token,
+            refresh_token_file: config.refresh_token_file,
+            access_token_file: config.access_token_file,
+            scope: config.scope,
+            timeout: config.timeout.map(|d| d.into()),
+            jwks_ttl: config.jwks_ttl.map(|d| d.into()),
+            claim_cache_ttl: config.claim_cache_ttl.map(|d| d.into()),
+            policy: config.policy.map(|p| p.into()),
+        }
+    }
+}
+
+impl From<OidcAuthConfig> for OidcConfig {
+    fn from(config: OidcAuthConfig) -> Self {
+        OidcConfig {
+            issuer_url: config.issuer_url,
+            client_id: config.client_id,
+            client_secret: config.client_secret,
+            audience: config.audience,
+            refresh_token: config.refresh_token,
+            refresh_token_file: config.refresh_token_file,
+            access_token_file: config.access_token_file,
+            scope: config.scope,
+            timeout: config.timeout.map(|ds| ds.into()),
+            jwks_ttl: config.jwks_ttl.map(|ds| ds.into()),
+            claim_cache_ttl: config.claim_cache_ttl.map(|ds| ds.into()),
+            policy: config.policy.map(|p| p.into()),
+        }
+    }
+}
+
 /// Basic authentication configuration
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
 pub struct BasicAuth {
@@ -318,6 +427,10 @@ pub enum ClientAuthenticationConfig {
     Spire {
         config: SpireConfig,
     },
+    /// OIDC authentication (client-credentials or refresh-token flow)
+    Oidc {
+        config: OidcConfig,
+    },
     None,
 }
 
@@ -336,6 +449,9 @@ impl From<ClientAuthenticationConfig> for slim_config::grpc::client::Authenticat
             #[cfg(not(target_family = "windows"))]
             ClientAuthenticationConfig::Spire { config } => {
                 slim_config::grpc::client::AuthenticationConfig::Spire(config.into())
+            }
+            ClientAuthenticationConfig::Oidc { config } => {
+                slim_config::grpc::client::AuthenticationConfig::Oidc(config.into())
             }
             ClientAuthenticationConfig::None => {
                 slim_config::grpc::client::AuthenticationConfig::None
@@ -361,9 +477,10 @@ impl From<slim_config::grpc::client::AuthenticationConfig> for ClientAuthenticat
             slim_config::grpc::client::AuthenticationConfig::Jwt(jwt) => {
                 ClientAuthenticationConfig::Jwt { config: jwt.into() }
             }
-            slim_config::grpc::client::AuthenticationConfig::Oidc(_) => {
-                // OIDC (client-credentials / refresh-token) is set programmatically; not exposed to bindings.
-                ClientAuthenticationConfig::None
+            slim_config::grpc::client::AuthenticationConfig::Oidc(oidc) => {
+                ClientAuthenticationConfig::Oidc {
+                    config: oidc.into(),
+                }
             }
             #[cfg(not(target_family = "windows"))]
             slim_config::grpc::client::AuthenticationConfig::Spire(spire) => {
@@ -389,6 +506,10 @@ pub enum ServerAuthenticationConfig {
     Spire {
         config: SpireConfig,
     },
+    /// OIDC authentication (JWKS-based JWT verification with optional policy)
+    Oidc {
+        config: OidcConfig,
+    },
     None,
 }
 
@@ -404,6 +525,9 @@ impl From<ServerAuthenticationConfig> for slim_config::grpc::server::Authenticat
             #[cfg(not(target_family = "windows"))]
             ServerAuthenticationConfig::Spire { config } => {
                 slim_config::grpc::server::AuthenticationConfig::Spire(config.into())
+            }
+            ServerAuthenticationConfig::Oidc { config } => {
+                slim_config::grpc::server::AuthenticationConfig::Oidc(config.into())
             }
             ServerAuthenticationConfig::None => {
                 slim_config::grpc::server::AuthenticationConfig::None
@@ -432,10 +556,10 @@ impl From<slim_config::grpc::server::AuthenticationConfig> for ServerAuthenticat
                     config: spire.into(),
                 }
             }
-            slim_config::grpc::server::AuthenticationConfig::Oidc(_) => {
-                unimplemented!(
-                    "OIDC authentication is not supported in the language bindings layer"
-                )
+            slim_config::grpc::server::AuthenticationConfig::Oidc(oidc) => {
+                ServerAuthenticationConfig::Oidc {
+                    config: oidc.into(),
+                }
             }
         }
     }
