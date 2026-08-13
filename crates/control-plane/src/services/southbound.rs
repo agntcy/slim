@@ -465,6 +465,7 @@ fn parse_conn_details(
             ProtoAuthMethod::Basic => AuthMethod::Basic,
             ProtoAuthMethod::Jwt => AuthMethod::Jwt,
             ProtoAuthMethod::None => AuthMethod::None,
+            ProtoAuthMethod::Oidc => AuthMethod::Oidc,
         },
         spire_trust_domain: detail.spire_trust_domain.clone(),
         ..Default::default()

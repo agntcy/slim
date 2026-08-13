@@ -456,9 +456,7 @@ impl ClientConfig {
         self.tls_setting.insecure = !server.tls_required;
 
         match &server.auth_method {
-            RequiredAuthMethod::None => {
-                self.auth = AuthenticationConfig::None;
-            }
+            RequiredAuthMethod::None => {}
             #[cfg(not(target_family = "windows"))]
             RequiredAuthMethod::Spire { trust_domain } => {
                 use crate::auth::spire::SpireConfig;
@@ -888,7 +886,10 @@ mod tests {
         client.merge_server_requirements(&server).unwrap();
         assert_eq!(client.endpoint, "http://new:5678");
         assert!(client.tls_setting.insecure);
-        assert_eq!(client.auth, AuthenticationConfig::None);
+        // None means "no auth required" — local credentials are preserved so that
+        // clients with OIDC/JWT configured (but served by a CP that doesn't model
+        // OIDC) can still authenticate.
+        assert_eq!(client.auth, AuthenticationConfig::Basic(Default::default()));
     }
 
     #[test]

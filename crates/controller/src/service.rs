@@ -749,27 +749,27 @@ impl ControllerService {
                     error_msg = format!("Failed to parse config: {}", e);
                 }
                 Ok(server_config) => {
-                    let mut client_config = self
-                        .inner
-                        .outbound_clients
-                        .iter()
-                        .find(|c| c.endpoint == server_config.endpoint)
-                        .cloned()
-                        .unwrap_or_else(|| {
-                            // No specific outbound entry: inherit auth from controller.clients
-                            // so OIDC (or any JWT) credentials configured for the CP connection
-                            // are reused for CP-managed outbound links without requiring a
-                            // duplicate outbound_clients entry.
-                            let mut cfg = ClientConfig::default();
-                            if let Some(cp_client) =
-                                self.inner.clients.iter().find(|c| {
-                                    !matches!(c.auth, ClientAuthenticationConfig::None)
-                                })
-                            {
-                                cfg.auth = cp_client.auth.clone();
-                            }
-                            cfg
-                        });
+                    let mut client_config =
+                        self.inner
+                            .outbound_clients
+                            .iter()
+                            .find(|c| c.endpoint == server_config.endpoint)
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                // No specific outbound entry: inherit auth from controller.clients
+                                // so OIDC (or any JWT) credentials configured for the CP connection
+                                // are reused for CP-managed outbound links without requiring a
+                                // duplicate outbound_clients entry.
+                                let mut cfg = ClientConfig::default();
+                                if let Some(cp_client) =
+                                    self.inner.clients.iter().find(|c| {
+                                        !matches!(c.auth, ClientAuthenticationConfig::None)
+                                    })
+                                {
+                                    cfg.auth = cp_client.auth.clone();
+                                }
+                                cfg
+                            });
                     match client_config.merge_server_requirements(&server_config) {
                         Err(err) => {
                             success = false;
