@@ -41,14 +41,8 @@ use {
 pub struct DataplaneConfig {
     /// DataPlane GRPC server settings
     pub servers: Vec<ServerConfig>,
-    /// Client configs for connecting to the control plane
+    /// DataPlane client configs
     pub clients: Vec<ClientConfig>,
-    /// Per-endpoint credential templates for CP-managed outbound connections.
-    /// Matched by endpoint when the CP instructs this node to open a link.
-    /// Auth credentials (OIDC, JWT, Basic) and local settings (proxy, compression, etc.)
-    /// come from here; the CP supplies the endpoint, TLS requirement, and optional
-    /// backoff/timeout/keepalive overrides on top.
-    pub outbound_clients: Vec<ClientConfig>,
 }
 
 #[cfg(not(feature = "web"))]
@@ -71,14 +65,6 @@ impl From<DataplaneConfig> for CoreControllerConfig {
                 core
             })
             .collect();
-        core_config.outbound_clients = config
-            .outbound_clients
-            .into_iter()
-            .map(|c| {
-                let core: CoreClientConfig = c.into();
-                core
-            })
-            .collect();
         core_config
     }
 }
@@ -89,11 +75,6 @@ impl From<CoreControllerConfig> for DataplaneConfig {
         Self {
             servers: config.servers.into_iter().map(|s| s.into()).collect(),
             clients: config.clients.into_iter().map(|c| c.into()).collect(),
-            outbound_clients: config
-                .outbound_clients
-                .into_iter()
-                .map(|c| c.into())
-                .collect(),
         }
     }
 }
@@ -688,7 +669,6 @@ mod tests {
         let config = DataplaneConfig {
             servers: vec![server_config],
             clients: vec![client_config],
-            outbound_clients: vec![],
         };
 
         let core_config: CoreControllerConfig = config.clone().into();
@@ -712,7 +692,6 @@ mod tests {
         let original = DataplaneConfig {
             servers: vec![ServerConfig::default()],
             clients: vec![ClientConfig::default()],
-            outbound_clients: vec![ClientConfig::default()],
         };
 
         let core: CoreControllerConfig = original.clone().into();
@@ -720,7 +699,6 @@ mod tests {
 
         assert_eq!(original.servers.len(), roundtrip.servers.len());
         assert_eq!(original.clients.len(), roundtrip.clients.len());
-        assert_eq!(original.outbound_clients.len(), roundtrip.outbound_clients.len());
     }
 
     #[test]
@@ -1226,7 +1204,6 @@ mod tests {
         let dataplane = DataplaneConfig {
             servers: vec![server_config.clone(), server_config],
             clients: vec![client_config.clone(), client_config],
-            outbound_clients: vec![],
         };
 
         let service_config = ServiceConfig {
