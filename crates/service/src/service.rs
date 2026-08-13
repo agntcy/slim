@@ -689,6 +689,7 @@ impl Service {
             self.config.domain_name.clone(),
             self.message_processor.clone(),
             self.config.dataplane_servers(),
+            self.config.dataplane_clients(),
             auth_provider,
         );
 
