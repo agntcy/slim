@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0](https://github.com/agntcy/slim/compare/slim-config-v0.15.2...slim-config-v0.16.0) - 2026-08-13
+
+### Fixed
+
+- propagate OIDC auth through merge and diff_connections ([#1983](https://github.com/agntcy/slim/pull/1983))
+
 ## [0.15.2](https://github.com/agntcy/slim/compare/slim-config-v0.15.1...slim-config-v0.15.2) - 2026-08-13
 
 ### Other
