@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [2.2.0](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v2.1.0...helm-slim-control-plane-v2.2.0) (2026-08-13)
+
+
+### Features
+
+* **charts/control-plane:** upgrade image version to 2.3.0 ([#1990](https://github.com/agntcy/slim/issues/1990)) ([cd81796](https://github.com/agntcy/slim/commit/cd817963ecbf84a2355d62b9527dc47b9aee48f7))
+
 ## [2.1.0](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v2.0.0...helm-slim-control-plane-v2.1.0) (2026-08-12)
 
 
