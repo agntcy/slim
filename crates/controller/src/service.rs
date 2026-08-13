@@ -251,6 +251,7 @@ pub(crate) fn from_server_config(server_config: &ServerConfig) -> ConnectionDeta
         match &server_config.auth {
             AuthenticationConfig::Basic(_) => AuthMethod::Basic,
             AuthenticationConfig::Jwt(_) => AuthMethod::Jwt,
+            AuthenticationConfig::Oidc(_) => AuthMethod::Oidc,
             _ => AuthMethod::None,
         }
     } as i32;
