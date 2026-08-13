@@ -176,6 +176,25 @@ impl Drop for ControlPlane {
     }
 }
 
+/// Canonicalize a gRPC endpoint for comparison by ensuring the scheme's default
+/// port is always present. This lets "https://host" and "https://host:443"
+/// match even when one form omits the explicit port.
+fn canonical_endpoint(ep: &str) -> String {
+    let (prefix_len, default_port) = if ep.starts_with("https://") {
+        (8usize, "443")
+    } else if ep.starts_with("http://") {
+        (7usize, "80")
+    } else {
+        return ep.to_string();
+    };
+    let host_part = &ep[prefix_len..];
+    if !host_part.contains(':') {
+        format!("{}:{}", ep, default_port)
+    } else {
+        ep.to_string()
+    }
+}
+
 pub(crate) fn from_server_config(server_config: &ServerConfig) -> ConnectionDetails {
     let mut endpoint = server_config.endpoint.clone();
     let mut external_endpoint = None;
@@ -753,11 +772,12 @@ impl ControllerService {
                     error_msg = format!("Failed to parse config: {}", e);
                 }
                 Ok(server_config) => {
+                    let target_ep = canonical_endpoint(&server_config.endpoint);
                     let mut client_config = self
                         .inner
                         .outbound_clients
                         .iter()
-                        .find(|c| c.endpoint == server_config.endpoint)
+                        .find(|c| canonical_endpoint(&c.endpoint) == target_ep)
                         .or_else(|| {
                             // Fall back to the default outbound entry (empty endpoint),
                             // which acts as a credential template for any CP-assigned link
@@ -774,7 +794,7 @@ impl ControllerService {
                             self.inner
                                 .dataplane_clients
                                 .iter()
-                                .find(|c| c.endpoint == server_config.endpoint)
+                                .find(|c| canonical_endpoint(&c.endpoint) == target_ep)
                         })
                         .cloned()
                         .unwrap_or_default();
