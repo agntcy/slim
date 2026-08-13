@@ -2,9 +2,7 @@
   {
     "version": "slimctl-v2.3.0",
     "title": "slimctl-v2.3.0",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slimctl-v2.2.0",
@@ -1055,6 +1053,13 @@
     "version": "helm-slim-spire-v2.0.0",
     "title": "helm-slim-spire-v2.0.0",
     "aliases": []
+  },
+  {
+    "version": "helm-slim-control-plane-v2.2.0",
+    "title": "helm-slim-control-plane-v2.2.0",
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "helm-slim-control-plane-v2.1.0",
