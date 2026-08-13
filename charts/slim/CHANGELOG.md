@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/agntcy/slim/compare/helm-slim-v2.1.0...helm-slim-v2.2.0) (2026-08-13)
+
+
+### Features
+
+* **charts/data-plane:** upgrade app version to 2.3.0 ([#1991](https://github.com/agntcy/slim/issues/1991)) ([1854dae](https://github.com/agntcy/slim/commit/1854daef99bbc52b7c78be719c73f48eb733d67c))
+
 ## [2.1.0](https://github.com/agntcy/slim/compare/helm-slim-v2.0.0...helm-slim-v2.1.0) (2026-08-12)
 
 
