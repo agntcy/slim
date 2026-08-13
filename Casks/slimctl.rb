@@ -1,12 +1,12 @@
 cask "slimctl" do
-  version "2.1.1"
+  version "2.3.0"
 
   if Hardware::CPU.intel?
-    sha256 "ab875778dd2fd0c369b61bc0d5653ec1545e4d730fc67de4c1d71fc55fd92827"
-    url "https://github.com/agntcy/slim/releases/download/slimctl-v2.1.1/slimctl-darwin-amd64.tar.gz"
+    sha256 "5e04efba5c674e0a8d5d5c83dd26ff726c3f07421b4a0ecd9c388ad5a53086f3"
+    url "https://github.com/agntcy/slim/releases/download/slimctl-v2.3.0/slimctl-darwin-amd64.tar.gz"
   else
-    sha256 "13797a23f45e5f1f5af5bb9af50187510eeee66b934b93ad2bd62355d67e4a20"
-    url "https://github.com/agntcy/slim/releases/download/slimctl-v2.1.1/slimctl-darwin-arm64.tar.gz"
+    sha256 "19e5938c63c8049489c2b6c69da2bac163cd7f2dfa883cb0036aee51ce9ef98a"
+    url "https://github.com/agntcy/slim/releases/download/slimctl-v2.3.0/slimctl-darwin-arm64.tar.gz"
   end
 
   name "slimctl"
