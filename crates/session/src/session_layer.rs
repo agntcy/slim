@@ -1019,11 +1019,6 @@ where
             }
             ProtoSessionType::Multicast => {
                 let payload = message.extract_join_request()?;
-                if payload.timer_settings.is_none() {
-                    return Err(SessionError::MissingPayload {
-                        context: "timer options",
-                    });
-                }
                 let channel = payload
                     .channel
                     .clone()
@@ -1095,7 +1090,7 @@ mod tests {
     use crate::test_utils::{MockTokenProvider, MockVerifier};
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::Status;
-    use slim_datapath::api::{NameId, ProtoName, ProtoSessionType};
+    use slim_datapath::api::{CommandPayload, NameId, ProtoName, ProtoSessionMessageType, ProtoSessionType};
     use tokio::sync::mpsc;
 
     // --- Test Mocks -----------------------------------------------------------------------
@@ -1643,5 +1638,49 @@ mod tests {
                     &SessionLayer::<MockTokenProvider, MockVerifier>::name_to_key(&name_null)
                 )
         );
+    }
+
+    // Regression test for: multicast join fails in default unreliable mode.
+    // timer_settings=None is valid (means fire-and-forget); the subscriber must
+    // not reject it with "missing payload: timer options".
+    #[tokio::test]
+    async fn test_multicast_join_request_unreliable_mode_is_accepted() {
+        let (session_layer, _rx_slim, _rx_app) = setup_session_layer();
+
+        let local_name = make_name(&["local", "app", "v1"]);
+        session_layer.add_app_name(local_name.clone(), 0);
+
+        let source = make_name(&["remote", "app", "v1"]).with_id(1);
+        // channel and control must share the same name prefix but have distinct non-null IDs
+        let channel = make_name(&["ch", "data", "v1"]).with_id(10);
+        let control = make_name(&["ch", "data", "v1"]).with_id(11);
+
+        let message = Message::builder()
+            .source(source)
+            .destination(local_name.with_id(session_layer.app_id()))
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(0)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::JoinRequest)
+            .session_id(42)
+            .message_id(1)
+            .payload(
+                CommandPayload::builder()
+                    .join_request(
+                        None, // max_retries=None → unreliable
+                        None, // timer_duration=None → timer_settings will be None
+                        Some(channel),
+                        Some(control),
+                        None,
+                    )
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let result = session_layer.handle_message_from_slim(message).await;
+        assert!(result.is_ok(), "unreliable multicast join must be accepted: {result:?}");
+        assert_eq!(session_layer.pool_size(), 1);
     }
 }
