@@ -1346,71 +1346,85 @@ impl MessageProcessor {
         }
     }
 
-    #[tracing::instrument(skip_all, fields(service_id = %self.internal.service_id, conn_index))]
     async fn reconnect(
         &self,
         client_conf: ClientConfig,
         conn_index: u64,
         cancellation_token: &CancellationToken,
     ) -> bool {
-        info!("connection lost with remote endpoint, attempting to reconnect");
+        // The span is created here, inside the async body, so it is created
+        // when this future is first polled — not when reconnect() is called.
+        // The call site uses .instrument(Span::none()), which makes Span::none()
+        // the active context at poll time, so this span becomes a root span and
+        // does not extend the process_stream ancestor chain on every reconnection.
+        let span = tracing::info_span!(
+            "reconnect",
+            service_id = %self.internal.service_id,
+            conn_index,
+        );
 
-        let is_peer = self
-            .forwarder()
-            .get_connection(conn_index)
-            .map(|c| c.connection_type() == ConnType::Peer)
-            .unwrap_or(false);
+        async {
+            info!("connection lost with remote endpoint, attempting to reconnect");
 
-        // For remote/controller connections: save the subscriptions we forwarded to this
-        // connection so we can replay them after reconnecting.
-        // For peer connections: we do a full sync instead (no need to save).
-        let remote_subscriptions = if !is_peer {
-            self.remote_sync()
-                .get_subscriptions_for_reconnect(conn_index)
-        } else {
-            Default::default()
-        };
+            let is_peer = self
+                .forwarder()
+                .get_connection(conn_index)
+                .map(|c| c.connection_type() == ConnType::Peer)
+                .unwrap_or(false);
 
-        tokio::select! {
-            _ = cancellation_token.cancelled() => {
-                debug!("cancellation token signaled, stopping reconnection process");
-                false
-            }
-            res = self.try_to_connect(client_conf, None, None, Some(conn_index)) => {
-                match res {
-                    Ok(_) => {
-                        info!("connection re-established successfully");
-                        if is_peer {
-                            // Peer connection: full sync (send local + remote subscriptions).
-                            let ttl = self.peer_sync().subscription_ttl();
-                            if let Err(e) = sync_peer::send_local_remote_sync(
-                                self, conn_index, ttl,
-                            )
-                            .await
-                            {
-                                warn!(
-                                    error = %e,
-                                    "failed to send full sync after peer reconnect"
-                                );
+            // For remote/controller connections: save the subscriptions we forwarded to this
+            // connection so we can replay them after reconnecting.
+            // For peer connections: we do a full sync instead (no need to save).
+            let remote_subscriptions = if !is_peer {
+                self.remote_sync()
+                    .get_subscriptions_for_reconnect(conn_index)
+            } else {
+                Default::default()
+            };
+
+            tokio::select! {
+                _ = cancellation_token.cancelled() => {
+                    debug!("cancellation token signaled, stopping reconnection process");
+                    false
+                }
+                res = self.try_to_connect(client_conf, None, None, Some(conn_index)) => {
+                    match res {
+                        Ok(_) => {
+                            info!("connection re-established successfully");
+                            if is_peer {
+                                // Peer connection: full sync (send local + remote subscriptions).
+                                let ttl = self.peer_sync().subscription_ttl();
+                                if let Err(e) = sync_peer::send_local_remote_sync(
+                                    self, conn_index, ttl,
+                                )
+                                .await
+                                {
+                                    warn!(
+                                        error = %e,
+                                        "failed to send full sync after peer reconnect"
+                                    );
+                                }
+                            } else {
+                                // Remote/controller: restore only what was previously forwarded.
+                                self.restore_remote_subscriptions(
+                                    &remote_subscriptions,
+                                    conn_index,
+                                    false,
+                                )
+                                .await;
                             }
-                        } else {
-                            // Remote/controller: restore only what was previously forwarded.
-                            self.restore_remote_subscriptions(
-                                &remote_subscriptions,
-                                conn_index,
-                                false,
-                            )
-                            .await;
+                            true
                         }
-                        true
-                    }
-                    Err(e) => {
-                        error!(error = %e.chain(), "unable to reconnect to remote node");
-                        false
+                        Err(e) => {
+                            error!(error = %e.chain(), "unable to reconnect to remote node");
+                            false
+                        }
                     }
                 }
             }
         }
+        .instrument(span)
+        .await
     }
 
     /// Send an UNSUBSCRIBE message to the control plane for each subscription in `local_subs`.
@@ -1794,9 +1808,9 @@ impl MessageProcessor {
                 && !matches!(category, ConnType::Remote)
                 && let Some(config) = client_conf_clone
             {
-                // Break the span chain: reconnect → try_to_connect → process_stream
-                // would otherwise nest under the current process_stream span on every
-                // reconnection, growing the span hierarchy unboundedly.
+                // Poll reconnect with no active span so that the span it creates
+                // internally becomes a root span, preventing unbounded nesting of
+                // process_stream → reconnect → process_stream → … on every cycle.
                 connected = self_clone.reconnect(config, conn_index, &token_clone)
                     .instrument(tracing::Span::none())
                     .await;
