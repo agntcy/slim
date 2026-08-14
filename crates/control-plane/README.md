@@ -174,6 +174,27 @@ segment the `cloud` domain links only to that single customer domain.
 Agents in `customer-a` can communicate with agents in `cloud`
 and vice versa, but `customer-a` cannot see `customer-b`.
 
+For loops, prefix matching, and multiple domains in one segment, use a
+MiniJinja `segments-template`. The template receives `groups`, a sorted list of
+all registered domain names:
+
+```yaml
+topology:
+  segments-template: |
+    - name: segment-customer-a
+      links:
+    {% for group in groups %}
+    {% if group is startingwith("customer-a-") %}
+        - domain: {{ group | tojson }}
+          neighbors: [customer-a]
+    {% endif %}
+    {% endfor %}
+```
+
+Use `tojson` when inserting group names so they are safely quoted as YAML.
+`links`, `segments`, and `segments-template` are mutually exclusive. The
+legacy `$domain` expansion remains available for the simple per-domain case.
+
 **Named segments** (explicit multi-tenant isolation):
 
 ```yaml
