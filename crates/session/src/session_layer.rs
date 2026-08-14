@@ -1090,7 +1090,9 @@ mod tests {
     use crate::test_utils::{MockTokenProvider, MockVerifier};
     use slim_auth::shared_secret::SharedSecret;
     use slim_datapath::Status;
-    use slim_datapath::api::{CommandPayload, NameId, ProtoName, ProtoSessionMessageType, ProtoSessionType};
+    use slim_datapath::api::{
+        CommandPayload, NameId, ProtoName, ProtoSessionMessageType, ProtoSessionType,
+    };
     use tokio::sync::mpsc;
 
     // --- Test Mocks -----------------------------------------------------------------------
@@ -1680,7 +1682,10 @@ mod tests {
             .unwrap();
 
         let result = session_layer.handle_message_from_slim(message).await;
-        assert!(result.is_ok(), "unreliable multicast join must be accepted: {result:?}");
+        assert!(
+            result.is_ok(),
+            "unreliable multicast join must be accepted: {result:?}"
+        );
         assert_eq!(session_layer.pool_size(), 1);
     }
 }
