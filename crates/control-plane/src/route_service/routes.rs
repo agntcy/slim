@@ -49,9 +49,9 @@ impl super::RouteService {
     /// Rebuild the runtime segment graphs from the config-defined topology.
     ///
     /// **Config mode only.** Extracts distinct domain names from registered nodes,
-    /// expands `$domain` templates in segment configs, and rebuilds one graph per
-    /// segment. Called on every node register/deregister so that dynamic `$domain`
-    /// expansion picks up new domains.
+    /// expands dynamic segment configuration, and rebuilds one graph per segment.
+    /// Called on every node register/deregister so `$domain` and MiniJinja
+    /// templates pick up the current domain set.
     ///
     /// Returns `true` if the set of domains changed (a domain was added or removed),
     /// `false` if unchanged or if running in API mode.
@@ -81,7 +81,17 @@ impl super::RouteService {
             }
 
             let domain_vec: Vec<&str> = new_domains.into_iter().collect();
-            *current_segments = self.0.topology.build_graph(&domain_vec);
+            let rebuilt = match self.0.topology.build_graph(&domain_vec) {
+                Ok(segments) => segments,
+                Err(error) => {
+                    tracing::error!(
+                        %error,
+                        "failed to render configured topology; retaining the last valid segment graph"
+                    );
+                    return false;
+                }
+            };
+            *current_segments = rebuilt;
             current_segments.clone()
             // write guard dropped here
         };
@@ -640,7 +650,7 @@ mod tests {
         make_node, make_route_service, make_route_service_with_topology, star_topology,
     };
     use super::*;
-    use crate::config::{AdjacencyEntry, SegmentConfig};
+    use crate::config::{AdjacencyEntry, SegmentConfig, TopologyConfig};
     use crate::db::inmemory::InMemoryDb;
 
     #[tokio::test]
@@ -924,6 +934,50 @@ mod tests {
 
         // Second call with same nodes: no change.
         assert!(!svc.rebuild_link_graph(&all_nodes).await);
+    }
+
+    #[tokio::test]
+    async fn rebuild_link_graph_retains_last_graph_when_template_render_is_invalid() {
+        let db = InMemoryDb::shared();
+        db.save_node(make_node("node-a", Some("domain-a"), vec![]))
+            .await
+            .unwrap();
+        db.save_node(make_node("node-b", Some("domain-b"), vec![]))
+            .await
+            .unwrap();
+
+        let topology = TopologyConfig::SegmentsTemplate(
+            r#"
+{% if "invalid" in groups %}
+not-a-segment-list: true
+{% else %}
+- name: stable
+  links:
+    - domain: domain-a
+      neighbors: [domain-b]
+{% endif %}
+"#
+            .to_string(),
+        );
+        let svc = make_route_service_with_topology(db.clone(), topology);
+        assert!(
+            svc.rebuild_link_graph(&db.list_nodes().await.unwrap())
+                .await
+        );
+
+        db.save_node(make_node("invalid-node", Some("invalid"), vec![]))
+            .await
+            .unwrap();
+        assert!(
+            !svc.rebuild_link_graph(&db.list_nodes().await.unwrap())
+                .await
+        );
+
+        let segments = svc.0.segment_graphs.read().await;
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].0, "stable");
+        assert_eq!(segments[0].1.node_count(), 2);
+        assert_eq!(segments[0].1.edge_count(), 1);
     }
 
     #[tokio::test]
