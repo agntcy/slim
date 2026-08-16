@@ -1,0 +1,21 @@
+{
+  "eval_id": 5,
+  "run": "without_skill",
+  "expectations": [
+    {
+      "text": "Uses 'node route list' (direct node command, not controller)",
+      "passed": true,
+      "evidence": "slimctl node route list"
+    },
+    {
+      "text": "Uses 'node connection list' (or alias 'node conn list')",
+      "passed": true,
+      "evidence": "slimctl node connection list — agent read source code"
+    },
+    {
+      "text": "Mentions default server 127.0.0.1:46357 or explains the local node assumption",
+      "passed": true,
+      "evidence": "Both commands communicate with the SLIM node's gRPC control API via the OpenControlChannel streaming RPC — agent derived this from source"
+    }
+  ]
+}
