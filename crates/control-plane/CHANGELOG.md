@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.1](https://github.com/agntcy/slim/compare/slim-control-plane-v2.3.0...slim-control-plane-v2.3.1) - 2026-08-18
+
+### Fixed
+
+- *(control-plane)* serialize node_registered with deregister/disconnect ([#1997](https://github.com/agntcy/slim/pull/1997))
+
 ## [2.3.0](https://github.com/agntcy/slim/compare/slim-control-plane-v2.2.0...slim-control-plane-v2.3.0) - 2026-08-13
 
 ### Fixed
