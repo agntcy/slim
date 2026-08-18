@@ -29,11 +29,8 @@ pub struct Publish {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Message {
-    #[prost(map = "string, string", tag = "4")]
-    pub metadata: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
-    >,
+    #[prost(message, optional, tag = "4")]
+    pub metadata: ::core::option::Option<::prost_types::Struct>,
     #[prost(oneof = "message::MessageType", tags = "1, 2, 3, 5, 6")]
     pub message_type: ::core::option::Option<message::MessageType>,
 }

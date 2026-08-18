@@ -1090,8 +1090,9 @@ mod tests {
 
         let mut proto_msg = ProtoMessage {
             message_type: Some(ProtoPublishType(publish)),
-            metadata,
+            metadata: None,
         };
+        proto_msg.set_metadata_map(crate::message_context::metadata_from_strings(metadata));
 
         proto_msg.set_incoming_conn(Some(connection_id));
         proto_msg
