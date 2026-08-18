@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.11](https://github.com/agntcy/slim/compare/slim-session-v0.7.10...slim-session-v0.7.11) - 2026-08-18
+
+### Fixed
+
+- *(session)* accept multicast join requests in unreliable mode ([#1995](https://github.com/agntcy/slim/pull/1995))
+
 ## [0.7.10](https://github.com/agntcy/slim/compare/slim-session-v0.7.9...slim-session-v0.7.10) - 2026-08-13
 
 ### Other
