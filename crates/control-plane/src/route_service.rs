@@ -31,8 +31,9 @@ struct Inner {
     queue: WorkQueue<String>,
     /// Signals the periodic sweep task to stop.
     shutdown_tx: tokio::sync::watch::Sender<bool>,
-    /// Per-node mutex that serializes node_deregistered and node_disconnected
-    /// for the same node, preventing concurrent cleanup from corrupting state.
+    /// Per-node mutex that serializes node_registered, node_deregistered, and
+    /// node_disconnected for the same node, preventing a reconnect from racing
+    /// a still-in-flight cleanup and corrupting state.
     node_locks: tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// Per-domain mutex that serializes link creation for nodes in the same domain.
     /// Without this, two nodes from the same domain registering concurrently can

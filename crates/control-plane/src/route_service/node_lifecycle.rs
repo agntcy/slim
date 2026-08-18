@@ -26,6 +26,18 @@ impl super::RouteService {
         dp_connections: Vec<crate::api::proto::controller::proto::v1::ConnectionEntry>,
         dp_routes: Vec<crate::api::proto::controller::proto::v1::Route>,
     ) {
+        // Serialize with node_deregistered/node_disconnected for the same node,
+        // so a reconnect can't run while a delayed cleanup from the previous
+        // session is still in flight.
+        let node_lock = {
+            let mut locks = self.0.node_locks.lock().await;
+            locks
+                .entry(node_id.to_string())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+                .clone()
+        };
+        let _node_guard = node_lock.lock().await;
+
         // Serialize link creation and lifecycle operations across all nodes in the
         // same domain. This prevents: (1) concurrent registrations from creating
         // duplicate inter-domain links, and (2) a rapid disconnect-reconnect race
