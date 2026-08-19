@@ -520,7 +520,11 @@ dependencies = [
  "libc",
  "parking_lot",
  "predicates",
+<<<<<<< HEAD
  "rand 0.10.2",
+=======
+ "rand 0.9.5",
+>>>>>>> cece03f7 (test: migrate integration tests to rust (#1793))
  "regex",
  "serde",
  "serde_json",
