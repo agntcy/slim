@@ -20,6 +20,7 @@ Every SLIM application has an identity — a string identifier that travels with
 | Shared secret | `<base_name>_<random_suffix>` — derived from the application name with a unique random component |
 | JWT | The `sub` (subject) claim of the JWT, set by the token issuer |
 | SPIRE | The SPIFFE ID from the JWT-SVID (e.g. `spiffe://domain.test/ns/default/sa/my-app`) |
+| OIDC with DPoP | The `sub` claim from your identity provider — the **person**, shared by every application instance they run |
 
 The credential does not authenticate the application *to the SLIM node* as in a login model. It determines how the application's identity token is **signed when sending** and **verified when receiving**. The receiving session validates the sender's identity token using the same credential mechanism; messages whose identity cannot be verified are dropped.
 
@@ -65,6 +66,55 @@ SLIM integrates with SPIRE by consuming JWT-SVIDs from the SPIRE Workload API. T
 
 **Use when:** Production deployments, especially Kubernetes, where strong workload identity and automatic rotation are required.
 
+### OIDC with DPoP
+
+Every method above gives each application instance its own identity. This one does the opposite: it maps the identity a **person** already has in your SSO provider onto the applications they run, so a user's laptop and phone present the same identity rather than two unrelated ones.
+
+The obstacle is that every other method needs the application's MLS signing public key inside the identity token, and an external identity provider will not put a SLIM-specific claim in the tokens it issues. Rather than requiring a custom claim mapper, SLIM uses [DPoP (RFC 9449)](https://datatracker.ietf.org/doc/html/rfc9449) — a standard the provider already implements.
+
+**How the binding is made:**
+
+1. A signing key pair is generated, and a **DPoP proof** — a short-lived JWT signed with that key — is sent with the token request.
+2. The provider verifies the proof and issues an access token containing `cnf.jkt`: the SHA-256 thumbprint ([RFC 7638](https://datatracker.ietf.org/doc/html/rfc7638)) of that public key. In effect the token now reads *"this provider attests that user `sub` holds the key whose thumbprint is `jkt`."*
+3. The application uses that key as its MLS signing key and presents the token as its identity.
+4. A receiving peer validates the token against the provider's JWKS, then hashes the key the sender actually presented and checks it equals `cnf.jkt`. A stolen token replayed with a different key fails this check.
+
+After the initial binding there is no per-message DPoP overhead — MLS's own leaf-node signatures, made with the same key, are the continuing proof of possession. Renewing the token re-uses the same key, so `cnf.jkt` is unchanged and the identity survives rotation without disturbing group membership.
+
+**Setting it up:**
+
+```bash
+# 1. In Keycloak: enable "OAuth 2.0 DPoP" on the realm or client. No custom
+#    protocol mapper is needed. Requires Keycloak 24 or newer.
+
+# 2. Sign in. This generates the MLS signing key, has the provider bind it,
+#    and saves both to ~/.slimctl/credentials.yaml (mode 0600).
+slimctl login --dpop \
+  --client-id slim-app \
+  --discovery-uri https://keycloak.example.com/realms/slim/.well-known/openid-configuration
+```
+
+The command fails with a clear message if the provider returns a token without `cnf.jkt`, which almost always means DPoP is not enabled for that client or realm.
+
+Applications configured with the OIDC identity provider for the same issuer pick up the saved key and refresh token automatically, and from then on authenticate as the signed-in user.
+
+**Properties:**
+
+- **One identity per person, not per process** — every instance a user runs shares their `sub`
+- **No custom claim mappers** — uses DPoP and JWK thumbprints, which compliant providers already support
+- **Proof of possession** — the token is cryptographically bound to the signing key, so a stolen token alone is not enough to impersonate
+- **Survives token rotation** — renewal re-proves the same key, leaving the binding intact
+
+**Requirements and trade-offs:**
+
+- Requires an RFC 9449 provider (Keycloak 24+, or equivalent)
+- Supports MLS ciphersuites whose signing keys map to a JOSE algorithm: NIST P-256 (`ES256`) and Ed25519 (`EdDSA`)
+- **Post-quantum (`enforce_pqc`) requires the `curve25519` build feature.** The `ML_KEM_768_X25519` ciphersuite is post-quantum in its *key exchange* only — it still signs with Ed25519, which DPoP handles. But signing keys are generated for a curve fixed at build time, defaulting to P-256, while `enforce_pqc` is chosen at runtime. Build with `curve25519` so the two agree; otherwise the mismatch is rejected at startup with a message naming the cause
+- The signing key is stored on disk so it can outlive a single process. This is what makes one identity spannable across instances, but it also means `~/.slimctl/credentials.yaml` **is** the user's identity, not merely a token — protect it accordingly, and rotate by signing in again if it is exposed
+- Interactive sign-in requires a browser. Headless services should use a different method until device-flow support lands
+
+**Use when:** Applications act on behalf of a human whose identity already lives in an SSO provider, and you need to answer "which real person does this credential belong to."
+
 ## Choosing a Credential Method
 
 | Method | Application identity | Rotation | Workload attestation | Recommended for |
@@ -73,6 +123,7 @@ SLIM integrates with SPIRE by consuming JWT-SVIDs from the SPIRE Workload API. T
 | JWT (external IdP) | `sub` claim from token | Token expiry | IdP-dependent | Existing IdP integration |
 | JWT (SLIM-issued) | `sub` claim from token | Token expiry | No | Simple production, no IdP |
 | SPIRE | SPIFFE ID | Automatic | Yes | Production, Kubernetes |
+| OIDC with DPoP | `sub` claim — the signed-in person | Token expiry, key unchanged | No (user attestation, not workload) | User-facing apps with existing SSO |
 
 ## Related
 

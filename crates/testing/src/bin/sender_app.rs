@@ -45,6 +45,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use clap::Parser;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::{TokenProvider, Verifier};
+use slim_config::auth::oidc::Config as OidcAuthConfig;
 use slim_config::client::ClientConfig;
 use slim_config::component::ComponentBuilder;
 use slim_config::tls::client::TlsClientConfig;
@@ -82,7 +83,7 @@ struct Args {
     #[arg(short, long, required = true)]
     local: String,
 
-    /// Authentication method: "shared_secret" or "spire"
+    /// Authentication method: "shared_secret", "spire" or "oidc"
     #[arg(short = 'a', long, default_value = "shared_secret")]
     auth_method: String,
 
@@ -104,6 +105,19 @@ struct Args {
     #[cfg(not(target_family = "windows"))]
     #[arg(short = 'T', long)]
     spire_target: Option<String>,
+
+    /// OIDC issuer URL (used with oidc auth), e.g.
+    /// https://localhost:8443/realms/slim
+    #[arg(long)]
+    oidc_issuer: Option<String>,
+
+    /// OIDC client id (used with oidc auth)
+    #[arg(long, default_value = "slim-app")]
+    oidc_client_id: String,
+
+    /// Expected audience in OIDC access tokens (used with oidc auth)
+    #[arg(long, default_value = "slim")]
+    oidc_audience: String,
 
     /// SLIM control plane endpoint
     #[arg(short, long, default_value = "http://localhost:46357")]
@@ -220,6 +234,27 @@ async fn run_sender(args: Args) -> Result<()> {
                 spire_cfg
                     .create_verifier()
                     .context("failed to create SPIRE verifier")?,
+            );
+            (p, v)
+        }
+        "oidc" => {
+            // Identity comes from the IdP's `sub`, bound to the MLS signing key
+            // via DPoP. The key and refresh token are picked up from
+            // ~/.slimctl/credentials.yaml, written by `slimctl login --dpop`.
+            let issuer = args
+                .oidc_issuer
+                .clone()
+                .context("--oidc-issuer is required with -a oidc")?;
+            let cfg = OidcAuthConfig::new(issuer)
+                .with_client_credentials(args.oidc_client_id.clone(), "")
+                .with_audience(args.oidc_audience.clone());
+            let p =
+                AuthProvider::oidc(cfg.create_identity_provider().context(
+                    "failed to create OIDC provider (did you run `slimctl login --dpop`?)",
+                )?);
+            let v = AuthVerifier::oidc(
+                cfg.create_verifier()
+                    .context("failed to create OIDC verifier")?,
             );
             (p, v)
         }

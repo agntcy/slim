@@ -60,8 +60,8 @@ pub enum ConfigAuthError {
 
     #[error("client id cannot be empty")]
     AuthOidcEmptyClientId,
-    #[error("client secret cannot be empty")]
-    AuthOidcEmptyClientSecret,
+    #[error("issuer url cannot be empty")]
+    AuthOidcEmptyIssuerUrl,
 
     // App auth validation
     #[error("auth.secret cannot be empty for shared_secret")]
