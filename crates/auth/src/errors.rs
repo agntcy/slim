@@ -189,6 +189,14 @@ pub enum AuthError {
     MlsKeyGenerationFailed,
     #[error("public key not found in identity claims")]
     PublicKeyNotFound,
+
+    // DPoP
+    #[error("key type has no JOSE/DPoP mapping")]
+    DpopUnsupportedKeyType,
+    #[error("credential presents an MLS public key but the token carries no cnf.jkt to bind it to")]
+    DpopMissingConfirmation,
+    #[error("presented MLS public key does not match the token's cnf.jkt thumbprint")]
+    DpopThumbprintMismatch,
     #[error("subject not found in identity claims")]
     SubjectNotFound,
 }

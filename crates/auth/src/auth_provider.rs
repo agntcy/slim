@@ -119,6 +119,11 @@ pub enum AuthProvider {
     /// SPIRE-based identity manager providing SPIFFE JWT SVID tokens
     #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
     Spire(crate::spire::SpireIdentityManager),
+
+    /// OIDC provider issuing DPoP-bound tokens, so the MLS identity is the IdP's
+    /// user (`sub`) rather than a per-instance value.
+    #[cfg(not(target_arch = "wasm32"))]
+    Oidc(crate::oidc::OidcTokenProvider),
 }
 
 /// Unified enum for all authentication token verifiers
@@ -170,6 +175,11 @@ pub enum AuthVerifier {
     /// SPIRE-based token verifier using SPIRE Workload API bundles
     #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
     Spire(crate::spire::SpireIdentityManager),
+
+    /// OIDC verifier: validates tokens via JWKS and resolves a DPoP-presented MLS
+    /// key against `cnf.jkt`.
+    #[cfg(not(target_arch = "wasm32"))]
+    Oidc(crate::oidc::OidcVerifier),
 }
 
 impl std::fmt::Debug for AuthProvider {
@@ -190,6 +200,8 @@ impl std::fmt::Debug for AuthProvider {
                 .debug_tuple("Spire")
                 .field(&"<SpireIdentityManager>")
                 .finish(),
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthProvider::Oidc(_) => f.debug_tuple("Oidc").field(&"<OidcTokenProvider>").finish(),
         }
     }
 }
@@ -207,6 +219,8 @@ impl std::fmt::Debug for AuthVerifier {
                 .debug_tuple("Spire")
                 .field(&"<SpireIdentityManager>")
                 .finish(),
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthVerifier::Oidc(_) => f.debug_tuple("Oidc").field(&"<OidcVerifier>").finish(),
             AuthVerifier::SharedSecret(secret) => {
                 f.debug_tuple("SharedSecret").field(secret).finish()
             }
@@ -224,6 +238,8 @@ impl TokenProvider for AuthProvider {
             AuthProvider::SharedSecret(secret) => TokenProvider::initialize(secret).await,
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.initialize().await,
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthProvider::Oidc(oidc) => oidc.initialize().await,
         }
     }
 
@@ -236,6 +252,8 @@ impl TokenProvider for AuthProvider {
             AuthProvider::SharedSecret(secret) => secret.get_token(),
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.get_token(),
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthProvider::Oidc(oidc) => oidc.get_token(),
         }
     }
 
@@ -248,6 +266,8 @@ impl TokenProvider for AuthProvider {
             AuthProvider::SharedSecret(secret) => secret.get_id(),
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.get_id(),
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthProvider::Oidc(oidc) => oidc.get_id(),
         }
     }
 
@@ -260,6 +280,8 @@ impl TokenProvider for AuthProvider {
             AuthProvider::SharedSecret(secret) => secret.get_signature_keys(),
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.get_signature_keys(),
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthProvider::Oidc(oidc) => oidc.get_signature_keys(),
         }
     }
 
@@ -272,6 +294,8 @@ impl TokenProvider for AuthProvider {
             AuthProvider::SharedSecret(secret) => secret.mls_signature_keys_installed(),
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.mls_signature_keys_installed(),
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthProvider::Oidc(oidc) => oidc.mls_signature_keys_installed(),
         }
     }
 
@@ -292,6 +316,8 @@ impl TokenProvider for AuthProvider {
             }
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.set_signature_keys(private_key, public_key).await,
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthProvider::Oidc(oidc) => oidc.set_signature_keys(private_key, public_key).await,
         }
     }
 
@@ -304,6 +330,8 @@ impl TokenProvider for AuthProvider {
             AuthProvider::SharedSecret(secret) => secret.export_identity(),
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.export_identity(),
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthProvider::Oidc(oidc) => oidc.export_identity(),
         }
     }
 
@@ -324,6 +352,8 @@ impl TokenProvider for AuthProvider {
             AuthProvider::Spire(spire) => {
                 AuthProvider::Spire(spire.with_restored_identity(identity)?)
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthProvider::Oidc(oidc) => AuthProvider::Oidc(oidc.with_restored_identity(identity)?),
         })
     }
 }
@@ -336,6 +366,8 @@ impl Verifier for AuthVerifier {
             AuthVerifier::SharedSecret(secret) => Verifier::initialize(secret).await,
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthVerifier::Spire(spire) => spire.initialize().await,
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthVerifier::Oidc(oidc) => oidc.initialize().await,
         }
     }
 
@@ -345,6 +377,8 @@ impl Verifier for AuthVerifier {
             AuthVerifier::JwtVerifier(verifier) => verifier.verify(token).await,
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthVerifier::Spire(spire) => spire.verify(token).await,
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthVerifier::Oidc(oidc) => oidc.verify(token).await,
             AuthVerifier::SharedSecret(secret) => secret.verify(token).await,
         }
     }
@@ -355,6 +389,8 @@ impl Verifier for AuthVerifier {
             AuthVerifier::JwtVerifier(verifier) => verifier.try_verify(token),
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthVerifier::Spire(spire) => spire.try_verify(token),
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthVerifier::Oidc(oidc) => oidc.try_verify(token),
             AuthVerifier::SharedSecret(secret) => secret.try_verify(token),
         }
     }
@@ -368,6 +404,8 @@ impl Verifier for AuthVerifier {
             AuthVerifier::JwtVerifier(verifier) => verifier.get_claims(token).await,
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthVerifier::Spire(spire) => spire.get_claims(token).await,
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthVerifier::Oidc(oidc) => oidc.get_claims(token).await,
             AuthVerifier::SharedSecret(secret) => secret.get_claims(token).await,
         }
     }
@@ -381,6 +419,8 @@ impl Verifier for AuthVerifier {
             AuthVerifier::JwtVerifier(verifier) => verifier.try_get_claims(token),
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthVerifier::Spire(spire) => spire.try_get_claims(token),
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthVerifier::Oidc(oidc) => oidc.try_get_claims(token),
             AuthVerifier::SharedSecret(secret) => secret.try_get_claims(token),
         }
     }
@@ -418,6 +458,12 @@ impl AuthProvider {
     pub fn spire(spire: crate::spire::SpireIdentityManager) -> Self {
         AuthProvider::Spire(spire)
     }
+
+    /// Create a new OIDC provider
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn oidc(provider: crate::oidc::OidcTokenProvider) -> Self {
+        AuthProvider::Oidc(provider)
+    }
 }
 
 /// Convenience constructors and utility methods for [`AuthVerifier`]
@@ -445,6 +491,12 @@ impl AuthVerifier {
     #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
     pub fn spire(spire: crate::spire::SpireIdentityManager) -> Self {
         AuthVerifier::Spire(spire)
+    }
+
+    /// Create a new OIDC verifier
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn oidc(verifier: crate::oidc::OidcVerifier) -> Self {
+        AuthVerifier::Oidc(verifier)
     }
 }
 

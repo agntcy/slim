@@ -570,6 +570,7 @@ dependencies = [
  "agntcy-slim-tracing",
  "agntcy-slim-version",
  "anyhow",
+ "base64 0.22.1",
  "chrono",
  "clap",
  "duration-string",

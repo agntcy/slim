@@ -10,6 +10,7 @@ use serde::Deserialize;
 
 use super::ConfigAuthError;
 use super::identity::{IdentityProviderConfig, IdentityVerifierConfig};
+use super::oidc::Config as OidcConfig;
 #[cfg(not(target_family = "windows"))]
 use super::spire::SpireConfig;
 
@@ -30,6 +31,9 @@ pub enum AuthConfig {
     /// SPIRE-based identity (non-Windows only)
     #[cfg(not(target_family = "windows"))]
     Spire(SpireConfig),
+    /// OIDC identity bound to the MLS signing key via DPoP, so it is shared
+    /// across every instance that user runs.
+    Oidc(OidcConfig),
 }
 
 impl AuthConfig {
@@ -43,6 +47,8 @@ impl AuthConfig {
             },
             #[cfg(not(target_family = "windows"))]
             AuthConfig::Spire(cfg) => AuthConfig::Spire(cfg),
+            // Identity comes from the IdP's `sub`; nothing local to override.
+            AuthConfig::Oidc(cfg) => AuthConfig::Oidc(cfg),
         }
     }
 
@@ -58,6 +64,19 @@ impl AuthConfig {
             AuthConfig::Spire(spire_config) => {
                 if spire_config.socket_path.is_none() {
                     return Err(ConfigAuthError::AuthSpireSocketPathMissing);
+                }
+            }
+            AuthConfig::Oidc(oidc_config) => {
+                if oidc_config.issuer_url.is_empty() {
+                    return Err(ConfigAuthError::AuthOidcEmptyIssuerUrl);
+                }
+                if oidc_config.client_id.is_none() {
+                    return Err(ConfigAuthError::AuthOidcEmptyClientId);
+                }
+                // One config drives both halves, and the verifier needs an audience
+                // to validate `aud` against.
+                if !oidc_config.can_verify() {
+                    return Err(ConfigAuthError::AuthJwtAudienceRequired);
                 }
             }
         }
@@ -89,6 +108,11 @@ impl AuthConfig {
             AuthConfig::Spire(spire_config) => (
                 IdentityProviderConfig::Spire(spire_config.clone()),
                 IdentityVerifierConfig::Spire(spire_config.clone()),
+            ),
+            // `local_name` is unused: the identity is the IdP's `sub`.
+            AuthConfig::Oidc(oidc_config) => (
+                IdentityProviderConfig::Oidc(oidc_config.clone()),
+                IdentityVerifierConfig::Oidc(oidc_config.clone()),
             ),
         }
     }
@@ -158,6 +182,64 @@ mod tests {
                 assert_eq!(id, "explicit-id");
             }
             _ => panic!("expected SharedSecret provider"),
+        }
+    }
+
+    fn oidc_cfg() -> OidcConfig {
+        OidcConfig::combined(
+            "https://keycloak.example.com/realms/slim",
+            "slim-app",
+            "",
+            "slim",
+        )
+    }
+
+    #[test]
+    fn oidc_validate_accepts_public_client_without_secret() {
+        // Authorization code + PKCE clients are public by design; requiring a
+        // secret here would reject the very flow DPoP identity depends on.
+        assert!(AuthConfig::Oidc(oidc_cfg()).validate().is_ok());
+    }
+
+    #[test]
+    fn oidc_validate_rejects_missing_issuer_client_id_and_audience() {
+        let mut cfg = oidc_cfg();
+        cfg.issuer_url = String::new();
+        assert!(matches!(
+            AuthConfig::Oidc(cfg).validate(),
+            Err(ConfigAuthError::AuthOidcEmptyIssuerUrl)
+        ));
+
+        let mut cfg = oidc_cfg();
+        cfg.client_id = None;
+        assert!(matches!(
+            AuthConfig::Oidc(cfg).validate(),
+            Err(ConfigAuthError::AuthOidcEmptyClientId)
+        ));
+
+        // Without an audience the verifier half cannot validate `aud`.
+        let mut cfg = oidc_cfg();
+        cfg.audience = None;
+        assert!(matches!(
+            AuthConfig::Oidc(cfg).validate(),
+            Err(ConfigAuthError::AuthJwtAudienceRequired)
+        ));
+    }
+
+    #[test]
+    fn oidc_to_identity_configs_ignores_local_name() {
+        // The identity is the IdP's `sub`, so nothing local should leak in.
+        let (provider, verifier) = AuthConfig::Oidc(oidc_cfg()).to_identity_configs("some-name");
+        assert_eq!(provider, IdentityProviderConfig::Oidc(oidc_cfg()));
+        assert_eq!(verifier, IdentityVerifierConfig::Oidc(oidc_cfg()));
+    }
+
+    #[test]
+    fn oidc_with_identity_id_is_a_noop() {
+        let cfg = AuthConfig::Oidc(oidc_cfg()).with_identity_id("ignored".to_string());
+        match cfg {
+            AuthConfig::Oidc(inner) => assert_eq!(inner, oidc_cfg()),
+            _ => panic!("expected Oidc"),
         }
     }
 

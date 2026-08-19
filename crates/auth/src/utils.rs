@@ -170,7 +170,8 @@ fn verify_header_aad_p256(
         .map_err(|_| crate::errors::AuthError::TokenInvalid)
 }
 
-fn ed25519_signing_key(
+/// Import an Ed25519 signing key from a 32-byte seed or 64-byte keypair.
+pub(crate) fn ed25519_signing_key(
     private_key_bytes: &[u8],
     public_key_bytes: &[u8],
 ) -> Result<ed25519_dalek::SigningKey, crate::errors::AuthError> {
@@ -198,7 +199,8 @@ fn ed25519_signing_key(
     }
 }
 
-fn p256_signing_key(
+/// Import a P-256 signing key from a raw scalar or PKCS#8 DER.
+pub(crate) fn p256_signing_key(
     private_key_bytes: &[u8],
     public_key_bytes: &[u8],
 ) -> Result<p256::ecdsa::SigningKey, crate::errors::AuthError> {
@@ -230,7 +232,8 @@ fn p256_signing_key(
     }
 }
 
-fn p256_verifying_key(
+/// Import a P-256 verifying key from a SEC1 point, compressed or uncompressed.
+pub(crate) fn p256_verifying_key(
     public_key_bytes: &[u8],
 ) -> Result<p256::ecdsa::VerifyingKey, crate::errors::AuthError> {
     use p256::EncodedPoint;

@@ -73,6 +73,10 @@ pub struct RefreshTokenProvider {
     // Discovered once on first fetch; avoids repeated discovery round-trips.
     cached_token_endpoint: Arc<RwLock<Option<String>>>,
     client: ReqwestClient,
+    /// MLS signature key pair this identity is DPoP-bound to. Every renewal
+    /// proves it, so `cnf.jkt` survives rotation. `None` = plain bearer identity.
+    /// Shared across clones so the renewal task sees installs.
+    signature_keys: Arc<RwLock<Option<(Vec<u8>, Vec<u8>)>>>,
 }
 
 impl RefreshTokenProvider {
@@ -100,6 +104,7 @@ impl RefreshTokenProvider {
             cached: Arc::new(RwLock::new(None)),
             cached_token_endpoint: Arc::new(RwLock::new(None)),
             client,
+            signature_keys: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -129,6 +134,46 @@ impl RefreshTokenProvider {
         }
         *self.cached_token_endpoint.write() = Some(token_endpoint.clone());
         Ok(token_endpoint)
+    }
+
+    /// Install the MLS signature key pair this identity is DPoP-bound to, so
+    /// renewals re-prove it. Sync counterpart to
+    /// [`TokenProvider::set_signature_keys`](crate::traits::TokenProvider::set_signature_keys).
+    pub fn install_signature_keys(
+        &self,
+        private_key: Vec<u8>,
+        public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        // Reject a key type DPoP cannot express now, rather than at every later
+        // verification once the credential is already in flight.
+        crate::dpop::jwk_thumbprint(&public_key)?;
+        *self.signature_keys.write() = Some((private_key, public_key));
+        Ok(())
+    }
+
+    /// Replace the refresh token to exchange next, for one obtained by a fresh
+    /// grant rather than a rotation — keeps this provider's persistence and
+    /// locking instead of it being rebuilt without them.
+    pub fn replace_refresh_token(&self, refresh_token: impl Into<String>) {
+        *self.current_refresh_token.write() = refresh_token.into();
+    }
+
+    /// Seed the cache with an access token obtained elsewhere, so a credential
+    /// handed over by an authorization-code exchange is servable before
+    /// [`TokenProvider::initialize`] runs. `expires_in` avoids parsing the token,
+    /// so opaque ones work too.
+    pub fn seed_access_token(&self, token: impl Into<String>, expires_in: u64) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let refresh_at = tokio::time::Instant::now()
+            + Duration::from_secs((expires_in * 2 / 3).max(REFRESH_BUFFER_SECS + 1));
+        *self.cached.write() = Some(CachedToken {
+            token: token.into(),
+            exp: now + expires_in,
+            refresh_at,
+        });
     }
 
     async fn fetch_new_token(&self) -> Result<(), AuthError> {
@@ -181,41 +226,20 @@ impl RefreshTokenProvider {
             self.current_refresh_token.read().clone()
         };
 
-        let http_resp = self
-            .client
-            .post(&token_endpoint)
-            .form(&[
+        // Carries a DPoP proof when keys are installed, so the renewed token keeps
+        // the same `cnf.jkt`. Error handling lives in the shared helper.
+        let keys = self.signature_keys.read().clone();
+        let resp = crate::oidc::post_token_request_with_dpop(
+            &self.client,
+            &token_endpoint,
+            &[
                 ("grant_type", "refresh_token"),
                 ("refresh_token", refresh_token.as_str()),
                 ("client_id", self.config.client_id.as_str()),
-            ])
-            .send()
-            .await?;
-
-        let status = http_resp.status();
-        let body = http_resp.text().await?;
-        let resp: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
-
-        if let Some(err) = resp.get("error").and_then(|v| v.as_str()) {
-            if err == "invalid_grant" {
-                return Err(AuthError::RefreshTokenRevoked);
-            }
-            let desc = resp
-                .get("error_description")
-                .and_then(|v| v.as_str())
-                .unwrap_or("no description");
-            return Err(AuthError::TokenEndpointError {
-                status: status.as_u16(),
-                body: format!("{err}: {desc}"),
-            });
-        }
-
-        if !status.is_success() {
-            return Err(AuthError::TokenEndpointError {
-                status: status.as_u16(),
-                body,
-            });
-        }
+            ],
+            keys.as_ref(),
+        )
+        .await?;
 
         let access_token = resp["access_token"]
             .as_str()
@@ -344,19 +368,37 @@ impl TokenProvider for RefreshTokenProvider {
             return Err(AuthError::GetTokenError);
         }
 
-        Ok(token)
+        Ok(crate::oidc::present_credential(
+            &token,
+            self.signature_keys
+                .read()
+                .as_ref()
+                .map(|(_, public)| &**public),
+        ))
     }
 
     fn get_id(&self) -> Result<String, AuthError> {
-        extract_sub_claim_unsafe(&self.get_token()?)
+        let credential = self.get_token()?;
+        extract_sub_claim_unsafe(crate::oidc::split_credential(&credential).0)
+    }
+
+    fn get_signature_keys(&self) -> Result<(Vec<u8>, Vec<u8>), AuthError> {
+        self.signature_keys
+            .read()
+            .clone()
+            .ok_or(AuthError::MlsNotSupported)
+    }
+
+    fn mls_signature_keys_installed(&self) -> bool {
+        self.signature_keys.read().is_some()
     }
 
     async fn set_signature_keys(
         &mut self,
-        _private_key: Vec<u8>,
-        _public_key: Vec<u8>,
+        private_key: Vec<u8>,
+        public_key: Vec<u8>,
     ) -> Result<(), AuthError> {
-        Err(AuthError::MlsNotSupported)
+        self.install_signature_keys(private_key, public_key)
     }
 }
 

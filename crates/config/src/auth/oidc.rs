@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use duration_string::DurationString;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -303,34 +305,123 @@ impl Config {
     }
 
     /// Convert to the auth crate's OidcProviderConfig
+    ///
+    /// `client_secret` is optional: authorization code + PKCE clients are public.
+    /// The transport path gates on it in `get_client_layer`; the identity path is
+    /// checked in [`create_identity_provider`](Self::create_identity_provider).
     fn to_auth_config(&self) -> Result<OidcProviderConfig, ConfigAuthError> {
         let client_id = self
             .client_id
             .as_ref()
             .ok_or(ConfigAuthError::AuthOidcEmptyClientId)?;
-        let client_secret = self
-            .client_secret
-            .as_ref()
-            .ok_or(ConfigAuthError::AuthOidcEmptyClientSecret)?;
 
         Ok(OidcProviderConfig {
             client_id: client_id.clone(),
-            client_secret: client_secret.clone(),
+            client_secret: self.client_secret.clone().unwrap_or_default(),
             issuer_url: self.issuer_url.clone(),
             scope: self.scope.clone(),
             timeout: self.timeout.map(|d| d.into()),
         })
     }
 
-    /// Create an OIDC token provider from this configuration
-    fn create_provider(&self) -> Result<OidcTokenProvider, ConfigAuthError> {
+    /// Create an OIDC token provider.
+    ///
+    /// Does *not* adopt a stored login — this is also the transport-auth path,
+    /// where a daemon would otherwise authenticate as whoever last ran
+    /// `slimctl login` and load their MLS private key. Use
+    /// [`create_identity_provider`](Self::create_identity_provider) for identity.
+    pub fn create_provider(&self) -> Result<OidcTokenProvider, ConfigAuthError> {
         let config = self.to_auth_config()?;
         let provider = OidcTokenProvider::new(config)?;
         Ok(provider)
     }
 
+    /// Provider for the application-identity path, adopting the MLS key and
+    /// refresh token `slimctl login --dpop` bound for this issuer.
+    pub fn create_identity_provider(&self) -> Result<OidcTokenProvider, ConfigAuthError> {
+        let provider = self.create_provider()?;
+        self.seed_from_login(&provider);
+
+        // With neither a login nor a secret this builds fine and then fails every
+        // token fetch behind a swallowed warning. Say so at construction.
+        if !provider.mls_signature_keys_installed()
+            && self.client_secret.as_deref().unwrap_or_default().is_empty()
+        {
+            tracing::error!(
+                issuer = %self.issuer_url,
+                "OIDC identity has no client secret and no stored login for this issuer; \
+                 run `slimctl login --dpop`, or set client_secret for a service identity"
+            );
+            return Err(ConfigAuthError::IdentityProviderNotConfigured);
+        }
+
+        Ok(provider)
+    }
+
+    /// Adopt what `slimctl login` left for this issuer: the MLS key the token was
+    /// bound to, and the refresh token that renews it. Without the key the app
+    /// signs as an identity the IdP never attested; without the refresh token it
+    /// renews as the service. Silent when absent.
+    fn seed_from_login(&self, provider: &OidcTokenProvider) {
+        let Some(creds) = load_stored_credentials() else {
+            return;
+        };
+        self.apply_stored_credentials(&creds, provider);
+    }
+
+    /// Split from reading the file so it is testable without `$HOME`.
+    fn apply_stored_credentials(&self, creds: &StoredCredentials, provider: &OidcTokenProvider) {
+        // Credentials for another issuer say nothing about this one. Normalize the
+        // trailing slash, or the same issuer written two ways fails to match.
+        let configured = self.issuer_url.trim_end_matches('/');
+        if !configured.is_empty() && creds.issuer.trim_end_matches('/') != configured {
+            // `warn`: a login exists but is being discarded.
+            tracing::warn!(
+                stored = %creds.issuer, configured = %self.issuer_url,
+                "ignoring stored credentials issued by a different issuer"
+            );
+            return;
+        }
+
+        if let (Some(private_key), Some(public_key)) =
+            (&creds.mls_private_key, &creds.mls_public_key)
+        {
+            match (BASE64.decode(private_key), BASE64.decode(public_key)) {
+                (Ok(private_key), Ok(public_key)) => {
+                    if let Err(e) = provider.install_signature_keys(private_key, public_key) {
+                        tracing::error!(error = %e, "stored MLS key is unusable for DPoP");
+                    }
+                }
+                _ => tracing::error!("stored MLS key is not valid base64; ignoring"),
+            }
+        }
+
+        if let Some(refresh_token) = &creds.refresh_token {
+            // Write rotations back, or a restart replays an invalidated token.
+            let persist = credentials_file_path().map(|path| {
+                let creds = creds.clone();
+                let cb: Arc<dyn Fn(String, String) + Send + Sync> =
+                    Arc::new(move |access_token, new_refresh_token| {
+                        let mut updated = creds.clone();
+                        updated.access_token = Some(access_token);
+                        updated.refresh_token = Some(new_refresh_token);
+                        persist_stored_credentials(path.clone(), updated);
+                    });
+                cb
+            });
+
+            if let Err(e) = provider.adopt_refresh_token(
+                refresh_token.clone(),
+                creds.access_token.clone(),
+                persist,
+            ) {
+                tracing::error!(error = %e, "could not adopt the stored refresh token");
+            }
+        }
+    }
+
     /// Create an OIDC verifier from this configuration
-    fn create_verifier(&self) -> Result<OidcVerifier, ConfigAuthError> {
+    pub fn create_verifier(&self) -> Result<OidcVerifier, ConfigAuthError> {
         let audience = self
             .audience
             .as_ref()
@@ -400,6 +491,12 @@ struct StoredCredentials {
     issuer: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     token_endpoint: String,
+    /// MLS signature key pair (standard base64) written by `slimctl login --dpop`.
+    /// Present only for DPoP-bound logins; absent for a plain bearer login.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mls_private_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mls_public_key: Option<String>,
 }
 
 fn credentials_file_path() -> Option<std::path::PathBuf> {
@@ -812,6 +909,106 @@ mod tests {
             layer.is_err(),
             "Should fail to create client layer without credentials"
         );
+    }
+
+    fn stored(issuer: &str, keys: Option<(&[u8], &[u8])>) -> StoredCredentials {
+        StoredCredentials {
+            id_token: "id".into(),
+            access_token: None,
+            refresh_token: Some("rt".into()),
+            client_id: "slim-app".into(),
+            issuer: issuer.into(),
+            token_endpoint: String::new(),
+            mls_private_key: keys.map(|(sk, _)| BASE64.encode(sk)),
+            mls_public_key: keys.map(|(_, pk)| BASE64.encode(pk)),
+        }
+    }
+
+    fn identity_provider(issuer: &str) -> OidcTokenProvider {
+        OidcTokenProvider::new(OidcProviderConfig {
+            client_id: "slim-app".into(),
+            client_secret: String::new(),
+            issuer_url: issuer.into(),
+            scope: None,
+            timeout: None,
+        })
+        .unwrap()
+    }
+
+    /// Otherwise the app signs as a key the IdP never attested.
+    #[test]
+    fn stored_mls_key_becomes_the_provider_identity() {
+        let issuer = "https://idp.example.com";
+        let (sk, pk) = slim_auth::utils::generate_mls_signature_keys().unwrap();
+        let provider = identity_provider(issuer);
+        assert!(!provider.mls_signature_keys_installed());
+
+        Config::new(issuer).apply_stored_credentials(&stored(issuer, Some((&sk, &pk))), &provider);
+
+        assert!(provider.mls_signature_keys_installed());
+        assert_eq!(provider.get_signature_keys().unwrap(), (sk, pk));
+    }
+
+    /// Adopting these would sign with a key an unrelated IdP bound.
+    #[test]
+    fn stored_credentials_for_another_issuer_are_ignored() {
+        let (sk, pk) = slim_auth::utils::generate_mls_signature_keys().unwrap();
+        let provider = identity_provider("https://idp.example.com");
+
+        Config::new("https://idp.example.com").apply_stored_credentials(
+            &stored("https://other-idp.example.com", Some((&sk, &pk))),
+            &provider,
+        );
+
+        assert!(!provider.mls_signature_keys_installed());
+    }
+
+    /// Treating these as different issuers silently discards a valid login.
+    #[test]
+    fn issuer_match_ignores_trailing_slash() {
+        let (sk, pk) = slim_auth::utils::generate_mls_signature_keys().unwrap();
+        let provider = identity_provider("https://idp.example.com");
+
+        Config::new("https://idp.example.com/").apply_stored_credentials(
+            &stored("https://idp.example.com", Some((&sk, &pk))),
+            &provider,
+        );
+
+        assert!(provider.mls_signature_keys_installed());
+    }
+
+    /// A plain login carries no keys; seeding must be a no-op, not an error.
+    #[test]
+    fn stored_credentials_without_mls_keys_seed_nothing() {
+        let issuer = "https://idp.example.com";
+        let provider = identity_provider(issuer);
+        Config::new(issuer).apply_stored_credentials(&stored(issuer, None), &provider);
+        assert!(!provider.mls_signature_keys_installed());
+    }
+
+    /// The transport path must not adopt a human login, or a daemon would
+    /// authenticate as whoever last ran `slimctl login`.
+    #[test]
+    fn only_the_identity_builder_seeds_a_stored_login() {
+        let issuer = "https://idp.example.com";
+        let service = Config::provider("svc", "secret", issuer)
+            .create_provider()
+            .unwrap();
+        // Nothing was seeded regardless of what is on disk.
+        assert!(!service.mls_signature_keys_installed());
+    }
+
+    /// Corrupt key material must not install a half-usable identity.
+    #[test]
+    fn corrupt_stored_mls_key_is_rejected() {
+        let issuer = "https://idp.example.com";
+        let provider = identity_provider(issuer);
+        let mut creds = stored(issuer, None);
+        creds.mls_private_key = Some("!!!not base64!!!".into());
+        creds.mls_public_key = Some("!!!not base64!!!".into());
+
+        Config::new(issuer).apply_stored_credentials(&creds, &provider);
+        assert!(!provider.mls_signature_keys_installed());
     }
 
     #[test]

@@ -4,6 +4,8 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use clap::Args;
 use jsonwebtoken::jwk::JwkSet;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
@@ -49,6 +51,15 @@ pub struct LoginArgs {
     /// Seconds to wait for the browser redirect
     #[arg(long = "callback-timeout", default_value = "300", value_parser = clap::value_parser!(u64).range(1..))]
     callback_timeout: u64,
+
+    /// Bind the issued token to a freshly generated MLS signing key using DPoP
+    /// (RFC 9449), and save that key alongside the tokens.
+    ///
+    /// Lets a SLIM app adopt your SSO identity: it installs the saved key as its
+    /// MLS signing identity, and peers re-hash that key against the token's
+    /// `cnf.jkt`. Requires an IdP with DPoP enabled (Keycloak >= 24).
+    #[arg(long)]
+    dpop: bool,
 }
 
 struct ProviderMetadata {
@@ -403,28 +414,61 @@ pub async fn run(args: &LoginArgs, config_file: Option<&str>, server: Option<&st
         ("code_verifier", pkce_verifier.secret()),
     ];
 
-    let token_resp: Value = http
-        .post(&meta.token_endpoint)
-        .form(&params)
-        .send()
-        .await
-        .context("token exchange")?
-        .json()
-        .await
-        .context("parsing token response")?;
-    if let Some(err) = token_resp.get("error").and_then(|v| v.as_str()) {
-        let desc = token_resp
-            .get("error_description")
-            .and_then(|v| v.as_str())
-            .unwrap_or("no description");
-        bail!("token exchange failed: {err} - {desc}");
-    }
+    // The key must exist before the exchange — a token cannot be bound to a key
+    // that did not help mint it — which is why slimctl generates it here rather
+    // than leaving it to the app.
+    let mls_keys = if args.dpop {
+        Some(
+            slim_auth::utils::generate_mls_signature_keys()
+                .context("generating MLS signature keys for DPoP binding")?,
+        )
+    } else {
+        None
+    };
+
+    let token_resp: Value = slim_auth::oidc::post_token_request_with_dpop(
+        &http,
+        &meta.token_endpoint,
+        &params,
+        mls_keys.as_ref(),
+    )
+    .await
+    .context("token exchange")?;
 
     let id_token = token_resp["id_token"]
         .as_str()
         .context("missing id_token")?
         .to_owned();
     validate_id_token(&http, &meta, &id_token, &args.client_id, &nonce).await?;
+
+    // Confirm the IdP honoured the proof before saving. With DPoP disabled it
+    // returns a valid *unbound* token, which would instead fail at the first MLS
+    // join, on a peer's machine.
+    let (mls_private_key, mls_public_key) = match &mls_keys {
+        Some((private_key, public_key)) => {
+            let access_token = token_resp["access_token"]
+                .as_str()
+                .context("provider returned no access_token to bind")?;
+            let expected = slim_auth::dpop::jwk_thumbprint(public_key)
+                .context("computing MLS key thumbprint")?;
+            match slim_auth::dpop::token_confirmation(access_token) {
+                Some(jkt) if jkt == expected => {}
+                Some(jkt) => bail!(
+                    "provider bound the token to a different key (cnf.jkt {jkt:?}, expected {expected:?})"
+                ),
+                None => bail!(
+                    "provider issued a token with no cnf.jkt: DPoP is not enabled for this \
+                     client or realm (Keycloak: enable \"OAuth 2.0 DPoP\"). Re-run without \
+                     --dpop for a plain bearer login."
+                ),
+            }
+            (
+                Some(BASE64.encode(private_key)),
+                Some(BASE64.encode(public_key)),
+            )
+        }
+        None => (None, None),
+    };
 
     let creds = crate::config::OidcCredentials {
         id_token: id_token.to_string(),
@@ -433,6 +477,8 @@ pub async fn run(args: &LoginArgs, config_file: Option<&str>, server: Option<&st
         client_id: args.client_id.clone(),
         issuer: meta.issuer.clone(),
         token_endpoint: meta.token_endpoint.clone(),
+        mls_private_key,
+        mls_public_key,
     };
 
     crate::config::save_credentials(&creds)?;
