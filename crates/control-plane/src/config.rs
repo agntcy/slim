@@ -255,10 +255,11 @@ impl Default for ReconcilerConfig {
 /// node registration authentication.
 ///
 /// The topology mode is determined by which field is present in YAML:
-/// - Neither `links` nor `segments` → **API-managed mode** (DB owns topology)
+/// - Neither `links`, `segments`, nor `segments-template` → **API-managed mode** (DB owns topology)
 /// - `links` → config-managed, single routing domain with custom link graph
 /// - `segments` → config-managed, multiple independent routing domains
-/// - Both → deserialization error
+/// - `segments-template` → config-managed, rendered against registered domains
+/// - More than one topology field → deserialization error
 ///
 /// The optional `registration_auth` field configures registration authentication.
 /// In API mode, shared secret domains are managed via gRPC (persisted in DB).
@@ -314,6 +315,19 @@ impl Default for ReconcilerConfig {
 ///         - domain: platform
 ///           neighbors: [$domain]
 /// ```
+///
+/// **Jinja-style segment template:**
+///
+/// ```yaml
+/// topology:
+///   segments-template: |
+///     {% for group in groups %}
+///     - name: {{ ("segment-" ~ group) | tojson }}
+///       links:
+///         - domain: platform
+///           neighbors: [{{ group | tojson }}]
+///     {% endfor %}
+/// ```
 /// Combined topology and registration auth settings.
 #[derive(Debug, Clone, Default)]
 pub struct TopologySettings {
@@ -346,6 +360,21 @@ pub enum TopologyConfig {
     Links(Vec<AdjacencyEntry>),
     /// Multiple independent routing domains, each with its own link graph (config-managed).
     Segments(Vec<SegmentConfig>),
+    /// A MiniJinja template rendered into segment definitions whenever the set
+    /// of registered domains changes. The template receives `groups`, a sorted
+    /// list of all registered domain names.
+    SegmentsTemplate(String),
+}
+
+/// Failure while expanding a dynamic segment template.
+#[derive(Debug, thiserror::Error)]
+pub enum TopologyTemplateError {
+    /// MiniJinja could not parse or render the configured template.
+    #[error("failed to render segments-template: {0}")]
+    Render(#[from] minijinja::Error),
+    /// The rendered template was not a YAML list of segment definitions.
+    #[error("segments-template rendered invalid YAML: {0}")]
+    Yaml(#[from] serde_yaml::Error),
 }
 
 /// A segment defines an independent routing domain.
@@ -367,12 +396,55 @@ pub struct SegmentConfig {
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct AdjacencyEntry {
     /// Source domain name (or `"*"` to match any domain, or `$domain` for template expansion).
+    #[serde(alias = "name")]
     pub domain: String,
     /// Groups this domain connects to. `"*"` matches any, `$domain` for template.
     pub neighbors: Vec<String>,
 }
 
-/// Custom deserializer for `TopologyConfig`: parses `links` or `segments` keys.
+fn topology_config_from_parts<E: de::Error>(
+    links: Option<Vec<AdjacencyEntry>>,
+    segments: Option<Vec<SegmentConfig>>,
+    segments_template: Option<String>,
+) -> Result<TopologyConfig, E> {
+    let configured_fields = usize::from(links.is_some())
+        + usize::from(segments.is_some())
+        + usize::from(segments_template.is_some());
+    if configured_fields > 1 {
+        return Err(E::custom(
+            "'links', 'segments', and 'segments-template' are mutually exclusive in topology config",
+        ));
+    }
+
+    if let Some(links) = links {
+        return if links.is_empty() {
+            Ok(TopologyConfig::ApiManaged)
+        } else {
+            Ok(TopologyConfig::Links(links))
+        };
+    }
+    if let Some(segments) = segments {
+        return if segments.is_empty() {
+            Ok(TopologyConfig::ApiManaged)
+        } else {
+            Ok(TopologyConfig::Segments(segments))
+        };
+    }
+    if let Some(template) = segments_template {
+        if template.trim().is_empty() {
+            return Err(E::custom("'segments-template' must not be empty"));
+        }
+        minijinja::Environment::new()
+            .template_from_named_str("segments-template", &template)
+            .map_err(E::custom)?;
+        return Ok(TopologyConfig::SegmentsTemplate(template));
+    }
+
+    Ok(TopologyConfig::ApiManaged)
+}
+
+/// Custom deserializer for `TopologyConfig`: parses `links`, `segments`, or
+/// `segments-template` keys.
 /// Unknown keys are silently ignored.
 impl<'de> Deserialize<'de> for TopologyConfig {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -385,7 +457,7 @@ impl<'de> Deserialize<'de> for TopologyConfig {
             type Value = TopologyConfig;
 
             fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                f.write_str("a map with optional 'links' or 'segments' (not both)")
+                f.write_str("a map with one of 'links', 'segments', or 'segments-template'")
             }
 
             fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
@@ -394,6 +466,7 @@ impl<'de> Deserialize<'de> for TopologyConfig {
             {
                 let mut links: Option<Vec<AdjacencyEntry>> = None;
                 let mut segments: Option<Vec<SegmentConfig>> = None;
+                let mut segments_template: Option<String> = None;
 
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
@@ -409,32 +482,19 @@ impl<'de> Deserialize<'de> for TopologyConfig {
                             }
                             segments = Some(map.next_value()?);
                         }
+                        "segments-template" => {
+                            if segments_template.is_some() {
+                                return Err(de::Error::duplicate_field("segments-template"));
+                            }
+                            segments_template = Some(map.next_value()?);
+                        }
                         _ => {
                             map.next_value::<de::IgnoredAny>()?;
                         }
                     }
                 }
 
-                match (links, segments) {
-                    (Some(_), Some(_)) => Err(de::Error::custom(
-                        "'links' and 'segments' are mutually exclusive in topology config",
-                    )),
-                    (Some(l), None) => {
-                        if l.is_empty() {
-                            Ok(TopologyConfig::ApiManaged)
-                        } else {
-                            Ok(TopologyConfig::Links(l))
-                        }
-                    }
-                    (None, Some(s)) => {
-                        if s.is_empty() {
-                            Ok(TopologyConfig::ApiManaged)
-                        } else {
-                            Ok(TopologyConfig::Segments(s))
-                        }
-                    }
-                    (None, None) => Ok(TopologyConfig::ApiManaged),
-                }
+                topology_config_from_parts(links, segments, segments_template)
             }
         }
 
@@ -443,7 +503,8 @@ impl<'de> Deserialize<'de> for TopologyConfig {
 }
 
 /// Custom deserializer for `TopologySettings`: combines `TopologyConfig`
-/// (from `links`/`segments` keys) with optional `registration_auth` key.
+/// (from `links`/`segments`/`segments-template` keys) with optional
+/// `registration_auth` key.
 impl<'de> Deserialize<'de> for TopologySettings {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -456,7 +517,7 @@ impl<'de> Deserialize<'de> for TopologySettings {
 
             fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 f.write_str(
-                    "a topology settings map with optional 'links'/'segments' and 'registration_auth' keys",
+                    "a topology settings map with optional topology and 'registration_auth' keys",
                 )
             }
 
@@ -466,6 +527,7 @@ impl<'de> Deserialize<'de> for TopologySettings {
             {
                 let mut links: Option<Vec<AdjacencyEntry>> = None;
                 let mut segments: Option<Vec<SegmentConfig>> = None;
+                let mut segments_template: Option<String> = None;
                 let mut auth: Option<RegistrationAuthConfig> = None;
 
                 while let Some(key) = map.next_key::<String>()? {
@@ -482,6 +544,12 @@ impl<'de> Deserialize<'de> for TopologySettings {
                             }
                             segments = Some(map.next_value()?);
                         }
+                        "segments-template" => {
+                            if segments_template.is_some() {
+                                return Err(de::Error::duplicate_field("segments-template"));
+                            }
+                            segments_template = Some(map.next_value()?);
+                        }
                         "registration_auth" => {
                             if auth.is_some() {
                                 return Err(de::Error::duplicate_field("registration_auth"));
@@ -494,28 +562,7 @@ impl<'de> Deserialize<'de> for TopologySettings {
                     }
                 }
 
-                let config = match (links, segments) {
-                    (Some(_), Some(_)) => {
-                        return Err(de::Error::custom(
-                            "'links' and 'segments' are mutually exclusive in topology config",
-                        ));
-                    }
-                    (Some(l), None) => {
-                        if l.is_empty() {
-                            TopologyConfig::ApiManaged
-                        } else {
-                            TopologyConfig::Links(l)
-                        }
-                    }
-                    (None, Some(s)) => {
-                        if s.is_empty() {
-                            TopologyConfig::ApiManaged
-                        } else {
-                            TopologyConfig::Segments(s)
-                        }
-                    }
-                    (None, None) => TopologyConfig::ApiManaged,
-                };
+                let config = topology_config_from_parts(links, segments, segments_template)?;
 
                 Ok(TopologySettings { config, auth })
             }
@@ -526,22 +573,23 @@ impl<'de> Deserialize<'de> for TopologySettings {
 }
 
 impl TopologyConfig {
-    /// Build one graph per segment. For Links returns a single "default" entry.
-    /// For ApiManaged, returns an empty vec (topology is loaded from DB, not config).
-    /// Wildcard `"*"` is expanded to all domains in `known_domains`.
+    /// Build one graph per segment. `Links` returns a single `default` entry,
+    /// `ApiManaged` returns an empty vec, and `SegmentsTemplate` renders against
+    /// the current domain set. Wildcard `"*"` expands to all known domains.
     pub fn build_graph(
         &self,
         known_domains: &[&str],
-    ) -> Vec<(String, petgraph::graph::UnGraph<String, u32>)> {
-        self.expand_segments(known_domains)
-            .iter()
+    ) -> Result<Vec<(String, petgraph::graph::UnGraph<String, u32>)>, TopologyTemplateError> {
+        Ok(self
+            .expand_segments(known_domains)?
+            .into_iter()
             .map(|seg| {
                 (
-                    seg.name.clone(),
+                    seg.name,
                     Self::build_graph_from_links(&seg.links, known_domains),
                 )
             })
-            .collect()
+            .collect())
     }
 
     /// Returns `true` if this is API-managed mode (no config-driven topology).
@@ -609,24 +657,30 @@ impl TopologyConfig {
         graph
     }
 
-    /// Returns true if this config uses `$domain` template expansion.
+    /// Returns true if this config requires dynamic segment expansion.
     pub fn has_domain_template(&self) -> bool {
         match self {
             Self::ApiManaged | Self::Links(_) => false,
             Self::Segments(segments) => segments.iter().any(|seg| seg.has_domain_template()),
+            Self::SegmentsTemplate(_) => true,
         }
     }
 
-    /// Expand `$domain` templates into concrete segments for the given domains.
-    /// Groups already explicitly named in a template segment's links are excluded
-    /// from expansion. Non-template segments pass through unchanged.
-    pub fn expand_segments(&self, known_domains: &[&str]) -> Vec<SegmentConfig> {
+    /// Resolve segment configuration for the given domains.
+    ///
+    /// Legacy `$domain` segments are expanded once per non-explicit domain.
+    /// MiniJinja `segments-template` values are rendered with the sorted domains
+    /// exposed as `groups`. Non-template segments pass through unchanged.
+    pub fn expand_segments(
+        &self,
+        known_domains: &[&str],
+    ) -> Result<Vec<SegmentConfig>, TopologyTemplateError> {
         match self {
-            Self::ApiManaged => vec![],
-            Self::Links(links) => vec![SegmentConfig {
+            Self::ApiManaged => Ok(vec![]),
+            Self::Links(links) => Ok(vec![SegmentConfig {
                 name: "default".to_string(),
                 links: links.clone(),
-            }],
+            }]),
             Self::Segments(segments) => {
                 let mut result = Vec::new();
                 for seg in segments {
@@ -660,7 +714,22 @@ impl TopologyConfig {
                         result.push(seg.clone());
                     }
                 }
-                result
+                Ok(result)
+            }
+            Self::SegmentsTemplate(template) => {
+                let mut groups = known_domains.to_vec();
+                groups.sort_unstable();
+
+                let mut env = minijinja::Environment::new();
+                env.set_undefined_behavior(minijinja::UndefinedBehavior::Strict);
+                let rendered = env
+                    .template_from_named_str("segments-template", template)?
+                    .render(minijinja::context! { groups => &groups })?;
+                if rendered.trim().is_empty() {
+                    Ok(vec![])
+                } else {
+                    Ok(serde_yaml::from_str(&rendered)?)
+                }
             }
         }
     }
@@ -755,6 +824,11 @@ mod tests {
                 Self::Segments(segments) => segments
                     .iter()
                     .any(|seg| Self::can_link_in(&seg.links, a, b)),
+                Self::SegmentsTemplate(_) => self.expand_segments(&[a, b]).is_ok_and(|segments| {
+                    segments
+                        .iter()
+                        .any(|seg| Self::can_link_in(&seg.links, a, b))
+                }),
             }
         }
 
@@ -835,7 +909,7 @@ mod tests {
             neighbors: vec!["*".to_string()],
         }]);
         let domains = vec!["a", "b", "c", "d"];
-        let segments = t.build_graph(&domains);
+        let segments = t.build_graph(&domains).unwrap();
 
         assert_eq!(segments.len(), 1);
         assert_eq!(segments[0].0, "default");
@@ -852,7 +926,7 @@ mod tests {
             neighbors: vec!["*".to_string()],
         }]);
         let domains = vec!["hub", "a", "b", "c"];
-        let segments = t.build_graph(&domains);
+        let segments = t.build_graph(&domains).unwrap();
 
         let graph = &segments[0].1;
         assert_eq!(graph.node_count(), 4);
@@ -877,7 +951,7 @@ mod tests {
             },
         ]);
         let domains = vec!["a", "b", "c", "d"];
-        let segments = t.build_graph(&domains);
+        let segments = t.build_graph(&domains).unwrap();
 
         let graph = &segments[0].1;
         assert_eq!(graph.node_count(), 4);
@@ -892,7 +966,7 @@ mod tests {
             neighbors: vec!["*".to_string()],
         }]);
         let domains = vec!["a", "b"];
-        let segments = t.build_graph(&domains);
+        let segments = t.build_graph(&domains).unwrap();
 
         let graph = &segments[0].1;
         // 2 nodes, 1 edge (no self-links)
@@ -914,7 +988,7 @@ mod tests {
             },
         ]);
         let domains = vec!["a", "b"];
-        let segments = t.build_graph(&domains);
+        let segments = t.build_graph(&domains).unwrap();
 
         assert_eq!(segments[0].1.edge_count(), 1);
     }
@@ -926,7 +1000,7 @@ mod tests {
             neighbors: vec!["unknown".to_string()],
         }]);
         let domains = vec!["a", "b"];
-        let segments = t.build_graph(&domains);
+        let segments = t.build_graph(&domains).unwrap();
 
         let graph = &segments[0].1;
         // "unknown" not in known_domains, so no edge created
@@ -970,6 +1044,47 @@ segments:
 "#;
         let t: TopologyConfig = serde_yaml::from_str(yaml).unwrap();
         assert!(matches!(t, TopologyConfig::Segments(_)));
+    }
+
+    #[test]
+    fn deserialize_segments_template_topology() {
+        let yaml = r#"
+segments-template: |
+  {% for group in groups %}
+  - name: segment-{{ group }}
+    links:
+      - name: cloud
+        neighbors: [{{ group }}]
+  {% endfor %}
+"#;
+        let topology: TopologyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(topology, TopologyConfig::SegmentsTemplate(_)));
+
+        let settings: TopologySettings = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(
+            settings.config,
+            TopologyConfig::SegmentsTemplate(_)
+        ));
+    }
+
+    #[test]
+    fn deserialize_invalid_segments_template_errors() {
+        let yaml = r#"
+segments-template: |
+  {% for group in groups %}
+"#;
+        let error = serde_yaml::from_str::<TopologyConfig>(yaml).unwrap_err();
+        assert!(error.to_string().contains("unexpected end of input"));
+    }
+
+    #[test]
+    fn deserialize_segments_template_with_segments_errors() {
+        let yaml = r#"
+segments: []
+segments-template: "[]"
+"#;
+        let error = serde_yaml::from_str::<TopologyConfig>(yaml).unwrap_err();
+        assert!(error.to_string().contains("mutually exclusive"));
     }
 
     #[test]
@@ -1037,7 +1152,7 @@ segments:
         }]);
 
         let domains = vec!["hub", "customer-a", "customer-b"];
-        let expanded = t.expand_segments(&domains);
+        let expanded = t.expand_segments(&domains).unwrap();
 
         // hub is explicitly named in links, so only customer-a and customer-b expand
         assert_eq!(expanded.len(), 2);
@@ -1056,7 +1171,7 @@ segments:
         }]);
 
         let domains = vec!["a", "b", "c"];
-        let expanded = t.expand_segments(&domains);
+        let expanded = t.expand_segments(&domains).unwrap();
 
         assert_eq!(expanded.len(), 1);
         assert_eq!(expanded[0].name, "static");
@@ -1082,7 +1197,7 @@ segments:
         ]);
 
         let domains = vec!["hub", "customer-a", "monitoring"];
-        let expanded = t.expand_segments(&domains);
+        let expanded = t.expand_segments(&domains).unwrap();
 
         // Template expands for customer-a and monitoring (only hub is explicit in template)
         // Plus the static segment
@@ -1090,6 +1205,113 @@ segments:
         assert_eq!(expanded[0].name, "seg-customer-a");
         assert_eq!(expanded[1].name, "seg-monitoring");
         assert_eq!(expanded[2].name, "shared");
+    }
+
+    // --- segments-template expansion tests ---
+
+    #[test]
+    fn segments_template_expands_once_per_group_in_sorted_order() {
+        let topology = TopologyConfig::SegmentsTemplate(
+            r#"
+{% for group in groups %}
+- name: segment-{{ group }}
+  links:
+    - name: cloud
+      neighbors: [{{ group }}]
+{% endfor %}
+"#
+            .to_string(),
+        );
+
+        let expanded = topology
+            .expand_segments(&["customer-b", "customer-a"])
+            .unwrap();
+        assert_eq!(
+            expanded
+                .iter()
+                .map(|segment| segment.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["segment-customer-a", "segment-customer-b"]
+        );
+        assert_eq!(expanded[0].links[0].domain, "cloud");
+        assert_eq!(expanded[0].links[0].neighbors, ["customer-a"]);
+    }
+
+    #[test]
+    fn segments_template_supports_prefix_filtering() {
+        let topology = TopologyConfig::SegmentsTemplate(
+            r#"
+- name: segment-customer-a
+  links:
+{% for group in groups %}
+{% if group is startingwith("customer-a-") %}
+    - name: {{ group }}
+      neighbors: [customer-a]
+{% endif %}
+{% endfor %}
+"#
+            .to_string(),
+        );
+
+        let expanded = topology
+            .expand_segments(&[
+                "customer-b-worker",
+                "customer-a-worker-2",
+                "customer-a",
+                "customer-a-worker-1",
+            ])
+            .unwrap();
+        assert_eq!(expanded.len(), 1);
+        assert_eq!(expanded[0].links.len(), 2);
+        assert_eq!(expanded[0].links[0].domain, "customer-a-worker-1");
+        assert_eq!(expanded[0].links[1].domain, "customer-a-worker-2");
+    }
+
+    #[test]
+    fn segments_template_empty_render_is_an_empty_topology() {
+        let topology = TopologyConfig::SegmentsTemplate(
+            "{% for group in groups %}- name: {{ group }}\n  links: []\n{% endfor %}".to_string(),
+        );
+
+        assert!(topology.expand_segments(&[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn segments_template_tojson_safely_quotes_group_names() {
+        let topology = TopologyConfig::SegmentsTemplate(
+            r#"
+{% for group in groups %}
+- name: {{ ("segment-" ~ group) | tojson }}
+  links:
+    - domain: cloud
+      neighbors: [{{ group | tojson }}]
+{% endfor %}
+"#
+            .to_string(),
+        );
+
+        let expanded = topology
+            .expand_segments(&["customer: [unexpected]"])
+            .unwrap();
+        assert_eq!(expanded.len(), 1);
+        assert_eq!(expanded[0].name, "segment-customer: [unexpected]");
+        assert_eq!(expanded[0].links[0].neighbors, ["customer: [unexpected]"]);
+    }
+
+    #[test]
+    fn segments_template_reports_rendered_yaml_errors() {
+        let topology = TopologyConfig::SegmentsTemplate("not-a-segment-list: true".to_string());
+        let error = topology.expand_segments(&["customer-a"]).unwrap_err();
+        assert!(error.to_string().contains("rendered invalid YAML"));
+    }
+
+    #[test]
+    fn segments_template_uses_strict_undefined_variables() {
+        let topology = TopologyConfig::SegmentsTemplate(
+            "- name: segment-{{ missing_group }}\n  links: []".to_string(),
+        );
+        let error = topology.expand_segments(&["customer-a"]).unwrap_err();
+        assert!(error.to_string().contains("undefined value"));
     }
 
     // --- Segments build_graph tests ---
@@ -1114,7 +1336,7 @@ segments:
         ]);
 
         let domains = vec!["hub", "a", "b"];
-        let segment_graphs = t.build_graph(&domains);
+        let segment_graphs = t.build_graph(&domains).unwrap();
 
         assert_eq!(segment_graphs.len(), 2);
         assert_eq!(segment_graphs[0].0, "seg-a");

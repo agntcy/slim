@@ -197,7 +197,7 @@ The control plane supports two mutually exclusive topology modes:
 
 **API mode** (`topology: {}` or absent): topology is managed at runtime via `slimctl` or the gRPC API. Topology config (segments, links) is preserved in the DB across restarts; runtime state (nodes, routes) is rebuilt automatically when nodes reconnect.
 
-**Config mode** (`topology` contains `links` or `segments`): the config file is the single source of truth. On every restart all state is wiped and rebuilt from the file. Topology mutation via the API is rejected.
+**Config mode** (`topology` contains `links`, `segments`, or `segments-template`): the config file is the single source of truth. On every restart all state is wiped and rebuilt from the file. Topology mutation via the API is rejected.
 
 ##### Wildcard `"*"`
 
@@ -239,6 +239,29 @@ config:
 ```
 
 For each domain that registers (e.g. `customer-a`, `customer-b`) the control plane generates a separate segment (`segment-customer-a`, `segment-customer-b`). Inside each segment only `cloud` ↔ that one customer are linked.
+
+For conditional membership or grouping several matching domains into one
+segment, use a MiniJinja template. `groups` contains all registered domain names
+in sorted order:
+
+```yaml
+config:
+  topology:
+    segments-template: |
+      - name: segment-customer-a
+      links:
+      {% for group in groups %}
+      {% if group is startingwith("customer-a-") %}
+          - domain: {{ "{{ group }}" }}
+            neighbors: [customer-a]
+      {% endif %}
+      {% endfor %}
+```
+
+Use `tojson` for interpolated names so they remain safely quoted YAML scalars.
+The extra outer `{{ "..." }}` in Helm values preserves the inner MiniJinja
+expression when the chart evaluates `config` with Helm's `tpl` function.
+The `links`, `segments`, and `segments-template` fields are mutually exclusive.
 
 Named segments (explicit multi-tenant isolation without the template):
 

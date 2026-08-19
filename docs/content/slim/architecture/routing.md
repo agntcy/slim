@@ -171,6 +171,31 @@ topology:
 
 When a node from `customer-a` registers, the Controller instantiates a segment named `segment-customer-a` with links `cloud <-> customer-a`. When a node from `customer-b` registers, another segment `segment-customer-b` is instantiated with `cloud <-> customer-b`. Because each customer domain exists in its own segment, `customer-a` and `customer-b` cannot route to each other even though they both connect to `cloud`.
 
+### Conditional Segment Templates
+
+For topologies that need loops or conditional membership, use
+`segments-template`. It is a MiniJinja template rendered against `groups`, a
+sorted list of registered domain names:
+
+```yaml
+topology:
+  segments-template: |
+    - name: customer-a
+      links:
+    {% for group in groups %}
+    {% if group is startingwith("customer-a-") %}
+        - domain: {{ group | tojson }}
+          neighbors: [customer-a]
+    {% endif %}
+    {% endfor %}
+```
+
+This creates one segment containing every domain whose name begins with
+`customer-a-`. Use `tojson` for interpolated domain names so they remain safely
+quoted YAML scalars. The template is re-rendered whenever a domain registers or
+deregisters. A render error preserves the last valid segment graph and is
+reported in the Controller logs.
+
 ### Inspecting Segments
 
 ```bash
@@ -200,6 +225,7 @@ This ensures that multi-hop routing (e.g. spoke-a → hub → spoke-b in a star 
 | Chain | Linear pipelines; multi-hop routing handled automatically |
 | Segments | Multi-tenant isolation; customers must not route to each other |
 | `$domain` template | Dynamic per-tenant segments; domains register without pre-configuration |
+| `segments-template` | Conditional or many-to-one segment membership based on domain names |
 
 ## Related
 
