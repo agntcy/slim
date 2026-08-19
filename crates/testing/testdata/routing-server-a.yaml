@@ -1,0 +1,35 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# SLIM data-plane node A for control-plane (topology-based) routing tests.
+# Registers with the external control plane in domain "domain-a"; the control
+# plane advertises `external_endpoint` to peer nodes so they can dial node A.
+# Endpoints are replaced at runtime with dynamically allocated ports.
+
+tracing:
+  log_level: debug
+  display_thread_names: true
+  display_thread_ids: true
+
+runtime:
+  n_cores: 0
+  thread_name: "slim-data-plane-a"
+  drain_timeout: 10s
+
+services:
+  slim/a:
+    node_id: node-a
+    domain_name: domain-a
+    dataplane:
+      servers:
+        - endpoint: "0.0.0.0:46357"
+          tls:
+            insecure: true
+          metadata:
+            external_endpoint: "127.0.0.1:46357"
+      clients: []
+    controller:
+      clients:
+        - endpoint: "http://127.0.0.1:50052"
+          tls:
+            insecure: true

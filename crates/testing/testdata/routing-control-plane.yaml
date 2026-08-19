@@ -1,0 +1,29 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# External SLIM control plane for the two-node routing tests.
+# Config-managed full-mesh topology: every registered domain links to every
+# other domain, so app subscriptions propagate between node A and node B
+# without any manual per-node route wiring. Endpoints are replaced at runtime.
+
+northbound:
+  endpoint: "0.0.0.0:50051"
+  tls:
+    insecure: true
+
+southbound:
+  endpoint: "0.0.0.0:50052"
+  tls:
+    insecure: true
+
+reconciler:
+  max_requeues: 15
+  max_parallel_reconciles: 1000
+
+tracing:
+  log_level: debug
+
+topology:
+  links:
+    - domain: "*"
+      neighbors: ["*"]

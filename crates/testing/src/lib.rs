@@ -8,6 +8,15 @@ pub mod stress;
 pub mod stress_session;
 pub mod utils;
 
+// Black-box integration-test harness. Only compiled with the `integration`
+// feature so normal builds and `task test` stay lean.
+#[cfg(feature = "integration")]
+pub mod binaries;
+#[cfg(feature = "integration")]
+pub mod constants;
+#[cfg(feature = "integration")]
+pub mod helpers;
+
 use std::{num::ParseIntError, str::SplitWhitespace};
 
 use slim_config::component::id::ID;
