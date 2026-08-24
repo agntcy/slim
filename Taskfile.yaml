@@ -349,6 +349,7 @@ tasks:
       - task: test:coverage
         vars:
           ARGS: "--all-targets --locked"
+      - task: core:test
 
   core:test:
     desc: "Run core end to end tests"
