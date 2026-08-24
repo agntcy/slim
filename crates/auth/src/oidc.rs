@@ -19,9 +19,8 @@ use parking_lot::RwLock;
 use reqwest::Client as ReqwestClient;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tokio::sync::watch;
+use tokio::sync::{Mutex as AsyncMutex, watch};
 use tokio::task::JoinHandle;
 use url::Url;
 
@@ -128,6 +127,10 @@ fn strip_unverified_pubkey(claims: &mut serde_json::Value) {
 /// Shared with `slimctl login` so the proof cannot differ between the grant that
 /// mints the binding and the one that renews it.
 ///
+/// `is_refresh_grant` is the caller's own knowledge of which grant `form`
+/// carries — this is a generic transport helper shared by every grant type, so
+/// it must not infer OAuth semantics by inspecting the form body itself.
+///
 /// Retries once on a `use_dpop_nonce` challenge (RFC 9449 §8). Only once: a
 /// second challenge means a misbehaving endpoint, not a race.
 pub async fn post_token_request_with_dpop(
@@ -135,6 +138,7 @@ pub async fn post_token_request_with_dpop(
     token_endpoint: &str,
     form: &[(&str, &str)],
     signature_keys: Option<&(Vec<u8>, Vec<u8>)>,
+    is_refresh_grant: bool,
 ) -> Result<serde_json::Value, AuthError> {
     let mut nonce: Option<String> = None;
 
@@ -157,19 +161,23 @@ pub async fn post_token_request_with_dpop(
         let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
 
         if let Some(error) = parsed.get("error").and_then(|v| v.as_str()) {
-            // Retry once with the challenge nonce; a proof without it is
-            // rejected by design, not because anything is wrong.
-            if error == "use_dpop_nonce" && attempt == 0 && server_nonce.is_some() {
-                nonce = server_nonce;
-                continue;
+            if error == "use_dpop_nonce" && server_nonce.is_some() {
+                // Retry once with the challenge nonce; a proof without it is
+                // rejected by design, not because anything is wrong.
+                if attempt == 0 {
+                    nonce = server_nonce;
+                    continue;
+                }
+                // A second challenge means a misbehaving endpoint, not a race.
+                return Err(AuthError::TokenEndpointError {
+                    status: status.as_u16(),
+                    body: "authorization server kept demanding a new DPoP nonce".to_string(),
+                });
             }
             // `invalid_grant` means "the refresh token is spent" only on the
             // refresh grant; on the authorization-code grant it means the code
             // was stale or replayed, and reporting that as a revoked refresh
             // token sends the caller down entirely the wrong path.
-            let is_refresh_grant = form
-                .iter()
-                .any(|(k, v)| *k == "grant_type" && *v == "refresh_token");
             if error == "invalid_grant" && is_refresh_grant {
                 return Err(AuthError::RefreshTokenRevoked);
             }
@@ -193,10 +201,7 @@ pub async fn post_token_request_with_dpop(
         return Ok(parsed);
     }
 
-    Err(AuthError::TokenEndpointError {
-        status: 400,
-        body: "authorization server kept demanding a new DPoP nonce".to_string(),
-    })
+    unreachable!("the loop above always returns on both iterations")
 }
 
 /// Cache entry for OIDC access tokens
@@ -342,8 +347,11 @@ pub struct OidcTokenProvider {
     /// all live in [`RefreshTokenProvider`]. A second copy here is what once let
     /// a user identity renew as the service account.
     refresh: Arc<RwLock<Option<RefreshTokenProvider>>>,
-    /// Guards the delegate's renewal loop against a second `initialize`.
-    delegate_started: Arc<AtomicBool>,
+    /// Guards the delegate's renewal loop against a second concurrent
+    /// `initialize`. Held across the delegate's own `initialize().await`, so a
+    /// concurrent caller waits for the in-flight fetch instead of observing
+    /// success before a token exists.
+    delegate_started: Arc<AsyncMutex<bool>>,
 }
 
 impl OidcTokenProvider {
@@ -370,7 +378,7 @@ impl OidcTokenProvider {
             refresh_task: Arc::new(parking_lot::Mutex::new(None)),
             signature_keys: Arc::new(RwLock::new(None)),
             refresh: Arc::new(RwLock::new(None)),
-            delegate_started: Arc::new(AtomicBool::new(false)),
+            delegate_started: Arc::new(AsyncMutex::new(false)),
         })
     }
 
@@ -386,14 +394,19 @@ impl OidcTokenProvider {
         // handle populates what every clone reads.
         let delegate = self.refresh.read().clone();
         if let Some(mut delegate) = delegate {
-            // A failed first call must stay retryable, or the provider reports
-            // success while `get_token` fails forever.
-            if self.delegate_started.swap(true, Ordering::SeqCst) {
+            // Held across the `.await` below, so a concurrent second caller
+            // blocks on the in-flight fetch instead of racing ahead and
+            // observing success (via the swap-then-return-early pattern this
+            // replaced) before the delegate has actually fetched a token.
+            let mut started = self.delegate_started.lock().await;
+            if *started {
                 return Ok(());
             }
-            return delegate.initialize().await.inspect_err(|_| {
-                self.delegate_started.store(false, Ordering::SeqCst);
-            });
+            // A failed first call must stay retryable, or the provider reports
+            // success while `get_token` fails forever.
+            delegate.initialize().await?;
+            *started = true;
+            return Ok(());
         }
 
         // Create new shutdown receiver using the existing sender
@@ -510,14 +523,15 @@ impl OidcTokenProvider {
     }
 
     /// POST a form to the token endpoint, carrying a DPoP proof when MLS keys
-    /// are installed.
+    /// are installed. Only caller is [`Self::exchange_authorization_code`], so
+    /// this is never the refresh grant.
     async fn post_token_request(
         &self,
         token_endpoint: &str,
         form: &[(&str, &str)],
     ) -> Result<serde_json::Value, AuthError> {
         let keys = self.signature_keys.read().clone();
-        post_token_request_with_dpop(&self.client, token_endpoint, form, keys.as_ref()).await
+        post_token_request_with_dpop(&self.client, token_endpoint, form, keys.as_ref(), false).await
     }
 
     /// Cache the access token from a token-endpoint response, and adopt any
@@ -529,29 +543,38 @@ impl OidcTokenProvider {
             .to_owned();
         let expires_in = response["expires_in"].as_u64().unwrap_or(3600);
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        self.token_cache.store(
-            self.get_cache_key(),
-            access_token.clone(),
-            now + expires_in,
-            now + (expires_in * 2 / 3),
-        );
-
-        // Seed the delegate with the token just issued, so `get_token` serves it
-        // straight away rather than only after `initialize`.
-        if let Some(refresh_token) = response["refresh_token"].as_str() {
-            // Update in place: rebuilding would drop the `persist_credentials`
-            // callback, so rotations would stop reaching disk.
-            let existing = self.refresh.read().clone();
-            match existing {
-                Some(delegate) => delegate.replace_refresh_token(refresh_token),
-                None => self.adopt_refresh_token(refresh_token, None, None)?,
+        match response["refresh_token"].as_str() {
+            Some(refresh_token) => {
+                // Seed the delegate with the token just issued, so `get_token`
+                // serves it straight away rather than only after `initialize`.
+                //
+                // Update in place: rebuilding would drop the
+                // `persist_credentials` callback, so rotations would stop
+                // reaching disk.
+                let existing = self.refresh.read().clone();
+                match existing {
+                    Some(delegate) => delegate.replace_refresh_token(refresh_token),
+                    None => self.adopt_refresh_token(refresh_token, None, None)?,
+                }
+                if let Some(delegate) = self.refresh.read().as_ref() {
+                    delegate.seed_access_token(&access_token, expires_in);
+                }
             }
-            if let Some(delegate) = self.refresh.read().as_ref() {
-                delegate.seed_access_token(&access_token, expires_in);
+            // Already delegated and this response carries no rotation: the
+            // delegate's own cache is the only one `get_token` reads once a
+            // delegate exists, so there is nothing for this cache to do.
+            None if self.has_refresh_delegate() => {}
+            None => {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                self.token_cache.store(
+                    self.get_cache_key(),
+                    access_token.clone(),
+                    now + expires_in,
+                    now + (expires_in * 2 / 3),
+                );
             }
         }
 
@@ -657,9 +680,11 @@ impl OidcTokenProvider {
             return Err(AuthError::DpopThumbprintMismatch);
         }
 
-        // The delegate renews, so a key installed only here stops being proved.
+        // Once a delegate exists, it renews and so it is the single source of
+        // truth for the key — write only there, rather than keeping a second
+        // copy here that nothing reads but that could still drift out of sync.
         if let Some(delegate) = self.refresh.read().as_ref() {
-            delegate.install_signature_keys(private_key.clone(), public_key.clone())?;
+            return delegate.install_signature_keys(private_key, public_key);
         }
 
         *self.signature_keys.write() = Some((private_key, public_key));
@@ -695,13 +720,36 @@ impl OidcTokenProvider {
             lock_and_reload: None,
         })?;
 
-        // Carry over any installed key so renewals prove the same one.
-        if let Some((secret, public)) = self.signature_keys.read().clone() {
+        // Move any installed key into the delegate — it becomes the sole owner
+        // of the key from here on, so no second copy can drift out of sync.
+        if let Some((secret, public)) = self.signature_keys.write().take() {
             delegate.install_signature_keys(secret, public)?;
         }
 
         *self.refresh.write() = Some(delegate);
+
+        // A client-credentials background task from an earlier `initialize()`
+        // would otherwise keep renewing the service token forever after this
+        // provider becomes a user identity — wasting requests against the token
+        // endpoint and attaching a DPoP proof to a grant nothing downstream
+        // reads. Retire it: renewal now belongs to the delegate, started the
+        // next time `initialize()` runs.
+        if let Some(task) = self.refresh_task.lock().take() {
+            self.shutdown();
+            task.abort();
+        }
+
         Ok(())
+    }
+
+    /// Whether a refresh-token delegate has been adopted, i.e. this is a *user*
+    /// identity that can renew itself. Config uses this to catch, at
+    /// construction, a stored login that installed an MLS key but never got a
+    /// usable refresh token (e.g. the IdP granted no `offline_access`) — such a
+    /// provider would otherwise build fine and only fail at the first token
+    /// fetch, behind a swallowed warning.
+    pub fn has_refresh_delegate(&self) -> bool {
+        self.refresh.read().is_some()
     }
 
     /// Shutdown the background refresh task
@@ -747,6 +795,11 @@ impl TokenProvider for OidcTokenProvider {
     }
 
     fn get_signature_keys(&self) -> Result<(Vec<u8>, Vec<u8>), AuthError> {
+        // Once a delegate exists it is the sole owner of the key (see
+        // `install_signature_keys`/`adopt_refresh_token`).
+        if let Some(delegate) = self.refresh.read().as_ref() {
+            return delegate.get_signature_keys();
+        }
         self.signature_keys
             .read()
             .clone()
@@ -754,6 +807,9 @@ impl TokenProvider for OidcTokenProvider {
     }
 
     fn mls_signature_keys_installed(&self) -> bool {
+        if let Some(delegate) = self.refresh.read().as_ref() {
+            return delegate.mls_signature_keys_installed();
+        }
         self.signature_keys.read().is_some()
     }
 
@@ -1470,7 +1526,7 @@ mod tests {
             refresh_task: Arc::new(parking_lot::Mutex::new(None)),
             signature_keys: Arc::new(RwLock::new(None)),
             refresh: Arc::new(RwLock::new(None)),
-            delegate_started: Arc::new(AtomicBool::new(false)),
+            delegate_started: Arc::new(AsyncMutex::new(false)),
         };
 
         // Test that fetch_new_token fails when discovery endpoint returns 404
@@ -1560,7 +1616,7 @@ mod tests {
             refresh_task: Arc::new(parking_lot::Mutex::new(None)),
             signature_keys: Arc::new(RwLock::new(None)),
             refresh: Arc::new(RwLock::new(None)),
-            delegate_started: Arc::new(AtomicBool::new(false)),
+            delegate_started: Arc::new(AsyncMutex::new(false)),
         };
 
         // Test that fetch_new_token fails with proper OAuth2 error
@@ -1760,6 +1816,26 @@ mod tests {
 
         // Re-installing the same key is not a change and stays allowed.
         assert!(provider.install_signature_keys(secret, public).is_ok());
+    }
+
+    /// Once a delegate exists it is the sole owner of the key: installing after
+    /// adoption must land only there, and queries must reflect it — no second,
+    /// independently-readable copy left behind to drift out of sync.
+    #[test]
+    fn signature_keys_have_a_single_owner_once_delegated() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let provider = provider_for("https://idp.example.com");
+        provider.adopt_refresh_token("rt", None, None).unwrap();
+
+        assert!(!provider.mls_signature_keys_installed());
+
+        let (secret, public) = crate::utils::generate_mls_signature_keys().unwrap();
+        provider
+            .install_signature_keys(secret.clone(), public.clone())
+            .unwrap();
+
+        assert!(provider.mls_signature_keys_installed());
+        assert_eq!(provider.get_signature_keys().unwrap(), (secret, public));
     }
 
     /// On this grant it means a stale code, not a spent refresh token — the two
@@ -2035,6 +2111,34 @@ mod tests {
         assert_eq!(presented, Some(BASE64_URL.encode(&public).as_str()));
     }
 
+    /// A response that carries a refresh token must never populate the
+    /// client-credentials cache — `get_token` never reads it again once a
+    /// delegate exists, so writing there is a wasted store on every exchange.
+    #[tokio::test]
+    async fn authorization_code_response_with_refresh_token_never_touches_the_service_cache() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let (server, issuer) = mock_issuer().await;
+
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "access_token": "delegated", "refresh_token": "rt", "expires_in": 3600,
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = provider_for(&issuer);
+        provider
+            .exchange_authorization_code("c", "v", "http://127.0.0.1/cb")
+            .await
+            .unwrap();
+
+        assert!(
+            provider.token_cache.get(provider.get_cache_key()).is_none(),
+            "the service cache must stay empty once a delegate owns renewal"
+        );
+    }
+
     /// MLS installs its own pair whenever none is present. Pairing that with an
     /// unbound token would be rejected by every peer, on every message.
     #[tokio::test]
@@ -2172,6 +2276,40 @@ mod tests {
         assert_eq!(payload["nonce"], "server-nonce-value");
     }
 
+    /// A second consecutive `use_dpop_nonce` challenge means a misbehaving
+    /// endpoint, not a race — it must be reported clearly, not folded into the
+    /// generic `use_dpop_nonce: <description>` error.
+    #[tokio::test]
+    async fn second_consecutive_dpop_nonce_challenge_is_reported_clearly() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let (server, issuer) = mock_issuer().await;
+
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .respond_with(
+                ResponseTemplate::new(400)
+                    .insert_header("DPoP-Nonce", "server-nonce-value")
+                    .set_body_json(json!({ "error": "use_dpop_nonce" })),
+            )
+            .mount(&server)
+            .await;
+
+        let mut provider = provider_for(&issuer);
+        let (secret, public) = crate::utils::generate_mls_signature_keys().unwrap();
+        provider.set_signature_keys(secret, public).await.unwrap();
+
+        let result = provider
+            .exchange_authorization_code("c", "v", "http://127.0.0.1/cb")
+            .await;
+
+        match result {
+            Err(AuthError::TokenEndpointError { body, .. }) => {
+                assert!(body.contains("kept demanding a new DPoP nonce"), "{body}");
+            }
+            other => panic!("expected a clear misbehaving-endpoint error, got {other:?}"),
+        }
+    }
+
     /// A spent refresh token must surface as its own error so the caller can
     /// Must surface distinctly so the caller re-logins rather than retrying.
     #[tokio::test]
@@ -2299,5 +2437,68 @@ mod tests {
         provider.adopt_refresh_token("rt", None, None).unwrap();
         TokenProvider::initialize(&mut provider).await.unwrap();
         assert_eq!(provider.get_token().unwrap(), "user-token");
+    }
+
+    /// A client-credentials background task started by an earlier `initialize()`
+    /// must not keep renewing the service token forever after a refresh token
+    /// is later adopted and this provider becomes a user identity.
+    #[tokio::test]
+    async fn adopting_a_refresh_token_retires_the_client_credentials_background_task() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let (_server, issuer) = mock_issuer().await;
+
+        let mut provider = provider_for(&issuer);
+        TokenProvider::initialize(&mut provider).await.unwrap();
+        assert!(
+            provider.refresh_task.lock().is_some(),
+            "initialize() must start the client-credentials background task"
+        );
+
+        provider.adopt_refresh_token("rt", None, None).unwrap();
+
+        assert!(
+            provider.refresh_task.lock().is_none(),
+            "adopting a refresh token must retire the client-credentials background task"
+        );
+    }
+
+    /// A second concurrent `initialize()` must wait for an in-flight delegate
+    /// fetch, not report success before a token actually exists.
+    #[tokio::test]
+    async fn concurrent_initialize_waits_for_the_in_flight_delegate_fetch() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let (server, issuer) = mock_issuer().await;
+
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .and(wiremock::matchers::body_string_contains(
+                "grant_type=refresh_token",
+            ))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_millis(150))
+                    .set_body_json(json!({ "access_token": "delegated", "expires_in": 3600 })),
+            )
+            .mount(&server)
+            .await;
+
+        let provider = provider_for(&issuer);
+        provider.adopt_refresh_token("rt", None, None).unwrap();
+
+        let mut first = provider.clone();
+        let first_task = tokio::spawn(async move { TokenProvider::initialize(&mut first).await });
+
+        // Give the first call time to acquire the lock and start its (slow) fetch.
+        tokio::time::sleep(Duration::from_millis(30)).await;
+
+        let mut second = provider.clone();
+        TokenProvider::initialize(&mut second)
+            .await
+            .expect("second initialize must succeed once it stops waiting");
+
+        // The second call only returns once the delegate actually has a token.
+        assert_eq!(provider.get_token().unwrap(), "delegated");
+
+        first_task.await.unwrap().unwrap();
     }
 }

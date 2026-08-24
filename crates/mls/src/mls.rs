@@ -630,6 +630,19 @@ where
     pub async fn create_update_proposal(&mut self) -> Result<ProposalMsg, MlsError> {
         let (private_key, signing_identity) = self.create_signing_identity(true)?;
 
+        // Same check as `build_client`: a key rotated via `rotate_identity_key`
+        // follows the compile-time curve, not the runtime ciphersuite. Catch a
+        // mismatch here rather than proposing an unusable credential to the group.
+        let crypto_provider = crate::crypto::default_crypto_provider();
+        let ciphersuite = ciphersuite_for(self.enforce_pqc)?;
+        Self::check_signature_key_matches_ciphersuite(
+            &crypto_provider,
+            ciphersuite,
+            &private_key,
+            signing_identity.signature_key.as_ref(),
+        )
+        .await?;
+
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -1011,6 +1024,34 @@ mod tests {
         assert_eq!(
             rotated_a, rotated_b,
             "a single rotation must update the identity for all sessions/clones"
+        );
+
+        Ok(())
+    }
+
+    // Rotating to a key of the wrong curve for the active ciphersuite must be
+    // caught when proposing the update, not silently proposed to the group.
+    #[tokio::test]
+    async fn create_update_proposal_rejects_a_rotated_key_of_the_wrong_ciphersuite()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut mls = Mls::new(
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+        );
+        mls.initialize().await?;
+        mls.create_group()?;
+
+        // Simulate the ciphersuite mismatch: `enforce_pqc` selects Ed25519
+        // signatures at runtime, while `rotate_identity_key` still generates a
+        // key for the compile-time `curve25519` feature (off by default, so
+        // P-256) — the same mismatch `build_client` already guards against.
+        let mut mls = mls.with_enforce_pqc(true);
+        mls.rotate_identity_key().await?;
+
+        let result = mls.create_update_proposal().await;
+        assert!(
+            matches!(result, Err(MlsError::CryptoProviderError(_))),
+            "expected a ciphersuite mismatch error, got {result:?}"
         );
 
         Ok(())

@@ -238,6 +238,7 @@ impl RefreshTokenProvider {
                 ("client_id", self.config.client_id.as_str()),
             ],
             keys.as_ref(),
+            true,
         )
         .await?;
 

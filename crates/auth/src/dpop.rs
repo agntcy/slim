@@ -25,8 +25,10 @@ use crate::errors::AuthError;
 /// Required members only, lexicographically ordered, no whitespace. Serves as
 /// both the thumbprint hash input and a proof's `jwk` header member.
 fn canonical_jwk(public_key: &[u8]) -> Result<(String, &'static str), AuthError> {
-    match public_key.len() {
-        32 => Ok((
+    use crate::utils::KeyCurve;
+
+    match KeyCurve::from_public_key_len(public_key.len()) {
+        Some(KeyCurve::Ed25519) => Ok((
             format!(
                 r#"{{"crv":"Ed25519","kty":"OKP","x":"{}"}}"#,
                 B64URL.encode(public_key)
@@ -35,7 +37,7 @@ fn canonical_jwk(public_key: &[u8]) -> Result<(String, &'static str), AuthError>
         )),
         // Decompress first: one key must not thumbprint differently depending on
         // which SEC1 encoding the provider handed back.
-        33 | 65 => {
+        Some(KeyCurve::P256) => {
             let verifying_key = crate::utils::p256_verifying_key(public_key)?;
             let point = verifying_key.to_encoded_point(false);
             let x = point.x().ok_or(AuthError::DpopUnsupportedKeyType)?;
@@ -49,7 +51,7 @@ fn canonical_jwk(public_key: &[u8]) -> Result<(String, &'static str), AuthError>
                 "ES256",
             ))
         }
-        _ => Err(AuthError::DpopUnsupportedKeyType),
+        None => Err(AuthError::DpopUnsupportedKeyType),
     }
 }
 
@@ -126,14 +128,16 @@ fn sign_jws(
     private_key: &[u8],
     public_key: &[u8],
 ) -> Result<Vec<u8>, AuthError> {
-    match public_key.len() {
-        32 => {
+    use crate::utils::KeyCurve;
+
+    match KeyCurve::from_public_key_len(public_key.len()) {
+        Some(KeyCurve::Ed25519) => {
             use ed25519_dalek::Signer;
 
             let key = crate::utils::ed25519_signing_key(private_key, public_key)?;
             Ok(key.sign(signing_input).to_bytes().to_vec())
         }
-        33 | 65 => {
+        Some(KeyCurve::P256) => {
             use p256::ecdsa::Signature;
             use p256::ecdsa::signature::Signer as _;
 
@@ -141,7 +145,7 @@ fn sign_jws(
             let signature: Signature = key.sign(signing_input);
             Ok(signature.to_bytes().to_vec())
         }
-        _ => Err(AuthError::DpopUnsupportedKeyType),
+        None => Err(AuthError::DpopUnsupportedKeyType),
     }
 }
 

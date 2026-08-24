@@ -60,6 +60,12 @@ pub struct LoginArgs {
     /// `cnf.jkt`. Requires an IdP with DPoP enabled (Keycloak >= 24).
     #[arg(long)]
     dpop: bool,
+
+    /// Allow a plain-http discovery URL and endpoints, skipping the https
+    /// requirement. Only for talking to a local test IdP (e.g. loopback
+    /// Keycloak) — never use this against a real provider.
+    #[arg(long)]
+    allow_http: bool,
 }
 
 struct ProviderMetadata {
@@ -72,10 +78,12 @@ struct ProviderMetadata {
     id_token_signing_alg_values_supported: Vec<String>,
 }
 
-async fn fetch_metadata(client: &Client, discovery_url: &str) -> Result<ProviderMetadata> {
-    if !discovery_url.to_ascii_lowercase().starts_with("https://") {
-        bail!("discovery URL must use https");
-    }
+async fn fetch_metadata(
+    client: &Client,
+    discovery_url: &str,
+    allow_http: bool,
+) -> Result<ProviderMetadata> {
+    check_scheme(discovery_url, allow_http).context("discovery URL")?;
 
     let doc: Value = client
         .get(discovery_url)
@@ -125,9 +133,7 @@ async fn fetch_metadata(client: &Client, discovery_url: &str) -> Result<Provider
         ("token_endpoint", &token_endpoint),
         ("jwks_uri", &jwks_uri),
     ] {
-        if !url.to_ascii_lowercase().starts_with("https://") {
-            bail!("{name} must be an https URL");
-        }
+        check_scheme(url, allow_http).with_context(|| name.to_string())?;
     }
 
     Ok(ProviderMetadata {
@@ -139,6 +145,20 @@ async fn fetch_metadata(client: &Client, discovery_url: &str) -> Result<Provider
         response_types_supported: str_array("response_types_supported"),
         id_token_signing_alg_values_supported: str_array("id_token_signing_alg_values_supported"),
     })
+}
+
+/// Requires `https` unless `allow_http` is set, in which case any scheme the
+/// `url` crate accepts is fine. Callers still parse these URLs again later, so
+/// this only enforces the scheme, not overall well-formedness.
+fn check_scheme(url: &str, allow_http: bool) -> Result<()> {
+    if allow_http {
+        Url::parse(url).context("invalid URL")?;
+        return Ok(());
+    }
+    if !url.to_ascii_lowercase().starts_with("https://") {
+        bail!("must be an https URL (pass --allow-http to test against a local IdP)");
+    }
+    Ok(())
 }
 
 async fn bind_callback_listener(host: &str, port: u16) -> Result<TcpListener> {
@@ -323,7 +343,7 @@ pub async fn run(args: &LoginArgs, config_file: Option<&str>, server: Option<&st
         .timeout(Duration::from_secs(30))
         .build()?;
 
-    let meta = fetch_metadata(&http, &args.discovery_uri).await?;
+    let meta = fetch_metadata(&http, &args.discovery_uri, args.allow_http).await?;
 
     if !meta.response_types_supported.iter().any(|s| s == "code") {
         bail!("provider does not support authorization code flow");
@@ -431,6 +451,7 @@ pub async fn run(args: &LoginArgs, config_file: Option<&str>, server: Option<&st
         &meta.token_endpoint,
         &params,
         mls_keys.as_ref(),
+        false,
     )
     .await
     .context("token exchange")?;

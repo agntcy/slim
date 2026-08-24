@@ -444,9 +444,15 @@ where
         {
             let token_id = self.identity_provider.get_id()?;
 
+            // Salted with this app's own id (already unique per app name under one
+            // identity, see app.rs) so two apps sharing an OIDC identity don't
+            // derive the same group data/control channel address.
             let (c0, c1, c2) = destination.str_components();
-            let data_input = format!("{}/{}/{}/{}/data", token_id, c0, c1, c2);
-            let ctrl_input = format!("{}/{}/{}/{}/control", token_id, c0, c1, c2);
+            let data_input = format!("{}/{:x}/{}/{}/{}/data", token_id, self.app_id, c0, c1, c2);
+            let ctrl_input = format!(
+                "{}/{:x}/{}/{}/{}/control",
+                token_id, self.app_id, c0, c1, c2
+            );
 
             let mut data_id;
             let mut ctrl_id;

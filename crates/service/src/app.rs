@@ -208,8 +208,14 @@ where
         // Always generate the ID from identity token, ignoring any ID in the provided name
         let app_name_with_id = match identity_provider.get_id() {
             Ok(token_id) => {
+                // Salted with this app's own name so two apps sharing one identity
+                // (e.g. the same OIDC user's sender and receiver) get distinct ids
+                // instead of colliding on the same routing address.
+                let (c0, c1, c2) = app_name.str_components();
+                let id_input = format!("{token_id}\0{c0}\0{c1}\0{c2}");
+
                 // Use XXH3-128 for a native 128-bit hash of the token ID
-                let mut id_hash = twox_hash::XxHash3_128::oneshot(token_id.as_bytes());
+                let mut id_hash = twox_hash::XxHash3_128::oneshot(id_input.as_bytes());
                 if NameId::is_reserved_id(id_hash) {
                     id_hash %= u128::MAX - NameId::RESERVED_IDS;
                 }

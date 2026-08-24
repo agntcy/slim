@@ -340,22 +340,37 @@ impl Config {
     /// refresh token `slimctl login --dpop` bound for this issuer.
     pub fn create_identity_provider(&self) -> Result<OidcTokenProvider, ConfigAuthError> {
         let provider = self.create_provider()?;
-        self.seed_from_login(&provider);
 
-        // With neither a login nor a secret this builds fine and then fails every
-        // token fetch behind a swallowed warning. Say so at construction.
-        if !provider.mls_signature_keys_installed()
-            && self.client_secret.as_deref().unwrap_or_default().is_empty()
+        if self.should_adopt_stored_login() {
+            self.seed_from_login(&provider);
+        }
+
+        // A working renewal path is either a client_secret (service identity) or
+        // an adopted refresh-token delegate (user identity). An installed MLS
+        // key alone isn't enough — a login whose IdP granted no `offline_access`
+        // stores a key but no refresh token, which would otherwise build fine
+        // and only fail at the first token fetch, behind a swallowed warning.
+        if self.client_secret.as_deref().unwrap_or_default().is_empty()
+            && !provider.has_refresh_delegate()
         {
             tracing::error!(
                 issuer = %self.issuer_url,
-                "OIDC identity has no client secret and no stored login for this issuer; \
-                 run `slimctl login --dpop`, or set client_secret for a service identity"
+                "OIDC identity has no client secret and no usable stored login for this \
+                 issuer (its refresh token may be missing — check the IdP granted \
+                 `offline_access`); run `slimctl login --dpop`, or set client_secret for a \
+                 service identity"
             );
             return Err(ConfigAuthError::IdentityProviderNotConfigured);
         }
 
         Ok(provider)
+    }
+
+    /// A configured `client_secret` means this is a service identity: never let a
+    /// stray personal `slimctl login` for the same issuer on the same host
+    /// silently override it with someone's own MLS key and refresh token.
+    fn should_adopt_stored_login(&self) -> bool {
+        self.client_secret.as_deref().unwrap_or_default().is_empty()
     }
 
     /// Adopt what `slimctl login` left for this issuer: the MLS key the token was
@@ -998,6 +1013,20 @@ mod tests {
         assert!(!service.mls_signature_keys_installed());
     }
 
+    /// A service identity must never be overridden by a stray personal login
+    /// for the same issuer sitting in the same host's credentials file.
+    #[test]
+    fn service_identity_with_client_secret_does_not_adopt_stored_login() {
+        let cfg = Config::provider("svc", "secret", "https://idp.example.com");
+        assert!(!cfg.should_adopt_stored_login());
+    }
+
+    #[test]
+    fn public_client_without_secret_adopts_stored_login() {
+        let cfg = Config::new("https://idp.example.com").with_client_credentials("slim-app", "");
+        assert!(cfg.should_adopt_stored_login());
+    }
+
     /// Corrupt key material must not install a half-usable identity.
     #[test]
     fn corrupt_stored_mls_key_is_rejected() {
@@ -1009,6 +1038,28 @@ mod tests {
 
         Config::new(issuer).apply_stored_credentials(&creds, &provider);
         assert!(!provider.mls_signature_keys_installed());
+    }
+
+    /// A login whose IdP granted no `offline_access` stores an MLS key but no
+    /// refresh token — signature keys install fine, but there is no renewal
+    /// path. `create_identity_provider`'s construction-time guard must catch
+    /// this via `has_refresh_delegate`, not treat installed keys alone as proof
+    /// of a working identity.
+    #[test]
+    fn mls_key_without_a_refresh_token_leaves_no_renewal_path() {
+        let issuer = "https://idp.example.com";
+        let provider = identity_provider(issuer);
+        let (sk, pk) = slim_auth::utils::generate_mls_signature_keys().unwrap();
+        let mut creds = stored(issuer, Some((&sk, &pk)));
+        creds.refresh_token = None;
+
+        Config::new(issuer).apply_stored_credentials(&creds, &provider);
+
+        assert!(provider.mls_signature_keys_installed());
+        assert!(
+            !provider.has_refresh_delegate(),
+            "no refresh token means no renewal path, regardless of installed keys"
+        );
     }
 
     #[test]

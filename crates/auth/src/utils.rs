@@ -78,6 +78,26 @@ pub fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), crate::errors
     }
 }
 
+/// Which MLS signature key type a public key's encoding identifies, from its
+/// length alone: 32 bytes for Ed25519, 33 (compressed) or 65 (uncompressed)
+/// SEC1 bytes for P-256. The one place this dispatch is defined — every
+/// signer/verifier (here and in [`crate::dpop`]) keys off it instead of each
+/// repeating the same magic numbers.
+pub(crate) enum KeyCurve {
+    Ed25519,
+    P256,
+}
+
+impl KeyCurve {
+    pub(crate) fn from_public_key_len(len: usize) -> Option<Self> {
+        match len {
+            32 => Some(Self::Ed25519),
+            33 | 65 => Some(Self::P256),
+            _ => None,
+        }
+    }
+}
+
 /// Sign the header AAD bytes using the MLS signature key pair.
 ///
 /// Supports Ed25519 (Curve25519 MLS ciphersuite) and ECDSA P-256 (default MLS
@@ -87,10 +107,14 @@ pub fn sign_header_aad(
     private_key_bytes: &[u8],
     public_key_bytes: &[u8],
 ) -> Result<Vec<u8>, crate::errors::AuthError> {
-    match public_key_bytes.len() {
-        32 => sign_header_aad_ed25519(aad_bytes, private_key_bytes, public_key_bytes),
-        33 | 65 => sign_header_aad_p256(aad_bytes, private_key_bytes, public_key_bytes),
-        _ => Err(crate::errors::AuthError::MlsKeyGenerationFailed),
+    match KeyCurve::from_public_key_len(public_key_bytes.len()) {
+        Some(KeyCurve::Ed25519) => {
+            sign_header_aad_ed25519(aad_bytes, private_key_bytes, public_key_bytes)
+        }
+        Some(KeyCurve::P256) => {
+            sign_header_aad_p256(aad_bytes, private_key_bytes, public_key_bytes)
+        }
+        None => Err(crate::errors::AuthError::MlsKeyGenerationFailed),
     }
 }
 
@@ -100,10 +124,14 @@ pub fn verify_header_aad(
     signature_bytes: &[u8],
     public_key_bytes: &[u8],
 ) -> Result<(), crate::errors::AuthError> {
-    match public_key_bytes.len() {
-        32 => verify_header_aad_ed25519(aad_bytes, signature_bytes, public_key_bytes),
-        33 | 65 => verify_header_aad_p256(aad_bytes, signature_bytes, public_key_bytes),
-        _ => Err(crate::errors::AuthError::TokenInvalid),
+    match KeyCurve::from_public_key_len(public_key_bytes.len()) {
+        Some(KeyCurve::Ed25519) => {
+            verify_header_aad_ed25519(aad_bytes, signature_bytes, public_key_bytes)
+        }
+        Some(KeyCurve::P256) => {
+            verify_header_aad_p256(aad_bytes, signature_bytes, public_key_bytes)
+        }
+        None => Err(crate::errors::AuthError::TokenInvalid),
     }
 }
 
