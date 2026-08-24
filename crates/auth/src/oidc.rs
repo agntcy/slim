@@ -215,108 +215,6 @@ struct TokenCacheEntry {
     refresh_at: u64,
 }
 
-/// Cache for OIDC tokens to avoid repeated token requests
-#[derive(Debug)]
-struct OidcTokenCache {
-    /// Map from cache key (issuer_url + client_id + scope) to token entry
-    entries: RwLock<HashMap<String, TokenCacheEntry>>,
-}
-
-impl OidcTokenCache {
-    /// Create a new OIDC token cache
-    fn new() -> Self {
-        OidcTokenCache {
-            entries: RwLock::new(HashMap::new()),
-        }
-    }
-
-    /// Store a token in the cache
-    fn store(
-        &self,
-        key: impl Into<String>,
-        token: impl Into<String>,
-        expiry: u64,
-        refresh_at: u64,
-    ) {
-        let entry = TokenCacheEntry {
-            token: token.into(),
-            expiry,
-            refresh_at,
-        };
-        self.entries.write().insert(key.into(), entry);
-    }
-
-    /// Retrieve a token from the cache if it exists and is still valid
-    fn get(&self, key: impl Into<String>) -> Option<String> {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or(Duration::from_secs(0))
-            .as_secs();
-
-        let key = key.into();
-        if let Some(entry) = self.entries.read().get(&key)
-            && entry.expiry > now + REFRESH_BUFFER_SECONDS
-        {
-            return Some(entry.token.clone());
-        }
-        None
-    }
-
-    /// Get tokens that need to be refreshed
-    fn get_tokens_needing_refresh(&self) -> Vec<String> {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or(Duration::from_secs(0))
-            .as_secs();
-
-        self.entries
-            .read()
-            .iter()
-            .filter_map(|(key, entry)| {
-                if now >= entry.refresh_at && entry.expiry > now + REFRESH_BUFFER_SECONDS {
-                    Some(key.clone())
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-}
-
-/// Cache for JWKS to avoid repeated JWKS requests
-#[derive(Debug)]
-struct OidcJwksCache {
-    /// Map from issuer URL to JWKS entry
-    entries: RwLock<HashMap<String, JwksCache>>,
-}
-
-impl OidcJwksCache {
-    /// Create a new JWKS cache
-    fn new() -> Self {
-        OidcJwksCache {
-            entries: RwLock::new(HashMap::new()),
-        }
-    }
-
-    /// Store JWKS in the cache with custom TTL
-    fn store_with_ttl(&self, issuer_url: impl Into<String>, jwks: JwkSet, ttl: Duration) {
-        let entry = JwksCache::new(jwks, Instant::now(), ttl);
-        self.entries.write().insert(issuer_url.into(), entry);
-    }
-
-    /// Retrieve JWKS from the cache if it exists and is still valid
-    fn get(&self, issuer_url: impl Into<String>) -> Option<JwkSet> {
-        let key = issuer_url.into();
-        if let Some(entry) = self.entries.read().get(&key) {
-            // Use the per-entry TTL instead of hardcoded value
-            if entry.fetched_at.elapsed() <= entry.ttl {
-                return Some(entry.jwks.clone());
-            }
-        }
-        None
-    }
-}
-
 #[derive(Clone)]
 pub struct OidcProviderConfig {
     pub client_id: String,
@@ -331,7 +229,7 @@ pub struct OidcProviderConfig {
 #[derive(Clone)]
 pub struct OidcTokenProvider {
     config: OidcProviderConfig,
-    token_cache: Arc<OidcTokenCache>,
+    token: Arc<RwLock<Option<TokenCacheEntry>>>,
     client: ReqwestClient,
     /// Shutdown signal sender for the background refresh task
     shutdown_tx: Arc<watch::Sender<bool>>,
@@ -368,11 +266,10 @@ impl OidcTokenProvider {
 
         // Create shutdown channel for background task
         let (shutdown_tx, _shutdown_rx) = watch::channel(false);
-        let token_cache = Arc::new(OidcTokenCache::new());
 
         Ok(Self {
             config,
-            token_cache,
+            token: Arc::new(RwLock::new(None)),
             client,
             shutdown_tx: Arc::new(shutdown_tx),
             refresh_task: Arc::new(parking_lot::Mutex::new(None)),
@@ -422,16 +319,6 @@ impl OidcTokenProvider {
             // Don't fail initialization, let background task handle it
         }
         Ok(())
-    }
-
-    /// Generate cache key for token caching
-    fn get_cache_key(&self) -> String {
-        format!(
-            "{}:{}:{}",
-            self.config.issuer_url,
-            self.config.client_id,
-            self.config.scope.as_deref().unwrap_or("")
-        )
     }
 
     /// Check if cached token is still valid
@@ -514,10 +401,11 @@ impl OidcTokenProvider {
         // Calculate refresh time (2/3 of token lifetime) using integer math to avoid float casting
         let refresh_at = now + (expires_in * 2 / 3);
 
-        // Cache the token using the structured cache
-        let cache_key = self.get_cache_key();
-        self.token_cache
-            .store(cache_key, access_token, expiry, refresh_at);
+        *self.token.write() = Some(TokenCacheEntry {
+            token: access_token.to_string(),
+            expiry,
+            refresh_at,
+        });
 
         Ok(access_token.to_string())
     }
@@ -569,12 +457,11 @@ impl OidcTokenProvider {
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs();
-                self.token_cache.store(
-                    self.get_cache_key(),
-                    access_token.clone(),
-                    now + expires_in,
-                    now + (expires_in * 2 / 3),
-                );
+                *self.token.write() = Some(TokenCacheEntry {
+                    token: access_token.clone(),
+                    expiry: now + expires_in,
+                    refresh_at: now + (expires_in * 2 / 3),
+                });
             }
         }
 
@@ -612,6 +499,17 @@ impl OidcTokenProvider {
         self.store_token_response(&response)
     }
 
+    /// Whether the background loop should attempt a refresh right now. `None`
+    /// means the initial fetch in `initialize` failed (it deliberately doesn't
+    /// fail startup), so this must return true or the provider is stuck
+    /// tokenless forever.
+    fn needs_background_refresh(&self, now: u64) -> bool {
+        match self.token.read().as_ref() {
+            None => true,
+            Some(entry) => now >= entry.refresh_at && entry.expiry > now + REFRESH_BUFFER_SECONDS,
+        }
+    }
+
     /// Start the background refresh task
     fn start_refresh_task(&self, mut shutdown_rx: watch::Receiver<bool>) -> JoinHandle<()> {
         let provider_clone = self.clone();
@@ -622,18 +520,15 @@ impl OidcTokenProvider {
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
-                        // Check for tokens that need refreshing
-                        let tokens_to_refresh = provider_clone.token_cache.get_tokens_needing_refresh();
+                        let now = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
 
-                        for cache_key in tokens_to_refresh {
-                            // Extract the parts from the cache key to determine which token to refresh
-                            // For now, we'll just refresh the current provider's token if it matches
-                            let current_cache_key = provider_clone.get_cache_key();
-                            if cache_key == current_cache_key
-                                && let Err(e) = provider_clone.refresh_token_background().await
-                            {
-                                tracing::error!(error = %e.chain(), "failed to refresh token in background");
-                            }
+                        if provider_clone.needs_background_refresh(now)
+                            && let Err(e) = provider_clone.refresh_token_background().await
+                        {
+                            tracing::error!(error = %e.chain(), "failed to refresh token in background");
                         }
                     }
                     _ = shutdown_rx.changed() => {
@@ -773,10 +668,16 @@ impl TokenProvider for OidcTokenProvider {
             return delegate.get_token();
         }
 
-        let cache_key = self.get_cache_key();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         let token = self
-            .token_cache
-            .get(&cache_key)
+            .token
+            .read()
+            .as_ref()
+            .filter(|entry| entry.expiry > now + REFRESH_BUFFER_SECONDS)
+            .map(|entry| entry.token.clone())
             .ok_or(AuthError::GetTokenError)?;
 
         Ok(present_credential(
@@ -857,7 +758,7 @@ fn alg_from_jwk(jwk: &Jwk) -> Result<Algorithm, AuthError> {
 pub struct OidcVerifier {
     issuer_url: String,
     audience: String,
-    jwks_cache: Arc<OidcJwksCache>,
+    jwks: Arc<RwLock<Option<JwksCache>>>,
     http_client: ReqwestClient,
     jwks_ttl: Duration,
     userinfo_endpoint: Arc<std::sync::OnceLock<String>>,
@@ -872,7 +773,7 @@ impl OidcVerifier {
         Self {
             issuer_url: issuer_url.into(),
             audience: audience.into(),
-            jwks_cache: Arc::new(OidcJwksCache::new()),
+            jwks: Arc::new(RwLock::new(None)),
             http_client: reqwest::Client::new(),
             jwks_ttl: Duration::from_secs(3600), // Default 1 hour
             userinfo_endpoint: Arc::new(std::sync::OnceLock::new()),
@@ -953,15 +854,14 @@ impl OidcVerifier {
 
     /// Get JWKS (from cache or fetch new)
     async fn get_jwks(&self) -> Result<JwkSet, AuthError> {
-        // Check cache first
-        if let Some(cached_jwks) = self.jwks_cache.get(&self.issuer_url) {
-            return Ok(cached_jwks);
+        if let Some(cached) = self.jwks.read().as_ref()
+            && cached.fetched_at.elapsed() <= cached.ttl
+        {
+            return Ok(cached.jwks.clone());
         }
 
-        // Fetch new JWKS and cache it with the configured TTL
         let jwks = self.fetch_jwks().await?;
-        self.jwks_cache
-            .store_with_ttl(&self.issuer_url, jwks.clone(), self.jwks_ttl);
+        *self.jwks.write() = Some(JwksCache::new(jwks.clone(), Instant::now(), self.jwks_ttl));
         Ok(jwks)
     }
 
@@ -1078,11 +978,13 @@ impl Verifier for OidcVerifier {
     }
 
     fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
-        if let Some(cached_jwks) = self.jwks_cache.get(&self.issuer_url) {
-            self.verify_token_util(token.as_ref(), &cached_jwks)?;
-            Ok(())
-        } else {
-            Err(AuthError::WouldBlockOn)
+        let cached = self.jwks.read();
+        match cached.as_ref().filter(|c| c.fetched_at.elapsed() <= c.ttl) {
+            Some(cached) => {
+                self.verify_token_util(token.as_ref(), &cached.jwks)?;
+                Ok(())
+            }
+            None => Err(AuthError::WouldBlockOn),
         }
     }
 
@@ -1109,8 +1011,11 @@ impl Verifier for OidcVerifier {
         // fails every member of an OIDC-backed group. Userinfo needs async and is
         // skipped; `sub` and `cnf` come from the token anyway.
         let jwks = self
-            .jwks_cache
-            .get(&self.issuer_url)
+            .jwks
+            .read()
+            .as_ref()
+            .filter(|c| c.fetched_at.elapsed() <= c.ttl)
+            .map(|c| c.jwks.clone())
             .ok_or(AuthError::WouldBlockOn)?;
         let claims = self.verify_token_util(token.as_ref(), &jwks)?;
         Ok(serde_json::from_value(claims)?)
@@ -1489,6 +1394,25 @@ mod tests {
         assert!(!provider.is_token_valid(now, expiry_invalid));
     }
 
+    /// A failed initial fetch leaves `token` at `None`; the background loop
+    /// must keep retrying rather than getting stuck waiting for a `refresh_at`
+    /// that was never set.
+    #[test]
+    fn background_refresh_retries_after_a_failed_initial_fetch() {
+        let provider = provider_for("https://idp.example");
+        let now = 1_000;
+
+        assert!(provider.needs_background_refresh(now));
+
+        *provider.token.write() = Some(TokenCacheEntry {
+            token: "t".to_string(),
+            expiry: now + 3600,
+            refresh_at: now + 2400,
+        });
+        assert!(!provider.needs_background_refresh(now));
+        assert!(provider.needs_background_refresh(now + 2400));
+    }
+
     #[tokio::test]
     async fn test_oidc_token_provider_error_handling() {
         // Initialize crypto provider for tests
@@ -1507,7 +1431,7 @@ mod tests {
         // Manually create a provider without calling the constructor
         // to avoid the hanging issue during construction
         let (shutdown_tx, _shutdown_rx) = watch::channel(false);
-        let token_cache = Arc::new(OidcTokenCache::new());
+        let token = Arc::new(RwLock::new(None));
         let http_client = reqwest::Client::new();
 
         let config = OidcProviderConfig {
@@ -1520,7 +1444,7 @@ mod tests {
 
         let provider = OidcTokenProvider {
             config,
-            token_cache: token_cache.clone(),
+            token: token.clone(),
             client: http_client,
             shutdown_tx: Arc::new(shutdown_tx),
             refresh_task: Arc::new(parking_lot::Mutex::new(None)),
@@ -1596,7 +1520,7 @@ mod tests {
         // Manually create a provider without calling the constructor
         // to avoid the hanging issue during construction
         let (shutdown_tx, _shutdown_rx) = watch::channel(false);
-        let token_cache = Arc::new(OidcTokenCache::new());
+        let token = Arc::new(RwLock::new(None));
 
         let http_client = reqwest::Client::new();
 
@@ -1610,7 +1534,7 @@ mod tests {
 
         let provider = OidcTokenProvider {
             config,
-            token_cache: token_cache.clone(),
+            token: token.clone(),
             client: http_client,
             shutdown_tx: Arc::new(shutdown_tx),
             refresh_task: Arc::new(parking_lot::Mutex::new(None)),
@@ -2134,7 +2058,7 @@ mod tests {
             .unwrap();
 
         assert!(
-            provider.token_cache.get(provider.get_cache_key()).is_none(),
+            provider.token.read().is_none(),
             "the service cache must stay empty once a delegate owns renewal"
         );
     }
@@ -2425,12 +2349,11 @@ mod tests {
 
         let mut provider = provider_for(&issuer);
         // Populate the client-credentials cache, as a service-mode provider would.
-        provider.token_cache.store(
-            provider.get_cache_key(),
-            "service-token",
-            u64::MAX,
-            u64::MAX,
-        );
+        *provider.token.write() = Some(TokenCacheEntry {
+            token: "service-token".to_string(),
+            expiry: u64::MAX,
+            refresh_at: u64::MAX,
+        });
         assert_eq!(provider.get_token().unwrap(), "service-token");
 
         // Once a refresh token is adopted, the delegate's cache is the only one read.
