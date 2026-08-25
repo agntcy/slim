@@ -24,8 +24,8 @@ extra:
     repo_slug: agntcy/slim
     org: AGNTCY
     # SDK pages under slim/components/sdk/ are included from agntcy/slim-bindings.
-    # Override SLIM_BINDINGS_DOCS_REF to pin a branch or tag (default: docs-slim-sdks).
-    slim_bindings_docs_ref: !ENV [SLIM_BINDINGS_DOCS_REF, 'docs-slim-sdks']
+    # Override SLIM_BINDINGS_DOCS_REF to pin a branch or tag (default: main).
+    slim_bindings_docs_ref: !ENV [SLIM_BINDINGS_DOCS_REF, 'main']
 
   copyright: >
     © 2026, Agntcy, a Series of LF Projects, LLC. All rights reserved.

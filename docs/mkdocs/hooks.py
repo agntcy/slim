@@ -28,7 +28,7 @@ _REPOBEATS_DATA_FILE = "javascripts/slim-repobeats-data.js"
 _REPobeATS_CACHE_FILE = Path(__file__).resolve().parent / ".cache" / "repobeats.json"
 _REPobeATS_CACHE_TTL_SECONDS = 45 * 60
 _DEFAULT_REPO = "agntcy/slim"
-_DEFAULT_BINDINGS_DOCS_REF = "docs-slim-sdks"
+_DEFAULT_BINDINGS_DOCS_REF = "main"
 _BINDINGS_REPO = "agntcy/slim-bindings"
 
 # Paths under docs/content/ that mirror agntcy/slim-bindings/docs/.
