@@ -753,12 +753,82 @@ fn alg_from_jwk(jwk: &Jwk) -> Result<Algorithm, AuthError> {
     }
 }
 
+/// One JWKS fetch, with its keys already converted for verification.
+///
+/// `DecodingKey::from_jwk` re-parses the key material (an RSA modulus and
+/// exponent, say) on every call, so preparing the keys once per fetch takes that
+/// work off the per-message verification path. Held behind an `Arc` so a verify
+/// takes a refcount rather than deep-cloning the whole key set.
+struct VerificationKeys {
+    /// The raw key set plus its `by_kid` index, `fetched_at` and `ttl`.
+    cache: JwksCache,
+    /// `kid` → prepared key. A key whose JWK could not be converted is absent
+    /// here, and verification falls back to converting on demand so the original
+    /// error still surfaces.
+    prepared: HashMap<String, (DecodingKey, Algorithm)>,
+    /// The lone key, when the set holds exactly one — the only thing a token
+    /// with no `kid` may resolve to.
+    single: Option<(DecodingKey, Algorithm)>,
+}
+
+impl VerificationKeys {
+    fn new(jwks: JwkSet, fetched_at: Instant, ttl: Duration) -> Self {
+        let cache = JwksCache::new(jwks, fetched_at, ttl);
+
+        // Convert everything convertible now. Failures are dropped rather than
+        // propagated: one unsupported key in a JWKS must not fail verification
+        // for tokens signed with the others.
+        let prepared = cache
+            .by_kid
+            .iter()
+            .filter_map(|(kid, jwk)| {
+                let key = DecodingKey::from_jwk(jwk).ok()?;
+                Some((kid.clone(), (key, alg_from_jwk(jwk).ok()?)))
+            })
+            .collect();
+
+        let single = match cache.jwks.keys.as_slice() {
+            [only] => DecodingKey::from_jwk(only)
+                .ok()
+                .zip(alg_from_jwk(only).ok()),
+            _ => None,
+        };
+
+        Self {
+            cache,
+            prepared,
+            single,
+        }
+    }
+
+    fn is_fresh(&self) -> bool {
+        self.cache.fetched_at.elapsed() <= self.cache.ttl
+    }
+
+    /// The JWK a token header selects, with the same rules the prepared lookup
+    /// uses: by `kid` if present, else the lone key.
+    fn lookup_jwk(&self, header: &jsonwebtoken::Header) -> Result<&Jwk, AuthError> {
+        match &header.kid {
+            // `by_kid` keeps the first key per `kid`, matching a linear scan.
+            Some(kid) => self
+                .cache
+                .by_kid
+                .get(kid)
+                .ok_or_else(|| AuthError::OidcKeyNotFound(kid.clone())),
+            None => match self.cache.jwks.keys.as_slice() {
+                [single] => Ok(single),
+                _ => Err(AuthError::OidcMissingKidWithMultipleKeys),
+            },
+        }
+    }
+}
+
 /// OIDC Token Verifier that validates JWTs using JWKS
 #[derive(Clone)]
 pub struct OidcVerifier {
     issuer_url: String,
     audience: String,
-    jwks: Arc<RwLock<Option<JwksCache>>>,
+    keys: Arc<RwLock<Option<Arc<VerificationKeys>>>>,
     http_client: ReqwestClient,
     jwks_ttl: Duration,
     userinfo_endpoint: Arc<std::sync::OnceLock<String>>,
@@ -773,7 +843,7 @@ impl OidcVerifier {
         Self {
             issuer_url: issuer_url.into(),
             audience: audience.into(),
-            jwks: Arc::new(RwLock::new(None)),
+            keys: Arc::new(RwLock::new(None)),
             http_client: reqwest::Client::new(),
             jwks_ttl: Duration::from_secs(3600), // Default 1 hour
             userinfo_endpoint: Arc::new(std::sync::OnceLock::new()),
@@ -852,17 +922,23 @@ impl OidcVerifier {
         Ok(jwks)
     }
 
-    /// Get JWKS (from cache or fetch new)
-    async fn get_jwks(&self) -> Result<JwkSet, AuthError> {
-        if let Some(cached) = self.jwks.read().as_ref()
-            && cached.fetched_at.elapsed() <= cached.ttl
-        {
-            return Ok(cached.jwks.clone());
+    /// Prepared verification keys, still-fresh from cache or newly fetched.
+    async fn verification_keys(&self) -> Result<Arc<VerificationKeys>, AuthError> {
+        if let Some(cached) = self.cached_verification_keys() {
+            return Ok(cached);
         }
 
         let jwks = self.fetch_jwks().await?;
-        *self.jwks.write() = Some(JwksCache::new(jwks.clone(), Instant::now(), self.jwks_ttl));
-        Ok(jwks)
+        let keys = Arc::new(VerificationKeys::new(jwks, Instant::now(), self.jwks_ttl));
+        *self.keys.write() = Some(keys.clone());
+        Ok(keys)
+    }
+
+    /// The cached keys if they are still fresh. Clones the `Arc` and releases the
+    /// lock, so verification no longer runs with the read guard held — a refresh
+    /// writer would otherwise wait on every in-flight signature check.
+    fn cached_verification_keys(&self) -> Option<Arc<VerificationKeys>> {
+        self.keys.read().as_ref().filter(|k| k.is_fresh()).cloned()
     }
 
     /// Verify a full credential (see [`DPOP_KEY_SEPARATOR`]) against JWKS. Any
@@ -870,29 +946,34 @@ impl OidcVerifier {
     fn verify_token_util(
         &self,
         credential: &str,
-        jwks: &JwkSet,
+        keys: &VerificationKeys,
     ) -> Result<serde_json::Value, AuthError> {
         let (token, presented_key) = split_credential(credential);
         let header = decode_header(token)?;
 
-        let jwk = match header.kid {
-            Some(kid) => jwks
-                .keys
-                .iter()
-                .find(|k| k.common.key_id.as_deref() == Some(&kid))
-                .ok_or(AuthError::OidcKeyNotFound(kid))?,
-            None => match jwks.keys.as_slice() {
-                [single] => single,
-                _ => return Err(AuthError::OidcMissingKidWithMultipleKeys),
-            },
+        let prepared = match &header.kid {
+            Some(kid) => keys.prepared.get(kid),
+            None => keys.single.as_ref(),
         };
 
-        let decoding_key = DecodingKey::from_jwk(jwk)?;
-        let mut validation = Validation::new(alg_from_jwk(jwk)?);
+        // A key absent from `prepared` is one that failed to convert at fetch
+        // time. Convert it again here so the caller sees why, rather than the
+        // "key not found" a missing entry would otherwise imply.
+        let converted_now;
+        let (decoding_key, alg) = match prepared {
+            Some((key, alg)) => (key, *alg),
+            None => {
+                let jwk = keys.lookup_jwk(&header)?;
+                converted_now = (DecodingKey::from_jwk(jwk)?, alg_from_jwk(jwk)?);
+                (&converted_now.0, converted_now.1)
+            }
+        };
+
+        let mut validation = Validation::new(alg);
         validation.set_audience(&[&self.audience]);
         validation.set_issuer(&[&self.issuer_url]);
 
-        let token_data = decode::<serde_json::Value>(token, &decoding_key, &validation)?;
+        let token_data = decode::<serde_json::Value>(token, decoding_key, &validation)?;
         let mut claims = token_data.claims;
 
         match presented_key {
@@ -904,6 +985,24 @@ impl OidcVerifier {
         }
 
         Ok(claims)
+    }
+
+    /// How long claims for this token may be cached: the configured TTL, but
+    /// never past the token's own `exp`.
+    ///
+    /// A cache hit short-circuits verification, so an entry outliving the token
+    /// would keep an expired token verifying for the rest of the TTL. `exp` is
+    /// read from the already-verified claims, so a token without one (the
+    /// validator rejects those by default) just gets the plain TTL.
+    fn claim_cache_lifetime(&self, claims: &serde_json::Value) -> Duration {
+        let Some(exp) = claims.get("exp").and_then(|e| e.as_u64()) else {
+            return self.claim_cache_ttl;
+        };
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        Duration::from_secs(exp.saturating_sub(now)).min(self.claim_cache_ttl)
     }
 
     /// Fetch userinfo claims; returns empty object on any error (best effort).
@@ -940,25 +1039,47 @@ impl OidcVerifier {
             return Ok(serde_json::from_value(cached_claims.clone())?);
         }
 
-        let jwks = self.get_jwks().await?;
-        let mut claims = self.verify_token_util(token, &jwks)?;
-        // Bearer-auth call: the access token alone, never the key suffix.
-        let extra = self.userinfo_claims(split_credential(token).0).await;
-        if let (Some(obj), Some(extra_obj)) = (claims.as_object_mut(), extra.as_object()) {
-            for (k, v) in extra_obj {
-                obj.entry(k).or_insert_with(|| v.clone());
-            }
-        }
+        let keys = self.verification_keys().await?;
+        let (access_token, presented_key) = split_credential(token);
+        let mut claims = self.verify_token_util(token, &keys)?;
 
-        // The merge can reintroduce a `pubkey` that `verify_token_util` stripped.
-        if split_credential(token).1.is_none() {
+        // A presented key means a DPoP identity credential, and the identity path
+        // reads only `sub` and the `pubkey` that `bind_presented_key` already
+        // derived from the verified `cnf.jkt` — so userinfo would cost a network
+        // round trip per message for claims nothing downstream reads. The sync
+        // `try_get_claims` path skips it for the same reason.
+        //
+        // Deliberately scoped to the DPoP case: plain bearer credentials still
+        // fetch userinfo, because transport-auth policies (Rego/CEL) may read
+        // claims like `groups` that only userinfo carries. This assumes a
+        // `~`-suffixed credential never reaches a policy-evaluated path — true
+        // today, as transport providers never get MLS keys installed.
+        //
+        // Note this leaves the DPoP path with no per-message IdP contact. That
+        // costs nothing today: `userinfo_claims` swallows every error, so a 401
+        // for a revoked token is already ignored. If it is ever made to fail
+        // closed as a revocation check, revisit this — DPoP credentials would
+        // otherwise be silently exempt.
+        if presented_key.is_none() {
+            // Bearer-auth call: the access token alone, never the key suffix.
+            let extra = self.userinfo_claims(access_token).await;
+            if let (Some(obj), Some(extra_obj)) = (claims.as_object_mut(), extra.as_object()) {
+                for (k, v) in extra_obj {
+                    obj.entry(k).or_insert_with(|| v.clone());
+                }
+            }
+
+            // The merge can reintroduce a `pubkey` that `verify_token_util` stripped.
             strip_unverified_pubkey(&mut claims);
         }
 
         if let Some(cache) = &self.claim_cache {
             cache.write().insert(
                 token.to_owned(),
-                (claims.clone(), Instant::now() + self.claim_cache_ttl),
+                (
+                    claims.clone(),
+                    Instant::now() + self.claim_cache_lifetime(&claims),
+                ),
             );
         }
 
@@ -978,14 +1099,11 @@ impl Verifier for OidcVerifier {
     }
 
     fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
-        let cached = self.jwks.read();
-        match cached.as_ref().filter(|c| c.fetched_at.elapsed() <= c.ttl) {
-            Some(cached) => {
-                self.verify_token_util(token.as_ref(), &cached.jwks)?;
-                Ok(())
-            }
-            None => Err(AuthError::WouldBlockOn),
-        }
+        let keys = self
+            .cached_verification_keys()
+            .ok_or(AuthError::WouldBlockOn)?;
+        self.verify_token_util(token.as_ref(), &keys)?;
+        Ok(())
     }
 
     async fn get_claims<Claims>(&self, token: impl AsRef<str> + Send) -> Result<Claims, AuthError>
@@ -1010,14 +1128,10 @@ impl Verifier for OidcVerifier {
         // path MLS has — `validate_member` is sync — so returning `WouldBlockOn`
         // fails every member of an OIDC-backed group. Userinfo needs async and is
         // skipped; `sub` and `cnf` come from the token anyway.
-        let jwks = self
-            .jwks
-            .read()
-            .as_ref()
-            .filter(|c| c.fetched_at.elapsed() <= c.ttl)
-            .map(|c| c.jwks.clone())
+        let keys = self
+            .cached_verification_keys()
             .ok_or(AuthError::WouldBlockOn)?;
-        let claims = self.verify_token_util(token.as_ref(), &jwks)?;
+        let claims = self.verify_token_util(token.as_ref(), &keys)?;
         Ok(serde_json::from_value(claims)?)
     }
 }
@@ -1639,8 +1753,8 @@ mod tests {
 
         let verifier = OidcVerifier::new(issuer_url, "test-audience");
 
-        // Populate JWKS cache so try_verify can use it synchronously
-        let _jwks = verifier.get_jwks().await.unwrap();
+        // Populate the key cache so try_verify can use it synchronously
+        let _keys = verifier.verification_keys().await.unwrap();
 
         // Exercise Verifier::try_verify (sync with warm cache)
         verifier.try_verify(&token).unwrap();
@@ -1655,6 +1769,96 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------
+    /// Keys are prepared eagerly per fetch, so one key that cannot be converted
+    /// must not take the rest of the set with it — tokens signed by a sibling key
+    /// still have to verify. It also has to stay reachable for error reporting,
+    /// or selecting it would report "key not found" instead of why it is unusable.
+    #[test]
+    fn unconvertible_key_does_not_block_the_rest_of_the_set() {
+        let with_kid = |kid: &str| jsonwebtoken::Header {
+            kid: Some(kid.to_owned()),
+            ..jsonwebtoken::Header::new(Algorithm::RS256)
+        };
+
+        // A usable RSA key (the RFC 7638 §3.1 example) alongside a symmetric key,
+        // which has no place in a public JWKS and cannot be prepared.
+        let jwks: JwkSet = serde_json::from_value(json!({
+            "keys": [
+                {
+                    "kty": "RSA",
+                    "kid": "rsa-1",
+                    "alg": "RS256",
+                    "e": "AQAB",
+                    "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw"
+                },
+                { "kty": "oct", "kid": "sym-1", "k": "c2VjcmV0" }
+            ]
+        }))
+        .unwrap();
+
+        let keys = VerificationKeys::new(jwks, Instant::now(), Duration::from_secs(3600));
+
+        assert!(
+            keys.prepared.contains_key("rsa-1"),
+            "the usable key must be prepared"
+        );
+        assert!(
+            !keys.prepared.contains_key("sym-1"),
+            "a symmetric key must never be prepared"
+        );
+        // Two keys in the set, so a token with no `kid` resolves to nothing.
+        assert!(keys.single.is_none());
+
+        // Still reachable, so verification reports why it is unusable...
+        assert!(keys.lookup_jwk(&with_kid("sym-1")).is_ok());
+        // ...while a genuinely absent `kid` is still a missing key.
+        assert!(matches!(
+            keys.lookup_jwk(&with_kid("absent")),
+            Err(AuthError::OidcKeyNotFound(_))
+        ));
+    }
+
+    /// A claim-cache hit short-circuits verification, so an entry must never
+    /// outlive the token it was built from — otherwise a long `claim_cache_ttl`
+    /// keeps an expired token verifying. Guards the clamp in
+    /// `claim_cache_lifetime`, which a bare `Instant::now() + ttl` would drop.
+    #[test]
+    fn claim_cache_entry_never_outlives_the_token() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let verifier = OidcVerifier::new("https://idp.example.com", "aud")
+            .with_claim_cache(Duration::from_secs(3600));
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // Token expiring well inside the TTL: the token's own exp must win.
+        let soon = json!({ "sub": "u", "exp": now + 30 });
+        let lifetime = verifier.claim_cache_lifetime(&soon);
+        assert!(
+            lifetime <= Duration::from_secs(30),
+            "cache entry outlives the token: {lifetime:?}"
+        );
+
+        // Token outliving the TTL: the configured TTL is the cap.
+        let distant = json!({ "sub": "u", "exp": now + 86_400 });
+        assert_eq!(
+            verifier.claim_cache_lifetime(&distant),
+            Duration::from_secs(3600)
+        );
+
+        // Already expired: never cache it at all.
+        let expired = json!({ "sub": "u", "exp": now - 1 });
+        assert_eq!(verifier.claim_cache_lifetime(&expired), Duration::ZERO);
+
+        // No exp to clamp against: fall back to the plain TTL.
+        let no_exp = json!({ "sub": "u" });
+        assert_eq!(
+            verifier.claim_cache_lifetime(&no_exp),
+            Duration::from_secs(3600)
+        );
+    }
+
     // Composite credential: <access_token>~<base64url MLS public key>
     // ---------------------------------------------------------------------
 
