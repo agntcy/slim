@@ -31,6 +31,7 @@ The credential does not authenticate the application *to the SLIM node* as in a 
 A symmetric key used to sign and verify application identity tokens. Each application's identity is independently generated from a base name (derived from the application name) plus a random suffix. When the application sends a message, SLIM creates a token containing the identity and signs it with an HMAC keyed by the shared secret. When a session receives a message, it verifies the HMAC using the same secret — if verification passes, the sender's identity is trusted; if not, the message is dropped.
 
 **Properties:**
+
 - Simple to configure — no external infrastructure required
 - Any application holding the same secret can verify messages from any other holder
 - Each application has a unique identity (base name + random suffix); the secret only governs whether that identity is trusted
@@ -47,6 +48,7 @@ Tokens can come from:
 - **SLIM-issued tokens** — a SLIM node can sign and issue tokens directly if provided with a private signing key, useful when no external IdP is available.
 
 **Properties:**
+
 - Tokens are short-lived and can be revoked at expiry
 - Each application has a distinct identity tied to the `sub` claim set by the issuer
 - Stateless verification — receivers only need the issuer's public key
@@ -60,6 +62,7 @@ Tokens can come from:
 SLIM integrates with SPIRE by consuming JWT-SVIDs from the SPIRE Workload API. The SPIFFE ID embedded in the JWT-SVID (e.g. `spiffe://domain.test/ns/default/sa/my-app`) is the application's identity. When a session receives a message, it validates the JWT-SVID against the SPIRE trust bundle (JWT bundle set) — if valid, the SPIFFE ID is accepted as the sender's identity.
 
 **Properties:**
+
 - **Zero-secret bootstrapping** — no static secrets or certificates need to be distributed to workloads
 - **Automatic rotation** — SPIRE rotates JWT-SVIDs before expiry; applications receive fresh credentials without restart
 - **Workload attestation** — SPIRE verifies the identity of the requesting workload (Kubernetes ServiceAccount, process attributes, etc.) before issuing credentials, making impersonation very difficult
@@ -79,7 +82,7 @@ The obstacle is that every other method needs the application's MLS signing publ
 3. The application uses that key as its MLS signing key and presents the token as its identity.
 4. A receiving peer validates the token against the provider's JWKS, then hashes the key the sender actually presented and checks it equals `cnf.jkt`. A stolen token replayed with a different key fails this check.
 
-After the initial binding there is no per-message DPoP overhead — MLS's own leaf-node signatures, made with the same key, are the continuing proof of possession. Renewing the token re-uses the same key, so `cnf.jkt` is unchanged and the identity survives rotation without disturbing group membership.
+After the initial binding there is no per-message DPoP overhead — MLS's own leaf-node signatures, made with the same key, are the continuing proof of possession. Renewing the token reuses the same key, so `cnf.jkt` is unchanged and the identity survives rotation without disturbing group membership.
 
 **Setting it up:**
 
