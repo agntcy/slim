@@ -140,18 +140,9 @@ impl Config {
         issuer_url: impl Into<String>,
     ) -> Self {
         Self {
-            issuer_url: issuer_url.into(),
             client_id: Some(client_id.into()),
             client_secret: Some(client_secret.into()),
-            refresh_token: None,
-            refresh_token_file: None,
-            access_token_file: None,
-            audience: None,
-            scope: None,
-            timeout: default_timeout(),
-            jwks_ttl: default_jwks_ttl(),
-            claim_cache_ttl: None,
-            policy: None,
+            ..Self::new(issuer_url)
         }
     }
 
@@ -162,18 +153,9 @@ impl Config {
         refresh_token: impl Into<String>,
     ) -> Self {
         Self {
-            issuer_url: issuer_url.into(),
             client_id: Some(client_id.into()),
-            client_secret: None,
             refresh_token: Some(refresh_token.into()),
-            refresh_token_file: None,
-            access_token_file: None,
-            audience: None,
-            scope: None,
-            timeout: default_timeout(),
-            jwks_ttl: default_jwks_ttl(),
-            claim_cache_ttl: None,
-            policy: None,
+            ..Self::new(issuer_url)
         }
     }
 
@@ -197,18 +179,8 @@ impl Config {
     /// Create a verifier-only configuration
     pub fn verifier(issuer_url: impl Into<String>, audience: impl Into<String>) -> Self {
         Self {
-            issuer_url: issuer_url.into(),
-            client_id: None,
-            client_secret: None,
-            refresh_token: None,
-            refresh_token_file: None,
-            access_token_file: None,
             audience: Some(audience.into()),
-            scope: None,
-            timeout: default_timeout(),
-            jwks_ttl: default_jwks_ttl(),
-            claim_cache_ttl: None,
-            policy: None,
+            ..Self::new(issuer_url)
         }
     }
 
@@ -220,18 +192,10 @@ impl Config {
         audience: impl Into<String>,
     ) -> Self {
         Self {
-            issuer_url: issuer_url.into(),
             client_id: Some(client_id.into()),
             client_secret: Some(client_secret.into()),
-            refresh_token: None,
-            refresh_token_file: None,
-            access_token_file: None,
             audience: Some(audience.into()),
-            scope: None,
-            timeout: default_timeout(),
-            jwks_ttl: default_jwks_ttl(),
-            claim_cache_ttl: None,
-            policy: None,
+            ..Self::new(issuer_url)
         }
     }
 
