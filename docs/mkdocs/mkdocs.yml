@@ -23,6 +23,9 @@ extra:
     repo_url: https://github.com/agntcy/slim
     repo_slug: agntcy/slim
     org: AGNTCY
+    # SDK pages under slim/components/sdk/ are included from agntcy/slim-bindings.
+    # Override SLIM_BINDINGS_DOCS_REF to pin a branch or tag (default: docs-slim-sdks).
+    slim_bindings_docs_ref: !ENV [SLIM_BINDINGS_DOCS_REF, 'docs-slim-sdks']
 
   copyright: >
     © 2026, Agntcy, a Series of LF Projects, LLC. All rights reserved.
@@ -66,7 +69,12 @@ hooks:
 
 plugins:
   # Process includes before search indexing and versioned builds (mike).
-  include-markdown: {}
+  include-markdown:
+    include_from_url: true
+    # Relative links in remote SDK docs are authored for the same path layout under
+    # docs/content/; rewrite_relative_urls breaks when the include source is a URL.
+    rewrite_relative_urls: false
+    cache: 3600
   search:
   mike:
     alias_type: copy
@@ -217,6 +225,13 @@ nav:
           - SLIM SDK:
               - slim/components/sdk/index.md
               - Installation: slim/components/sdk/install.md
+              - Python SDK: slim/components/sdk/python.md
+              - Go SDK: slim/components/sdk/go.md
+              - .NET SDK: slim/components/sdk/dotnet.md
+              - Java SDK: slim/components/sdk/java.md
+              - Kotlin SDK: slim/components/sdk/kotlin.md
+              - Node.js SDK: slim/components/sdk/node.md
+              - React Native SDK: slim/components/sdk/react-native.md
               - SLIMRPC:
                   - slim/components/sdk/slimrpc/index.md
                   - Compiler: slim/components/sdk/slimrpc/compiler.md
