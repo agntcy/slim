@@ -1,0 +1,71 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigestsToSemver",
+    ":semanticCommitTypeAll(chore)",
+    ":dependencyDashboard"
+  ],
+  "configMigration": true,
+  "dependencyDashboardAutoclose": true,
+  "dependencyDashboardLabels": ["dependencies"],
+  "dependencyDashboardOSVVulnerabilitySummary": "all",
+  "enabled": true,
+  "minimumReleaseAge": "7 days",
+  "schedule": ["before 8am on Monday"],
+  "enabledManagers": ["github-actions", "cargo"],
+  "labels": ["dependencies"],
+  "ignoreDeps": ["agntcy-slim*"],
+  "osvVulnerabilityAlerts": true,
+  "lockFileMaintenance": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["major"],
+      "enabled": false,
+      "description": ["Ignore major dependency updates."]
+    },
+    {
+      "matchManagers": ["cargo"],
+      "addLabels": ["rust"],
+      "description": ["Add rust label to PRs which bump Cargo dependencies."]
+    },
+    {
+      "groupName": "Rust patches",
+      "groupSlug": "rust-patches",
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["patch"],
+      "description": ["Group Cargo dependency patch updates in a single PR."]
+    },
+    {
+      "groupName": "GitHub Actions",
+      "groupSlug": "github-actions",
+      "matchManagers": ["github-actions"],
+      "addLabels": ["ci"],
+      "description": ["Add ci label to PRs which bump GitHub Actions, and group them in a single PR."]
+    },
+    {
+      "matchJsonata": [
+        "$exists(vulnerabilityFixVersion) or isVulnerabilityAlert = true"
+      ],
+      "enabled": true,
+      "description": [
+        "Always allow vulnerability/security fixes, even when other rules disable majors or specific dependencies."
+      ]
+    }
+  ],
+  "prConcurrentLimit": 10,
+  "prHourlyLimit": 5,
+  "printConfig": false,
+  "rebaseWhen": "behind-base-branch",
+  "reviewersFromCodeOwners": true,
+  "semanticCommits": "enabled",
+  "timezone": "Etc/UTC",
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security"],
+    "minimumReleaseAge": null,
+    "schedule": ["at any time"]
+  }
+}
