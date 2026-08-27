@@ -33,7 +33,7 @@ use clap::Parser;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_config::auth::oidc::Config as OidcAuthConfig;
-use slim_config::client::ClientConfig;
+use slim_config::client::{AuthenticationConfig, ClientConfig};
 use slim_config::component::ComponentBuilder;
 use slim_config::tls::client::TlsClientConfig;
 use slim_datapath::api::{ProtoName, ProtoPublishType};
@@ -107,6 +107,20 @@ struct Args {
     #[arg(long, default_value = "slim")]
     oidc_audience: String,
 
+    /// Authenticate the *connection to the node* with the OIDC
+    /// client-credentials flow, using this client id.
+    ///
+    /// Deliberately separate from the app's MLS identity: a DPoP-bound identity
+    /// token cannot serve as a transport credential (every refresh must carry a
+    /// proof, and the transport provider holds no signing key). Requires
+    /// --transport-client-secret and --oidc-issuer.
+    #[arg(long)]
+    transport_client_id: Option<String>,
+
+    /// Client secret for --transport-client-id
+    #[arg(long)]
+    transport_client_secret: Option<String>,
+
     /// SLIM control plane endpoint
     #[arg(short, long, default_value = "http://localhost:46357")]
     slim: String,
@@ -132,13 +146,29 @@ async fn run_receiver(args: Args) -> Result<()> {
             .context("failed to create SLIM service")?,
     );
 
-    let client_config = ClientConfig::with_endpoint(&args.slim).with_tls_setting(
+    let mut client_config = ClientConfig::with_endpoint(&args.slim).with_tls_setting(
         if args.slim.starts_with("https://") {
             TlsClientConfig::default()
         } else {
             TlsClientConfig::insecure()
         },
     );
+    // Transport auth is its own credential. Nothing here reads the app's
+    // identity store: the node authorizes the connection, peers verify the MLS
+    // identity, and the two need not name the same principal.
+    if let Some(client_id) = &args.transport_client_id {
+        let secret = args
+            .transport_client_secret
+            .as_deref()
+            .context("--transport-client-secret is required with --transport-client-id")?;
+        let issuer = args
+            .oidc_issuer
+            .clone()
+            .context("--oidc-issuer is required with --transport-client-id")?;
+        client_config = client_config.with_auth(AuthenticationConfig::Oidc(
+            OidcAuthConfig::provider(client_id, secret, issuer),
+        ));
+    }
     let conn_id = service
         .connect(&client_config)
         .await
@@ -179,9 +209,10 @@ async fn run_receiver(args: Args) -> Result<()> {
             (p, v)
         }
         "oidc" => {
-            // Identity comes from the IdP's `sub`, bound to the MLS signing key
-            // via DPoP. The key and refresh token are picked up from
-            // ~/.slimctl/credentials.yaml, written by `slimctl login --dpop`.
+            // Identity comes from the IdP's `sub`, bound to this app's own MLS
+            // signing key via DPoP. Name the store with SLIM_CREDENTIALS_FILE;
+            // write it with `slimctl login --dpop-credentials-file <path>`.
+            // One store per app — the key it holds is this app's MLS identity.
             let issuer = args
                 .oidc_issuer
                 .clone()
@@ -189,10 +220,10 @@ async fn run_receiver(args: Args) -> Result<()> {
             let cfg = OidcAuthConfig::new(issuer)
                 .with_client_credentials(args.oidc_client_id.clone(), "")
                 .with_audience(args.oidc_audience.clone());
-            let p =
-                AuthProvider::oidc(cfg.create_identity_provider().context(
-                    "failed to create OIDC provider (did you run `slimctl login --dpop`?)",
-                )?);
+            let p = AuthProvider::oidc(cfg.create_identity_provider().context(
+                "failed to create OIDC provider (set SLIM_CREDENTIALS_FILE to a store \
+                     written by `slimctl login --dpop-credentials-file <path>`)",
+            )?);
             let v = AuthVerifier::oidc(
                 cfg.create_verifier()
                     .context("failed to create OIDC verifier")?,

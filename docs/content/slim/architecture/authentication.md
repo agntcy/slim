@@ -90,20 +90,45 @@ After the initial binding there is no per-message DPoP overhead — MLS's own le
 # 1. In Keycloak: enable "OAuth 2.0 DPoP" on the realm or client. No custom
 #    protocol mapper is needed. Requires Keycloak 24 or newer.
 
-# 2. Sign in. This generates the MLS signing key, has the provider bind it,
-#    and saves both to ~/.slimctl/credentials.yaml (mode 0600).
-slimctl login --dpop \
+# 2. Sign in once per app. Each login generates that app's own MLS signing key,
+#    has the provider bind it, and saves both to the named store (mode 0600).
+#    Only the first prompts: the IdP's SSO cookie makes the rest silent redirects.
+slimctl login --dpop-credentials-file ~/.slim/laptop.yaml \
   --client-id slim-app \
   --discovery-uri https://keycloak.example.com/realms/slim/.well-known/openid-configuration
 ```
 
 The command fails with a clear message if the provider returns a token without `cnf.jkt`, which almost always means DPoP is not enabled for that client or realm.
 
-Applications configured with the OIDC identity provider for the same issuer pick up the saved key and refresh token automatically, and from then on authenticate as the signed-in user.
+Point each app at its own store, either with `credentials_file` in its OIDC identity config or with `SLIM_CREDENTIALS_FILE`. There is no default — an app that names no store fails at startup rather than silently sharing another app's identity.
+
+```yaml
+identity:
+  type: oidc
+  issuer_url: https://keycloak.example.com/realms/slim
+  client_id: slim-app
+  audience: slim
+  credentials_file: ~/.slim/laptop.yaml
+```
+
+RFC 9449 binds a refresh token to the key from its original grant, so a distinct key means a distinct login. That is one browser round-trip per app, but only one credential prompt.
+
+**Identity is not the same credential as the connection.** An app has two: its MLS identity, from a `--dpop-credentials-file` store, and whatever authenticates its gRPC connection to the node. A DPoP-bound token cannot serve as the second — every refresh must carry a proof, and the transport provider holds no signing key — so a plain `slimctl login`, which writes `~/.slimctl/credentials.yaml`, is what the transport path reads:
+
+```bash
+# connection credential to the node — plain, shared
+slimctl login --client-id slim-node --discovery-uri ...
+
+# app identity — DPoP-bound, one store per app
+slimctl login --dpop-credentials-file ~/.slim/laptop.yaml --client-id slim-app --discovery-uri ...
+slimctl login --dpop-credentials-file ~/.slim/ci.yaml     --client-id slim-app --discovery-uri ...
+```
+
+Requiring the path on `--dpop-credentials-file` is what keeps these apart: a bound login can never land in the store the transport path reads.
 
 **Properties:**
 
-- **One identity per person, not per process** — every instance a user runs shares their `sub`
+- **One identity per person, one key per app** — every store carries the same `sub`, and each holds its own MLS key. Group membership is keyed on `{sub}:{public_key}`, so removing one app from a group leaves that person's other apps untouched
 - **No custom claim mappers** — uses DPoP and JWK thumbprints, which compliant providers already support
 - **Proof of possession** — the token is cryptographically bound to the signing key, so a stolen token alone is not enough to impersonate
 - **Survives token rotation** — renewal re-proves the same key, leaving the binding intact
@@ -113,7 +138,7 @@ Applications configured with the OIDC identity provider for the same issuer pick
 - Requires an RFC 9449 provider (Keycloak 24+, or equivalent)
 - Supports MLS ciphersuites whose signing keys map to a JOSE algorithm: NIST P-256 (`ES256`) and Ed25519 (`EdDSA`)
 - **Post-quantum (`enforce_pqc`) requires the `curve25519` build feature.** The `ML_KEM_768_X25519` ciphersuite is post-quantum in its *key exchange* only — it still signs with Ed25519, which DPoP handles. But signing keys are generated for a curve fixed at build time, defaulting to P-256, while `enforce_pqc` is chosen at runtime. Build with `curve25519` so the two agree; otherwise the mismatch is rejected at startup with a message naming the cause
-- The signing key is stored on disk so it can outlive a single process. This is what makes one identity spannable across instances, but it also means `~/.slimctl/credentials.yaml` **is** the user's identity, not merely a token — protect it accordingly, and rotate by signing in again if it is exposed
+- The signing key is stored on disk so it can outlive a single process. This is what makes one identity spannable across instances, but it also means each credentials store **is** an app's identity, not merely a token — protect it accordingly, and rotate by signing in again if it is exposed
 - Interactive sign-in requires a browser. Headless services should use a different method until device-flow support lands
 
 **Use when:** Applications act on behalf of a human whose identity already lives in an SSO provider, and you need to answer "which real person does this credential belong to."

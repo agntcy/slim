@@ -75,6 +75,23 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub access_token_file: Option<String>,
 
+    /// Path to the credentials store written by
+    /// `slimctl login --dpop-credentials-file <path>` (identity path only).
+    ///
+    /// A store holds one MLS signature key, and that key *is* the app's MLS
+    /// identity — `SlimIdentityProvider` keys group membership on
+    /// `{sub}:{public_key}`. Apps sharing a store therefore share one member
+    /// entry and cannot be removed from a group individually. Give each app its
+    /// own store, written by `slimctl login --dpop-credentials-file <path>`,
+    /// and each becomes a separately removable member under the same `sub`.
+    ///
+    /// Resolved from this field, else `$SLIM_CREDENTIALS_FILE`. There is no
+    /// default: an app must name its store, so that two apps never silently
+    /// share one MLS identity. The transport path (`get_client_layer`) is
+    /// unaffected and keeps using `~/.slimctl/credentials.yaml`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credentials_file: Option<String>,
+
     /// Optional scope parameter for the token request (provider only)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
@@ -124,6 +141,7 @@ impl Config {
             refresh_token: None,
             refresh_token_file: None,
             access_token_file: None,
+            credentials_file: None,
             audience: None,
             scope: None,
             timeout: default_timeout(),
@@ -216,6 +234,12 @@ impl Config {
         self
     }
 
+    /// Point the identity path at this app's credentials store (identity only)
+    pub fn with_credentials_file(mut self, path: impl Into<String>) -> Self {
+        self.credentials_file = Some(path.into());
+        self
+    }
+
     /// Set the scope for the OIDC token request (provider functionality)
     pub fn with_scope(mut self, scope: impl Into<String>) -> Self {
         self.scope = Some(scope.into());
@@ -301,12 +325,23 @@ impl Config {
     }
 
     /// Provider for the application-identity path, adopting the MLS key and
-    /// refresh token `slimctl login --dpop` bound for this issuer.
+    /// refresh token `slimctl login --dpop-credentials-file <path>` bound for this issuer.
     pub fn create_identity_provider(&self) -> Result<OidcTokenProvider, ConfigAuthError> {
         let provider = self.create_provider()?;
 
         if self.should_adopt_stored_login() {
-            self.seed_from_login(&provider);
+            let Some(path) = self.credentials_path() else {
+                tracing::error!(
+                    issuer = %self.issuer_url,
+                    "OIDC identity needs a credentials store: set `credentials_file`, or \
+                     SLIM_CREDENTIALS_FILE, to a file written by \
+                     `slimctl login --dpop-credentials-file <path>`. Give each app its own \
+                     store — the MLS key it holds is that app's identity, and apps sharing a \
+                     store cannot be removed from a group individually"
+                );
+                return Err(ConfigAuthError::IdentityProviderNotConfigured);
+            };
+            self.seed_from_login(&path, &provider);
         }
 
         // A working renewal path is either a client_secret (service identity) or
@@ -321,8 +356,9 @@ impl Config {
                 issuer = %self.issuer_url,
                 "OIDC identity has no client secret and no usable stored login for this \
                  issuer (its refresh token may be missing — check the IdP granted \
-                 `offline_access`); run `slimctl login --dpop`, or set client_secret for a \
-                 service identity"
+                 `offline_access`); run \
+                 `slimctl login --dpop-credentials-file <path>`, or set \
+                 client_secret for a service identity"
             );
             return Err(ConfigAuthError::IdentityProviderNotConfigured);
         }
@@ -337,12 +373,28 @@ impl Config {
         self.client_secret.as_deref().unwrap_or_default().is_empty()
     }
 
+    /// The store this config's identity path reads from and writes back to.
+    /// Both go through here, so a rotation can never be written to a file other
+    /// than the one it was read from.
+    fn credentials_path(&self) -> Option<PathBuf> {
+        let from_env = std::env::var("SLIM_CREDENTIALS_FILE").ok();
+        resolve_credentials_path(self.credentials_file.as_deref(), from_env.as_deref())
+    }
+
     /// Adopt what `slimctl login` left for this issuer: the MLS key the token was
     /// bound to, and the refresh token that renews it. Without the key the app
     /// signs as an identity the IdP never attested; without the refresh token it
     /// renews as the service. Silent when absent.
-    fn seed_from_login(&self, provider: &OidcTokenProvider) {
-        let Some(creds) = load_stored_credentials() else {
+    fn seed_from_login(&self, path: &std::path::Path, provider: &OidcTokenProvider) {
+        let Some(creds) = load_stored_credentials(path) else {
+            // The store was named explicitly, so its absence is a mistake, not
+            // an unexercised option. `create_identity_provider`'s
+            // `has_refresh_delegate` guard turns this into a hard error.
+            tracing::error!(
+                path = %path.display(),
+                "credentials store is missing or unreadable; run \
+                 `slimctl login --dpop-credentials-file <path>`"
+            );
             return;
         };
         self.apply_stored_credentials(&creds, provider);
@@ -377,7 +429,7 @@ impl Config {
 
         if let Some(refresh_token) = &creds.refresh_token {
             // Write rotations back, or a restart replays an invalidated token.
-            let persist = credentials_file_path().map(|path| {
+            let persist = self.credentials_path().map(|path| {
                 let creds = creds.clone();
                 let cb: Arc<dyn Fn(String, String) + Send + Sync> =
                     Arc::new(move |access_token, new_refresh_token| {
@@ -470,15 +522,33 @@ struct StoredCredentials {
     issuer: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     token_endpoint: String,
-    /// MLS signature key pair (standard base64) written by `slimctl login --dpop`.
-    /// Present only for DPoP-bound logins; absent for a plain bearer login.
+    /// MLS signature key pair (standard base64) written by
+    /// `slimctl login --dpop-credentials-file <path>`. Present only for
+    /// DPoP-bound logins; absent for a plain bearer login.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mls_private_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mls_public_key: Option<String>,
 }
 
-fn credentials_file_path() -> Option<std::path::PathBuf> {
+/// Field wins, then `$SLIM_CREDENTIALS_FILE`, then nothing. An empty value in
+/// either is treated as unset — an exported-but-empty env var must not resolve
+/// to path `""`.
+///
+/// Pure so the precedence is testable without mutating the process environment.
+fn resolve_credentials_path(
+    configured: Option<&str>,
+    from_env: Option<&str>,
+) -> Option<std::path::PathBuf> {
+    configured
+        .filter(|p| !p.is_empty())
+        .or(from_env.filter(|p| !p.is_empty()))
+        .map(std::path::PathBuf::from)
+}
+
+/// The shared store `slimctl login` writes when given no `--credentials-file`.
+/// Read by the transport path only; the identity path requires an explicit one.
+fn default_credentials_file_path() -> Option<std::path::PathBuf> {
     std::env::var_os("HOME").map(|h| {
         std::path::PathBuf::from(h)
             .join(".slimctl")
@@ -486,9 +556,8 @@ fn credentials_file_path() -> Option<std::path::PathBuf> {
     })
 }
 
-fn load_stored_credentials() -> Option<StoredCredentials> {
-    let path = credentials_file_path()?;
-    let data = std::fs::read_to_string(&path).ok()?;
+fn load_stored_credentials(path: &std::path::Path) -> Option<StoredCredentials> {
+    let data = std::fs::read_to_string(path).ok()?;
     serde_yaml::from_str(&data).ok()
 }
 
@@ -656,9 +725,13 @@ impl ClientAuthenticator for Config {
             // Client-credentials flow.
             OidcClientProvider::ClientCredentials(self.create_provider()?)
         } else {
-            // No explicit tokens — load from ~/.slimctl/credentials.yaml.
-            let creds =
-                load_stored_credentials().ok_or(ConfigAuthError::IdentityProviderNotConfigured)?;
+            // No explicit tokens — load from the default ~/.slimctl/credentials.yaml.
+            // Deliberately not `credentials_file`: that field names an app's
+            // identity store, and a node must not adopt one as its transport
+            // credential.
+            let creds = default_credentials_file_path()
+                .and_then(|p| load_stored_credentials(&p))
+                .ok_or(ConfigAuthError::IdentityProviderNotConfigured)?;
             if !self.issuer_url.is_empty() && creds.issuer != self.issuer_url {
                 return Err(ConfigAuthError::IdentityProviderNotConfigured);
             }
@@ -666,7 +739,7 @@ impl ClientAuthenticator for Config {
                 .refresh_token
                 .clone()
                 .ok_or(ConfigAuthError::IdentityProviderNotConfigured)?;
-            let persist = credentials_file_path().map(|path| {
+            let persist = default_credentials_file_path().map(|path| {
                 let creds = creds.clone();
                 let cb: Arc<dyn Fn(String, String) + Send + Sync> =
                     Arc::new(move |access_token, new_refresh_token| {
@@ -983,6 +1056,27 @@ mod tests {
     fn service_identity_with_client_secret_does_not_adopt_stored_login() {
         let cfg = Config::provider("svc", "secret", "https://idp.example.com");
         assert!(!cfg.should_adopt_stored_login());
+    }
+
+    /// Field beats env, an empty value in either falls through rather than
+    /// resolving to path "", and naming nothing resolves to nothing — there is
+    /// no implicit default on the identity path.
+    #[test]
+    fn credentials_path_precedence() {
+        assert_eq!(
+            resolve_credentials_path(Some("/a/ci.yaml"), Some("/b/env.yaml")),
+            Some(PathBuf::from("/a/ci.yaml"))
+        );
+        assert_eq!(
+            resolve_credentials_path(None, Some("/b/env.yaml")),
+            Some(PathBuf::from("/b/env.yaml"))
+        );
+        assert_eq!(
+            resolve_credentials_path(Some(""), Some("/b/env.yaml")),
+            Some(PathBuf::from("/b/env.yaml"))
+        );
+        assert_eq!(resolve_credentials_path(Some(""), Some("")), None);
+        assert_eq!(resolve_credentials_path(None, None), None);
     }
 
     #[test]

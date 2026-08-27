@@ -52,7 +52,7 @@ match, so a mismatch fails at startup instead of inside a later group operation.
 | `dpop::jwk_thumbprint` | RFC 7638 thumbprint of an MLS public key — the `cnf.jkt` value |
 | `oidc::post_token_request_with_dpop` | Token-endpoint POST carrying a proof, with the RFC 9449 §8 nonce retry |
 | `OidcTokenProvider::exchange_authorization_code` | Authorization-code grant; mints the binding |
-| `OidcTokenProvider::install_signature_keys` | Adopt a key pair minted elsewhere (e.g. by `slimctl login --dpop`) |
+| `OidcTokenProvider::install_signature_keys` | Adopt a key pair minted elsewhere (e.g. by `slimctl login --dpop-credentials-file <path>`) |
 
 `dpop` is free of `jsonwebtoken` and `reqwest` so it also compiles for `wasm32`,
 where thumbprints are still needed but those crates are unavailable.

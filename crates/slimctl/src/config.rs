@@ -38,7 +38,7 @@ pub struct OidcCredentials {
     pub token_endpoint: String,
 
     /// MLS signature key pair (standard base64) the access token is DPoP-bound
-    /// to, present only after `slimctl login --dpop`.
+    /// to, present only after `slimctl login --dpop-credentials-file <path>`.
     ///
     /// An app seeded from this file installs it as its MLS signing identity.
     /// Written 0600: this is private key material, so the file is now the app's
@@ -381,14 +381,25 @@ fn write_private(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
         .write_all(data)
 }
 
+/// Write just the credentials store at `path`, mode 0600.
+///
+/// Unlike [`save_credentials`], writes nothing else. A per-app store is an app
+/// identity: logging in for one app must not retarget slimctl's own bearer
+/// token or connection config, nor clobber another app's token file.
+pub fn save_credentials_to(path: &std::path::Path, creds: &OidcCredentials) -> Result<()> {
+    // A bare filename has a parent of "", which create_dir_all rejects.
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir)
+            .with_context(|| format!("failed to create config directory: {}", dir.display()))?;
+    }
+    let data = serde_yaml::to_string(creds).context("failed to serialize credentials")?;
+    write_private(path, data.as_bytes())
+        .with_context(|| format!("failed to write credentials: {}", path.display()))
+}
+
 pub fn save_credentials(creds: &OidcCredentials) -> Result<()> {
     let path = credentials_file_path()?;
-    let dir = path.parent().expect("credentials path must have a parent");
-    std::fs::create_dir_all(dir)
-        .with_context(|| format!("failed to create config directory: {}", dir.display()))?;
-    let data = serde_yaml::to_string(creds).context("failed to serialize credentials")?;
-    write_private(&path, data.as_bytes())
-        .with_context(|| format!("failed to write credentials: {}", path.display()))?;
+    save_credentials_to(&path, creds)?;
     // Write bearer token for StaticJwt auto-injection; prefer access_token (longer TTL).
     let token = creds.access_token.as_deref().unwrap_or(&creds.id_token);
     let token_path = token_file_path()?;
@@ -1111,7 +1122,7 @@ mod tests {
         assert_eq!(parsed.mls_public_key.as_deref(), Some("cHVibGlj"));
     }
 
-    /// Files written before `--dpop` existed must still load.
+    /// Files written before DPoP logins existed must still load.
     #[test]
     fn credentials_without_mls_keys_still_parse() {
         let parsed: OidcCredentials =

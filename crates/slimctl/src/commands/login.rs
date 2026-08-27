@@ -52,14 +52,27 @@ pub struct LoginArgs {
     #[arg(long = "callback-timeout", default_value = "300", value_parser = clap::value_parser!(u64).range(1..))]
     callback_timeout: u64,
 
-    /// Bind the issued token to a freshly generated MLS signing key using DPoP
-    /// (RFC 9449), and save that key alongside the tokens.
+    /// Create an app identity: bind the issued token to a freshly generated MLS
+    /// signing key using DPoP (RFC 9449), and write both to this store.
     ///
-    /// Lets a SLIM app adopt your SSO identity: it installs the saved key as its
-    /// MLS signing identity, and peers re-hash that key against the token's
+    /// Lets a SLIM app adopt your SSO identity — it installs the saved key as
+    /// its MLS signing identity, and peers re-hash that key against the token's
     /// `cnf.jkt`. Requires an IdP with DPoP enabled (Keycloak >= 24).
+    ///
+    /// Nothing else is written: no bearer token file, and no change to the
+    /// connection config. Point one app at the store with `credentials_file` in
+    /// its OIDC identity config, or with `SLIM_CREDENTIALS_FILE`.
+    ///
+    /// A store holds one MLS key, and that key *is* the app's identity, so apps
+    /// sharing a store cannot be removed from a group individually — give each
+    /// app its own. The path is mandatory for the same reason: a DPoP-bound
+    /// login in the default store would be unusable, since the identity path has
+    /// no default store and the transport path cannot refresh a bound token.
+    ///
+    /// Omit for a plain bearer login, which goes to `~/.slimctl/credentials.yaml`
+    /// and is what the transport path reads.
     #[arg(long)]
-    dpop: bool,
+    dpop_credentials_file: Option<String>,
 
     /// Allow a plain-http discovery URL and endpoints, skipping the https
     /// requirement. Only for talking to a local test IdP (e.g. loopback
@@ -437,13 +450,12 @@ pub async fn run(args: &LoginArgs, config_file: Option<&str>, server: Option<&st
     // The key must exist before the exchange — a token cannot be bound to a key
     // that did not help mint it — which is why slimctl generates it here rather
     // than leaving it to the app.
-    let mls_keys = if args.dpop {
-        Some(
+    let mls_keys = match &args.dpop_credentials_file {
+        Some(_) => Some(
             slim_auth::utils::generate_mls_signature_keys()
                 .context("generating MLS signature keys for DPoP binding")?,
-        )
-    } else {
-        None
+        ),
+        None => None,
     };
 
     let token_resp: Value = slim_auth::oidc::post_token_request_with_dpop(
@@ -479,8 +491,8 @@ pub async fn run(args: &LoginArgs, config_file: Option<&str>, server: Option<&st
                 ),
                 None => bail!(
                     "provider issued a token with no cnf.jkt: DPoP is not enabled for this \
-                     client or realm (Keycloak: enable \"OAuth 2.0 DPoP\"). Re-run without \
-                     --dpop for a plain bearer login."
+                     client or realm (Keycloak: enable \"OAuth 2.0 DPoP\"). Omit \
+                     --dpop-credentials-file for a plain bearer login."
                 ),
             }
             (
@@ -501,6 +513,21 @@ pub async fn run(args: &LoginArgs, config_file: Option<&str>, server: Option<&st
         mls_private_key,
         mls_public_key,
     };
+
+    // A named store is one app's identity, so it gets the credentials and
+    // nothing else: writing the bearer token or the connection config would
+    // retarget slimctl itself, and clobber whatever another app's login left.
+    if let Some(path) = args.dpop_credentials_file.as_deref() {
+        let path = std::path::PathBuf::from(path);
+        crate::config::save_credentials_to(&path, &creds)?;
+        eprintln!("Credentials saved to {}", path.display());
+        eprintln!(
+            "Point one app at it with `credentials_file: {}` in its OIDC identity config, \
+             or SLIM_CREDENTIALS_FILE. slimctl's own auth is unchanged.",
+            path.display()
+        );
+        return Ok(());
+    }
 
     crate::config::save_credentials(&creds)?;
     let creds_path = crate::config::credentials_file_path()?;
@@ -566,6 +593,21 @@ mod tests {
         "--discovery-uri",
         "https://example.com/.well-known/openid-configuration",
     ];
+
+    /// One flag carries both decisions: DPoP binding and where the store goes.
+    /// A bound login therefore cannot land in the default store, which the
+    /// transport path reads and cannot refresh.
+    #[test]
+    fn dpop_credentials_file_selects_an_app_identity() {
+        let args = parse_ok(&[REQUIRED, &["--dpop-credentials-file", "/tmp/ci.yaml"]].concat());
+        assert_eq!(args.dpop_credentials_file.as_deref(), Some("/tmp/ci.yaml"));
+    }
+
+    /// Absent means a plain bearer login to `~/.slimctl/credentials.yaml`.
+    #[test]
+    fn plain_login_by_default() {
+        assert!(parse_ok(REQUIRED).dpop_credentials_file.is_none());
+    }
 
     #[test]
     fn required_args_accepted() {
