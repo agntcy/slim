@@ -492,7 +492,7 @@ impl ControllerSender {
 
         // Increment missed counter for all tracked participants and detect offline
         if let Some(heartbeat_state) = self.heartbeat_state.as_mut() {
-            for (_, count) in heartbeat_state.missed_heartbeats.iter_mut() {
+            for count in heartbeat_state.missed_heartbeats.values_mut() {
                 *count += 1;
             }
 

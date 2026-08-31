@@ -64,7 +64,7 @@ pub enum SessionError {
     #[error("session not found: {0}")]
     SessionNotFound(u32),
     #[error("subscription not found: {0}")]
-    SubscriptionNotFound(ProtoName),
+    SubscriptionNotFound(Box<ProtoName>),
 
     // Session lifecycle and state
     #[error("session builder: not all required fields set")]
@@ -106,13 +106,13 @@ pub enum SessionError {
     #[error("subscription ack failed: {0}")]
     SubscriptionAckFailed(#[source] SubscriptionAckError),
     #[error("unknown destination: {0}")]
-    UnknownDestination(ProtoName),
+    UnknownDestination(Box<ProtoName>),
 
     // Session membership and permissions
     #[error("participant not found in group: {0}")]
-    ParticipantNotFound(ProtoName),
+    ParticipantNotFound(Box<ProtoName>),
     #[error("participant already in group: {0}")]
-    ParticipantAlreadyInGroup(ProtoName),
+    ParticipantAlreadyInGroup(Box<ProtoName>),
     #[error("cannot invite participant to point-to-point session")]
     CannotInviteToP2P,
     #[error("cannot remove participant from point-to-point session")]

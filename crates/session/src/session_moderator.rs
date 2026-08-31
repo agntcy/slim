@@ -556,7 +556,7 @@ where
                     ParticipantState::Online => {
                         // Rejoin timeout: participants that didn't reply are offline,
                         // those that replied are online. Notify success to the app.
-                        for (_, entry) in self.group_list.iter_mut() {
+                        for entry in self.group_list.values_mut() {
                             if let Ok(name) = entry.get_name() {
                                 entry.status = if !missing.contains(&name) {
                                     ParticipantState::Online as i32
@@ -807,7 +807,7 @@ where
         // check if the participant is already part of the group
         let new_participant_name = msg.get_dst();
         if self.group_list.contains_key(&new_participant_name) {
-            let err = SessionError::ParticipantAlreadyInGroup(new_participant_name);
+            let err = SessionError::ParticipantAlreadyInGroup(Box::new(new_participant_name));
             return Err(self.handle_task_error(err));
         }
 
@@ -1081,7 +1081,7 @@ where
         let id = match self.group_list.get(&dst_without_id) {
             Some(entry) => entry.get_name()?.id(),
             None => {
-                let err = SessionError::ParticipantNotFound(dst_without_id);
+                let err = SessionError::ParticipantNotFound(Box::new(dst_without_id));
                 return Err(self.handle_task_error(err));
             }
         };
@@ -1546,7 +1546,7 @@ where
         // On rejoin (Online): mark all other participants as offline.
         // They will be moved back online as their ACKs arrive.
         if status == ParticipantState::Online {
-            for (_, entry) in self.group_list.iter_mut() {
+            for entry in self.group_list.values_mut() {
                 entry.status = ParticipantState::Offline as i32;
             }
         }
@@ -1775,7 +1775,7 @@ where
                 match pending_update.status {
                     ParticipantState::Online => {
                         debug!("The moderator is back online, mark all participants as online");
-                        for (_, entry) in self.group_list.iter_mut() {
+                        for entry in self.group_list.values_mut() {
                             entry.status = ParticipantState::Online as i32;
                         }
                         self.common.online = true;

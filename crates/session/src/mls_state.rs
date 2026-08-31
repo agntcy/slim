@@ -542,7 +542,7 @@ where
             Some(id) => id,
             None => {
                 error!("the name does not exists in the group");
-                return Err(SessionError::ParticipantNotFound(name));
+                return Err(SessionError::ParticipantNotFound(Box::new(name)));
             }
         };
 
@@ -566,7 +566,7 @@ where
             Some(id) => id,
             None => {
                 error!("the name does not exist in the group");
-                return Err(SessionError::ParticipantNotFound(name.clone()));
+                return Err(SessionError::ParticipantNotFound(Box::new(name.clone())));
             }
         };
 

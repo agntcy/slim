@@ -211,7 +211,7 @@ impl SessionSender {
                 %dst,
                 "cannot forward the message to the select destination",
             );
-            return Err(SessionError::UnknownDestination(dst));
+            return Err(SessionError::UnknownDestination(Box::new(dst)));
         }
 
         let (message_id, fanout) = self.id_and_fanout(is_publish_to);
