@@ -1,11 +1,12 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use slim_datapath::api::{EncodedName, ProtoName};
 use slim_datapath::tables::SubscriptionTable;
 use slim_datapath::tables::subscription_table::SubscriptionTableImpl;
 use slim_datapath::tables::{ConnType, MatchFilter};
+use std::hint::black_box;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
