@@ -107,7 +107,7 @@ hex = "0.4.3"
 hkdf = "0.12"
 # Pure-Rust HMAC-SHA256 for the wasm32 build of SharedSecret (aws-lc-rs is
 # native-only).
-hmac = "0.12"
+hmac = "0.13"
 http = "1.2.0"
 http-body-util = "0.1.3"
 hyper = { version = "1.8.1", features = ["http1", "server", "client"] }
