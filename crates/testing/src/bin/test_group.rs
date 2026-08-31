@@ -282,7 +282,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if i % 10 == 0 {
             println!(
                 "remove {} and add {}",
-                &participants[to_remove], &participants[to_add]
+                participants[to_remove], participants[to_add]
             );
 
             let handler = session_arc

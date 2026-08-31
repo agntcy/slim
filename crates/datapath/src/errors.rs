@@ -39,7 +39,7 @@ pub enum DataPathError {
     #[error("no matching found for [{:x}, {:x}, {:x}, {}]", .0, .1, .2, .3)]
     NoMatchEncoded(u64, u64, u64, String),
     #[error("subscription not found")]
-    SubscriptionNotFound(ProtoName),
+    SubscriptionNotFound(Box<ProtoName>),
     #[error("subscription id not found: {0}")]
     SubscriptionIdNotFound(u64),
     #[error("id not found: {0}")]

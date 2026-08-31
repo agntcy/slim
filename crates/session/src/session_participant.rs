@@ -1144,7 +1144,7 @@ where
         // On rejoin (OnLine): mark all other participants as offline.
         // They will be moved back online as their ACKs arrive.
         if status == ParticipantState::Online {
-            for (_, entry) in self.group_list.iter_mut() {
+            for entry in self.group_list.values_mut() {
                 entry.status = ParticipantState::Offline as i32;
             }
         }
@@ -1464,7 +1464,7 @@ where
 
         // remove also all the routes to the other participants except the moderator
         // it will be removed in disconnect_from_moderator
-        for (n, _) in self.group_list.iter() {
+        for n in self.group_list.keys() {
             if self.moderator_name.as_ref() != Some(n)
                 && let Err(e) = self
                     .common
