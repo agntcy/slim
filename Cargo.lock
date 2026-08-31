@@ -4255,6 +4255,8 @@ checksum = "30d5b2194ed13191c1999ae0704b7839fb18384fa22e49b57eeaa97d79ce40da"
 dependencies = [
  "libc",
  "winapi",
+=======
+>>>>>>> 825fe5b8 (chore(deps): update rust crate hmac to 0.13 (#2018))
 ]
 
 [[package]]
