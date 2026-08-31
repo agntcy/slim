@@ -54,7 +54,7 @@ agntcy-slim-tracing = { workspace = true }
 anyhow = { workspace = true }
 aws-lc-rs = { workspace = true }
 base64 = { workspace = true }
-bollard = { version = "0.17" }
+bollard = { version = "0.21" }
 clap = { workspace = true }
 futures = { workspace = true }
 jsonwebtoken = { workspace = true }
