@@ -8,7 +8,7 @@
 //! assert byte-for-byte parity with the [`super::backend_awslc`] backend — the
 //! property that makes a native↔browser link interoperable.
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 
 /// Per-link HMAC key material (the raw secret; `hmac::Hmac` is constructed per call).
 pub type MacKey = Vec<u8>;
