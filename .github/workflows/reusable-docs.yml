@@ -34,7 +34,7 @@ jobs:
     #   docs-deploy.yml deploy job -> contents: write (mike --push, root files)
     steps:
       - name: Checkout code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # mike needs full history and the gh-pages branch to deploy versions.
           fetch-depth: 0
@@ -45,7 +45,7 @@ jobs:
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
 
       - name: Setup task
-        uses: go-task/setup-task@01a4adf9db2d14c1de7a560f09170b6e0df736aa # v2.1.0
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
 
       - name: Install lychee (link checker)
         if: inputs.mode == 'ci' || inputs.mode == 'deploy-dev'
