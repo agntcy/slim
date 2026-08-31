@@ -413,7 +413,7 @@ where
         if self.app_names.read().contains_key(&key) {
             Ok(dst.with_id(self.app_id))
         } else {
-            Err(SessionError::SubscriptionNotFound(dst))
+            Err(SessionError::SubscriptionNotFound(Box::new(dst)))
         }
     }
 
