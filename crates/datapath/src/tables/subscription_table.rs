@@ -561,7 +561,7 @@ impl SubscriptionTable for SubscriptionTableImpl {
             let current = self.routing.load();
             if !current.contains_key(&prefix) {
                 debug!("subscription not found {}", name);
-                return Err(DataPathError::SubscriptionNotFound(name.clone()));
+                return Err(DataPathError::SubscriptionNotFound(Box::new(name.clone())));
             }
             if !current[&prefix].has_id(id) {
                 warn!(%id, "not found");
