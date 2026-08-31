@@ -104,7 +104,7 @@ h2 = "0.4.7"
 headers = "0.4.1"
 hex = "0.4.3"
 # Pure-Rust HKDF-SHA256 for the wasm32 inter-node link key derivation.
-hkdf = "0.12"
+hkdf = "0.13"
 # Pure-Rust HMAC-SHA256 for the wasm32 build of SharedSecret (aws-lc-rs is
 # native-only).
 hmac = "0.12"
