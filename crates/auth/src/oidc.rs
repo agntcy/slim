@@ -170,6 +170,11 @@ pub async fn post_token_request_with_dpop(
     let mut nonce: Option<String> = None;
 
     for attempt in 0..2 {
+        // codeql[rust/cleartext-transmission]: token_endpoint is either https,
+        // or loopback per RFC 8252 (enforced by require_https / same_origin
+        // against an already-validated issuer). The DPoP proof below is a
+        // signature derived from the signing key, not the key itself; CodeQL's
+        // no-build extraction for Rust can't see either invariant.
         let mut request = client.post(token_endpoint).form(form);
         if let Some((secret, public)) = signature_keys {
             let proof =
@@ -2089,19 +2094,19 @@ mod tests {
             .mount(&server)
             .await;
 
-        match provider_for(&issuer)
+        // Matched without formatting the unexpected value: a failing test must
+        // not print a token or key material into CI output.
+        let Err(AuthError::TokenEndpointError { body, .. }) = provider_for(&issuer)
             .exchange_authorization_code("stale", "v", "http://127.0.0.1/cb")
             .await
-        {
-            Err(AuthError::TokenEndpointError { body, .. }) => {
-                assert!(body.contains("invalid_grant"), "got {body}");
-                assert!(
-                    body.contains("Code not valid"),
-                    "description dropped: {body}"
-                );
-            }
-            other => panic!("expected TokenEndpointError, got {other:?}"),
-        }
+        else {
+            panic!("expected TokenEndpointError");
+        };
+        assert!(body.contains("invalid_grant"), "got {body}");
+        assert!(
+            body.contains("Code not valid"),
+            "description dropped: {body}"
+        );
     }
 
     /// The transport-auth path and every non-MLS caller.
@@ -2538,12 +2543,12 @@ mod tests {
             .exchange_authorization_code("c", "v", "http://127.0.0.1/cb")
             .await;
 
-        match result {
-            Err(AuthError::TokenEndpointError { body, .. }) => {
-                assert!(body.contains("kept demanding a new DPoP nonce"), "{body}");
-            }
-            other => panic!("expected a clear misbehaving-endpoint error, got {other:?}"),
-        }
+        // Matched without formatting the unexpected value: a failing test must
+        // not print a token or key material into CI output.
+        let Err(AuthError::TokenEndpointError { body, .. }) = result else {
+            panic!("expected a clear misbehaving-endpoint error");
+        };
+        assert!(body.contains("kept demanding a new DPoP nonce"), "{body}");
     }
 
     /// A spent refresh token must surface as its own error so the caller can
