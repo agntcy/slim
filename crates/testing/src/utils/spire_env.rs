@@ -12,11 +12,11 @@
 //! - Automatic cleanup of all resources
 
 use bollard::Docker;
-use bollard::container::{Config, CreateContainerOptions, LogsOptions, RemoveContainerOptions};
 use bollard::exec::{CreateExecOptions, StartExecResults};
-use bollard::image::CreateImageOptions;
-use bollard::models::{HostConfig, PortBinding};
-use bollard::network::CreateNetworkOptions;
+use bollard::models::{ContainerCreateBody, HostConfig, NetworkCreateRequest, PortBinding};
+use bollard::query_parameters::{
+    CreateContainerOptions, CreateImageOptions, LogsOptions, RemoveContainerOptions,
+};
 use futures::StreamExt;
 use slim_config::auth::spire::SpireConfig;
 use std::collections::HashMap;
@@ -145,7 +145,7 @@ impl SpireTestEnvironment {
     ) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(%message, "Waiting for log message");
 
-        let logs_options = LogsOptions::<String> {
+        let logs_options = LogsOptions {
             follow: true,
             stdout: true,
             stderr: true,
@@ -177,9 +177,8 @@ impl SpireTestEnvironment {
     async fn create_network(&self) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(name = %self.network_name, "Creating Docker network");
 
-        let create_network_options = CreateNetworkOptions {
+        let create_network_options = NetworkCreateRequest {
             name: self.network_name.clone(),
-            check_duplicate: true,
             ..Default::default()
         };
 
@@ -195,8 +194,8 @@ impl SpireTestEnvironment {
         tracing::info!(image = %image_name, "Pulling Docker image");
 
         let options = Some(CreateImageOptions {
-            from_image: image,
-            tag,
+            from_image: Some(image.to_string()),
+            tag: Some(tag.to_string()),
             ..Default::default()
         });
 
@@ -208,8 +207,9 @@ impl SpireTestEnvironment {
                     if let Some(status) = info.status {
                         tracing::debug!(pull_status = %status);
                     }
-                    if let Some(error) = info.error {
-                        return Err(format!("Error pulling image: {}", error).into());
+                    if let Some(error) = info.error_detail {
+                        let message = error.message.unwrap_or_default();
+                        return Err(format!("Error pulling image: {}", message).into());
                     }
                 }
                 Err(e) => return Err(format!("Failed to pull image: {}", e).into()),
@@ -285,23 +285,20 @@ plugins {{
             ..Default::default()
         };
 
-        let mut exposed_ports = HashMap::new();
-        exposed_ports.insert("8081/tcp".to_string(), HashMap::new());
-
-        let server_config = Config {
+        let server_config = ContainerCreateBody {
             image: Some(format!("{}:{}", SPIRE_SERVER_IMAGE, SPIRE_VERSION)),
             cmd: Some(vec![
                 "run".to_string(),
                 "-config".to_string(),
                 "/opt/spire/conf/server/server.conf".to_string(),
             ]),
-            exposed_ports: Some(exposed_ports),
+            exposed_ports: Some(vec!["8081/tcp".to_string()]),
             host_config: Some(server_host_config),
             ..Default::default()
         };
 
         let server_create_options = CreateContainerOptions {
-            name: self.server_name.clone(),
+            name: Some(self.server_name.clone()),
             ..Default::default()
         };
 
@@ -311,7 +308,7 @@ plugins {{
             .await?;
 
         self.docker
-            .start_container::<String>(&server_container.id, None)
+            .start_container(&server_container.id, None)
             .await?;
 
         self.server_container_id = Some(server_container.id.clone());
@@ -456,7 +453,7 @@ plugins {{
             ..Default::default()
         };
 
-        let config = Config {
+        let config = ContainerCreateBody {
             image: Some(format!("{}:{}", SPIRE_AGENT_IMAGE, SPIRE_VERSION)),
             cmd: Some(vec![
                 "run".to_string(),
@@ -468,7 +465,7 @@ plugins {{
         };
 
         let create_options = CreateContainerOptions {
-            name: self.agent_name.clone(),
+            name: Some(self.agent_name.clone()),
             ..Default::default()
         };
 
@@ -478,7 +475,7 @@ plugins {{
             .await?;
 
         self.docker
-            .start_container::<String>(&agent_container.id, None)
+            .start_container(&agent_container.id, None)
             .await?;
 
         self.agent_container_id = Some(agent_container.id.clone());
@@ -582,15 +579,20 @@ plugins {{
     pub async fn cleanup(&self) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("Cleaning up SPIRE test environment");
 
-        let remove_options = Some(RemoveContainerOptions {
-            force: true,
-            ..Default::default()
-        });
+        fn remove_options() -> Option<RemoveContainerOptions> {
+            Some(RemoveContainerOptions {
+                force: true,
+                ..Default::default()
+            })
+        }
 
         // Remove agent container
         if let Some(agent_id) = &self.agent_container_id {
             let _ = self.docker.stop_container(agent_id, None).await;
-            let _ = self.docker.remove_container(agent_id, remove_options).await;
+            let _ = self
+                .docker
+                .remove_container(agent_id, remove_options())
+                .await;
         }
 
         // Remove server container
@@ -598,7 +600,7 @@ plugins {{
             let _ = self.docker.stop_container(server_id, None).await;
             let _ = self
                 .docker
-                .remove_container(server_id, remove_options)
+                .remove_container(server_id, remove_options())
                 .await;
         }
 
