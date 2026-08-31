@@ -1,12 +1,13 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use slim_datapath::api::{EncodedName, NameId, ProtoName, SlimHeader, StringName};
 use slim_datapath::messages::utils::DEFAULT_TTL;
 use slim_datapath::tables::SubscriptionTable;
 use slim_datapath::tables::subscription_table::SubscriptionTableImpl;
 use slim_datapath::tables::{ConnType, MatchFilter};
+use std::hint::black_box;
 
 fn make_proto_name() -> ProtoName {
     ProtoName {

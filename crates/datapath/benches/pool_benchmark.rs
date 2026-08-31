@@ -1,5 +1,6 @@
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use slim_datapath::tables::pool::Pool;
+use std::hint::black_box;
 use std::mem::MaybeUninit;
 
 fn bench_lookup(c: &mut Criterion) {
