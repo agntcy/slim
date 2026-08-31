@@ -211,8 +211,23 @@ where
                 // Salted with this app's own name so two apps sharing one identity
                 // (e.g. the same OIDC user's sender and receiver) get distinct ids
                 // instead of colliding on the same routing address.
-                let (c0, c1, c2) = app_name.str_components();
-                let id_input = format!("{token_id}\0{c0}\0{c1}\0{c2}");
+                //
+                // Not `str_components()`: that `expect`s the string half to be
+                // present, and an app id is not worth a panic on the construction
+                // path. Fall back to the encoded half, then to no salt — the
+                // pre-salting behaviour — rather than unwrapping.
+                let salt = match (&app_name.str_name, &app_name.name) {
+                    (Some(s), _) => format!(
+                        "{}\0{}\0{}",
+                        s.str_component_0, s.str_component_1, s.str_component_2
+                    ),
+                    (None, Some(n)) => format!(
+                        "{:x}\0{:x}\0{:x}",
+                        n.component_0, n.component_1, n.component_2
+                    ),
+                    (None, None) => String::new(),
+                };
+                let id_input = format!("{token_id}\0{salt}");
 
                 // Use XXH3-128 for a native 128-bit hash of the token ID
                 let mut id_hash = twox_hash::XxHash3_128::oneshot(id_input.as_bytes());

@@ -70,7 +70,8 @@ pub struct LoginArgs {
     /// no default store and the transport path cannot refresh a bound token.
     ///
     /// Omit for a plain bearer login, which goes to `~/.slimctl/credentials.yaml`
-    /// and is what the transport path reads.
+    /// for slimctl's own use. Node transport auth does not read that file; it
+    /// needs `client_secret`, `refresh_token_file` or `refresh_token`.
     #[arg(long)]
     dpop_credentials_file: Option<String>,
 
@@ -165,8 +166,21 @@ async fn fetch_metadata(
 /// this only enforces the scheme, not overall well-formedness.
 fn check_scheme(url: &str, allow_http: bool) -> Result<()> {
     if allow_http {
-        Url::parse(url).context("invalid URL")?;
-        return Ok(());
+        // Loopback http only, via the same predicate the runtime uses, so a
+        // login cannot succeed against an issuer the app layer will later reject
+        // with `OidcInsecureIssuerUrl`. Accepting any parseable scheme (as this
+        // did) also handed an arbitrary one — `file://`, say — to the browser as
+        // an authorization endpoint.
+        let parsed = Url::parse(url).context("invalid URL")?;
+        if parsed.scheme() == "https"
+            || (parsed.scheme() == "http" && slim_auth::oidc::is_loopback_host(&parsed))
+        {
+            return Ok(());
+        }
+        bail!(
+            "--allow-http permits http only on {}; got {url:?}",
+            LOOPBACK_HOSTS.join(", ")
+        );
     }
     if !url.to_ascii_lowercase().starts_with("https://") {
         bail!("must be an https URL (pass --allow-http to test against a local IdP)");
@@ -594,9 +608,33 @@ mod tests {
         "https://example.com/.well-known/openid-configuration",
     ];
 
+    /// `--allow-http` must not be broader than what the runtime accepts, or a
+    /// login succeeds and writes a store the app layer then rejects with
+    /// `OidcInsecureIssuerUrl`.
+    #[test]
+    fn allow_http_is_loopback_only() {
+        for ok in [
+            "http://127.0.0.1:8080/realms/slim",
+            "http://localhost:8080/realms/slim",
+            "http://[::1]:8080/realms/slim",
+            "https://idp.example.com/realms/slim",
+        ] {
+            assert!(check_scheme(ok, true).is_ok(), "should accept {ok}");
+        }
+        for bad in [
+            "http://idp.example.com/realms/slim",
+            "file:///etc/passwd",
+            "ftp://idp.example.com/",
+        ] {
+            assert!(check_scheme(bad, true).is_err(), "should reject {bad}");
+        }
+        // Without the flag, https remains the only option even on loopback.
+        assert!(check_scheme("http://127.0.0.1:8080/realms/slim", false).is_err());
+    }
+
     /// One flag carries both decisions: DPoP binding and where the store goes.
     /// A bound login therefore cannot land in the default store, which the
-    /// transport path reads and cannot refresh.
+    /// default store, which slimctl itself authenticates with.
     #[test]
     fn dpop_credentials_file_selects_an_app_identity() {
         let args = parse_ok(&[REQUIRED, &["--dpop-credentials-file", "/tmp/ci.yaml"]].concat());

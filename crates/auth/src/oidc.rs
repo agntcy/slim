@@ -25,16 +25,43 @@ use tokio::task::JoinHandle;
 use url::Url;
 
 /// Returns an error if `url` does not use `https`, unless the host is localhost.
+/// Whether a URL's host is loopback, and therefore allowed to serve plain http.
+///
+/// Matches on the parsed [`url::Host`] rather than `host_str()`: the latter
+/// returns IPv6 hosts bracketed (`"[::1]"`), so comparing it against `"::1"`
+/// never fires — which is how `http://[::1]` came to be rejected despite
+/// loopback being permitted. Also covers all of 127.0.0.0/8, not just 127.0.0.1.
+///
+/// Public so `slimctl`'s `--allow-http` can enforce the same rule this does; two
+/// copies of the policy is how they came to disagree.
+pub fn is_loopback_host(url: &Url) -> bool {
+    match url.host() {
+        Some(url::Host::Domain(h)) => h.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(addr)) => addr.is_loopback(),
+        Some(url::Host::Ipv6(addr)) => addr.is_loopback(),
+        None => false,
+    }
+}
+
 fn require_https(url: &str) -> Result<Url, AuthError> {
     let parsed = Url::parse(url)?;
-    let is_loopback = matches!(
-        parsed.host_str(),
-        Some("localhost") | Some("127.0.0.1") | Some("::1")
-    );
-    if parsed.scheme() != "https" && !is_loopback {
+    if parsed.scheme() != "https" && !is_loopback_host(&parsed) {
         return Err(AuthError::OidcInsecureIssuerUrl(url.to_string()));
     }
     Ok(parsed)
+}
+
+/// Discovery URL for an issuer that has already been checked.
+///
+/// Takes the parsed `Url` rather than the raw config string so the only way to
+/// build one is from a value that passed [`require_https`] (or the equivalent
+/// check in `RefreshTokenProvider::new`). Nothing but the issuer origin and path
+/// reaches the request — the document is fetched with no credential of any kind.
+pub(crate) fn discovery_url(issuer: &Url) -> String {
+    format!(
+        "{}/.well-known/openid-configuration",
+        issuer.as_str().trim_end_matches('/')
+    )
 }
 
 // Default token refresh buffer (60 seconds before expiry)
@@ -331,10 +358,7 @@ impl OidcTokenProvider {
     /// caller needing two endpoints from it pays for one round trip.
     pub(crate) async fn discovery_doc(&self) -> Result<(serde_json::Value, Url), AuthError> {
         let issuer_parsed = require_https(&self.config.issuer_url)?;
-        let discovery_url = format!(
-            "{}/.well-known/openid-configuration",
-            self.config.issuer_url
-        );
+        let discovery_url = discovery_url(&issuer_parsed);
         let doc: serde_json::Value = self.client.get(&discovery_url).send().await?.json().await?;
         Ok((doc, issuer_parsed))
     }
@@ -869,7 +893,7 @@ impl OidcVerifier {
     /// Fetch JWKS from the issuer
     async fn fetch_jwks(&self) -> Result<JwkSet, AuthError> {
         let issuer_parsed = require_https(&self.issuer_url)?;
-        let discovery_url = format!("{}/.well-known/openid-configuration", self.issuer_url);
+        let discovery_url = discovery_url(&issuer_parsed);
         let discovery_response: serde_json::Value = self
             .http_client
             .get(&discovery_url)
@@ -1132,6 +1156,30 @@ impl Verifier for OidcVerifier {
             .cached_verification_keys()
             .ok_or(AuthError::WouldBlockOn)?;
         let claims = self.verify_token_util(token.as_ref(), &keys)?;
+
+        // Populate as well as read. MLS `validate_member` runs on this path for
+        // every message, so without this a configured `claim_cache_ttl` never
+        // covers the hot path — it only ever hit for credentials an async
+        // `get_claims` had already warmed. Same `exp` clamp as `verify_token`:
+        // an entry must not outlive the token it came from.
+        //
+        // Only for DPoP credentials. `verify_token` merges userinfo into a plain
+        // bearer credential's claims and this path cannot (userinfo needs async),
+        // so caching a bearer entry here would serve userinfo-less claims to a
+        // later `get_claims`. For a presented key both paths skip userinfo, so
+        // the entries are identical and the cache is safe to share.
+        if split_credential(token.as_ref()).1.is_some()
+            && let Some(cache) = &self.claim_cache
+        {
+            cache.write().insert(
+                token.as_ref().to_owned(),
+                (
+                    claims.clone(),
+                    Instant::now() + self.claim_cache_lifetime(&claims),
+                ),
+            );
+        }
+
         Ok(serde_json::from_value(claims)?)
     }
 }
@@ -1146,6 +1194,56 @@ mod tests {
 
     // Use the test utilities from the testutils module
     use slim_testing::utils::{TestClaims, setup_oidc_mock_server, setup_test_jwt_resolver};
+
+    /// Loopback may serve plain http. `host_str()` brackets IPv6 (`"[::1]"`), so
+    /// the previous string comparison against `"::1"` never fired and
+    /// `http://[::1]` was rejected despite loopback being permitted.
+    #[test]
+    fn loopback_issuers_may_be_plain_http() {
+        for ok in [
+            "http://127.0.0.1:8080/realms/slim",
+            "http://127.0.0.2:8080/realms/slim", // all of 127.0.0.0/8 is loopback
+            "http://localhost:8080/realms/slim",
+            "http://LocalHost:8080/realms/slim",
+            "http://[::1]:8080/realms/slim",
+            "https://idp.example.com/realms/slim",
+        ] {
+            assert!(require_https(ok).is_ok(), "should accept {ok}");
+        }
+        for bad in [
+            "http://idp.example.com/realms/slim",
+            "http://[2001:db8::1]:8080/realms/slim",
+        ] {
+            assert!(
+                matches!(require_https(bad), Err(AuthError::OidcInsecureIssuerUrl(_))),
+                "should reject {bad}"
+            );
+        }
+    }
+
+    /// Building the discovery URL from the *parsed* issuer must produce exactly
+    /// what formatting the raw string did, including the bare-origin case where
+    /// `Url` adds a path slash and the case where the issuer already ends in one.
+    #[test]
+    fn discovery_url_matches_the_issuer_it_was_checked_from() {
+        for issuer in [
+            "https://idp.example.com/realms/slim",
+            "https://idp.example.com/realms/slim/",
+            "https://idp.example.com",
+            "https://idp.example.com/",
+            "http://127.0.0.1:8080/realms/slim",
+        ] {
+            let parsed = require_https(issuer).expect("issuer should be accepted");
+            assert_eq!(
+                discovery_url(&parsed),
+                format!(
+                    "{}/.well-known/openid-configuration",
+                    issuer.trim_end_matches('/')
+                ),
+                "issuer {issuer}"
+            );
+        }
+    }
 
     #[tokio::test]
     async fn test_oidc_token_provider_client_credentials_flow() {
@@ -1943,7 +2041,12 @@ mod tests {
         ));
 
         // Re-installing the same key is not a change and stays allowed.
-        assert!(provider.install_signature_keys(secret, public).is_ok());
+        // Asserted without formatting the operands: a failing test must not
+        // print private key bytes into CI output.
+        assert!(
+            provider.install_signature_keys(secret, public).is_ok(),
+            "re-installing the key the live token is bound to must be allowed"
+        );
     }
 
     /// Once a delegate exists it is the sole owner of the key: installing after
@@ -1963,7 +2066,12 @@ mod tests {
             .unwrap();
 
         assert!(provider.mls_signature_keys_installed());
-        assert_eq!(provider.get_signature_keys().unwrap(), (secret, public));
+        // `==` rather than assert_eq!: the latter Debug-formats both sides on
+        // failure, which would put the private key in the panic message.
+        assert!(
+            provider.get_signature_keys().unwrap() == (secret, public),
+            "installed signature keys must round-trip unchanged"
+        );
     }
 
     /// On this grant it means a stale code, not a spent refresh token — the two

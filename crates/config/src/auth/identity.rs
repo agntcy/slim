@@ -162,13 +162,20 @@ audience: slim
         ));
     }
 
-    /// A service identity needs no login.
+    /// A `client_secret` identity must be refused, not accepted. The
+    /// client-credentials grant is not DPoP-bound, so its token carries no MLS
+    /// key: such a provider builds and fetches tokens happily, then every peer
+    /// rejects it with `PublicKeyNotFound` at the first group join. Failing here
+    /// turns that into a startup error naming the alternatives.
     #[test]
-    fn oidc_provider_builds_with_a_client_secret() {
+    fn oidc_identity_rejects_a_client_secret() {
         let cfg = IdentityProviderConfig::Oidc(
             OidcConfig::new("https://no-such-issuer.invalid/realms/slim")
                 .with_client_credentials("slim-app", "the-secret"),
         );
-        assert!(cfg.build_auth_provider().is_ok());
+        assert!(matches!(
+            cfg.build_auth_provider(),
+            Err(ConfigAuthError::IdentityProviderNotConfigured)
+        ));
     }
 }

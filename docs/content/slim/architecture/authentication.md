@@ -113,18 +113,28 @@ identity:
 
 RFC 9449 binds a refresh token to the key from its original grant, so a distinct key means a distinct login. That is one browser round-trip per app, but only one credential prompt.
 
-**Identity is not the same credential as the connection.** An app has two: its MLS identity, from a `--dpop-credentials-file` store, and whatever authenticates its gRPC connection to the node. A DPoP-bound token cannot serve as the second — every refresh must carry a proof, and the transport provider holds no signing key — so a plain `slimctl login`, which writes `~/.slimctl/credentials.yaml`, is what the transport path reads:
+**Identity is not the same credential as the connection.** An app has two: its MLS identity, from a `--dpop-credentials-file` store, and whatever authenticates its gRPC connection to the node. They are configured separately and need not name the same principal.
+
+A DPoP-bound token cannot serve as the connection credential: every refresh must carry a proof, and the transport provider holds no signing key, so it would connect fine and die at the first renewal. Transport auth therefore takes its own explicit credential — `client_secret` (client-credentials, no browser), `refresh_token_file`, or `refresh_token`. It does **not** read any stored login: a node that fell back to `~/.slimctl/credentials.yaml` authenticated as whoever last signed in on that host.
 
 ```bash
-# connection credential to the node — plain, shared
-slimctl login --client-id slim-node --discovery-uri ...
-
-# app identity — DPoP-bound, one store per app
+# app identity — DPoP-bound, one store per app, browser login
 slimctl login --dpop-credentials-file ~/.slim/laptop.yaml --client-id slim-app --discovery-uri ...
 slimctl login --dpop-credentials-file ~/.slim/ci.yaml     --client-id slim-app --discovery-uri ...
 ```
 
-Requiring the path on `--dpop-credentials-file` is what keeps these apart: a bound login can never land in the store the transport path reads.
+```yaml
+# connection credential — a service identity, named explicitly
+node:
+  endpoint: "https://slim.example.com:46357"
+  auth:
+    type: oidc
+    issuer_url: https://keycloak.example.com/realms/slim
+    client_id: slim-transport
+    client_secret: "${file:/run/secrets/slim-transport-secret}"
+```
+
+For the same reason, an OIDC **identity** cannot use `client_secret`: the client-credentials grant is not DPoP-bound, so its token carries no MLS key and peers reject it with `PublicKeyNotFound`. A headless workload wanting per-workload identity should use SPIRE.
 
 **Properties:**
 

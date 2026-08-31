@@ -87,8 +87,9 @@ pub struct Config {
     ///
     /// Resolved from this field, else `$SLIM_CREDENTIALS_FILE`. There is no
     /// default: an app must name its store, so that two apps never silently
-    /// share one MLS identity. The transport path (`get_client_layer`) is
-    /// unaffected and keeps using `~/.slimctl/credentials.yaml`.
+    /// share one MLS identity. The transport path does not read this, and no
+    /// longer reads any stored login either — `get_client_layer` requires
+    /// `client_secret`, `refresh_token_file` or `refresh_token`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credentials_file: Option<String>,
 
@@ -327,6 +328,23 @@ impl Config {
     /// Provider for the application-identity path, adopting the MLS key and
     /// refresh token `slimctl login --dpop-credentials-file <path>` bound for this issuer.
     pub fn create_identity_provider(&self) -> Result<OidcTokenProvider, ConfigAuthError> {
+        // A client-credentials token is never DPoP-bound: `fetch_new_token` runs
+        // the grant through `oauth2::BasicClient`, which attaches no proof, so
+        // the token comes back with no `cnf.jkt`. The provider then presents a
+        // bare bearer credential, a peer's verifier strips the unverified
+        // `pubkey`, and every peer fails with `PublicKeyNotFound` — at the first
+        // group join, long after this config was accepted. Refuse it here.
+        if !self.client_secret.as_deref().unwrap_or_default().is_empty() {
+            tracing::error!(
+                issuer = %self.issuer_url,
+                "OIDC identity cannot use `client_secret`: a client-credentials token is not \
+                 DPoP-bound, so it carries no MLS key and peers reject it with \
+                 PublicKeyNotFound. Use `slimctl login --dpop-credentials-file <path>` for a \
+                 person's app, or SPIRE for a headless workload"
+            );
+            return Err(ConfigAuthError::IdentityProviderNotConfigured);
+        }
+
         let provider = self.create_provider()?;
 
         if self.should_adopt_stored_login() {
@@ -344,21 +362,17 @@ impl Config {
             self.seed_from_login(&path, &provider);
         }
 
-        // A working renewal path is either a client_secret (service identity) or
-        // an adopted refresh-token delegate (user identity). An installed MLS
-        // key alone isn't enough — a login whose IdP granted no `offline_access`
+        // Renewal comes from the adopted refresh-token delegate; there is no
+        // client_secret fallback on this path any more. An installed MLS key
+        // alone isn't enough — a login whose IdP granted no `offline_access`
         // stores a key but no refresh token, which would otherwise build fine
         // and only fail at the first token fetch, behind a swallowed warning.
-        if self.client_secret.as_deref().unwrap_or_default().is_empty()
-            && !provider.has_refresh_delegate()
-        {
+        if !provider.has_refresh_delegate() {
             tracing::error!(
                 issuer = %self.issuer_url,
-                "OIDC identity has no client secret and no usable stored login for this \
-                 issuer (its refresh token may be missing — check the IdP granted \
-                 `offline_access`); run \
-                 `slimctl login --dpop-credentials-file <path>`, or set \
-                 client_secret for a service identity"
+                "OIDC identity has no usable stored login for this issuer (its refresh token \
+                 may be missing — check the IdP granted `offline_access`); run \
+                 `slimctl login --dpop-credentials-file <path>`"
             );
             return Err(ConfigAuthError::IdentityProviderNotConfigured);
         }
@@ -546,16 +560,6 @@ fn resolve_credentials_path(
         .map(std::path::PathBuf::from)
 }
 
-/// The shared store `slimctl login` writes when given no `--credentials-file`.
-/// Read by the transport path only; the identity path requires an explicit one.
-fn default_credentials_file_path() -> Option<std::path::PathBuf> {
-    std::env::var_os("HOME").map(|h| {
-        std::path::PathBuf::from(h)
-            .join(".slimctl")
-            .join("credentials.yaml")
-    })
-}
-
 fn load_stored_credentials(path: &std::path::Path) -> Option<StoredCredentials> {
     let data = std::fs::read_to_string(path).ok()?;
     serde_yaml::from_str(&data).ok()
@@ -721,46 +725,27 @@ impl ClientAuthenticator for Config {
                     lock_and_reload: None,
                 },
             )?)
-        } else if self.client_secret.is_some() {
-            // Client-credentials flow.
+        } else if !self.client_secret.as_deref().unwrap_or_default().is_empty() {
+            // Client-credentials flow. Emptiness, not `is_some()`: the identity
+            // path treats `Some("")` as "no secret" (see `should_adopt_stored_login`),
+            // and a config shared by both paths must not mean two different things.
+            // An empty secret would also be rejected by the token endpoint.
             OidcClientProvider::ClientCredentials(self.create_provider()?)
         } else {
-            // No explicit tokens — load from the default ~/.slimctl/credentials.yaml.
-            // Deliberately not `credentials_file`: that field names an app's
-            // identity store, and a node must not adopt one as its transport
-            // credential.
-            let creds = default_credentials_file_path()
-                .and_then(|p| load_stored_credentials(&p))
-                .ok_or(ConfigAuthError::IdentityProviderNotConfigured)?;
-            if !self.issuer_url.is_empty() && creds.issuer != self.issuer_url {
-                return Err(ConfigAuthError::IdentityProviderNotConfigured);
-            }
-            let refresh_token = creds
-                .refresh_token
-                .clone()
-                .ok_or(ConfigAuthError::IdentityProviderNotConfigured)?;
-            let persist = default_credentials_file_path().map(|path| {
-                let creds = creds.clone();
-                let cb: Arc<dyn Fn(String, String) + Send + Sync> =
-                    Arc::new(move |access_token, new_refresh_token| {
-                        let mut updated = creds.clone();
-                        updated.access_token = Some(access_token);
-                        updated.refresh_token = Some(new_refresh_token);
-                        persist_stored_credentials(path.clone(), updated);
-                    });
-                cb
-            });
-            OidcClientProvider::RefreshToken(RefreshTokenProvider::new(
-                RefreshTokenProviderConfig {
-                    refresh_token,
-                    issuer_url: creds.issuer,
-                    client_id: self.client_id.clone().unwrap_or(creds.client_id),
-                    timeout: self.timeout.map(Into::into),
-                    initial_access_token: creds.access_token,
-                    persist_credentials: persist,
-                    lock_and_reload: None,
-                },
-            )?)
+            // Deliberately no fallback to a stored login. Reading
+            // ~/.slimctl/credentials.yaml here meant a long-lived process
+            // configured with nothing but `type: oidc` authenticated as whoever
+            // last ran `slimctl login` on the host — and took its `client_id`
+            // from that file too. Transport credentials must be named explicitly.
+            tracing::error!(
+                issuer = %self.issuer_url,
+                "OIDC transport auth needs one of `client_secret`, `refresh_token_file` or \
+                 `refresh_token`. Refusing to fall back to ~/.slimctl/credentials.yaml — a \
+                 node must not authenticate as whoever last signed in on this host. Note a \
+                 `slimctl login --dpop-credentials-file` store cannot serve here either: its \
+                 refresh token is DPoP-bound and this path holds no signing key"
+            );
+            return Err(ConfigAuthError::IdentityProviderNotConfigured);
         };
 
         Ok(Self::ClientLayer::new(provider))
@@ -1301,6 +1286,36 @@ mod tests {
         let yaml = serde_yaml::to_string(&Config::new("https://issuer.example.com")).unwrap();
         assert!(!yaml.contains("refresh_token_file"), "{yaml}");
         assert!(!yaml.contains("access_token_file"), "{yaml}");
+    }
+
+    /// Transport auth must name its credential. Falling back to a stored login
+    /// meant a node authenticated as whoever last ran `slimctl login` on the
+    /// host, taking its `client_id` from that file too.
+    #[test]
+    fn transport_auth_refuses_to_adopt_a_stored_login() {
+        crate::tls::provider::initialize_crypto_provider();
+        let cfg = Config::new("https://issuer.example.com");
+        assert!(matches!(
+            cfg.get_client_layer(),
+            Err(ConfigAuthError::IdentityProviderNotConfigured)
+        ));
+    }
+
+    /// `Some("")` must mean the same thing on both paths. The identity path
+    /// treats an empty secret as absent, so the transport path must not read it
+    /// as "client-credentials flow" and try to authenticate with nothing.
+    #[test]
+    fn empty_client_secret_is_not_a_client_credentials_flow() {
+        crate::tls::provider::initialize_crypto_provider();
+        let cfg = Config::new("https://issuer.example.com").with_client_credentials("slim-app", "");
+        assert!(
+            cfg.should_adopt_stored_login(),
+            "precondition: the identity path reads an empty secret as absent"
+        );
+        assert!(matches!(
+            cfg.get_client_layer(),
+            Err(ConfigAuthError::IdentityProviderNotConfigured)
+        ));
     }
 
     #[test]

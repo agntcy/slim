@@ -83,11 +83,7 @@ impl RefreshTokenProvider {
     pub fn new(mut config: RefreshTokenProviderConfig) -> Result<Self, AuthError> {
         config.issuer_url = config.issuer_url.trim_end_matches('/').to_owned();
         let parsed = url::Url::parse(&config.issuer_url)?;
-        let is_loopback = matches!(
-            parsed.host_str(),
-            Some("localhost") | Some("127.0.0.1") | Some("::1")
-        );
-        if parsed.scheme() != "https" && !is_loopback {
+        if parsed.scheme() != "https" && !crate::oidc::is_loopback_host(&parsed) {
             return Err(AuthError::OidcInsecureIssuerUrl(config.issuer_url.clone()));
         }
 
@@ -114,11 +110,10 @@ impl RefreshTokenProvider {
         if let Some(ep) = self.cached_token_endpoint.read().clone() {
             return Ok(ep);
         }
+        // `new` already rejected any issuer that is neither https nor loopback,
+        // so no unguarded provider can reach this.
         let issuer_parsed = url::Url::parse(&self.config.issuer_url)?;
-        let discovery_url = format!(
-            "{}/.well-known/openid-configuration",
-            self.config.issuer_url
-        );
+        let discovery_url = crate::oidc::discovery_url(&issuer_parsed);
         let doc: serde_json::Value = self.client.get(&discovery_url).send().await?.json().await?;
         let token_endpoint = doc
             .get("token_endpoint")
@@ -263,9 +258,11 @@ impl RefreshTokenProvider {
                 // process start replays a spent token and fails with
                 // invalid_grant — exactly what persisting is meant to prevent.
                 //
-                // spawn_blocking because the callback does synchronous file I/O;
-                // no lock is held across the await (the guard above is a
-                // statement-level temporary).
+                // spawn_blocking because the callback does synchronous file I/O.
+                // `_lock_guard` above is deliberately still held across this
+                // await — that is what stops another process starting an
+                // exchange before our rotated token reaches disk. Do not detach
+                // this task on the assumption that no lock is held.
                 if let Err(e) = tokio::task::spawn_blocking(move || cb(at, rt)).await {
                     tracing::error!(
                         error = %e,
