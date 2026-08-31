@@ -117,7 +117,7 @@ hyper-rustls = { version = "0.27", features = [
 ], default-features = false }
 hyper-util = "0.1.10"
 indexmap = "2"
-indicatif = "0.17.11"
+indicatif = "0.18.0"
 jemallocator = { version = "0.5" }
 js-sys = "0.3"
 jsonwebtoken = { version = "10.3.0", features = ["aws_lc_rs"] }
