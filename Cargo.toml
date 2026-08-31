@@ -104,7 +104,7 @@ h2 = "0.4.7"
 headers = "0.4.1"
 hex = "0.4.3"
 # Pure-Rust HKDF-SHA256 for the wasm32 inter-node link key derivation.
-hkdf = "0.12"
+hkdf = "0.13"
 # Pure-Rust HMAC-SHA256 for the wasm32 build of SharedSecret (aws-lc-rs is
 # native-only).
 hmac = "0.13"
@@ -193,7 +193,7 @@ semver = "1"
 serde = "1.0.217"
 serde_json = "1.0"
 serde_yaml = "0.9.34"
-sha2 = "0.10"
+sha2 = "0.11"
 smallvec = "1"
 spiffe = { version = "0.12.0", features = [
     "x509-source",
