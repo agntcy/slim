@@ -76,7 +76,7 @@ wiremock = { workspace = true }
 getrandom = { workspace = true }
 # ed25519-dalek/p256 still use rand_core 0.6, which pulls getrandom 0.2.
 # Enable its browser backend in addition to workspace getrandom 0.3.
-getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
+getrandom_02 = { package = "getrandom", version = "0.4", features = ["js"] }
 hmac = { workspace = true }
 sha2 = { workspace = true }
 
