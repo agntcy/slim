@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Pure-Rust X25519 ECDH + HKDF-SHA256 backend (`x25519-dalek` + `hkdf` +
-//! `sha2`), seeded from the workspace `getrandom` (0.3, `wasm_js` backend).
+//! `sha2`), seeded from the workspace `getrandom` (0.4, `wasm_js` backend).
 //!
 //! ML-KEM-768 hybrid link keys use the `ml-kem` crate (FIPS 203). This is the
 //! browser backend (`aws_lc_rs` is native-only). It is also compiled into native
@@ -27,7 +27,7 @@ use crate::{
 #[cfg_attr(all(test, not(target_arch = "wasm32")), allow(dead_code))]
 pub type MlKem768SecretKey = DecapsulationKey;
 
-/// Seeds ML-KEM via the workspace `getrandom` (0.3, `wasm_js` on wasm32).
+/// Seeds ML-KEM via the workspace `getrandom` (0.4, `wasm_js` on wasm32).
 ///
 /// The ml_kem API requires `TryCryptoRng<Error = Infallible>` (via the `CryptoRng`
 /// blanket impl), so we cannot surface a getrandom failure through the trait.
