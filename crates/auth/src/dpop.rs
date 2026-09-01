@@ -16,6 +16,7 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64URL;
+use rand::RngExt;
 use sha2::{Digest, Sha256};
 
 use crate::errors::AuthError;
@@ -96,7 +97,7 @@ pub fn build_proof(
         .as_secs();
 
     let mut jti_bytes = [0u8; 16];
-    rand::Rng::fill(&mut rand::rng(), &mut jti_bytes);
+    rand::rng().fill(&mut jti_bytes);
 
     let header = format!(r#"{{"typ":"dpop+jwt","alg":"{alg}","jwk":{jwk}}}"#);
     // `htu` comes from a discovery document, so let serde escape it.
@@ -276,7 +277,6 @@ mod tests {
 
     fn test_ed25519_keys() -> (Vec<u8>, Vec<u8>) {
         use ed25519_dalek::SigningKey;
-        use rand::Rng;
 
         let mut seed = [0u8; 32];
         rand::rng().fill(&mut seed);
