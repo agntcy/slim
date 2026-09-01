@@ -11,7 +11,9 @@
 //! Criterion reports `time` per iteration; throughput is reported as
 //! elements/sec so you can read the result directly as "tokens per second".
 
-use criterion::{Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, Throughput, criterion_group, criterion_main};
+use std::hint::black_box;
+
 use slim_auth::shared_secret::SharedSecret;
 use slim_auth::traits::{TokenProvider, Verifier};
 
