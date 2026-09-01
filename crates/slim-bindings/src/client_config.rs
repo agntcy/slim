@@ -7,6 +7,7 @@ use std::time::Duration;
 use slim_config::grpc::client::ClientConfig as CoreClientConfig;
 use slim_config::grpc::compression::CompressionType as CoreCompressionType;
 use slim_config::grpc::proxy::ProxyConfig as CoreProxyConfig;
+use slim_config::sub_conn::SubConnPolicy as CoreSubConnPolicy;
 
 use slim_auth::metadata::MetadataMap;
 use slim_config::backoff::exponential::Config as ExponentialBackoffConfig;
@@ -19,6 +20,46 @@ use crate::common_config::{ClientAuthenticationConfig, TlsClientConfig};
 use crate::errors::SlimError;
 
 use slim_config::component::configuration::Configuration;
+
+/// How a logical connection picks among its sub-connections for each message.
+///
+/// Only takes effect once more than one physical connection is grouped under the
+/// same logical connection, which happens when several `connect_async` calls
+/// reach the same remote SLIM node.
+#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+pub enum SubConnPolicy {
+    /// Stripe messages across sub-connections for throughput. Does not preserve
+    /// ordering across sub-connections.
+    RoundRobin,
+    /// Send on every sub-connection; delivery succeeds if any one does.
+    Redundant,
+    /// Pin each session to one sub-connection, preserving its ordering.
+    Affinity,
+    /// Use one sub-connection, moving on only when it goes away.
+    Failover,
+}
+
+impl From<SubConnPolicy> for CoreSubConnPolicy {
+    fn from(policy: SubConnPolicy) -> Self {
+        match policy {
+            SubConnPolicy::RoundRobin => CoreSubConnPolicy::RoundRobin,
+            SubConnPolicy::Redundant => CoreSubConnPolicy::Redundant,
+            SubConnPolicy::Affinity => CoreSubConnPolicy::Affinity,
+            SubConnPolicy::Failover => CoreSubConnPolicy::Failover,
+        }
+    }
+}
+
+impl From<CoreSubConnPolicy> for SubConnPolicy {
+    fn from(policy: CoreSubConnPolicy) -> Self {
+        match policy {
+            CoreSubConnPolicy::RoundRobin => SubConnPolicy::RoundRobin,
+            CoreSubConnPolicy::Redundant => SubConnPolicy::Redundant,
+            CoreSubConnPolicy::Affinity => SubConnPolicy::Affinity,
+            CoreSubConnPolicy::Failover => SubConnPolicy::Failover,
+        }
+    }
+}
 
 /// Compression type for gRPC messages
 #[derive(uniffi::Enum, Clone, Debug, PartialEq)]
@@ -310,6 +351,13 @@ pub struct ClientConfig {
 
     /// When true, reject inter-node messages without a valid header MAC (strict mode).
     pub require_header_mac: Option<bool>,
+
+    /// Sub-connection selection policy for the logical connection to this peer.
+    pub sub_conn_policy: Option<SubConnPolicy>,
+
+    /// Explicit logical-connection group key. Leave unset to group by the remote's
+    /// advertised node id, which is the normal case.
+    pub logical_group: Option<String>,
 }
 
 impl From<ClientConfig> for CoreClientConfig {
@@ -347,6 +395,11 @@ impl From<ClientConfig> for CoreClientConfig {
                 .require_header_mac
                 .unwrap_or(core_defaults.require_header_mac),
             connection_type: core_defaults.connection_type,
+            sub_conn_policy: config
+                .sub_conn_policy
+                .map(Into::into)
+                .unwrap_or(core_defaults.sub_conn_policy),
+            logical_group: config.logical_group,
         }
     }
 }
@@ -370,6 +423,8 @@ impl From<CoreClientConfig> for ClientConfig {
             backoff: Some(config.backoff.into()),
             metadata: config.metadata.and_then(|m| serde_json::to_string(&m).ok()),
             require_header_mac: Some(config.require_header_mac),
+            sub_conn_policy: Some(config.sub_conn_policy.into()),
+            logical_group: config.logical_group,
         }
     }
 }
@@ -394,6 +449,8 @@ impl Default for ClientConfig {
             backoff: None,
             metadata: None,
             require_header_mac: None,
+            sub_conn_policy: None,
+            logical_group: None,
         }
     }
 }
@@ -473,6 +530,8 @@ mod tests {
             backoff: None,
             metadata: None,
             require_header_mac: None,
+            sub_conn_policy: None,
+            logical_group: None,
         };
 
         assert_eq!(config.endpoint, "example.com:443");
@@ -595,6 +654,8 @@ mod tests {
             }),
             metadata: Some(r#"{"client":"test"}"#.to_string()),
             require_header_mac: None,
+            sub_conn_policy: None,
+            logical_group: None,
         };
 
         let core_config: CoreClientConfig = ffi_config.into();
@@ -657,6 +718,8 @@ mod tests {
             }),
             metadata: None,
             require_header_mac: None,
+            sub_conn_policy: None,
+            logical_group: None,
         };
 
         // FFI -> Core -> FFI using the new From implementation

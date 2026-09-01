@@ -29,6 +29,10 @@ pub fn collect_subscriptions(
     exclude_conn: u64,
     filter: MatchFilter,
 ) -> Vec<(ProtoName, u64)> {
+    // The table stores logical connection ids, so the exclusion has to be
+    // canonicalised too — otherwise a sync would echo a peer's own subscriptions
+    // back to it whenever the link has more than one sub-connection.
+    let exclude_conn = mp.forwarder().routing_id(exclude_conn);
     let mut entries: HashMap<ProtoName, u64> = HashMap::new();
     mp.subscription_table()
         .for_each_subscription(|name, sub_id, conn_id, category| {
