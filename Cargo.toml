@@ -93,9 +93,7 @@ fs2 = "0.4"
 futures = "0.3.31"
 futures-timer = "3.0.3"
 
-getrandom = { version = "0.3", features = ["wasm_js"] }
-# rand_core v0.10 / uuid v1.15 depend on getrandom v0.4; enable wasm_js for wasm32 builds.
-getrandom04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
 # Browser WebSocket transport for the wasm32 build of the data plane.
 gloo-net = { version = "0.7", default-features = false, features = [
     "websocket",
@@ -170,7 +168,7 @@ prost = "0.14"
 prost-types = "0.14"
 
 protoc-bin-vendored = "3.1.0"
-rand = "0.9.0"
+rand = "0.10.0"
 rand_core = "0.10"
 regex = "1.11.1"
 regorus = "0.11.0"
@@ -262,5 +260,4 @@ ignored = [
     "agntcy-slim-tracing",
     "agntcy-slim-version",
     "agntcy-slimctl",
-    "getrandom04",
 ]
