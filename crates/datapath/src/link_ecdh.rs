@@ -5,7 +5,7 @@
 //!
 //! Native uses `aws_lc_rs`; the browser build uses the pure-Rust
 //! `x25519-dalek` + `hkdf` + `sha2` crates, seeded from the workspace
-//! `getrandom` (0.3, `wasm_js` backend). Both implement the same X25519 DH and
+//! `getrandom` (0.4, `wasm_js` backend). Both implement the same X25519 DH and
 //! HKDF-SHA256 expansion, so a native↔browser link derives the same key.
 
 use crate::header_mac::{HeaderMacError, HeaderMacSession};
