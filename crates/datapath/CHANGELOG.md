@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.7](https://github.com/agntcy/slim/compare/slim-datapath-v0.18.6...slim-datapath-v0.18.7) - 2026-09-01
+
+### Other
+
+- *(deps)* update rust crate criterion to 0.8 ([#2013](https://github.com/agntcy/slim/pull/2013))
+- *(deps)* update rust crate hmac to 0.13 ([#2018](https://github.com/agntcy/slim/pull/2018))
+- move to rust 1.98 ([#2009](https://github.com/agntcy/slim/pull/2009))
+
 ## [0.18.6](https://github.com/agntcy/slim/compare/slim-datapath-v0.18.5...slim-datapath-v0.18.6) - 2026-08-13
 
 ### Fixed
