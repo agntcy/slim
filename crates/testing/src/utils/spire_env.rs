@@ -25,7 +25,7 @@ use tokio::fs;
 
 const SPIRE_SERVER_IMAGE: &str = "ghcr.io/spiffe/spire-server";
 const SPIRE_AGENT_IMAGE: &str = "ghcr.io/spiffe/spire-agent";
-const SPIRE_VERSION: &str = "1.15.2";
+const SPIRE_VERSION: &str = "1.15.3";
 const TRUST_DOMAIN: &str = "example.org";
 
 /// Test environment for SPIRE server and agent
@@ -134,15 +134,19 @@ impl SpireTestEnvironment {
         Ok(())
     }
 
-    /// Wait for a specific log message to appear in container logs
+    /// Wait for any of the given log messages to appear in container logs
     ///
-    /// This polls the container logs until the specified message is found or a timeout occurs.
+    /// This polls the container logs until one of the messages is found or a
+    /// timeout occurs. Several are accepted because SPIRE renames these lines
+    /// between releases: 1.15.3 replaced "Starting Workload and SDS APIs" with
+    /// "Starting agent APIs".
     async fn wait_for_log_message(
         &self,
         container_id: &str,
-        message: &str,
+        messages: &[&str],
         timeout: Duration,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let message = messages.join("' or '");
         tracing::info!(%message, "Waiting for log message");
 
         let logs_options = LogsOptions {
@@ -163,8 +167,8 @@ impl SpireTestEnvironment {
             if let Ok(log) = log_result {
                 let log_str = log.to_string();
                 tracing::debug!(container_log = %log_str);
-                if log_str.contains(message) {
-                    tracing::info!(%message, "Found log message");
+                if let Some(found) = messages.iter().find(|m| log_str.contains(*m)) {
+                    tracing::info!(message = %found, "Found log message");
                     return Ok(());
                 }
             }
@@ -318,7 +322,7 @@ plugins {{
         // Wait for server to be ready by watching logs
         self.wait_for_log_message(
             &server_container.id,
-            "Starting Server APIs",
+            &["Starting Server APIs"],
             Duration::from_secs(30),
         )
         .await?;
@@ -485,7 +489,7 @@ plugins {{
         // Wait for agent to be ready by watching logs
         self.wait_for_log_message(
             &agent_container.id,
-            "Starting Workload and SDS APIs",
+            &["Starting agent APIs", "Starting Workload and SDS APIs"],
             Duration::from_secs(30),
         )
         .await?;
