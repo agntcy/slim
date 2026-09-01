@@ -305,7 +305,7 @@ mod tests {
 
     fn generate_test_ed25519_keys() -> (Vec<u8>, Vec<u8>) {
         use ed25519_dalek::SigningKey;
-        use rand::Rng;
+        use rand::RngExt;
 
         let mut seed_bytes = [0u8; 32];
         rand::rng().fill(&mut seed_bytes);

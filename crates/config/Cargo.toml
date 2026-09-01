@@ -1,6 +1,6 @@
 [package]
 name = "agntcy-slim-config"
-version = "0.16.0"
+version = "0.16.1"
 edition = { workspace = true }
 license = { workspace = true }
 description = "Configuration utilities"
@@ -67,7 +67,7 @@ uuid = { workspace = true, features = ["v4"] }
 # TLS, and header/query-token auth is layered above).
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 duration-string = { workspace = true }
-getrandom04 = { workspace = true }
+getrandom = { workspace = true }
 gloo-net = { workspace = true }
 http = { workspace = true }
 percent-encoding = { workspace = true }

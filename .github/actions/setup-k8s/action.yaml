@@ -36,7 +36,7 @@ runs:
     # Install kubernetes tools
     #
     - name: Setup Helm
-      uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+      uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
       with:
         version: ${{ inputs.helm-version }}
 
@@ -52,7 +52,7 @@ runs:
         install_only: true
 
     - name: Setup kubectl
-      uses: azure/setup-kubectl@15650b3ad78fff148532a140b8a4c821796b2d7b # v5.0.0
+      uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
 
     #
     # Setup cluster

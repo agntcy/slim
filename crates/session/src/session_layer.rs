@@ -8,7 +8,7 @@ use std::sync::Arc;
 use display_error_chain::ErrorChainExt;
 // Third-party crates
 use parking_lot::RwLock as SyncRwLock;
-use rand::Rng;
+use rand::RngExt;
 
 use tokio::sync::Semaphore;
 use tokio::sync::mpsc::Sender;
@@ -413,7 +413,7 @@ where
         if self.app_names.read().contains_key(&key) {
             Ok(dst.with_id(self.app_id))
         } else {
-            Err(SessionError::SubscriptionNotFound(dst))
+            Err(SessionError::SubscriptionNotFound(Box::new(dst)))
         }
     }
 
