@@ -4255,8 +4255,6 @@ checksum = "30d5b2194ed13191c1999ae0704b7839fb18384fa22e49b57eeaa97d79ce40da"
 dependencies = [
  "libc",
  "winapi",
-=======
->>>>>>> 825fe5b8 (chore(deps): update rust crate hmac to 0.13 (#2018))
 ]
 
 [[package]]
@@ -4275,7 +4273,7 @@ version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba"
 
-[[package]]
+git rebase --continue[[package]]
 name = "parking_lot"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
