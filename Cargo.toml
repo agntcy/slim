@@ -97,7 +97,7 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 # rand_core v0.10 / uuid v1.15 depend on getrandom v0.4; enable wasm_js for wasm32 builds.
 getrandom04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
 # Browser WebSocket transport for the wasm32 build of the data plane.
-gloo-net = { version = "0.6", default-features = false, features = [
+gloo-net = { version = "0.7", default-features = false, features = [
     "websocket",
 ] }
 h2 = "0.4.7"
