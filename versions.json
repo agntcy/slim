@@ -475,6 +475,13 @@
     "aliases": []
   },
   {
+    "version": "slim-mls-v0.3.10",
+    "title": "slim-mls-v0.3.10",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-mls-v0.3.6",
     "title": "slim-mls-v0.3.6",
     "aliases": []
@@ -522,9 +529,7 @@
   {
     "version": "slim-datapath-v0.18.7",
     "title": "slim-datapath-v0.18.7",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-datapath-v0.18.6",
