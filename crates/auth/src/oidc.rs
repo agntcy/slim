@@ -170,11 +170,12 @@ pub async fn post_token_request_with_dpop(
     let mut nonce: Option<String> = None;
 
     for attempt in 0..2 {
-        // codeql[rust/cleartext-transmission]: token_endpoint is either https,
-        // or loopback per RFC 8252 (enforced by require_https / same_origin
-        // against an already-validated issuer). The DPoP proof below is a
-        // signature derived from the signing key, not the key itself; CodeQL's
-        // no-build extraction for Rust can't see either invariant.
+        // token_endpoint is either https, or loopback per RFC 8252 (enforced
+        // by require_https / same_origin against an already-validated
+        // issuer). The DPoP proof below is a signature derived from the
+        // signing key, not the key itself; CodeQL's no-build extraction for
+        // Rust can't see either invariant.
+        // codeql[rust/cleartext-transmission]
         let mut request = client.post(token_endpoint).form(form);
         if let Some((secret, public)) = signature_keys {
             let proof =
