@@ -8,7 +8,7 @@ use std::sync::Arc;
 use display_error_chain::ErrorChainExt;
 // Third-party crates
 use parking_lot::RwLock as SyncRwLock;
-use rand::Rng;
+use rand::RngExt;
 
 use tokio::sync::Semaphore;
 use tokio::sync::mpsc::Sender;
