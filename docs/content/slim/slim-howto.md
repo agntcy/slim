@@ -11,7 +11,7 @@ By the end of this guide you will have a SLIM node running locally and an applic
 ## Prerequisites
 
 - macOS, Linux, or Windows
-- One of: Python 3.9+, Go 1.21+, Java 17+, Kotlin, Node.js 18+, .NET 6+
+- One of: Python 3.9+, Go 1.21+, Java 17+, Kotlin, Node.js 18+, .NET 8+
 
 ## Step 1: Install slimctl
 
@@ -135,6 +135,14 @@ Install the SLIM bindings for your language:
     ```bash
     dotnet add package Agntcy.Slim
     ```
+
+    Or add to your `.csproj`:
+
+    ```xml
+    <PackageReference Include="Agntcy.Slim" Version="2.0.0" />
+    ```
+
+    The NuGet package includes native libraries for all supported platforms — no additional setup required. See the [.NET SDK guide](./components/sdk/dotnet.md) for API details and examples.
 
 === "React Native"
 

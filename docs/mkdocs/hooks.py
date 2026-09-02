@@ -4,6 +4,7 @@
 """MkDocs hooks.
 
 - Trust store for urllib (HTTPS includes in mkdocs-include-markdown-plugin).
+- Generate SDK doc wrappers that include content from agntcy/slim-bindings.
 - Generate ``javascripts/slim-repobeats-data.js`` with GitHub activity metrics
   for the home page RepoBeats-style widget (fetched at build time).
 """
@@ -11,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import ssl
 import time
 import urllib.error
@@ -26,6 +28,33 @@ _REPOBEATS_DATA_FILE = "javascripts/slim-repobeats-data.js"
 _REPobeATS_CACHE_FILE = Path(__file__).resolve().parent / ".cache" / "repobeats.json"
 _REPobeATS_CACHE_TTL_SECONDS = 45 * 60
 _DEFAULT_REPO = "agntcy/slim"
+_DEFAULT_BINDINGS_DOCS_REF = "main"
+_BINDINGS_REPO = "agntcy/slim-bindings"
+
+# Paths under docs/content/ that mirror agntcy/slim-bindings/docs/.
+_SDK_DOC_PATHS = (
+    "slim/components/sdk/index.md",
+    "slim/components/sdk/install.md",
+    "slim/components/sdk/python.md",
+    "slim/components/sdk/go.md",
+    "slim/components/sdk/dotnet.md",
+    "slim/components/sdk/java.md",
+    "slim/components/sdk/kotlin.md",
+    "slim/components/sdk/node.md",
+    "slim/components/sdk/react-native.md",
+    "slim/components/sdk/slimrpc/index.md",
+    "slim/components/sdk/slimrpc/compiler.md",
+    "slim/components/sdk/tutorials/index.md",
+    "slim/components/sdk/tutorials/tutorial-connect.md",
+    "slim/components/sdk/tutorials/tutorial-app.md",
+    "slim/components/sdk/tutorials/tutorial-session.md",
+    "slim/components/sdk/tutorials/tutorial-receive.md",
+    "slim/components/sdk/tutorials/tutorial-persistence.md",
+    "slim/components/sdk/tutorials/_snippets/putting-it-together.md",
+    "slim/components/sdk/tutorials/slimrpc/tutorial-serve.md",
+    "slim/components/sdk/tutorials/slimrpc/tutorial-client.md",
+    "slim/components/sdk/tutorials/slimrpc/tutorial-multicast.md",
+)
 
 log = logging.getLogger("mkdocs.hooks")
 
@@ -39,8 +68,9 @@ def on_startup(**kwargs):
 
 
 def on_pre_build(config, **kwargs):
-    """Write GitHub metrics for the home page widget before each build."""
+    """Write GitHub metrics and SDK doc wrappers before each build."""
     docs_dir = Path(config.docs_dir)
+    _write_sdk_doc_wrappers(config, docs_dir)
     output = docs_dir / _REPOBEATS_DATA_FILE
     repo = _default_repo(config)
     embed_id = _repobeats_embed_id(config)
@@ -54,6 +84,43 @@ def on_pre_build(config, **kwargs):
         + json.dumps(payload, separators=(",", ":"))
         + ";\n",
         encoding="utf-8",
+    )
+
+
+def _bindings_docs_ref(config) -> str:
+    extra = getattr(config, "extra", None) or {}
+    var = extra.get("var") if isinstance(extra.get("var"), dict) else {}
+    from_extra = (var.get("slim_bindings_docs_ref") or "").strip()
+    if from_extra:
+        return from_extra
+    return os.environ.get("SLIM_BINDINGS_DOCS_REF", _DEFAULT_BINDINGS_DOCS_REF).strip()
+
+
+def _bindings_docs_base(ref: str) -> str:
+    return f"https://raw.githubusercontent.com/{_BINDINGS_REPO}/{ref}/docs"
+
+
+def _write_sdk_doc_wrappers(config, docs_dir: Path) -> None:
+    ref = _bindings_docs_ref(config)
+    base = _bindings_docs_base(ref)
+    for rel_path in _SDK_DOC_PATHS:
+        path = docs_dir / rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "\n".join(
+                (
+                    f"<!-- SDK content from {_BINDINGS_REPO} @ {ref}. Do not edit. -->",
+                    f'{{% include-markdown "{base}/{rel_path}" %}}',
+                    "",
+                ),
+            ),
+            encoding="utf-8",
+        )
+    log.info(
+        "SDK docs included from %s @ %s (%d pages)",
+        _BINDINGS_REPO,
+        ref,
+        len(_SDK_DOC_PATHS),
     )
 
 
