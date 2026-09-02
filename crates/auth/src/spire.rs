@@ -25,16 +25,15 @@
 //!
 //! Basic usage:
 //! ```rust,no_run
-//! use slim_auth::spire::{SpireIdentityManager, SpireConfig};
+//! use slim_auth::spire::SpireIdentityManager;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let mut mgr = SpireIdentityManager::new(SpireConfig {
-//!     socket_path: None,              // Use SPIFFE_ENDPOINT_SOCKET env var
-//!     target_spiffe_id: None,         // Optional: specify a target for JWT SVID
-//!     jwt_audiences: vec!["my-app".into()],
-//! });
+//! let mut mgr = SpireIdentityManager::builder()
+//!     .with_jwt_audiences(vec!["my-app".to_string()])
+//!     .build()?; 
+//! 
 //! mgr.initialize().await?;
-//!
+//! use slim_auth::traits::{TokenProvider, Verifier};
 //! // Obtain JWT token
 //! let token = mgr.get_token()?;
 //!

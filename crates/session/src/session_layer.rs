@@ -1011,7 +1011,7 @@ where
                 let conf = crate::SessionConfig::from_join_request(
                     ProtoSessionType::PointToPoint,
                     message.extract_command_payload()?,
-                    crate::common::metadata_to_strings(message.get_metadata_map()),
+                    message.get_metadata_map(),
                     false,
                 )?;
                 let dest = message.get_source();
@@ -1035,7 +1035,7 @@ where
                 let conf = crate::SessionConfig::from_join_request(
                     ProtoSessionType::Multicast,
                     message.extract_command_payload()?,
-                    crate::common::metadata_to_strings(message.get_metadata_map()),
+                    message.get_metadata_map(),
                     false,
                 )?;
                 self.create_session_internal(conf, local_name, channel, control, Some(id))?

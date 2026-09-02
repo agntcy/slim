@@ -1,7 +1,6 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
 use std::time::Duration;
 
 // Third-party crates
@@ -14,30 +13,6 @@ use slim_datapath::api::{
 
 // Local crate
 use crate::SessionError;
-
-pub(crate) fn metadata_from_strings(metadata: HashMap<String, String>) -> prost_types::Struct {
-    prost_types::Struct {
-        fields: metadata
-            .into_iter()
-            .map(|(key, value)| (key, value.into()))
-            .collect(),
-    }
-}
-
-pub(crate) fn metadata_to_strings(
-    metadata: Option<&prost_types::Struct>,
-) -> HashMap<String, String> {
-    metadata
-        .into_iter()
-        .flat_map(|metadata| &metadata.fields)
-        .filter_map(|(key, value)| match value.kind.as_ref() {
-            Some(prost_types::value::Kind::StringValue(value)) => {
-                Some((key.clone(), value.clone()))
-            }
-            _ => None,
-        })
-        .collect()
-}
 
 /// Reserved session id
 pub const SESSION_RANGE: std::ops::Range<u32> = 0..(u32::MAX - 1000);

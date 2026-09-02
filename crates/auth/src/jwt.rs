@@ -194,13 +194,25 @@ impl<T> Jwt<T> {
     /// Internal constructor used by the builder.
     ///
     /// This should not be called directly. Use the builder pattern instead:
-    /// ```
-    /// let jwt = Jwt::builder()
-    ///     .issuer("my-issuer")
-    ///     .audience("my-audience")
-    ///     .subject("user-123")
-    ///     .private_key("secret-key")
-    ///     .build()?;
+/// ```rust
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use jsonwebtoken::Algorithm;
+/// use slim_auth::builder::JwtBuilder;
+/// use slim_auth::jwt::{Key, KeyData, KeyFormat};
+///
+/// let jwt = JwtBuilder::new()
+///     .issuer("my-issuer")
+///     .audience(&["my-audience"])
+///     .subject("user-123")
+///     .private_key(&Key {
+///         algorithm: Algorithm::HS256,
+///         format: KeyFormat::Pem,
+///         key: KeyData::Data("secret-key".to_string()),
+///     })
+///     .build()?;
+///
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn new(
         claims: StandardClaims,

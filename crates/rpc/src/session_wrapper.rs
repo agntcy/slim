@@ -21,21 +21,6 @@ use slim_session::{AppChannelReceiver, CompletionHandle};
 
 use super::{RpcCode, RpcError, STATUS_CODE_KEY};
 
-fn metadata_to_strings(
-    metadata: Option<&prost_types::Struct>,
-) -> std::collections::HashMap<String, String> {
-    metadata
-        .into_iter()
-        .flat_map(|metadata| &metadata.fields)
-        .filter_map(|(key, value)| match value.kind.as_ref() {
-            Some(prost_types::value::Kind::StringValue(value)) => {
-                Some((key.clone(), value.clone()))
-            }
-            _ => None,
-        })
-        .collect()
-}
-
 /// Received message from a session
 #[derive(Debug, Clone)]
 pub struct ReceivedMessage {
@@ -178,7 +163,7 @@ impl SessionRx {
 
             let source = msg.get_source();
             Ok(ReceivedMessage {
-                metadata: metadata_to_strings(msg.get_metadata_map()),
+                metadata: msg.get_metadata_map(),
                 payload,
                 source,
             })

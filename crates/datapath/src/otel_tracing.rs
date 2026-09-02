@@ -4,7 +4,6 @@
 use display_error_chain::ErrorChainExt;
 use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::trace::TraceContextExt;
-use prost_types::value::Kind;
 use tracing::{Span, error};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -16,36 +15,28 @@ pub(crate) enum SpanTarget {
     Fanout { subscribers: u32 },
 }
 
-struct MetadataExtractor<'a>(Option<&'a prost_types::Struct>);
+struct MetadataExtractor<'a>(&'a std::collections::HashMap<String, String>);
 
 impl Extractor for MetadataExtractor<'_> {
     fn get(&self, key: &str) -> Option<&str> {
-        match self.0?.fields.get(key)?.kind.as_ref()? {
-            Kind::StringValue(value) => Some(value),
-            _ => None,
-        }
+        self.0.get(key).map(String::as_str)
     }
 
     fn keys(&self) -> Vec<&str> {
-        self.0
-            .map(|metadata| metadata.fields.keys().map(String::as_str).collect())
-            .unwrap_or_default()
+        self.0.keys().map(String::as_str).collect()
     }
 }
 
-struct MetadataInjector<'a>(&'a mut Option<prost_types::Struct>);
+struct MetadataInjector<'a>(&'a mut std::collections::HashMap<String, String>);
 
 impl Injector for MetadataInjector<'_> {
     fn set(&mut self, key: &str, value: String) {
-        self.0
-            .get_or_insert_default()
-            .fields
-            .insert(key.to_string(), prost_types::Value::from(value));
+        self.0.insert(key.to_string(), value);
     }
 }
 
 fn extract_parent_context(msg: &Message) -> Option<opentelemetry::Context> {
-    let extractor = MetadataExtractor(msg.metadata.as_ref());
+    let extractor = MetadataExtractor(&msg.metadata);
     let parent_context =
         opentelemetry::global::get_text_map_propagator(|propagator| propagator.extract(&extractor));
 
@@ -240,10 +231,7 @@ mod tests {
 
         let traceparent = msg
             .get_metadata("traceparent")
-            .and_then(|value| match value.kind.as_ref() {
-                Some(Kind::StringValue(value)) => Some(value.as_str()),
-                _ => None,
-            })
+            .map(String::as_str)
             .expect("outbound path should inject a traceparent");
         let injected_trace_id = trace_id_from_traceparent(traceparent);
         assert_ne!(

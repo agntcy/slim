@@ -39,7 +39,10 @@ message Message {
     Link link = 5;
     SubscriptionAck subscription_ack = 6;
   }
-  google.protobuf.Struct metadata = 4;
+  map<string, string> metadata = 4;
+  // Field 5 is already used by the link message. Keep that tag stable so
+  // adding typed metadata does not change the wire format of existing links.
+  google.protobuf.Struct metadata_v3 = 7;
 }
 
 // Link is a link-local message exchanged only between directly connected SLIM nodes.
