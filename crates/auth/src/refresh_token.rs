@@ -82,10 +82,7 @@ pub struct RefreshTokenProvider {
 impl RefreshTokenProvider {
     pub fn new(mut config: RefreshTokenProviderConfig) -> Result<Self, AuthError> {
         config.issuer_url = config.issuer_url.trim_end_matches('/').to_owned();
-        let parsed = url::Url::parse(&config.issuer_url)?;
-        if parsed.scheme() != "https" && !crate::oidc::is_loopback_host(&parsed) {
-            return Err(AuthError::OidcInsecureIssuerUrl(config.issuer_url.clone()));
-        }
+        crate::oidc::require_https(&config.issuer_url)?;
 
         let mut builder = ReqwestClient::builder();
         if let Some(t) = config.timeout {
@@ -110,8 +107,8 @@ impl RefreshTokenProvider {
         if let Some(ep) = self.cached_token_endpoint.read().clone() {
             return Ok(ep);
         }
-        // `new` already rejected any issuer that is neither https nor loopback,
-        // so no unguarded provider can reach this.
+        // `new` already rejected any issuer that isn't https, so no unguarded
+        // provider can reach this.
         let issuer_parsed = url::Url::parse(&self.config.issuer_url)?;
         let discovery_url = crate::oidc::discovery_url(&issuer_parsed);
         let doc: serde_json::Value = self.client.get(&discovery_url).send().await?.json().await?;
@@ -442,6 +439,7 @@ mod tests {
         // reqwest builds its TLS backend eagerly, so a crypto provider must be
         // installed even though the mock server speaks plaintext.
         slim_config::tls::provider::initialize_crypto_provider();
+        let _guard = crate::oidc::AllowInsecureIssuerForTest::new();
         RefreshTokenProvider::new(RefreshTokenProviderConfig {
             refresh_token: "seed-token".to_string(),
             issuer_url: server.uri(),

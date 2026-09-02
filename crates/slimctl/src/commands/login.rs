@@ -74,12 +74,6 @@ pub struct LoginArgs {
     /// needs `client_secret`, `refresh_token_file` or `refresh_token`.
     #[arg(long)]
     dpop_credentials_file: Option<String>,
-
-    /// Allow a plain-http discovery URL and endpoints, skipping the https
-    /// requirement. Only for talking to a local test IdP (e.g. loopback
-    /// Keycloak) — never use this against a real provider.
-    #[arg(long)]
-    allow_http: bool,
 }
 
 struct ProviderMetadata {
@@ -92,12 +86,8 @@ struct ProviderMetadata {
     id_token_signing_alg_values_supported: Vec<String>,
 }
 
-async fn fetch_metadata(
-    client: &Client,
-    discovery_url: &str,
-    allow_http: bool,
-) -> Result<ProviderMetadata> {
-    check_scheme(discovery_url, allow_http).context("discovery URL")?;
+async fn fetch_metadata(client: &Client, discovery_url: &str) -> Result<ProviderMetadata> {
+    check_scheme(discovery_url).context("discovery URL")?;
 
     let doc: Value = client
         .get(discovery_url)
@@ -147,7 +137,7 @@ async fn fetch_metadata(
         ("token_endpoint", &token_endpoint),
         ("jwks_uri", &jwks_uri),
     ] {
-        check_scheme(url, allow_http).with_context(|| name.to_string())?;
+        check_scheme(url).with_context(|| name.to_string())?;
     }
 
     Ok(ProviderMetadata {
@@ -161,29 +151,9 @@ async fn fetch_metadata(
     })
 }
 
-/// Requires `https` unless `allow_http` is set, in which case any scheme the
-/// `url` crate accepts is fine. Callers still parse these URLs again later, so
-/// this only enforces the scheme, not overall well-formedness.
-fn check_scheme(url: &str, allow_http: bool) -> Result<()> {
-    if allow_http {
-        // Loopback http only, via the same predicate the runtime uses, so a
-        // login cannot succeed against an issuer the app layer will later reject
-        // with `OidcInsecureIssuerUrl`. Accepting any parseable scheme (as this
-        // did) also handed an arbitrary one — `file://`, say — to the browser as
-        // an authorization endpoint.
-        let parsed = Url::parse(url).context("invalid URL")?;
-        if parsed.scheme() == "https"
-            || (parsed.scheme() == "http" && slim_auth::oidc::is_loopback_host(&parsed))
-        {
-            return Ok(());
-        }
-        bail!(
-            "--allow-http permits http only on {}; got {url:?}",
-            LOOPBACK_HOSTS.join(", ")
-        );
-    }
+fn check_scheme(url: &str) -> Result<()> {
     if !url.to_ascii_lowercase().starts_with("https://") {
-        bail!("must be an https URL (pass --allow-http to test against a local IdP)");
+        bail!("must be an https URL, got {url:?}");
     }
     Ok(())
 }
@@ -370,7 +340,7 @@ pub async fn run(args: &LoginArgs, config_file: Option<&str>, server: Option<&st
         .timeout(Duration::from_secs(30))
         .build()?;
 
-    let meta = fetch_metadata(&http, &args.discovery_uri, args.allow_http).await?;
+    let meta = fetch_metadata(&http, &args.discovery_uri).await?;
 
     if !meta.response_types_supported.iter().any(|s| s == "code") {
         bail!("provider does not support authorization code flow");
@@ -608,28 +578,17 @@ mod tests {
         "https://example.com/.well-known/openid-configuration",
     ];
 
-    /// `--allow-http` must not be broader than what the runtime accepts, or a
-    /// login succeeds and writes a store the app layer then rejects with
-    /// `OidcInsecureIssuerUrl`.
     #[test]
-    fn allow_http_is_loopback_only() {
-        for ok in [
-            "http://127.0.0.1:8080/realms/slim",
-            "http://localhost:8080/realms/slim",
-            "http://[::1]:8080/realms/slim",
-            "https://idp.example.com/realms/slim",
-        ] {
-            assert!(check_scheme(ok, true).is_ok(), "should accept {ok}");
-        }
+    fn check_scheme_requires_https() {
+        assert!(check_scheme("https://idp.example.com/realms/slim").is_ok());
         for bad in [
+            "http://127.0.0.1:8080/realms/slim",
             "http://idp.example.com/realms/slim",
             "file:///etc/passwd",
             "ftp://idp.example.com/",
         ] {
-            assert!(check_scheme(bad, true).is_err(), "should reject {bad}");
+            assert!(check_scheme(bad).is_err(), "should reject {bad}");
         }
-        // Without the flag, https remains the only option even on loopback.
-        assert!(check_scheme("http://127.0.0.1:8080/realms/slim", false).is_err());
     }
 
     /// One flag carries both decisions: DPoP binding and where the store goes.

@@ -24,28 +24,46 @@ use tokio::sync::{Mutex as AsyncMutex, watch};
 use tokio::task::JoinHandle;
 use url::Url;
 
-/// Returns an error if `url` does not use `https`, unless the host is localhost.
-/// Whether a URL's host is loopback, and therefore allowed to serve plain http.
-///
-/// Matches on the parsed [`url::Host`] rather than `host_str()`: the latter
-/// returns IPv6 hosts bracketed (`"[::1]"`), so comparing it against `"::1"`
-/// never fires — which is how `http://[::1]` came to be rejected despite
-/// loopback being permitted. Also covers all of 127.0.0.0/8, not just 127.0.0.1.
-///
-/// Public so `slimctl`'s `--allow-http` can enforce the same rule this does; two
-/// copies of the policy is how they came to disagree.
-pub fn is_loopback_host(url: &Url) -> bool {
-    match url.host() {
-        Some(url::Host::Domain(h)) => h.eq_ignore_ascii_case("localhost"),
-        Some(url::Host::Ipv4(addr)) => addr.is_loopback(),
-        Some(url::Host::Ipv6(addr)) => addr.is_loopback(),
-        None => false,
+#[cfg(test)]
+thread_local! {
+    // require_https is synchronous and never awaits internally, so every call
+    // it guards runs start-to-finish on whichever thread is currently live —
+    // no risk of a `multi_thread` runtime hopping the check to another thread
+    // mid-way, even for tests that use that flavor.
+    static ALLOW_INSECURE_ISSUER_FOR_TEST: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// RAII test guard letting `require_https` accept the plain-http mock servers
+/// wiremock starts (it has no TLS support wired up here). Keep the binding
+/// alive (`let _guard = ...`, not `let _ = ...`) for as long as the test's
+/// provider may still be reaching out — including its background refresh
+/// task — since the guard only holds while it isn't dropped.
+#[cfg(test)]
+pub(crate) struct AllowInsecureIssuerForTest;
+
+#[cfg(test)]
+impl AllowInsecureIssuerForTest {
+    pub(crate) fn new() -> Self {
+        ALLOW_INSECURE_ISSUER_FOR_TEST.with(|f| f.set(true));
+        Self
     }
 }
 
-fn require_https(url: &str) -> Result<Url, AuthError> {
+#[cfg(test)]
+impl Drop for AllowInsecureIssuerForTest {
+    fn drop(&mut self) {
+        ALLOW_INSECURE_ISSUER_FOR_TEST.with(|f| f.set(false));
+    }
+}
+
+/// Returns an error if `url` does not use `https`.
+pub(crate) fn require_https(url: &str) -> Result<Url, AuthError> {
     let parsed = Url::parse(url)?;
-    if parsed.scheme() != "https" && !is_loopback_host(&parsed) {
+    #[cfg(test)]
+    if ALLOW_INSECURE_ISSUER_FOR_TEST.with(|f| f.get()) {
+        return Ok(parsed);
+    }
+    if parsed.scheme() != "https" {
         return Err(AuthError::OidcInsecureIssuerUrl(url.to_string()));
     }
     Ok(parsed)
@@ -170,11 +188,10 @@ pub async fn post_token_request_with_dpop(
     let mut nonce: Option<String> = None;
 
     for attempt in 0..2 {
-        // token_endpoint is either https, or loopback per RFC 8252 (enforced
-        // by require_https / same_origin against an already-validated
-        // issuer). The DPoP proof below is a signature derived from the
-        // signing key, not the key itself; CodeQL's no-build extraction for
-        // Rust can't see either invariant.
+        // token_endpoint is https, enforced by require_https / same_origin
+        // against an already-validated issuer. The DPoP proof below is a
+        // signature derived from the signing key, not the key itself;
+        // CodeQL's no-build extraction for Rust can't see either invariant.
         // codeql[rust/cleartext-transmission]
         let mut request = client.post(token_endpoint).form(form);
         if let Some((secret, public)) = signature_keys {
@@ -1201,24 +1218,13 @@ mod tests {
     // Use the test utilities from the testutils module
     use slim_testing::utils::{TestClaims, setup_oidc_mock_server, setup_test_jwt_resolver};
 
-    /// Loopback may serve plain http. `host_str()` brackets IPv6 (`"[::1]"`), so
-    /// the previous string comparison against `"::1"` never fired and
-    /// `http://[::1]` was rejected despite loopback being permitted.
     #[test]
-    fn loopback_issuers_may_be_plain_http() {
-        for ok in [
-            "http://127.0.0.1:8080/realms/slim",
-            "http://127.0.0.2:8080/realms/slim", // all of 127.0.0.0/8 is loopback
-            "http://localhost:8080/realms/slim",
-            "http://LocalHost:8080/realms/slim",
-            "http://[::1]:8080/realms/slim",
-            "https://idp.example.com/realms/slim",
-        ] {
-            assert!(require_https(ok).is_ok(), "should accept {ok}");
-        }
+    fn require_https_rejects_non_https_issuers() {
+        assert!(require_https("https://idp.example.com/realms/slim").is_ok());
         for bad in [
             "http://idp.example.com/realms/slim",
-            "http://[2001:db8::1]:8080/realms/slim",
+            "http://127.0.0.1:8080/realms/slim",
+            "http://localhost:8080/realms/slim",
         ] {
             assert!(
                 matches!(require_https(bad), Err(AuthError::OidcInsecureIssuerUrl(_))),
@@ -1237,7 +1243,6 @@ mod tests {
             "https://idp.example.com/realms/slim/",
             "https://idp.example.com",
             "https://idp.example.com/",
-            "http://127.0.0.1:8080/realms/slim",
         ] {
             let parsed = require_https(issuer).expect("issuer should be accepted");
             assert_eq!(
@@ -1257,6 +1262,7 @@ mod tests {
         slim_config::tls::provider::initialize_crypto_provider();
 
         let (_mock_server, issuer_url, expected_token) = setup_oidc_mock_server().await;
+        let _guard = AllowInsecureIssuerForTest::new();
 
         let config = OidcProviderConfig {
             client_id: "test-client-id".to_string(),
@@ -1279,6 +1285,7 @@ mod tests {
         slim_config::tls::provider::initialize_crypto_provider();
 
         let (_mock_server, issuer_url, expected_token) = setup_oidc_mock_server().await;
+        let _guard = AllowInsecureIssuerForTest::new();
 
         let config = OidcProviderConfig {
             client_id: "test-client-id".to_string(),
@@ -1304,6 +1311,7 @@ mod tests {
     async fn test_oidc_verifier_simple_mock() {
         // Use the existing utility to set up mock server
         let (_private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let _guard = AllowInsecureIssuerForTest::new();
         let issuer_url = mock_server.uri();
 
         // Create verifier and test that it can fetch JWKS
@@ -1321,6 +1329,7 @@ mod tests {
     async fn test_oidc_verifier_jwt_verification() {
         // Setup mock OIDC server with JWKS using the existing utility
         let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let _guard = AllowInsecureIssuerForTest::new();
         let issuer_url = mock_server.uri();
 
         // Create test claims
@@ -1347,6 +1356,7 @@ mod tests {
     #[tokio::test]
     async fn test_oidc_verifier_jwks_caching() {
         let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let _guard = AllowInsecureIssuerForTest::new();
         let issuer_url = mock_server.uri();
 
         let claims = TestClaims {
@@ -1382,6 +1392,7 @@ mod tests {
     #[tokio::test]
     async fn test_oidc_verifier_invalid_token() {
         let (_private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let _guard = AllowInsecureIssuerForTest::new();
         let issuer_url = mock_server.uri();
 
         let verifier = OidcVerifier::new(issuer_url, "test-audience");
@@ -1394,6 +1405,7 @@ mod tests {
     #[tokio::test]
     async fn test_oidc_verifier_missing_kid_single_key_works() {
         let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let _guard = AllowInsecureIssuerForTest::new();
         let issuer_url = mock_server.uri();
 
         let claims = TestClaims {
@@ -1438,6 +1450,7 @@ mod tests {
     #[tokio::test]
     async fn test_oidc_verifier_unsupported_key_type() {
         let mock_server = MockServer::start().await;
+        let _guard = AllowInsecureIssuerForTest::new();
         let issuer_url = mock_server.uri();
 
         // Mock OIDC discovery endpoint
@@ -1503,6 +1516,7 @@ mod tests {
     #[tokio::test]
     async fn test_oidc_verifier_key_not_found() {
         let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let _guard = AllowInsecureIssuerForTest::new();
         let issuer_url = mock_server.uri();
 
         let claims = TestClaims {
@@ -1537,6 +1551,7 @@ mod tests {
     async fn test_oidc_token_provider_creation() {
         // Use the existing setup function
         let (_mock_server, issuer_url, _expected_token) = setup_oidc_mock_server().await;
+        let _guard = AllowInsecureIssuerForTest::new();
         let config = OidcProviderConfig {
             client_id: "client-id".to_string(),
             client_secret: "client-secret".to_string(),
@@ -1593,6 +1608,7 @@ mod tests {
     #[tokio::test]
     async fn test_token_validity_check() {
         let (_mock_server, issuer_url, _expected_token) = setup_oidc_mock_server().await;
+        let _guard = AllowInsecureIssuerForTest::new();
 
         let config = OidcProviderConfig {
             client_id: "client-id".to_string(),
@@ -1637,6 +1653,7 @@ mod tests {
         slim_config::tls::provider::initialize_crypto_provider();
 
         let mock_server = MockServer::start().await;
+        let _guard = AllowInsecureIssuerForTest::new();
         let issuer_url = mock_server.uri();
 
         // Mock discovery endpoint returning error (404 Not Found)
@@ -1693,6 +1710,7 @@ mod tests {
         slim_config::tls::provider::initialize_crypto_provider();
 
         let mock_server = MockServer::start().await;
+        let _guard = AllowInsecureIssuerForTest::new();
         let issuer_url = mock_server.uri();
 
         // Mock discovery endpoint with required fields
@@ -1804,6 +1822,7 @@ mod tests {
     #[tokio::test]
     async fn test_oidc_verifier_verify_async() {
         let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let _guard = AllowInsecureIssuerForTest::new();
         let issuer_url = mock_server.uri();
 
         let claims = TestClaims {
@@ -1834,6 +1853,7 @@ mod tests {
     #[tokio::test]
     async fn test_oidc_verifier_try_verify_with_cached_jwks() {
         let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let _guard = AllowInsecureIssuerForTest::new();
         let issuer_url = mock_server.uri();
 
         let claims = TestClaims {
@@ -2015,6 +2035,7 @@ mod tests {
     async fn install_signature_keys_refuses_to_break_a_live_binding() {
         slim_config::tls::provider::initialize_crypto_provider();
         let (server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
 
         let (secret, public) = crate::utils::generate_mls_signature_keys().unwrap();
         let jkt = crate::dpop::jwk_thumbprint(&public).unwrap();
@@ -2086,6 +2107,7 @@ mod tests {
     async fn invalid_grant_on_auth_code_is_not_reported_as_revoked_refresh() {
         slim_config::tls::provider::initialize_crypto_provider();
         let (server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
 
         Mock::given(method("POST"))
             .and(path("/token"))
@@ -2188,6 +2210,7 @@ mod tests {
     async fn provider_credential_round_trips_through_binding() {
         slim_config::tls::provider::initialize_crypto_provider();
         let (server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
 
         let (secret, public) = crate::utils::generate_mls_signature_keys().unwrap();
         let access_token = bound_token(&public);
@@ -2232,6 +2255,7 @@ mod tests {
     #[tokio::test]
     async fn try_get_claims_verifies_from_cached_jwks_without_a_claim_cache() {
         let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let _guard = AllowInsecureIssuerForTest::new();
         let issuer_url = mock_server.uri();
 
         let claims = TestClaims::new("user123", issuer_url.clone(), "test-audience");
@@ -2258,6 +2282,7 @@ mod tests {
         slim_config::tls::provider::initialize_crypto_provider();
 
         let (_mock_server, issuer_url, _) = setup_oidc_mock_server().await;
+        let _guard = AllowInsecureIssuerForTest::new();
         let mut provider = OidcTokenProvider::new(OidcProviderConfig {
             client_id: "c".to_string(),
             client_secret: "s".to_string(),
@@ -2319,6 +2344,7 @@ mod tests {
     async fn authorization_code_exchange_sends_dpop_proof() {
         slim_config::tls::provider::initialize_crypto_provider();
         let (server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
 
         let (secret, public) = crate::utils::generate_mls_signature_keys().unwrap();
         let access_token = bound_token(&public);
@@ -2360,6 +2386,7 @@ mod tests {
     async fn authorization_code_response_with_refresh_token_never_touches_the_service_cache() {
         slim_config::tls::provider::initialize_crypto_provider();
         let (server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
 
         Mock::given(method("POST"))
             .and(path("/token"))
@@ -2387,6 +2414,7 @@ mod tests {
     async fn unbound_token_is_served_without_a_presented_key() {
         slim_config::tls::provider::initialize_crypto_provider();
         let (server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
 
         Mock::given(method("POST"))
             .and(path("/token"))
@@ -2417,6 +2445,7 @@ mod tests {
     async fn dpop_proof_binds_the_token_request() {
         slim_config::tls::provider::initialize_crypto_provider();
         let (server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
 
         Mock::given(method("POST"))
             .and(path("/token"))
@@ -2474,6 +2503,7 @@ mod tests {
     async fn retries_once_with_server_supplied_dpop_nonce() {
         slim_config::tls::provider::initialize_crypto_provider();
         let (server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
 
         // First attempt: challenge. `up_to_n_times` so the retry falls through
         // to the success mock below.
@@ -2525,6 +2555,7 @@ mod tests {
     async fn second_consecutive_dpop_nonce_challenge_is_reported_clearly() {
         slim_config::tls::provider::initialize_crypto_provider();
         let (server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
 
         Mock::given(method("POST"))
             .and(path("/token"))
@@ -2558,6 +2589,7 @@ mod tests {
     async fn invalid_grant_on_refresh_maps_to_refresh_token_revoked() {
         slim_config::tls::provider::initialize_crypto_provider();
         let (server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
 
         Mock::given(method("POST"))
             .and(path("/token"))
@@ -2580,6 +2612,7 @@ mod tests {
     async fn refresh_reuses_the_same_mls_key() {
         slim_config::tls::provider::initialize_crypto_provider();
         let (server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
         let (secret, public) = crate::utils::generate_mls_signature_keys().unwrap();
         let renewed_public = public.clone();
 
@@ -2621,6 +2654,7 @@ mod tests {
     async fn adopted_refresh_token_renews_with_the_refresh_grant() {
         slim_config::tls::provider::initialize_crypto_provider();
         let (server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
 
         // Only the refresh grant is answered; a client-credentials request would
         // match no mock and fail.
@@ -2653,6 +2687,7 @@ mod tests {
     async fn client_credentials_and_delegated_modes_do_not_cross_caches() {
         slim_config::tls::provider::initialize_crypto_provider();
         let (server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
 
         Mock::given(method("POST"))
             .and(path("/token"))
@@ -2687,6 +2722,7 @@ mod tests {
     async fn adopting_a_refresh_token_retires_the_client_credentials_background_task() {
         slim_config::tls::provider::initialize_crypto_provider();
         let (_server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
 
         let mut provider = provider_for(&issuer);
         TokenProvider::initialize(&mut provider).await.unwrap();
@@ -2709,6 +2745,7 @@ mod tests {
     async fn concurrent_initialize_waits_for_the_in_flight_delegate_fetch() {
         slim_config::tls::provider::initialize_crypto_provider();
         let (server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
 
         Mock::given(method("POST"))
             .and(path("/token"))
